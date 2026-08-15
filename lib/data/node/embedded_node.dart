@@ -117,6 +117,30 @@ typedef _FreeStrDart = void Function(Pointer<Utf8>);
 //     instance_label*, instance_label_len, err_out**):
 //   0 on success. The phrase buffer is WRITABLE — the native side wipes it in
 //   place before returning, on every path.
+typedef _RestoreIdentityWithKeyNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _RestoreIdentityWithKeyDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Pointer<Utf8>>,
+    );
 typedef _RestoreIdentityNative =
     Int32 Function(
       Pointer<Uint8>,
@@ -461,34 +485,69 @@ class EmbeddedNode {
   /// key: every call mints a fresh one, which would orphan the document
   /// already published for this identity. Provision, persist, then materialise
   /// the stored bytes on each boot — never re-provision.
+  /// Provision this device's sovereign material from [phrase].
+  ///
+  /// [nodeConfigToml] is THE KEY THIS DEVICE ALREADY RUNS ON, and passing it is
+  /// what keeps a device to one key. Without it the restore mints a fresh
+  /// random subkey and names that in the document, while the node goes on
+  /// signing and handshaking with its own — so every signature the device makes
+  /// fails its own author binding, silently: the message is stored, filtered
+  /// out of every read, and skipped by every send. Measured on a two-device
+  /// stand as posts that were invisible on the device that wrote them.
+  ///
+  /// Null only where there is no node config yet, which is the first-run path
+  /// that derives its key from the phrase and therefore has nothing to reconcile.
   static void provisionSovereignIdentity(
     String phrase, {
     required String veilDir,
     required String instanceLabel,
+    String? nodeConfigToml,
     DynamicLibrary? lib,
   }) {
     final dl = lib ?? _veilLib();
-    final restoreFn = dl
-        .lookupFunction<_RestoreIdentityNative, _RestoreIdentityDart>(
-          'veil_restore_identity_from_phrase_zeroize',
-        );
+    final withNodeKey = nodeConfigToml != null && nodeConfigToml.isNotEmpty;
+    final restoreFn = withNodeKey
+        ? null
+        : dl.lookupFunction<_RestoreIdentityNative, _RestoreIdentityDart>(
+            'veil_restore_identity_from_phrase_zeroize',
+          );
+    final restoreWithKeyFn = withNodeKey
+        ? dl
+              .lookupFunction<
+                _RestoreIdentityWithKeyNative,
+                _RestoreIdentityWithKeyDart
+              >('veil_restore_identity_from_phrase_zeroize_with_node_key')
+        : null;
     final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
       'veil_free_string',
     );
     final phraseC = phrase.toNativeUtf8();
     final dirC = veilDir.toNativeUtf8();
     final labelC = instanceLabel.toNativeUtf8();
+    final tomlC = withNodeKey ? nodeConfigToml.toNativeUtf8() : null;
     final errOut = calloc<Pointer<Utf8>>();
     try {
-      final rc = restoreFn(
-        phraseC.cast<Uint8>(),
-        phraseC.length,
-        dirC.cast<Uint8>(),
-        dirC.length,
-        labelC.cast<Uint8>(),
-        labelC.length,
-        errOut,
-      );
+      final rc = tomlC != null
+          ? restoreWithKeyFn!(
+              phraseC.cast<Uint8>(),
+              phraseC.length,
+              dirC.cast<Uint8>(),
+              dirC.length,
+              labelC.cast<Uint8>(),
+              labelC.length,
+              tomlC.cast<Uint8>(),
+              tomlC.length,
+              errOut,
+            )
+          : restoreFn!(
+              phraseC.cast<Uint8>(),
+              phraseC.length,
+              dirC.cast<Uint8>(),
+              dirC.length,
+              labelC.cast<Uint8>(),
+              labelC.length,
+              errOut,
+            );
       if (rc != 0) {
         final err = errOut.value;
         final msg = err == nullptr ? 'unknown error' : err.toDartString();
