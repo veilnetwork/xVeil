@@ -16572,64 +16572,27 @@ class GroupService {
     );
   }
 
-  /// Re-seal every epoch we hold a key for, so a device linked AFTER the epoch
-  /// was minted can open it.
-  ///
-  /// An epoch envelope is sealed to an identity, and sealing to an identity
-  /// fans out one copy per device it had AT THAT MOMENT. A device linked later
-  /// is in none of them: the envelope names the right identity and cannot be
-  /// opened by the newest member of it. Nothing detects that — the seeded
-  /// device simply shows an empty group.
-  ///
-  /// Re-sealing is possible because the key is held in the clear locally, in
-  /// [GroupBundle.localEpochKeys]: this is our own group and we are the ones
-  /// who minted it. No key changes and no epoch is advanced — the same key is
-  /// sealed again to the same identity, which now has one more device.
-  ///
-  /// Best-effort per epoch: a failure leaves that epoch's messages unreadable
-  /// on the new device, which is what would have happened anyway, rather than
-  /// abandoning the whole seed.
-  Future<GroupBundle> _resealEpochsForNewDevice(GroupBundle b) async {
-    final epochs = _epochService;
-    if (epochs == null || b.localEpochKeys.isEmpty) return b;
-    final fresh = <GroupEpochRecipientEnvelope>[];
-    for (final held in b.localEpochKeys.entries) {
-      try {
-        final set = await epochs.sealEpoch(
-          groupId: b.manifest.groupId,
-          epoch: held.key,
-          epochKey: held.value,
-          recipients: [_signer.selfId],
-        );
-        fresh.addAll(set.envelopes);
-      } catch (caught) {
-        devLog(
-          () =>
-              'xVeil[devices]: re-sealing epoch ${held.key} of '
-              '${b.manifest.groupId.hex.substring(0, 8)} failed: $caught',
-        );
-      }
-    }
-    devLog(
-      () =>
-          'xVeil[devices]: re-sealed ${fresh.length} epoch envelope(s) of '
-          '${b.manifest.groupId.hex.substring(0, 8)} '
-          '(held ${b.localEpochKeys.length} key(s))',
-    );
-    if (fresh.isEmpty) return b;
-    // The fresh envelopes REPLACE the ones for the same (epoch, recipient):
-    // both open to the same key, and keeping the stale one would leave the
-    // lookup a coin toss between a copy the new device can open and one it
-    // cannot.
-    final superseded = {for (final e in fresh) '${e.epoch}:${e.recipient.hex}'};
-    return b.copyWith(
-      epochEnvelopes: [
-        for (final e in b.epochEnvelopes)
-          if (!superseded.contains('${e.epoch}:${e.recipient.hex}')) e,
-        ...fresh,
-      ],
-    );
-  }
+  // WHY THERE IS NO RE-SEAL HERE, and why one cannot be written.
+  //
+  // The obvious repair for "the new device is not in the epoch's fan-out" is to
+  // seal the key again, now that there is one more device. We hold the key in
+  // the clear (`localEpochKeys`) — it is our own group — so it looks like a
+  // local operation. It is not, and the reason is in `verifyGroupEpochEnvelope`:
+  // the leaf hash covers the SEALED BYTES, and the proof must reach the
+  // `envelopeRoot` recorded in the control log's epoch descriptor. Fresh
+  // ciphertext is a different leaf, so a re-sealed envelope verifies against
+  // nothing and is dropped by the very lookup that was supposed to carry it.
+  //
+  // That is deliberate: the descriptor COMMITS to the exact set of recipients
+  // and envelopes, which is what stops anyone slipping an extra reader into an
+  // epoch after the fact. A device joining an epoch is therefore the same kind
+  // of event as a member joining — it produces a NEW descriptor and belongs in
+  // the control log, signed, where every other member can see it.
+  //
+  // Measured before this was understood: the re-seal ran ("re-sealed 1 epoch
+  // envelope(s), held 1 key(s)"), the snapshot grew from one 1226-byte frame
+  // into a chunked transfer, the sibling received every chunk — and stored
+  // nothing, because the envelope it was handed could not verify.
 
   /// Ship every group this identity holds to [device], which has just been
   /// linked. Returns how many snapshots went out.
@@ -16658,10 +16621,9 @@ class GroupService {
     var n = 0;
     for (final entry in await listGroups()) {
       if (entry.groupId.hex == deviceGroupHex) continue; // it has this one
-      final b0 = await load(entry.groupId);
-      if (b0 == null) continue;
+      final b = await load(entry.groupId);
+      if (b == null) continue;
       try {
-        final b = await _resealEpochsForNewDevice(b0);
         await send(
           device,
           entry.groupId,
