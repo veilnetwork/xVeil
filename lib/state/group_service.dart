@@ -9431,8 +9431,14 @@ class GroupService {
         : descriptor != null && key != null
         ? '$scopeBase|membershipEpoch:${state.epoch}'
         : '$scopeBase|clear';
+    // The same suffix `_messageChainScope` puts on a stored row, from the key
+    // that will sign this one. `selfPubKey` is not a second answer to that
+    // question: it is what the signing path itself returned when the signer was
+    // built, so the row we are about to write lands in the chain we are about
+    // to read.
     final targetScope =
-        '$encryptionScope${lifecycleGeneration == null ? '' : '|lifecycle:$lifecycleGeneration'}';
+        '$encryptionScope${lifecycleGeneration == null ? '' : '|lifecycle:$lifecycleGeneration'}'
+        '${_writerSuffix(_signer.selfPubKey)}';
     final retainedSelf = _retainedMessageRows(
       b.manifest,
       b.messages,
@@ -9607,6 +9613,20 @@ class GroupService {
       );
     }
     final signed = _signer.signMessage(unsigned);
+    // The row must be signed by the device we numbered for, or it lands in a
+    // chain nobody is holding: a different key means a different chain, and the
+    // seq we just chose belongs to the other one. Silent when it happens —
+    // exactly the shape of the defect this scoping fixes — so it is refused
+    // out loud instead.
+    if (_writerSuffix(signed.authorPubKey) !=
+        _writerSuffix(_signer.selfPubKey)) {
+      devLog(
+        () =>
+            'xVeil[group]: refusing to write — the row was signed by a key '
+            'this device did not number for (chain would fork on itself)',
+      );
+      return false;
+    }
     SpacePublicComment? publicComment;
     if (publishPublicComment) {
       final lifecycle = lifecycleGeneration ?? _legacyPostGeneration(groupId);
@@ -11043,6 +11063,28 @@ class GroupService {
   /// receives only the post-join epoch must not need an undisclosed historical
   /// predecessor, and a revoked restricted-channel member must not learn the
   /// next epoch's head through a shared sync vector.
+  /// WHICH DEVICE wrote a row, as part of its chain.
+  ///
+  /// The chain is a per-author hash chain — `seq` and `prevHash` — and a hash
+  /// chain has exactly one writer. The author is the IDENTITY, and an identity
+  /// now has several devices, none of which can see the others' unsent rows. So
+  /// both pick the same next number, and the equivocation guard — which exists
+  /// to catch an author rewriting history — reads two honest devices as one
+  /// lying author. Measured on the stand: two rows each at seq 8 and 9, twelve
+  /// rows retained and eight canonical, and the device refusing to write ever
+  /// again because it could see its own chain was forked.
+  ///
+  /// The signing key names the device. It is not inside the signed bytes, but
+  /// it is not a claim either: the signature is verified AGAINST it
+  /// (`verifyGroupMessage` reads `m.authorPubKey`), so a row whose key was
+  /// swapped stops verifying and never reaches this function.
+  ///
+  /// Empty for rows written before the key was carried: they keep the one
+  /// chain they always had, rather than each becoming a chain of its own.
+  static String _writerSuffix(Uint8List authorPubKey) => authorPubKey.isEmpty
+      ? ''
+      : '|dev:${authorPubKey.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+
   String _messageChainScope(SpaceManifest manifest, GroupMessage message) {
     final channel = manifest.isSpace
         ? message.spacePostId == null
@@ -11056,7 +11098,9 @@ class GroupService {
         ? 'membershipEpoch:${message.membershipEpoch}'
         : 'clear';
     final lifecycle = message.lifecycleGeneration;
-    return '$channel|$encryption${lifecycle == null ? '' : '|lifecycle:$lifecycle'}';
+    return '$channel|$encryption'
+        '${lifecycle == null ? '' : '|lifecycle:$lifecycle'}'
+        '${_writerSuffix(message.authorPubKey)}';
   }
 
   /// Preserve every distinct valid signed row. Same-scope `(author, seq)`
