@@ -209,6 +209,45 @@ class MailboxDrainUnreachable implements Exception {
       'MailboxDrainUnreachable($relaysTried relay(s) tried, last: $lastError)';
 }
 
+/// The largest SEALED blob a relay will store, and the per-blob header it
+/// charges on top.
+///
+/// Not a policy of ours — the relay's, mirrored. It refuses anything a FETCH
+/// reply could not carry back, because a stored blob nobody can fetch sits at
+/// the head of an oldest-first queue and starves everything behind it. Its
+/// ceiling is one signed auth-deliver message (veil's
+/// `MAX_AUTH_DELIVER_MSG_BYTES`, 6144) minus room for the reply's own framing,
+/// and the header is `sender_id + content_id + deposited_at + len`.
+///
+/// Mirrored rather than asked for because the PUT is sender-anonymous: there is
+/// no reply path to carry a refusal, so the only way for a sender to know is to
+/// apply the same rule. The numbers are veil's and are checked against it by
+/// [MailboxBlobTooLarge]'s test; if veil raises them this is the one place to
+/// follow.
+const int kMailboxBlobMaxBytes = 6144 - 512;
+const int kMailboxPerBlobWireHeaderBytes = 32 + 32 + 8 + 4;
+
+/// Thrown by [VeilNetworkMailboxRelay.put] for a blob no relay would store.
+///
+/// This is not a transient failure and a retry will not help: the deposit is
+/// refused for its SIZE, which does not change. It is raised anyway — rather
+/// than logged and swallowed — because the alternative is what happened before:
+/// the sender reported the deposit as done, the frame left the outbox, and the
+/// recipient waited for something that had never been stored.
+class MailboxBlobTooLarge implements Exception {
+  MailboxBlobTooLarge(this.blobBytes, this.receiver);
+
+  final int blobBytes;
+  final NodeId receiver;
+
+  @override
+  String toString() =>
+      'MailboxBlobTooLarge(${blobBytes}B + $kMailboxPerBlobWireHeaderBytes hdr '
+      '> $kMailboxBlobMaxBytes for ${receiver.short} — the relay refuses a blob '
+      'a FETCH reply cannot carry back; the frame has to be smaller, or the '
+      'fan-out narrower)';
+}
+
 class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   VeilNetworkMailboxRelay({
     required veil.VeilClient client,
@@ -284,6 +323,26 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     required NodeId sender,
     required Uint8List blob,
   }) async {
+    // A deposit the relay CANNOT store must fail here, where the caller can see
+    // it — not succeed here and be refused there.
+    //
+    // The PUT is sender-anonymous and therefore fire-and-forget: there is no
+    // reply path, so the relay's refusal reaches nobody. It refuses for a good
+    // reason — a blob larger than a FETCH reply can carry could be stored and
+    // never fetched, so accepting it would wedge the receiver's queue — but the
+    // sender then reported the deposit as done. Measured on a two-device stand:
+    // `stash OK` at the source, `recovered=0` at the sibling, and the truth only
+    // in a relay log on a server:
+    //
+    //   PUT rejected (recv=b11f7179 blob 6976B + hdr > fetch budget 5632B
+    //                 — would be permanently unfetchable)
+    //
+    // We hold the sealed blob right here, so this is an exact check rather than
+    // an estimate of one. Throwing puts the frame back in the outbox, where an
+    // undeliverable frame belongs, instead of marking it delivered.
+    if (blob.length + kMailboxPerBlobWireHeaderBytes > kMailboxBlobMaxBytes) {
+      throw MailboxBlobTooLarge(blob.length, receiver);
+    }
     final replicas =
         await _client.mailbox.lookupRendezvousReplicas(receiver.bytes);
     // A usable deposit target = the replica's relay + that relay's public
