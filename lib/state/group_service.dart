@@ -398,7 +398,14 @@ List<NodeId> snapshotRecipients({
 }) {
   if (isDeviceGroup) {
     final me = myDevice ?? identity;
-    return [for (final m in members) if (m != me) m];
+    // The OWNER of a device group is the identity's MASTER key, which is not a
+    // device and has nothing listening: seeding it produced a deposit that
+    // failed against an id no node answers to. It is dropped for the same
+    // reason an ordinary group drops its owner — it is not a delivery target.
+    return [
+      for (final m in members)
+        if (m != me && m != owner) m,
+    ];
   }
   return [
     for (final m in members)
@@ -14507,6 +14514,18 @@ class GroupService {
         pending.groupId.hex == gidHex) {
       return true;
     }
+    // MY OWN DEVICE IS NOT A STRANGER, and this is the second thing the rule
+    // above had to learn. A freshly linked device is given the identity's
+    // existing groups — everything said before the two met — and it holds none
+    // of them by definition, so "is it in the index" is false for every one.
+    // On the stand the seed arrived and was dropped with exactly the message
+    // meant for a stranger offering a group nobody asked for.
+    //
+    // It grants nothing new. Membership of the device group is sovereign-signed
+    // and was accepted by this device in the ceremony; a peer that is a member
+    // of it is another device of THIS identity, which is to say it is us. Any
+    // node that is not in that group gets the same "no" as before.
+    if (await isMyDevice(peer)) return true;
     if (!(await _index()).contains(gidHex)) return false;
     final NodeId gid;
     try {
@@ -16503,6 +16522,89 @@ class GroupService {
     final gidHex = await deviceGroupIdHex();
     if (gidHex == null) return 0;
     return broadcast(NodeId.fromHex(gidHex), reseed: true);
+  }
+
+  /// The OTHER devices of this identity — every member of the device group but
+  /// this one.
+  ///
+  /// Asked of the device id, never the identity: they all share the identity,
+  /// so filtering by it on a restored device returns the sibling as "me" and
+  /// this device as "other", which is backwards in the way that is hardest to
+  /// see.
+  Future<List<NodeId>> otherDeviceIds() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return const [];
+    final b = await load(NodeId.fromHex(hex));
+    if (b == null) return const [];
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (e) => _validControlFor(b.manifest, e),
+    ).state;
+    return snapshotRecipients(
+      isDeviceGroup: true,
+      members: [for (final m in state.members.values) m.nodeId],
+      identity: _signer.selfId,
+      myDevice: myDevice,
+      owner: b.manifest.owner,
+    );
+  }
+
+  /// Ship every group this identity holds to [device], which has just been
+  /// linked. Returns how many snapshots went out.
+  ///
+  /// The device group carries MEMBERSHIP and nothing else. A freshly linked
+  /// device therefore knew who its siblings were and none of what the identity
+  /// had ever said — measured on the stand as a device that adopted the group
+  /// correctly and showed one conversation where the other device had two.
+  ///
+  /// The ordinary replication cannot cover this. A group's snapshot goes to its
+  /// MEMBERS, and a device is not a member of its own identity's groups — the
+  /// identity is. So the new device is not behind on a group it belongs to; it
+  /// is missing groups that are already, in full, the identity's own.
+  ///
+  /// Sent RESEEDED, because "may hold nothing" is exactly the situation: the
+  /// content-keyed dedup that normally collapses an unchanged bundle into no
+  /// delivery at all would collapse the whole backfill.
+  ///
+  /// Best-effort per group: one that fails does not abandon the rest, because a
+  /// half-seeded device is better than an unseeded one and the next link or
+  /// nudge re-sends what is missing anyway.
+  Future<int> seedDevice(NodeId device) async {
+    final send = _send;
+    if (send == null) return 0;
+    final deviceGroupHex = await deviceGroupIdHex();
+    var n = 0;
+    for (final entry in await listGroups()) {
+      if (entry.groupId.hex == deviceGroupHex) continue; // it has this one
+      final b = await load(entry.groupId);
+      if (b == null) continue;
+      try {
+        await send(
+          device,
+          entry.groupId,
+          snapshotJson(
+            b,
+            recipient: device,
+            receipt: _beginSpaceReceipt(b, device),
+            transferTag: _freshTransferTag(),
+          ),
+        );
+        n++;
+      } catch (caught) {
+        devLog(
+          () =>
+              'xVeil[devices]: seeding ${entry.groupId.hex.substring(0, 8)} to '
+              '${device.hex.substring(0, 8)} failed: $caught',
+        );
+      }
+    }
+    devLog(
+      () =>
+          'xVeil[devices]: seeded ${device.hex.substring(0, 8)} with $n '
+          'group(s)',
+    );
+    return n;
   }
 
   bool _sovereignMatches(
