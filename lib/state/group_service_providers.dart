@@ -284,6 +284,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     unawaited(service.ingestGroupEntryFromStranger(peer, bundleJson));
   };
   messaging.allowStrangerGroupSync = service.allowStrangerGroupSync;
+  messaging.isOwnDevice = service.isMyDevice;
   // A revoked device stops owing state, so stop holding it for it.
   service.onMemberRevoked = (device) => messaging.dropPendingFramesFor(device);
   messaging.groupBindingsOwner = service;
@@ -490,5 +491,6 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.onGroupCallSignal = null;
   messaging.onGroupEntryFromStranger = null;
   messaging.allowStrangerGroupSync = null;
+  messaging.isOwnDevice = null;
   messaging.onMessageStored = null;
 }

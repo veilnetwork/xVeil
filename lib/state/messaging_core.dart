@@ -387,6 +387,12 @@ class MessagingService {
   /// the chunk-path admission, checked BEFORE reassembly RAM is spent.
   Future<bool> Function(NodeId peer, String gidHex)? allowStrangerGroupSync;
 
+  /// Asks the identity layer whether [peer] is another device of THIS
+  /// identity. A sibling is not a contact and never will be — the identity does
+  /// not befriend itself — and every contact-gated decision that forgets to ask
+  /// this first treats its own devices as strangers.
+  Future<bool> Function(NodeId peer)? isOwnDevice;
+
   /// Epoch-encrypted group-call frame. Deliberately not contact-gated: the
   /// group layer authenticates the sender, current membership, epoch, AEAD,
   /// signature, replay id and TTL before emitting anything to the call FSM.
@@ -1313,6 +1319,11 @@ class MessagingService {
   /// the stash dedup) and, backed off per frame, re-send live. Called from
   /// [flushOutbox].
   Future<void> _flushOutboxFrames() => _outbox.flush();
+
+  /// Test seam for the frame flush alone. The flush is where frames are
+  /// RETIRED, and "which frames does one flush delete" is a fact worth pinning
+  /// without the delivery cadence around it.
+  Future<void> debugFlushOutboxFrames() => _outbox.flush();
 
   /// A non-contact may ACK only the exact pending group-call frame addressed to
   /// it while it is still a current member of that gid. This is narrower than
