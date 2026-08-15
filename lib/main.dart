@@ -18,6 +18,7 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'app.dart';
 import 'desktop/desktop_tray.dart';
 import 'domain/content_manifest.dart';
+import 'data/node/network_flavor.dart';
 import 'data/node/bundled_seeds.dart' show resolveBootstrapPeers;
 import 'data/node/bundled_seeds_prefs.dart' show bundledSeedsAllowed;
 import 'data/node/embedded_node.dart';
@@ -623,8 +624,8 @@ String? bundledObfs4PskComplaint({
   return null;
 }
 
-/// Load the deployment-wide obfs4 PSK bundled at `assets/prod/obfs4_psk.b64`
-/// (gitignored — present in production builds, absent in clean clones). Returns
+/// Load the deployment-wide obfs4 PSK bundled for THIS BUILD'S NETWORK
+/// (gitignored — present in shipped builds, absent in clean clones). Returns
 /// null when the asset is missing/empty, so the node simply has no PSK (the
 /// graceful-degradation path) rather than blocking launch. This is the mobile
 /// equivalent of the desktop `XVEIL_OBFS4_PSK` env var.
@@ -635,7 +636,7 @@ Future<String?> _loadBundledObfs4Psk() async {
   String? raw;
   var assetMissing = false;
   try {
-    raw = (await rootBundle.loadString('assets/prod/obfs4_psk.b64')).trim();
+    raw = (await rootBundle.loadString(veilNetwork.obfs4PskAsset)).trim();
   } on FlutterError {
     // The asset is not in the manifest at all: `loadString` answers a missing
     // asset with a FlutterError, and that is the clean-clone case. Anything
@@ -678,13 +679,14 @@ List<BootstrapPeerCfg> _loadBootstrapPeers() {
   return const [];
 }
 
-/// Load the bundled production seed descriptors (`assets/prod/seeds.json`,
-/// public — mirrors veil's builtin_seeds). The mobile fallback when no
+/// Load the bundled seed descriptors for THIS BUILD'S NETWORK (public —
+/// mirrors veil's builtin_seeds for the same network). The mobile fallback when
+/// no
 /// environment bootstrap file is set, so the node has concrete mailbox-relay
 /// candidates and can publish a rendezvous ad. Absent (clean clone) ⇒ empty.
 Future<List<BootstrapPeerCfg>> _loadBundledSeeds() async {
   try {
-    final raw = await rootBundle.loadString('assets/prod/seeds.json');
+    final raw = await rootBundle.loadString(veilNetwork.seedsAsset);
     final json = jsonDecode(raw);
     if (json is List) return BootstrapPeerCfg.listFromJson(json);
   } catch (_) {
