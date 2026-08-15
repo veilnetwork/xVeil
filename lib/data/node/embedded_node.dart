@@ -265,6 +265,11 @@ typedef _ApplyConfigNative =
     );
 typedef _ApplyConfigDart =
     int Function(Pointer<Void>, Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
+//   int veil_node_reload_identity(const VeilNode*, char** err_out);
+typedef _ReloadIdentityNative =
+    Int32 Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
+typedef _ReloadIdentityDart =
+    int Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
 // Opt-in message-signature FFI (stateless; no VeilNode handle):
 //   int veil_identity_sign(const uint8_t* toml, size_t, const uint8_t* msg,
 //                          size_t, uint8_t out_sig[64], uint8_t out_pk[32],
@@ -1577,6 +1582,45 @@ class EmbeddedNode {
       wipeNativeSecret(tomlPtr, bytes.length);
       wipeSecretBytes(bytes);
       calloc.free(tomlPtr);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Tell the running node to re-read its identity document and republish.
+  ///
+  /// For the one change that is NOT a reconfiguration: linking a second device
+  /// merges its key into `identity_document.bin`, and the node — which read that
+  /// file when the config was applied — has to read it again. [applyConfig] with
+  /// the same config does make it re-read, by stopping and restarting every
+  /// service, and that drops every IPC connection the app holds: measured on a
+  /// two-device stand, the link succeeded and every mailbox deposit after it
+  /// failed with `connection closed` until the app was restarted.
+  ///
+  /// Throws if the node refuses — including when the document on disk names a
+  /// different identity, which must never pass quietly.
+  void reloadIdentity() {
+    if (_stopped) {
+      throw StateError(
+        'reloadIdentity called after stop() — node handle is freed',
+      );
+    }
+    final reloadFn = _dl
+        .lookupFunction<_ReloadIdentityNative, _ReloadIdentityDart>(
+          'veil_node_reload_identity',
+        );
+    final freeStr = _dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final rc = reloadFn(_handle, errOut);
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_node_reload_identity failed: $msg');
+      }
+    } finally {
       calloc.free(errOut);
     }
   }
