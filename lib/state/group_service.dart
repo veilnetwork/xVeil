@@ -15105,6 +15105,17 @@ class GroupService {
     NodeId? recipient,
     String? receipt,
     String? transferTag,
+
+    /// The recipient is ANOTHER DEVICE OF THIS IDENTITY, not a peer.
+    ///
+    /// Access control has nothing to decide here. A device of this identity is
+    /// this identity: it may hold everything we hold, and asking the group's
+    /// ACL about it gets the answer for a stranger, because a device is not a
+    /// member of its own identity's groups — the identity is. Measured on the
+    /// stand: the seeded device received the manifest and the control log and
+    /// exactly zero messages, so the group appeared, empty, and looked like a
+    /// working backfill until something counted the rows.
+    bool ownDevice = false,
   }) {
     final encryptionEstablished = _encryptionEstablished(b.manifest, b.control);
     final lifecycleState = foldControlLog(
@@ -15114,7 +15125,7 @@ class GroupService {
       initialName: b.manifest.name,
       initialDescription: b.manifest.description ?? '',
     ).state;
-    final distributesContent = recipient == null
+    final distributesContent = recipient == null || ownDevice
         ? !lifecycleState.isDeleted
         : SpaceAcl(
             lifecycleState,
@@ -16588,6 +16599,7 @@ class GroupService {
             recipient: device,
             receipt: _beginSpaceReceipt(b, device),
             transferTag: _freshTransferTag(),
+            ownDevice: true,
           ),
         );
         n++;

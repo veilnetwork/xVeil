@@ -2412,6 +2412,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             'short': row.hex.length >= 8 ? row.hex.substring(0, 8) : row.hex,
             'bundle': row.hasBundle,
             'tombstoned': row.tombstoned,
+            // WHAT IS IN IT, not just that a bundle exists. "The group is on
+            // both devices" was the question this hook could answer, and the
+            // one worth asking is "the same CONTENT is". A seeded device with
+            // an empty bundle passes the first and fails the second, and the
+            // difference is the whole of a history backfill.
+            'messages':
+                (await svc.load(NodeId.fromHex(row.hex)))?.messages.length ?? 0,
           },
       ],
     });
