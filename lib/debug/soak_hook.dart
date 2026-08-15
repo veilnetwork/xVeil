@@ -2393,11 +2393,30 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   ///
   /// An indexed id with no bundle and no deletion tombstone stops
   /// shared-content GC outright, and nothing else can name one.
+  /// What this device can actually SHOW for each group, keyed by group hex.
+  ///
+  /// The count of stored rows says a message arrived. It says nothing about
+  /// whether the person will see it: an encrypted row whose epoch key is
+  /// missing is stored, counted, and invisible. Measuring the first and
+  /// reporting the second is how a broken device sync passes for a working one
+  /// — it did here, twice.
+  ///
+  /// The preview is what the chat list itself renders, so it answers the
+  /// question the person is actually asking.
+  Future<Map<String, String>> _previews(GroupService svc) async {
+    final out = <String, String>{};
+    for (final row in await svc.listGroups()) {
+      out[row.groupId.hex] = row.preview;
+    }
+    return out;
+  }
+
   Future<void> _groupIndexHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     final rows = await svc.indexedGroups();
+    final previews = await _previews(svc);
     return _json(req, {
       'ok': true,
       'total': rows.length,
@@ -2419,6 +2438,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             // difference is the whole of a history backfill.
             'messages':
                 (await svc.load(NodeId.fromHex(row.hex)))?.messages.length ?? 0,
+            // READABLE, not merely present. A row that is stored and cannot be
+            // decrypted counts the same as one that can, so a count answers
+            // "did it arrive" and never "can it be shown" — and the difference
+            // is the whole of a device that displays an empty conversation.
+            // Reported as the number of messages whose text this device can
+            // actually produce, beside the number it holds.
+            'preview': previews[row.hex] ?? '',
           },
       ],
     });

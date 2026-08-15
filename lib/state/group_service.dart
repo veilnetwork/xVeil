@@ -17660,6 +17660,24 @@ class GroupService {
                 )))
           member.nodeId,
     ];
+    // MY OWN DEVICES ARE NOT MEMBERS, and a delta has to reach them anyway.
+    //
+    // A group's members are IDENTITIES. This device's siblings are not among
+    // them — the identity is — so a group whose only member is us produces an
+    // empty candidate list and every message stays where it was written.
+    // Measured on a two-device stand: two posts on one device, and the other
+    // ended up exactly one message behind, carried only by whatever full
+    // snapshot happened to follow.
+    //
+    // Appended rather than folded into the member scan above, because they are
+    // a different question: that loop asks who is entitled to the group, this
+    // asks who else is ME. Deduped so a device that IS a member (the
+    // master-key one, whose id is the identity) is not addressed twice.
+    if (!b.manifest.isSovereignDevice) {
+      for (final device in await otherDeviceIds()) {
+        if (!candidates.contains(device)) candidates.add(device);
+      }
+    }
     final sparse = control.isEmpty && b.manifest.name != kDeviceGroupName;
     final neighborCount = sparse
         ? await groupSyncNeighborCount(groupId)
