@@ -469,6 +469,25 @@ class _CountingGroupReadStorage extends HiddenVolumeStorage {
   }
 }
 
+
+/// The one chain in a sync vector whose scope starts with [prefix].
+///
+/// Looked up by prefix because a chain's scope now ends with the DEVICE that
+/// wrote it — two devices of one identity each keep their own hash chain, which
+/// is what stopped them reading each other as one author equivocating. The
+/// tests care about the chain, not about the key's spelling.
+Map<dynamic, dynamic> chainOf(Map<dynamic, dynamic> chains, String prefix) {
+  final matches = chains.entries
+      .where((entry) => '${entry.key}'.startsWith(prefix))
+      .toList();
+  expect(
+    matches,
+    hasLength(1),
+    reason: 'expected exactly one chain under "$prefix", got ${chains.keys}',
+  );
+  return matches.single.value as Map<dynamic, dynamic>;
+}
+
 void main() {
   final hasVeilFfi = (Platform.environment['VEIL_FFI_DYLIB'] ?? '').isNotEmpty;
   final owner = _id(1);
@@ -4619,8 +4638,10 @@ void main() {
       expect(spaceRows[2].prevHash, groupMessageHash(spaceRows[0]));
 
       final vector = (await service.buildGroupSyncRequest(spaceId))!;
-      expect((vector['mg'] as Map), contains('${defaultChannel.hex}|clear'));
-      expect((vector['mg'] as Map), contains('${secondChannel!.hex}|clear'));
+      // By prefix: the scope now names the device that wrote the chain, and
+      // what this asserts is that each channel keeps its OWN chain.
+      chainOf(vector['mg'] as Map, '${defaultChannel.hex}|clear');
+      chainOf(vector['mg'] as Map, '${secondChannel!.hex}|clear');
     },
   );
 
@@ -4778,8 +4799,8 @@ void main() {
 
       final forkedRequest = (await bobService.buildGroupSyncRequest(groupId))!;
       final fork =
-          (((forkedRequest['ms'] as Map)['group|clear'] as Map)[owner.hex]
-                  as Map)['f']
+          ((chainOf(forkedRequest['ms'] as Map, 'group|clear')[owner.hex]
+                  as Map)['f'])
               as Map;
       expect(fork['s'], 1);
       expect((fork['h'] as List).toSet(), {
@@ -15493,8 +15514,10 @@ void main() {
       final syncVector = (await bobSvc.buildGroupSyncRequest(spaceId))!;
       expect((syncVector['g'] as Map)[bob.hex], isNull);
       final protectedHead =
-          ((syncVector['cg'] as Map)['${channelId!.hex}|channelEpoch:1']
-                  as Map)[bob.hex]
+          chainOf(
+                syncVector['cg'] as Map,
+                '${channelId!.hex}|channelEpoch:1',
+              )[bob.hex]
               as Map;
       expect(protectedHead['s'], 1);
       expect(protectedHead['h'], groupMessageHash(storedMedia));
