@@ -261,6 +261,45 @@ void main() {
     );
   });
 
+  test('a membership append survives a concurrent snapshot ingest', () async {
+    // The lost update, reproduced: the sibling's periodic device-group
+    // snapshot ingests every few seconds, and an append that runs
+    // load-to-save beside it loses its entry to the ingest's save of what it
+    // had read earlier. On the stand a revoke answered ok TWICE and removed
+    // nobody. The append now runs under the group's mutation lock, reloading
+    // inside it, so whichever runs second sees the other's write.
+    final signerA = _DeviceSigner(identity: identity, deviceSeed: 21);
+    final service = GroupService(await _storage(), signerA);
+    addTearDown(service.dispose);
+    final gid = await service.createGroup('membership under fire');
+    final peer = NodeId(Uint8List.fromList(List.filled(32, 0xE1)));
+    await service.addControlOp(
+      gid,
+      ControlOp.addMember,
+      target: peer,
+      role: GroupRole.member,
+    );
+    // A stale snapshot of the group BEFORE the member was added — exactly what
+    // the sibling holds when the race fires.
+    final stale = service.snapshotJson(
+      (await service.load(gid))!,
+    );
+    await service.addControlOp(
+      gid,
+      ControlOp.removeMember,
+      target: peer,
+    );
+    // The stale snapshot lands AFTER the removal. Union-merge must keep the
+    // removal; last-write-wins would resurrect the member.
+    await service.ingestSnapshot(stale);
+    final state = (await service.stateOf(gid))!;
+    expect(
+      state.isMember(peer),
+      isFalse,
+      reason: 'a stale snapshot resurrected a removed member',
+    );
+  });
+
   test('one device signing two rows at one seq is still equivocation',
       () async {
     // The guard must keep doing its job WITHIN a device: this is an author
