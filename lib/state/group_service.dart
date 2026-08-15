@@ -4101,6 +4101,74 @@ class GroupService {
     control,
   ).any((entry) => entry.epochDescriptor != null);
 
+  /// STAND ONLY. Where this author's own message chain equivocates, and what
+  /// each (scope, author, seq) actually holds.
+  ///
+  /// A fork is two different rows at the same (scope, author, seq). The author
+  /// is the IDENTITY, so two devices of one identity numbering their own rows
+  /// produce one by construction — and the guard cannot tell that from an
+  /// author rewriting history. `/group_state` shows neither: the rows are
+  /// stored, they simply stop being canonical.
+  Map<String, Object?> debugMessageChains(GroupBundle bundle) {
+    final retained = _retainedMessageRows(bundle.manifest, bundle.messages);
+    final bySeq = <String, Set<String>>{};
+    final bodies = <String, List<String>>{};
+    for (final message in retained) {
+      if (!_validMessageFor(bundle.manifest.groupId, message)) continue;
+      final id = '${_messageChainScope(bundle.manifest, message)}'
+          '|${message.author.short}:${message.seq}';
+      bySeq.putIfAbsent(id, () => <String>{}).add(groupMessageHash(message));
+      bodies
+          .putIfAbsent(id, () => <String>[])
+          .add(message.isEncrypted ? '<sealed>' : message.body);
+    }
+    final forked = {
+      for (final entry in bySeq.entries)
+        if (entry.value.length > 1)
+          entry.key: {'rows': entry.value.length, 'bodies': bodies[entry.key]},
+    };
+    return {
+      'retained': retained.length,
+      'canonical': _canonicalMessageRows(bundle.manifest, retained).length,
+      'forkedSlots': forked,
+      'forkKeys': _messageForks(bundle.manifest, retained).keys.toList(),
+    };
+  }
+
+  /// STAND ONLY. Every accepted control entry that declares an epoch, and
+  /// whether the key this device holds for that epoch is the one it commits to.
+  ///
+  /// Written because `_validLocalEpochKey` answers on the FIRST descriptor it
+  /// meets for an epoch and there turned out to be more than one — two devices
+  /// of one identity each minted "epoch 1", so the group forked while both
+  /// halves looked internally consistent. A single true/false could not show
+  /// that; this lists them.
+  List<Map<String, Object?>> debugEpochDescriptors(GroupBundle bundle) {
+    final out = <Map<String, Object?>>[];
+    for (final entry in _acceptedControl(bundle.manifest, bundle.control)) {
+      final descriptor = entry.epochDescriptor;
+      if (descriptor == null) continue;
+      final held = bundle.localEpochKeys[descriptor.epoch];
+      out.add({
+        'epoch': descriptor.epoch,
+        'author': entry.author.short,
+        'commitment': descriptor.keyCommitment.length > 16
+            ? descriptor.keyCommitment.substring(0, 16)
+            : descriptor.keyCommitment,
+        'recipients': descriptor.recipientCount,
+        'heldKeyMatches': held == null
+            ? null
+            : descriptor.keyCommitment ==
+                groupEpochKeyCommitment(
+                  groupId: bundle.manifest.groupId,
+                  epoch: descriptor.epoch,
+                  key: held,
+                ),
+      });
+    }
+    return out;
+  }
+
   bool _validLocalEpochKey(
     SpaceManifest manifest,
     List<ControlEntry> control,

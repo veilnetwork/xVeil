@@ -699,6 +699,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_trace':
           await _groupTraceHook(req);
           return;
+        case '/epoch_probe':
+          await _epochProbeHook(req);
+          return;
         case '/why_invalid':
           await _whyInvalidHook(req);
           return;
@@ -2423,6 +2426,33 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// and skipped by every send, and none of those say why. This asks the
   /// predicate itself and prints its inputs, so the answer is a measurement
   /// rather than a deduction from three silences.
+  /// Every epoch descriptor this device accepts for a group, and whether the
+  /// key it holds matches each — the measurement that told two "epoch 1"s
+  /// apart. `/group_state` reports ONE epoch number and one key list, and both
+  /// devices answered "epoch 1, one key", which is exactly how a forked group
+  /// looks from there.
+  Future<void> _epochProbeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final bundle = await svc.load(gid);
+    if (bundle == null) {
+      return _json(req, {'ok': false, 'error': 'unknown group'});
+    }
+    final state = await svc.stateOf(gid);
+    return _json(req, {
+      'ok': true,
+      'foldedEpoch': state?.epoch,
+      'foldedCommitment': state?.epochDescriptor?.keyCommitment.substring(0, 16),
+      'heldEpochs': bundle.localEpochKeys.keys.toList()..sort(),
+      'descriptors': svc.debugEpochDescriptors(bundle),
+      'chains': svc.debugMessageChains(bundle),
+    });
+  }
+
   Future<void> _whyInvalidHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();
