@@ -397,7 +397,13 @@ List<NodeId> snapshotRecipients({
   required NodeId owner,
 }) {
   if (isDeviceGroup) {
-    final me = myDevice ?? identity;
+    // NO GUESSING HERE. Falling back to the identity looks conservative and is
+    // not: on a device restored into an existing identity the identity names
+    // the SIBLING, so the fallback drops the sibling and keeps this device —
+    // and the snapshot goes to ourselves, is ingested, and provokes the next
+    // one. Sending nowhere is recoverable; a loop is not.
+    if (myDevice == null) return const [];
+    final me = myDevice;
     // The OWNER of a device group is the identity's MASTER key, which is not a
     // device and has nothing listening: seeding it produced a deposit that
     // failed against an id no node answers to. It is dropped for the same
@@ -470,7 +476,20 @@ class GroupService {
   /// Null on fakes and on hosts with no live transport; the fan-out falls back
   /// to the identity, which is right for every group whose members are separate
   /// identities.
-  final NodeId? myDevice;
+  ///
+  /// SET, not constructed. The value is the device's own transport key, and the
+  /// authoritative copy is in the node config — which is written when a
+  /// deniably-booted node is PROMOTED to its real identity, after this service
+  /// exists. Read from a transport handle instead, it is whatever that handle
+  /// cached at connect: on a promoted node that is the throwaway stub's id, and
+  /// a device group then excludes nobody.
+  ///
+  /// Measured on the stand with the stale value: the restored device sent every
+  /// snapshot to ITSELF and ingested it again — 286 entries in its device group
+  /// against 34 on the sibling. The master-key device escaped it only because
+  /// its own id IS the identity, which the transport already refuses to send
+  /// live.
+  NodeId? myDevice;
   final GroupSnapshotSender? _send;
   final SpaceInviteSender? sendSpaceInvite;
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
