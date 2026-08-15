@@ -29,6 +29,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VEIL="$ROOT/third_party/veil"
+
+# One rule for which network these binaries belong to, shared with every other
+# build path (scripts/veil-network.sh) and mirrored by the Dart half.
+PROFILE="${PROFILE:-release}"   # mobile builds are release unless told otherwise
+# shellcheck source=scripts/veil-network.sh
+source "$(dirname "${BASH_SOURCE[0]}")/veil-network.sh"
 HV="$ROOT/third_party/hidden-volume"
 
 PLATFORM="${1:-}"
@@ -46,8 +52,12 @@ build_ios() {
   local veil_triple="aarch64-apple-ios"
   $SIM && veil_triple="aarch64-apple-ios-sim"
 
-  echo "==> veilclient_ffi for $veil_triple (production-seeds,node-embedded)"
-  "$VEIL/scripts/build-mobile.sh" --target "$veil_triple"
+  # STATED, not defaulted. veil's own script defaults to production-seeds, so
+  # an iOS build followed a rule of its own — fine while iOS was release-only,
+  # wrong the moment a development build wants the testnet.
+  echo "==> veilclient_ffi for $veil_triple ($SEED_FEATURE,node-embedded)"
+  "$VEIL/scripts/build-mobile.sh" --target "$veil_triple" \
+    --features "$SEED_FEATURE,node-embedded,packet-tunnel"
 
   local a="$VEIL/target/$veil_triple/release/libveilclient_ffi.a"
   [[ -f "$a" ]] || die "expected staticlib missing: $a"
