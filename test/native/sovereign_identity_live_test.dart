@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/identity/veil_identity.dart';
 import 'package:xveil/data/node/embedded_node.dart';
+import 'package:xveil/data/node/identity_config_fields.dart';
 import 'package:xveil/data/node/sovereign_identity_material.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/veil_stack.dart';
@@ -481,6 +482,54 @@ void main() {
     // Determinism of the phrase path itself is `configFromPhrase`'s property
     // and is not re-mined here: each mining is about a minute, and this file
     // already pays for several.
+  }, skip: skip);
+
+  // THE SILENT ONE. A restored device mines a transport key of its own; if
+  // provisioning then mints a SECOND key and names that in the document, the
+  // device signs with one key while its document vouches for another. Nothing
+  // reports it: the message is stored (the write precedes the check), filtered
+  // out of every read, and skipped by every send — the device shows its own
+  // writing to nobody, itself included.
+  //
+  // This runs the app's own two calls in the app's own order, because the
+  // Rust-side test proves the primitive accepts an offered key and says nothing
+  // about whether this layer offers it.
+  test('a restored device is named in its document by the key it runs on', () async {
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = minePhrase!;
+    final storage = _MemStorage();
+
+    // Step one, as the restore path runs it: a transport key of this device's
+    // own, mined, written to the config.
+    final toml = await RealVeilStack.ensureNodeConfig(
+      storage,
+      identityPhrase: phrase,
+      restoringIdentity: true,
+      lib: lib,
+    );
+    final nodeKey = identityConfigFields(toml)!.publicKey;
+
+    // Step two: the sovereign material, which must adopt that key rather than
+    // invent one.
+    final mat = await RealVeilStack.ensureSovereignIdentity(
+      storage,
+      stagingBase: tmp.path,
+      identityPhrase: phrase,
+      lib: lib,
+    );
+    expect(mat, isNotNull);
+
+    final document = mat![kIdentityDocumentFile]!;
+    final identity = EmbeddedNode.identityDocumentNodeId(document, lib: lib);
+    expect(
+      EmbeddedNode.identityDocumentAuthorizes(
+        document: document,
+        nodeId: identity,
+        publicKey: nodeKey,
+      ),
+      isTrue,
+      reason: 'the document must name the key this device signs with',
+    );
   }, skip: skip);
 
   test('an unusable phrase provisions nothing and stores nothing', () async {

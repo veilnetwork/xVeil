@@ -8,6 +8,7 @@ import 'package:xveil/data/transport/veil_mailbox_network.dart';
 /// `veil-proto` `MailboxPutPayload` / `MailboxFetchRespPayload` layouts exactly,
 /// so a Dart-side regression can't silently corrupt deposits or drains.
 void main() {
+  _sliceTests();
   group('encodeMailboxPut', () {
     test('produces the exact MailboxPutPayload layout', () {
       final receiver = Uint8List.fromList(List.filled(32, 0x0B));
@@ -157,6 +158,105 @@ Uint8List _fetchResp(List<Uint8List> entries) {
   for (final e in entries) {
     b.add(e);
   }
+  return b.toBytes();
+}
+
+void _sliceTests() {
+  group('slice codec', () {
+    final cid = Uint8List.fromList(List.generate(32, (i) => i));
+
+    test('a request is content id then offset, big-endian', () {
+      final req = encodeMailboxSliceReq(cid, 0x01020304);
+      expect(req, hasLength(36));
+      expect(req.sublist(0, 32), orderedEquals(cid));
+      expect(req.sublist(32), orderedEquals([1, 2, 3, 4]));
+    });
+
+    test('a reply round-trips through its own decoder', () {
+      final bytes = Uint8List.fromList(List.generate(700, (i) => i % 251));
+      final wire = _slice(
+        contentId: cid,
+        offset: 1400,
+        totalLen: 5000,
+        bytes: bytes,
+      );
+      final got = decodeMailboxSliceResp(wire);
+      expect(got.contentId, orderedEquals(cid));
+      expect(got.offset, 1400);
+      expect(got.totalLen, 5000);
+      expect(got.bytes, orderedEquals(bytes));
+    });
+
+    // Zero is an ANSWER — "no such blob here" — and the walk must be able to
+    // read it as one. A receiver that took it for an empty window would ask for
+    // the same offset until something else stopped it.
+    test('a stated length of zero decodes as an empty answer', () {
+      final got = decodeMailboxSliceResp(_slice(
+        contentId: cid,
+        offset: 0,
+        totalLen: 0,
+        bytes: Uint8List(0),
+      ));
+      expect(got.totalLen, 0);
+      expect(got.bytes, isEmpty);
+    });
+
+    // The shape a hostile relay would use to make us allocate on its word
+    // rather than on its bytes.
+    test('a length that overruns the frame is refused', () {
+      final wire = _slice(
+        contentId: cid,
+        offset: 0,
+        totalLen: 5000,
+        bytes: Uint8List.fromList([1, 2, 3, 4]),
+      );
+      // Claim 4000 bytes follow; four do.
+      ByteData.sublistView(wire).setUint32(40, 4000, Endian.big);
+      expect(() => decodeMailboxSliceResp(wire), throwsFormatException);
+    });
+
+    test('a frame too short for the header is refused', () {
+      expect(
+        () => decodeMailboxSliceResp(Uint8List(20)),
+        throwsFormatException,
+      );
+    });
+  });
+
+  // An ANNOUNCED blob: the relay names it in a FETCH reply with no bytes. It
+  // must decode as an ordinary entry with an empty payload — that emptiness is
+  // the signal to go and slice it, so a decoder that rejected or skipped it
+  // would lose the mail silently.
+  test('a fetch entry with no bytes decodes as an announcement', () {
+    final blobs = decodeMailboxFetchResp(_fetchResp([
+      _entry(
+        sender: Uint8List(32),
+        content: Uint8List.fromList(List.filled(32, 9)),
+        depositedAt: 5,
+        blob: Uint8List(0),
+      ),
+    ]));
+    expect(blobs, hasLength(1));
+    expect(blobs.single.blob, isEmpty);
+  });
+}
+
+/// One `MailboxSlicePayload`: content(32) offset(u32 BE) total(u32 BE)
+/// len(u32 BE) bytes.
+Uint8List _slice({
+  required Uint8List contentId,
+  required int offset,
+  required int totalLen,
+  required Uint8List bytes,
+}) {
+  final b = BytesBuilder();
+  b.add(contentId);
+  final head = ByteData(12)
+    ..setUint32(0, offset, Endian.big)
+    ..setUint32(4, totalLen, Endian.big)
+    ..setUint32(8, bytes.length, Endian.big);
+  b.add(head.buffer.asUint8List());
+  b.add(bytes);
   return b.toBytes();
 }
 
