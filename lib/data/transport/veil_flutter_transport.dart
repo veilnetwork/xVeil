@@ -56,14 +56,27 @@ SendRoute sendRouteFor(
   Uint8List? myIdentity,
   NodeId dst, {
   required bool anonymous,
+
+  /// This node's OWN transport id. A send addressed here is a send to
+  /// ourselves — never useful, and the shape a loop takes: the frame arrives,
+  /// is ingested, and provokes the next one. Measured on a restored device as
+  /// 286 entries in a device group against 34 on its sibling, from a caller
+  /// that had guessed wrong about which member it was.
+  ///
+  /// Refused whatever the reason it was asked for, because a caller that gets
+  /// this wrong cannot be the one to catch it.
+  Uint8List? myNode,
 }) {
-  if (myIdentity != null &&
-      myIdentity.length == dst.bytes.length &&
-      _sameBytesFor(myIdentity, dst.bytes)) {
+  if (_addressesUs(myIdentity, dst) || _addressesUs(myNode, dst)) {
     return SendRoute.deviceSync;
   }
   return anonymous ? SendRoute.onion : SendRoute.direct;
 }
+
+bool _addressesUs(Uint8List? mine, NodeId dst) =>
+    mine != null &&
+    mine.length == dst.bytes.length &&
+    _sameBytesFor(mine, dst.bytes);
 
 bool _sameBytesFor(Uint8List a, Uint8List b) {
   for (var i = 0; i < a.length; i++) {
@@ -651,7 +664,12 @@ class VeilFlutterTransport
     // send, and that deposit is the delivery. Until the direct path learns
     // instances, a live leg here would not be a faster copy; it would be a copy
     // handed to the wrong device.
-    switch (sendRouteFor(identityAddress, dst, anonymous: anonymous)) {
+    switch (sendRouteFor(
+      identityAddress,
+      dst,
+      anonymous: anonymous,
+      myNode: _nodeId.bytes,
+    )) {
       case SendRoute.deviceSync:
         devLog(
           () =>
