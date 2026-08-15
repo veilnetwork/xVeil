@@ -3499,6 +3499,13 @@ class GroupService {
         _signer.verifyControl(e);
   }
 
+  /// The message-validity predicate, exposed for the stand.
+  ///
+  /// Failing it is silent by design at every layer above — stored, filtered on
+  /// read, skipped on send — so the only way to see it is to ask it directly.
+  bool debugMessageIsValid(NodeId groupId, GroupMessage m) =>
+      _validMessageFor(groupId, m);
+
   bool _validMessageFor(NodeId groupId, GroupMessage m) =>
       m.groupId == groupId &&
       (m.spacePostId == null ||
