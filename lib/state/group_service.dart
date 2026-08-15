@@ -16427,6 +16427,13 @@ class GroupService {
     /// shared with every sibling, so without this the target cannot tell a
     /// token it was handed from one it issued itself.
     NodeId? sourceDevice,
+
+    /// This identity's document, by now naming BOTH devices — the sibling's
+    /// arrived with its invite and was merged before this token is built. The
+    /// return leg of that exchange: without it the target ends the ceremony
+    /// still holding a document naming only itself, publishes a registry of
+    /// one, and can seal nothing back.
+    Uint8List? document,
   }) async {
     if (sourceInvite.nodeId != _signer.selfId) return null;
     final gidHex = await deviceGroupIdHex();
@@ -16440,6 +16447,7 @@ class GroupService {
       sourceInvite: sourceInvite,
       expiresAtMs: _now() + const Duration(minutes: 30).inMilliseconds,
       sourceDevice: sourceDevice,
+      document: document,
     );
   }
 
