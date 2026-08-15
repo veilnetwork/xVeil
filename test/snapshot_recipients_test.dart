@@ -29,12 +29,16 @@ void main() {
   final restored = _id(0xCD);
 
   group('a device group addresses its members', () {
+    // The device group's OWNER is the identity's MASTER key — a separate value
+    // from either device's transport id, and not a device at all.
+    final master = _id(0xD3);
+
     List<NodeId> from(NodeId? myDevice) => snapshotRecipients(
       isDeviceGroup: true,
       members: [identity, restored],
       identity: identity,
       myDevice: myDevice,
-      owner: identity,
+      owner: master,
     );
 
     test('the master-key device sends to the restored one', () {
@@ -58,9 +62,25 @@ void main() {
           members: [identity],
           identity: identity,
           myDevice: identity,
-          owner: identity,
+          owner: master,
         ),
         isEmpty,
+      );
+    });
+
+    // The master key owns the group and runs nothing. Seeding it produced a
+    // deposit against an id no node answers to, which then failed on retry
+    // forever.
+    test('the master key is not a device and gets nothing', () {
+      expect(
+        snapshotRecipients(
+          isDeviceGroup: true,
+          members: [master, identity, restored],
+          identity: identity,
+          myDevice: identity,
+          owner: master,
+        ),
+        [restored],
       );
     });
 
