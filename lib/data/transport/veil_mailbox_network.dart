@@ -301,6 +301,13 @@ class MailboxDrainUnreachable implements Exception {
 const int kMailboxBlobMaxBytes = 1024 * 1024;
 const int kMailboxPerBlobWireHeaderBytes = 32 + 32 + 8 + 4;
 
+/// What one FETCH reply can carry, and therefore what a relay predating the
+/// slice endpoint would accept at all.
+///
+/// Kept after the deposit ceiling moved past it, because it is still the line
+/// between "every relay can deliver this" and "only an updated one can".
+const int kMailboxLegacyReplyBudget = 6144 - 512;
+
 /// Thrown by [VeilNetworkMailboxRelay.put] for a blob no relay would store.
 ///
 /// This is not a transient failure and a retry will not help: the deposit is
@@ -428,6 +435,19 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // undeliverable frame belongs, instead of marking it delivered.
     if (blob.length + kMailboxPerBlobWireHeaderBytes > kMailboxBlobMaxBytes) {
       throw MailboxBlobTooLarge(blob.length, receiver);
+    }
+    // LOUD while the fleet is mixed. A relay that predates the slice endpoint
+    // still refuses this deposit at its own door, and the refusal reaches
+    // nobody — the PUT is sender-anonymous, so there is no reply path to carry
+    // it. That is the exact shape of the defect this endpoint exists to close:
+    // a message nobody could have made smaller, dropped without a word.
+    //
+    // Not an error, because against an updated relay it is the ordinary case.
+    // The line goes away on its own as relays update.
+    if (blob.length + kMailboxPerBlobWireHeaderBytes > kMailboxLegacyReplyBudget) {
+      devLog(() =>
+          'xVeil[send]: deposit of ${blob.length}B to ${receiver.short} needs a '
+          'relay that serves slices — one predating the endpoint will drop it');
     }
     final replicas =
         await _client.mailbox.lookupRendezvousReplicas(receiver.bytes);
