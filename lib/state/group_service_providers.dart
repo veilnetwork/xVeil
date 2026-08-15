@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../core/log.dart';
 import '../data/node/embedded_node.dart';
 import '../data/node/identity_config_fields.dart';
 import '../data/node/space_discovery_transport.dart';
@@ -126,6 +127,55 @@ final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
 });
 
 /// Flutter/Riverpod host wiring around the shared pure-Dart [GroupService].
+/// Says out loud what has been silent: the document this device carries does
+/// not name the key this device signs with.
+///
+/// When those two part company, every signature the device makes fails its own
+/// author binding — and the failure has no voice. The message is stored (the
+/// write precedes the check), filtered out of every read, and skipped by every
+/// send, so the device shows its own writing to nobody, itself included, and
+/// the log says nothing at all. That silence cost a day.
+///
+/// Provisioning now names the key the node already runs on, so this should
+/// never fire. A device restored BEFORE that landed fires it on every boot,
+/// which is the point: it carries a document vouching for a key it does not
+/// use, and nothing it writes will be seen until it is restored again.
+///
+/// A guard, not a repair. Rewriting the document here would need the master
+/// and would republish an identity from a boot path — too much authority for
+/// a diagnostic to take on its own.
+Future<void> _warnIfDocumentDisownsThisDevice(
+  Ref ref,
+  NodeId identity,
+  Uint8List? document,
+) async {
+  if (document == null || document.isEmpty) return;
+  try {
+    final toml = await ref.read(storageProvider).loadNodeConfig();
+    final fields = toml == null ? null : identityConfigFields(toml);
+    if (fields == null) return;
+    if (EmbeddedNode.identityDocumentAuthorizes(
+      document: document,
+      nodeId: identity.bytes,
+      publicKey: fields.publicKey,
+    )) {
+      return;
+    }
+    devLog(
+      () =>
+          'xVeil[identity]: this device signs with '
+          '${NodeId(fields.publicKey).short} but its document does not name '
+          'that key — everything it writes will be stored, hidden and unsent. '
+          'Restore this device again.',
+    );
+  } on Object catch (e) {
+    // A locked container, a missing dylib in a test, a document from another
+    // identity: none of them are the condition this watches for, and a guard
+    // that can fail the boot is worse than the defect it reports.
+    devLog(() => 'xVeil[identity]: could not check the running key: $e');
+  }
+}
+
 final groupServiceProvider = Provider<GroupService?>((ref) {
   // Keep document ingress wired for this unlocked identity even before the
   // document UI exists; pending invites must survive until explicit adopt.
@@ -375,7 +425,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   final ownIdentity = signer.selfId;
   unawaited(
     RealVeilStack.storedSovereignDocument(ref.read(storageProvider))
-        .then((doc) => ownDocument = doc)
+        .then((doc) {
+          ownDocument = doc;
+          unawaited(_warnIfDocumentDisownsThisDevice(ref, ownIdentity, doc));
+          return doc;
+        })
         .catchError((Object e) {
           // A locked container is not an error worth surfacing: the lookup
           // simply keeps answering null until something reads it again.
