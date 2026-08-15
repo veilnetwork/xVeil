@@ -14564,7 +14564,10 @@ class GroupService {
       devLog(() => 'xVeil[groups]: stranger snapshot DENIED — drop');
       return false;
     }
-    return ingestSnapshot(bundleJson);
+    // Our own device's snapshot is trusted to carry the identity's epoch keys;
+    // nobody else's is. Asked here, where the SENDER is still known — by the
+    // time the parse runs there is only a blob.
+    return ingestSnapshot(bundleJson, fromOwnDevice: await isMyDevice(peer));
   }
 
   /// Returns null when [bundleJson] is unrelated to the pending ceremony,
@@ -15164,6 +15167,28 @@ class GroupService {
       // Carried only by a full-history push. Older builds ignore an unknown
       // envelope key, so this is safe in both directions on the wire.
       'tx': ?transferTag,
+      // OUR OWN KEYS, to our own device, and only there.
+      //
+      // A group deliberately withholds old epoch keys from a NEW MEMBER —
+      // forward secrecy is the default and the code says so. A device is not a
+      // new member: it is this identity, which minted these keys and holds them
+      // already. Withholding them from ourselves protects nobody and is the
+      // difference between a seeded history and an empty group.
+      //
+      // Re-sealing the envelopes cannot substitute: the epoch descriptor in the
+      // control log commits to the exact sealed bytes, so a fresh seal verifies
+      // against nothing (see the note above `seedDevice`). Handing over the key
+      // itself touches no commitment and is invisible to the other members of a
+      // shared group — how many devices I have is not their business.
+      //
+      // The carrier is the same sealed device-sync path the membership travels
+      // on: sovereign-signed group, sealed per instance. Nothing here is
+      // reachable by a peer, and `ownDevice` is set only by [seedDevice].
+      if (ownDevice && b.localEpochKeys.isNotEmpty)
+        'kk': {
+          for (final e in b.localEpochKeys.entries)
+            '${e.key}': base64Encode(e.value),
+        },
       'm': b.manifest.toJson(),
       'c': b.control
           .where(
@@ -15300,7 +15325,14 @@ class GroupService {
   /// index), then merge control + message entries. Exact signed rows dedup by
   /// hash; distinct same-scope `(author, seq)` rows remain as fork evidence.
   /// Idempotent — re-delivery of the same snapshot is a no-op.
-  Future<bool> ingestSnapshot(String bundleJson) async {
+  Future<bool> ingestSnapshot(
+    String bundleJson, {
+    /// The sender is ANOTHER DEVICE OF THIS IDENTITY, proven by its membership
+    /// of the sovereign-signed device group. Only then are the epoch keys the
+    /// snapshot may carry taken: from anyone else the field is ignored, so a
+    /// peer cannot hand us key material and have it believed.
+    bool fromOwnDevice = false,
+  }) async {
     try {
       final value = jsonDecode(bundleJson);
       final manifest = value is Map ? value['m'] : null;
@@ -15308,14 +15340,17 @@ class GroupService {
       if (gid is! String) return false;
       return _serialized(
         NodeId.fromHex(gid),
-        () => _ingestSnapshot(bundleJson),
+        () => _ingestSnapshot(bundleJson, fromOwnDevice: fromOwnDevice),
       );
     } catch (_) {
       return false;
     }
   }
 
-  Future<bool> _ingestSnapshot(String bundleJson) async {
+  Future<bool> _ingestSnapshot(
+    String bundleJson, {
+    bool fromOwnDevice = false,
+  }) async {
     Map<String, dynamic> d;
     try {
       d = jsonDecode(bundleJson) as Map<String, dynamic>;
@@ -15469,12 +15504,31 @@ class GroupService {
     final hasFeedAccess =
         man.isSpace &&
         SpaceAcl(mergedState).allows(_signer.selfId, SpacePermission.view);
+    // Keys our own device handed us count as keys we already hold: they are
+    // this identity's, and the envelope route cannot deliver them to a device
+    // that joined after the epoch was sealed.
+    final handedKeys = <int, Uint8List>{};
+    if (fromOwnDevice && d['kk'] is Map) {
+      for (final entry in (d['kk'] as Map).entries) {
+        final epoch = int.tryParse('${entry.key}');
+        if (epoch == null || epoch < 0 || entry.value is! String) continue;
+        try {
+          final key = Uint8List.fromList(base64Decode(entry.value as String));
+          if (key.length == 32) handedKeys[epoch] = key;
+        } catch (_) {
+          // A corrupt row is one unreadable epoch, not a failed ingest.
+        }
+      }
+    }
     final material = await _mergeEpochMaterial(
       manifest: man,
       control: control,
       existingEnvelopes:
           existing?.epochEnvelopes ?? const <GroupEpochRecipientEnvelope>[],
-      existingKeys: existing?.localEpochKeys ?? const <int, Uint8List>{},
+      existingKeys: {
+        ...?existing?.localEpochKeys,
+        ...handedKeys,
+      },
       incomingEnvelopes: inEpochEnvelopes,
     );
     final channelMaterial = await _mergeChannelEpochMaterial(
