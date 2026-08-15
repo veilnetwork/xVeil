@@ -2146,7 +2146,7 @@ void main() {
 
   test('XOR neighbour selection is deterministic, unique, and capped at k', () {
     final self = _id(1);
-    final peers = [_id(7), _id(2), self, _id(5), _id(3), _id(0), _id(3)];
+    final peers = [_id(7), _id(2), _id(5), _id(3), _id(0), _id(3)];
 
     expect(
       nearestGroupNodesByXor(self, peers, k: 3),
@@ -2159,6 +2159,25 @@ void main() {
       _id(2),
     ]);
     expect(nearestGroupNodesByXor(self, peers, k: 0), isEmpty);
+  });
+
+  test('a candidate that IS the sort origin is kept, not filtered', () {
+    // The origin is the IDENTITY, and the master device's transport id IS the
+    // identity. The picker used to drop any candidate equal to the origin as
+    // "self" — which on a sibling device silently removed the MASTER from
+    // every sparse delta: the post fanned out only to a deleted third device,
+    // the master received nothing, and the sender logged success. Candidate
+    // lists are built self-free at the call sites, which are the layer that
+    // can tell "me the identity" from "me the device"; the picker must not
+    // answer that question again.
+    final identity = _id(1);
+    final master = identity; // same 32 bytes — that is the whole point
+    final dead = _id(9);
+    expect(
+      nearestGroupNodesByXor(identity, [dead, master], k: 5),
+      containsAll(<NodeId>[master, dead]),
+      reason: 'the master device vanished from the sibling\'s fanout',
+    );
   });
 
   test(
