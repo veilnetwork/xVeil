@@ -2450,6 +2450,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'heldEpochs': bundle.localEpochKeys.keys.toList()..sort(),
       'descriptors': svc.debugEpochDescriptors(bundle),
       'chains': svc.debugMessageChains(bundle),
+      'control': svc.debugControlLog(bundle),
     });
   }
 

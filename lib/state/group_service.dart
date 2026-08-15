@@ -4143,6 +4143,26 @@ class GroupService {
     };
   }
 
+  /// STAND ONLY. The control log as the fold sees it: every entry, and whether
+  /// the validity predicate accepts it.
+  ///
+  /// Written for a revoke that answered ok and removed nobody: the entry was
+  /// appended, saved, replicated — and silently skipped by every fold, because
+  /// a skipped entry is not a REJECTED one and nothing anywhere said which
+  /// check it failed.
+  List<Map<String, Object?>> debugControlLog(GroupBundle bundle) => [
+        for (final entry in bundle.control)
+          {
+            'op': entry.op.name,
+            'author': entry.author.short,
+            'seq': entry.seq,
+            'target': entry.target?.short,
+            'pubKeyLen': entry.authorPubKey.length,
+            'sigLen': entry.signature.length,
+            'valid': _validControlFor(bundle.manifest, entry),
+          },
+      ];
+
   /// STAND ONLY. Every accepted control entry that declares an epoch, and
   /// whether the key this device holds for that epoch is the one it commits to.
   ///
@@ -17279,56 +17299,95 @@ class GroupService {
     bool broadcastSnapshot = true,
   }) async {
     if (!_sovereignMatches(bundle.manifest, sovereign)) return false;
-    final state = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: bundle.control,
-      verify: (e) => _validControlFor(bundle.manifest, e),
-      initialName: bundle.manifest.name,
-    ).state;
-    if (op == ControlOp.addMember && state.isMember(device)) return true;
-    if (op == ControlOp.removeMember && !state.isMember(device)) return true;
-    if (device == bundle.manifest.owner) return false;
-    final link = _nextControlLink(
-      bundle.manifest,
-      bundle.control,
-      sovereign.nodeId,
-    );
-    if (link.blocked) return false;
-    final unsigned = ControlEntry(
-      version: 2,
-      groupId: bundle.manifest.groupId,
-      author: sovereign.nodeId,
-      seq: link.seq,
-      prevHash: link.prevHash,
-      op: op,
-      target: device,
-      role: op == ControlOp.addMember ? GroupRole.member : null,
-      policyVersion: state.policyVersion,
-      createdAtMs: _now(),
-      signature: Uint8List(0),
-    );
-    final signed = unsigned.withSignature(
-      sovereign.sign(unsigned.canonicalBytes()),
-      Uint8List.fromList(sovereign.publicKey),
-    );
-    final candidate = [...bundle.control, signed];
-    final folded = foldControlLog(
-      owner: bundle.manifest.owner,
-      entries: candidate,
-      verify: (e) => _validControlFor(bundle.manifest, e),
-      initialName: bundle.manifest.name,
-    );
-    if (folded.rejected.any(
-      (e) => e.author == signed.author && e.seq == signed.seq,
-    )) {
-      return false;
-    }
-    await _save(bundle.copyWith(control: candidate));
-    _publishDeviceMembersCache(bundle.manifest, folded.state);
-    if (op == ControlOp.addMember && broadcastSnapshot) {
-      await broadcast(bundle.manifest.groupId);
-    } else if (op == ControlOp.removeMember) {
-      await broadcastDelta(bundle.manifest.groupId, control: [signed]);
+    final gid = bundle.manifest.groupId;
+    // UNDER THE GROUP'S MUTATION LOCK, on a bundle RELOADED inside it.
+    //
+    // This used to run load-to-save with no lock, against a group every other
+    // writer serializes on — and the busiest writer is the sibling's periodic
+    // device-group snapshot, which ingests every few seconds. The ingest read
+    // the pre-append bundle, the append saved its entry, the ingest saved its
+    // merge of what it had read, and the entry was gone: a revoke that
+    // answered ok, replicated nothing, and left the member in place. Measured
+    // twice in a row on the stand before the pattern was recognised — the
+    // window is most of a second, and the sibling fills it reliably.
+    //
+    // The broadcasts stay OUTSIDE the lock: they only read, and the delta
+    // path serializes on other groups' locks of its own.
+    ControlEntry? signed;
+    final appended = await _serialized(gid, () async {
+      final fresh = await load(gid) ?? bundle;
+      final state = foldControlLog(
+        owner: fresh.manifest.owner,
+        entries: fresh.control,
+        verify: (e) => _validControlFor(fresh.manifest, e),
+        initialName: fresh.manifest.name,
+      ).state;
+      if (op == ControlOp.addMember && state.isMember(device)) {
+        devLog(
+          () =>
+              'xVeil[devices]: append no-op — ${device.short} already a member',
+        );
+        return true;
+      }
+      if (op == ControlOp.removeMember && !state.isMember(device)) {
+        // Say WHO the fold does count, because "not a member" has meant
+        // "the fold dropped half the log" before and the bare boolean hid it.
+        devLog(
+          () =>
+              'xVeil[devices]: append no-op — ${device.short} not a member; '
+              'fold sees [${state.members.values.map((m) => m.nodeId.short).join(', ')}]',
+        );
+        return true;
+      }
+      if (device == fresh.manifest.owner) return false;
+      final link = _nextControlLink(
+        fresh.manifest,
+        fresh.control,
+        sovereign.nodeId,
+      );
+      if (link.blocked) return false;
+      final unsigned = ControlEntry(
+        version: 2,
+        groupId: gid,
+        author: sovereign.nodeId,
+        seq: link.seq,
+        prevHash: link.prevHash,
+        op: op,
+        target: device,
+        role: op == ControlOp.addMember ? GroupRole.member : null,
+        policyVersion: state.policyVersion,
+        createdAtMs: _now(),
+        signature: Uint8List(0),
+      );
+      final entry = unsigned.withSignature(
+        sovereign.sign(unsigned.canonicalBytes()),
+        Uint8List.fromList(sovereign.publicKey),
+      );
+      final candidate = [...fresh.control, entry];
+      final folded = foldControlLog(
+        owner: fresh.manifest.owner,
+        entries: candidate,
+        verify: (e) => _validControlFor(fresh.manifest, e),
+        initialName: fresh.manifest.name,
+      );
+      if (folded.rejected.any(
+        (e) => e.author == entry.author && e.seq == entry.seq,
+      )) {
+        return false;
+      }
+      await _save(fresh.copyWith(control: candidate));
+      _publishDeviceMembersCache(fresh.manifest, folded.state);
+      signed = entry;
+      return true;
+    });
+    if (!appended) return false;
+    final delta = signed;
+    if (delta != null) {
+      if (op == ControlOp.addMember && broadcastSnapshot) {
+        await broadcast(gid);
+      } else if (op == ControlOp.removeMember) {
+        await broadcastDelta(gid, control: [delta]);
+      }
     }
     return true;
   }
@@ -17455,6 +17514,7 @@ class GroupService {
           null;
     }
     _invalidateDeviceMembersCache();
+    devLog(() => 'xVeil[devices]: revoke ${device.short} — append path');
     return _appendSovereignMembership(
       old,
       sovereign,
