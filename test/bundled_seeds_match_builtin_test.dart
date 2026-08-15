@@ -66,14 +66,35 @@ typedef Seed = ({String transport, String publicKey, String nonce});
 
 String _describe(Seed s) => '${s.transport} key=${s.publicKey} nonce=${s.nonce}';
 
+/// One network's two lists, named the way the build names them.
+typedef Network = ({String assetPath, String rustAnchor, bool lastMatch});
+
+/// Both of them. Production is the network real installs use; the testnet is
+/// what every development build now talks to, which makes ITS pair of lists
+/// exactly as load-bearing — a testnet whose two halves disagree wastes the
+/// same debugging session, just on cheaper hardware.
+const _networks = <String, Network>{
+  'production': (
+    assetPath: 'assets/prod/seeds.json',
+    // The LAST `builtin_seeds()`: the file carries several `#[cfg]`-gated
+    // definitions and only the production-seeds one holds the production list.
+    rustAnchor: 'pub fn builtin_seeds()',
+    lastMatch: true,
+  ),
+  'testnet': (
+    assetPath: 'assets/testnet/seeds.json',
+    rustAnchor: 'pub fn testnet_seeds()',
+    lastMatch: false,
+  ),
+};
+
 void main() {
-  final jsonFile = File('assets/prod/seeds.json');
   final rustFile = File(
     'third_party/veil/crates/veil-bootstrap/src/seeds.rs',
   );
 
   /// The list the APP bundles and dials.
-  List<Seed> bundled() {
+  List<Seed> bundled(File jsonFile) {
     final decoded = jsonDecode(jsonFile.readAsStringSync()) as List<dynamic>;
     return [
       for (final e in decoded.cast<Map<String, dynamic>>())
@@ -91,22 +112,20 @@ void main() {
   /// one from the other is the thing that was never done and this gate has to
   /// work on the tree as it stands. The parse is anchored on `builtin_seeds`
   /// so the DHT bundle constants and the doc comments below it cannot leak in.
-  List<Seed> builtin() {
+  List<Seed> builtin(Network network) {
     final source = rustFile.readAsStringSync();
-    final start = source.indexOf('pub fn builtin_seeds()');
-    expect(start, greaterThan(-1), reason: 'builtin_seeds() moved or was renamed');
-    // From the LAST definition: the file carries a `#[cfg]`-gated empty stub
-    // for the public source ahead of the real one, and anchoring on the first
-    // match would read the stub and compare production against nothing.
-    //
+    final anchor = network.rustAnchor;
+    final at = network.lastMatch
+        ? source.lastIndexOf(anchor)
+        : source.indexOf(anchor);
+    expect(at, greaterThan(-1), reason: '\$anchor moved or was renamed');
     // Bounded at the function's closing brace, not at the end of file. Reading
     // to EOF swallowed the `#[cfg(test)]` fixtures further down and reported
     // `tcp://seed1.example:9000` as a production seed the app was failing to
     // dial — a gate that invents its own finding is worse than no gate.
-    final last = source.lastIndexOf('pub fn builtin_seeds()');
-    final close = source.indexOf('\n}', last);
-    expect(close, greaterThan(-1), reason: 'builtin_seeds() has no closing brace');
-    final body = source.substring(last, close);
+    final close = source.indexOf('\n}', at);
+    expect(close, greaterThan(-1), reason: '\$anchor has no closing brace');
+    final body = source.substring(at, close);
     final entry = RegExp(
       r'transport:\s*"([^"]+)"\.to_owned\(\),\s*'
       r'public_key:\s*"([^"]+)"\.to_owned\(\),\s*'
@@ -122,64 +141,75 @@ void main() {
     ];
   }
 
-  test('the bundled seed list and the compiled-in one agree', () {
-    final app = bundled();
-    final node = builtin();
+  for (final entry in _networks.entries) {
+    final label = entry.key;
+    final network = entry.value;
 
-    // A floor before any comparison. Both parsers are discovery-based, and two
-    // empty sets are equal — the gate would pass loudest at the moment it had
-    // stopped reading either file. This project has shipped that shape before.
-    expect(
-      app.length,
-      greaterThanOrEqualTo(3),
-      reason: 'parsed ${app.length} seeds from ${jsonFile.path} — the parse '
-          'is broken, not the file',
-    );
-    expect(
-      node.length,
-      greaterThanOrEqualTo(3),
-      reason: 'parsed ${node.length} seeds from ${rustFile.path} — the parse '
-          'is broken, not the file',
-    );
+    test('the bundled $label seeds and the compiled-in ones agree', () {
+      final app = bundled(File(network.assetPath));
+      final node = builtin(network);
 
-    final onlyInApp = app.where((s) => !node.contains(s)).map(_describe);
-    final onlyInNode = node.where((s) => !app.contains(s)).map(_describe);
-
-    expect(
-      onlyInApp,
-      isEmpty,
-      reason: 'the app would dial seeds the node does not know:\n'
-          '${onlyInApp.join('\n')}',
-    );
-    expect(
-      onlyInNode,
-      isEmpty,
-      reason: 'the node knows seeds the app will never dial:\n'
-          '${onlyInNode.join('\n')}',
-    );
-  });
-
-  test('no test stand reached the shipped list', () {
-    // The separate promise, and the one with the sharper edge: test seeds must
-    // never enter the index or a release bundle. A stand runs on port 5557 on
-    // hosts that are not the production fleet, and the swap that caused the
-    // outage above put exactly those values in this file for half an hour.
-    //
-    // Asserted on the PORT and on the production host set rather than on a
-    // denylist of stand addresses — a denylist only knows the stands that
-    // existed when it was written, and the next one will have a new address.
-    for (final seed in bundled()) {
+      // A floor before any comparison. Both parsers are discovery-based, and
+      // two empty sets are equal — the gate would pass loudest at the moment it
+      // had stopped reading either file. This project has shipped that shape
+      // before.
       expect(
-        seed.transport,
-        endsWith(':5556'),
-        reason: '${seed.transport} is not on the production port',
+        app.length,
+        greaterThanOrEqualTo(3),
+        reason: 'parsed ${app.length} seeds from ${network.assetPath} — the '
+            'parse is broken, not the file',
       );
       expect(
-        seed.transport,
-        startsWith('obfs4-tcp://'),
-        reason: '${seed.transport} is not an obfs4 transport — a plain one '
-            'would ship an unobfuscated bootstrap',
+        node.length,
+        greaterThanOrEqualTo(3),
+        reason: 'parsed ${node.length} seeds from ${network.rustAnchor} — the '
+            'parse is broken, not the file',
       );
+
+      final onlyInApp = app.where((s) => !node.contains(s)).map(_describe);
+      final onlyInNode = node.where((s) => !app.contains(s)).map(_describe);
+
+      expect(
+        onlyInApp,
+        isEmpty,
+        reason: 'the app would dial $label seeds the node does not know:\n'
+            '${onlyInApp.join('\n')}',
+      );
+      expect(
+        onlyInNode,
+        isEmpty,
+        reason: 'the node knows $label seeds the app will never dial:\n'
+            '${onlyInNode.join('\n')}',
+      );
+    });
+  }
+
+  // The separate promise, and the one with the sharper edge: the two networks
+  // must not be able to swap files. A stand runs on 5557 on hosts that are not
+  // the production fleet, and the swap that caused the outage above put exactly
+  // those values in the production file for half an hour.
+  //
+  // Asserted on the PORT rather than on a denylist of stand addresses — a
+  // denylist only knows the stands that existed when it was written, and the
+  // next one will have a new address. The two networks share their hosts now,
+  // so the port is the whole of the difference visible from here.
+  test('each network\'s file is on that network\'s port', () {
+    const ports = {'production': ':5556', 'testnet': ':5557'};
+    for (final entry in _networks.entries) {
+      for (final seed in bundled(File(entry.value.assetPath))) {
+        expect(
+          seed.transport,
+          endsWith(ports[entry.key]!),
+          reason: '${seed.transport} is in ${entry.value.assetPath} but not on '
+              'the ${entry.key} port — the two files have been swapped',
+        );
+        expect(
+          seed.transport,
+          startsWith('obfs4-tcp://'),
+          reason: '${seed.transport} is not an obfs4 transport — a plain one '
+              'would ship an unobfuscated bootstrap',
+        );
+      }
     }
   });
 
