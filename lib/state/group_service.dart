@@ -494,6 +494,31 @@ class GroupService {
   /// its own id IS the identity, which the transport already refuses to send
   /// live.
   NodeId? myDevice;
+
+  /// Reads [myDevice] from the node config when it is not known yet.
+  ///
+  /// Resolved LAZILY because the one-shot read at construction runs before the
+  /// store is unlocked and throws "storage is locked" — swallowed, never
+  /// retried, and `myDevice` stayed null for the rest of the session. On the
+  /// master-key device that is invisible, since its device id IS the identity;
+  /// on a restored one it meant the fallback kept THIS device as the recipient
+  /// and the transport then refused to send to itself, so a post went nowhere
+  /// with no error anywhere.
+  Future<NodeId?> Function()? myDeviceReader;
+
+  /// [myDevice], resolving it once if the construction-time read could not.
+  Future<NodeId?> resolveMyDevice() async {
+    final known = myDevice;
+    if (known != null) return known;
+    final read = myDeviceReader;
+    if (read == null) return null;
+    try {
+      return myDevice = await read();
+    } catch (caught) {
+      devLog(() => 'xVeil[devices]: own device id still unavailable: $caught');
+      return null;
+    }
+  }
   final GroupSnapshotSender? _send;
   final SpaceInviteSender? sendSpaceInvite;
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
@@ -16703,6 +16728,9 @@ class GroupService {
   /// this device as "other", which is backwards in the way that is hardest to
   /// see.
   Future<List<NodeId>> otherDeviceIds() async {
+    // Ask before folding: without it the fallback names this device and the
+    // caller addresses itself.
+    await resolveMyDevice();
     final hex = await deviceGroupIdHex();
     if (hex == null) return const [];
     final b = await load(NodeId.fromHex(hex));
