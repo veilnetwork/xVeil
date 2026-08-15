@@ -18,6 +18,60 @@ import 'veil_mailbox.dart';
 import 'veil_mailbox_network.dart';
 import 'veil_transport.dart';
 
+/// Which path a live send may take.
+enum SendRoute {
+  /// None. The destination is our own identity, and no live path can reach a
+  /// sibling device — the mailbox deposit the caller makes IS the delivery.
+  deviceSync,
+
+  /// Onion rendezvous circuit; the sender's location stays hidden.
+  onion,
+
+  /// Ordinary addressed send.
+  direct,
+}
+
+/// Decide the path BEFORE anonymity does.
+///
+/// The ordering is the whole point, and getting it wrong is what a comment
+/// cannot catch. Anonymity is on by default, and the anonymous branch used to
+/// return first — so a send addressed at our own identity went out over a path
+/// that cannot deliver it, and no check further down was ever reached.
+///
+/// Why no live path works: every device of an identity registers as a
+/// rendezvous publisher under the SAME address, so resolving it picks one
+/// device, and for the sender that device is itself. Measured on a two-device
+/// stand as seven `INBOUND from=<our own id>` at the source and `recovered=0`
+/// at the sibling, for a snapshot the source reported sent. The non-anonymous
+/// path is no better: the node short-circuits a self-addressed send into a
+/// local delivery.
+///
+/// The mailbox is the only path that knows an identity has several devices — it
+/// seals one envelope per instance from the document this device holds. So a
+/// device sync is deposit-only, deliberately against the usual "live leg first,
+/// mailbox for whatever went unacknowledged". Until the direct path learns
+/// instances, a live leg here is not a faster copy; it is a copy handed to the
+/// wrong device.
+SendRoute sendRouteFor(
+  Uint8List? myIdentity,
+  NodeId dst, {
+  required bool anonymous,
+}) {
+  if (myIdentity != null &&
+      myIdentity.length == dst.bytes.length &&
+      _sameBytesFor(myIdentity, dst.bytes)) {
+    return SendRoute.deviceSync;
+  }
+  return anonymous ? SendRoute.onion : SendRoute.direct;
+}
+
+bool _sameBytesFor(Uint8List a, Uint8List b) {
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// The single surface through which the call media plane opens a datagram
 /// channel. Every route goes through here and every route carries the same
 /// mandatory directional keys, so the route→open mapping can be exercised
@@ -567,6 +621,38 @@ class VeilFlutterTransport
 
   @override
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) {
+    // ADDRESSED AT OUR OWN IDENTITY: a sync to our other devices, and NO live
+    // path can carry one today. Checked before the anonymous branch, because
+    // anonymity is the default and that branch used to return first — which is
+    // how a device sync ended up on a path that cannot deliver it.
+    //
+    // Every device of an identity registers as a rendezvous publisher under the
+    // SAME address, so resolving it picks one device, and for the sender that
+    // device is itself. Measured on a two-device stand: seven
+    // `INBOUND from=<our own id>` at the source and `recovered=0` at the
+    // sibling, for a snapshot the source reported sent. The plain path is no
+    // better — the node short-circuits a self-addressed send into a local
+    // delivery.
+    //
+    // The mailbox is the only path that knows an identity has several devices:
+    // it seals one envelope per instance from the document we hold. So a device
+    // sync is DEPOSIT-ONLY, deliberately against the usual "live leg first,
+    // mailbox for what went unacknowledged" — the callers stash after every
+    // send, and that deposit is the delivery. Until the direct path learns
+    // instances, a live leg here would not be a faster copy; it would be a copy
+    // handed to the wrong device.
+    switch (sendRouteFor(identityAddress, dst, anonymous: anonymous)) {
+      case SendRoute.deviceSync:
+        devLog(
+          () =>
+              'xVeil[send]: dst is our own identity — device sync by mailbox '
+              'only (a live send resolves us, not our sibling)',
+        );
+        return Future<void>.value();
+      case SendRoute.onion:
+      case SendRoute.direct:
+        break;
+    }
     if (anonymous) {
       // Onion rendezvous send: the node resolves dst's rendezvous ad, builds a
       // circuit through relays, and seals an introduce — the recipient and the
@@ -583,36 +669,12 @@ class VeilFlutterTransport
         data: payload,
       );
     }
-    // ADDRESSED AT OUR OWN IDENTITY: this is a device sync, and it needs the
-    // native call that says so. Every device of an identity answers to this
-    // address, so an ordinary send there is short-circuited by the node into a
-    // local delivery that never leaves the machine — the outbox counts it
-    // delivered, acknowledges it, and the copy that would reach a sibling is
-    // never deposited. Measured on a two-device stand as a deposit that stayed
-    // deferred forever while the sibling polled its relays correctly.
-    final mine = identityAddress;
-    if (mine != null && _sameId(mine, dst.bytes)) {
-      return _app.sendToMyDevices(
-        myNodeId: dst.bytes,
-        dstAppId: chatAppIdFor(dst),
-        dstEndpointId: veilChatEndpointId,
-        data: payload,
-      );
-    }
     return _app.send(
       dstNodeId: dst.bytes,
       dstAppId: chatAppIdFor(dst),
       dstEndpointId: veilChatEndpointId,
       data: payload,
     );
-  }
-
-  static bool _sameId(Uint8List a, Uint8List b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
   }
 
   @override
