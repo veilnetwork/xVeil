@@ -58,6 +58,22 @@ case "${XVEIL_DEBUG_HOOK:-}" in
   1|true|yes)
     HOOK_DEFINE=(--dart-define=XVEIL_DEBUG_HOOK=true)
     echo "    debug hook: ON (stand build — do not hand this to a user)"
+    # The PORT is compile-time for the same reason the flag is, and a stand
+    # that needs TWO instances on one machine cannot separate them at launch:
+    # both take the platform default, the second one's bind fails, and the
+    # failure is swallowed into a devLog nobody can read without the hook that
+    # just failed to start. Proven the slow way -- a second desktop build made
+    # without this bound 38765 while its caller waited on 38767.
+    if [[ -n "${XVEIL_DEBUG_HOOK_PORT:-}" ]]; then
+      case "$XVEIL_DEBUG_HOOK_PORT" in
+        ''|*[!0-9]*)
+          echo "XVEIL_DEBUG_HOOK_PORT must be a number, got '$XVEIL_DEBUG_HOOK_PORT'" >&2
+          exit 1
+          ;;
+      esac
+      HOOK_DEFINE+=(--dart-define=XVEIL_DEBUG_HOOK_PORT="$XVEIL_DEBUG_HOOK_PORT")
+      echo "    debug hook port: $XVEIL_DEBUG_HOOK_PORT"
+    fi
     ;;
 esac
 
