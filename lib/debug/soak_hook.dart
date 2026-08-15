@@ -14,6 +14,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
+import '../crypto/blake3.dart';
+import '../data/node/embedded_node.dart';
 import '../core/log.dart';
 import '../core/posix_file_facts.dart' show posixChmod;
 import '../data/runtime_dir_sweep.dart' show sweepStaleRuntimeDirs;
@@ -696,6 +698,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_trace':
           await _groupTraceHook(req);
+          return;
+        case '/why_invalid':
+          await _whyInvalidHook(req);
           return;
         case '/group_index':
           await _groupIndexHook(req);
@@ -2409,6 +2414,50 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       out[row.groupId.hex] = row.preview;
     }
     return out;
+  }
+
+  /// Why the newest message in a group does or does not verify.
+  ///
+  /// Every layer above this reports the same thing for a message that fails its
+  /// author binding — nothing at all. It is stored, filtered out of every read
+  /// and skipped by every send, and none of those say why. This asks the
+  /// predicate itself and prints its inputs, so the answer is a measurement
+  /// rather than a deduction from three silences.
+  Future<void> _whyInvalidHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gid = req.uri.queryParameters['group'];
+    if (gid == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final b = await svc.load(NodeId.fromHex(gid));
+    if (b == null || b.messages.isEmpty) {
+      return _json(req, {'ok': false, 'error': 'no messages'});
+    }
+    final m = b.messages.last;
+    final doc = await RealVeilStack.storedSovereignDocument(
+      ref.read(storageProvider),
+    );
+    return _json(req, {
+      'ok': true,
+      'author': m.author.hex,
+      'authorShort': m.author.hex.substring(0, 8),
+      'selfId': svc.selfId.hex.substring(0, 8),
+      'authorPubKey': m.authorPubKey.length,
+      // Does the ORIGINAL rule hold — is the signing key the author's own?
+      'hashBinds':
+          m.authorPubKey.length == 32 &&
+          NodeId(blake3Hash(m.authorPubKey)) == m.author,
+      'haveDocument': doc != null && doc.isNotEmpty,
+      // And does the document vouch for this key on the author's behalf?
+      'documentAuthorizes': doc == null || m.authorPubKey.length != 32
+          ? false
+          : EmbeddedNode.identityDocumentAuthorizes(
+              document: doc,
+              nodeId: m.author.bytes,
+              publicKey: m.authorPubKey,
+            ),
+      'verdict': svc.debugMessageIsValid(b.manifest.groupId, m),
+    });
   }
 
   Future<void> _groupIndexHook(HttpRequest req) async {

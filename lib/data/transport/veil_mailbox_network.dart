@@ -28,6 +28,16 @@ final Uint8List kMailboxAppId = Uint8List.fromList(const [
 const int kMailboxPutEndpointId = 1;
 const int kMailboxFetchEndpointId = 2;
 
+/// Receiver-authenticated SLICE: "give me `content_id` from `offset`".
+///
+/// The way a blob larger than one FETCH reply comes out of the store. A blob
+/// carries one ML-KEM envelope PER RECIPIENT DEVICE, so its size follows the
+/// identity rather than the message — past a few devices nothing of any size
+/// fits a reply, and the deposit side (chunked, up to a megabyte) was never the
+/// limit. A relay predating this endpoint binds nothing and drops the request;
+/// the blob then ages out exactly as it did before.
+const int kMailboxSliceEndpointId = 5;
+
 /// Receiver-authenticated ACK: "drop my blob `content_id`". Relays older than
 /// the endpoint simply have nothing bound there and drop the deliver — the ack
 /// is fire-and-forget, so mixed fleets degrade to the old TTL-only behavior.
@@ -166,6 +176,63 @@ List<StoredMailboxBlob> decodeMailboxFetchResp(Uint8List data) {
   return out;
 }
 
+/// Encode a `MailboxSliceReqPayload` (veil-proto `ipc.rs`):
+///   content_id(32) | offset(u32 BE)
+Uint8List encodeMailboxSliceReq(Uint8List contentId, int offset) {
+  if (contentId.length != 32) {
+    throw ArgumentError('content id must be 32 bytes');
+  }
+  final out = Uint8List(36);
+  out.setRange(0, 32, contentId);
+  ByteData.sublistView(out).setUint32(32, offset, Endian.big);
+  return out;
+}
+
+/// One window of a stored blob, as the relay answers a slice request.
+class MailboxSlice {
+  const MailboxSlice({
+    required this.contentId,
+    required this.offset,
+    required this.totalLen,
+    required this.bytes,
+  });
+
+  final Uint8List contentId;
+  final int offset;
+
+  /// Full length of the blob, stated in EVERY slice. Zero means the relay holds
+  /// no such blob for us — an answer, not an empty window, so a blob that aged
+  /// out or was acked from another device ends the walk instead of repeating it.
+  final int totalLen;
+  final Uint8List bytes;
+}
+
+/// Decode a `MailboxSlicePayload`:
+///   content_id(32) | offset(u32 BE) | total_len(u32 BE) | len(u32 BE) | bytes
+///
+/// Throws [FormatException] on anything malformed — including a length that
+/// overruns the frame, which is the shape a hostile relay would use to make us
+/// allocate on its word rather than on its bytes.
+MailboxSlice decodeMailboxSliceResp(Uint8List data) {
+  const header = 32 + 4 + 4 + 4;
+  if (data.length < header) {
+    throw const FormatException('mailbox slice reply too short for header');
+  }
+  final bd = ByteData.sublistView(data);
+  final len = bd.getUint32(40, Endian.big);
+  if (header + len > data.length) {
+    throw FormatException(
+        'mailbox slice reply overruns (need ${header + len}, '
+        'have ${data.length})');
+  }
+  return MailboxSlice(
+    contentId: Uint8List.fromList(data.sublist(0, 32)),
+    offset: bd.getUint32(32, Endian.big),
+    totalLen: bd.getUint32(36, Endian.big),
+    bytes: Uint8List.fromList(data.sublist(header, header + len)),
+  );
+}
+
 /// Network-path mailbox relay transport — the PROVEN anonymous onion path,
 /// satisfying the same [VeilMailboxRelay] port the dormant [MailboxOrchestrator]
 /// already drives. Unlike the local-IPC adapter ([VeilFlutterMailboxRelay],
@@ -212,19 +279,26 @@ class MailboxDrainUnreachable implements Exception {
 /// The largest SEALED blob a relay will store, and the per-blob header it
 /// charges on top.
 ///
-/// Not a policy of ours — the relay's, mirrored. It refuses anything a FETCH
-/// reply could not carry back, because a stored blob nobody can fetch sits at
-/// the head of an oldest-first queue and starves everything behind it. Its
-/// ceiling is one signed auth-deliver message (veil's
-/// `MAX_AUTH_DELIVER_MSG_BYTES`, 6144) minus room for the reply's own framing,
-/// and the header is `sender_id + content_id + deposited_at + len`.
+/// Not a policy of ours — the relay's, mirrored (`MAX_BLOB_BYTES`). It used to
+/// be a FETCH reply's worth, 5632 bytes, because a reply was the only way out
+/// of the store and a blob nobody could fetch sat at the head of an
+/// oldest-first queue starving everything behind it.
+///
+/// That ceiling refused messages nobody could have made smaller. A blob carries
+/// one ML-KEM envelope PER RECIPIENT DEVICE, so its weight follows the identity
+/// rather than the message: measured on the stand, a 2874-byte frame sealed to
+/// 13937 bytes for an identity with two other devices, and every deposit to
+/// that identity was refused. Shrinking what the app sends could not help — the
+/// cost is charged per blob and it is the ENVELOPES that grow.
+///
+/// The relay now announces such a blob in its FETCH reply and serves it a
+/// window at a time from [kMailboxSliceEndpointId], so the deposit cap is the
+/// store's own again.
 ///
 /// Mirrored rather than asked for because the PUT is sender-anonymous: there is
 /// no reply path to carry a refusal, so the only way for a sender to know is to
-/// apply the same rule. The numbers are veil's and are checked against it by
-/// [MailboxBlobTooLarge]'s test; if veil raises them this is the one place to
-/// follow.
-const int kMailboxBlobMaxBytes = 6144 - 512;
+/// apply the same rule.
+const int kMailboxBlobMaxBytes = 1024 * 1024;
 const int kMailboxPerBlobWireHeaderBytes = 32 + 32 + 8 + 4;
 
 /// Thrown by [VeilNetworkMailboxRelay.put] for a blob no relay would store.
@@ -303,6 +377,18 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   /// (they answer within a few hundred ms of each other), not to outwait a sick
   /// one — that is what the next pass is for. See the note at the arming site.
   static const Duration _stragglerGrace = Duration(milliseconds: 700);
+
+  /// How long one slice round trip may take before the pass gives up on it.
+  /// An onion round trip, so seconds rather than milliseconds; a miss costs a
+  /// retry on the next drain, never a lost blob.
+  static const Duration _sliceTimeout = Duration(seconds: 20);
+
+  /// Rounds one announced blob may take before the pass abandons it. Derived,
+  /// not picked: the store caps a blob at [kMailboxBlobMaxBytes] and a window
+  /// carries at least a kilobyte, so a blob that needs more rounds than this
+  /// could not have been stored. It bounds a relay that answers forever with
+  /// short windows.
+  static const int _maxSliceRounds = kMailboxBlobMaxBytes ~/ 1024 + 8;
   final RelayKeyCache? _relayKeyCache;
 
   /// Last logged known-relay count — the steady-state drain plan is logged
@@ -663,6 +749,40 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       await sub.cancel();
     }
     if (malformed != null) throw malformed!;
+    // ANNOUNCED BLOBS. An entry with no bytes is not an empty deposit — the
+    // relay refuses those at the door — it is a blob too heavy for one reply,
+    // and the relay is telling us to come and get it. Collect each one window
+    // by window before the drain reports what it found.
+    if (aggregated.any((b) => b.blob.isEmpty)) {
+      final filled = <StoredMailboxBlob>[];
+      for (final b in aggregated) {
+        if (b.blob.isNotEmpty) {
+          filled.add(b);
+          continue;
+        }
+        final bytes = await _collectAnnounced(
+          contentId: b.contentId,
+          relayIds: relayIds,
+          kemByRelay: kemByRelay,
+        );
+        if (bytes == null) {
+          // Left out rather than passed on empty: an empty blob decrypts to
+          // nothing and would be acked as processed, which is how a message
+          // gets dropped and called delivered. Next drain tries again.
+          devLog(() => 'xVeil[drain]: announced blob '
+              '${NodeId(b.contentId).short} not collected this pass');
+          continue;
+        }
+        filled.add(StoredMailboxBlob(
+          senderId: b.senderId,
+          contentId: b.contentId,
+          blob: bytes,
+        ));
+      }
+      aggregated
+        ..clear()
+        ..addAll(filled);
+    }
     final anyAnswered = replies > 0;
     // At least one relay ANSWERED (even if every answer was an empty mailbox) —
     // the union is authoritative for this drain.
@@ -680,6 +800,131 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // No relay to even try (not yet registered, own-ad resolved nothing) — that
     // genuinely is "nothing to fetch", so report empty and let the caller idle.
     return const [];
+  }
+
+  /// Collect one ANNOUNCED blob: ask a relay for window after window until we
+  /// hold the length it stated.
+  ///
+  /// Each request is its own onion round trip with its own one-time reply path,
+  /// so nothing has to be reused and a lost round only costs a retry. Returns
+  /// null when the walk does not complete — a relay that predates the endpoint
+  /// (nothing bound there, the deliver dropped), one that no longer holds the
+  /// blob, or a pass that ran out of rounds. Null means "not this time", never
+  /// "nothing was there": the caller leaves the blob unacked so the next drain
+  /// asks again.
+  ///
+  /// Relays are tried in turn because the deposit fans out to several replicas
+  /// and any one of them may have aged its copy out.
+  Future<Uint8List?> _collectAnnounced({
+    required Uint8List contentId,
+    required List<Uint8List> relayIds,
+    required Map<String, Uint8List> kemByRelay,
+  }) async {
+    for (final relayId in relayIds) {
+      final relay = NodeId(relayId);
+      Uint8List? kem = kemByRelay[relay.hex];
+      if (kem == null || kem.length != 32) {
+        try {
+          kem = await _relayKeyCache?.get(relay);
+        } catch (_) {
+          kem = null;
+        }
+      }
+      final out = BytesBuilder(copy: false);
+      var offset = 0;
+      int? total;
+      var rounds = 0;
+      var ok = false;
+      while (rounds < _maxSliceRounds) {
+        rounds++;
+        final slice = await _requestSlice(
+          relayId: relayId,
+          relayKemPk: kem != null && kem.length == 32 ? kem : null,
+          contentId: contentId,
+          offset: offset,
+        );
+        // No answer at all: this relay cannot serve it (or is older than the
+        // endpoint). Move to the next replica rather than spending the pass.
+        if (slice == null) break;
+        // A stated length of zero is the relay saying it holds nothing. Also
+        // the answer for a blob acked from another device — stop, do not retry.
+        if (slice.totalLen == 0) break;
+        if (slice.totalLen > kMailboxBlobMaxBytes) break;
+        total ??= slice.totalLen;
+        // A relay that changes its story mid-walk is one we cannot assemble
+        // from; the bytes would be a mixture of two blobs.
+        if (slice.totalLen != total) break;
+        if (slice.offset != offset) break;
+        if (slice.bytes.isEmpty) break;
+        out.add(slice.bytes);
+        offset += slice.bytes.length;
+        if (offset >= total) {
+          ok = true;
+          break;
+        }
+      }
+      if (!ok || total == null) continue;
+      final bytes = out.toBytes();
+      if (bytes.length != total) continue;
+      devLog(() => 'xVeil[drain]: collected announced blob '
+          '${NodeId(contentId).short} — ${bytes.length}B in $rounds slice(s) '
+          'from ${relay.short}');
+      return bytes;
+    }
+    return null;
+  }
+
+  /// One slice round trip. Correlated by (content_id, offset) carried in the
+  /// answer itself, because replies share one endpoint and a straggler from an
+  /// earlier round would otherwise be read as this round's answer.
+  Future<MailboxSlice?> _requestSlice({
+    required Uint8List relayId,
+    required Uint8List? relayKemPk,
+    required Uint8List contentId,
+    required int offset,
+  }) async {
+    final want = Completer<MailboxSlice?>();
+    final sub = _fetchApp.messages().listen((m) {
+      if (want.isCompleted) return;
+      final MailboxSlice slice;
+      try {
+        slice = decodeMailboxSliceResp(m.data);
+      } on FormatException {
+        return; // not a slice reply (a straggler FETCH answer, say)
+      }
+      if (slice.offset != offset) return;
+      for (var i = 0; i < 32; i++) {
+        if (slice.contentId[i] != contentId[i]) return;
+      }
+      want.complete(slice);
+    });
+    try {
+      final req = encodeMailboxSliceReq(contentId, offset);
+      if (relayKemPk != null) {
+        await _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
+          dstNodeId: relayId,
+          dstX25519Pk: relayKemPk,
+          dstAppId: kMailboxAppId,
+          dstEndpointId: kMailboxSliceEndpointId,
+          replyEndpointId: _replyEndpointId,
+          data: req,
+        );
+      } else {
+        await _fetchApp.sendAnonymousAuthenticatedWithReply(
+          dstNodeId: relayId,
+          dstAppId: kMailboxAppId,
+          dstEndpointId: kMailboxSliceEndpointId,
+          replyEndpointId: _replyEndpointId,
+          data: req,
+        );
+      }
+      return await want.future.timeout(_sliceTimeout, onTimeout: () => null);
+    } catch (e) {
+      devLog(() => 'xVeil[drain]: slice request failed: $e');
+      return null;
+    } finally {
+      await sub.cancel();
+    }
   }
 
   @override
