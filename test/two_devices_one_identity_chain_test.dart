@@ -31,7 +31,9 @@ import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
+import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/messaging_core.dart';
 
 import 'support/fake_hv_container.dart';
 
@@ -210,6 +212,52 @@ void main() {
       await desktop.postMessage(gid, 'still writable too'),
       isTrue,
       reason: 'the desktop stopped being able to write to its own group',
+    );
+  });
+
+  test('the outbox flush does not delete frames addressed to my own device',
+      () async {
+    // The flush retires any frame whose peer is not a contact, and a sibling
+    // is never a contact — the identity does not befriend itself. Measured on
+    // the stand: a chunked snapshot's first chunk deposited, the rest deferred
+    // "for the outbox flush to reconsider", and the flush had already deleted
+    // the frames it would have reconsidered. The sender's outbox read 0 and
+    // the sibling waited forever.
+    final storage = await _storage();
+    final messaging = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 1)))),
+      storage,
+    );
+    addTearDown(messaging.dispose);
+    final sibling = NodeId(Uint8List.fromList(List.filled(32, 0xB2)));
+    messaging.isOwnDevice = (peer) async => peer == sibling;
+
+    await storage.enqueueOutboxFrame(
+      'grpc:grp:aa:bb:${sibling.hex}:0',
+      sibling.hex,
+      Uint8List.fromList([1, 2, 3]),
+    );
+    final stranger = NodeId(Uint8List.fromList(List.filled(32, 0xC3)));
+    await storage.enqueueOutboxFrame(
+      'grpc:grp:aa:bb:${stranger.hex}:0',
+      stranger.hex,
+      Uint8List.fromList([4, 5, 6]),
+    );
+
+    await messaging.debugFlushOutboxFrames();
+
+    final kept = (await storage.pendingOutboxFrames())
+        .map((frame) => frame.peerHex)
+        .toList();
+    expect(
+      kept,
+      contains(sibling.hex),
+      reason: 'the flush deleted a frame addressed to my own device',
+    );
+    expect(
+      kept,
+      isNot(contains(stranger.hex)),
+      reason: 'a frame to an actual stranger must still be retired',
     );
   });
 
