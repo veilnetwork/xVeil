@@ -48,22 +48,20 @@ echo "==> Building veilclient-ffi ($PROFILE, node-embedded,packet-tunnel)"
 # node-embedded bundles the in-process node runtime (veil_config_init /
 # veil_node_start_deferred / veil_node_apply_config), required for the deniable
 # in-process boot. It is additive — the client-only symbols are still present.
-# Release builds require an explicit seed posture (veil-bootstrap
-# compile_error); mirror the Android gradle build and bake the production
-# seeds in.
-VEIL_FEATURES="node-embedded,packet-tunnel"
-if [[ "$PROFILE" == "release" ]]; then
-  VEIL_FEATURES="node-embedded,production-seeds,packet-tunnel"
-fi
+# WHICH NETWORK THIS BINARY BELONGS TO, and it is not a detail of packaging.
+# The node splices its compiled-in seed list in by itself whenever the config
+# names no peers, so this feature — not the bundled asset — decides what a stock
+# install actually dials. The rule has ONE home, shared with every other build
+# path and mirrored by the Dart half (lib/data/node/network_flavor.dart).
+# shellcheck source=scripts/veil-network.sh
+source "$(dirname "${BASH_SOURCE[0]}")/veil-network.sh"
+echo "==> Network: $XVEIL_NETWORK (veil feature: $SEED_FEATURE)"
+VEIL_FEATURES="node-embedded,$SEED_FEATURE,packet-tunnel"
 ( cd "$VEIL" && cargo build -p veilclient-ffi --features "$VEIL_FEATURES" ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
 if [[ "$BUILD_CLI" == true ]]; then
   echo "==> Building veil-cli ($PROFILE)"
-  if [[ "$PROFILE" == "release" ]]; then
-    ( cd "$VEIL" && cargo build -p veil-cli --features production-seeds ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
-  else
-    ( cd "$VEIL" && cargo build -p veil-cli ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
-  fi
+  ( cd "$VEIL" && cargo build -p veil-cli --features "$SEED_FEATURE" ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 fi
 
 case "$(uname -s)" in

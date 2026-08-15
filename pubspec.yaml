@@ -193,9 +193,14 @@ flutter:
     # (the 1254px source lives next to it but is deliberately NOT bundled).
     - assets/icon/tray_icon.png
     - assets/icon/tray_icon.ico
-    # Deployment network material (obfs4 PSK). The PSK file itself is gitignored;
-    # the dir always holds README.md so clean clones still build.
+    # Deployment network material (seed descriptors + obfs4 PSK), one directory
+    # per network. BOTH are bundled: which one the app reads is decided at
+    # runtime by the build mode (see lib/data/node/network_flavor.dart), and a
+    # directory that is not in the manifest cannot be read at all. The PSK files
+    # themselves are gitignored; each dir always holds README.md so clean clones
+    # still build.
     - assets/prod/
+    - assets/testnet/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

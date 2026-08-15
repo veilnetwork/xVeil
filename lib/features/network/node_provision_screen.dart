@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../data/node/network_flavor.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -189,7 +190,7 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
   Future<void> _loadPsk() async {
     String? psk;
     try {
-      psk = (await rootBundle.loadString('assets/prod/obfs4_psk.b64')).trim();
+      psk = (await rootBundle.loadString(veilNetwork.obfs4PskAsset)).trim();
     } catch (_) {
       psk = null;
     }

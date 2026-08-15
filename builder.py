@@ -39,6 +39,22 @@ VEIL = os.path.join("third_party", "veil")
 HV = os.path.join("third_party", "hidden-volume")
 
 
+def seed_feature(release: bool) -> str:
+    """The veil cargo feature naming this build's network.
+
+    One rule, four build paths: `scripts/veil-network.sh` is the shell half and
+    `lib/data/node/network_flavor.dart` the Dart half, and all of them read the
+    same environment variable. A debug build without a seed feature is not
+    neutral — veil hands `debug_assertions` the production list — so every path
+    states its posture rather than leaving it to a default.
+    """
+    network = os.environ.get("XVEIL_NETWORK") or ("prod" if release else "testnet")
+    try:
+        return {"prod": "production-seeds", "testnet": "testnet-seeds"}[network]
+    except KeyError:
+        raise SystemExit(f"unknown XVEIL_NETWORK={network} (want prod|testnet)")
+
+
 def _apple_signing_available() -> bool:
     """Whether a normal signed Apple build can even be attempted.
 
@@ -982,8 +998,13 @@ def _windows(release: bool) -> list[Step]:
     runner = os.path.join("build", "windows", "x64", "runner", "Release" if release else "Debug")
     cargo_hv = ["cargo", "build", "--manifest-path", os.path.join(HV, "Cargo.toml"),
                 "-p", "hidden-volume-ffi"]
+    # Which network this binary belongs to — the same rule every other build
+    # path applies. Hardcoding "production-seeds" here meant a Windows DEBUG
+    # build dialled the production seeds whatever the rest of the build was
+    # told, and nothing in the app could see it.
     cargo_veil = ["cargo", "build", "--manifest-path", os.path.join(VEIL, "Cargo.toml"),
-                  "-p", "veilclient-ffi", "--features", "node-embedded,production-seeds"]
+                  "-p", "veilclient-ffi",
+                  "--features", f"node-embedded,{seed_feature(release)}"]
     whisper_win = _whisper_script("windows")
     whisper_dll = os.path.join(ROOT, "native", "whisper", "windows", "veil_whisper.dll")
     # Written before the Windows build script exists, deliberately. Every other

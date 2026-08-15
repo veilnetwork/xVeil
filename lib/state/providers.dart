@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../data/node/network_flavor.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -341,7 +342,7 @@ final myInviteProvider = Provider<String?>(
 /// "share entry nodes" feature. Empty in a clean clone (asset absent).
 final seedEntriesProvider = FutureProvider<List<BootstrapInvite>>((ref) async {
   try {
-    final raw = await rootBundle.loadString('assets/prod/seeds.json');
+    final raw = await rootBundle.loadString(veilNetwork.seedsAsset);
     final json = jsonDecode(raw);
     if (json is! List) return const [];
     return [

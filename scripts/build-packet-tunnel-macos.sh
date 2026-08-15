@@ -15,18 +15,26 @@ case "$CONFIGURATION" in
   Debug)
     CARGO_PROFILE="debug"
     CARGO_FLAGS=()
-    VEIL_FEATURES="node-embedded,packet-tunnel"
+    PROFILE="debug"
     ;;
   Release|Profile)
     CARGO_PROFILE="release"
     CARGO_FLAGS=(--release)
-    VEIL_FEATURES="node-embedded,production-seeds,packet-tunnel"
+    PROFILE="release"
     ;;
   *)
     echo "error: unsupported Xcode configuration: $CONFIGURATION" >&2
     exit 2
     ;;
 esac
+
+# One rule for which network this tunnel belongs to, shared with every other
+# build path. The tunnel carries its OWN copy of the node, so a tunnel built
+# against the wrong network is a second way to dial production from a
+# development build — and a quieter one, since it runs outside the app.
+# shellcheck source=scripts/veil-network.sh
+source "$ROOT/scripts/veil-network.sh"
+VEIL_FEATURES="node-embedded,$SEED_FEATURE,packet-tunnel"
 
 export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-11.0}"
 OUTPUT_DIR="$ROOT/build/apple-packet-tunnel/$CONFIGURATION"
