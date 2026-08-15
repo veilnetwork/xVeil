@@ -34,6 +34,23 @@ void main() {
     expect(sendRouteFor(me.bytes, me, anonymous: false), SendRoute.deviceSync);
   });
 
+  // THE LOOP GUARD. A caller that has guessed wrong about which member it is
+  // will address this node, and it cannot be the one to catch that — the frame
+  // arrives, is ingested, and provokes the next. Measured on a restored device
+  // as 286 entries in a device group against 34 on its sibling.
+  test('our own node id is never live-sent to, whatever was asked', () {
+    final myNode = _id(3);
+    expect(
+      sendRouteFor(me.bytes, myNode, anonymous: true, myNode: myNode.bytes),
+      SendRoute.deviceSync,
+    );
+    expect(
+      sendRouteFor(null, myNode, anonymous: false, myNode: myNode.bytes),
+      SendRoute.deviceSync,
+      reason: 'it holds even when the identity is not known yet',
+    );
+  });
+
   test('a peer still routes by anonymity', () {
     expect(sendRouteFor(me.bytes, peer, anonymous: true), SendRoute.onion);
     expect(sendRouteFor(me.bytes, peer, anonymous: false), SendRoute.direct);

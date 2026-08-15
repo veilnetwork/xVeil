@@ -397,13 +397,17 @@ List<NodeId> snapshotRecipients({
   required NodeId owner,
 }) {
   if (isDeviceGroup) {
-    // NO GUESSING HERE. Falling back to the identity looks conservative and is
-    // not: on a device restored into an existing identity the identity names
-    // the SIBLING, so the fallback drops the sibling and keeps this device —
-    // and the snapshot goes to ourselves, is ingested, and provokes the next
-    // one. Sending nowhere is recoverable; a loop is not.
-    if (myDevice == null) return const [];
-    final me = myDevice;
+    // The fallback to the identity is a GUESS, and on a device restored into an
+    // existing identity it is the wrong one: the identity names the SIBLING, so
+    // it drops the sibling and keeps this device. That produced a live loop —
+    // the snapshot went to ourselves, was ingested, and provoked the next.
+    //
+    // It stays, because the alternative (send nowhere) silences every caller
+    // that has no device id to give, which is most of them. What stops the loop
+    // is a guard that does not depend on knowing the answer: the transport
+    // refuses to live-send to THIS NODE, whatever the reason it was asked to.
+    // A guess that misroutes is recoverable; one that feeds itself is not.
+    final me = myDevice ?? identity;
     // The OWNER of a device group is the identity's MASTER key, which is not a
     // device and has nothing listening: seeding it produced a deposit that
     // failed against an id no node answers to. It is dropped for the same
@@ -5633,6 +5637,73 @@ class GroupService {
     return noted;
   }
 
+  /// Epochs whose keys have already gone to our own devices, per group.
+  ///
+  /// The watermark is what makes this terminate. Sharing writes a bundle on the
+  /// receiving device, which saves, which looks for keys to share — and would
+  /// answer back forever without it. With it, the second device finds nothing
+  /// fresh on the return leg and the exchange converges after one round.
+  final Map<String, Set<int>> _epochKeysSharedWithDevices = {};
+
+  /// Hand any epoch key this identity has just gained to its other devices.
+  ///
+  /// The link-time seed covers what exists at the ceremony and nothing after
+  /// it: a group that rotates its epoch later — every added member does —
+  /// leaves the sibling holding a key that no longer opens anything, and its
+  /// copy of the conversation stops at the rotation. Nothing reports that; the
+  /// messages simply stop appearing.
+  ///
+  /// The envelope route cannot fill the gap. Sealing to an identity fans out
+  /// per device AT THAT MOMENT, and re-sealing is impossible by design — the
+  /// epoch descriptor commits to the exact sealed bytes. So the key itself
+  /// travels, on the sealed device-sync path, exactly as it does at link time.
+  ///
+  /// This is what makes the device group a KEY STORE and not just a membership
+  /// list: every key the identity holds ends up on every device of it, kept in
+  /// step by the same journal that keeps the membership in step.
+  Future<void> _shareNewEpochKeysWithMyDevices(GroupBundle b) async {
+    final send = _send;
+    if (send == null || b.localEpochKeys.isEmpty) return;
+    final gid = b.manifest.groupId.hex;
+    final shared = _epochKeysSharedWithDevices.putIfAbsent(gid, () => <int>{});
+    if (b.localEpochKeys.keys.every(shared.contains)) return;
+    final devices = await otherDeviceIds();
+    if (devices.isEmpty) {
+      // Nobody to tell. Recorded anyway: a device linked later is seeded in
+      // full, so replaying every key at that point would be work for nothing.
+      shared.addAll(b.localEpochKeys.keys);
+      return;
+    }
+    final fresh = b.localEpochKeys.keys.where((e) => !shared.contains(e)).length;
+    for (final device in devices) {
+      try {
+        await send(
+          device,
+          b.manifest.groupId,
+          snapshotJson(
+            b,
+            recipient: device,
+            receipt: _beginSpaceReceipt(b, device),
+            transferTag: _freshTransferTag(),
+            ownDevice: true,
+          ),
+        );
+      } catch (caught) {
+        devLog(
+          () =>
+              'xVeil[devices]: sharing epoch keys of ${gid.substring(0, 8)} '
+              'with ${device.hex.substring(0, 8)} failed: $caught',
+        );
+      }
+    }
+    shared.addAll(b.localEpochKeys.keys);
+    devLog(
+      () =>
+          'xVeil[devices]: shared $fresh new epoch key(s) of '
+          '${gid.substring(0, 8)} with ${devices.length} device(s)',
+    );
+  }
+
   Future<void> _save(GroupBundle b, {bool notify = true}) async {
     final controlReceipts = _notedControlReceipts(b);
     // Chunked file-store (not putSetting): the bundle carries inline media that
@@ -5685,6 +5756,11 @@ class GroupService {
     } finally {
       if (identical(_bundleWrites[key], write)) _bundleWrites.remove(key);
     }
+    // Every bundle write is where a key can appear — minted here by a rotation,
+    // or arrived in a snapshot — so this is the one place that sees them all.
+    // Not awaited: the write is what the caller was promised, and a sibling
+    // that is slow to reach must not hold up a local save.
+    unawaited(_shareNewEpochKeysWithMyDevices(b));
     if (notify) changes.value++;
   }
 

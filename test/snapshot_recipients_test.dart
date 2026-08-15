@@ -84,14 +84,16 @@ void main() {
       );
     });
 
-    // THE ONE THE LOOP CAME FROM. Falling back to the identity looks
-    // conservative and is not: on the restored device the identity names the
-    // SIBLING, so the fallback drops the sibling, keeps this device, and the
-    // snapshot goes to ourselves — is ingested, and provokes the next one.
-    // Measured on the stand as 286 entries in one device group against 34 in
-    // the other. Sending nowhere is recoverable; a loop is not.
-    test('an unknown device id sends nowhere rather than guessing', () {
-      expect(from(null), isEmpty);
+    // THE FALLBACK IS A GUESS, and on the restored device it is the wrong one:
+    // the identity names the SIBLING, so it keeps this device and the snapshot
+    // goes to ourselves. Measured on the stand as 286 entries in one device
+    // group against 34 in the other.
+    //
+    // It stays — most callers have no device id to give — and the loop is
+    // stopped where the answer is not a guess: the transport refuses to send to
+    // this node at all. See `sendRouteFor` and its test.
+    test('without a device id it still falls back to the identity', () {
+      expect(from(null), [restored]);
     });
   });
 
