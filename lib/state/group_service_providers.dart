@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
-import '../core/log.dart';
 import '../data/node/embedded_node.dart';
 import '../data/node/identity_config_fields.dart';
 import '../data/node/space_discovery_transport.dart';
@@ -353,23 +352,20 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // Assigned rather than constructed because reading it is asynchronous and
   // this provider is not. Until it lands a device group sends nothing, which is
   // the safe half of the trade — see `snapshotRecipients`.
-  unawaited(
-    ref
-        .read(storageProvider)
-        .loadNodeConfig()
-        .then((toml) {
-          final fields = toml == null ? null : identityConfigFields(toml);
-          if (fields == null) return;
-          service.myDevice = BootstrapInvite(
-            publicKey: fields.publicKey,
-            nonce: fields.nonce,
-            algo: fields.algo,
-          ).nodeId;
-        })
-        .catchError((Object e) {
-          devLog(() => 'xVeil[devices]: own device id unavailable: $e');
-        }),
-  );
+  // Given as a READER, not a value. The eager version ran before the store was
+  // unlocked, threw "storage is locked", and left the id null for the rest of
+  // the session — invisible on the master-key device, and on a restored one the
+  // reason its own posts went nowhere.
+  service.myDeviceReader = () async {
+    final toml = await ref.read(storageProvider).loadNodeConfig();
+    final fields = toml == null ? null : identityConfigFields(toml);
+    if (fields == null) return null;
+    return BootstrapInvite(
+      publicKey: fields.publicKey,
+      nonce: fields.nonce,
+      algo: fields.algo,
+    ).nodeId;
+  };
   return service;
 });
 
