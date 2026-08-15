@@ -15130,12 +15130,23 @@ class GroupService {
         : SpaceAcl(
             lifecycleState,
           ).allows(recipient, SpacePermission.distributeContent);
-    final epochEnvelopes = recipient == null || !distributesContent
+    // WHOSE envelopes. An epoch envelope names the IDENTITY it was sealed for,
+    // never a device — a group's members are identities. So a seed to one of
+    // our own devices looks its envelopes up under OUR identity; asking under
+    // the device id finds nothing, which is how a seeded group arrived with a
+    // manifest, a control log and not one message.
+    //
+    // This is the same confusion as everywhere else in this area, inverted:
+    // here the identity IS the right question, and the device was the wrong
+    // one. Which of the two applies is decided by what the value MEANS, and an
+    // envelope means "for this identity".
+    final envelopeAudience = ownDevice ? _signer.selfId : recipient;
+    final epochEnvelopes = envelopeAudience == null || !distributesContent
         ? const <GroupEpochRecipientEnvelope>[]
-        : _epochEnvelopesFor(b, recipient);
-    final channelEpochEnvelopes = recipient == null || !distributesContent
+        : _epochEnvelopesFor(b, envelopeAudience);
+    final channelEpochEnvelopes = envelopeAudience == null || !distributesContent
         ? const <GroupEpochRecipientEnvelope>[]
-        : _channelEpochEnvelopesFor(b, recipient);
+        : _channelEpochEnvelopesFor(b, envelopeAudience);
     // Snapshot assembly is synchronous, so only the clear retention timeline
     // is applied here; restricted-channel policies are enforced by the async
     // sync path and by the physical sweep that removes the rows themselves.
@@ -15178,20 +15189,20 @@ class GroupService {
                   message,
                 ) &&
                 (message.isChannelEncrypted
-                    ? recipient != null &&
+                    ? envelopeAudience != null &&
                           _peerCanDecryptChannelEpoch(
                             b,
-                            recipient,
+                            envelopeAudience,
                             message.channelId!,
                             message.channelEpoch!,
                           )
                     : !encryptionEstablished
                     ? true
                     : message.isEncrypted &&
-                          recipient != null &&
+                          envelopeAudience != null &&
                           _peerCanDecryptEpoch(
                             b,
-                            recipient,
+                            envelopeAudience,
                             message.membershipEpoch!,
                           )),
           )
@@ -16561,6 +16572,65 @@ class GroupService {
     );
   }
 
+  /// Re-seal every epoch we hold a key for, so a device linked AFTER the epoch
+  /// was minted can open it.
+  ///
+  /// An epoch envelope is sealed to an identity, and sealing to an identity
+  /// fans out one copy per device it had AT THAT MOMENT. A device linked later
+  /// is in none of them: the envelope names the right identity and cannot be
+  /// opened by the newest member of it. Nothing detects that — the seeded
+  /// device simply shows an empty group.
+  ///
+  /// Re-sealing is possible because the key is held in the clear locally, in
+  /// [GroupBundle.localEpochKeys]: this is our own group and we are the ones
+  /// who minted it. No key changes and no epoch is advanced — the same key is
+  /// sealed again to the same identity, which now has one more device.
+  ///
+  /// Best-effort per epoch: a failure leaves that epoch's messages unreadable
+  /// on the new device, which is what would have happened anyway, rather than
+  /// abandoning the whole seed.
+  Future<GroupBundle> _resealEpochsForNewDevice(GroupBundle b) async {
+    final epochs = _epochService;
+    if (epochs == null || b.localEpochKeys.isEmpty) return b;
+    final fresh = <GroupEpochRecipientEnvelope>[];
+    for (final held in b.localEpochKeys.entries) {
+      try {
+        final set = await epochs.sealEpoch(
+          groupId: b.manifest.groupId,
+          epoch: held.key,
+          epochKey: held.value,
+          recipients: [_signer.selfId],
+        );
+        fresh.addAll(set.envelopes);
+      } catch (caught) {
+        devLog(
+          () =>
+              'xVeil[devices]: re-sealing epoch ${held.key} of '
+              '${b.manifest.groupId.hex.substring(0, 8)} failed: $caught',
+        );
+      }
+    }
+    devLog(
+      () =>
+          'xVeil[devices]: re-sealed ${fresh.length} epoch envelope(s) of '
+          '${b.manifest.groupId.hex.substring(0, 8)} '
+          '(held ${b.localEpochKeys.length} key(s))',
+    );
+    if (fresh.isEmpty) return b;
+    // The fresh envelopes REPLACE the ones for the same (epoch, recipient):
+    // both open to the same key, and keeping the stale one would leave the
+    // lookup a coin toss between a copy the new device can open and one it
+    // cannot.
+    final superseded = {for (final e in fresh) '${e.epoch}:${e.recipient.hex}'};
+    return b.copyWith(
+      epochEnvelopes: [
+        for (final e in b.epochEnvelopes)
+          if (!superseded.contains('${e.epoch}:${e.recipient.hex}')) e,
+        ...fresh,
+      ],
+    );
+  }
+
   /// Ship every group this identity holds to [device], which has just been
   /// linked. Returns how many snapshots went out.
   ///
@@ -16588,9 +16658,10 @@ class GroupService {
     var n = 0;
     for (final entry in await listGroups()) {
       if (entry.groupId.hex == deviceGroupHex) continue; // it has this one
-      final b = await load(entry.groupId);
-      if (b == null) continue;
+      final b0 = await load(entry.groupId);
+      if (b0 == null) continue;
       try {
+        final b = await _resealEpochsForNewDevice(b0);
         await send(
           device,
           entry.groupId,
