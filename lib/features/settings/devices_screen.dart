@@ -192,6 +192,18 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       // device group, no document and no config, which is exactly the state the
       // screen already renders for a device that has not set one up.
       devLog(() => 'xVeil[devices]: store not readable yet ($e) — showing empty');
+    } finally {
+      // LOADING HAS TO END, whatever happened. `_loading` was cleared only at
+      // the tail of a successful read, so any failure left it true — and the
+      // screen renders an indeterminate LinearProgressIndicator while it is.
+      // That bar then spins for as long as the screen is open, which is a
+      // person watching an empty page load forever, and in a widget test it is
+      // a tree that never settles because an indeterminate animation schedules
+      // a frame every frame.
+      //
+      // Finishing empty is the honest end state: it says "there is nothing
+      // here", which is true, instead of "still coming", which is not.
+      if (mounted) setState(() => _loading = false);
     }
   }
 
