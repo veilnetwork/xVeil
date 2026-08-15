@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import '../../core/log.dart';
+
 import '../../core/clipboard_secret.dart';
 import '../../core/ids.dart';
 import '../../state/messaging_providers.dart';
@@ -176,6 +178,24 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   }
 
   Future<void> _reload() async {
+    try {
+      await _reloadFromStore();
+    } on StateError catch (e) {
+      // A LOCKED STORE IS AN ANSWER, not a crash. This screen reads settings to
+      // decide what to offer, and the read throws "storage is locked" when it
+      // runs before or after an unlock — on the way in from a deep link, on a
+      // lock that lands mid-load, and in any test that builds the screen over a
+      // real provider scope. The unhandled error left the screen mid-build and
+      // its frames scheduling forever.
+      //
+      // Nothing here is worth failing over: with no readable store there is no
+      // device group, no document and no config, which is exactly the state the
+      // screen already renders for a device that has not set one up.
+      devLog(() => 'xVeil[devices]: store not readable yet ($e) — showing empty');
+    }
+  }
+
+  Future<void> _reloadFromStore() async {
     final svc = ref.read(groupServiceProvider);
     final gidHex = await svc?.deviceGroupIdHex();
     final state = gidHex == null
