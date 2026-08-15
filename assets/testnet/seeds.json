@@ -1,0 +1,5 @@
+[
+  {"transport": "obfs4-tcp://203.12.31.146:5557", "public_key": "w/WPXT94DKI4CfgvJo3ti828dx/iYgncgOvXrbA8aBQ=", "nonce": "AE1JRw==", "algo": "ed25519"},
+  {"transport": "obfs4-tcp://203.12.31.145:5557", "public_key": "muTNaMipdTGItwXorxG9sdJuJ91+YM8CSU7xhdmv/TE=", "nonce": "AQdiPQ==", "algo": "ed25519"},
+  {"transport": "obfs4-tcp://203.12.31.134:5557", "public_key": "mZneNgnM8qo9aqxzB6EDt7fC1BA4Plwqr/+p8Pj7ORc=", "nonce": "AAAzoQ==", "algo": "ed25519"}
+]
