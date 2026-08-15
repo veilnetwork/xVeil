@@ -996,6 +996,13 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
     setState(() => _busy = false);
     switch (outcome) {
       case DeviceSnapshotSend.sent:
+        // MEMBERSHIP FIRST, THEN THE HISTORY. The broadcast above says who the
+        // devices are and nothing about what the identity has ever said, so a
+        // device linked without the seed adopts the group correctly and opens
+        // to an empty app. Not awaited: the snapshots are already on their way
+        // and the person is done here — the sheet closes, and a seed that takes
+        // its time does not hold it open.
+        unawaited(_seedHistory());
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(l.devicesSetupSent)));
@@ -1010,6 +1017,23 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
         setState(() => _error = l.devicesOperationFailed);
     }
   }
+
+  /// Ship the identity's existing groups to every OTHER device of it.
+  ///
+  /// Best-effort and deliberately silent: the link itself has already
+  /// succeeded, and a history that arrives late still arrives — the next link,
+  /// nudge or reconnect re-sends whatever is missing. Failing the ceremony over
+  /// it would be the wrong trade.
+  Future<void> _seedHistory() async {
+    try {
+      for (final device in await widget.service.otherDeviceIds()) {
+        await widget.service.seedDevice(device);
+      }
+    } catch (_) {
+      // Nothing to tell the person: the devices are linked either way.
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
