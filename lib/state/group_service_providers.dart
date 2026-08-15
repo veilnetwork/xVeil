@@ -4,8 +4,11 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../core/log.dart';
 import '../data/node/embedded_node.dart';
+import '../data/node/identity_config_fields.dart';
 import '../data/node/space_discovery_transport.dart';
+import '../data/transport/bootstrap_invite.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
 import '../domain/chat.dart' show MessageDirection;
@@ -138,10 +141,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     signer,
     epochService: GroupEpochService(epochCrypto),
     ourCertVersion: 1,
-    // THIS DEVICE, so a device group can tell which member is us. The identity
-    // cannot answer that — every device of it shares the identity — and on a
-    // restored device the two values genuinely differ.
-    myDevice: transport is VeilFlutterTransport ? transport.deviceNodeId : null,
+
     send: (peer, groupId, json) =>
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
     sendSpaceInvite: messaging.sendSpaceInvite,
@@ -344,6 +344,32 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     unawaited(deviceMirror.cancel());
     unawaited(service.dispose());
   });
+  // THIS DEVICE's own transport key, from the NODE CONFIG — the copy that is
+  // rewritten when a deniably-booted node is promoted to its real identity.
+  // The transport's cached id is the stub's on a promoted node, and a device
+  // group that believes it is the stub excludes nobody: measured as a restored
+  // device sending every snapshot to itself.
+  //
+  // Assigned rather than constructed because reading it is asynchronous and
+  // this provider is not. Until it lands a device group sends nothing, which is
+  // the safe half of the trade — see `snapshotRecipients`.
+  unawaited(
+    ref
+        .read(storageProvider)
+        .loadNodeConfig()
+        .then((toml) {
+          final fields = toml == null ? null : identityConfigFields(toml);
+          if (fields == null) return;
+          service.myDevice = BootstrapInvite(
+            publicKey: fields.publicKey,
+            nonce: fields.nonce,
+            algo: fields.algo,
+          ).nodeId;
+        })
+        .catchError((Object e) {
+          devLog(() => 'xVeil[devices]: own device id unavailable: $e');
+        }),
+  );
   return service;
 });
 
