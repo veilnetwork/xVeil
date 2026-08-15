@@ -375,7 +375,19 @@ class _MessagingOutbox {
               false;
         }
       }
+      // MY OWN DEVICE IS NOT A STRANGER, asked HERE because this is the line
+      // that deletes. A sibling is never a contact — the identity does not
+      // befriend itself — so the retire below threw away every device-sync
+      // frame on the first flush. Measured on the stand: a chunked snapshot's
+      // first chunk deposited, the rest DEFERRED "for the outbox flush to
+      // reconsider", and the flush had already deleted the frames it would
+      // have reconsidered — outbox 0, sibling waiting forever, sender
+      // convinced it had delivered.
+      final ownDevice =
+          contact == null &&
+          (await _owner.isOwnDevice?.call(peer) ?? false);
       if (contact == null &&
+          !ownDevice &&
           !groupMemberCarrier &&
           !externalSpaceProposalCarrier) {
         retire(frame.peerHex, frame.frameId);
