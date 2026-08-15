@@ -296,6 +296,13 @@ typedef _SignDart =
       Pointer<Uint8>,
       Pointer<Pointer<Utf8>>,
     );
+//   int veil_identity_document_authorizes(const uint8_t* doc, size_t,
+//                                          const uint8_t node_id[32],
+//                                          const uint8_t pubkey[32]);
+typedef _DocAuthorizesNative =
+    Int32 Function(Pointer<Uint8>, IntPtr, Pointer<Uint8>, Pointer<Uint8>);
+typedef _DocAuthorizesDart =
+    int Function(Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Uint8>);
 typedef _VerifyNative =
     Int32 Function(
       Pointer<Uint8>,
@@ -1452,6 +1459,48 @@ class EmbeddedNode {
       calloc.free(sigOut);
       calloc.free(pkOut);
       calloc.free(errOut);
+    }
+  }
+
+  /// Does [document] authorise [publicKey] to speak for [nodeId]?
+  ///
+  /// The question a DEVICE's signature raises, which [verifyMessage] cannot
+  /// answer: that one binds a key to an author by hash, which is right when the
+  /// author signs with their own key and wrong for an identity with several
+  /// devices — the author is the identity, the key is the device's, and the two
+  /// hashes differ by construction.
+  ///
+  /// Asked as a question rather than by reading the document here: the master
+  /// binding, the validity window and each device certificate are checked
+  /// together on the native side, where they are already audited, so no caller
+  /// can apply half of them. A revoked subkey answers false, because a document
+  /// that no longer lists a key no longer speaks for it.
+  static bool identityDocumentAuthorizes({
+    required Uint8List document,
+    required Uint8List nodeId,
+    required Uint8List publicKey,
+    DynamicLibrary? lib,
+  }) {
+    if (document.isEmpty || nodeId.length != 32 || publicKey.length != 32) {
+      return false;
+    }
+    final dl = lib ?? _veilLib();
+    final fn = dl
+        .lookupFunction<_DocAuthorizesNative, _DocAuthorizesDart>(
+          'veil_identity_document_authorizes',
+        );
+    final docPtr = calloc<Uint8>(document.length);
+    final nidPtr = calloc<Uint8>(32);
+    final pkPtr = calloc<Uint8>(32);
+    try {
+      docPtr.asTypedList(document.length).setAll(0, document);
+      nidPtr.asTypedList(32).setAll(0, nodeId);
+      pkPtr.asTypedList(32).setAll(0, publicKey);
+      return fn(docPtr, document.length, nidPtr, pkPtr) == 0;
+    } finally {
+      calloc.free(docPtr);
+      calloc.free(nidPtr);
+      calloc.free(pkPtr);
     }
   }
 
