@@ -1973,14 +1973,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       bytes?.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
   /// This device's stored identity document, or null when it has none.
-  Future<Uint8List?> _ownDocument() async {
-    final raw = await ref
-        .read(storageProvider)
-        .getSetting(kSovereignIdentitySetting);
-    if (raw == null) return null;
-    final doc = decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
-    return (doc == null || doc.isEmpty) ? null : doc;
-  }
+  Future<Uint8List?> _ownDocument() =>
+      RealVeilStack.storedSovereignDocument(ref.read(storageProvider));
 
   /// THIS device's own bootstrap invite — its transport key and nonce, out of
   /// the config it booted on.
@@ -2148,9 +2142,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // Issued BY this device: `source` below is the identity, which the
       // target shares, so without this it cannot tell a token it was handed
       // from one it issued itself.
+      // The MERGED document — read after the merge above, so it names both
+      // devices. Its return leg: the target learned nothing about this device
+      // otherwise, and a device that does not know its sibling publishes a
+      // registry of one and can seal nothing back to it.
       final token = await svc.createDeviceLinkToken(
         stack.myInvite,
         sourceDevice: mine?.nodeId,
+        document: await _ownDocument(),
       );
       if (token == null) {
         return _json(req, {'ok': false, 'error': 'token unavailable'});
@@ -2183,6 +2182,22 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       final stack = ref.read(realStackProvider);
       if (stack == null) return _json(req, {'ok': false, 'error': 'no stack'});
       await stack.addContact(token.sourceInvite);
+      // The mirror of what the source did with our invite's document. Both
+      // devices have to end up holding the document that names both, or the
+      // link is one-directional: this one would publish a registry of itself
+      // alone and have nowhere to send a sync.
+      final theirDoc = token.document;
+      if (theirDoc != null && theirDoc.isNotEmpty) {
+        final merged = await RealVeilStack.adoptSovereignDocument(
+          ref.read(storageProvider),
+          document: theirDoc,
+          stagingBase: Directory.systemTemp.path,
+        );
+        devLog(() => 'xVeil[link]: source document merged=$merged');
+        if (merged) {
+          await stack.refreshSovereignIdentity(ref.read(storageProvider));
+        }
+      }
       if (!await svc.prepareDeviceAdoption(
         token,
         myDevice: (await _ownDeviceInvite())?.nodeId,

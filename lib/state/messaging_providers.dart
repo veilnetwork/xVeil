@@ -101,6 +101,25 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // late-arriving mailbox instead of leaking it.
   var providerDisposed = false;
   ref.onDispose(() => providerDisposed = true);
+  // WHICH ADDRESS IS OURS is not a mailbox question, and it used to be asked
+  // inside the mailbox's `if`. A build with no relay candidates therefore left
+  // the transport not knowing the identity's address at all — and the transport
+  // needs it for the opposite direction: a send addressed HERE is a sync to our
+  // other devices, and only the transport can tell the node so. Without it every
+  // such send is an ordinary self-addressed one, which the node answers by
+  // handing it straight back to the sender. Two unrelated things behind one
+  // condition, and the one that decides routing lost.
+  if (transport is VeilFlutterTransport) {
+    unawaited(
+      RealVeilStack.sovereignReceiveAddress(storage).then((receiveAddress) {
+        if (receiveAddress != null && !providerDisposed) {
+          transport.identityAddress = receiveAddress;
+        }
+      }).catchError((Object e) {
+        devLog(() => 'xVeil[identity]: transport receive address FAILED: $e');
+      }),
+    );
+  }
   if (transport is VeilFlutterTransport && relays.isNotEmpty) {
     // Persist verified relay keys INSIDE the active deniable space so a cold
     // restart can stay reachable through a transient resolve failure (the fresh
@@ -118,12 +137,6 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     // has always been built off a future it does not block on.
     RealVeilStack.sovereignReceiveAddress(storage)
         .then((receiveAddress) {
-          // The transport needs it too, and for the opposite direction: a
-          // send addressed HERE is a device sync, not a message to
-          // ourselves, and only the transport can tell the node so.
-          if (receiveAddress != null) {
-            transport.identityAddress = receiveAddress;
-          }
           return transport.buildMailboxService(
             deliver: service.deliverInbound,
             relayKeyCache: relayKeyCache,
