@@ -13909,6 +13909,18 @@ class GroupService {
                 member.nodeId != bundle.manifest.owner))
           member.nodeId,
     ];
+    // MY OWN DEVICES, for the same reason broadcastDelta appends them: the
+    // member scan lists IDENTITIES, and this identity's other devices are not
+    // among them. Without this a group whose only member is us asks NOBODY —
+    // measured live as a chained suffix that could never heal: the sibling's
+    // newer row arrived by mailbox, its predecessor did not, the row stayed
+    // hidden pending gap-fill, and the gap-fill request itself fanned out to
+    // an empty list forever.
+    if (!bundle.manifest.isSovereignDevice) {
+      for (final device in await otherDeviceIds()) {
+        if (!others.contains(device)) others.add(device);
+      }
+    }
     final basePeers = bundle.manifest.name == kDeviceGroupName
         ? others
         : nearestGroupNodesByXor(
