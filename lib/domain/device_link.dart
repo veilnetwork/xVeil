@@ -43,6 +43,7 @@ class DeviceLinkToken {
     required this.sourceInvite,
     required this.expiresAtMs,
     this.sourceDevice,
+    this.document,
   });
 
   final NodeId groupId;
@@ -55,6 +56,22 @@ class DeviceLinkToken {
   /// id. Null from a build that predates the field; [isSameDevice] falls back
   /// to identity ids then.
   final NodeId? sourceDevice;
+
+  /// The source's signed identity document, by then naming BOTH devices.
+  ///
+  /// The counterpart to the document the device-link invite carries, and the
+  /// half that was missing. The invite moves the target's document to the
+  /// source, so the source learns the device it is about to admit; nothing
+  /// moved the other way, so the target finished the ceremony still holding a
+  /// document that named only itself. A device that does not know its sibling
+  /// publishes a registry of one and can seal nothing to it — the link worked
+  /// in one direction and looked complete.
+  ///
+  /// Carried HERE for the same reason: the ceremony is the one out-of-band
+  /// channel a person operates by hand, at the one moment both devices are
+  /// trusted, and it is the only way out of the deadlock where the merge that
+  /// would let the two reach each other is itself a message between them.
+  final Uint8List? document;
 
   static const _scheme = 'veil';
   static const _path = 'xveil-device';
@@ -73,8 +90,31 @@ class DeviceLinkToken {
       'exp': '$expiresAtMs',
       'invite': sourceInvite.toUri(),
       'sd': ?sourceDevice?.hex,
+      'doc': ?_encodedDocument,
     },
   ).toString();
+
+  /// base64url with the padding stripped, matching the device-link invite: both
+  /// travel inside strings split on '&' and '=', which standard base64 would be
+  /// cut apart by.
+  String? get _encodedDocument {
+    final doc = document;
+    if (doc == null || doc.isEmpty) return null;
+    return base64Url.encode(doc).replaceAll('=', '');
+  }
+
+  static Uint8List? _decodeDocument(Object? raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    try {
+      return Uint8List.fromList(
+        base64Url.decode(raw.padRight((raw.length + 3) ~/ 4 * 4, '=')),
+      );
+    } on FormatException {
+      // A document we cannot read is not a reason to refuse the link: the
+      // membership half of the token still stands on its own.
+      return null;
+    }
+  }
 
   Map<String, dynamic> toJson() => {
     'v': 1,
@@ -84,6 +124,7 @@ class DeviceLinkToken {
     'exp': expiresAtMs,
     'invite': sourceInvite.toUri(),
     'sd': ?sourceDevice?.hex,
+    'doc': ?_encodedDocument,
   };
 
   static DeviceLinkToken? fromJson(Object? value) {
@@ -106,6 +147,7 @@ class DeviceLinkToken {
         sourceDevice: value['sd'] is String
             ? NodeId.fromHex(value['sd'] as String)
             : null,
+        document: _decodeDocument(value['doc']),
       );
     } catch (_) {
       return null;
@@ -144,6 +186,7 @@ class DeviceLinkToken {
         sourceInvite: BootstrapInvite.parse(invite),
         expiresAtMs: exp,
         sourceDevice: _optionalNodeId(uri.queryParameters['sd']),
+        document: _decodeDocument(uri.queryParameters['doc']),
       );
     } catch (e) {
       if (e is FormatException) rethrow;
@@ -158,6 +201,7 @@ class DeviceLinkToken {
     required BootstrapInvite sourceInvite,
     required int expiresAtMs,
     NodeId? sourceDevice,
+    Uint8List? document,
   }) {
     if (manifestHash.length != 32 ||
         sourceInvite.nodeId != source ||
@@ -171,6 +215,7 @@ class DeviceLinkToken {
       sourceInvite: sourceInvite,
       expiresAtMs: expiresAtMs,
       sourceDevice: sourceDevice,
+      document: document,
     );
   }
 }

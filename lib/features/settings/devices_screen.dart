@@ -964,8 +964,15 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
         broadcastSnapshot: false,
       );
       if (!linked) throw StateError('membership rejected');
+      // The MERGED document — read after the merge above, so it names both
+      // devices. The return leg of the exchange the invite opened: without it
+      // the other device finishes the ceremony still holding a document that
+      // names only itself, and can seal nothing back to this one.
       final token = await widget.service.createDeviceLinkToken(
         sourceDevice: widget.myDevice?.nodeId,
+        document: await RealVeilStack.storedSovereignDocument(
+          widget.service.storage,
+        ),
         widget.stack.myInvite,
       );
       if (token == null) throw StateError('token unavailable');
@@ -1184,6 +1191,21 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
         throw const FormatException('expired');
       }
       await widget.stack.addContact(token.sourceInvite);
+      // The mirror of what the other device did with our invite's document.
+      // Both have to end up holding the document naming both, or the link is
+      // one-directional: this device would publish a registry of itself alone
+      // and have nowhere to send a sync.
+      final theirDoc = token.document;
+      if (theirDoc != null && theirDoc.isNotEmpty) {
+        final merged = await RealVeilStack.adoptSovereignDocument(
+          widget.service.storage,
+          document: theirDoc,
+          stagingBase: Directory.systemTemp.path,
+        );
+        if (merged) {
+          await widget.stack.refreshSovereignIdentity(widget.service.storage);
+        }
+      }
       if (!await widget.service.prepareDeviceAdoption(
         token,
         myDevice: widget.myDevice?.nodeId,

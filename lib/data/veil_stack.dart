@@ -1075,6 +1075,18 @@ class RealVeilStack {
     }
   }
 
+  /// This device's stored identity document, or null when it has none.
+  ///
+  /// One reader, because the ceremony moves this document in BOTH directions —
+  /// out with the device-link invite and back with the link token — and two
+  /// copies of "where the document lives" is one copy too many.
+  static Future<Uint8List?> storedSovereignDocument(Storage storage) async {
+    final raw = await storage.getSetting(kSovereignIdentitySetting);
+    if (raw == null) return null;
+    final doc = decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
+    return (doc == null || doc.isEmpty) ? null : doc;
+  }
+
   /// Hand a document merged AFTER the boot to the running node.
   ///
   /// The node reads `identity_document.bin` when a config is applied, and
