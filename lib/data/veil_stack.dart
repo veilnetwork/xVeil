@@ -772,7 +772,6 @@ class RealVeilStack {
     this.ratchetState,
     this.embeddedNode,
     this.identityDir,
-    this.appliedConfig,
   }) : _cli = veilCliPath,
        _config = configPath,
        _flutterTransport = nodeIpc;
@@ -801,13 +800,12 @@ class RealVeilStack {
   final VeilTransport transport;
   final BootstrapInvite myInvite;
 
-  /// The running node, the directory it reads its identity from, and the
-  /// config it was promoted with — the three things [refreshSovereignIdentity]
-  /// needs and nothing else should touch. Public only because a private name
-  /// cannot be a named parameter; treat them as read-only.
+  /// The running node and the directory it reads its identity from — the two
+  /// things [refreshSovereignIdentity] needs and nothing else should touch.
+  /// Public only because a private name cannot be a named parameter; treat them
+  /// as read-only.
   final EmbeddedNode? embeddedNode;
   final String? identityDir;
-  final String? appliedConfig;
 
   /// The port this instance's node listener is bound on, and whether that bind
   /// is LAN-wide (`0.0.0.0`, P2P policy allowed it) or loopback-only. The P2P
@@ -1089,14 +1087,19 @@ class RealVeilStack {
   /// still said `instances=1`.
   ///
   /// So the material is laid back into the directory the node reads and the
-  /// same config is applied again. Same config deliberately: this is a re-read
-  /// of the identity, not a reconfiguration, and anything else changing here
-  /// would be a second effect nobody asked for.
+  /// node is told to read it again.
+  ///
+  /// Told, not made to. This used to re-apply the same config, because a config
+  /// apply happens to re-read the document on its way past — and it gets there
+  /// by stopping and restarting every service the node runs, which takes every
+  /// IPC connection the app holds down with it. On the stand the link succeeded
+  /// and then every single mailbox deposit failed with `connection closed`, for
+  /// the rest of the session. `reloadIdentity` is the same re-read with none of
+  /// the rest of it.
   Future<bool> refreshSovereignIdentity(Storage storage) async {
     final node = embeddedNode;
     final dir = identityDir;
-    final config = appliedConfig;
-    if (node == null || dir == null || config == null) return false;
+    if (node == null || dir == null) return false;
     final raw = await storage.getSetting(kSovereignIdentitySetting);
     if (raw == null) return false;
     final files = decodeSovereignIdentity(raw);
@@ -1104,7 +1107,7 @@ class RealVeilStack {
       return false;
     }
     await materialiseSovereignIdentity(dir, files);
-    node.applyConfig(config);
+    node.reloadIdentity();
     devLog(() => 'xVeil[identity]: document re-read by the running node');
     return true;
   }
@@ -1720,7 +1723,6 @@ class RealVeilStack {
         masterConfig: await storage.getSetting(kMasterConfigSetting),
         embeddedNode: embeddedNode,
         identityDir: sovereign == null ? null : runtimeDir,
-        appliedConfig: fullConfig,
       );
     } catch (_) {
       // INDEPENDENT legs. Chained, a throw from `transport.dispose()` skipped
@@ -1753,12 +1755,11 @@ class RealVeilStack {
     // Where the master's key and nonce live on a device that boots on a key of
     // its own. Null on every identity that boots on the phrase's own key.
     required String? masterConfig,
-    // The three things a post-boot document merge needs to reach the running
+    // The two things a post-boot document merge needs to reach the running
     // node — see [refreshSovereignIdentity]. Null on the paths that have no
     // in-process node or no sovereign material.
     required EmbeddedNode? embeddedNode,
     required String? identityDir,
-    required String? appliedConfig,
   }) async {
     final seedsToRegister = runtimeBootstrapPeers ?? bootstrapPeers;
     final registeredSeeds = await registerRuntimeBootstrapPeers(
@@ -1820,7 +1821,6 @@ class RealVeilStack {
       ratchetState: ratchetState,
       embeddedNode: embeddedNode,
       identityDir: identityDir,
-      appliedConfig: appliedConfig,
     );
   }
 
