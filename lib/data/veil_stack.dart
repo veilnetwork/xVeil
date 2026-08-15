@@ -974,10 +974,21 @@ class RealVeilStack {
       if (provision != null) {
         await provision(identityPhrase, staging);
       } else {
+        // THE KEY THIS DEVICE ALREADY RUNS ON. Provisioning otherwise mints a
+        // second one and names it in the document, so the node signs with its
+        // own key while the document vouches for another — and every signature
+        // the device makes fails its own author binding, without a word.
+        //
+        // Read here rather than passed in because the ordering is already
+        // right: the node config is written before any of this runs, on both
+        // the phrase and the restore paths. Null on a first run that has none
+        // yet, where the key comes from the phrase and there is nothing to
+        // reconcile.
         EmbeddedNode.provisionSovereignIdentity(
           identityPhrase,
           veilDir: staging,
           instanceLabel: instanceLabel,
+          nodeConfigToml: await storage.loadNodeConfig(),
           lib: lib,
         );
       }
