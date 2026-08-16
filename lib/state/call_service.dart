@@ -1012,6 +1012,13 @@ class CallService {
 
   void _onOffer(NodeId peer, CallSignal sig) {
     final existing = _current;
+    if (existing != null && existing.callId == sig.callId) {
+      // A re-driven copy of the call we are already in (durable offers keep
+      // re-driving until acked, and acks defer while a call is active).
+      // Answering it with `busy` — the old behavior — had the answering
+      // device shelling its own caller with busy storms, one per re-drive.
+      return;
+    }
     if (existing != null && existing.isLive) {
       // Glare: we each offered at the same time. Deterministic tie-break — the
       // lexicographically-smaller callId wins as the caller; the loser adopts
@@ -1116,13 +1123,30 @@ class CallService {
   }
 
   void _onAnswer(NodeId peer, CallSignal sig) {
-    final c = _current;
+    var c = _current;
     if (c == null ||
         c.callId != sig.callId ||
-        c.peer != peer ||
         c.direction != CallDirection.outgoing ||
         c.status != CallStatus.dialing) {
       return;
+    }
+    if (c.peer != peer) {
+      // Device fan-out, the caller's half: we dialed the IDENTITY, and the
+      // device that took the call answers under its own transport id — the
+      // identity's other devices are exactly who the offer was fanned to.
+      // The callId is this call's unguessable secret, delivered E2E only to
+      // the callee's devices, so an answer that knows it and arrived
+      // authenticated is the callee answering — the same trust the follow-up
+      // matching below already leans on. Rebind the call to the answering
+      // device (SIP forking's semantics: the dialog belongs to whoever
+      // picked up), so media and every later signal target the device with
+      // the human at it.
+      devLog(
+        () => 'xVeil[call-sig]: answer for ${sig.callId} came from '
+            '${peer.short} — rebinding the call from ${c!.peer.short}',
+      );
+      c = c.copyWith(peer: peer);
+      _set(c);
     }
     _cancelRingTimeout();
     final peerPosture = sig.posture ?? CallPosture.anonymous;
@@ -1177,6 +1201,12 @@ class CallService {
   void _onRemoteEnd(NodeId peer, CallSignal sig, CallEndReason reason) {
     final c = _current;
     if (c == null || c.callId != sig.callId || c.peer != peer) return;
+    // `busy` is an answer to DIALING. Once the call is past it — the fan-out
+    // caller may have rebound to the device that answered — a late busy from
+    // a re-driven offer must not tear down the connected call.
+    if (reason == CallEndReason.busy && c.status != CallStatus.dialing) {
+      return;
+    }
     _end(reason);
   }
 

@@ -146,6 +146,9 @@ class Call {
   bool get isLive => status != CallStatus.ended;
 
   Call copyWith({
+    // Rebound exactly once, by the fan-out caller: the identity we dialed
+    // answers from the device that took the call (see _onAnswer).
+    NodeId? peer,
     CallStatus? status,
     CallMedia? media,
     CallPosture? peerPosture,
@@ -163,7 +166,7 @@ class Call {
     int? peerCaptureAtMs,
   }) => Call(
     callId: callId,
-    peer: peer,
+    peer: peer ?? this.peer,
     direction: direction,
     media: media ?? this.media,
     status: status ?? this.status,
