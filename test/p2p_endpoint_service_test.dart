@@ -94,6 +94,9 @@ class _Harness {
   /// Devices of MY OWN identity document (hex) — the re-keying gate.
   final Set<String> ownDevices = {};
 
+  /// The running node's TRANSPORT id (a sibling's differs from the identity).
+  NodeId? selfNode;
+
   late final P2PEndpointService svc = P2PEndpointService(
     messaging,
     localAllowsP2P: (_) async => allows,
@@ -117,6 +120,7 @@ class _Harness {
       return accepted;
     },
     isOwnDevice: (p) async => ownDevices.contains(p.hex),
+    selfNode: () async => selfNode ?? _identity().nodeId,
     attemptHolePunch: injectPunch
         ? (peer) async {
             punchCalls.add(peer);
@@ -546,6 +550,52 @@ void main() {
           reason: 'the sibling candidate is dialed');
       expect(h.messaging.sentEndpoints.single.$1.hex, sibling.hex,
           reason: 'the reply goes to the device, not to my own name');
+    },
+  );
+
+  test(
+    "the master's identity-key candidates reach a sibling by ADDRESS",
+    () async {
+      // Devices SHARE the identity key, so every candidate the master mints
+      // presents the same node id the sibling's own shares do. The transport
+      // address is the only discriminator: the sibling must dial the
+      // master's address and must NOT dial its own echoed one.
+      final h = _Harness();
+      final identity = _identity().nodeId;
+      h.selfNode = _peer(0x31); // this node is the SIBLING
+      h.ownDevices.add(identity.hex);
+
+      String identityUri(String host) => BootstrapInvite(
+        publicKey: _identity().publicKey,
+        nonce: _identity().nonce,
+        transport: 'tcp://$host:9000',
+      ).toUri();
+      // The echo is byte-for-byte what THIS node currently mints (harness
+      // addresses include 192.168.1.70 at listen port 9000); the master's
+      // candidate carries the same identity key at ITS address.
+      final echo = identityUri('192.168.1.70');
+      final master = identityUri('192.168.1.50');
+
+      h.messaging.onP2PEndpoints!(
+        identity,
+        jsonEncode({
+          'v': 1,
+          'ts': 9,
+          'e': [echo, master],
+        }),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(
+        h.svc.knownEndpoints(identity),
+        [master],
+        reason: "the sibling keeps the master's address, drops its echo",
+      );
+      expect(
+        h.joined,
+        [master],
+        reason: 'dialing pins the identity key — what the master presents',
+      );
     },
   );
 }
