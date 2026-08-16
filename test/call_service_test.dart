@@ -5,6 +5,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call.dart';
+import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/call_service.dart';
 import 'package:xveil/state/call_slot.dart';
@@ -1730,6 +1731,179 @@ void main() {
       expect(fake.sent.last.type, CallSignalType.end);
     });
   });
+
+  group('device fan-out (multi-device epic)', () {
+    final caller = NodeId.fromHex('c' * 64);
+    final sibling = NodeId.fromHex('b' * 64);
+    final stranger = NodeId.fromHex('e' * 64);
+
+    CallSignal offer(String callId, {String? onBehalfOf, int? sentAtMs}) =>
+        CallSignal(
+          callId: callId,
+          type: CallSignalType.offer,
+          media: const CallMedia(audio: true),
+          posture: CallPosture.direct,
+          onBehalfOf: onBehalfOf,
+          sentAtMs: sentAtMs ?? DateTime.now().millisecondsSinceEpoch,
+        );
+
+    test('an original offer is relayed to every sibling naming the caller',
+        () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(caller, offer('fan-1'));
+      await pumpEventQueue();
+
+      expect(svc.current?.status, CallStatus.ringing);
+      expect(svc.current?.peer, caller);
+      final relayed = fake.sentTo
+          .where((r) => r.$2.type == CallSignalType.offer)
+          .toList();
+      expect(relayed, hasLength(1));
+      expect(relayed.single.$1.hex, sibling.hex);
+      expect(relayed.single.$2.onBehalfOf, caller.hex);
+      expect(relayed.single.$2.callId, 'fan-1');
+      svc.dispose();
+    });
+
+    test('a RELAYED offer does not fan out again (no sibling ping-pong)',
+        () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(sibling, offer('fan-2', onBehalfOf: caller.hex));
+      await pumpEventQueue();
+
+      expect(svc.current?.status, CallStatus.ringing);
+      expect(svc.current?.peer, caller,
+          reason: 'the ring must show the true caller, not the sibling');
+      expect(fake.sentTo, isEmpty);
+      svc.dispose();
+    });
+
+    test('a relayed offer from a NON-sibling is refused outright', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(stranger, offer('fan-3', onBehalfOf: caller.hex));
+      await pumpEventQueue();
+
+      expect(svc.current, isNull,
+          reason: 'a contact must not ring us wearing another caller\'s name');
+      svc.dispose();
+    });
+
+    test('a STALE relayed offer is history, not a ring', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      final old = DateTime.now()
+          .subtract(const Duration(minutes: 30))
+          .millisecondsSinceEpoch;
+      fake.onCallSignal!(
+        sibling,
+        offer('fan-4', onBehalfOf: caller.hex, sentAtMs: old),
+      );
+      await pumpEventQueue();
+
+      expect(svc.current, isNull);
+      svc.dispose();
+    });
+
+    test('accepting notifies the siblings, never the caller', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(caller, offer('fan-5'));
+      await pumpEventQueue();
+      await svc.accept();
+      await pumpEventQueue();
+
+      final answers = fake.sentTo
+          .where((r) => r.$2.type == CallSignalType.answer)
+          .toList();
+      expect(answers.single.$1.hex, caller.hex);
+      final hushes = fake.sentTo
+          .where((r) =>
+              r.$2.type == CallSignalType.cancel &&
+              r.$2.reason == CallEndReason.answeredElsewhere)
+          .toList();
+      expect(hushes, hasLength(1));
+      expect(hushes.single.$1.hex, sibling.hex);
+      expect(hushes.single.$2.onBehalfOf, caller.hex);
+      svc.dispose();
+    });
+
+    test('answered-elsewhere from a sibling ends the ring as TAKEN, not missed',
+        () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(caller, offer('fan-6'));
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.ringing);
+
+      fake.onCallSignal!(
+        sibling,
+        CallSignal(
+          callId: 'fan-6',
+          type: CallSignalType.cancel,
+          reason: CallEndReason.answeredElsewhere,
+          onBehalfOf: caller.hex,
+          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(svc.current, isNull);
+      expect(
+        callLogOutcomeFor(
+          outgoing: false,
+          connected: false,
+          reason: CallEndReason.answeredElsewhere,
+        ),
+        CallLogOutcome.completed,
+        reason: 'the identity took the call — "missed" would be a lie',
+      );
+      svc.dispose();
+    });
+
+    test('rejecting a RELAYED ring stays local — the caller hears nothing',
+        () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(sibling, offer('fan-7', onBehalfOf: caller.hex));
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.ringing);
+
+      await svc.reject();
+      await pumpEventQueue();
+
+      expect(svc.current, isNull);
+      expect(
+        fake.sentTo.where((r) => r.$2.type == CallSignalType.reject),
+        isEmpty,
+        reason: 'other devices are still ringing; one "no" must not hang up',
+      );
+      svc.dispose();
+    });
+  });
 }
 
 /// Records camera/screen toggles; [screenOk] fakes the platform backend
@@ -1889,6 +2063,10 @@ class _FakeMessaging implements MessagingService {
   bool backgroundStashPaused = false;
   final List<CallSignal> sent = [];
 
+  /// (peer, signal) pairs — the fan-out tests assert WHERE a signal went,
+  /// which [sent] alone cannot answer.
+  final List<(NodeId, CallSignal)> sentTo = [];
+
   /// When set, [sendCallSignal] records the signal only after the gate
   /// completes — models the slow durable (encrypted-store) enqueue.
   Completer<void>? sendGate;
@@ -1904,6 +2082,7 @@ class _FakeMessaging implements MessagingService {
     final gate = sendGate;
     if (gate != null) await gate.future;
     sent.add(signal);
+    sentTo.add((peer, signal));
   }
 
   @override

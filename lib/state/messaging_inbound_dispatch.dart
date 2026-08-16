@@ -568,8 +568,13 @@ extension _MessagingInboundDispatch on MessagingService {
         // Call control plane (voice/video/screen). Consent-gated; a durable
         // signal was already acked+deduped by the generic frame gate above.
         // Forward the decoded signal to the attached call service (dropped when
-        // none is attached — e.g. a headless/loopback context).
-        if (existing?.status != ContactStatus.accepted) return;
+        // none is attached — e.g. a headless/loopback context). MY OWN DEVICE
+        // passes without a contact row: the device fan-out's relayed offers
+        // and answered-elsewhere signals ride this lane between siblings.
+        if (existing?.status != ContactStatus.accepted &&
+            !(await isOwnDevice?.call(m.src) ?? false)) {
+          return;
+        }
         final callSig = CallSignal.tryDecode(env.body);
         if (callSig != null) {
           devLog(() {
