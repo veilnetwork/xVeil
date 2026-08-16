@@ -451,22 +451,44 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // direction, since the alternative would be accepting what we cannot justify.
   Uint8List? ownDocument;
   final ownIdentity = signer.selfId;
-  unawaited(
-    RealVeilStack.storedSovereignDocument(ref.read(storageProvider))
-        .then((doc) {
-          ownDocument = doc;
-          unawaited(_warnIfDocumentDisownsThisDevice(ref, ownIdentity, doc));
-          return doc;
-        })
-        .catchError((Object e) {
-          // A locked container is not an error worth surfacing: the lookup
-          // simply keeps answering null until something reads it again.
-          return null;
-        }),
-  );
-  setIdentityDocumentLookup(
-    (identity) => identity == ownIdentity ? ownDocument : null,
-  );
+  var lastDocumentRead = DateTime.fromMillisecondsSinceEpoch(0);
+  Future<void> readOwnDocument() async {
+    lastDocumentRead = DateTime.now();
+    try {
+      final doc = await RealVeilStack.storedSovereignDocument(
+        ref.read(storageProvider),
+      );
+      if (doc != null) {
+        ownDocument = doc;
+        unawaited(_warnIfDocumentDisownsThisDevice(ref, ownIdentity, doc));
+      }
+    } catch (_) {
+      // A locked container is not an error worth surfacing: the lookup
+      // simply keeps answering null until something reads it again.
+    }
+  }
+
+  unawaited(readOwnDocument());
+  setIdentityDocumentLookup((identity) {
+    if (identity != ownIdentity) return null;
+    // A ONE-SHOT read here was the thirteenth face of the device/identity
+    // class: a document merged MID-SESSION (device adoption) stayed
+    // invisible to this closure until restart, so every row signed by the
+    // new sibling's subkey failed validation and was dropped — and the
+    // content-keyed frame that carried them had already been acked, so the
+    // re-send was deduped away for good. Measured: a freshly linked phone
+    // stuck at 15/22, missing exactly the sibling-signed rows. A miss now
+    // schedules a fresh read (throttled), so the NEXT row of the same
+    // delivery — and every re-drive — validates against the merged truth.
+    final sinceRead = DateTime.now().difference(lastDocumentRead);
+    if ((ownDocument == null && sinceRead > const Duration(seconds: 3)) ||
+        sinceRead > const Duration(minutes: 1)) {
+      // The second arm covers a HELD document going stale the same way: a
+      // device linked later must become verifiable without a restart.
+      unawaited(readOwnDocument());
+    }
+    return ownDocument;
+  });
   ref.onDispose(() => setIdentityDocumentLookup(null));
 
   // Given as a READER, not a value. The eager version ran before the store was
