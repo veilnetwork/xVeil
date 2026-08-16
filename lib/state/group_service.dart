@@ -13018,6 +13018,23 @@ class GroupService {
     return {
       'sreq': 1,
       'gid': groupId.hex,
+      // A fresh durable-frame identity per ask. The frame id is a hash of
+      // the content, and the inbound dedup remembers processed frames
+      // durably — so a request whose vector had not changed was DROPPED as a
+      // replay forever. Measured live 2026-08-16: the responder's first
+      // serve never arrived (oversized monolith), the requester's vector
+      // therefore never moved, and every re-ask carried the already-
+      // processed id — "groupEntry DROPPED — already processed (re-acked)"
+      // on the responder while the requester waited to no end. A request is
+      // a QUESTION: re-serving it is idempotent and cheap, so it must never
+      // be replay-deduped, and the nonce is what keeps its id fresh.
+      //
+      // DEVICE GROUP ONLY. For Spaces the stable id is load-bearing: the
+      // receipt flow leans on replay-dedup to keep a rejected receipt's
+      // re-ask from consuming the pending slot (proven by the receipt test
+      // failing the moment this nonce applied to it).
+      if (b.manifest.name == kDeviceGroupName)
+        'n': DateTime.now().microsecondsSinceEpoch,
       // Legacy Space peers still consume the flat high-water vector. New
       // peers use `mg`, scoped by visible channel, so alternating between
       // channels cannot skip a lower-seq missing row.
