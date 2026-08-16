@@ -2156,6 +2156,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       )) {
         return _json(req, {'ok': false, 'error': 'membership rejected'});
       }
+      // THE DOCUMENT HALF — see devices_screen: without it the registry,
+      // the mailbox fan-out and every third device's verifier keep living
+      // in the document's past.
+      final delegated = await RealVeilStack.delegateDeviceIntoDocument(
+        ref.read(storageProvider),
+        phrase: phrase.trim(),
+        devicePubkey: target.publicKey,
+        stagingBase: Directory.systemTemp.path,
+      );
+      if (delegated) {
+        await stack.refreshSovereignIdentity(ref.read(storageProvider));
+      }
       // Issued BY this device: `source` below is the identity, which the
       // target shares, so without this it cannot tell a token it was handed
       // from one it issued itself.
