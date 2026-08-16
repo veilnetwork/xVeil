@@ -21,6 +21,7 @@ import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../crypto/blake3.dart';
 import '../domain/chat.dart'
     show
         ContactStatus,
@@ -17866,6 +17867,36 @@ class GroupService {
           if (deviceSyncEffectiveAt(event, nowMs))
             (event: event, author: message.author),
     ];
+  }
+
+  /// The 32-byte writer keys of the device group's members, bound by
+  /// blake3(pubkey) == member id from this group's own validated rows.
+  ///
+  /// The retro-delegation source: a device the GROUP admitted before the
+  /// document learned to grow at link time (the frozen-document era, or a
+  /// phrase-restore whose document merge never completed) has rows every
+  /// THIRD device drops as unverifiable — its subkey is in no document a
+  /// new device receives. The key itself is right there in the rows it
+  /// signed, and the binding to the member id is checkable.
+  Future<Map<NodeId, Uint8List>> deviceWriterKeys() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return const {};
+    final bundle = await load(NodeId.fromHex(hex));
+    if (bundle == null) return const {};
+    final members = {
+      for (final member in await deviceMembers()) member.hex: member,
+    };
+    final out = <NodeId, Uint8List>{};
+    for (final message in _retainedMessageRows(
+      bundle.manifest,
+      bundle.messages,
+    )) {
+      final pk = message.authorPubKey;
+      if (pk.length != 32) continue;
+      final bound = NodeId(blake3Hash(pk));
+      if (members.containsKey(bound.hex)) out[bound] = pk;
+    }
+    return out;
   }
 
   /// Current non-sovereign members of the device group (including self).
