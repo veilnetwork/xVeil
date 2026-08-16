@@ -60,6 +60,7 @@ class P2PEndpointService {
     Future<List<NodeId>> Function()? acceptedPeers,
     Future<bool> Function(NodeId peer)? isOwnDevice,
     Future<NodeId> Function()? selfNode,
+    void Function()? nudgeDrain,
     this._listenTransports,
     this._attemptHolePunch,
     DateTime Function()? now,
@@ -68,6 +69,8 @@ class P2PEndpointService {
        _isOwnDevice = isOwnDevice ?? _notOwnDevice,
        // ignore: prefer_initializing_formals — public `selfNode:` → private field.
        _selfNode = selfNode,
+       // ignore: prefer_initializing_formals — public `nudgeDrain:` → private field.
+       _nudgeDrain = nudgeDrain,
        _now = now ?? DateTime.now;
 
   static Future<bool> _notOwnDevice(NodeId peer) async => false;
@@ -92,6 +95,11 @@ class P2PEndpointService {
   /// tell "my own echo" from "the master's candidates" — both present the
   /// shared identity key. Null falls back to the identity invite's id.
   final Future<NodeId> Function()? _selfNode;
+
+  /// Kick a mailbox drain (debounced downstream). The ladder's exchange
+  /// rides the mailbox whenever no session exists yet; without the kick the
+  /// peer's reply waits out the idle drain back-off.
+  final void Function()? _nudgeDrain;
   final Future<void> Function(String uri) _joinEndpoint;
   final Future<({bool admitted, bool hasCert})> Function(Uint8List peer)
   _pnetStatus;
@@ -333,6 +341,10 @@ class P2PEndpointService {
     // Force a mutual, throttle-bypassing endpoint exchange before dialing:
     // both sides must reshare fresh endpoints at call time.
     await maybeShare(peer, force: true, requestReshare: true);
+    // The peer's reply may only be reachable via the mailbox (no session yet
+    // means live copies arrive unauthenticated and are dropped) — kick a
+    // drain so the exchange settles in seconds, not on the idle back-off.
+    _nudgeDrain?.call();
 
     // Rung 2 — host/LAN dial: redeem the peer's shared endpoints (also
     // REGISTERS the peer with the daemon, a precondition for the punch) and
@@ -798,6 +810,7 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     isOwnDevice: (peer) async =>
         await ref.read(groupServiceProvider)?.isMyDevice(peer) ?? false,
     selfNode: () => transport.nodeId(),
+    nudgeDrain: messaging.nudgeMailboxDrain,
     joinEndpoint: transport.joinP2PEndpoint,
     pnetStatus: transport.peerPnetStatus,
     myIdentity: () => stack.myInvite,
