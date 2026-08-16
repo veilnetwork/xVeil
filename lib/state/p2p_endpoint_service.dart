@@ -10,6 +10,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/transport/veil_flutter_transport.dart';
+import 'group_service_providers.dart';
 import 'messaging.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
@@ -57,12 +58,16 @@ class P2PEndpointService {
     required this._lanListenEnabled,
     Future<List<String>> Function()? localAddresses,
     Future<List<NodeId>> Function()? acceptedPeers,
+    Future<bool> Function(NodeId peer)? isOwnDevice,
     this._listenTransports,
     this._attemptHolePunch,
     DateTime Function()? now,
   }) : _localAddresses = localAddresses ?? _defaultLocalAddresses,
        _acceptedPeers = acceptedPeers ?? _noPeers,
+       _isOwnDevice = isOwnDevice ?? _notOwnDevice,
        _now = now ?? DateTime.now;
+
+  static Future<bool> _notOwnDevice(NodeId peer) async => false;
 
   static Future<List<NodeId>> _noPeers() async => const [];
 
@@ -73,6 +78,11 @@ class P2PEndpointService {
   /// [_localAllowsP2P] and separate from it on purpose, so that relaxing the
   /// call-path policy cannot quietly hand every conversation a direct route.
   final Future<bool> Function(NodeId peer) _messagingAllowsP2P;
+
+  /// Is this node a device of MY OWN identity document? Gates the re-keying
+  /// of endpoint candidates whose wire source is the identity itself (mail
+  /// between my devices is sealed AS the identity) — see [_onFrame].
+  final Future<bool> Function(NodeId peer) _isOwnDevice;
   final Future<void> Function(String uri) _joinEndpoint;
   final Future<({bool admitted, bool hasCert})> Function(Uint8List peer)
   _pnetStatus;
@@ -428,29 +438,116 @@ class P2PEndpointService {
           );
           return;
         }
-        final prevTs = _peerEndpointTs[peer.hex] ?? 0;
-        if (ts <= prevTs) {
-          // stale re-drive/out-of-order
+        // Group candidates by the device their invite PRESENTS. Ordinarily
+        // that is [peer] itself and this makes one group. But mail between
+        // my own devices is sealed AS the identity, so a sibling's share can
+        // arrive carrying the identity's node id — MY OWN — as its wire
+        // source; under the old single-key flow those candidates were stored
+        // under a peer nobody would ever dial and then died one by one in
+        // binding ("invite names …"). Re-keying is allowed ONLY toward a
+        // device of my own identity document, from a sender that is my own
+        // identity/device — a candidate naming any third party is dropped
+        // exactly as before, so an accepted contact still cannot make us
+        // dial a node we never chose.
+        final me = _myIdentity().nodeId;
+        final ownSender = peer == me || await _isOwnDevice(peer);
+        if (!ownSender) {
+          // The ordinary contact path, byte-for-byte as it always was:
+          // stored under the wire source, candidate validity judged at dial
+          // ([_invitePresents]), one symmetric reply to the sender.
+          final prevTs = _peerEndpointTs[peer.hex] ?? 0;
+          if (ts <= prevTs) {
+            // stale re-drive/out-of-order
+            devLog(
+              () =>
+                  'xVeil[p2p]: drop endpoints from ${peer.short} '
+                  '(stale ts $ts <= $prevTs)',
+            );
+            return;
+          }
+          _peerEndpointTs[peer.hex] = ts;
+          _peerEndpoints[peer.hex] = uris;
           devLog(
             () =>
-                'xVeil[p2p]: drop endpoints from ${peer.short} '
-                '(stale ts $ts <= $prevTs)',
+                'xVeil[p2p]: peer ${peer.short} shared ${uris.length} '
+                'endpoint(s)${reshareRequested ? ' (reshare requested)' : ''}',
           );
+          // Symmetric warm-up: answer with ours (forced fresh when the peer
+          // asked — call-time mutual exchange — else throttled), then dial
+          // theirs. The reply never re-requests a reshare, so the exchange
+          // settles in one round trip each way rather than ping-ponging.
+          unawaited(maybeShare(peer, force: reshareRequested));
+          await _dialPeer(peer);
           return;
         }
-        _peerEndpointTs[peer.hex] = ts;
-        _peerEndpoints[peer.hex] = uris;
-        devLog(
-          () =>
-              'xVeil[p2p]: peer ${peer.short} shared ${uris.length} '
-              'endpoint(s)${reshareRequested ? ' (reshare requested)' : ''}',
-        );
-        // Symmetric warm-up: answer with ours (forced fresh when the peer
-        // asked — call-time mutual exchange — else throttled), then dial
-        // theirs. The reply never re-requests a reshare, so the exchange
-        // settles in one round trip each way rather than ping-ponging.
-        unawaited(maybeShare(peer, force: reshareRequested));
-        await _dialPeer(peer);
+        // MY OWN identity/device sent this. Mail between my devices is
+        // sealed AS the identity, so the wire source may be my own node id
+        // and cannot key anything: under the old single-key flow a
+        // sibling's candidates were stored under a peer nobody would ever
+        // dial and then died one by one in binding ("invite names …").
+        // Re-key each candidate by the device its invite PRESENTS — but
+        // only toward a device of my own identity document, so a candidate
+        // naming any third party is dropped exactly as before.
+        final deviceById = <String, NodeId>{};
+        final urisById = <String, List<String>>{};
+        for (final uri in uris) {
+          final NodeId presented;
+          try {
+            presented = BootstrapInvite.parse(uri).nodeId;
+          } catch (_) {
+            devLog(
+              () =>
+                  'xVeil[p2p]: drop endpoint from ${peer.short} '
+                  '(unparseable invite)',
+            );
+            continue;
+          }
+          if (presented == me) {
+            // My own share, echoed back through the identity mailbox.
+            continue;
+          }
+          if (presented != peer && !await _isOwnDevice(presented)) {
+            devLog(
+              () =>
+                  'xVeil[p2p]: drop endpoint from ${peer.short} '
+                  '(invite names ${presented.short})',
+            );
+            continue;
+          }
+          deviceById[presented.hex] = presented;
+          (urisById[presented.hex] ??= []).add(uri);
+        }
+        final stored = <NodeId>[];
+        for (final entry in deviceById.entries) {
+          final device = entry.value;
+          final group = urisById[entry.key]!;
+          final prevTs = _peerEndpointTs[device.hex] ?? 0;
+          if (ts <= prevTs) {
+            devLog(
+              () =>
+                  'xVeil[p2p]: drop endpoints from ${device.short} '
+                  '(stale ts $ts <= $prevTs)',
+            );
+            continue;
+          }
+          _peerEndpointTs[device.hex] = ts;
+          _peerEndpoints[device.hex] = List.unmodifiable(group);
+          devLog(
+            () =>
+                'xVeil[p2p]: peer ${device.short} shared ${group.length} '
+                'endpoint(s)${reshareRequested ? ' (reshare requested)' : ''}',
+          );
+          stored.add(device);
+        }
+        // The reply goes to each device that actually shared — replying to
+        // the wire source would be replying to this node's own name when
+        // the attribution collapsed.
+        for (final device in stored) {
+          unawaited(maybeShare(device, force: reshareRequested));
+        }
+        for (final device in stored) {
+          await _dialPeer(device);
+        }
       } catch (e) {
         devLog(
           () => 'xVeil[p2p]: endpoints frame from ${peer.short} failed: $e',
@@ -658,6 +755,8 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
         ref.read(p2pPolicyProvider.notifier).allowsPeer(peer),
     messagingAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsMessagingPeer(peer),
+    isOwnDevice: (peer) async =>
+        await ref.read(groupServiceProvider)?.isMyDevice(peer) ?? false,
     joinEndpoint: transport.joinP2PEndpoint,
     pnetStatus: transport.peerPnetStatus,
     myIdentity: () => stack.myInvite,
