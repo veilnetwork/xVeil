@@ -684,8 +684,15 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   // The link that gives a CONVERSATION a direct route. Without it the ladder
   // exists but nothing in messaging ever calls it, which is exactly the state
   // this replaces.
-  messaging.prepareDirectRoute = (peer) =>
-      unawaited(svc.warmForMessaging(peer));
+  messaging.prepareDirectRoute = (peer) {
+    // Never toward MYSELF. The master's node id IS the identity address, so
+    // its own mirror sends named this node — and the warm then exchanged
+    // endpoints with itself over the realtime loop, "met" itself, and
+    // stamped its own hex into every per-peer cache (measured on the stand:
+    // out/in endpoint pairs 11 ms apart, both this node).
+    if (peer.hex == stack.myInvite.nodeId.hex) return;
+    unawaited(svc.warmForMessaging(peer));
+  };
   // This provider is rebuilt by a node boot (it watches the real stack), and a
   // boot is exactly when our listen port changes under everyone. Tell them.
   unawaited(svc.announceLocalEndpoints());
