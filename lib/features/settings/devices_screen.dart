@@ -996,6 +996,21 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
         broadcastSnapshot: false,
       );
       if (!linked) throw StateError('membership rejected');
+      // THE DOCUMENT HALF of the same admission. The group membership above
+      // is what the identity's own devices see; the DOCUMENT is what the
+      // registry publishes, what mailbox envelopes fan to, and what any
+      // THIRD device verifies the new subkey against. Linking without it
+      // left the document frozen and every row the new device signed
+      // unverifiable elsewhere.
+      final delegated = await RealVeilStack.delegateDeviceIntoDocument(
+        widget.service.storage,
+        phrase: words,
+        devicePubkey: target.publicKey,
+        stagingBase: Directory.systemTemp.path,
+      );
+      if (delegated) {
+        await widget.stack.refreshSovereignIdentity(widget.service.storage);
+      }
       // The MERGED document — read after the merge above, so it names both
       // devices. The return leg of the exchange the invite opened: without it
       // the other device finishes the ceremony still holding a document that

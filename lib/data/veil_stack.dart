@@ -1135,6 +1135,77 @@ class RealVeilStack {
     return true;
   }
 
+  /// Delegate [devicePubkey] into THIS identity's document, master-signed.
+  ///
+  /// The missing half of linking. [GroupService.linkDevice] admits the new
+  /// device into the GROUP — membership, epochs, history — and nothing ever
+  /// amended the DOCUMENT: the registry kept advertising yesterday's
+  /// instances (measured: reg_version frozen for a day across three links
+  /// and two revocations), mailbox envelopes for the identity missed the
+  /// new device, and every row it later signed with its subkey failed
+  /// verification on any THIRD device — a linked phone deterministically
+  /// missing exactly the second device's rows. The native machinery for
+  /// this existed end to end (`veil_delegate_device_from_phrase`); nothing
+  /// called it.
+  ///
+  /// Same copy-first staging discipline as [adoptSovereignDocument]: a
+  /// delegation that fails half way must not leave this device holding a
+  /// document it cannot sign with. `AlreadyPresent` from a re-link surfaces
+  /// as "nothing changed" — false, quietly.
+  static Future<bool> delegateDeviceIntoDocument(
+    Storage storage, {
+    required String phrase,
+    required Uint8List devicePubkey,
+    required String stagingBase,
+    DynamicLibrary? lib,
+  }) async {
+    if (phrase.isEmpty || devicePubkey.length != 32) return false;
+    final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
+    if (storedRaw == null) return false;
+    final stored = decodeSovereignIdentity(storedRaw);
+    if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[identity]: cannot delegate a device — this device has no '
+            'usable sovereign material',
+      );
+      return false;
+    }
+    final staging =
+        '$stagingBase/xveil-iddelegate-${Random.secure().nextInt(1 << 32)}';
+    try {
+      await materialiseSovereignIdentity(staging, stored);
+      EmbeddedNode.delegateDeviceFromPhrase(
+        phrase,
+        veilDir: staging,
+        devicePubkey: devicePubkey,
+        lib: lib,
+      );
+      final amended = await collectSovereignIdentity(staging);
+      if (missingSovereignIdentityFiles(amended).isNotEmpty) return false;
+      final encoded = encodeSovereignIdentity(amended);
+      if (encoded == storedRaw) return false;
+      await storage.putSetting(kSovereignIdentitySetting, encoded);
+      devLog(
+        () =>
+            'xVeil[identity]: delegated a device subkey into the document — '
+            'the registry and every verifier now learn the new device',
+      );
+      return true;
+    } on Object catch (e) {
+      // AlreadyPresent (a re-link) and a wrong phrase both land here; the
+      // wrong phrase is refused natively before anything is written.
+      devLog(() => 'xVeil[identity]: could not delegate the device: $e');
+      return false;
+    } finally {
+      try {
+        await Directory(staging).delete(recursive: true);
+      } on FileSystemException {
+        // Never created, or already gone.
+      }
+    }
+  }
+
   /// Adopt an identity document received from ANOTHER device of this identity,
   /// adding this device to it.
   ///
