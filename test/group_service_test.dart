@@ -5574,6 +5574,132 @@ void main() {
   );
 
   test(
+    'the device-group sync serves the writer the flat frontier masked',
+    () async {
+      // The live 15/22: a linked device that had synced ONE writer's chain
+      // asked for the rest with a frontier keyed by AUTHOR — the identity —
+      // and the responder read that high-water as covering BOTH writers'
+      // independently-numbered chains. The sibling's history was never
+      // served. The per-scope vector carries each writer's chain apart.
+      final primaryStorage = FakeHvContainer().storage();
+      await primaryStorage.open(password: 'pw', createIfMissing: true);
+      final replies = <String>[];
+      final primary = GroupService(
+        primaryStorage,
+        _FakeSigner(owner),
+        send: (peer, _, json) async {
+          if (peer == carol) replies.add(json);
+        },
+      );
+      expect(
+        await primary.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await primary.deviceGroupIdHex())!);
+
+      final siblingStorage = FakeHvContainer().storage();
+      await siblingStorage.open(password: 'pw', createIfMissing: true);
+      final sibling = GroupService(siblingStorage, _FakeSigner(bob));
+      expect(
+        await sibling.ingestSnapshot(
+          primary.snapshotJson(
+            (await primary.load(gid))!,
+            recipient: bob,
+            ownDevice: true,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await sibling.adoptDeviceGroup(gid), isTrue);
+
+      Future<void> mirror(GroupService svc, int ts, String body) =>
+          svc.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.msgMirror,
+              key: 'chat|$body',
+              tsMs: ts,
+              payload: {'peer': 'aa', 'dir': 'outgoing', 'body': body},
+            ),
+          );
+      // Live arithmetic on purpose: the sibling's chain runs strictly BELOW
+      // the master's high-water, with no equal-seq collision — the flat
+      // frontier then finds NOTHING missing and sends no reply at all.
+      await mirror(primary, 10, 'master-1');
+      await mirror(primary, 11, 'master-2');
+      await mirror(primary, 12, 'master-3');
+      await mirror(sibling, 20, 'sibling-1');
+      expect(
+        await primary.ingestSnapshot(
+          sibling.snapshotJson((await sibling.load(gid))!, recipient: owner),
+        ),
+        isTrue,
+      );
+
+      // The third device, exactly as the stand found it: it holds ONLY the
+      // master-writer rows (its first sync collapsed the frontier), and it
+      // is a linked member.
+      expect(
+        await primary.linkDevice(
+          carol,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final full = (await primary.load(gid))!;
+      final masterOnly = full.copyWith(
+        messages: [
+          for (final m in full.messages)
+            if (_bytesEqual(m.authorPubKey, owner.bytes) ||
+                m.authorPubKey.isEmpty)
+              m,
+        ],
+      );
+      final thirdStorage = FakeHvContainer().storage();
+      await thirdStorage.open(password: 'pw', createIfMissing: true);
+      final shippedToThird = <String>[];
+      final third = GroupService(
+        thirdStorage,
+        _FakeSigner(carol),
+      );
+      addTearDown(third.dispose);
+      expect(
+        await third.ingestSnapshot(
+          primary.snapshotJson(masterOnly, recipient: carol, ownDevice: true),
+        ),
+        isTrue,
+      );
+      expect(await third.adoptDeviceGroup(gid), isTrue);
+      final before = (await third.load(gid))!.messages
+          .map((m) => m.body)
+          .join(' ');
+      expect(before, contains('master-1'));
+      expect(before, isNot(contains('sibling-1')));
+
+      // The ask-and-serve cycle: the third device's frontier goes to the
+      // primary, whose reply must carry the sibling's chain.
+      final req = (await third.buildGroupSyncRequest(gid))!;
+      replies.clear();
+      expect(await primary.handleGroupSyncRequest(carol, req), isTrue);
+      for (final wire in replies) {
+        await third.ingestSnapshot(wire);
+      }
+      final after = (await third.load(gid))!.messages
+          .map((m) => m.body)
+          .join(' ');
+      expect(
+        after,
+        contains('sibling-1'),
+        reason: "the masked writer's chain is exactly what the sync is for",
+      );
+    },
+  );
+
+  test(
     'device-group compaction: a revoked device must not delete the honest row '
     'it beat — reads filter by the current ACL, so the key would vanish',
     () async {
