@@ -1576,6 +1576,13 @@ extension _MessagingContentPull on MessagingService {
             (_p2pStreamsEnabled &&
                 !_anonymous &&
                 await _p2pStreamAllowed(peer)));
+    // A p2p open needs a SESSION, and nothing on the pull path used to ask
+    // for one: prepareDirectRoute fires in _send, which a pull never calls.
+    // Two leaf devices behind relays therefore retried openP2PStream into
+    // NO_SESSION forever. The warm is throttled and idempotent — calling it
+    // per open is safe, and the open below races it by design (this attempt
+    // may still fall to the anon lane; a later retry finds the session up).
+    if (useP2P) prepareDirectRoute?.call(peer);
     _bulkStreamLog(
       () =>
           'xVeil[content]: stream-open ${cid.substring(0, 12)} '
@@ -1959,6 +1966,9 @@ extension _MessagingContentPull on MessagingService {
             (_p2pStreamsEnabled &&
                 !_anonymous &&
                 await _p2pStreamAllowed(peer)));
+    // See _openInitialPullStream: retries are exactly where the warmed-up
+    // ladder pays off, so keep asking (the warm self-throttles).
+    if (useP2P) prepareDirectRoute?.call(peer);
     devLog(
       () =>
           'xVeil[content]: stream-pull retry-open '
