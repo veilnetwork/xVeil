@@ -1297,6 +1297,77 @@ void main() {
   );
 
   test(
+    'an own-device seed keeps rows sealed under a rotated-away epoch',
+    () async {
+      // Measured on the stand: a linked device received 8 of 9 rows, the
+      // missing one exactly the pre-revocation head of the history. The
+      // seed's filter asked the envelope question — right for a NEW MEMBER
+      // (forward secrecy), wrong for my own device, which reads with the
+      // keys the very same snapshot hands over ('kk').
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(ownerSvc.dispose);
+      final gid = await ownerSvc.createGroup('Rotated away');
+      expect(
+        await ownerSvc.postMessage(gid, 'pre-rotation', broadcast: false),
+        isTrue,
+      );
+      // The rotation: membership change bumps the epoch past the row's.
+      expect(
+        await ownerSvc.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final b = (await ownerSvc.load(gid))!;
+      final row = b.messages.single;
+      expect(row.isEncrypted, isTrue);
+      final oldEpoch = row.membershipEpoch!;
+      expect(oldEpoch, lessThan((await ownerSvc.stateOf(gid))!.epoch));
+      expect(b.localEpochKeys.containsKey(oldEpoch), isTrue);
+      // Forward secrecy at its endpoint: no envelope of the old epoch
+      // survives, only the local key does.
+      final rotated = b.copyWith(
+        epochEnvelopes: [
+          for (final e in b.epochEnvelopes)
+            if (e.epoch != oldEpoch) e,
+        ],
+      );
+      final seeded =
+          jsonDecode(
+                ownerSvc.snapshotJson(
+                  rotated,
+                  recipient: carol,
+                  ownDevice: true,
+                ),
+              )
+              as Map;
+      expect(
+        seeded['g'] as List,
+        hasLength(1),
+        reason: 'my own device reads with the keys this snapshot hands over',
+      );
+      final stranger =
+          jsonDecode(ownerSvc.snapshotJson(rotated, recipient: bob)) as Map;
+      expect(
+        (stranger['g'] as List?) ?? const [],
+        isEmpty,
+        reason: 'forward secrecy for a NEW MEMBER stands untouched',
+      );
+    },
+  );
+
+  test(
     'epoch E2EE persists and wires only ciphertext for messages + reactions',
     () async {
       final ownerStorage = FakeHvContainer().storage();
