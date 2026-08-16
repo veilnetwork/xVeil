@@ -16412,10 +16412,30 @@ class GroupService {
       // adopts this exact gid. Otherwise any contact could plant a valid-
       // looking infrastructure group and drive sync apply side effects.
       if (adoptedDeviceGroup) {
+        var streamed = 0;
         for (final m in fresh) {
           final materialized = await _materializeEncryptedMessage(saved, m);
-          if (materialized != null) _deviceIncomingCtl.add(materialized);
+          if (materialized != null) {
+            _deviceIncomingCtl.add(materialized);
+            streamed++;
+          }
         }
+        if (fresh.isNotEmpty) {
+          devLog(
+            () =>
+                'xVeil[devices]: ingest streamed $streamed/${fresh.length} '
+                'device event(s)',
+          );
+        }
+      } else if (fresh.isNotEmpty) {
+        // The guard doing its job is fine; the guard doing it SILENTLY cost a
+        // debugging cycle — rows folded, probes saw them, and nothing said why
+        // no apply ever fired.
+        devLog(
+          () =>
+              'xVeil[devices]: ingest kept ${fresh.length} device event(s) '
+              'INERT — device group not adopted in this process',
+        );
       }
     } else {
       for (final m in fresh) {
