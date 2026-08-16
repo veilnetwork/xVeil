@@ -342,9 +342,16 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   };
 
   // Multi-device mirror apply: idempotent, content bytes remain opt-in.
-  final deviceMirror = service.deviceIncoming.listen((message) {
-    final event = DeviceSyncEvent.fromBody(message.body);
-    if (event == null || event.kind != DeviceSyncKind.msgMirror) return;
+  //
+  // One handler for both arrivals — the live stream, and the folded state
+  // replayed once at wiring. The same live-only gap the sync bridge had: a
+  // mirror that lands in a snapshot chunk or a mailbox drain while this
+  // listener is not attached folds into device-sync state, shows up in every
+  // probe, and is never applied. Measured on the three-instance stand: C's
+  // second message reached the master, the mirror event reached the sibling's
+  // fold, and the sibling's conversation stayed one message short for good.
+  void applyMirrorEvent(DeviceSyncEvent event, {String? attachmentThumb}) {
+    if (event.kind != DeviceSyncKind.msgMirror) return;
     final peerHex = event.payload['peer'];
     final body = event.payload['body'];
     final direction = event.payload['dir'] == 'outgoing'
@@ -358,7 +365,6 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final contentId = event.payload['cid'];
     final fileName = event.payload['fname'];
     final fileSize = event.payload['fsize'];
-    final thumb = message.attachment?.dataB64;
     final customEmoji = parseInlineCustomEmoji(body, event.payload['ce']);
     unawaited(
       messaging.applyMirroredMessage(
@@ -372,11 +378,25 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
             : null,
         fileName: fileName is String ? fileName : null,
         fileSize: fileSize is int ? fileSize : null,
-        thumb: thumb != null && thumb != 'AA==' ? thumb : null,
+        thumb: attachmentThumb != null && attachmentThumb != 'AA=='
+            ? attachmentThumb
+            : null,
         customEmoji: customEmoji,
       ),
     );
+  }
+
+  final deviceMirror = service.deviceIncoming.listen((message) {
+    final event = DeviceSyncEvent.fromBody(message.body);
+    if (event == null) return;
+    applyMirrorEvent(event, attachmentThumb: message.attachment?.dataB64);
   });
+  unawaited(() async {
+    final folded = await service.deviceSyncState();
+    for (final event in folded.values) {
+      applyMirrorEvent(event);
+    }
+  }());
   ref.onDispose(() {
     // Detach before disposing, and only what is still ours.
     //
