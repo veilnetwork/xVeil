@@ -851,6 +851,14 @@ class MessagingService {
 
   void onAppResumed() => _mailboxDelivery.nudgeDrain();
 
+  /// The endpoint exchange between MY OWN devices rides the mailbox when no
+  /// session exists yet (live copies arrive unauthenticated and are dropped),
+  /// so the ladder's reply is gated on the next drain. Kick one so the
+  /// exchange settles in seconds instead of the idle back-off (measured:
+  /// ~5.5 min reboot recovery, most of it waiting out drain cycles).
+  /// Debounced downstream — safe to call per ladder run.
+  void nudgeMailboxDrain() => _mailboxDelivery.nudgeDrain();
+
   /// Route a message recovered from our mailbox through the normal inbound
   /// path — it is a `WireEnvelope`, so [_dispatch] decodes it, applies the
   /// consent gate, stores it, acks, and dedups by id against any live delivery.
