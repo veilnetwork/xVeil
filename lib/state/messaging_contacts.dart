@@ -60,6 +60,18 @@ class _MessagingContacts {
   ) async {
     final existing = await _owner._storage.getContact(peer);
     if (existing?.status == status) return false;
+    // A DOORBELL NEVER OVERWRITES A DECISION. Both devices receive the raw
+    // request themselves, so a mirrored pending status carries no information
+    // a decided record lacks — and device logs written before the poster
+    // stopped mirroring pendings still hold such events, with timestamps that
+    // can outrank the accept. Applying one regressed an accepted contact to
+    // pendingIncoming on the device that folded both.
+    if ((status == ContactStatus.pendingIncoming ||
+            status == ContactStatus.pendingOutgoing) &&
+        (existing?.status == ContactStatus.accepted ||
+            existing?.status == ContactStatus.blocked)) {
+      return false;
+    }
     await _owner._storage.upsertContact(
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );

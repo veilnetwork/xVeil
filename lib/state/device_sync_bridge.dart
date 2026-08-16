@@ -144,6 +144,17 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     svc.notifyContactAccessChanged(peer);
     unawaited(() async {
       if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
+      // ONLY DECISIONS TRAVEL. A pending status is the doorbell, and every
+      // device hears the doorbell itself — the request wire is addressed to
+      // the identity. Mirroring it gave the SECOND device's "pendingIncoming"
+      // a fresher timestamp than the first device's "accepted", and the LWW
+      // fold then regressed the accept on every device that folded both.
+      // Measured live: C's request accepted on the master, and the sibling's
+      // own doorbell event beat the accept by four minutes of wall clock.
+      if (status == ContactStatus.pendingIncoming ||
+          status == ContactStatus.pendingOutgoing) {
+        return;
+      }
       await svc.postDeviceEvent(
         DeviceSyncEvent(
           kind: DeviceSyncKind.contactUp,
