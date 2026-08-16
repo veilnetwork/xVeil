@@ -59,12 +59,15 @@ class P2PEndpointService {
     Future<List<String>> Function()? localAddresses,
     Future<List<NodeId>> Function()? acceptedPeers,
     Future<bool> Function(NodeId peer)? isOwnDevice,
+    Future<NodeId> Function()? selfNode,
     this._listenTransports,
     this._attemptHolePunch,
     DateTime Function()? now,
   }) : _localAddresses = localAddresses ?? _defaultLocalAddresses,
        _acceptedPeers = acceptedPeers ?? _noPeers,
        _isOwnDevice = isOwnDevice ?? _notOwnDevice,
+       // ignore: prefer_initializing_formals — public `selfNode:` → private field.
+       _selfNode = selfNode,
        _now = now ?? DateTime.now;
 
   static Future<bool> _notOwnDevice(NodeId peer) async => false;
@@ -83,6 +86,12 @@ class P2PEndpointService {
   /// of endpoint candidates whose wire source is the identity itself (mail
   /// between my devices is sealed AS the identity) — see [_onFrame].
   final Future<bool> Function(NodeId peer) _isOwnDevice;
+
+  /// The RUNNING NODE's transport id. On the master it equals the identity;
+  /// on a sibling it does not, and that difference is what lets [_onFrame]
+  /// tell "my own echo" from "the master's candidates" — both present the
+  /// shared identity key. Null falls back to the identity invite's id.
+  final Future<NodeId> Function()? _selfNode;
   final Future<void> Function(String uri) _joinEndpoint;
   final Future<({bool admitted, bool hasCert})> Function(Uint8List peer)
   _pnetStatus;
@@ -449,7 +458,12 @@ class P2PEndpointService {
         // identity/device — a candidate naming any third party is dropped
         // exactly as before, so an accepted contact still cannot make us
         // dial a node we never chose.
-        final me = _myIdentity().nodeId;
+        NodeId me;
+        try {
+          me = await _selfNode?.call() ?? _myIdentity().nodeId;
+        } catch (_) {
+          me = _myIdentity().nodeId;
+        }
         final ownSender = peer == me || await _isOwnDevice(peer);
         if (!ownSender) {
           // The ordinary contact path, byte-for-byte as it always was:
@@ -485,9 +499,28 @@ class P2PEndpointService {
         // and cannot key anything: under the old single-key flow a
         // sibling's candidates were stored under a peer nobody would ever
         // dial and then died one by one in binding ("invite names …").
-        // Re-key each candidate by the device its invite PRESENTS — but
-        // only toward a device of my own identity document, so a candidate
-        // naming any third party is dropped exactly as before.
+        // Re-key each candidate by the node its invite PRESENTS — but only
+        // toward my own identity document, so a candidate naming any third
+        // party is dropped exactly as before.
+        //
+        // Two subtleties, both measured on the stand:
+        // - "me" must be the TRANSPORT node id, not the identity invite's:
+        //   on a sibling the two differ, and with the identity as "me" every
+        //   candidate the master shared (they all present the shared
+        //   identity key) was skipped as this node's own echo — twenty-eight
+        //   drained shares processed in total silence.
+        // - devices SHARE the identity key, so the presented id cannot tell
+        //   a sibling's candidate from my own echoed one. The ADDRESS can:
+        //   a candidate carrying one of the URIs this node currently mints
+        //   is my own share coming back; any other address under the
+        //   identity's key is a sibling worth dialing (the dial pins the
+        //   identity key — exactly what the master presents).
+        final Set<String> myCurrentUris;
+        try {
+          myCurrentUris = (await _mintLocalUris()).toSet();
+        } catch (_) {
+          return; // cannot tell echoes apart — better silent than self-dial
+        }
         final deviceById = <String, NodeId>{};
         final urisById = <String, List<String>>{};
         for (final uri in uris) {
@@ -502,8 +535,15 @@ class P2PEndpointService {
             );
             continue;
           }
-          if (presented == me) {
+          if (myCurrentUris.contains(uri)) {
             // My own share, echoed back through the identity mailbox.
+            continue;
+          }
+          if (presented == me) {
+            // The shared identity key at an address that is not mine — a
+            // sibling. Never dialed when it could be THIS node (see above).
+            deviceById[presented.hex] = presented;
+            (urisById[presented.hex] ??= []).add(uri);
             continue;
           }
           if (presented != peer && !await _isOwnDevice(presented)) {
@@ -757,6 +797,7 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
         ref.read(p2pPolicyProvider.notifier).allowsMessagingPeer(peer),
     isOwnDevice: (peer) async =>
         await ref.read(groupServiceProvider)?.isMyDevice(peer) ?? false,
+    selfNode: () => transport.nodeId(),
     joinEndpoint: transport.joinP2PEndpoint,
     pnetStatus: transport.peerPnetStatus,
     myIdentity: () => stack.myInvite,
