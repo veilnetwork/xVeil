@@ -1903,6 +1903,67 @@ void main() {
       );
       svc.dispose();
     });
+
+    test('the caller rebinds to whichever device answers', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      final identity = NodeId.fromHex('a' * 64);
+      final device = NodeId.fromHex('b' * 64);
+
+      await svc.placeCall(identity, const CallMedia(audio: true));
+      final callId = svc.current!.callId;
+
+      fake.onCallSignal!(
+        device,
+        CallSignal(
+          callId: callId,
+          type: CallSignalType.answer,
+          posture: CallPosture.direct,
+          transport: const CallTransportProposal(CallTransportKind.relay),
+          mediaKey: generateCallMediaKeyContribution(),
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(svc.current?.peer, device,
+          reason: 'the dialog belongs to whoever picked up');
+      expect(svc.current?.status, CallStatus.connecting);
+
+      // A late busy from a re-driven offer at another device must not tear
+      // down the connected call.
+      fake.onCallSignal!(
+        device,
+        CallSignal(
+          callId: callId,
+          type: CallSignalType.busy,
+          reason: CallEndReason.busy,
+        ),
+      );
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.connecting);
+      svc.dispose();
+    });
+
+    test('a re-driven offer of the current call is swallowed, not busied',
+        () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+
+      fake.onCallSignal!(caller, offer('fan-8'));
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.ringing);
+
+      fake.onCallSignal!(caller, offer('fan-8'));
+      await pumpEventQueue();
+
+      expect(svc.current?.status, CallStatus.ringing);
+      expect(
+        fake.sentTo.where((r) => r.$2.type == CallSignalType.busy),
+        isEmpty,
+        reason: 're-drives of the same call must not busy the caller',
+      );
+      svc.dispose();
+    });
   });
 }
 
