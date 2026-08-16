@@ -144,8 +144,16 @@ class _MessagingRealtimeControl {
       if (!_speaksForContact(message, 'offer')) return;
       if (!isAccepted(message.src)) {
         final contact = await _owner._storage.getContact(message.src);
-        if (contact?.status != ContactStatus.accepted) return;
-        markAccepted(message.src);
+        if (contact?.status != ContactStatus.accepted) {
+          // MY OWN DEVICE: the sibling relay of a call offer (device
+          // fan-out) — no contact row, welcome anyway, no cache priming.
+          // CallService re-verifies the sender before honoring onBehalfOf.
+          if (!(await _owner.isOwnDevice?.call(message.src) ?? false)) {
+            return;
+          }
+        } else {
+          markAccepted(message.src);
+        }
       }
     }
     final frameId = envelope.frameId;

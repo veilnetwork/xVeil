@@ -11,6 +11,7 @@ import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'messaging.dart';
 import 'call_slot.dart';
+import 'group_service_providers.dart';
 import 'p2p_endpoint_service.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
@@ -232,6 +233,36 @@ class CallService {
   /// the UI badge still shows only its generic localized phrase.
   final String? Function(NodeId peer)? _p2pFallbackReason;
 
+  // ---- device fan-out (multi-device epic) --------------------------------
+  //
+  // A caller cannot ring this identity's other devices itself: a foreign
+  // identity's instances are unaddressable from outside (InstanceRegistry
+  // entries carry no transport id — that is the deniability model). So the
+  // device that RECEIVES the offer forwards it to its siblings, and every
+  // signal a device sends onward to the remote peer speaks as the identity,
+  // which is why the peer's (peer, callId) matching never notices which
+  // device answered.
+
+  /// This identity's OTHER devices (device transport ids). Null/empty on a
+  /// single-device identity — fan-out then never runs.
+  Future<List<NodeId>> Function()? ownSiblingDevices;
+
+  /// Is [peer] a device of MY OWN identity (identity-document question)?
+  /// Gate for honoring [CallSignal.onBehalfOf] — see the field's doc.
+  Future<bool> Function(NodeId peer)? isOwnDevice;
+
+  /// callIds whose incoming ring reached us as a sibling RELAY, not from the
+  /// caller directly. Their reject stays local (see [reject]): the caller
+  /// still has other devices ringing, and one device's "no" must not end the
+  /// call for the hand that was reaching for "yes" on another.
+  final Set<String> _relayedIncoming = <String>{};
+
+  /// A relayed offer older than this is history, not a call: durable
+  /// re-drives deliver offers to devices that were offline for hours, and
+  /// ringing them then would be a haunting. The mirrored call journal is the
+  /// record for those.
+  static const Duration _relayedOfferMaxAge = Duration(seconds: 90);
+
   /// Give endpoint exchange and direct dialing a bounded setup window. The
   /// reachability probe keeps running after the timeout and can still warm a
   /// direct session for the next call.
@@ -308,7 +339,7 @@ class CallService {
   void start() {
     if (_started) return;
     _started = true;
-    _handler = _onSignal;
+    _handler = _onWireSignal;
     _messaging.onCallSignal = _handler;
     _screenShareStoppedSub = _media?.screenShareStopped.listen((_) {
       if (_current?.screenOn == true) {
@@ -448,7 +479,34 @@ class CallService {
         protocolVersion: _signalProtocolVersion,
       ),
     );
+    // Device fan-out: the ring may still be sounding on this identity's other
+    // devices. Tell THEM (never the caller) it was answered here, so their
+    // ringing stops without a missed call. `onBehalfOf` carries the caller so
+    // each sibling can match its ringing (peer, callId) pair.
+    unawaited(_notifySiblingsAnsweredElsewhere(c));
     unawaited(_startMedia());
+  }
+
+  Future<void> _notifySiblingsAnsweredElsewhere(Call c) async {
+    final list = ownSiblingDevices;
+    if (list == null) return;
+    try {
+      final siblings = await list();
+      if (siblings.isEmpty) return;
+      final signal = CallSignal(
+        callId: c.callId,
+        type: CallSignalType.cancel,
+        reason: CallEndReason.answeredElsewhere,
+        onBehalfOf: c.peer.hex,
+        protocolVersion: _signalProtocolVersion,
+        sentAtMs: _now().millisecondsSinceEpoch,
+      );
+      for (final device in siblings) {
+        unawaited(_messaging.sendCallSignal(device, signal));
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[call-sig]: answered-elsewhere fan-out failed: $e');
+    }
   }
 
   /// Reject the ringing incoming call.
@@ -457,6 +515,17 @@ class CallService {
     if (c == null ||
         c.direction != CallDirection.incoming ||
         c.status != CallStatus.ringing) {
+      return;
+    }
+    // Device fan-out: a RELAYED ring declines locally only. The caller still
+    // has this identity's other devices ringing — the device the offer
+    // actually reached among them — and one device's "no" must not hang up
+    // on the hand reaching for "yes" elsewhere. The caller ends on answer,
+    // its own cancel, or the ring timeout. (The directly-rung device keeps
+    // the old behavior: its reject IS the identity declining, v1 semantics —
+    // recorded in the campaign protocol for the case-38 refinement.)
+    if (_relayedIncoming.remove(c.callId)) {
+      _end(CallEndReason.declined);
       return;
     }
     // The user's decision must clear the UI instantly: the control signal's
@@ -664,6 +733,55 @@ class CallService {
 
   // ---- inbound signal handling -------------------------------------------
 
+  /// Wire entry. Ordinary signals go straight through; a relayed copy
+  /// (`onBehalfOf` set) is admitted only after the sender is PROVEN to be my
+  /// own device, and then handled as if the true caller had sent it.
+  void _onWireSignal(NodeId peer, CallSignal sig) {
+    final claimed = sig.onBehalfOf;
+    if (claimed == null) {
+      _onSignal(peer, sig);
+      return;
+    }
+    unawaited(() async {
+      final NodeId caller;
+      try {
+        caller = NodeId.fromHex(claimed);
+      } catch (_) {
+        devLog(
+          () => 'xVeil[call-sig]: relayed ${sig.type.name} dropped — '
+              'unparseable onBehalfOf',
+        );
+        return;
+      }
+      final own = await isOwnDevice?.call(peer) ?? false;
+      if (!own) {
+        // The one attack this field invites: a contact ringing us while
+        // wearing an arbitrary caller's name. Refuse loudly.
+        devLog(
+          () => 'xVeil[call-sig]: relayed ${sig.type.name} from '
+              '${peer.short} REFUSED — sender is not one of my devices',
+        );
+        return;
+      }
+      if (sig.type == CallSignalType.offer) {
+        final at = sig.sentAtMs;
+        final age = at == null
+            ? null
+            : _now().difference(DateTime.fromMillisecondsSinceEpoch(at));
+        if (age == null || age > _relayedOfferMaxAge || age.isNegative) {
+          // A durable re-drive delivered someone's morning to our evening.
+          devLog(
+            () => 'xVeil[call-sig]: relayed offer ${sig.callId} ignored — '
+                'stale (age=${age?.inSeconds}s)',
+          );
+          return;
+        }
+        _relayedIncoming.add(sig.callId);
+      }
+      _onSignal(caller, sig);
+    }());
+  }
+
   void _onSignal(NodeId peer, CallSignal sig) {
     // Any signal from the current call's peer is proof of life — refresh the
     // liveness deadline before dispatching (covers offer/answer/health/… alike).
@@ -686,7 +804,13 @@ class CallService {
       case CallSignalType.busy:
         _onRemoteEnd(peer, sig, CallEndReason.busy);
       case CallSignalType.cancel:
-        _onRemoteEnd(peer, sig, CallEndReason.cancelled);
+        if (sig.reason == CallEndReason.answeredElsewhere) {
+          // Sibling-only lane (see accept()): never sent by the remote peer,
+          // and _onWireSignal already proved the sender is my own device.
+          _onAnsweredElsewhere(peer, sig);
+        } else {
+          _onRemoteEnd(peer, sig, CallEndReason.cancelled);
+        }
       case CallSignalType.end:
         _onRemoteEnd(peer, sig, sig.reason ?? CallEndReason.hangup);
       case CallSignalType.health:
@@ -941,6 +1065,54 @@ class CallService {
       ),
     );
     _armRingTimeout(sig.callId);
+    // Device fan-out: the caller could only reach ONE of this identity's
+    // devices (rendezvous picks one), so the device it reached rings the
+    // rest. Only the ORIGINAL copy forwards — a relayed one stops here, or
+    // two siblings would bounce the offer between them forever.
+    if (sig.onBehalfOf == null) {
+      unawaited(_relayOfferToSiblings(peer, sig));
+    }
+  }
+
+  Future<void> _relayOfferToSiblings(NodeId caller, CallSignal sig) async {
+    final list = ownSiblingDevices;
+    if (list == null) return;
+    try {
+      final siblings = await list();
+      if (siblings.isEmpty) return;
+      final relayed = sig.copyWith(
+        onBehalfOf: caller.hex,
+        sentAtMs: sig.sentAtMs ?? _now().millisecondsSinceEpoch,
+      );
+      devLog(
+        () => 'xVeil[call-sig]: fanning offer ${sig.callId} from '
+            '${caller.short} out to ${siblings.length} sibling device(s)',
+      );
+      for (final device in siblings) {
+        unawaited(_messaging.sendCallSignal(device, relayed));
+      }
+    } catch (e) {
+      // Best-effort by construction: this device is already ringing, and a
+      // failed fan-out must not touch that.
+      devLog(() => 'xVeil[call-sig]: offer fan-out failed: $e');
+    }
+  }
+
+  /// Ringing ended on THIS device because a sibling answered. Local-only:
+  /// no missed-call the user has to dismiss, no signal to the caller.
+  void _onAnsweredElsewhere(NodeId caller, CallSignal sig) {
+    final c = _current;
+    if (c == null ||
+        c.callId != sig.callId ||
+        c.direction != CallDirection.incoming ||
+        c.status != CallStatus.ringing) {
+      return;
+    }
+    devLog(
+      () => 'xVeil[call-sig]: call ${sig.callId} answered on another '
+          'device — stopping this ring',
+    );
+    _end(CallEndReason.answeredElsewhere);
   }
 
   void _onAnswer(NodeId peer, CallSignal sig) {
@@ -1252,6 +1424,8 @@ class CallService {
   void _end(CallEndReason reason) {
     _cancelRingTimeout();
     _cancelHeartbeat();
+    final endingId = _current?.callId;
+    if (endingId != null) _relayedIncoming.remove(endingId);
     _pendingRelayCallId = null;
     _pendingRelayPeer = null;
     _outgoingProposal = null;
@@ -1353,6 +1527,13 @@ final callServiceProvider = Provider<CallService>((ref) {
     p2pFallbackReason: (peer) =>
         ref.read(p2pEndpointServiceProvider)?.lastFallbackReason(peer),
   )..start();
+  // Device fan-out wiring. Read LAZILY inside the closures: the group
+  // service is per-identity and may not exist yet while the call service is
+  // being built — a null read here would freeze fan-out off for the session.
+  svc.ownSiblingDevices = () async =>
+      await ref.read(groupServiceProvider)?.otherDeviceIds() ?? const [];
+  svc.isOwnDevice = (peer) async =>
+      await ref.read(groupServiceProvider)?.isMyDevice(peer) ?? false;
   ref.onDispose(svc.dispose);
   return svc;
 });
