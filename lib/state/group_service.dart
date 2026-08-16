@@ -16063,8 +16063,15 @@ class GroupService {
           ingestInvalidWhy ??= m.groupId != manifest.groupId
               ? 'group-id mismatch'
               : !_signer.verifyMessage(m)
-              ? 'signature verify failed for writer '
-                    '${m.authorPubKey.take(6).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}'
+              // The full anatomy, because the label alone sent one hunt
+              // after a phantom: apk.take(6) here and blake3(apk) in the
+              // probes are DIFFERENT names for the same writer.
+              ? 'signature verify failed: v=${m.version} '
+                    'apk=${m.authorPubKey.length} sig=${m.signature.length} '
+                    'author=${m.author.hex.substring(0, 8)} '
+                    'binds=${m.authorPubKey.length == 32 && NodeId(blake3Hash(m.authorPubKey)) == m.author} '
+                    'epoch=${m.membershipEpoch} enc=${m.isEncrypted} '
+                    'writer=${m.authorPubKey.take(6).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}'
               : 'space-post shape';
         }
         continue;
