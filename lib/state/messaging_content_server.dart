@@ -327,7 +327,11 @@ extension _MessagingContentServer on MessagingService {
         } catch (_) {}
         return;
       }
-      if (await _p2pStreamAllowed(peer)) {
+      // The mirror of the pull side: a sibling's authenticated session stream
+      // is always served — the p2p opt-in governs CONTACTS, and my own device
+      // is not one.
+      if ((await isOwnDevice?.call(peer) ?? false) ||
+          await _p2pStreamAllowed(peer)) {
         _bulkStreamLog(
           () =>
               'xVeil[content]: stream-accept p2p <- ${peer.short} '

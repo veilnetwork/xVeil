@@ -51,6 +51,31 @@ void main() {
     );
   });
 
+  // THE SIBLING'S EXCEPTION. The identity address is also the MASTER's
+  // transport id, and from a device provably not the master a DIRECT dial
+  // reaches a different, real node. Refusing it kept every sibling→master
+  // content stream waiting on a manifest that could never come — the request
+  // fell back to the mailbox, and a streaming handshake cannot ride a
+  // mailbox. Anonymous stays deposit-only: the rendezvous resolve of this
+  // address picks one device, and for the sender that is itself.
+  test('a sibling may dial the master directly, and only directly', () {
+    final sibling = _id(7);
+    expect(
+      sendRouteFor(me.bytes, me, anonymous: false, myNode: sibling.bytes),
+      SendRoute.direct,
+    );
+    expect(
+      sendRouteFor(me.bytes, me, anonymous: true, myNode: sibling.bytes),
+      SendRoute.deviceSync,
+      reason: 'the anonymous resolve of our own identity picks ourselves',
+    );
+    // The MASTER itself keeps the old answer: its node id IS the identity.
+    expect(
+      sendRouteFor(me.bytes, me, anonymous: false, myNode: me.bytes),
+      SendRoute.deviceSync,
+    );
+  });
+
   test('a peer still routes by anonymity', () {
     expect(sendRouteFor(me.bytes, peer, anonymous: true), SendRoute.onion);
     expect(sendRouteFor(me.bytes, peer, anonymous: false), SendRoute.direct);
