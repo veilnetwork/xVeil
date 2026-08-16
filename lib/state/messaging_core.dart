@@ -393,6 +393,11 @@ class MessagingService {
   /// this first treats its own devices as strangers.
   Future<bool> Function(NodeId peer)? isOwnDevice;
 
+  /// Asks the identity layer whether [peer] is the sovereign AUTHORITY of the
+  /// device group — a signing key, not a node. Nothing addressed to it can
+  /// ever be delivered, and a durable frame that names it re-drives forever.
+  Future<bool> Function(NodeId peer)? isSovereignAuthority;
+
   /// Epoch-encrypted group-call frame. Deliberately not contact-gated: the
   /// group layer authenticates the sender, current membership, epoch, AEAD,
   /// signature, replay id and TTL before emitting anything to the call FSM.
