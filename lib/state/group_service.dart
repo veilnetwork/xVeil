@@ -13569,11 +13569,18 @@ class GroupService {
             }),
           );
         }
-        devLog(
-          () =>
-              'xVeil[devices]: sync serve to ${peer.short}: '
-              '${missingMsgs.length} row(s) in ${batches.length} frame(s)',
-        );
+        devLog(() {
+          final byWriter = <String, int>{};
+          for (final m in missingMsgs) {
+            final w = m.authorPubKey.isEmpty
+                ? 'identity'
+                : NodeId(blake3Hash(m.authorPubKey)).hex.substring(0, 8);
+            byWriter[w] = (byWriter[w] ?? 0) + 1;
+          }
+          return 'xVeil[devices]: sync serve to ${peer.short}: '
+              '${missingMsgs.length} row(s) in ${batches.length} frame(s), '
+              'writers: $byWriter';
+        });
       } catch (_) {
         _cancelSpaceReceipt(receipt);
         rethrow;
