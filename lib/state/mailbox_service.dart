@@ -656,7 +656,30 @@ class MailboxService implements MailboxSink {
         _warmedRelays.length < _relays.length &&
         _warmAttempts < _maxWarmAttempts) {
       _warmAttempts++;
-      await _warmNextCandidate();
+      // EVERY unwarmed candidate this pass, not one. One-per-tick stretched
+      // full coverage across minutes of drain intervals — and a deposit
+      // sitting at a not-yet-warmed relay is invisible for all of them
+      // (measured: the sibling endpoint exchange took ~5 min of its
+      // recovery exactly here, "drain start relays=<one>" while the frame
+      // sat at the third relay). Each warm is one one-hop resolve; the ANR
+      // this loop's predecessor caused came from stacking the lookups AND
+      // the 8s own-ad self-resolve into one tick — a short breather between
+      // lookups keeps the isolate responsive without giving up coverage.
+      for (var left = _relays.length - _warmedRelays.length;
+          left > 0;
+          left--) {
+        final before = _warmedRelays.length;
+        await _warmNextCandidate();
+        if (_disposed || _handleDead) return;
+        if (_warmedRelays.length >= _relays.length) break;
+        if (_warmedRelays.length == before) {
+          // No progress — the candidate did not resolve. Stop the pass here
+          // (the next tick retries) instead of burning the remaining lookups
+          // and breathers against relays that are down right now.
+          break;
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
     }
     if (_drainSkips > 0) {
       _drainSkips--;
