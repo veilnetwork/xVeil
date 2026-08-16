@@ -251,8 +251,24 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       if (!(await svc.referencedContentIds(gid)).contains(cid)) return;
       final st = await svc.stateOf(gid);
       if (st == null) return;
+      // Who NOT to ask, and both exclusions name a device, not the identity.
+      //
+      // The sovereign OWNER is a signing key, not a node — pulling from it
+      // spent the whole retry budget on an address nobody answers (measured:
+      // six attempts against d3b1d6f2 while the master sat online untouched).
+      // And "myself" must be MY TRANSPORT ID: selfId is the identity, which
+      // on a sibling equals the MASTER's device id — the one member that
+      // actually holds the bytes was the one member skipped.
+      final bundle = await svc.load(gid);
+      final owner = bundle?.manifest.isSovereignDevice == true
+          ? bundle!.manifest.owner
+          : null;
+      await svc.resolveMyDevice();
+      final me = svc.myDevice;
       for (final m in st.members.values) {
-        if (m.nodeId == svc.selfId) continue;
+        if (owner != null && m.nodeId == owner) continue;
+        if (me != null && m.nodeId == me) continue;
+        if (me == null && m.nodeId == svc.selfId) continue;
         await svc.fetchGroupContent(gid, cid, m.nodeId);
       }
     } finally {
