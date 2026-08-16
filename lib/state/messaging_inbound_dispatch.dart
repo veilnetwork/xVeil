@@ -586,8 +586,13 @@ extension _MessagingInboundDispatch on MessagingService {
       case WireKind.p2pEndpoints:
         // A contact shared its direct dial endpoints (P2P epic). Consent-gated
         // at transport admission; the endpoint service re-checks the local P2P
-        // policy (mutual consent) before acting on or answering it.
-        if (existing?.status != ContactStatus.accepted) return;
+        // policy (mutual consent) before acting on or answering it. MY OWN
+        // DEVICE has no contact row and passes on that fact alone — the
+        // sibling ladder's exchange arrives on this lane via the mailbox.
+        if (existing?.status != ContactStatus.accepted &&
+            !(await isOwnDevice?.call(m.src) ?? false)) {
+          return;
+        }
         devLog(
           () =>
               'xVeil[p2p]: in endpoints from=${m.src.short} '
