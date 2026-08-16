@@ -11139,9 +11139,33 @@ class GroupService {
     Iterable<GroupMessage> input,
   ) {
     final rows = <String, GroupMessage>{};
+    var dropped = 0;
+    GroupMessage? firstDropped;
     for (final message in input) {
-      if (!_validMessageFor(manifest.groupId, message)) continue;
+      if (!_validMessageFor(manifest.groupId, message)) {
+        dropped++;
+        firstDropped ??= message;
+        continue;
+      }
       rows[groupMessageHash(message)] = message;
+    }
+    if (dropped > 0 && manifest.isSovereignDevice) {
+      // The silent drop here is where a linked device's history quietly
+      // loses another writer's rows: a signature/document verification that
+      // fails on THIS device (a subkey its document copy cannot vouch for)
+      // discards the row with no trace, and the seeder — whose copy
+      // verifies — never learns. Say it, with the writer's pub-key prefix,
+      // because "15 of 22" cost a day of measuring everything else first.
+      final pk = firstDropped!.authorPubKey;
+      final writer = pk.isEmpty
+          ? 'identity-key'
+          : 'subkey ${pk.length}B ${pk.take(6).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+      devLog(
+        () =>
+            'xVeil[devices]: $dropped device-group row(s) failed validation '
+            'and were dropped (first: writer=$writer seq=${firstDropped!.seq} '
+            'author=${firstDropped!.author.short})',
+      );
     }
     return rows.values.toList();
   }
