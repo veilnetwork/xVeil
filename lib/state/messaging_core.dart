@@ -847,6 +847,13 @@ class MessagingService {
   /// deposit that was never in question.
   set mailboxAckGrace(Duration value) => _mailboxDelivery.ackGrace = value;
 
+  /// Deadline on one background mailbox deposit — see the field it forwards
+  /// to for why a deposit that outlives it must be abandoned.
+  set mailboxStashDeadline(Duration value) =>
+      _mailboxDelivery.stashDeadline = value;
+
+  Duration get mailboxStashDeadline => _mailboxDelivery.stashDeadline;
+
   Duration get mailboxAckGrace => _mailboxDelivery.ackGrace;
 
   void onAppResumed() => _mailboxDelivery.nudgeDrain();
