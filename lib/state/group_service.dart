@@ -13025,8 +13025,14 @@ class GroupService {
             .where((message) => !message.isChannelEncrypted)
             .map((message) => (message.author, message.seq)),
       ),
-      if (!b.manifest.isSpace && !b.manifest.isSovereignDevice)
-        'ms': groupMessageScopeVector(),
+      // The DEVICE group rides the per-scope vector too: its chains are per
+      // WRITER (the identity's devices number independently), and the flat
+      // per-author vector collapsed them — one device's high-water masked
+      // the other's whole chain, so a newly linked device synced exactly one
+      // writer's history and never learned the rest existed. The flat 'g'
+      // stays alongside for a legacy responder, same migration pattern as
+      // the Space 'mg' above.
+      if (!b.manifest.isSpace) 'ms': groupMessageScopeVector(),
       if (b.manifest.isSpace) 'mg': openChannelMessageVector(),
       if (b.manifest.isSpace) 'cg': channelMessageVector(),
       // V2 adds the accepted head hash. A legacy peer treats the object value
@@ -13202,6 +13208,14 @@ class GroupService {
         return req['ms'] is Map
             ? (req['ms'] as Map)[_messageChainScope(b.manifest, message)]
             : null;
+      }
+      // The DEVICE group: chains are per WRITER, so the per-scope vector is
+      // the only honest frontier — the flat one collapsed both devices of
+      // the identity into one high-water and masked whichever chain ran
+      // lower. A legacy requester that sent only 'g' still gets the flat
+      // read; the miss direction there over-ships, which the dedup absorbs.
+      if (req['ms'] is Map) {
+        return (req['ms'] as Map)[_messageChainScope(b.manifest, message)];
       }
       return req['g'];
     }
@@ -13425,6 +13439,20 @@ class GroupService {
         );
         return false;
       }
+    }
+    if (b.manifest.isSovereignDevice) {
+      // The device-group sync verdict, out loud on the RESPONDER: the live
+      // starvation of a linked device (15/22, exactly one writer's chain)
+      // was invisible from every other log — the requester asked, this side
+      // computed "nothing missing" against a frontier that conflated the
+      // writers, and silence looked identical to health.
+      devLog(
+        () =>
+            'xVeil[devices]: sync verdict for ${peer.short}: '
+            'msgs=${missingMsgs.length} ctl=${missingCtl.length} '
+            'rx=${missingRx.length} env=${missingEpochEnvelopes.length} '
+            'perScopeReq=${req['ms'] is Map}',
+      );
     }
     if (missingMsgs.isEmpty &&
         missingCtl.isEmpty &&
