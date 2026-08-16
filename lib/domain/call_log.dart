@@ -58,6 +58,12 @@ CallLogOutcome callLogOutcomeFor({
     case CallEndReason.unsupported:
     case CallEndReason.unknown:
       return CallLogOutcome.failed;
+    case CallEndReason.answeredElsewhere:
+      // The identity DID take this call — on a sibling device. Journal rows
+      // converge across devices by callId, so agreeing with the answering
+      // device's outcome keeps the merged row honest and single-voiced;
+      // "missed" here would tell the user they missed a call they took.
+      return CallLogOutcome.completed;
   }
 }
 
