@@ -15057,11 +15057,34 @@ class GroupService {
                   visiblePostIds.contains(message.spacePostId)),
         ) ||
         (await _vouched(bundle.manifest.groupId)).contains(cid);
+    // Who counts as "me" depends on the group. In an ordinary group members
+    // are identities and excluding selfId is right. In the SOVEREIGN DEVICE
+    // group the members are DEVICES plus the signing authority, and the same
+    // exclusion removed the MASTER — selfId is the identity, which is the
+    // master's transport id — while keeping the authority, which is a key
+    // nobody can dial. Every pull then targeted the one candidate that could
+    // never answer and skipped the one that held the bytes; the bridge-level
+    // holder preference could not help, because preference only reorders
+    // candidates that survived this filter. Sixteenth finding of the class.
+    final isDeviceGroup = bundle.manifest.isSovereignDevice;
+    NodeId? meDevice;
+    if (isDeviceGroup) {
+      await resolveMyDevice();
+      meDevice = myDevice;
+    }
+    bool excludedFromCandidates(NodeId id) {
+      if (isDeviceGroup) {
+        if (id == bundle.manifest.owner) return true;
+        if (meDevice != null) return id == meDevice;
+      }
+      return id == _signer.selfId;
+    }
+
     if (ordinaryReference) {
       final acl = SpaceAcl(state);
       final candidates = [
         for (final member in state.members.values)
-          if (member.nodeId != _signer.selfId &&
+          if (!excludedFromCandidates(member.nodeId) &&
               acl.allows(member.nodeId, SpacePermission.distributeContent))
             member.nodeId,
       ]..sort((left, right) => left.hex.compareTo(right.hex));
@@ -15099,7 +15122,7 @@ class GroupService {
     final acl = SpaceAcl(state);
     final candidates = [
       for (final recipient in clear.recipients)
-        if (recipient != _signer.selfId &&
+        if (!excludedFromCandidates(recipient) &&
             state.isMember(recipient) &&
             acl.allows(
               recipient,
