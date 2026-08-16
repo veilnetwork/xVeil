@@ -56,6 +56,31 @@ class _BlackholeTransport implements VeilTransport {
   Future<void> dispose() async => _inbound.close();
 }
 
+/// A sink whose deposits never complete while [hang] is set — the shape of a
+/// relay that silently drops a PUT and answers nothing.
+class _HangingSink implements MailboxSink {
+  int calls = 0;
+  bool hang = true;
+
+  @override
+  bool backgroundDrainPaused = false;
+  @override
+  Future<void> stash({
+    required NodeId recipient,
+    required Uint8List payload,
+    required Uint8List contentId,
+  }) {
+    calls++;
+    if (hang) return Completer<void>().future;
+    return Future.value();
+  }
+
+  @override
+  void nudgeDrain() {}
+  @override
+  void noteActivity() {}
+}
+
 /// Records every stash so we can assert the offline-deposit path fired.
 class _RecordingSink implements MailboxSink {
   final stashed = <(NodeId, Uint8List)>[];
@@ -101,6 +126,27 @@ void main() {
     mA = MessagingService(tA, sA)..start();
     sink = _RecordingSink();
     mA.attachMailbox(sink);
+  });
+
+  // THE WEDGE REGRESSION (2026-08-16, live): the background deposit slot is
+  // global and singular, so ONE stash that never completes froze every
+  // mailbox deposit to every peer until restart — 70+ frames per sibling
+  // durable and unmoving, the log an endless "another deposit is in flight".
+  test('a deposit that hangs frees the slot at the deadline', () async {
+    final hung = _HangingSink();
+    mA.attachMailbox(hung);
+    mA.mailboxStashDeadline = const Duration(milliseconds: 50);
+
+    await mA.sendRequest(b, 'first — this one hangs');
+    expect(hung.calls, 1);
+    // Deadline passes; the slot must come free even though the first stash's
+    // future is still pending.
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    hung.hang = false;
+    await mA.sendRequest(_id(3), 'second — must be admitted');
+    // The retry backoff applies per-frame, not to the slot: the SECOND frame
+    // has never failed and must go straight through.
+    expect(hung.calls, 2, reason: 'slot freed by the deadline');
   });
 
   test('a connection request is deposited at the recipient mailbox', () async {
