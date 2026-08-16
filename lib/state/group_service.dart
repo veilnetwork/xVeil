@@ -13506,6 +13506,63 @@ class GroupService {
       peer,
       repairFingerprint: repairFingerprint,
     );
+    // The DEVICE group's reply is BATCHED. One frame with the whole missing
+    // set grows past what either leg can carry — measured live 2026-08-16: a
+    // 13.8KB serve to a freshly adopted device travelled by NO path (the live
+    // leg never delivered it, the mailbox relay silently dropped the
+    // oversized deposit), so the requester stayed 7 messages short forever
+    // while the responder logged a healthy verdict. Rows are idempotent and
+    // the receiver merges each frame independently, so batches under the
+    // frame budget arrive where the monolith could not. Everything that is
+    // not the row list (controls, reactions, envelopes, cuts) rides ONLY the
+    // first frame — it is small and re-sending it per batch buys nothing.
+    if (b.manifest.name == kDeviceGroupName && missingMsgs.length > 1) {
+      const budget = 3500;
+      final batches = <List<GroupMessage>>[];
+      var batch = <GroupMessage>[];
+      var batchBytes = 0;
+      for (final m in missingMsgs) {
+        final size = jsonEncode(m.toJson()).length;
+        if (batch.isNotEmpty && batchBytes + size > budget) {
+          batches.add(batch);
+          batch = <GroupMessage>[];
+          batchBytes = 0;
+        }
+        batch.add(m);
+        batchBytes += size;
+      }
+      if (batch.isNotEmpty) batches.add(batch);
+      try {
+        for (var i = 0; i < batches.length; i++) {
+          await send(
+            peer,
+            gid,
+            jsonEncode({
+              'm': b.manifest.toJson(),
+              'c': [if (i == 0) for (final e in missingCtl) e.toJson()],
+              'g': [for (final m in batches[i]) m.toJson()],
+              'r': [if (i == 0) for (final r in missingRx) r.toJson()],
+              if (i == 0 && missingEpochEnvelopes.isNotEmpty)
+                'ke': [
+                  for (final envelope in missingEpochEnvelopes)
+                    envelope.toJson(),
+                ],
+              if (i == 0 && syncServeCuts.isNotEmpty)
+                'rcut': [for (final cut in syncServeCuts.values) cut.toJson()],
+            }),
+          );
+        }
+        devLog(
+          () =>
+              'xVeil[devices]: sync serve to ${peer.short}: '
+              '${missingMsgs.length} row(s) in ${batches.length} frame(s)',
+        );
+      } catch (_) {
+        _cancelSpaceReceipt(receipt);
+        rethrow;
+      }
+      return true;
+    }
     try {
       await send(
         peer,

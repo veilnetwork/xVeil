@@ -5700,6 +5700,83 @@ void main() {
   );
 
   test(
+    'the device-group sync reply is batched under the frame budget',
+    () async {
+      // Measured live 2026-08-16: a 13.8KB monolithic serve travelled by NO
+      // path — the live leg never carried it and the mailbox relay silently
+      // dropped the oversized deposit — so the requester stayed short forever
+      // while the responder logged a healthy verdict. Batches are the fix;
+      // each frame must stand alone and stay well under the deposit budget.
+      final primaryStorage = FakeHvContainer().storage();
+      await primaryStorage.open(password: 'pw', createIfMissing: true);
+      final replies = <String>[];
+      final primary = GroupService(
+        primaryStorage,
+        _FakeSigner(owner),
+        send: (peer, _, json) async {
+          if (peer == carol) replies.add(json);
+        },
+      );
+      expect(
+        await primary.linkDevice(
+          carol,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await primary.deviceGroupIdHex())!);
+      final filler = 'x' * 400;
+      for (var i = 0; i < 25; i++) {
+        await primary.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.msgMirror,
+            key: 'chat|bulk-$i',
+            tsMs: 1000 + i,
+            payload: {'peer': 'aa', 'dir': 'outgoing', 'body': 'bulk-$i $filler'},
+          ),
+        );
+      }
+
+      final thirdStorage = FakeHvContainer().storage();
+      await thirdStorage.open(password: 'pw', createIfMissing: true);
+      final third = GroupService(thirdStorage, _FakeSigner(carol));
+      addTearDown(third.dispose);
+      final empty = (await primary.load(gid))!.copyWith(messages: const []);
+      expect(
+        await third.ingestSnapshot(
+          primary.snapshotJson(empty, recipient: carol, ownDevice: true),
+        ),
+        isTrue,
+      );
+      expect(await third.adoptDeviceGroup(gid), isTrue);
+
+      final req = (await third.buildGroupSyncRequest(gid))!;
+      replies.clear();
+      expect(await primary.handleGroupSyncRequest(carol, req), isTrue);
+      expect(
+        replies.length,
+        greaterThan(1),
+        reason: '25 padded rows cannot fit one frame',
+      );
+      for (final wire in replies) {
+        expect(
+          wire.length,
+          lessThan(6000),
+          reason: 'every frame stays under the deposit budget',
+        );
+        await third.ingestSnapshot(wire);
+      }
+      final after = (await third.load(gid))!.messages
+          .map((m) => m.body)
+          .join(' ');
+      for (var i = 0; i < 25; i++) {
+        expect(after, contains('bulk-$i '), reason: 'row $i arrived');
+      }
+    },
+  );
+
+  test(
     'device-group compaction: a revoked device must not delete the honest row '
     'it beat — reads filter by the current ACL, so the key would vanish',
     () async {
