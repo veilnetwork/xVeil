@@ -24,6 +24,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
@@ -298,6 +299,35 @@ void main() {
       isFalse,
       reason: 'a stale snapshot resurrected a removed member',
     );
+  });
+
+  test('a mirrored pending status never downgrades an accepted contact',
+      () async {
+    // Both devices hear a contact REQUEST themselves — it is addressed to the
+    // identity — so the second device's own "pendingIncoming" carried a
+    // fresher timestamp than the first device's "accepted", and the LWW fold
+    // regressed the accept on every device that folded both. Measured live on
+    // the three-instance stand as the campaign's first defect.
+    final storage = await _storage();
+    final messaging = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 1)))),
+      storage,
+    );
+    addTearDown(messaging.dispose);
+    final peer = NodeId(Uint8List.fromList(List.filled(32, 9)));
+    await messaging.applyMirroredContactStatus(peer, ContactStatus.accepted);
+    expect((await storage.getContact(peer))?.status, ContactStatus.accepted);
+
+    final moved = await messaging.applyMirroredContactStatus(
+      peer,
+      ContactStatus.pendingIncoming,
+    );
+    expect(moved, isFalse, reason: 'the doorbell overwrote the decision');
+    expect((await storage.getContact(peer))?.status, ContactStatus.accepted);
+
+    // And a real decision still lands: a block wins over an accept.
+    await messaging.applyMirroredContactStatus(peer, ContactStatus.blocked);
+    expect((await storage.getContact(peer))?.status, ContactStatus.blocked);
   });
 
   test('one device signing two rows at one seq is still equivocation',
