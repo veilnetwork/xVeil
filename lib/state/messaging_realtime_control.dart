@@ -95,8 +95,18 @@ class _MessagingRealtimeControl {
       if (!_speaksForContact(message, 'endpoints')) return;
       if (!isAccepted(message.src)) {
         final contact = await _owner._storage.getContact(message.src);
-        if (contact?.status != ContactStatus.accepted) return;
-        markAccepted(message.src);
+        if (contact?.status != ContactStatus.accepted) {
+          // MY OWN DEVICE: a sibling's share is welcome without a contact
+          // row (it has none), but it does not prime the accepted-cache —
+          // that cache answers contact questions, and a sibling is not one.
+          // The provenance gate above still applies in full: a CLAIMED
+          // sibling handing us dial URIs is exactly the attack shape.
+          if (!(await _owner.isOwnDevice?.call(message.src) ?? false)) {
+            return;
+          }
+        } else {
+          markAccepted(message.src);
+        }
       }
       final frameId = envelope.frameId;
       if (frameId != null) {
@@ -370,9 +380,16 @@ class _MessagingRealtimeControl {
     String bodyJson, {
     required int sentAtMs,
   }) async {
-    final contact = await _owner._storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
-    markAccepted(peer);
+    // MY OWN DEVICE bypasses the contact gate but not the accepted-cache:
+    // a sibling is never a contact, and this silent return was the reason a
+    // sibling's ladder ran to the punch with nothing exchanged — the frame
+    // the ladder thought it sent died right here.
+    final ownDevice = await _owner.isOwnDevice?.call(peer) ?? false;
+    if (!ownDevice) {
+      final contact = await _owner._storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) return;
+      markAccepted(peer);
+    }
     devLog(
       () =>
           'xVeil[p2p]: out endpoints to=${peer.short} '
