@@ -340,9 +340,31 @@ class _MessagingOutbox {
     // One failure is enough to know the rest will fail the same way in the
     // same pass. The next pass tries again from scratch, so nothing is
     // abandoned — only the pile-up is.
+    NodeId? selfNode;
+    try {
+      selfNode = await _owner._transport.nodeId();
+    } catch (_) {
+      // No self id (transport still booting) — skip the self check this pass.
+    }
     for (final frame in pending) {
       if (_retireExpiredTransient(frame)) continue;
       if (_retireStaleReplication(frame)) continue;
+      if (selfNode != null && frame.peerHex == selfNode.hex) {
+        // Addressed to THIS NODE: snapshotRecipients' device-group fallback
+        // guesses the identity when the local device id is unresolved, and on
+        // a restored sibling that guess keeps this device and drops the
+        // master. The live path already refuses self-sends; the durable half
+        // used to keep the frame forever (measured: 61 frames to self,
+        // re-depositing into unresolved-peer backoff for hours). "A guess
+        // that misroutes is recoverable" is a promise this retire keeps.
+        devLog(
+          () =>
+              'xVeil[durable]: frame ${frame.frameId} is addressed to THIS '
+              'node — moot, retiring',
+        );
+        retire(frame.peerHex, frame.frameId);
+        continue;
+      }
       // Media pauses unrelated maintenance, but never call lifecycle recovery.
       // The same predicate the deposit gate uses, so the two cannot disagree —
       // this loop used to carve call signals out of the pause and then hand

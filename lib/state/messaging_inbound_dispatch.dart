@@ -338,7 +338,8 @@ extension _MessagingInboundDispatch on MessagingService {
         // peer we already accepted (we send messages — hence acks — only to them).
         // The peer confirms delivery of our message [env.id] — stop re-sending.
         final ackId = env.id;
-        if (existing?.status != ContactStatus.accepted) {
+        final ownDeviceAck = await isOwnDevice?.call(m.src) ?? false;
+        if (existing?.status != ContactStatus.accepted && !ownDeviceAck) {
           if (ackId == null ||
               (!await _authorizedGroupCallAck(m.src, ackId) &&
                   !await _authorizedExternalSpaceProposalAck(m.src, ackId))) {
@@ -350,6 +351,35 @@ extension _MessagingInboundDispatch on MessagingService {
           // del, clear, accept, reconnect): stop re-driving + re-stashing it.
           // A no-op when ackId is an ordinary message id (not in the outbox).
           _retireOutboxFrame(m.src.hex, ackId);
+          if (ownDeviceAck) {
+            // Attribution collapse: a sibling's ack arrives AS the identity,
+            // while the frame it confirms sits keyed under the DEVICE we
+            // addressed. Without this the sibling's group-sync backlog
+            // re-drove forever (measured: 237 grpc frames, 645 KB, hours) and
+            // its deposits kept the shared mailbox too clogged for anything
+            // else. Retire the id wherever it is pending — but only under a
+            // holder that is itself my own device, so the XV-02 property
+            // stands: no ack ever retires a frame addressed to a third party.
+            try {
+              final held = await _storage.pendingOutboxFrames();
+              for (final frame in held) {
+                if (frame.frameId != ackId || frame.peerHex == m.src.hex) {
+                  continue;
+                }
+                final NodeId holder;
+                try {
+                  holder = NodeId.fromHex(frame.peerHex);
+                } catch (_) {
+                  continue;
+                }
+                if (await isOwnDevice?.call(holder) ?? false) {
+                  _retireOutboxFrame(frame.peerHex, ackId);
+                }
+              }
+            } catch (_) {
+              // Best-effort: the direct retire above already ran.
+            }
+          }
           // Idempotent: the peer's drain re-acks every cycle until its relay
           // blob ages out, so duplicate acks arrive in a storm. Mark delivered +
           // log + write storage only ONCE per id — re-doing it on every dup was
