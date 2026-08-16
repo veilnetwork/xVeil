@@ -16028,8 +16028,21 @@ class GroupService {
         ),
         mergedState,
       ).where(
+        // "Not one of OURS" means not written by THIS DEVICE — by the signing
+        // key, not the author. The author is the IDENTITY, and in the device
+        // group every row's author is the identity, so `author != selfId`
+        // filtered every device event out of `fresh` forever: rows stored and
+        // folded, the deviceIncoming stream never pulsed, and no mirror or
+        // contact decision applied live — on any sibling, for as long as the
+        // process lived. Measured on the three-instance stand as case 3's
+        // outgoing copy appearing only after a restart.
+        //
+        // Rows written before the key was carried have an empty authorPubKey;
+        // for them the author check is all there is, and they keep it.
         (message) =>
-            message.author != _signer.selfId &&
+            !(message.authorPubKey.isEmpty
+                ? message.author == _signer.selfId
+                : _listEquals(message.authorPubKey, _signer.selfPubKey)) &&
             !acceptedMessageHashesBefore.contains(groupMessageHash(message)),
       ),
     );
@@ -17316,7 +17329,13 @@ class GroupService {
     // Ingest deliberately kept the snapshot inert before adoption. Replay its
     // validated state now that gid + sovereign genesis + membership are bound.
     for (final message in await messagesOf(groupId)) {
-      if (message.author != _signer.selfId) {
+      // By the signing key, same as the ingest's `fresh` filter: the author is
+      // the identity, and comparing it to selfId skipped EVERY row here — the
+      // adoption replay replayed nothing, on every device, always.
+      final mine = message.authorPubKey.isEmpty
+          ? message.author == _signer.selfId
+          : _listEquals(message.authorPubKey, _signer.selfPubKey);
+      if (!mine) {
         _deviceIncomingCtl.add(message);
       }
     }
