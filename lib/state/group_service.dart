@@ -15526,12 +15526,24 @@ class GroupService {
                     : !encryptionEstablished
                     ? true
                     : message.isEncrypted &&
-                          envelopeAudience != null &&
-                          _peerCanDecryptEpoch(
-                            b,
-                            envelopeAudience,
-                            message.membershipEpoch!,
-                          )),
+                          // MY OWN DEVICE reads with the keys this very
+                          // snapshot hands over ('kk'), so the right question
+                          // is "do we hold the key", not "does an envelope
+                          // survive". The envelope question excluded every
+                          // row sealed under a rotated-away epoch — measured
+                          // on the stand as a linked device receiving 8 of 9
+                          // rows, the missing one exactly the pre-revocation
+                          // head of the history.
+                          ((ownDevice &&
+                                  b.localEpochKeys.containsKey(
+                                    message.membershipEpoch,
+                                  )) ||
+                              (envelopeAudience != null &&
+                                  _peerCanDecryptEpoch(
+                                    b,
+                                    envelopeAudience,
+                                    message.membershipEpoch!,
+                                  )))),
           )
           .map((message) => message.toJson())
           .toList(),
