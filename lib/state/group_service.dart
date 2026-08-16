@@ -13902,9 +13902,20 @@ class GroupService {
     int? neighborCount;
     Future<int> readNeighborCount() async =>
         neighborCount ??= await groupSyncNeighborCount(groupId);
+    // The DEVICE group's members are devices, so "not me" is a question about
+    // MY DEVICE id, never the identity: on a sibling the identity names the
+    // MASTER, and excluding by it dropped the master and kept this device —
+    // the sync fanned to itself (retired as moot) and to nobody else.
+    // Measured live: concurrent sends mirrored B→nowhere while A→B flowed,
+    // and only a manual reseed converged the master.
+    NodeId? meDevice;
+    if (bundle.manifest.isSovereignDevice) {
+      meDevice = await resolveMyDevice();
+    }
+    final selfExclusion = meDevice ?? _signer.selfId;
     final others = <NodeId>[
       for (final member in state.members.values)
-        if (member.nodeId != _signer.selfId &&
+        if (member.nodeId != selfExclusion &&
             (!bundle.manifest.isSovereignDevice ||
                 member.nodeId != bundle.manifest.owner))
           member.nodeId,
@@ -17945,9 +17956,17 @@ class GroupService {
     final channelMessages = messages
         .where((message) => message.isChannelEncrypted)
         .toList();
+    // Same device-aware "not me" as nudgeGroupSync: the DEVICE group's
+    // members are devices, and excluding by the identity dropped the MASTER
+    // from a sibling's fanout while keeping the sibling itself.
+    NodeId? meDevice;
+    if (b.manifest.isSovereignDevice) {
+      meDevice = await resolveMyDevice();
+    }
+    final deltaSelfExclusion = meDevice ?? _signer.selfId;
     final candidates = <NodeId>[
       for (final member in state.members.values)
-        if (member.nodeId != _signer.selfId &&
+        if (member.nodeId != deltaSelfExclusion &&
             (!b.manifest.isSovereignDevice ||
                 member.nodeId != b.manifest.owner) &&
             (channelMessages.isEmpty ||
