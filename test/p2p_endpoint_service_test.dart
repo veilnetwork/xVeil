@@ -91,6 +91,9 @@ class _Harness {
   List<NodeId> accepted = const [];
   Object? acceptedError;
 
+  /// Devices of MY OWN identity document (hex) — the re-keying gate.
+  final Set<String> ownDevices = {};
+
   late final P2PEndpointService svc = P2PEndpointService(
     messaging,
     localAllowsP2P: (_) async => allows,
@@ -113,6 +116,7 @@ class _Harness {
       if (err != null) throw err;
       return accepted;
     },
+    isOwnDevice: (p) async => ownDevices.contains(p.hex),
     attemptHolePunch: injectPunch
         ? (peer) async {
             punchCalls.add(peer);
@@ -505,6 +509,43 @@ void main() {
       // The forced reply does NOT re-request a reshare (settles in one round).
       final reply = jsonDecode(h.messaging.sentEndpoints.last.$2) as Map;
       expect(reply.containsKey('r'), isFalse);
+    },
+  );
+
+  test(
+    'a sibling share arriving AS the identity is re-keyed by its invites',
+    () async {
+      // Mail between my own devices is sealed AS the identity, so the wire
+      // source of a sibling's endpoint share can be MY OWN node id. The
+      // candidates must land under the device each invite presents — and a
+      // candidate presenting a node outside my identity document must die
+      // exactly as it always did.
+      final h = _Harness();
+      final sibling = _peer(0x21);
+      final third = _peer(0x22);
+      h.ownDevices.add(sibling.hex);
+      final me = _identity().nodeId;
+
+      h.messaging.onP2PEndpoints!(
+        me,
+        jsonEncode({
+          'v': 1,
+          'ts': 5,
+          'r': 1,
+          'e': [_inviteUri(0x21), _inviteUri(0x22)],
+        }),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(h.svc.knownEndpoints(sibling), [_inviteUri(0x21)]);
+      expect(h.svc.knownEndpoints(third), isEmpty,
+          reason: 'a third party never enters through the sibling door');
+      expect(h.svc.knownEndpoints(me), isEmpty,
+          reason: 'nothing is ever stored under my own name');
+      expect(h.joined, [_inviteUri(0x21)],
+          reason: 'the sibling candidate is dialed');
+      expect(h.messaging.sentEndpoints.single.$1.hex, sibling.hex,
+          reason: 'the reply goes to the device, not to my own name');
     },
   );
 }
