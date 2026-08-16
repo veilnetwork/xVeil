@@ -778,6 +778,69 @@ class EmbeddedNode {
     }
   }
 
+  /// Adopt a document that already NAMES this device, with no master at all.
+  ///
+  /// The one caller the other two adopt entry points fail: a freshly linked
+  /// device whose config holds only its own device key — not the master
+  /// (from_config demands that), and the phrase left with the ceremony
+  /// (from_master needs it). The master's authority arrives INSIDE the
+  /// document: every subkey in it is master-signed, including ours. A
+  /// document that does not name this config's key is refused with nothing
+  /// written.
+  static int adoptIdentityDocumentNamed(
+    String identityToml, {
+    required String veilDir,
+    required Uint8List document,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final adoptFn = dl.lookupFunction<_AdoptDocNative, _AdoptDocDart>(
+      'veil_adopt_identity_document_named_zeroize',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final tomlBytes = utf8.encode(identityToml);
+    final tomlPtr = calloc<Uint8>(tomlBytes.length);
+    final dirC = veilDir.toNativeUtf8();
+    // from_raw_parts needs a non-null pointer even for length 0.
+    final docPtr = calloc<Uint8>(document.isEmpty ? 1 : document.length);
+    final idxOut = calloc<Uint16>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      tomlPtr.asTypedList(tomlBytes.length).setAll(0, tomlBytes);
+      if (document.isNotEmpty) {
+        docPtr.asTypedList(document.length).setAll(0, document);
+      }
+      final rc = adoptFn(
+        tomlPtr,
+        tomlBytes.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        docPtr,
+        document.length,
+        idxOut,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_adopt_identity_document_named failed: $msg');
+      }
+      return idxOut.value;
+    } finally {
+      // The config holds this device's private key. The document is public.
+      wipeNativeSecret(tomlPtr, tomlBytes.length);
+      wipeSecretBytes(tomlBytes);
+      calloc.free(tomlPtr);
+      calloc.free(dirC);
+      calloc.free(docPtr);
+      calloc.free(idxOut);
+      calloc.free(errOut);
+    }
+  }
+
   /// The identity address a signed document names — BLAKE3 of the master key.
   ///
   /// The address this identity RECEIVES under, which is not always the address
