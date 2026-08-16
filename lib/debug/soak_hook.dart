@@ -38,7 +38,7 @@ import '../data/storage/storage_write_census.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../state/thumbnail.dart' show makeRgbaThumbB64, makeInlineImageB64;
-import '../domain/group_message.dart' show MediaObject;
+import '../domain/group_message.dart' show GroupMessage, MediaObject;
 
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/wire_envelope.dart';
@@ -713,6 +713,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/device_post_event':
           await _devicePostEventHook(req);
+          return;
+        case '/device_seed_probe':
+          await _deviceSeedProbeHook(req);
           return;
         case '/device_events':
           await _deviceEventsHook(req);
@@ -2302,6 +2305,68 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             : 'the device group is live and backed by state, so the pointer '
                   'was left alone; use device_revoke to remove a member, or '
                   'start over on this identity to drop the group',
+    });
+  }
+
+  /// Stand probe for the seed-content gap: build the REAL own-device seed
+  /// for ?peer= and report, per writer key, how many of the bundle's rows
+  /// ship in its 'g' — so "the seeder withholds another writer's rows" is a
+  /// number, not a theory. Metadata only, no bodies.
+  Future<void> _deviceSeedProbeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final peerHex = req.uri.queryParameters['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final gidHex = await svc.deviceGroupIdHex();
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final bundle = await svc.load(gid);
+    if (bundle == null) return _json(req, {'ok': false, 'error': 'no bundle'});
+    Map<String, int> byWriter(Iterable<dynamic> rows) {
+      final out = <String, int>{};
+      for (final row in rows) {
+        String writer;
+        int? epoch;
+        bool enc;
+        if (row is GroupMessage) {
+          writer = row.authorPubKey.isEmpty
+              ? 'identity'
+              : NodeId(blake3Hash(row.authorPubKey)).short;
+          epoch = row.membershipEpoch;
+          enc = row.isEncrypted;
+        } else {
+          final m = row as Map;
+          final pk = (m['apk'] ?? m['authorPubKey']) as String?;
+          writer = pk == null
+              ? 'identity'
+              : NodeId(blake3Hash(base64Decode(pk))).short;
+          epoch = (m['me'] as num?)?.toInt();
+          enc = m['e'] != null || m['enc'] != null;
+        }
+        final key = '$writer|${enc ? 'enc:$epoch' : 'clear'}';
+        out[key] = (out[key] ?? 0) + 1;
+      }
+      return out;
+    }
+
+    final seed =
+        jsonDecode(
+              svc.snapshotJson(
+                bundle,
+                recipient: NodeId.fromHex(peerHex),
+                ownDevice: true,
+              ),
+            )
+            as Map<String, dynamic>;
+    return _json(req, {
+      'ok': true,
+      'bundleRows': bundle.messages.length,
+      'bundleByWriter': byWriter(bundle.messages),
+      'shippedRows': (seed['g'] as List? ?? const []).length,
+      'shippedByWriter': byWriter(seed['g'] as List? ?? const []),
+      'kkEpochs': bundle.localEpochKeys.keys.toList(),
+      'envelopes': bundle.epochEnvelopes.length,
     });
   }
 
