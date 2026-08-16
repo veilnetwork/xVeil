@@ -390,7 +390,14 @@ extension _MessagingContentServer on MessagingService {
       // Serve accepted 1:1 contacts as always; a NON-contact group member is
       // served iff it holds a live membership grant for THIS cid (groups
       // content path — the grant was minted by the authorized signed request).
-      if ((contact == null || contact.status != ContactStatus.accepted) &&
+      // MY OWN DEVICE is served without either: it is the same person, it
+      // already receives every mirror row naming this cid, and its grant
+      // request cannot land — the gcr re-drive is remembered as a replay
+      // before the grant is ever minted. The document, not a contact row,
+      // is what vouches for it.
+      final ownDevice = await isOwnDevice?.call(peer) ?? false;
+      if (!ownDevice &&
+          (contact == null || contact.status != ContactStatus.accepted) &&
           !_groupServeGranted(peer, cid)) {
         devLog(
           () =>
