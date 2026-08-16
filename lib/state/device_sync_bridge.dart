@@ -280,9 +280,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     );
   }
 
-  final sub = svc.deviceIncoming.listen((gm) {
-    final e = DeviceSyncEvent.fromBody(gm.body);
-    if (e == null) return;
+  // One handler for both arrivals of an event: the live stream, and the
+  // folded state replayed at start. They are the same events; only the
+  // MOMENT differs, and the moment was load-bearing when it should not have
+  // been.
+  void handleEvent(DeviceSyncEvent e) {
     switch (e.kind) {
       case DeviceSyncKind.contactUp:
         gate.offer(e, () {
@@ -397,6 +399,27 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       case DeviceSyncKind.cloudCapability:
         break; // applied by CloudCapabilityService (contains secret registry)
     }
+  }
+
+  final sub = svc.deviceIncoming.listen((gm) {
+    final e = DeviceSyncEvent.fromBody(gm.body);
+    if (e == null) return;
+    handleEvent(e);
   });
+  // REPLAY THE FOLD, once, at start. The live stream only carries what
+  // arrives while this bridge is listening, and an event can land any other
+  // way — in a snapshot chunk while the app was busy, in a mailbox drain
+  // before the providers were built, on a device that was simply off. The
+  // event then sits in the folded device-sync state, visible to any probe,
+  // and is never APPLIED: measured live as a sibling whose fold held the
+  // contactUp for a freshly accepted contact while its contact list stayed
+  // empty for good. The gate's watermarks make this idempotent — an event
+  // the live stream already applied moves nothing.
+  unawaited(() async {
+    final folded = await svc.deviceSyncState();
+    for (final e in folded.values) {
+      handleEvent(e);
+    }
+  }());
   ref.onDispose(sub.cancel);
 });
