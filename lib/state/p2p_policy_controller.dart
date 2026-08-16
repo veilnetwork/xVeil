@@ -5,6 +5,7 @@ import '../core/log.dart';
 import '../domain/chat.dart';
 import '../domain/p2p_policy.dart';
 import 'app_controller.dart';
+import 'group_service_providers.dart';
 import 'providers.dart';
 
 class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
@@ -63,6 +64,16 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
   /// never surface as an error.
   Future<bool> allowsMessagingPeer(NodeId peer) async {
     try {
+      // MY OWN DEVICE first, and not as a courtesy. The opt-in below is a
+      // question about CONTACTS — how much a conversation partner may learn
+      // about our network position — and a sibling is the same person: there
+      // is nothing to protect from it, and everything to gain, because
+      // without the ladder two leaf devices behind relays never form the
+      // direct session their content streams need (measured: every
+      // sibling→master stream open failing NO_SESSION while both sat on one
+      // machine).
+      final group = ref.read(groupServiceProvider);
+      if (group != null && await group.isMyDevice(peer)) return true;
       final contact = await ref.read(storageProvider).getContact(peer);
       final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
       final allowed = p2pMessagingAllows(
