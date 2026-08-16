@@ -1361,12 +1361,27 @@ class RealVeilStack {
             wipeSecretBytes(master);
           }
         } else {
-          EmbeddedNode.adoptIdentityDocument(
-            identityToml!,
-            veilDir: staging,
-            document: document,
-            lib: lib,
-          );
+          final toml = identityToml!;
+          try {
+            EmbeddedNode.adoptIdentityDocument(
+              toml,
+              veilDir: staging,
+              document: document,
+              lib: lib,
+            );
+          } on StateError {
+            // The config is a DEVICE key, not the master — true for every
+            // linked device past the first. It cannot delegate anything, but
+            // it can still take (and union with) a document whose authority
+            // is internal: every subkey in it is master-signed. Without this
+            // a linked device refuses every later document update.
+            EmbeddedNode.adoptIdentityDocumentNamed(
+              toml,
+              veilDir: staging,
+              document: document,
+              lib: lib,
+            );
+          }
         }
       }
       final merged = await collectSovereignIdentity(staging);
