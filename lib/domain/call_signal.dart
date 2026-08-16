@@ -101,6 +101,12 @@ enum CallEndReason {
   /// The peer's build lacks calling, or none of the offered media is supported.
   unsupported,
   unknown,
+
+  /// Another device of the SAME identity answered this call. Sent by that
+  /// device to its siblings (never to the remote peer) so their ringing stops
+  /// without recording a missed call. Appended AFTER [unknown] on purpose:
+  /// reasons travel by index, and inserting earlier would renumber the wire.
+  answeredElsewhere,
 }
 
 /// Which media streams a call offers/carries. All three can combine.
@@ -246,6 +252,7 @@ class CallSignal {
     this.reason,
     this.capture,
     this.mediaRepairRequested = false,
+    this.onBehalfOf,
     this.protocolVersion = kCallSignalProtocolVersion,
     this.sentAtMs,
   });
@@ -294,6 +301,19 @@ class CallSignal {
   /// anonymous outbound route; older peers ignore this additive key.
   final bool mediaRepairRequested;
 
+  /// Device fan-out (multi-device epic): the hex node id of the TRUE remote
+  /// peer, present only on a copy relayed between two devices of one
+  /// identity. A device that receives an offer forwards it to its siblings
+  /// with this set to the caller, because the caller cannot address them:
+  /// a foreign identity's instances are deliberately unaddressable from
+  /// outside (InstanceRegistry entries carry no transport id).
+  ///
+  /// SECURITY: honored only when the wire-level sender is proven to be MY
+  /// OWN device — otherwise any contact could ring this phone wearing an
+  /// arbitrary caller's name. Enforced at the CallService boundary, not
+  /// here; an additive `ob` key that old builds ignore.
+  final String? onBehalfOf;
+
   final int protocolVersion;
 
   /// Sender wall-clock (Unix ms) — for ring-timeout / stale-signal handling.
@@ -312,6 +332,7 @@ class CallSignal {
     CallEndReason? reason,
     CallMedia? capture,
     bool? mediaRepairRequested,
+    String? onBehalfOf,
     int? sentAtMs,
   }) => CallSignal(
     callId: callId,
@@ -323,6 +344,7 @@ class CallSignal {
     reason: reason ?? this.reason,
     capture: capture ?? this.capture,
     mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
+    onBehalfOf: onBehalfOf ?? this.onBehalfOf,
     protocolVersion: protocolVersion,
     sentAtMs: sentAtMs ?? this.sentAtMs,
   );
@@ -340,6 +362,7 @@ class CallSignal {
     // `{}` would silently delete the one posture the peer most needs to see.
     if (capture != null) 'cm': capture!.toJson(),
     if (mediaRepairRequested) 'mr': true,
+    if (onBehalfOf != null) 'ob': onBehalfOf,
     'v': protocolVersion,
     if (sentAtMs != null) 'ts': sentAtMs,
   };
@@ -383,6 +406,7 @@ class CallSignal {
             ? null
             : CallMedia.fromJson((j['cm'] as Map).cast<String, dynamic>()),
         mediaRepairRequested: j['mr'] == true,
+        onBehalfOf: j['ob'] as String?,
         protocolVersion: (j['v'] as num?)?.toInt() ?? 1,
         sentAtMs: (j['ts'] as num?)?.toInt(),
       );
