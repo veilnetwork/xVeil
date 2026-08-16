@@ -1243,10 +1243,80 @@ class RealVeilStack {
       Uint8List document,
     )?
     merge,
+    // The no-master native call, same injection seam as [merge].
+    Future<void> Function(
+      String identityToml,
+      String veilDir,
+      Uint8List document,
+    )?
+    adoptNamed,
   }) async {
     if (document.isEmpty) return false;
     final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
-    if (storedRaw == null) return false;
+    if (storedRaw == null) {
+      // No sovereign material at all — the mined-identity case: no master, no
+      // phrase, nothing to delegate under. What CAN save this device is a
+      // document that already NAMES its key, because the master's authority
+      // arrives inside it (every subkey is master-signed). The config here
+      // holds the device's own key — exactly what the named adopt authorises
+      // with. Before this branch existed the return above was silent, and a
+      // freshly linked device stayed on documentBytes:0 forever.
+      final identityToml = await storage.loadNodeConfig();
+      if (identityToml == null) {
+        devLog(
+          () =>
+              'xVeil[identity]: cannot adopt a document — no sovereign '
+              'material and no node config to authorise a named adopt with',
+        );
+        return false;
+      }
+      final staging =
+          '$stagingBase/xveil-idadopt-${Random.secure().nextInt(1 << 32)}';
+      try {
+        if (adoptNamed != null) {
+          await adoptNamed(identityToml, staging, document);
+        } else {
+          EmbeddedNode.adoptIdentityDocumentNamed(
+            identityToml,
+            veilDir: staging,
+            document: document,
+            lib: lib,
+          );
+        }
+        final adopted = await collectSovereignIdentity(staging);
+        final missing = missingSovereignIdentityFiles(adopted);
+        if (missing.isNotEmpty) {
+          devLog(
+            () =>
+                'xVeil[identity]: named adopt left the material incomplete '
+                '(${missing.join(', ')})',
+          );
+          return false;
+        }
+        await storage.putSetting(
+          kSovereignIdentitySetting,
+          encodeSovereignIdentity(adopted),
+        );
+        devLog(
+          () =>
+              'xVeil[identity]: adopted the family document that names this '
+              'device — sovereign material created from nothing',
+        );
+        return true;
+      } on Object catch (e) {
+        // The usual reason: the document does not name this device's key —
+        // either the ceremony partner has not delegated us yet, or the
+        // document is not this family's at all.
+        devLog(() => 'xVeil[identity]: could not adopt that document: $e');
+        return false;
+      } finally {
+        try {
+          await Directory(staging).delete(recursive: true);
+        } on FileSystemException {
+          // Never created, or already gone.
+        }
+      }
+    }
     final stored = decodeSovereignIdentity(storedRaw);
     if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
       devLog(

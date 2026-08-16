@@ -279,19 +279,77 @@ void main() {
       expect(await Directory(dirs.single).exists(), isFalse);
     });
 
-    // A mined identity has no master behind it, so there is nothing to
-    // delegate under and no honest merge to make.
-    test('a device with no material of its own declines', () async {
-      final storage = _ConfigStorage()..config = 'a config';
+    // A mined identity has no master behind it — but a document that already
+    // NAMES this device carries the master's authority inside it, so the
+    // named adopt is what runs, not the merge. This is the freshly linked
+    // device's only way in: before this path existed the call declined
+    // silently and the device stayed on documentBytes:0 forever.
+    test('a device with no material adopts a document naming it', () async {
+      final storage = _ConfigStorage()..config = 'a device config';
+      var mergeCalled = false;
+      final seen = <String>[];
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([1, 2]),
+        stagingBase: tmp.path,
+        merge: (toml, dir, doc) async => mergeCalled = true,
+        adoptNamed: (toml, dir, doc) async {
+          seen.add(dir);
+          // What the native side does: write the full material set.
+          await materialiseSovereignIdentity(dir, _material());
+        },
+      );
+      expect(ok, isTrue);
+      expect(mergeCalled, isFalse, reason: 'no master to merge under');
+      expect(seen, hasLength(1));
+      expect(storage.settings[kSovereignIdentitySetting], isNotNull);
+      expect(await Directory(seen.single).exists(), isFalse);
+    });
+
+    test('no material and no config still declines', () async {
+      final storage = _ConfigStorage();
       var called = false;
       final ok = await RealVeilStack.adoptSovereignDocument(
         storage,
         document: Uint8List.fromList([1, 2]),
         stagingBase: tmp.path,
         merge: (toml, dir, doc) async => called = true,
+        adoptNamed: (toml, dir, doc) async => called = true,
       );
       expect(ok, isFalse);
       expect(called, isFalse);
+    });
+
+    // The named adopt's own safety property: a document that does not name
+    // this device (or is not this family's at all) is refused natively, and a
+    // refusal must store nothing — half a set reads on the next boot as
+    // "already provisioned".
+    test('a refused named adopt stores nothing', () async {
+      final storage = _ConfigStorage()..config = 'a device config';
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([1, 2]),
+        stagingBase: tmp.path,
+        adoptNamed: (toml, dir, doc) async =>
+            throw StateError('document does not name this device'),
+      );
+      expect(ok, isFalse);
+      expect(storage.settings[kSovereignIdentitySetting], isNull);
+    });
+
+    test('a named adopt that leaves incomplete material stores nothing', () async {
+      final storage = _ConfigStorage()..config = 'a device config';
+      final ok = await RealVeilStack.adoptSovereignDocument(
+        storage,
+        document: Uint8List.fromList([1, 2]),
+        stagingBase: tmp.path,
+        adoptNamed: (toml, dir, doc) async {
+          final partial = _material()..remove(kInstanceIdFile);
+          await materialiseSovereignIdentity(dir, partial);
+        },
+      );
+      expect(ok, isFalse);
+      expect(storage.settings[kSovereignIdentitySetting], isNull);
     });
 
     test('no config means no authority, and nothing is attempted', () async {
