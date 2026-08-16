@@ -375,6 +375,22 @@ class _MessagingOutbox {
               false;
         }
       }
+      // A CONTENT REQUEST ADDRESSED TO A SIGNING KEY can never complete: the
+      // sovereign owner of a device group is an authority, not a node, and a
+      // gcr aimed at it re-drives forever — measured as a sibling's outbox
+      // retrying attempt 15 against an address nobody has ever listened on.
+      // The frames predate the fix that stopped creating them; retire the
+      // survivors instead of carrying them to every flush until the till TTL.
+      if (frame.frameId.startsWith('gcr:') &&
+          (await _owner.isSovereignAuthority?.call(peer) ?? false)) {
+        devLog(
+          () =>
+              'xVeil[durable]: retire gcr fid=${frame.frameId} — addressed to '
+              'the sovereign authority, which is a key, not a node',
+        );
+        retire(frame.peerHex, frame.frameId);
+        continue;
+      }
       // MY OWN DEVICE IS NOT A STRANGER, asked HERE because this is the line
       // that deletes. A sibling is never a contact — the identity does not
       // befriend itself — so the retire below threw away every device-sync
