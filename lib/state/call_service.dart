@@ -768,7 +768,16 @@ class CallService {
         final age = at == null
             ? null
             : _now().difference(DateTime.fromMillisecondsSinceEpoch(at));
-        if (age == null || age > _relayedOfferMaxAge || age.isNegative) {
+        // A NEGATIVE age is ordinary clock skew between two devices, not a
+        // forged future stamp: measured live, a sibling's relayed offer
+        // arrived age=-102ms and this gate — written as `age.isNegative` —
+        // silenced the third device's ring entirely. Tolerate the skew a
+        // LAN of real devices actually has; a stamp further in the future
+        // than that is still refused.
+        const skewAllowance = Duration(seconds: 30);
+        if (age == null ||
+            age > _relayedOfferMaxAge ||
+            age < -skewAllowance) {
           // A durable re-drive delivered someone's morning to our evening.
           devLog(
             () => 'xVeil[call-sig]: relayed offer ${sig.callId} ignored — '
