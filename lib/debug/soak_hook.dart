@@ -2159,12 +2159,27 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // THE DOCUMENT HALF — see devices_screen: without it the registry,
       // the mailbox fan-out and every third device's verifier keep living
       // in the document's past.
-      final delegated = await RealVeilStack.delegateDeviceIntoDocument(
+      var delegated = await RealVeilStack.delegateDeviceIntoDocument(
         ref.read(storageProvider),
         phrase: phrase.trim(),
         devicePubkey: target.publicKey,
         stagingBase: Directory.systemTemp.path,
       );
+      // RETRO-delegation: members the group admitted before the document
+      // learned to grow (measured live: the second device's 17 rows dropped
+      // as "signature verify failed" on every newly linked device, because
+      // no document any of them received ever named its subkey).
+      for (final entry in (await svc.deviceWriterKeys()).entries) {
+        if (entry.key == target.nodeId) continue;
+        delegated =
+            await RealVeilStack.delegateDeviceIntoDocument(
+              ref.read(storageProvider),
+              phrase: phrase.trim(),
+              devicePubkey: entry.value,
+              stagingBase: Directory.systemTemp.path,
+            ) ||
+            delegated;
+      }
       if (delegated) {
         await stack.refreshSovereignIdentity(ref.read(storageProvider));
       }
