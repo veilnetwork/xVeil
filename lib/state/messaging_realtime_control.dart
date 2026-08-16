@@ -339,9 +339,16 @@ class _MessagingRealtimeControl {
   }
 
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
-    final contact = await _owner._storage.getContact(peer);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
-    markAccepted(peer);
+    // MY OWN DEVICE, same shape as [sendP2PEndpoints]: the call fan-out's
+    // relayed offers and answered-elsewhere signals address a sibling, which
+    // is never a contact — this gate silently ate the whole relay while the
+    // service above it logged "fanning offer … out to 1 sibling device(s)".
+    final ownDevice = await _owner.isOwnDevice?.call(peer) ?? false;
+    if (!ownDevice) {
+      final contact = await _owner._storage.getContact(peer);
+      if (contact == null || contact.status != ContactStatus.accepted) return;
+      markAccepted(peer);
+    }
     final stamped = signal.sentAtMs == null
         ? signal.copyWith(sentAtMs: _owner._now().millisecondsSinceEpoch)
         : signal;
