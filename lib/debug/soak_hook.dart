@@ -840,6 +840,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/conv_messages':
           await _convMessagesHook(req);
           return;
+        case '/contact_request':
+          await _contactRequestHook(req);
+          return;
+        case '/contact_accept':
+          await _contactAcceptHook(req);
+          return;
         case '/contact_set':
           await _contactSetHook(req);
           return;
@@ -4345,6 +4351,44 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// Set contact preferences of ?peer= — only the params present are applied
   /// (?name= ?pin=1|0 ?mute=1|0 ?arc=1|0 ?apd=1|0 ?ret=days) — exercises the
   /// REAL setter path, so a linked device should receive a contactUp event.
+  /// Send the CONTACT REQUEST the chat screen sends as its first message.
+  ///
+  /// `/send_message` cannot start a relationship: `sendText` consent-gates on
+  /// an accepted contact and silently returns for a stranger — correct in the
+  /// product, invisible on a stand. This drives the same `sendRequest` the UI
+  /// drives, so a three-instance stand can form a contact without a camera.
+  Future<void> _contactRequestHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final peerHex = q['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final NodeId peer;
+    try {
+      peer = NodeId.fromHex(peerHex);
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'}, status: 400);
+    }
+    try {
+      await ref
+          .read(messagingServiceProvider)
+          .sendRequest(peer, q['text'] ?? 'hello');
+      return _json(req, {'ok': true});
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'});
+    }
+  }
+
+  /// Accept a pending contact request — the consent tap, without the screen.
+  Future<void> _contactAcceptHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peerHex = req.uri.queryParameters['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final peer = NodeId.fromHex(peerHex);
+    await ref.read(messagingServiceProvider).acceptContact(peer);
+    final c = await ref.read(storageProvider).getContact(peer);
+    return _json(req, {'ok': true, 'status': c?.status.name});
+  }
+
   Future<void> _contactSetHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final q = req.uri.queryParameters;
