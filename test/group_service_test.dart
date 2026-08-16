@@ -5453,6 +5453,127 @@ void main() {
   });
 
   test(
+    "an own-device seed carries the SIBLING's rows, not only the seeder's",
+    () async {
+      // The live stand: a freshly linked phone received exactly the
+      // master's mirrors and none of the second device's — 15 of 22 rows,
+      // deterministically. The master HOLDS the sibling's rows (its chains
+      // probe counts both writers); the seed it builds must ship them.
+      final primaryStorage = FakeHvContainer().storage();
+      await primaryStorage.open(password: 'pw', createIfMissing: true);
+      final primary = GroupService(
+        primaryStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      expect(
+        await primary.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await primary.deviceGroupIdHex())!);
+
+      final siblingStorage = FakeHvContainer().storage();
+      await siblingStorage.open(password: 'pw', createIfMissing: true);
+      final sibling = GroupService(
+        siblingStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: bob),
+        ),
+      );
+      expect(
+        await sibling.ingestSnapshot(
+          primary.snapshotJson(
+            (await primary.load(gid))!,
+            recipient: bob,
+            ownDevice: true,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await sibling.adoptDeviceGroup(gid), isTrue);
+
+      Future<void> mirror(GroupService svc, int ts, String body) =>
+          svc.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.msgMirror,
+              key: 'chat|$body',
+              tsMs: ts,
+              payload: {'peer': 'aa', 'dir': 'outgoing', 'body': body},
+            ),
+          );
+      await mirror(primary, 10, 'from-the-master');
+      await mirror(sibling, 20, 'from-the-sibling');
+      expect(
+        await primary.ingestSnapshot(
+          sibling.snapshotJson((await sibling.load(gid))!, recipient: owner),
+        ),
+        isTrue,
+      );
+      // The master really holds both writers' rows.
+      final held = (await primary.load(gid))!.messages
+          .map((m) => m.body)
+          .toList();
+      expect(held.join(), contains('from-the-master'));
+      expect(held.join(), contains('from-the-sibling'));
+
+      // The live stand's aggravators, in the live order: a THIRD device was
+      // revoked (epoch rotation) and the state logs were compacted before
+      // the new device was ever linked.
+      final doomed = _id(7);
+      expect(
+        await primary.linkDevice(
+          doomed,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      expect(await primary.revokeDevice(doomed, sovereign: sovereign), isTrue);
+      await primary.compactStateLogs(gid);
+
+      // Link a third device and build ITS seed, exactly as seedDevice does.
+      expect(
+        await primary.linkDevice(
+          carol,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final seed =
+          jsonDecode(
+                primary.snapshotJson(
+                  (await primary.load(gid))!,
+                  recipient: carol,
+                  ownDevice: true,
+                ),
+              )
+              as Map;
+      final shipped = [
+        for (final row in (seed['g'] as List? ?? const []))
+          (row as Map)['b'] ?? row['body'] ?? jsonEncode(row),
+      ].join(' ');
+      expect(
+        shipped,
+        contains('from-the-master'),
+        reason: "the seeder's own rows ship",
+      );
+      expect(
+        shipped,
+        contains('from-the-sibling'),
+        reason: "the sibling's rows are the identity's history too",
+      );
+    },
+  );
+
+  test(
     'device-group compaction: a revoked device must not delete the honest row '
     'it beat — reads filter by the current ACL, so the key would vanish',
     () async {
