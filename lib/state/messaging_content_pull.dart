@@ -1562,11 +1562,20 @@ extension _MessagingContentPull on MessagingService {
     final t = _transport;
     if (t is! StreamTransport) return null;
     final sw = Stopwatch()..start();
+    // MY OWN DEVICE gets the direct session stream unconditionally. The anon
+    // stream resolves the destination through its rendezvous ad, and my own
+    // identity's ad names EVERY device including me — a sibling pulling from
+    // the master watched attempt after attempt open a stream nobody accepted.
+    // There is nobody to be anonymous FROM between two devices of one person,
+    // and the session it rides is the same authenticated session their sync
+    // already uses.
+    final ownDevice = await isOwnDevice?.call(peer) ?? false;
     final useP2P =
-        _p2pStreamsEnabled &&
-        !_anonymous &&
         t is P2PStreamTransport &&
-        await _p2pStreamAllowed(peer);
+        (ownDevice ||
+            (_p2pStreamsEnabled &&
+                !_anonymous &&
+                await _p2pStreamAllowed(peer)));
     _bulkStreamLog(
       () =>
           'xVeil[content]: stream-open ${cid.substring(0, 12)} '
@@ -1943,11 +1952,13 @@ extension _MessagingContentPull on MessagingService {
     final t = _transport;
     if (t is! StreamTransport) return null;
     final streamTransport = t as StreamTransport;
+    final ownDevice = await isOwnDevice?.call(peer) ?? false;
     final useP2P =
-        _p2pStreamsEnabled &&
-        !_anonymous &&
         t is P2PStreamTransport &&
-        await _p2pStreamAllowed(peer);
+        (ownDevice ||
+            (_p2pStreamsEnabled &&
+                !_anonymous &&
+                await _p2pStreamAllowed(peer)));
     devLog(
       () =>
           'xVeil[content]: stream-pull retry-open '

@@ -67,7 +67,22 @@ SendRoute sendRouteFor(
   /// this wrong cannot be the one to catch it.
   Uint8List? myNode,
 }) {
-  if (_addressesUs(myIdentity, dst) || _addressesUs(myNode, dst)) {
+  // Truly ourselves: this node's own transport id. Deposit-only, whoever asks.
+  if (_addressesUs(myNode, dst)) return SendRoute.deviceSync;
+  if (_addressesUs(myIdentity, dst)) {
+    // The identity address, from a device PROVABLY not the master — our own
+    // node id is known and differs. The anonymous path stays deposit-only:
+    // every device publishes rendezvous under this address, so the resolve
+    // picks one of them and for the sender that is itself (measured: seven
+    // INBOUND from our own id for a snapshot reported sent). But a DIRECT
+    // dial goes by node id to a session with a DIFFERENT node — the master is
+    // a real listener at these 32 bytes — and refusing it kept every
+    // sibling→master content stream waiting on a manifest that could never
+    // come. With our own id unknown the answer stays deposit-only: we cannot
+    // prove we are not the master, and a self-directed live send
+    // short-circuits into a local delivery.
+    final provablySibling = myNode != null && !_addressesUs(myNode, dst);
+    if (!anonymous && provablySibling) return SendRoute.direct;
     return SendRoute.deviceSync;
   }
   return anonymous ? SendRoute.onion : SendRoute.direct;
