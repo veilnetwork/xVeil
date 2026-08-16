@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../core/log.dart';
 import '../core/ids.dart';
 import '../data/node/sovereign_identity_material.dart';
 import '../data/veil_stack.dart';
@@ -248,7 +249,19 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       final gidHex = await svc.deviceGroupIdHex();
       if (gidHex == null) return;
       final gid = NodeId.fromHex(gidHex);
-      if (!(await svc.referencedContentIds(gid)).contains(cid)) return;
+      final referenced = await svc.referencedContentIds(gid);
+      if (!referenced.contains(cid)) {
+        // The guard doing its job must say so: a pull that ends here looks
+        // identical to one that never started, and "why doesn't the sibling
+        // fetch the bytes" spent a session on exactly that silence.
+        devLog(
+          () =>
+              'xVeil[devices]: content pull refused — '
+              '${cid.substring(0, 12)} is not an attachment of the device '
+              'group (${referenced.length} referenced)',
+        );
+        return;
+      }
       final st = await svc.stateOf(gid);
       if (st == null) return;
       // Who NOT to ask, and both exclusions name a device, not the identity.
