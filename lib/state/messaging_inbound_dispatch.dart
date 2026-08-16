@@ -186,9 +186,15 @@ extension _MessagingInboundDispatch on MessagingService {
       await _ackFrame(m, fid);
       return;
     }
+    // MY OWN DEVICE acks and dedups like an accepted contact. Without this a
+    // sibling's durable frames were processed on EVERY re-drive (no remember)
+    // and never acked (no retire at the sender): measured as 124 receipts of
+    // the same snapshot chunks per log window while the sender's outbox held
+    // them forever and its deposits kept the shared mailbox clogged.
+    final ownDeviceSender = await isOwnDevice?.call(m.src) ?? false;
     if (fid != null &&
         !liveOnlyNoAck &&
-        existing?.status == ContactStatus.accepted) {
+        (existing?.status == ContactStatus.accepted || ownDeviceSender)) {
       if (deferredGroupCallAck) {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
