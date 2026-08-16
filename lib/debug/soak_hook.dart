@@ -2371,12 +2371,33 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               ),
             )
             as Map<String, dynamic>;
+    // The receive-side first act, run here against our own wire: every row
+    // that fails the parse round-trip is a row every ingest silently loses.
+    final parsed = <GroupMessage>[];
+    var parseNulls = 0;
+    for (final row in (seed['g'] as List? ?? const [])) {
+      final m = GroupMessage.fromJson(row);
+      if (m == null) {
+        parseNulls++;
+      } else {
+        parsed.add(m);
+      }
+    }
+    final gid2 = bundle.manifest.groupId;
+    final invalid = [
+      for (final m in parsed)
+        if (!(m.groupId == gid2 && svc.debugValidMessage(gid2, m))) m,
+    ];
     return _json(req, {
       'ok': true,
       'bundleRows': bundle.messages.length,
       'bundleByWriter': byWriter(bundle.messages),
       'shippedRows': (seed['g'] as List? ?? const []).length,
       'shippedByWriter': byWriter(seed['g'] as List? ?? const []),
+      'parseNulls': parseNulls,
+      'parsedByWriter': byWriter(parsed),
+      'invalidAfterParse': invalid.length,
+      'invalidByWriter': byWriter(invalid),
       'kkEpochs': bundle.localEpochKeys.keys.toList(),
       'envelopes': bundle.epochEnvelopes.length,
     });

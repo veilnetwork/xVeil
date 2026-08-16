@@ -3514,6 +3514,12 @@ class GroupService {
   bool debugMessageIsValid(NodeId groupId, GroupMessage m) =>
       _validMessageFor(groupId, m);
 
+  /// Stand probe seam: the exact validity the serve and ingest boundaries
+  /// apply, callable from the debug hook so a wire round-trip can be judged
+  /// with the real rule.
+  bool debugValidMessage(NodeId groupId, GroupMessage m) =>
+      _validMessageFor(groupId, m);
+
   bool _validMessageFor(NodeId groupId, GroupMessage m) =>
       m.groupId == groupId &&
       (m.spacePostId == null ||
@@ -11156,15 +11162,16 @@ class GroupService {
       // discards the row with no trace, and the seeder — whose copy
       // verifies — never learns. Say it, with the writer's pub-key prefix,
       // because "15 of 22" cost a day of measuring everything else first.
-      final pk = firstDropped!.authorPubKey;
+      final sample = firstDropped!;
+      final pk = sample.authorPubKey;
       final writer = pk.isEmpty
           ? 'identity-key'
           : 'subkey ${pk.length}B ${pk.take(6).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
       devLog(
         () =>
             'xVeil[devices]: $dropped device-group row(s) failed validation '
-            'and were dropped (first: writer=$writer seq=${firstDropped!.seq} '
-            'author=${firstDropped!.author.short})',
+            'and were dropped (first: writer=$writer seq=${sample.seq} '
+            'author=${sample.author.short})',
       );
     }
     return rows.values.toList();
@@ -15934,11 +15941,28 @@ class GroupService {
       }
     }
     final fresh = <GroupMessage>[];
+    var ingestInvalid = 0;
+    String? ingestInvalidWhy;
     for (final m in inMsgs) {
       if (!_validMessageFor(manifest.groupId, m)) {
+        // The OTHER silent validity drop (its twin in _retainedMessageRows
+        // is already voiced): a linked device lost every sibling-signed row
+        // right here, and nothing said which of the three conditions did it.
+        if (man.name == kDeviceGroupName) {
+          ingestInvalid++;
+          ingestInvalidWhy ??= m.groupId != manifest.groupId
+              ? 'group-id mismatch'
+              : !_signer.verifyMessage(m)
+              ? 'signature verify failed for writer '
+                    '${m.authorPubKey.take(6).map((b) => b.toRadixString(16).padLeft(2, '0')).join()}'
+              : 'space-post shape';
+        }
         continue;
       }
-      if (!_messageWithinLifecycleBoundary(man, mergedState, m)) continue;
+      if (!_messageWithinLifecycleBoundary(man, mergedState, m)) {
+        if (man.name == kDeviceGroupName) _ingestArm('lifecycle');
+        continue;
+      }
       if (ingestRetention != null &&
           _retentionRetiresMessage(
             manifest: man,
@@ -15947,6 +15971,7 @@ class GroupService {
             message: m,
             atMs: ingestAtMs,
           )) {
+        if (man.name == kDeviceGroupName) _ingestArm('retention');
         continue;
       }
       if (man.isSpace) {
@@ -16030,6 +16055,11 @@ class GroupService {
         // Once a signed epoch descriptor exists, a clear v1 row is a
         // downgrade attempt. Historical local v1 rows remain readable but are
         // never newly imported into an encrypted group.
+        if (man.name == kDeviceGroupName) {
+          _ingestArm(
+            encryptionEstablished ? 'clear-into-encrypted' : 'not-a-member',
+          );
+        }
         continue;
       }
       // A signed `ts` no clock could have produced. The stamp itself is left
@@ -16490,6 +16520,24 @@ class GroupService {
     // Device-group traffic is sync machinery, not chat: it must never buzz
     // the notification layer or count as chat-unread. It routes to a SEPARATE
     // stream the multi-device bridge consumes (device-sync events).
+    if (ingestInvalid > 0) {
+      devLog(
+        () =>
+            'xVeil[devices]: ingest dropped $ingestInvalid device-group '
+            'row(s) as INVALID — first cause: $ingestInvalidWhy',
+      );
+    }
+    if (_ingestArmCounts.isNotEmpty) {
+      final summary = _ingestArmCounts.entries
+          .map((e) => '${e.key}=${e.value}')
+          .join(' ');
+      _ingestArmCounts.clear();
+      devLog(
+        () =>
+            'xVeil[devices]: ingest dropped device-group row(s) by arm: '
+            '$summary',
+      );
+    }
     if (man.name == kDeviceGroupName) {
       // A marker snapshot is inert until the local handshake explicitly
       // adopts this exact gid. Otherwise any contact could plant a valid-
@@ -17724,6 +17772,12 @@ class GroupService {
   /// earlier append. Caught live in the brick-4 device verify (pin landed,
   /// the same-call archive edit vanished from BOTH devices' folds).
   Future<void> _devicePostChain = Future.value();
+
+  /// Per-ingest drop-arm counters for DEVICE-group rows (diagnostic voice;
+  /// cleared after each summary line).
+  final Map<String, int> _ingestArmCounts = {};
+  void _ingestArm(String arm) =>
+      _ingestArmCounts[arm] = (_ingestArmCounts[arm] ?? 0) + 1;
 
   /// Append a sync event to my device group's log (no-op false when no
   /// device group exists yet). Concurrent calls are applied in order.
