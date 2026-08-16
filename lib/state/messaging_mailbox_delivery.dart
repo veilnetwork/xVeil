@@ -20,6 +20,19 @@ class _MessagingMailboxDelivery {
 
   static const _maxBackgroundStashes = 1;
   static const _retryBackoff = Duration(seconds: 30);
+
+  /// Hard deadline on one deposit attempt. The background slot is GLOBAL and
+  /// there is exactly one, so a stash that never completes does not lose one
+  /// message — it freezes every mailbox deposit to every peer until the app
+  /// restarts, and the log shows only an endless "another deposit is in
+  /// flight". Measured live 2026-08-16: a large deposit the relay silently
+  /// dropped held the slot for 10+ minutes while 70+ frames per sibling sat
+  /// durable and unmoving. Generous because a seal alone can take ~12s and a
+  /// cold KEM resolve ~8s; the relay dedups by contentId, so a deposit that
+  /// completes after we stopped waiting is harmless.
+  /// An instance field, not a const, for the same reason as [ackGrace]: the
+  /// test that proves the slot cannot wedge must not sit out 45 real seconds.
+  Duration stashDeadline = const Duration(seconds: 45);
   static const _peerUnresolvedCap = Duration(minutes: 30);
   static const _suppressionLogEvery = Duration(minutes: 1);
 
@@ -255,11 +268,13 @@ class _MessagingMailboxDelivery {
     if (!_inFlight.add(id)) return;
     try {
       try {
-        await mailbox.stash(
-          recipient: peer,
-          payload: wire,
-          contentId: _contentIdFor(id),
-        );
+        await mailbox
+            .stash(
+              recipient: peer,
+              payload: wire,
+              contentId: _contentIdFor(id),
+            )
+            .timeout(stashDeadline);
         _stashed.add(id);
         _failedAt.remove(id);
         clearPeerBackoff(peer.hex);
