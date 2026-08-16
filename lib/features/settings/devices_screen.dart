@@ -1002,12 +1002,26 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       // THIRD device verifies the new subkey against. Linking without it
       // left the document frozen and every row the new device signed
       // unverifiable elsewhere.
-      final delegated = await RealVeilStack.delegateDeviceIntoDocument(
+      var delegated = await RealVeilStack.delegateDeviceIntoDocument(
         widget.service.storage,
         phrase: words,
         devicePubkey: target.publicKey,
         stagingBase: Directory.systemTemp.path,
       );
+      // RETRO-delegation of members the group admitted before the document
+      // learned to grow at link time — see the stand hook's twin for the
+      // measurement that forced this.
+      for (final entry in (await widget.service.deviceWriterKeys()).entries) {
+        if (entry.key == target.nodeId) continue;
+        delegated =
+            await RealVeilStack.delegateDeviceIntoDocument(
+              widget.service.storage,
+              phrase: words,
+              devicePubkey: entry.value,
+              stagingBase: Directory.systemTemp.path,
+            ) ||
+            delegated;
+      }
       if (delegated) {
         await widget.stack.refreshSovereignIdentity(widget.service.storage);
       }
