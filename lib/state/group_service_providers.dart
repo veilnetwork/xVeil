@@ -451,6 +451,16 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // direction, since the alternative would be accepting what we cannot justify.
   Uint8List? ownDocument;
   final ownIdentity = signer.selfId;
+  // The identity the held document actually BELONGS to — its node_id. On the
+  // master these coincide with selfId; on a linked device they do not:
+  // selfId is the device's transport id, while every family-authored row
+  // names the IDENTITY. The eighteenth face of the device/identity class,
+  // measured live 2026-08-17: a linked device held the four-key document,
+  // the sibling's rows arrived, and the lookup answered null for their
+  // author because it only knew this device's own id — every family-signed
+  // row "signature verify failed" on a device that carried the very
+  // document proving them.
+  NodeId? documentIdentity;
   var lastDocumentRead = DateTime.fromMillisecondsSinceEpoch(0);
   Future<void> readOwnDocument() async {
     lastDocumentRead = DateTime.now();
@@ -460,6 +470,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       );
       if (doc != null) {
         ownDocument = doc;
+        try {
+          documentIdentity = NodeId(EmbeddedNode.identityDocumentNodeId(doc));
+        } catch (_) {
+          documentIdentity = null; // an undecodable doc answers as before
+        }
         unawaited(_warnIfDocumentDisownsThisDevice(ref, ownIdentity, doc));
       }
     } catch (_) {
@@ -470,7 +485,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
 
   unawaited(readOwnDocument());
   setIdentityDocumentLookup((identity) {
-    if (identity != ownIdentity) return null;
+    if (identity != ownIdentity && identity != documentIdentity) return null;
     // A ONE-SHOT read here was the thirteenth face of the device/identity
     // class: a document merged MID-SESSION (device adoption) stayed
     // invisible to this closure until restart, so every row signed by the
