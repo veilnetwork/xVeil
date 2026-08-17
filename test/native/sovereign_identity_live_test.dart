@@ -222,6 +222,85 @@ void main() {
     expect(relink, isTrue, reason: 'unrelated delegation unaffected');
   }, skip: skip);
 
+  test('re-delegating a tombstoned key throws instead of shrugging', () async {
+    // №31: the linking ceremony has a GROUP half that knows nothing about
+    // tombstones. When this wrapper answered a tombstone refusal with the
+    // same quiet `false` it uses for "already delegated", the ceremony
+    // admitted the id into the device group anyway (control seq 11, measured
+    // live) — a member frames queue to that no verifier accepts. The typed
+    // throw is what lets the ceremony abort BEFORE the group grows.
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = veilGeneratePhrase()!;
+    final storage = _MemStorage();
+    final material = await RealVeilStack.ensureSovereignIdentity(
+      storage,
+      stagingBase: tmp.path,
+      identityPhrase: phrase,
+      lib: lib,
+    );
+    expect(material, isNotNull);
+
+    final pubkey = Uint8List.fromList(
+      List.generate(32, (i) => (i + 100) & 0xff),
+    );
+    expect(
+      await RealVeilStack.delegateDeviceIntoDocument(
+        storage,
+        phrase: phrase,
+        devicePubkey: pubkey,
+        stagingBase: tmp.path,
+        lib: lib,
+      ),
+      isTrue,
+    );
+
+    // The wire lays out each identity key as pubkey then device_id, so the
+    // 32 bytes after our pubkey ARE the id the tombstone must name — no
+    // native decode API needed.
+    final doc = decodeSovereignIdentity(
+      storage.settings[kSovereignIdentitySetting]!,
+    )![kIdentityDocumentFile]!;
+    var at = -1;
+    for (var i = 0; i + 64 <= doc.length; i++) {
+      var hit = true;
+      for (var j = 0; j < 32; j++) {
+        if (doc[i + j] != pubkey[j]) {
+          hit = false;
+          break;
+        }
+      }
+      if (hit) {
+        at = i;
+        break;
+      }
+    }
+    expect(at, greaterThanOrEqualTo(0), reason: 'delegated key is in the doc');
+    final deviceId = Uint8List.sublistView(doc, at + 32, at + 64);
+
+    expect(
+      await RealVeilStack.revokeDeviceFromDocument(
+        storage,
+        phrase: phrase,
+        deviceId: deviceId,
+        stagingBase: tmp.path,
+        lib: lib,
+      ),
+      isTrue,
+    );
+
+    await expectLater(
+      RealVeilStack.delegateDeviceIntoDocument(
+        storage,
+        phrase: phrase,
+        devicePubkey: pubkey,
+        stagingBase: tmp.path,
+        lib: lib,
+      ),
+      throwsA(isA<TombstonedDeviceException>()),
+      reason: 'the one refusal that must not read as "no change needed"',
+    );
+  }, skip: skip);
+
   // THE MERGE. Two devices restored from one phrase each hold a document with
   // one key and the SAME node_id — both published under that id, the later
   // publisher displacing the earlier, the displaced device online and

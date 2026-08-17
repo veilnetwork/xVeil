@@ -1028,6 +1028,22 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       final words = _phrase.text.trim();
       _phrase.clear();
       await widget.stack.addContact(target);
+      // THE DOCUMENT HALF of the same admission, FIRST. The group membership
+      // is what the identity's own devices see; the DOCUMENT is what the
+      // registry publishes, what mailbox envelopes fan to, and what any
+      // THIRD device verifies the new subkey against. It goes before the
+      // group half because a tombstoned device refuses HERE — and with the
+      // group already grown the refusal used to vanish into "linked ok",
+      // leaving a half-ghost member frames queue to that no verifier
+      // accepts. The reverse mismatch (document names it, group add fails)
+      // is harmless: nothing queues to a non-member, and a retry is
+      // idempotent.
+      final delegatedTarget = await RealVeilStack.delegateDeviceIntoDocument(
+        widget.service.storage,
+        phrase: words,
+        devicePubkey: target.publicKey,
+        stagingBase: Directory.systemTemp.path,
+      );
       signer = await widget.service.openLocalSovereign(words);
       final linked = await widget.service.linkDevice(
         target.nodeId,
@@ -1035,31 +1051,25 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
         broadcastSnapshot: false,
       );
       if (!linked) throw StateError('membership rejected');
-      // THE DOCUMENT HALF of the same admission. The group membership above
-      // is what the identity's own devices see; the DOCUMENT is what the
-      // registry publishes, what mailbox envelopes fan to, and what any
-      // THIRD device verifies the new subkey against. Linking without it
-      // left the document frozen and every row the new device signed
-      // unverifiable elsewhere.
-      var delegated = await RealVeilStack.delegateDeviceIntoDocument(
-        widget.service.storage,
-        phrase: words,
-        devicePubkey: target.publicKey,
-        stagingBase: Directory.systemTemp.path,
-      );
+      var delegated = delegatedTarget;
       // RETRO-delegation of members the group admitted before the document
       // learned to grow at link time — see the stand hook's twin for the
       // measurement that forced this.
       for (final entry in (await widget.service.deviceWriterKeys()).entries) {
         if (entry.key == target.nodeId) continue;
-        delegated =
-            await RealVeilStack.delegateDeviceIntoDocument(
-              widget.service.storage,
-              phrase: words,
-              devicePubkey: entry.value,
-              stagingBase: Directory.systemTemp.path,
-            ) ||
-            delegated;
+        try {
+          delegated =
+              await RealVeilStack.delegateDeviceIntoDocument(
+                widget.service.storage,
+                phrase: words,
+                devicePubkey: entry.value,
+                stagingBase: Directory.systemTemp.path,
+              ) ||
+              delegated;
+        } on TombstonedDeviceException {
+          // A revoked OLD member still listed by the group is its own
+          // cleanup, not this ceremony's failure.
+        }
       }
       if (delegated) {
         await widget.stack.refreshSovereignIdentity(widget.service.storage);
@@ -1078,6 +1088,10 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       if (token == null) throw StateError('token unavailable');
       if (!mounted) return;
       setState(() => _token = token.toUri());
+    } on TombstonedDeviceException {
+      // Not "could not complete": this refusal is permanent, and the person
+      // needs to know the way forward is a fresh device key, not a retry.
+      if (mounted) setState(() => _error = l.devicesRelinkRevoked);
     } catch (_) {
       if (mounted) setState(() => _error = l.devicesOperationFailed);
     } finally {
