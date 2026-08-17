@@ -137,11 +137,6 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     // has always been built off a future it does not block on.
     RealVeilStack.sovereignReceiveAddress(storage)
         .then((receiveAddress) {
-          // Deposits for my own devices go to the FAMILY mailbox — the only
-          // one every device actually drains (see ownDeviceMailbox).
-          service.mailboxOwnDeviceRecipient = receiveAddress == null
-              ? null
-              : NodeId(receiveAddress);
           return transport.buildMailboxService(
             deliver: service.deliverInbound,
             relayKeyCache: relayKeyCache,

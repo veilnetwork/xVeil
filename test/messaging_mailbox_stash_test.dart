@@ -149,29 +149,6 @@ void main() {
     expect(hung.calls, 2, reason: 'slot freed by the deadline');
   });
 
-  // THE BLACK-HOLE REGRESSION (2026-08-17, live): a deposit for a sibling
-  // went to the SIBLING'S device-id mailbox, which no device ever drains —
-  // every device fetches under the IDENTITY. 19 frames for a freshly linked
-  // device sat at the relay while its drains recovered 0.
-  test('a deposit for my own device goes to the family mailbox', () async {
-    final family = _id(9);
-    final sibling = _id(4);
-    mA.isOwnDevice = (p) async => p == sibling;
-    mA.mailboxOwnDeviceRecipient = family;
-    await mA.sendRequest(sibling, 'to my sibling');
-    expect(sink.stashed, hasLength(1));
-    expect(
-      sink.stashed.single.$1,
-      family,
-      reason: 'the family mailbox is the only one every device drains',
-    );
-
-    // A CONTACT's deposit is untouched — device-id mailboxes stay correct
-    // for peers that actually drain them (single-device identities).
-    await mA.sendRequest(b, 'to a contact');
-    expect(sink.stashed.last.$1, b);
-  });
-
   test('a connection request is deposited at the recipient mailbox', () async {
     await mA.sendRequest(b, 'hi, it is me');
     expect(sink.stashed.length, 1);
