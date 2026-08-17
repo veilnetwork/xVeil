@@ -9236,6 +9236,12 @@ abstract class AppL10n {
   /// **'Revoke {device}?'**
   String devicesRevokeTitle(String device);
 
+  /// No description provided for @devicesRelinkRevoked.
+  ///
+  /// In en, this message translates to:
+  /// **'This device was revoked. Its old key can never be trusted again — reset the device and link it with a freshly created key.'**
+  String get devicesRelinkRevoked;
+
   /// No description provided for @devicesOperationFailed.
   ///
   /// In en, this message translates to:

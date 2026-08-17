@@ -5248,6 +5248,10 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get devicesRelinkRevoked =>
+      'Это устройство было отозвано. Его старому ключу больше нет доверия — сбросьте устройство и привяжите его с новым ключом.';
+
+  @override
   String get devicesOperationFailed =>
       'Не удалось завершить привязку устройства';
 

@@ -2233,6 +2233,7 @@
       }
     }
   },
+  "devicesRelinkRevoked": "This device was revoked. Its old key can never be trusted again — reset the device and link it with a freshly created key.",
   "devicesOperationFailed": "Could not complete device linking",
   "devicesCancelPending": "Cancel waiting",
   "devicesRecoverySection": "All devices lost",

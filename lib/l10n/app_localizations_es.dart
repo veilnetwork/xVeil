@@ -5271,6 +5271,10 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String get devicesRelinkRevoked =>
+      'Este dispositivo fue revocado. Su clave antigua ya no es de confianza: restablece el dispositivo y vincúlalo con una clave nueva.';
+
+  @override
   String get devicesOperationFailed =>
       'No se pudo completar la vinculación del dispositivo';
 
