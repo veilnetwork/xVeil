@@ -409,6 +409,15 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   /// per-pass timeout line never showed at all.
   String? _lastReplyOutcome;
 
+  /// Deadline on each unbounded await inside [put]. The deposit path had two
+  /// (replica lookup, per-chunk anonymous send), and a native future that
+  /// never resolves — a circuit that never builds, a lookup the DHT never
+  /// answers — hung the whole deposit with NO error. Measured live
+  /// 2026-08-16: one such hang held the messaging layer's single background
+  /// slot 10+ minutes; the caller-side stash deadline (45s) frees the slot,
+  /// but only THIS one names the step that actually stalled.
+  static const Duration _putStepTimeout = Duration(seconds: 20);
+
   @override
   Future<void> put({
     required NodeId receiver,
@@ -449,8 +458,9 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           'xVeil[send]: deposit of ${blob.length}B to ${receiver.short} needs a '
           'relay that serves slices — one predating the endpoint will drop it');
     }
-    final replicas =
-        await _client.mailbox.lookupRendezvousReplicas(receiver.bytes);
+    final replicas = await _client.mailbox
+        .lookupRendezvousReplicas(receiver.bytes)
+        .timeout(_putStepTimeout);
     // A usable deposit target = the replica's relay + that relay's public
     // X25519 (the PUT's seal target). Prefer the key carried by the ad itself
     // (v5 KEM field); when the ad is KEM-LESS — e.g. the recipient's node
@@ -478,7 +488,9 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       var kem = await _relayKeyCache?.get(relay);
       if (kem == null || kem.length != 32) {
         try {
-          kem = await _client.lookupRelayX25519(relay.bytes);
+          kem = await _client
+              .lookupRelayX25519(relay.bytes)
+              .timeout(_putStepTimeout);
         } catch (_) {
           kem = null; // best-effort — the replica is simply skipped
         }
@@ -514,15 +526,17 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     for (final r in usable) {
       try {
         for (final chunk in chunks) {
-          await _client.sendAnonymousDirect(
-            targetNodeId: r.relayNodeId,
-            targetX25519Pk: r.kemPk,
-            targetAppId: kMailboxAppId,
-            targetEndpointId: kMailboxPutEndpointId,
-            srcAppId: _srcAppId,
-            data: chunk,
-            hopCount: _putHopCount,
-          );
+          await _client
+              .sendAnonymousDirect(
+                targetNodeId: r.relayNodeId,
+                targetX25519Pk: r.kemPk,
+                targetAppId: kMailboxAppId,
+                targetEndpointId: kMailboxPutEndpointId,
+                srcAppId: _srcAppId,
+                data: chunk,
+                hopCount: _putHopCount,
+              )
+              .timeout(_putStepTimeout);
         }
         anyOk = true;
       } catch (e) {
