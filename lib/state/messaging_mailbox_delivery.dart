@@ -50,6 +50,20 @@ class _MessagingMailboxDelivery {
   /// `mailbox_deposit_gate.dart`.
   Duration ackGrace = Duration.zero;
 
+  /// The FAMILY mailbox — the identity's address — and the predicate that
+  /// says a peer is one of my own devices. A deposit for a sibling used to
+  /// go to the SIBLING'S device-id mailbox, which no device ever drains:
+  /// every device fetches under the IDENTITY (me=receiveAddress), so
+  /// device-addressed blobs sat at the relay until TTL. Measured live
+  /// 2026-08-17 on a freshly linked device: 19 frames deposited for its
+  /// device id, drains recovered 0, the relay never saw a FETCH for that
+  /// recipient — the historical "first frames after linking are lost"
+  /// exactly. Redirecting the DEPOSIT to the identity's mailbox puts the
+  /// frames where every sibling already looks; per-device envelopes and
+  /// content-id dedup do the rest.
+  NodeId? ownDeviceMailbox;
+  Future<bool> Function(NodeId peer)? isOwnDevicePeer;
+
   void noteAcknowledged(String id) => _gate.noteAcknowledged(id);
 
   bool acknowledged(String id) => _gate.acknowledged(id);
@@ -268,9 +282,16 @@ class _MessagingMailboxDelivery {
     if (!_inFlight.add(id)) return;
     try {
       try {
+        var recipient = peer;
+        final family = ownDeviceMailbox;
+        if (family != null &&
+            family != peer &&
+            (await isOwnDevicePeer?.call(peer) ?? false)) {
+          recipient = family;
+        }
         await mailbox
             .stash(
-              recipient: peer,
+              recipient: recipient,
               payload: wire,
               contentId: _contentIdFor(id),
             )
