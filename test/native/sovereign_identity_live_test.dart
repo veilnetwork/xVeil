@@ -45,6 +45,43 @@ class _MemStorage implements Storage {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// The parts of an identity document that stay bit-identical between two
+/// devices holding "the same" document.
+///
+/// Since the tombstone rewrite every adopt re-signs the document as ITS
+/// device: issued_at/valid_until are re-stamped, sig_key_idx becomes the
+/// signer's own, and document_sig is made by the signer's subkey. Byte
+/// equality of two devices' copies is therefore no longer an invariant —
+/// what converges is the header (magic through master_pubkey) and the
+/// identity_keys/revoked_devices sections, compared here in wire order.
+({List<int> header, List<int> body}) canonicalDocParts(Uint8List d) {
+  var pos = 2 + 1 + 32 + 1; // magic, version, node_id, master_algo
+  final mlen = (d[pos] << 8) | d[pos + 1];
+  pos += 2 + mlen;
+  final header = d.sublist(0, pos);
+  pos += 8 + 8 + 2; // issued_at, valid_until, sig_key_idx — per device
+  final bodyStart = pos;
+  final nkeys = d[pos];
+  pos += 1;
+  for (var i = 0; i < nkeys; i++) {
+    pos += 1; // algo
+    final pl = (d[pos] << 8) | d[pos + 1];
+    pos += 2 + pl + 32 + 8 + 8;
+    final sl = (d[pos] << 8) | d[pos + 1];
+    pos += 2 + sl;
+  }
+  if (d[2] == 2) {
+    final nrev = d[pos];
+    pos += 1;
+    for (var i = 0; i < nrev; i++) {
+      pos += 32;
+      final sl = (d[pos] << 8) | d[pos + 1];
+      pos += 2 + sl;
+    }
+  }
+  return (header: header, body: d.sublist(bodyStart, pos));
+}
+
 void main() {
   final dylib = Platform.environment['VEIL_FFI_DYLIB'];
   final hasDylib = dylib?.isNotEmpty ?? false;
@@ -457,7 +494,12 @@ void main() {
       final toml = mineToml!;
 
       final desktop = _MemStorage()..config = toml;
-      final phone = _MemStorage()..config = toml;
+      // No shared config: since provisioning takes "the key this device
+      // already runs on" from the node config, handing the phone the
+      // desktop's toml would model an impossible pair — two real devices
+      // never share a transport key. With no config the phone takes the
+      // first-run path and mints a fresh random device key.
+      final phone = _MemStorage();
       final deskMat = await RealVeilStack.ensureSovereignIdentity(
         desktop,
         stagingBase: tmp.path,
@@ -504,11 +546,13 @@ void main() {
       final deskNow = decodeSovereignIdentity(
         desktop.settings[kSovereignIdentitySetting]!,
       )!;
-      // One document, held by both.
-      expect(
-        deskNow[kIdentityDocumentFile],
-        orderedEquals(phoneNow[kIdentityDocumentFile]!),
-      );
+      // One document, held by both — canonically: each copy is re-signed by
+      // its own device, so the stamps, the signer index and the signature
+      // are per-device while header and key set converge.
+      final deskParts = canonicalDocParts(deskNow[kIdentityDocumentFile]!);
+      final phoneParts = canonicalDocParts(phoneNow[kIdentityDocumentFile]!);
+      expect(deskParts.header, orderedEquals(phoneParts.header));
+      expect(deskParts.body, orderedEquals(phoneParts.body));
       // Two devices: each keeps its own key and its own subkey index, and the
       // indices differ — that file is what stops each from signing as the other.
       expect(
@@ -602,10 +646,19 @@ void main() {
     // other's key and comes up with no identity at all.
     expect(await File('$a/$kDeviceSigKeyIdxFile').exists(), isTrue);
     expect(await File('$b/$kDeviceSigKeyIdxFile').exists(), isTrue);
-    expect(
+    final aParts = canonicalDocParts(
       await File('$a/$kIdentityDocumentFile').readAsBytes(),
-      orderedEquals(merged),
-      reason: 'one document, held by both',
+    );
+    final bParts = canonicalDocParts(merged);
+    expect(
+      aParts.header,
+      orderedEquals(bParts.header),
+      reason: 'one identity, held by both',
+    );
+    expect(
+      aParts.body,
+      orderedEquals(bParts.body),
+      reason: 'one key set, held by both',
     );
   }, skip: skip);
 
