@@ -5202,6 +5202,10 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get devicesRelinkRevoked =>
+      'This device was revoked. Its old key can never be trusted again — reset the device and link it with a freshly created key.';
+
+  @override
   String get devicesOperationFailed => 'Could not complete device linking';
 
   @override
