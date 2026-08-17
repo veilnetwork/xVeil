@@ -13555,6 +13555,16 @@ class GroupService {
             peer,
             gid,
             jsonEncode({
+              // Salt, for the same reason the REQUEST carries a nonce: the
+              // durable frame id is a hash of content, and the inbound dedup
+              // remembers processed frames forever — where "processed" is
+              // not "landed". Measured live 2026-08-17: the first serve's
+              // rows were rejected by the verifier, the frames were re-acked
+              // anyway, and every identical re-serve died on arrival with
+              // "already processed" — the requester could never be healed by
+              // a serve it had once failed to apply. Ingest ignores unknown
+              // keys, so old receivers are unaffected.
+              'sn': DateTime.now().microsecondsSinceEpoch,
               'm': b.manifest.toJson(),
               'c': [if (i == 0) for (final e in missingCtl) e.toJson()],
               'g': [for (final m in batches[i]) m.toJson()],
