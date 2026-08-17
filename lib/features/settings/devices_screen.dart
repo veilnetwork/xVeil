@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert' show base64Encode;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import '../../data/node/sovereign_identity_material.dart'
         kSovereignIdentitySetting;
 import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/device_link.dart';
+import '../../domain/device_sync.dart' show DeviceSyncEvent, DeviceSyncKind;
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -377,6 +379,40 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       signer = await svc?.openLocalSovereign(words);
       if (svc != null && signer != null) {
         ok = await svc.revokeDevice(device, sovereign: signer);
+        if (ok) {
+          // The cryptographic half: the group stopped LISTING the device,
+          // and this stops the document VOUCHING for its key — a
+          // master-signed tombstone no stale sibling copy can union back
+          // in. Without it every row the revoked device signs keeps
+          // verifying on every peer until its cert ages out.
+          final storage = ref.read(storageProvider);
+          final docRevoked = await RealVeilStack.revokeDeviceFromDocument(
+            storage,
+            phrase: words,
+            deviceId: device.bytes,
+            stagingBase: Directory.systemTemp.path,
+          );
+          if (docRevoked) {
+            final stack = ref.read(realStackProvider);
+            if (stack != null) {
+              await stack.refreshSovereignIdentity(storage);
+            }
+            final raw = await storage.getSetting(kSovereignIdentitySetting);
+            final doc = raw == null
+                ? null
+                : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
+            if (doc != null && doc.isNotEmpty) {
+              await svc.postDeviceEvent(
+                DeviceSyncEvent(
+                  kind: DeviceSyncKind.identityDoc,
+                  key: svc.selfId.hex,
+                  tsMs: DateTime.now().millisecondsSinceEpoch,
+                  payload: {'d': base64Encode(doc)},
+                ),
+              );
+            }
+          }
+        }
       }
     } catch (_) {
       ok = false;

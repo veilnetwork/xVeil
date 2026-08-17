@@ -2449,12 +2449,45 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     // apart by nothing. Hit on the stand: a revoke refused and there was no
     // way to learn whether the phrase or the peer was the problem.
     String? why;
+    var docRevoked = false;
     try {
       sovereign = await svc.openLocalSovereign(phrase);
       ok = await svc.revokeDevice(NodeId.fromHex(peer), sovereign: sovereign);
       if (!ok) {
         why = 'the group refused the revoke — the peer may not be a member, '
             'or this identity may not own the device group';
+      } else {
+        // The cryptographic half: the group stopped LISTING the device, and
+        // this stops the document VOUCHING for its key — a master-signed
+        // tombstone no stale sibling copy can union back in.
+        docRevoked = await RealVeilStack.revokeDeviceFromDocument(
+          ref.read(storageProvider),
+          phrase: phrase.trim(),
+          deviceId: NodeId.fromHex(peer).bytes,
+          stagingBase: Directory.systemTemp.path,
+        );
+        if (docRevoked) {
+          final stack = ref.read(realStackProvider);
+          if (stack != null) {
+            await stack.refreshSovereignIdentity(ref.read(storageProvider));
+          }
+          final raw = await ref
+              .read(storageProvider)
+              .getSetting(kSovereignIdentitySetting);
+          final doc = raw == null
+              ? null
+              : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
+          if (doc != null && doc.isNotEmpty) {
+            await svc.postDeviceEvent(
+              DeviceSyncEvent(
+                kind: DeviceSyncKind.identityDoc,
+                key: svc.selfId.hex,
+                tsMs: DateTime.now().millisecondsSinceEpoch,
+                payload: {'d': base64Encode(doc)},
+              ),
+            );
+          }
+        }
       }
     } catch (caught) {
       ok = false;
@@ -2462,7 +2495,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } finally {
       sovereign?.close();
     }
-    return _json(req, {'ok': ok, 'error': ?why});
+    return _json(req, {'ok': ok, 'docRevoked': docRevoked, 'error': ?why});
   }
 
   /// My device group's state: id + members + epoch (null id = not linked).

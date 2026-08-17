@@ -1206,6 +1206,70 @@ class RealVeilStack {
     }
   }
 
+  /// Retire a revoked device's key from the stored identity document — the
+  /// cryptographic half of revocation, run right after the group-membership
+  /// half succeeds.
+  ///
+  /// Same copy-first staging discipline as [delegateDeviceIntoDocument]: a
+  /// revocation that fails half way must not leave this device holding a
+  /// document it cannot sign with. Returns true when the stored document
+  /// changed (callers then refresh the node and announce, exactly like a
+  /// delegation).
+  static Future<bool> revokeDeviceFromDocument(
+    Storage storage, {
+    required String phrase,
+    required Uint8List deviceId,
+    required String stagingBase,
+    DynamicLibrary? lib,
+  }) async {
+    if (phrase.isEmpty || deviceId.length != 32) return false;
+    final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
+    if (storedRaw == null) return false;
+    final stored = decodeSovereignIdentity(storedRaw);
+    if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[identity]: cannot revoke a device key — this device has no '
+            'usable sovereign material',
+      );
+      return false;
+    }
+    final staging =
+        '$stagingBase/xveil-idrevoke-${Random.secure().nextInt(1 << 32)}';
+    try {
+      await materialiseSovereignIdentity(staging, stored);
+      final changed = EmbeddedNode.revokeIdentityDeviceFromPhrase(
+        phrase,
+        veilDir: staging,
+        deviceId: deviceId,
+        lib: lib,
+      );
+      if (!changed) return false; // already tombstoned
+      final amended = await collectSovereignIdentity(staging);
+      if (missingSovereignIdentityFiles(amended).isNotEmpty) return false;
+      final encoded = encodeSovereignIdentity(amended);
+      if (encoded == storedRaw) return false;
+      await storage.putSetting(kSovereignIdentitySetting, encoded);
+      devLog(
+        () =>
+            'xVeil[identity]: revoked a device key from the document — a '
+            'master-signed tombstone now outlives every stale sibling copy',
+      );
+      return true;
+    } on Object catch (e) {
+      // A wrong phrase and a self-revocation are both refused natively
+      // before anything is written.
+      devLog(() => 'xVeil[identity]: could not revoke the device key: $e');
+      return false;
+    } finally {
+      try {
+        await Directory(staging).delete(recursive: true);
+      } on FileSystemException {
+        // Never created, or already gone.
+      }
+    }
+  }
+
   /// Adopt an identity document received from ANOTHER device of this identity,
   /// adding this device to it.
   ///

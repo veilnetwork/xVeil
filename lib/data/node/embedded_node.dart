@@ -641,6 +641,79 @@ class EmbeddedNode {
     }
   }
 
+  /// Retire [deviceId]'s key from the identity document in [veilDir],
+  /// permanently, with the master derived from [phrase].
+  ///
+  /// The cryptographic half of revocation: the group stops listing the
+  /// device elsewhere, and THIS removes the document's vouching for its key
+  /// — plus a master-signed tombstone the document merge can never
+  /// resurrect. Returns true when the document changed, false when the
+  /// device was already tombstoned.
+  static bool revokeIdentityDeviceFromPhrase(
+    String phrase, {
+    required String veilDir,
+    required Uint8List deviceId,
+    DynamicLibrary? lib,
+  }) {
+    if (deviceId.length != 32) {
+      throw ArgumentError('deviceId must be 32 bytes, got ${deviceId.length}');
+    }
+    final dl = lib ?? _veilLib();
+    final revokeFn = dl.lookupFunction<
+        Int32 Function(
+          Pointer<Uint8>,
+          UintPtr,
+          Pointer<Uint8>,
+          UintPtr,
+          Pointer<Uint8>,
+          Pointer<Uint8>,
+          Pointer<Pointer<Utf8>>,
+        ),
+        int Function(
+          Pointer<Uint8>,
+          int,
+          Pointer<Uint8>,
+          int,
+          Pointer<Uint8>,
+          Pointer<Uint8>,
+          Pointer<Pointer<Utf8>>,
+        )>('veil_revoke_identity_device_from_phrase_zeroize');
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final phraseC = phrase.toNativeUtf8();
+    final dirC = veilDir.toNativeUtf8();
+    final idPtr = calloc<Uint8>(32);
+    final changedOut = calloc<Uint8>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      idPtr.asTypedList(32).setAll(0, deviceId);
+      final rc = revokeFn(
+        phraseC.cast<Uint8>(),
+        phraseC.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        idPtr,
+        changedOut,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_revoke_identity_device failed: $msg');
+      }
+      return changedOut.value != 0;
+    } finally {
+      wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
+      calloc.free(phraseC);
+      calloc.free(dirC);
+      calloc.free(idPtr);
+      calloc.free(changedOut);
+      calloc.free(errOut);
+    }
+  }
+
   /// Admit a device using the master secret this app already holds: the
   /// `[identity]` keypair of its own stored node config.
   ///
