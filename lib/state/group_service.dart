@@ -17076,12 +17076,32 @@ class GroupService {
   Uint8List _manifestHash(SpaceManifest manifest) =>
       _sha256(utf8.encode(jsonEncode(manifest.toJson())));
 
+  /// How long a STORED admission outlives its token. The token's own expiry
+  /// is an ACCEPT-time freshness check — a stale QR must not start a
+  /// ceremony. But the admission it creates is durable consent, and the
+  /// snapshot it admits can legitimately arrive much later: the source may
+  /// be offline, and this device may restart in between. Re-checking token
+  /// expiry on every READ silently voided the consent ~30 minutes in —
+  /// measured live 2026-08-17: a device that restarted after its token
+  /// lapsed dropped every snapshot chunk as "stranger sync request DENIED"
+  /// forever, and only a full re-link revived the join. Consumed on the
+  /// first successful snapshot; the grace is the ceiling for one that never
+  /// comes.
+  static const Duration kDeviceAdoptionAdmissionGrace = Duration(days: 7);
+
   Future<DeviceLinkToken?> pendingDeviceAdoption() async {
     final raw = await _storage.getSetting(kPendingDeviceAdoptionSetting);
     if (raw == null || raw.isEmpty) return null;
     try {
       final token = DeviceLinkToken.fromJson(jsonDecode(raw));
-      if (token == null || token.isExpired(_now())) return null;
+      // [_clockNowMs], not [_now]: this is read per incoming sync chunk and
+      // must not advance the monotonic mutation counter.
+      if (token == null ||
+          token.isExpired(
+            _clockNowMs() - kDeviceAdoptionAdmissionGrace.inMilliseconds,
+          )) {
+        return null;
+      }
       return token;
     } catch (_) {
       return null;
