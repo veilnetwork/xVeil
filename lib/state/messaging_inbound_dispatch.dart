@@ -205,7 +205,19 @@ extension _MessagingInboundDispatch on MessagingService {
         }
       } else {
         await _ackFrame(m, fid);
-        if (!_outbox.remember(m.src.hex, fid)) {
+        // A CHUNK is re-consumed, never replay-dropped. Reassembly is in-RAM
+        // and keyed per transfer; "processed" for a chunk means "consumed
+        // into a buffer", not "landed". A restart mid-transfer killed the
+        // partial while every already-consumed chunk stayed durably
+        // remembered — so the sender's faithful re-drive of the SAME frames
+        // died here one by one and that snapshot could never assemble again
+        // (measured live 2026-08-17: five serves stuck at N-1/N chunks
+        // each). Re-consuming is idempotent by construction: a duplicate
+        // index returns early, the caps still bound the buffers.
+        final reprocessSafely =
+            env.kind == WireKind.groupEntryChunk ||
+            env.kind == WireKind.cloudDocumentChunk;
+        if (!_outbox.remember(m.src.hex, fid) && !reprocessSafely) {
           // A re-drive of a frame this device already took. Ordinary — except
           // when the first take DID NOT achieve what it was for, which is
           // exactly the device-linking case: the snapshot is processed once,
