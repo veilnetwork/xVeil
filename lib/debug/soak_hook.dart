@@ -684,6 +684,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/identity_probe':
           await _identityProbeHook(req);
           return;
+        case '/doc_lookup_probe':
+          await _docLookupProbeHook(req);
+          return;
         case '/device_group_clear':
           await _deviceGroupClearHook(req);
           return;
@@ -2028,6 +2031,44 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   ///
   /// On a second device `transport` must differ from the first device's while
   /// `receive` matches it. Equal transport ids across two devices is the bug.
+  /// What the installed document lookup answers for a given identity, plus
+  /// the native authorize verdict for an optional (identity, pubkey) pair —
+  /// the two invisible halves of sibling-row verification.
+  Future<void> _docLookupProbeHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final idHex = req.uri.queryParameters['identity'];
+    if (idHex == null) return _json(req, {'ok': false, 'error': 'no identity'});
+    final id = NodeId.fromHex(idHex);
+    final bytes = debugDocumentLookupBytes(id);
+    Object? authorizes;
+    final pkHex = req.uri.queryParameters['pk'];
+    if (pkHex != null && bytes != null) {
+      final doc = await RealVeilStack.storedSovereignDocument(
+        ref.read(storageProvider),
+      );
+      if (doc != null) {
+        try {
+          authorizes = EmbeddedNode.identityDocumentAuthorizes(
+            document: doc,
+            nodeId: id.bytes,
+            publicKey: Uint8List.fromList([
+              for (var i = 0; i < pkHex.length; i += 2)
+                int.parse(pkHex.substring(i, i + 2), radix: 16),
+            ]),
+          );
+        } catch (caught) {
+          authorizes = '$caught';
+        }
+      }
+    }
+    return _json(req, {
+      'ok': true,
+      'identity': idHex,
+      'lookupBytes': bytes,
+      if (authorizes != null) 'authorizes': authorizes,
+    });
+  }
+
   Future<void> _identityProbeHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final stack = ref.read(realStackProvider);
