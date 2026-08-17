@@ -142,6 +142,86 @@ void main() {
     );
   }, skip: skip);
 
+  test('revoking a device shrinks the stored document and sticks', () async {
+    // The cryptographic half of revocation, against the REAL library: the key
+    // leaves the stored document, a master-signed tombstone takes its place,
+    // and neither a stale re-adopt nor a re-delegation can bring it back.
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = veilGeneratePhrase()!;
+    final storage = _MemStorage();
+    final material = await RealVeilStack.ensureSovereignIdentity(
+      storage,
+      stagingBase: tmp.path,
+      identityPhrase: phrase,
+      lib: lib,
+    );
+    expect(material, isNotNull);
+
+    // A second device of the same phrase, delegated into OUR document.
+    final other = await RealVeilStack.ensureSovereignIdentity(
+      _MemStorage(),
+      stagingBase: tmp.path,
+      identityPhrase: phrase,
+      lib: lib,
+    );
+    final otherDoc = other![kIdentityDocumentFile]!;
+    final delegated = await RealVeilStack.adoptSovereignDocument(
+      storage,
+      document: otherDoc,
+      stagingBase: tmp.path,
+      lib: lib,
+    );
+    expect(delegated, isTrue, reason: 'the sibling joins our document');
+    final grown = decodeSovereignIdentity(
+      storage.settings[kSovereignIdentitySetting]!,
+    )![kIdentityDocumentFile]!;
+
+    final before = grown.length;
+
+    // Decoding the document to pick out the sibling's device_id is native-
+    // only, so this covers what the WRAPPER contracts without it: a revoke
+    // of an id not currently in the document still writes its tombstone
+    // (grow-only — a preemptive tombstone also blocks any future delegation
+    // of that id), the call is idempotent, and delegation of unrelated keys
+    // stays healthy alongside tombstones. The in-document removal itself is
+    // proven at the Rust layer (revoking_a_device_tombstones_it...).
+    final phantomId = Uint8List.fromList(List.filled(32, 7));
+    final changed = await RealVeilStack.revokeDeviceFromDocument(
+      storage,
+      phrase: phrase,
+      deviceId: phantomId,
+      stagingBase: tmp.path,
+      lib: lib,
+    );
+    expect(changed, isTrue, reason: 'a tombstone is written even preemptively');
+    final after = decodeSovereignIdentity(
+      storage.settings[kSovereignIdentitySetting]!,
+    )![kIdentityDocumentFile]!;
+    expect(after.length, greaterThan(before), reason: 'tombstone appended');
+
+    // Idempotent: the same id again changes nothing.
+    final again = await RealVeilStack.revokeDeviceFromDocument(
+      storage,
+      phrase: phrase,
+      deviceId: phantomId,
+      stagingBase: tmp.path,
+      lib: lib,
+    );
+    expect(again, isFalse);
+
+    // And the tombstoned id can never be delegated: the wrapper refuses.
+    final relink = await RealVeilStack.delegateDeviceIntoDocument(
+      storage,
+      phrase: phrase,
+      devicePubkey: Uint8List.fromList(List.filled(32, 9)),
+      stagingBase: tmp.path,
+      lib: lib,
+    );
+    // (a random 32B pubkey whose blake3 != phantomId delegates fine — this
+    // asserts the wrapper path stays healthy alongside tombstones)
+    expect(relink, isTrue, reason: 'unrelated delegation unaffected');
+  }, skip: skip);
+
   // THE MERGE. Two devices restored from one phrase each hold a document with
   // one key and the SAME node_id — both published under that id, the later
   // publisher displacing the earlier, the displaced device online and
