@@ -94,16 +94,27 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // Announced on every bridge build rather than once at linking: a device that
   // was off when another joined has no other moment to learn of it, and the
   // exchange is idempotent — a document that changes nothing is not answered.
+  // The announcer's DEVICE id, for keying the announcement and skipping its
+  // echo. NOT selfId: on a phrase-restored device selfId IS the identity
+  // address, which its master shares — keyed by selfId, the master's and the
+  // restored device's announcements were MUTUALLY invisible ("my own echo"),
+  // and a document amendment made on one never reached the other. The
+  // nineteenth face of the device/identity class, measured live 2026-08-17:
+  // a revocation tombstone announced by the master sat unapplied on the
+  // sibling forever.
+  NodeId? announceDevice;
+
   Future<void> announceIdentityDocument() async {
     final raw = await svc.storage.getSetting(kSovereignIdentitySetting);
     if (raw == null) return; // mined identity, or nothing provisioned
     final files = decodeSovereignIdentity(raw);
     final doc = files?[kIdentityDocumentFile];
     if (doc == null || doc.isEmpty) return;
+    announceDevice ??= await svc.resolveMyDevice();
     await svc.postDeviceEvent(
       DeviceSyncEvent(
         kind: DeviceSyncKind.identityDoc,
-        key: svc.selfId.hex,
+        key: (announceDevice ?? svc.selfId).hex,
         tsMs: nextTs(),
         payload: {'d': base64.encode(doc)},
       ),
@@ -397,8 +408,14 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         break; // applied by CloudService
       case DeviceSyncKind.identityDoc:
         gate.offer(e, () {
-          // My own announcement, echoed back by the group log.
-          if (e.key == svc.selfId.hex) return null;
+          // My own announcement, echoed back by the group log — matched by
+          // DEVICE id, never selfId (shared with the master; see
+          // announceDevice above). An event keyed by a selfId we happen to
+          // share is APPLIED, not skipped: adopting our own document is a
+          // no-change no-op, while skipping a sibling's was a silent divorce.
+          if (announceDevice != null && e.key == announceDevice!.hex) {
+            return null;
+          }
           final raw = e.payload['d'];
           if (raw is! String || raw.isEmpty) return null;
           final Uint8List doc;
