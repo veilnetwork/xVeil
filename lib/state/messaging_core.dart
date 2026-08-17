@@ -768,7 +768,19 @@ class MessagingService {
 
   /// Attach the offline-delivery [MailboxService] after construction (it is
   /// built with [deliverInbound] as its drain sink, so it must exist first).
-  void attachMailbox(MailboxSink mailbox) => _mailboxDelivery.attach(mailbox);
+  void attachMailbox(MailboxSink mailbox) {
+    _mailboxDelivery.attach(mailbox);
+    // The own-device deposit redirect needs the same knowledge the ack path
+    // already has; bound here so a mailbox never runs without it.
+    _mailboxDelivery.isOwnDevicePeer = (p) async =>
+        await isOwnDevice?.call(p) ?? false;
+  }
+
+  /// The identity's mailbox address — where deposits for MY OWN devices go
+  /// (see the delivery's ownDeviceMailbox for why device-id mailboxes are a
+  /// black hole).
+  set mailboxOwnDeviceRecipient(NodeId? value) =>
+      _mailboxDelivery.ownDeviceMailbox = value;
 
   /// The durable half of the hybrid ratchet, when this build has a node that
   /// runs one.
