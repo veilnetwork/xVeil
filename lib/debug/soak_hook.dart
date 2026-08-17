@@ -2478,10 +2478,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               ? null
               : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
           if (doc != null && doc.isNotEmpty) {
+            // Keyed by DEVICE id, not selfId: a phrase-restored sibling
+            // SHARES our selfId and would drop the event as its own echo.
+            final meDevice = await svc.resolveMyDevice();
             await svc.postDeviceEvent(
               DeviceSyncEvent(
                 kind: DeviceSyncKind.identityDoc,
-                key: svc.selfId.hex,
+                key: (meDevice ?? svc.selfId).hex,
                 tsMs: DateTime.now().millisecondsSinceEpoch,
                 payload: {'d': base64Encode(doc)},
               ),
