@@ -454,9 +454,16 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // Not an error, because against an updated relay it is the ordinary case.
     // The line goes away on its own as relays update.
     if (blob.length + kMailboxPerBlobWireHeaderBytes > kMailboxLegacyReplyBudget) {
+      // The content id names WHICH frame class pays the slice tax (6 onion
+      // round trips per window at the receiver) — without it this line says
+      // only that somebody, somewhere, deposits oversized, which is exactly
+      // enough to misattribute. Measured 2026-08-17: a backlog of ~30KB
+      // blobs took a drain pass hours; the id is what lets the diet start
+      // at the right table.
       devLog(() =>
-          'xVeil[send]: deposit of ${blob.length}B to ${receiver.short} needs a '
-          'relay that serves slices — one predating the endpoint will drop it');
+          'xVeil[send]: deposit of ${blob.length}B to ${receiver.short} '
+          '(cid=${NodeId(contentId).short}) needs a relay that serves '
+          'slices — one predating the endpoint will drop it');
     }
     final replicas = await _client.mailbox
         .lookupRendezvousReplicas(receiver.bytes)
