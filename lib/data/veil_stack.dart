@@ -1450,6 +1450,22 @@ class RealVeilStack {
               document: document,
               lib: lib,
             );
+          } on StateError {
+            // OUR master derives a DIFFERENT identity than the incoming
+            // document — the exact shape of a device with its own identity
+            // being linked INTO a family. The master cannot authorise that
+            // join, but the document already names this device's key (the
+            // ceremony partner delegated it), so the named adopt can: this
+            // is the identity switch linking exists to perform. Without the
+            // fallback a previously standalone device could never join.
+            final toml = identityToml;
+            if (toml == null) rethrow;
+            EmbeddedNode.adoptIdentityDocumentNamed(
+              toml,
+              veilDir: staging,
+              document: document,
+              lib: lib,
+            );
           } finally {
             wipeSecretBytes(master);
           }
