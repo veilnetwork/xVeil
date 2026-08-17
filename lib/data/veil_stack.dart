@@ -772,9 +772,13 @@ class RealVeilStack {
     this.ratchetState,
     this.embeddedNode,
     this.identityDir,
+    List<BootstrapPeerCfg> registeredSeeds = const [],
+    Future<void> Function(String uri)? joinEndpoint,
   }) : _cli = veilCliPath,
        _config = configPath,
-       _flutterTransport = nodeIpc;
+       _flutterTransport = nodeIpc,
+       _registeredSeeds = registeredSeeds,
+       _joinEndpoint = joinEndpoint;
 
   /// Assemble a stack over parts that already exist.
   ///
@@ -798,6 +802,31 @@ class RealVeilStack {
 
   final NodeController controller;
   final VeilTransport transport;
+
+  /// The seed set this boot registered, kept for [redialSeeds]. Empty on
+  /// paths that never dialed (fakes, config-driven boots).
+  final List<BootstrapPeerCfg> _registeredSeeds;
+  final Future<void> Function(String uri)? _joinEndpoint;
+
+  /// Re-dial the boot's seed set over the SAME join primitive the boot used.
+  ///
+  /// The lifecycle-resume half of the suspended-node defect: an Android node
+  /// that lost its overlay sessions in the background comes back DARK — zero
+  /// inbound from anyone, senders' "live leg ok" a fiction — and nothing in
+  /// the runtime re-dials on its own. Measured live 2026-08-17: only a full
+  /// app restart revived it. Joining an already-live session is a cheap
+  /// no-op, so calling this on every resume is safe.
+  Future<int> redialSeeds() async {
+    final join = _joinEndpoint;
+    if (join == null || _registeredSeeds.isEmpty) return 0;
+    final n = await registerRuntimeBootstrapPeers(_registeredSeeds, join);
+    devLog(
+      () =>
+          'xVeil[bootstrap]: resume redial — '
+          '$n/${_registeredSeeds.length} seed(s) joined',
+    );
+    return n;
+  }
   final BootstrapInvite myInvite;
 
   /// The running node and the directory it reads its identity from — the two
@@ -2064,6 +2093,8 @@ class RealVeilStack {
       ratchetState: ratchetState,
       embeddedNode: embeddedNode,
       identityDir: identityDir,
+      registeredSeeds: seedsToRegister,
+      joinEndpoint: transport.joinP2PEndpoint,
     );
   }
 
