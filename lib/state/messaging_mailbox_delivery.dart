@@ -64,24 +64,6 @@ class _MessagingMailboxDelivery {
   NodeId? ownDeviceMailbox;
   Future<bool> Function(NodeId peer)? isOwnDevicePeer;
 
-  /// Cached answers to "is this peer my own device". The resolver walks
-  /// group state, and the first cut awaited it INSIDE the single deposit
-  /// slot per frame — measured as a DEFERRED storm (474 deferrals per 8s,
-  /// one deposit landing) the moment several sibling queues were live. A
-  /// device set changes on link/revoke, so minutes-stale is safe.
-  final Map<String, (bool, DateTime)> _ownDeviceCache = {};
-
-  Future<bool> _isOwnDeviceCached(NodeId peer) async {
-    final hit = _ownDeviceCache[peer.hex];
-    if (hit != null &&
-        DateTime.now().difference(hit.$2) < const Duration(minutes: 5)) {
-      return hit.$1;
-    }
-    final v = await isOwnDevicePeer?.call(peer) ?? false;
-    _ownDeviceCache[peer.hex] = (v, DateTime.now());
-    return v;
-  }
-
   void noteAcknowledged(String id) => _gate.noteAcknowledged(id);
 
   bool acknowledged(String id) => _gate.acknowledged(id);
@@ -304,7 +286,7 @@ class _MessagingMailboxDelivery {
         final family = ownDeviceMailbox;
         if (family != null &&
             family != peer &&
-            await _isOwnDeviceCached(peer)) {
+            (await isOwnDevicePeer?.call(peer) ?? false)) {
           recipient = family;
         }
         await mailbox
