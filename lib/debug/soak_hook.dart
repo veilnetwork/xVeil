@@ -20,7 +20,8 @@ import '../core/log.dart';
 import '../core/posix_file_facts.dart' show posixChmod;
 import '../data/runtime_dir_sweep.dart' show sweepStaleRuntimeDirs;
 import '../data/serve_source.dart';
-import '../data/veil_stack.dart' show claimRuntimeDirUnder, RealVeilStack;
+import '../data/veil_stack.dart'
+    show claimRuntimeDirUnder, RealVeilStack, TombstonedDeviceException;
 import '../data/transport/bootstrap_invite.dart';
 import '../data/node/identity_config_fields.dart';
 import '../data/transport/device_link_invite.dart';
@@ -2187,6 +2188,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         if (merged) await stack.refreshSovereignIdentity(ref.read(storageProvider));
       }
       await stack.addContact(target);
+      // THE DOCUMENT HALF FIRST, fail-closed — see devices_screen: without
+      // it the registry, the mailbox fan-out and every third device's
+      // verifier keep living in the document's past. And it must come
+      // BEFORE the group half: a tombstoned device refuses here, and when
+      // the group had already admitted the id the refusal used to vanish
+      // into "linked ok" — measured live as a half-ghost member (control
+      // seq 11) frames queue to that no verifier accepts. The reverse
+      // mismatch (document names it, group add fails below) is harmless:
+      // nothing queues to a non-member, and a retry is idempotent.
+      var delegated = false;
+      try {
+        delegated = await RealVeilStack.delegateDeviceIntoDocument(
+          ref.read(storageProvider),
+          phrase: phrase.trim(),
+          devicePubkey: target.publicKey,
+          stagingBase: Directory.systemTemp.path,
+        );
+      } on TombstonedDeviceException catch (e) {
+        return _json(req, {'ok': false, 'error': '$e'});
+      }
       sovereign = await svc.openLocalSovereign(phrase.trim());
       // No snapshot yet: the target must record its admission first, or it
       // will refuse the snapshot exactly as it refuses a stranger's.
@@ -2197,29 +2218,25 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       )) {
         return _json(req, {'ok': false, 'error': 'membership rejected'});
       }
-      // THE DOCUMENT HALF — see devices_screen: without it the registry,
-      // the mailbox fan-out and every third device's verifier keep living
-      // in the document's past.
-      var delegated = await RealVeilStack.delegateDeviceIntoDocument(
-        ref.read(storageProvider),
-        phrase: phrase.trim(),
-        devicePubkey: target.publicKey,
-        stagingBase: Directory.systemTemp.path,
-      );
       // RETRO-delegation: members the group admitted before the document
       // learned to grow (measured live: the second device's 17 rows dropped
       // as "signature verify failed" on every newly linked device, because
       // no document any of them received ever named its subkey).
       for (final entry in (await svc.deviceWriterKeys()).entries) {
         if (entry.key == target.nodeId) continue;
-        delegated =
-            await RealVeilStack.delegateDeviceIntoDocument(
-              ref.read(storageProvider),
-              phrase: phrase.trim(),
-              devicePubkey: entry.value,
-              stagingBase: Directory.systemTemp.path,
-            ) ||
-            delegated;
+        try {
+          delegated =
+              await RealVeilStack.delegateDeviceIntoDocument(
+                ref.read(storageProvider),
+                phrase: phrase.trim(),
+                devicePubkey: entry.value,
+                stagingBase: Directory.systemTemp.path,
+              ) ||
+              delegated;
+        } on TombstonedDeviceException {
+          // A revoked OLD member still listed by the group is its own
+          // cleanup, not this ceremony's failure.
+        }
       }
       if (delegated) {
         await stack.refreshSovereignIdentity(ref.read(storageProvider));

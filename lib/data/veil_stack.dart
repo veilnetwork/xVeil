@@ -52,6 +52,23 @@ class RuntimeDirNotPrivate implements Exception {
       'put the node control socket there';
 }
 
+/// The identity document holds a master-signed tombstone for this device id,
+/// so its key can never be vouched for again — relinking requires a freshly
+/// minted device key.
+///
+/// Its own type because the linking ceremony has a GROUP half that knows
+/// nothing about tombstones: a swallowed refusal here lets the group admit
+/// the id anyway, producing a member frames queue to that no verifier
+/// accepts. Callers abort the whole ceremony on this.
+class TombstonedDeviceException implements Exception {
+  TombstonedDeviceException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Whether a failure to secure the runtime directory must stop the boot.
 ///
 /// On macOS and Linux the path can sit on a filesystem other local users
@@ -1180,7 +1197,10 @@ class RealVeilStack {
   /// Same copy-first staging discipline as [adoptSovereignDocument]: a
   /// delegation that fails half way must not leave this device holding a
   /// document it cannot sign with. `AlreadyPresent` from a re-link surfaces
-  /// as "nothing changed" — false, quietly.
+  /// as "nothing changed" — false, quietly. A TOMBSTONED device is the one
+  /// refusal that must not be quiet: it throws [TombstonedDeviceException],
+  /// because the ceremony around this call has a group half that would
+  /// happily admit the id, and "false" here reads as "no change needed".
   static Future<bool> delegateDeviceIntoDocument(
     Storage storage, {
     required String phrase,
@@ -1222,6 +1242,15 @@ class RealVeilStack {
       );
       return true;
     } on Object catch (e) {
+      // The tombstone refusal must ABORT the caller's ceremony, not blend
+      // into "nothing changed": measured live — the linking flow swallowed
+      // it, admitted the id into the device group anyway (control seq 11),
+      // and the "linked" device became a half-ghost frames queue to while no
+      // verifier anywhere accepts its rows. The message substring is the
+      // native DelegateDeviceError::Revoked text — the FFI's only channel.
+      if ('$e'.contains('is REVOKED in this document')) {
+        throw TombstonedDeviceException('$e');
+      }
       // AlreadyPresent (a re-link) and a wrong phrase both land here; the
       // wrong phrase is refused natively before anything is written.
       devLog(() => 'xVeil[identity]: could not delegate the device: $e');
