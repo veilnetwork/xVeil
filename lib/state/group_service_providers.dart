@@ -485,7 +485,23 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
 
   unawaited(readOwnDocument());
   setIdentityDocumentLookup((identity) {
-    if (identity != ownIdentity && identity != documentIdentity) return null;
+    if (identity != ownIdentity && identity != documentIdentity) {
+      // documentIdentity == null means UNRESOLVED, not foreign: a document
+      // adopted mid-session (the production linking path) sets it only via
+      // readOwnDocument, and the re-read below used to be unreachable from
+      // here — this early return fired first, so asks for the identity the
+      // new document actually names kept answering null until restart.
+      // Measured live 2026-08-17: a freshly linked phone held the document,
+      // authorize said true, and every sibling row still failed — for one
+      // whole boot. Schedule the same throttled read and let the NEXT ask
+      // find the resolved identity.
+      if (documentIdentity == null &&
+          DateTime.now().difference(lastDocumentRead) >
+              const Duration(seconds: 3)) {
+        unawaited(readOwnDocument());
+      }
+      return null;
+    }
     // A ONE-SHOT read here was the thirteenth face of the device/identity
     // class: a document merged MID-SESSION (device adoption) stayed
     // invisible to this closure until restart, so every row signed by the
