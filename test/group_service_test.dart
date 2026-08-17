@@ -5699,6 +5699,74 @@ void main() {
     },
   );
 
+  test('an admission outlives its token until the snapshot arrives', () async {
+    // The token's expiry is an ACCEPT-time freshness check; the admission it
+    // creates is durable consent. Measured live 2026-08-17: a device that
+    // restarted after its ~30-minute token lapsed re-read the pending
+    // admission, saw the token expired, and dropped every snapshot chunk as
+    // "stranger sync request DENIED" forever — only a full re-link revived
+    // the join.
+    final sourceInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 31)),
+      nonce: Uint8List.fromList([1, 2, 3, 4]),
+    );
+    final targetInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 32)),
+      nonce: Uint8List.fromList([4, 3, 2, 1]),
+    );
+    final sourceStorage = FakeHvContainer().storage();
+    await sourceStorage.open(password: 'pw', createIfMissing: true);
+    final source = GroupService(
+      sourceStorage,
+      _FakeSigner(sourceInvite.nodeId),
+    );
+    expect(
+      await source.linkDevice(
+        targetInvite.nodeId,
+        sovereign: _FakeSovereign(_id(9)),
+        broadcastSnapshot: false,
+      ),
+      isTrue,
+    );
+    final token = (await source.createDeviceLinkToken(sourceInvite))!;
+
+    final targetStorage = FakeHvContainer().storage();
+    await targetStorage.open(password: 'pw', createIfMissing: true);
+    final target = GroupService(
+      targetStorage,
+      _FakeSigner(targetInvite.nodeId),
+    );
+    expect(await target.prepareDeviceAdoption(token), isTrue);
+
+    // The token lapses; the admission must not.
+    target.debugWallClockMs = () => token.expiresAtMs + 60 * 60 * 1000; // +1h
+    expect(
+      await target.pendingDeviceAdoption(),
+      isNotNull,
+      reason: 'consent survives the token TTL',
+    );
+    expect(
+      await target.allowStrangerGroupSync(token.source, token.groupId.hex),
+      isTrue,
+      reason: 'the admitted ceremony still opens the door after a restart',
+    );
+
+    // But not forever: past the grace the stored consent ages out.
+    target.debugWallClockMs = () =>
+        token.expiresAtMs +
+        GroupService.kDeviceAdoptionAdmissionGrace.inMilliseconds +
+        60 * 60 * 1000;
+    expect(await target.pendingDeviceAdoption(), isNull);
+    expect(
+      await target.allowStrangerGroupSync(token.source, token.groupId.hex),
+      isFalse,
+    );
+
+    // And accept-time freshness is unchanged: an expired token is refused.
+    target.debugWallClockMs = () => token.expiresAtMs + 1;
+    expect(await target.prepareDeviceAdoption(token), isFalse);
+  });
+
   test(
     'the device-group sync reply is batched under the frame budget',
     () async {
