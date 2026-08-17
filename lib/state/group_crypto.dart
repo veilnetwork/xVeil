@@ -50,6 +50,14 @@ void setIdentityDocumentLookup(IdentityDocumentLookup? lookup) {
   _documentLookup = lookup;
 }
 
+/// Stand observer: what the installed lookup answers for [identity] RIGHT
+/// NOW. The lookup's state (cached doc, resolved document identity) is
+/// otherwise invisible, and its misses are silent — a device that holds the
+/// document and still fails sibling rows cannot be told apart from one that
+/// never got it without exactly this window.
+int? debugDocumentLookupBytes(NodeId identity) =>
+    _documentLookup?.call(identity)?.length;
+
 /// The one place a signature is bound to an author.
 ///
 /// Two ways to be authentic, tried in that order: the key IS the author (hash
