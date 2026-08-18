@@ -506,13 +506,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     super.dispose();
   }
 
+  /// The last read-window mark this screen rebuilt for. Kept so the timer can
+  /// tell "the mark moved" from "the mark is still where it was".
+  int _hiddenThroughMs = 0;
+
   Future<void> _sweepDisappearing() async {
-    final removed = await ref
-        .read(messagingServiceProvider)
-        .sweepDisappearing(NodeId.fromHex(widget.peerHex));
+    final service = ref.read(messagingServiceProvider);
+    final peer = NodeId.fromHex(widget.peerHex);
+    final removed = await service.sweepDisappearing(peer);
     // Only rebuild when something actually went: a 15-second timer that calls
     // setState unconditionally would repaint the whole chat forever.
     if (removed > 0 && mounted) setState(() {});
+
+    // The read window hides rather than deletes, so nothing is removed and the
+    // sweep above has nothing to report. The list comes from a provider, so a
+    // setState would not re-filter it either — the provider has to be asked
+    // again, and only when the mark has actually moved.
+    final hidden = await service.hiddenThroughTs(peer);
+    if (hidden != _hiddenThroughMs && mounted) {
+      _hiddenThroughMs = hidden;
+      ref.invalidate(messagesProvider(widget.peerHex));
+    }
   }
 
   Future<void> _submit(ContactStatus? status) async {

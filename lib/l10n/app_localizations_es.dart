@@ -2864,6 +2864,13 @@ class AppL10nEs extends AppL10n {
   String get chatDisappearingOff => 'Desactivado';
 
   @override
+  String get chatHideAfterReadTitle => 'Ocultar tras leer';
+
+  @override
+  String get chatHideAfterReadSubtitle =>
+      'Se cuenta desde que CADA dispositivo mostró el mensaje por primera vez, así que los momentos difieren. El mensaje se oculta, no se borra, y un dispositivo puede no respetarlo: aquí no hay confirmaciones de lectura ni forma de imponerlo.';
+
+  @override
   String chatDisappearingSetNotice(String window) {
     return 'Mensajes temporales: $window';
   }

@@ -2832,6 +2832,13 @@ class AppL10nEn extends AppL10n {
   String get chatDisappearingOff => 'Off';
 
   @override
+  String get chatHideAfterReadTitle => 'Hide after reading';
+
+  @override
+  String get chatHideAfterReadSubtitle =>
+      'Counted from the moment each device first showed the message, so the moments differ. The message is hidden, not deleted, and a device is free not to honour it — there are no read receipts here and nothing to enforce it with.';
+
+  @override
   String chatDisappearingSetNotice(String window) {
     return 'Disappearing messages: $window';
   }

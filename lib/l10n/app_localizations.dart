@@ -4964,6 +4964,18 @@ abstract class AppL10n {
   /// **'Off'**
   String get chatDisappearingOff;
 
+  /// No description provided for @chatHideAfterReadTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide after reading'**
+  String get chatHideAfterReadTitle;
+
+  /// No description provided for @chatHideAfterReadSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Counted from the moment each device first showed the message, so the moments differ. The message is hidden, not deleted, and a device is free not to honour it — there are no read receipts here and nothing to enforce it with.'**
+  String get chatHideAfterReadSubtitle;
+
   /// No description provided for @chatDisappearingSetNotice.
   ///
   /// In en, this message translates to:
