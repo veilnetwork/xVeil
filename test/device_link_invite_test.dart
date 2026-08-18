@@ -13,9 +13,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/device_link_invite.dart';
 
-BootstrapInvite _invite(int seed) => BootstrapInvite(
+BootstrapInvite _invite(int seed, {String? transport}) => BootstrapInvite(
   publicKey: Uint8List.fromList(List.filled(32, seed)),
   nonce: Uint8List.fromList([seed, seed + 1, seed + 2, seed + 3]),
+  transport: transport,
   algo: 'ed25519',
 );
 
@@ -72,6 +73,69 @@ void main() {
         DeviceLinkInvite(device: _invite(7), document: awkward).toUri(),
       );
       expect(back.document, awkward);
+    });
+
+    // AUDIT X13-M1. The envelope was smaller than the thing it carries: the
+    // whole invite was capped at the contact invite's 4 KiB, and a document is
+    // allowed 16 KiB by the node — base64url of which is 21 846 chars on its
+    // own. Measured against this `tcp://` invite the largest document the old
+    // cap could carry was 2 973 bytes, so an identity with enough devices and
+    // revocations behind it could no longer hand its own document to a new one: a
+    // `FormatException` on a string the identity itself had just produced, and
+    // linking that stops working permanently from ordinary use.
+    test('a document at the size the node accepts round-trips', () {
+      final full = Uint8List.fromList(
+        List.generate(kMaxIdentityDocumentBytes, (i) => (i * 31) % 256),
+      );
+      final uri = DeviceLinkInvite(
+        device: _invite(7, transport: 'tcp://255.255.255.255:65535'),
+        document: full,
+      ).toUri();
+      expect(uri.length, greaterThan(4 * 1024), reason: 'past the old cap');
+      final back = DeviceLinkInvite.parse(uri);
+      expect(back.document, full);
+      expect(back.nodeId, _invite(7).nodeId, reason: 'the key still parses');
+    });
+
+    // The cap did not go away, it went up: a hostile paste still cannot get an
+    // unbounded allocation out of this, and the bootstrap half keeps its own
+    // 4 KiB now that the document is lifted out before it is handed on.
+    test('a document past the node ceiling is dropped, not honoured', () {
+      final over = Uint8List.fromList(
+        List.filled(kMaxIdentityDocumentBytes + 1024, 7),
+      );
+      final uri = DeviceLinkInvite(device: _invite(7), document: over).toUri();
+      final back = DeviceLinkInvite.parse(uri);
+      expect(
+        back.document,
+        isNull,
+        reason: 'a document the node would refuse is not decoded here either',
+      );
+      expect(back.nodeId, _invite(7).nodeId, reason: 'the link still stands');
+    });
+
+    test('a hostile string is still refused outright', () {
+      expect(
+        () => DeviceLinkInvite.parse(
+          '${DeviceLinkInvite.scheme}pk=x&nc=y&doc='
+          '${'A' * (DeviceLinkInvite.maxUriChars + 1)}',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('an oversized BOOTSTRAP half is refused on its own budget', () {
+      // The document is lifted out first, so what reaches `BootstrapInvite`
+      // must still be measured against the contact invite's cap rather than
+      // riding in on the document's.
+      expect(
+        () => DeviceLinkInvite.parse(
+          '${DeviceLinkInvite.scheme}pk=x&nc=y'
+          '&t=${'a' * (BootstrapInvite.maxUriChars + 1)}'
+          '&doc=QUJD',
+        ),
+        throwsFormatException,
+      );
     });
   });
 

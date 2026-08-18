@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
+import 'package:xveil/data/transport/device_link_invite.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/device_link.dart';
 
@@ -57,9 +58,13 @@ void main() {
   });
 
   test('token caps hostile input and validates hash length', () {
+    // Sized off the cap rather than off a literal, which is what let this stay
+    // green after the cap moved: 9 000 x's stopped exceeding it and went on
+    // being refused for the unrelated reason that they carry no `v=1`.
     expect(
       () => DeviceLinkToken.parse(
-        'veil:xveil-device?${List.filled(9000, 'x').join()}',
+        'veil:xveil-device?v=1&doc='
+        '${'A' * (8 * 1024 + kMaxEncodedDocumentChars)}',
       ),
       throwsFormatException,
     );
@@ -144,6 +149,37 @@ void _instanceTests() {
       final awkward = Uint8List.fromList([251, 255, 254, 250, 0, 1]);
       final back = DeviceLinkToken.parse(token(document: awkward).toUri());
       expect(back.document, awkward);
+    });
+
+    // AUDIT X13-M1, the other half. 8 KiB covered the whole token, document
+    // included, while the node accepts a 16 KiB document — 21 846 chars of
+    // base64url before the ids, the expiry and the percent-encoded source
+    // invite are added. Measured, the largest document the old cap could carry
+    // was 5 793 bytes, so an identity with enough revocations behind it could no
+    // longer ISSUE an adoption token at all and nothing could ever be linked to
+    // it again.
+    test('a document at the size the node accepts round-trips', () {
+      final full = Uint8List.fromList(
+        List.generate(kMaxIdentityDocumentBytes, (i) => (i * 13) % 256),
+      );
+      final t = token(document: full);
+      final uri = t.toUri();
+      expect(uri.length, greaterThan(8 * 1024), reason: 'past the old cap');
+      expect(DeviceLinkToken.parse(uri).document, full);
+      expect(DeviceLinkToken.fromJson(t.toJson())!.document, full);
+    });
+
+    test('a document past the node ceiling is dropped, not honoured', () {
+      final over = Uint8List.fromList(
+        List.filled(kMaxIdentityDocumentBytes + 1024, 3),
+      );
+      final back = DeviceLinkToken.parse(token(document: over).toUri());
+      expect(back.document, isNull);
+      expect(
+        back.source,
+        token().source,
+        reason: 'the membership half of the token stands on its own',
+      );
     });
   });
 
