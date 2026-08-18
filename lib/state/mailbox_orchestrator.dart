@@ -82,6 +82,14 @@ class PoisonedBlobRegistry {
   Future<bool> contains(Uint8List contentId) async =>
       (await _load()).contains(_hex(contentId));
 
+  /// Quarantined since the last [flush]. The registry is FIFO-capped, so a
+  /// drain that meets ten junk blobs used to pay ten container commits for a
+  /// list that ends up the same size either way — and every commit lands in
+  /// the deniable container, which is the expensive kind of write. The
+  /// entries are visible to [contains] the moment they are added; only the
+  /// persistence waits for the end of the pass.
+  bool _dirty = false;
+
   Future<void> add(Uint8List contentId) async {
     final list = await _load();
     final hex = _hex(contentId);
@@ -90,8 +98,20 @@ class PoisonedBlobRegistry {
     while (list.length > _cap) {
       list.removeAt(0);
     }
+    _dirty = true;
+  }
+
+  /// Persist what this pass quarantined, once.
+  ///
+  /// A crash before this costs nothing but a re-open of blobs that will fail
+  /// again — the in-RAM set already shields the rest of the session, and the
+  /// point of persisting at all is to stop a RESTART from re-paying the
+  /// cert-resolve timeout per junk blob.
+  Future<void> flush() async {
+    if (!_dirty) return;
+    _dirty = false;
     try {
-      await _put(_key, jsonEncode(list));
+      await _put(_key, jsonEncode(await _load()));
     } catch (_) {
       // Best-effort: the in-RAM cache still shields this session.
     }
@@ -149,7 +169,12 @@ class MailboxOrchestrator {
   /// commit to survive relaunches). A one-shot junk deposit that the ack
   /// removes costs NO container write — a live producer of fresh junk blobs
   /// must not be able to grow the container one commit per blob.
+  /// Bounded for the same reason [_transientOpenFails] is: this is keyed by
+  /// content id, and a producer of unique junk can otherwise grow it for the
+  /// whole session. The durable registry behind it is FIFO-capped at 64, so
+  /// nothing is lost that the restart path did not already have to rebuild.
   final Set<String> _openFailedOnce = {};
+  static const _openFailedOnceMax = 512;
 
   /// Per-cid count of TRANSIENT open failures — the node's IPC did not answer
   /// ("timeout waiting for mailbox_open reply"), or the sender's identity
@@ -308,6 +333,9 @@ class MailboxOrchestrator {
     }
     // Only when something happened worth explaining: an idle single-round pass
     // is the steady state and its one number already says everything.
+    // One container commit for whatever this pass quarantined, rather than
+    // one per junk blob.
+    await _poisoned?.flush();
     if (cost.rounds > 1 || delivered.isNotEmpty) {
       final total = drainSw.elapsedMilliseconds;
       final rest =
@@ -427,6 +455,9 @@ class MailboxOrchestrator {
               'xVeil[drain]: OPEN FAILED contentId=${_shortHex(b.contentId)} '
               'senderHint=${b.senderId.short} — $e',
         );
+        if (_openFailedOnce.length >= _openFailedOnceMax) {
+          _openFailedOnce.remove(_openFailedOnce.first);
+        }
         _openFailedOnce.add(cidHex);
         await _poisoned?.add(b.contentId);
         await _ack(cost, me, b.contentId, authCookie, knownRelays);
