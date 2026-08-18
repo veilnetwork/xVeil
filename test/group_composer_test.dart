@@ -12,6 +12,7 @@ import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/domain/space_channel.dart';
+import 'package:xveil/domain/space_retention.dart';
 import 'package:xveil/features/groups/group_chat_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
@@ -129,6 +130,106 @@ void main() {
   tearDown(() {
     VeilMediaNative.debugForceAvailable = null;
     VeilMediaNative.forgetProbe();
+  });
+
+  /// The owner's disappearing window, from the app bar down to the signed
+  /// control row. The wiring is thin, which is exactly why it deserves a test:
+  /// a menu item that opens nothing, or a choice that repaints without signing
+  /// anything, looks identical to a working one.
+  testWidgets('the owner sets the group window from the app bar', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final self = NodeId(Uint8List.fromList(List<int>.filled(32, 21)));
+    final service = GroupService(storage, _Signer(self));
+    addTearDown(service.dispose);
+    final groupId = await service.createGroup('Kitchen');
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageProvider.overrideWithValue(storage),
+          groupServiceProvider.overrideWithValue(service),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: GroupChatScreen(groupIdHex: groupId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('group-owner-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-disappearing')));
+    await tester.pumpAndSettle();
+
+    // Five minutes, by the same key the picker builds from the preset list.
+    await tester.tap(find.byKey(const ValueKey('group-disappearing-5')));
+    await tester.pumpAndSettle();
+
+    final policy = await service.spaceRetentionPolicyOf(groupId);
+    expect(policy?.mode, SpaceRetentionMode.deleteAfter);
+    expect(policy?.retentionMs, const Duration(minutes: 5).inMilliseconds);
+    expect(
+      policy?.physicalDeletionGraceMs,
+      0,
+      reason: 'a five-minute window may not leave ciphertext for a week',
+    );
+    expect(
+      (await service.load(groupId))!.control.where(
+        (entry) => entry.op == ControlOp.setRetention,
+      ),
+      hasLength(1),
+      reason: 'one signed row, not a local preference',
+    );
+  });
+
+  /// The window is owner-only because `manageStorage` is, so a member must not
+  /// even be offered the menu that holds it.
+  testWidgets('a member is not offered the owner menu', (tester) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = NodeId(Uint8List.fromList(List<int>.filled(32, 22)));
+    final member = NodeId(Uint8List.fromList(List<int>.filled(32, 23)));
+    final ownerSvc = GroupService(storage, _Signer(owner));
+    addTearDown(ownerSvc.dispose);
+    final groupId = await ownerSvc.createGroup('Kitchen');
+    expect(
+      await ownerSvc.addControlOp(
+        groupId,
+        ControlOp.addMember,
+        target: member,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+
+    final memberSvc = GroupService(storage, _Signer(member));
+    addTearDown(memberSvc.dispose);
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageProvider.overrideWithValue(storage),
+          groupServiceProvider.overrideWithValue(memberSvc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: GroupChatScreen(groupIdHex: groupId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('group-owner-menu')), findsNothing);
   });
 
   testWidgets('group chat uses the same unified composer contract', (
