@@ -483,7 +483,15 @@ class _MessagingOutbox {
       )) {
         continue;
       }
-      _owner._stashInBackground(peer, frame.frameId, frame.wire);
+      // Already in the recipient's mailbox: nothing to re-offer. Asked here
+      // rather than inside the deposit path so the pass does not spawn a task
+      // and write a log line per pending frame per pass to learn it. The
+      // deposit still comes BEFORE the live leg for everything that genuinely
+      // needs depositing — that ordering is what stops an unreachable peer
+      // from holding up the durable copy.
+      if (!_owner._mailboxDelivery.alreadyDeposited(frame.frameId)) {
+        _owner._stashInBackground(peer, frame.frameId, frame.wire);
+      }
       final now = _owner._now();
       final backoff = _liveBackoff[_key(frame.peerHex, frame.frameId)];
       if (backoff != null && now.isBefore(backoff.nextAt)) continue;
@@ -534,6 +542,17 @@ class _MessagingOutbox {
   /// of a durable queue.
   static const _replicationMaxAge = Duration(hours: 6);
 
+  /// How long a queued DIRECT-ENDPOINT share is worth keeping.
+  ///
+  /// The frame says "these are my dial addresses right now". Delivered an hour
+  /// later it does not merely fail to help — it tells the peer to dial an
+  /// address that has probably moved. `_retireEarlierEndpointFrames` clears the
+  /// superseded ones whenever a NEW set is sent, which covers every peer we
+  /// still talk to; this covers the one we do not. A phone was measured
+  /// re-driving a single endpoint frame to a peer its own P2P policy refused,
+  /// with nothing in the design that would ever have stopped.
+  static const _endpointMaxAge = Duration(minutes: 30);
+
   /// Drop a replication frame that has been queued past [_replicationMaxAge].
   ///
   /// This is what stops the pile-up at the source rather than reacting to it:
@@ -542,16 +561,20 @@ class _MessagingOutbox {
   /// and an unknown age is treated as "keep" — a migration is no reason to
   /// throw anything away.
   bool _retireStaleReplication(OutboxFrame frame) {
-    if (!MessagingService._isReplicationFrame(frame.frameId)) return false;
+    final isReplication = MessagingService._isReplicationFrame(frame.frameId);
+    final isEndpoints = frame.frameId.startsWith(_kP2PEndpointFramePrefix);
+    if (!isReplication && !isEndpoints) return false;
     final at = frame.enqueuedAtMs;
     if (at == null) return false;
     final age = _owner._now().difference(
       DateTime.fromMillisecondsSinceEpoch(at),
     );
-    if (age <= _replicationMaxAge) return false;
+    final maxAge = isEndpoints ? _endpointMaxAge : _replicationMaxAge;
+    if (age <= maxAge) return false;
     devLog(
       () =>
-          'xVeil[durable]: dropping stale replication fid=${frame.frameId} '
+          'xVeil[durable]: dropping stale '
+          '${isEndpoints ? 'endpoints' : 'replication'} fid=${frame.frameId} '
           'dst=${frame.peerHex.substring(0, 8)} age=${age.inMinutes}m',
     );
     _owner._retireOutboxFrame(frame.peerHex, frame.frameId);
