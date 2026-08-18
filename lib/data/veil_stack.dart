@@ -16,6 +16,7 @@ import 'native_libs.dart' show openEnvLib, processLibFor;
 // producing the daemon at all while every app build stayed green (709f3b9).
 import 'node/bundled_seeds.dart'
     show bundledSeedsAllowedFromSpace, kBundledSeedsDefault;
+import 'node/dht_participation.dart';
 import 'node/embedded_node.dart';
 import 'node/identity_config_fields.dart';
 import 'node/node_controller.dart';
@@ -1709,6 +1710,10 @@ class RealVeilStack {
           storage,
           ifUnanswered: kBundledSeedsDefault,
         );
+    // Read here rather than passed in: unlike the seeds answer this one has no
+    // profile-preference history to migrate from, so the space is the only
+    // source and the daemon resolves it exactly as the app does.
+    final serveDht = await dhtParticipationEffective(storage);
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
     // the node bind/connect, not PoW). Zero-cost diagnostic; reads at a glance.
@@ -1773,6 +1778,7 @@ class RealVeilStack {
         proxy: proxy,
         debugMetricsPort: debugMetricsPort,
         useBundledSeeds: seedsAllowed,
+        serveDht: serveDht,
       );
     } catch (_) {
       // A boot that never completed still made a directory; nothing else will
@@ -1813,6 +1819,7 @@ class RealVeilStack {
     required ProxyRouting proxy,
     required int? debugMetricsPort,
     required bool useBundledSeeds,
+    required bool serveDht,
   }) async {
     final runtimeDir = lease.path;
     final endpoints = localEndpointPlanFor(Platform.operatingSystem);
@@ -1878,6 +1885,7 @@ class RealVeilStack {
       // persisted name claims of every existing identity out of the place veil
       // has always kept them.
       identityDir: sovereign == null ? null : runtimeDir,
+      serveDht: serveDht,
     );
     // Debug stands only: loopback Prometheus metrics for the embedded node,
     // the per-node twin of a relay's [metrics] endpoint. Never binds a
