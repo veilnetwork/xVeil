@@ -1309,16 +1309,61 @@ void main() {
     });
 
     test('a store that will not answer moves no switch', () async {
-      // The control's read, which must differ from the boot's on failure only.
+      // The control's read, which reports "no answer" rather than moving on a
+      // failure. The boot's read has to compose something either way, and what
+      // it composes is the opt-out — see the test below.
       SharedPreferences.setMockInitialValues({
         'network.bundled_seeds.v1': false,
       });
       final refusing = _RefusingStorage();
       expect(await storedBundledSeedsAnswerFor(refusing), isNull);
-      // ...while a node config, which has to be composed either way, falls back
-      // to the historical behaviour rather than to the opt-out.
       expect(await bundledSeedsAllowedFor(refusing), isFalse);
       expect(await setBundledSeedsAllowedFor(refusing, true), isFalse);
+    });
+
+    test('an OPEN space that will not answer composes WITHOUT the shared '
+        'seeds (audit X13-M11)', () async {
+      // The shipped state, and the one the old fallback got wrong: since the
+      // answer moved into the space the app leaves the preference untouched,
+      // so an identity that refused has its refusal in ONE place. A failed
+      // `getSetting` sent the read to a preference that is absent by design,
+      // absent resolved to `kBundledSeedsDefault`, and the identity was
+      // composed onto the shared seeds it had declined.
+      SharedPreferences.setMockInitialValues({});
+      final refusing = _RefusingStorage();
+      expect(
+        await bundledSeedsAllowedFor(refusing),
+        isFalse,
+        reason: 'an unreadable answer must not be resolved as consent',
+      );
+      // And the plan the boot hands the node carries it: an empty peer list
+      // alone is theatre, `useBundledSeeds` is what sets builtin_seed_policy.
+      final plan = await planIdentitySeeds(
+        storage: refusing,
+        peersFor: (use) => use
+            ? [
+                const BootstrapPeerCfg(
+                  transport: 'tcp://seed:1',
+                  publicKey: 'pk',
+                  nonce: 'nc',
+                ),
+              ]
+            : const <BootstrapPeerCfg>[],
+      );
+      expect(plan.useBundledSeeds, isFalse);
+      expect(plan.bootstrapPeers, isEmpty);
+    });
+
+    test('a space that has never been asked still boots on the seeds', () async {
+      // The first-run default, deliberately unchanged by the fail-closed branch
+      // above: "no answer" is READABLE and empty, which is not "would not
+      // answer", and an install that has never been asked has to reach the
+      // network somehow.
+      SharedPreferences.setMockInitialValues({});
+      final backing = FakeMultiSpaceBacking();
+      final space = viewOf(backing, _spaceKeys(21));
+      expect(await bundledSeedsAllowedFor(space), isTrue);
+      expect(await space.getSetting(kBundledSeedsSettingKey), 'true');
     });
   });
 
