@@ -2216,6 +2216,7 @@
     }
   },
   "devicesRelinkRevoked": "Este dispositivo fue revocado. Su clave antigua ya no es de confianza: restablece el dispositivo y vincúlalo con una clave nueva.",
+  "devicesRevokeKeyStillCertified": "No revocado: el documento de identidad aún certifica la clave de este dispositivo. Inténtalo de nuevo con la credencial propietaria de la identidad.",
   "devicesOperationFailed": "No se pudo completar la vinculación del dispositivo",
   "devicesCancelPending": "Cancelar la espera",
   "devicesRecoverySection": "Todos los dispositivos perdidos",

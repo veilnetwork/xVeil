@@ -9242,6 +9242,12 @@ abstract class AppL10n {
   /// **'This device was revoked. Its old key can never be trusted again — reset the device and link it with a freshly created key.'**
   String get devicesRelinkRevoked;
 
+  /// No description provided for @devicesRevokeKeyStillCertified.
+  ///
+  /// In en, this message translates to:
+  /// **'Not revoked: the identity document still certifies this device\'s key. Use the credential that owns the identity and try again.'**
+  String get devicesRevokeKeyStillCertified;
+
   /// No description provided for @devicesOperationFailed.
   ///
   /// In en, this message translates to:

@@ -230,7 +230,11 @@ void main() {
       stagingBase: tmp.path,
       lib: lib,
     );
-    expect(changed, isTrue, reason: 'a tombstone is written even preemptively');
+    expect(
+      changed,
+      DocumentRevocation.tombstoned,
+      reason: 'a tombstone is written even preemptively',
+    );
     final after = decodeSovereignIdentity(
       storage.settings[kSovereignIdentitySetting]!,
     )![kIdentityDocumentFile]!;
@@ -244,7 +248,12 @@ void main() {
       stagingBase: tmp.path,
       lib: lib,
     );
-    expect(again, isFalse);
+    // The distinction a bool could not carry: the key is retired either way,
+    // and only a caller that can tell these apart from a real failure may
+    // report a revocation. Reported 2026-08-18 as one `false` for five
+    // different outcomes.
+    expect(again, DocumentRevocation.alreadyTombstoned);
+    expect(again.keyIsRetired, isTrue);
 
     // And the tombstoned id can never be delegated: the wrapper refuses.
     final relink = await RealVeilStack.delegateDeviceIntoDocument(
@@ -257,6 +266,47 @@ void main() {
     // (a random 32B pubkey whose blake3 != phantomId delegates fine — this
     // asserts the wrapper path stays healthy alongside tombstones)
     expect(relink, isTrue, reason: 'unrelated delegation unaffected');
+  }, skip: skip);
+
+  test('a revocation that cannot amend the document says so', () async {
+    // The security question a bool answered wrongly: "already tombstoned" and
+    // "could not tombstone" both read as false, so a caller could not tell a
+    // retired key from one the document still certifies — and the devices
+    // screen reported the group removal as the whole outcome. A wrong
+    // credential is the ordinary way to reach this: a certificate identity
+    // has no phrase, and this path derives the master from one.
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = veilGeneratePhrase()!;
+    final storage = _MemStorage();
+    expect(
+      await RealVeilStack.ensureSovereignIdentity(
+        storage,
+        stagingBase: tmp.path,
+        identityPhrase: phrase,
+        lib: lib,
+      ),
+      isNotNull,
+    );
+    final before = storage.settings[kSovereignIdentitySetting];
+
+    final wrong = await RealVeilStack.revokeDeviceFromDocument(
+      storage,
+      phrase: veilGeneratePhrase()!,
+      deviceId: Uint8List.fromList(List.filled(32, 5)),
+      stagingBase: tmp.path,
+      lib: lib,
+    );
+    expect(wrong, DocumentRevocation.failed);
+    expect(
+      wrong.keyIsRetired,
+      isFalse,
+      reason: 'the caller must not report a revocation',
+    );
+    expect(
+      storage.settings[kSovereignIdentitySetting],
+      before,
+      reason: 'a refused revocation leaves the document exactly as it was',
+    );
   }, skip: skip);
 
   test('re-delegating a tombstoned key throws instead of shrugging', () async {
@@ -322,7 +372,7 @@ void main() {
         stagingBase: tmp.path,
         lib: lib,
       ),
-      isTrue,
+      DocumentRevocation.tombstoned,
     );
 
     await expectLater(
