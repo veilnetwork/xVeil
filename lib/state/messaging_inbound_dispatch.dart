@@ -39,6 +39,7 @@ const _contactPrivilegedKinds = <WireKind>{
   WireKind.p2pEndpoints,
   WireKind.fileMeta,
   WireKind.fileChunk,
+  WireKind.disappearingSet,
 };
 
 /// Serialized, fail-closed dispatch for authenticated durable wire frames.
@@ -948,6 +949,25 @@ extension _MessagingInboundDispatch on MessagingService {
           await _ackFrame(m, fid);
           _outbox.remember(m.src.hex, fid);
         }
+        return;
+      case WireKind.disappearingSet:
+        // The peer chose a disappearing window for this conversation. Accepted
+        // contacts only: the window governs what THIS device deletes, so a
+        // stranger being able to set it would be a way to erase a chat we
+        // never agreed to have with them.
+        if (existing?.status != ContactStatus.accepted) return;
+        final Map<String, Object?> body;
+        try {
+          body = jsonDecode(env.body) as Map<String, Object?>;
+        } catch (_) {
+          return;
+        }
+        // Sender identity comes from the ENVELOPE, never the body — otherwise
+        // a peer could announce a window in somebody else's name and win the
+        // tie-break with it.
+        final announced = DisappearingSetting.fromWireJson(body, m.src);
+        if (announced == null) return;
+        await _conversationAdmin.adoptDisappearing(m.src, announced);
         return;
       case WireKind.chatDeleted:
         // The peer deleted this conversation on their device and explicitly
