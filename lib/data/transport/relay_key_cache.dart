@@ -35,7 +35,34 @@ abstract interface class RelayKeyCache {
 
   /// Remember [relay] as the preferred mailbox relay for future sessions.
   Future<void> setPreferredRelay(NodeId relay);
+
+  /// The relays a FRESH rendezvous ad last named for [peer] and that then took
+  /// a deposit — the mirror image of [getPreferredRelay], which records the
+  /// same fact about ourselves.
+  ///
+  /// A sender learns WHICH relay holds a peer's mailbox only from that peer's
+  /// rendezvous ad, and only a live node republishes one. Measured live
+  /// 2026-08-18: an Android device force-stopped for 25 minutes could not be
+  /// deposited to AT ALL — its ad had lapsed, `lookupRendezvousReplicas`
+  /// returned nothing, and the sender's unresolved-peer backoff then suppressed
+  /// 16 deposits without attempting one. A phone in a pocket for an hour is the
+  /// ordinary mobile case, so "offline longer than an ad lives" must not mean
+  /// "unreachable". Empty when we have never resolved this peer.
+  Future<List<NodeId>> getPeerRelays(NodeId peer);
+
+  /// Record the relays a FRESH ad named for [peer]. Only a fresh ad may write
+  /// here: a deposit made THROUGH this cache must not renew it, or a relay the
+  /// peer has abandoned would be refreshed forever by our own retries. The
+  /// entry therefore decays from the last time the peer's own ad said so.
+  Future<void> setPeerRelays(NodeId peer, List<NodeId> relays);
 }
+
+/// How many peers the per-peer deposit-target cache remembers, and how many
+/// relays per peer. Both bound a store that grows with the contact list: the
+/// fan-out is 3 replicas, and beyond a few hundred peers the cheap fallback
+/// stops being cheap.
+const int kPeerRelayCacheMaxPeers = 64;
+const int kPeerRelayCacheMaxRelays = 4;
 
 /// [RelayKeyCache] over the active deniable space's settings KV. Stored as a
 /// setting `mailbox.relaykey.v1.<relayHex> = <keyBase64>.<expiryUnixMs>`, so it
@@ -63,9 +90,21 @@ class StorageRelayKeyCache implements RelayKeyCache {
   /// commits — a source of bloat).
   String? _preferredShadow;
 
+  /// In-memory shadow of the persisted per-peer relay lists, same reason as
+  /// [_shadow]: an unchanged list must not burn a padded commit per deposit.
+  final Map<String, ({String relays, int expiry})> _peerShadow = {};
+
+  /// The bounded set of peers with a stored entry, oldest FIRST. Held so
+  /// eviction can name what to erase without enumerating settings (the Storage
+  /// port has no key listing). Null until first read from the store.
+  List<String>? _peerIndex;
+
   static const _prefix = 'mailbox.relaykey.v1.';
   static const _preferredKey = 'mailbox.preferredrelay.v1';
+  static const _peerPrefix = 'mailbox.peerrelays.v1.';
+  static const _peerIndexKey = 'mailbox.peerrelays.index.v1';
   String _settingKey(NodeId relay) => '$_prefix${relay.hex}';
+  String _peerKey(NodeId peer) => '$_peerPrefix${peer.hex}';
 
   @override
   Future<Uint8List?> get(NodeId relay) async {
@@ -171,6 +210,111 @@ class StorageRelayKeyCache implements RelayKeyCache {
       // best-effort — a failed write just means no preference next launch
     }
   }
+
+  @override
+  Future<List<NodeId>> getPeerRelays(NodeId peer) async {
+    try {
+      final raw = await _storage.getSetting(_peerKey(peer));
+      if (raw == null || raw.isEmpty) return const [];
+      final dot = raw.lastIndexOf('.');
+      if (dot <= 0) return const [];
+      final expiry = int.tryParse(raw.substring(dot + 1));
+      if (expiry == null || DateTime.now().millisecondsSinceEpoch >= expiry) {
+        return const []; // past its TTL — treat the peer as never resolved
+      }
+      final out = <NodeId>[];
+      for (final hex in raw.substring(0, dot).split(',')) {
+        if (hex.length != 64) continue;
+        try {
+          out.add(NodeId.fromHex(hex));
+        } catch (_) {
+          // a malformed id is dropped, not fatal — the rest still route
+        }
+      }
+      return out;
+    } catch (_) {
+      return const []; // best-effort: any decode/storage error is just a miss
+    }
+  }
+
+  @override
+  Future<void> setPeerRelays(NodeId peer, List<NodeId> relays) async {
+    if (relays.isEmpty) return;
+    final encoded = relays
+        .take(kPeerRelayCacheMaxRelays)
+        .map((r) => r.hex)
+        .join(',');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _seedPeerShadow(peer);
+    final s = _peerShadow[peer.hex];
+    if (s != null && s.relays == encoded && (s.expiry - now) > _ttlMs ~/ 2) {
+      return; // unchanged and more than half its TTL left — no commit
+    }
+    final expiry = now + _ttlMs;
+    _peerShadow[peer.hex] = (relays: encoded, expiry: expiry);
+    try {
+      await _storage.putSetting(_peerKey(peer), '$encoded.$expiry');
+      await _rememberPeerInIndex(peer);
+    } catch (_) {
+      // best-effort — a failed write just means the fallback misses next time
+    }
+  }
+
+  Future<void> _seedPeerShadow(NodeId peer) async {
+    if (_peerShadow.containsKey(peer.hex)) return;
+    try {
+      final raw = await _storage.getSetting(_peerKey(peer));
+      if (raw == null || raw.isEmpty) return;
+      final dot = raw.lastIndexOf('.');
+      if (dot <= 0) return;
+      final expiry = int.tryParse(raw.substring(dot + 1));
+      if (expiry == null) return;
+      _peerShadow[peer.hex] = (relays: raw.substring(0, dot), expiry: expiry);
+    } catch (_) {
+      // best-effort: an unreadable entry just means the put persists normally
+    }
+  }
+
+  /// Keep the index at [kPeerRelayCacheMaxPeers], erasing the OLDEST entries
+  /// past the bound. Insertion order rather than recency deliberately: a
+  /// recency order would rewrite the index whenever the active peer changed,
+  /// and each settings write is a padded log commit. Membership changes once
+  /// per new peer, so this costs one commit per contact ever deposited to.
+  Future<void> _rememberPeerInIndex(NodeId peer) async {
+    final index = _peerIndex ??= await _loadPeerIndex();
+    if (index.contains(peer.hex)) return;
+    index.add(peer.hex);
+    final overflow = index.length - kPeerRelayCacheMaxPeers;
+    if (overflow > 0) {
+      final evicted = index.sublist(0, overflow);
+      index.removeRange(0, overflow);
+      for (final hex in evicted) {
+        _peerShadow.remove(hex);
+        try {
+          // No delete-setting on the Storage port; an empty value reads back as
+          // a miss, which is the eviction semantics we need.
+          await _storage.putSetting('$_peerPrefix$hex', '');
+        } catch (_) {
+          // best-effort
+        }
+      }
+    }
+    try {
+      await _storage.putSetting(_peerIndexKey, index.join(','));
+    } catch (_) {
+      // best-effort — a lost index means the bound is re-learned next launch
+    }
+  }
+
+  Future<List<String>> _loadPeerIndex() async {
+    try {
+      final raw = await _storage.getSetting(_peerIndexKey);
+      if (raw == null || raw.isEmpty) return <String>[];
+      return raw.split(',').where((h) => h.length == 64).toList();
+    } catch (_) {
+      return <String>[];
+    }
+  }
 }
 
 /// Process-lifetime [RelayKeyCache] for tests and the loopback/dev path (where
@@ -181,6 +325,7 @@ class InMemoryRelayKeyCache implements RelayKeyCache {
 
   final int _ttlMs;
   final Map<String, ({Uint8List key, int expiry})> _entries = {};
+  final Map<String, ({List<NodeId> relays, int expiry})> _peerRelays = {};
   NodeId? _preferred;
 
   @override
@@ -211,4 +356,29 @@ class InMemoryRelayKeyCache implements RelayKeyCache {
 
   @override
   Future<void> setPreferredRelay(NodeId relay) async => _preferred = relay;
+
+  @override
+  Future<List<NodeId>> getPeerRelays(NodeId peer) async {
+    final e = _peerRelays[peer.hex];
+    if (e == null) return const [];
+    if (DateTime.now().millisecondsSinceEpoch >= e.expiry) {
+      _peerRelays.remove(peer.hex);
+      return const [];
+    }
+    return e.relays;
+  }
+
+  @override
+  Future<void> setPeerRelays(NodeId peer, List<NodeId> relays) async {
+    if (relays.isEmpty) return;
+    _peerRelays[peer.hex] = (
+      relays: List.unmodifiable(relays.take(kPeerRelayCacheMaxRelays)),
+      expiry: DateTime.now().millisecondsSinceEpoch + _ttlMs,
+    );
+    // A Dart map iterates in insertion order, so the oldest entry is first —
+    // the same bound the persisted implementation applies.
+    while (_peerRelays.length > kPeerRelayCacheMaxPeers) {
+      _peerRelays.remove(_peerRelays.keys.first);
+    }
+  }
 }
