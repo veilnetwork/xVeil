@@ -190,6 +190,10 @@ class AppL10nEn extends AppL10n {
   String get lockWrong => 'Wrong password';
 
   @override
+  String get lockTeardownIncomplete =>
+      'This lock did not finish: a node or VPN tunnel may still be running until the app is fully closed. Quit and reopen the app to be sure.';
+
+  @override
   String get lockStartOver => 'Start over';
 
   @override
