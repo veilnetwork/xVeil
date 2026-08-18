@@ -95,9 +95,20 @@ class VpnController extends Notifier<VpnState> {
   /// past it.
   int _generation = 0;
 
-  /// The start currently in flight, so a teardown waits for it to be OVER before
-  /// asking the backend to stop: a stop that overtakes the start it means to
-  /// cancel is simply overwritten by it.
+  /// EVERY start since the last one finished, chained, so a teardown waits for
+  /// the run that is really in the native call to be OVER before asking the
+  /// backend to stop: a stop that overtakes the start it means to cancel is
+  /// simply overwritten by it.
+  ///
+  /// Chained rather than assigned, and that is the whole of it. [_start] opens
+  /// with `if (state.busy || state.isRunning) return;`, so a SECOND start while
+  /// the first is inside `nativeBackend.start` returns a future that is already
+  /// done — and a plain assignment put that finished future where a live native
+  /// call was recorded. [stopForTeardown] then awaited nothing, called
+  /// `nativeBackend.stop()` while the tunnel was still coming up, and reported
+  /// `stopped` to the lock; the interrupted start's own superseded branch,
+  /// whose comment says "[stopForTeardown] waited for this run and asks again",
+  /// was by then the only thing left taking the tunnel down.
   Future<void>? _inFlight;
 
   /// True when a session-ending teardown happened since [gen] was taken.
@@ -185,7 +196,15 @@ class VpnController extends Notifier<VpnState> {
     // Recorded so a teardown can wait for this run to be OVER — not for it to
     // have succeeded. The error-swallowing copy is the teardown's; the caller
     // still gets the original future with its error intact.
-    _inFlight = pending.catchError((Object _) {});
+    //
+    // APPENDED to whatever is already recorded, never substituted for it: a run
+    // that was refused by [_start]'s opening guard is done before this line
+    // runs, and the outstanding native call it was refused ON BEHALF OF is the
+    // one a teardown has to wait for. See [_inFlight].
+    final outstanding = _inFlight;
+    _inFlight =
+        (outstanding == null ? pending : outstanding.then((_) => pending))
+            .catchError((Object _) {});
     return pending;
   }
 
