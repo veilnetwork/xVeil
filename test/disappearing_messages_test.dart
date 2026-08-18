@@ -241,6 +241,74 @@ void main() {
       );
     });
 
+    // The gate that matters is not "is this node known" — an unknown node is
+    // already refused because there is no contact record to write. It is a
+    // peer that EXISTS but has not been accepted: a pending request must not
+    // be able to set a window that starts erasing this side's history.
+    test('a pending, not-yet-accepted peer cannot set the window', () async {
+      final c = _id(3);
+      // One-way link: C's frames reach A, and A's replies go nowhere. This
+      // test is about what A accepts, and leaving A pointed at B keeps the
+      // fixture honest about which conversation is which.
+      final tC = _FakeTransport(c)..peer = tA;
+      final sC = HiddenVolumeStorage(_memOpener());
+      await sC.open(password: 'c', createIfMissing: true);
+      final mC = MessagingService(tC, sC);
+      await mC.sendRequest(a, 'let me in');
+      await _pump();
+      expect((await sA.getContact(c))!.status, ContactStatus.pendingIncoming);
+
+      await tC.send(
+        a,
+        WireEnvelope(
+          WireKind.disappearingSet,
+          '{"v":1,"ttl":30,"ts":9999999999}',
+          sentAtMs: 9999999999,
+        ).withFrameId('pending:1').encode(),
+      );
+      await _pump();
+      expect(
+        (await sA.getContact(c))!.disappearingTtlSeconds,
+        isNull,
+        reason: 'consent comes first: no acceptance, no shared window',
+      );
+      await tC.dispose();
+    });
+
+    // A notice the owner deleted must stay deleted. The event log folds by
+    // message id, so a plain replay is already harmless — this is the case the
+    // fold does NOT cover, and it is the one a mailbox re-delivery produces.
+    test('a replay does not resurrect a notice the owner deleted', () async {
+      await mA.setContactDisappearing(b, 3600);
+      await _pump();
+      final stamp = (await sB.getContact(a))!.disappearingSetAtMs;
+      final noticeId = 'sys:disap:$stamp:${a.hex}';
+      await sB.deleteMessage(a.hex, noticeId);
+      expect(
+        (await sB.loadMessages(a.hex))
+            .where((m) => disappearingMarkerSeconds(m.body) != null)
+            .length,
+        0,
+      );
+
+      await tA.send(
+        b,
+        WireEnvelope(
+          WireKind.disappearingSet,
+          '{"v":1,"ttl":3600,"ts":$stamp}',
+          sentAtMs: stamp,
+        ).withFrameId('replay:3').encode(),
+      );
+      await _pump();
+      expect(
+        (await sB.loadMessages(a.hex))
+            .where((m) => disappearingMarkerSeconds(m.body) != null)
+            .length,
+        0,
+        reason: 'a re-delivered announcement must not undo a deletion',
+      );
+    });
+
     // A stranger setting the window would be a way to erase a conversation
     // nobody agreed to have with them.
     test('an announcement from a non-contact is ignored', () async {
