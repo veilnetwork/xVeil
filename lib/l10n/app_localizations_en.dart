@@ -1896,6 +1896,20 @@ class AppL10nEn extends AppL10n {
   String get groupConvertToCommunity => 'Convert to community';
 
   @override
+  String get groupHideAfterReadTitle => 'Hide after reading';
+
+  @override
+  String get groupHideAfterReadLocalTitle => 'Hide after reading (this device)';
+
+  @override
+  String get groupHideAfterReadSubtitle =>
+      'Asks every member’s device to hide a message this long after it was first shown there. The log keeps the message — hiding is about the screen, and a device is free not to honour the request.';
+
+  @override
+  String get groupHideAfterReadLocalSubtitle =>
+      'Only this device. If the group also asks for a window, the shorter of the two wins.';
+
+  @override
   String get groupDisappearingTooltip => 'Disappearing messages';
 
   @override
