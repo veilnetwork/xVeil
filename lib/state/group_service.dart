@@ -8680,6 +8680,218 @@ class GroupService {
     return true;
   }
 
+  // ── Hide after read, the group half.
+  //
+  // Two windows can apply to one conversation: the SIGNED one, carried by the
+  // same retention revision as the deletion policy (`hideAfterReadMs`), and a
+  // LOCAL ceiling this member set for their own device. The shorter wins,
+  // because the signed one is the group asking and the local one is the reader
+  // agreeing to less — and a reader can only ever tighten what they see, never
+  // extend what the group decided.
+  //
+  // What is recorded is the SHOWING, exactly as in one-to-one chats: "at
+  // wall-clock T this device had rendered everything up to coverage C", one
+  // entry per channel per visit, collapsing into a single watermark as
+  // windows pass. Coverage is in `orderedAtMs` terms and clamped to our own
+  // clock — `orderedAtMs` falls back to the author-CLAIMED `createdAtMs`, so
+  // an uncapped entry would let one future-dated message cover the whole
+  // channel and take its history off screen in one window.
+
+  String _spaceShownKey(NodeId spaceId) => 'space.shown.v1:${spaceId.hex}';
+  String _localHideAfterReadKey(NodeId spaceId) =>
+      'space.hideread.local.v1:${spaceId.hex}';
+
+  /// The per-channel key inside the shown record. Main chat is 'm'.
+  static String _shownChannelKey(NodeId? channelId) => channelId?.hex ?? 'm';
+
+  static const int _kShownMaxEntriesPerChannel = 64;
+
+  Future<int?> localSpaceHideAfterReadMs(NodeId spaceId) async {
+    final raw = await _storage.getSetting(_localHideAfterReadKey(spaceId));
+    if (raw == null || raw.isEmpty) return null;
+    final value = int.tryParse(raw);
+    return value != null &&
+            value >= kMinHideAfterReadMs &&
+            value <= kMaxHideAfterReadMs
+        ? value
+        : null;
+  }
+
+  /// This member's own ceiling, this device only, no signature and no
+  /// permission — agreeing to see less needs nobody's approval.
+  Future<bool> setLocalSpaceHideAfterReadMs(NodeId spaceId, int? ms) async {
+    if (ms != null && (ms < kMinHideAfterReadMs || ms > kMaxHideAfterReadMs)) {
+      return false;
+    }
+    if (await load(spaceId) == null) return false;
+    await _storage.putSetting(
+      _localHideAfterReadKey(spaceId),
+      ms == null ? '' : '$ms',
+    );
+    changes.value++;
+    return true;
+  }
+
+  /// Record that the open screen has just rendered [messages] of
+  /// [channelId]. Called by the screen beside `markGroupSeen`, and separately
+  /// from it on purpose: the seen watermark is a wall-clock reading for the
+  /// unread badge, while this must speak in message coverage — the two agree
+  /// only while nobody's clock lies.
+  Future<void> recordSpaceShown(
+    NodeId spaceId, {
+    NodeId? channelId,
+    required Iterable<GroupMessage> messages,
+  }) async {
+    // `_now()`, not `_clockNowMs()`: recording a showing IS a write, and the
+    // monotonic counter is the only clock guaranteed not to sit behind stamps
+    // this service just wrote. Under a frozen test wall (and in a same-ms
+    // burst) local rows run ahead of the wall by their monotonic bumps, and a
+    // wall-clamped coverage would stop one millisecond short of the very
+    // messages it was recording. The hostile-stamp clamp is unaffected: a row
+    // claiming next century is above ANY local reading.
+    final nowMs = _now();
+    var covered = 0;
+    for (final m in messages) {
+      if (m.orderedAtMs > covered) covered = m.orderedAtMs;
+    }
+    if (covered > nowMs) covered = nowMs;
+    if (covered <= 0) return;
+    final record = await _loadShownRecord(spaceId);
+    final key = _shownChannelKey(channelId);
+    final channel = record[key] ?? (watermark: 0, entries: <(int, int)>[]);
+    if (covered <= channel.watermark) return;
+    final entries = [...channel.entries];
+    // First showing wins: re-rendering the same history must not restart its
+    // clock, or the window would only elapse for someone who never came back.
+    if (entries.isNotEmpty && entries.last.$1 >= covered) return;
+    entries.add((covered, nowMs));
+    while (entries.length > _kShownMaxEntriesPerChannel) {
+      final a = entries.removeAt(0);
+      final b = entries.removeAt(0);
+      // Larger coverage, earlier moment: the merge may only hide slightly
+      // SOONER than the truth, never later, and never resurrect.
+      entries.insert(0, (b.$1, a.$2 < b.$2 ? a.$2 : b.$2));
+    }
+    record[key] = (watermark: channel.watermark, entries: entries);
+    await _saveShownRecord(spaceId, record);
+  }
+
+  /// Per-channel-key hide boundaries for [spaceId]: everything with
+  /// `orderedAtMs` at or below the value was shown on this device long enough
+  /// ago under the effective window. Empty when no window applies. Persists
+  /// the collapse of expired entries as a side effect.
+  Future<Map<String, int>> spaceHiddenThroughMs(
+    NodeId spaceId, {
+    GroupBundle? bundle,
+    List<SpaceRetentionRevision>? revisions,
+  }) async {
+    bundle ??= await load(spaceId);
+    if (bundle == null) return const {};
+    final effectiveRevisions = revisions ?? _clearRetentionRevisions(bundle);
+    final localCeiling = await localSpaceHideAfterReadMs(spaceId);
+    final record = await _loadShownRecord(spaceId);
+    if (record.isEmpty) return const {};
+    final now = _clockNowMs();
+    final out = <String, int>{};
+    var changed = false;
+    for (final entry in record.entries) {
+      final channelId = entry.key == 'm' ? null : _tryNodeId(entry.key);
+      final signed = _effectiveRetentionPolicy(
+        effectiveRevisions,
+        channelId,
+      ).hideAfterReadMs;
+      final window = switch ((signed, localCeiling)) {
+        (null, null) => null,
+        (final int s, null) => s,
+        (null, final int l) => l,
+        (final int s, final int l) => s < l ? s : l,
+      };
+      var watermark = entry.value.watermark;
+      final live = <(int, int)>[];
+      if (window != null) {
+        for (final showing in entry.value.entries) {
+          if (now >= showing.$2 + window) {
+            if (showing.$1 > watermark) watermark = showing.$1;
+          } else {
+            live.add(showing);
+          }
+        }
+      } else {
+        live.addAll(entry.value.entries);
+      }
+      if (watermark != entry.value.watermark ||
+          live.length != entry.value.entries.length) {
+        record[entry.key] = (watermark: watermark, entries: live);
+        changed = true;
+      }
+      // The watermark once earned is permanent even if the window is later
+      // widened or turned off — what one policy hid, the next may not undo,
+      // exactly like the deletion half.
+      if (watermark > 0) out[entry.key] = watermark;
+    }
+    if (changed) await _saveShownRecord(spaceId, record);
+    return out;
+  }
+
+  static NodeId? _tryNodeId(String hex) {
+    try {
+      return NodeId.fromHex(hex);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<Map<String, ({int watermark, List<(int, int)> entries})>>
+  _loadShownRecord(NodeId spaceId) async {
+    try {
+      final raw = await _storage.getSetting(_spaceShownKey(spaceId));
+      if (raw == null || raw.isEmpty) return {};
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      final out = <String, ({int watermark, List<(int, int)> entries})>{};
+      for (final entry in decoded.entries) {
+        final value = entry.value;
+        if (value is! Map) continue;
+        final entries = <(int, int)>[];
+        for (final row in (value['e'] as List? ?? const [])) {
+          if (row is List &&
+              row.length == 2 &&
+              row[0] is int &&
+              row[1] is int) {
+            entries.add((row[0] as int, row[1] as int));
+          }
+        }
+        out[entry.key as String] = (
+          watermark: value['w'] as int? ?? 0,
+          entries: entries,
+        );
+      }
+      return out;
+    } catch (_) {
+      // A corrupt record restarts the read clocks — the visible-for-longer
+      // direction, and the earned watermarks are the only loss.
+      return {};
+    }
+  }
+
+  Future<void> _saveShownRecord(
+    NodeId spaceId,
+    Map<String, ({int watermark, List<(int, int)> entries})> record,
+  ) async {
+    await _storage.putSetting(
+      _spaceShownKey(spaceId),
+      jsonEncode({
+        for (final entry in record.entries)
+          entry.key: {
+            'w': entry.value.watermark,
+            'e': [
+              for (final e in entry.value.entries) [e.$1, e.$2],
+            ],
+          },
+      }),
+    );
+  }
+
   /// Publish a new immutable rules revision through the signed Space control
   /// log. Revisions are contiguous and keep the full previous history; a
   /// concurrent stale revision is rejected deterministically by the fold.
@@ -14220,6 +14432,21 @@ class GroupService {
     final protectedModeration = b.manifest.isSpace
         ? await _protectedModerationRecordsOf(b, state)
         : const <SpaceModerationRecord>[];
+    // The read-after boundary for THIS view. Keyed by the query's channel —
+    // the same key `recordSpaceShown` writes for this view — so what one
+    // screen recorded as shown is hidden in that screen's queries and no
+    // other's. Under `applyLocalRetention` only: sync, snapshots and serve
+    // paths pass false and keep carrying the rows, which is the entire
+    // difference between hiding and deleting.
+    final hiddenReadThrough = applyLocalRetention
+        ? (await spaceHiddenThroughMs(
+                groupId,
+                bundle: b,
+                revisions:
+                    retention?.revisions ?? _clearRetentionRevisions(b),
+              ))[_shownChannelKey(channelId)] ??
+              0
+        : 0;
     final out = <GroupMessage>[];
     for (final m in _acceptedMessagesWithinLifecycle(b, state)) {
       var mediaExpired = false;
@@ -14287,6 +14514,13 @@ class GroupService {
           atMs: readAt,
           channelId: effectiveChannelId,
         );
+      }
+      // Hide-after-read: presentation only. `orderedAtMs`, not `createdAtMs`,
+      // for the same reason the unread badge uses it — the boundary was
+      // recorded in local-derived time, and comparing an author-claimed stamp
+      // against it would let a backdated message hide instantly.
+      if (hiddenReadThrough > 0 && m.orderedAtMs <= hiddenReadThrough) {
+        continue;
       }
       if (!SpaceAcl(state).allows(
             m.author,
