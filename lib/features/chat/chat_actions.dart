@@ -149,6 +149,28 @@ Future<void> showConversationActions(
               },
             ),
             ListTile(
+              key: const ValueKey('chat-hide-after-read'),
+              leading: const Icon(Icons.visibility_off_outlined),
+              title: Text(l.chatHideAfterReadTitle),
+              subtitle: Text(
+                contact.hideAfterReadSeconds == null
+                    ? l.chatDisappearingOff
+                    : formatDisappearingWindow(
+                        l,
+                        contact.hideAfterReadSeconds!,
+                      ),
+              ),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                pickHideAfterRead(
+                  context,
+                  ref,
+                  peer,
+                  contact.hideAfterReadSeconds,
+                );
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.auto_delete_outlined),
               title: Text(l.chatMenuRetention),
               onTap: () {
@@ -636,6 +658,57 @@ Future<void> pickDisappearing(
   await ref
       .read(messagingServiceProvider)
       .setContactDisappearing(peer, picked.$2);
+}
+
+/// Choose the READ window: how long a message stays on screen after this
+/// device first showed it.
+///
+/// A separate entry from [pickDisappearing] rather than a second column in the
+/// same dialog, because the two are not two sizes of one thing. One is a
+/// guarantee about bytes that every device computes identically from the post
+/// time; this is a courtesy about attention, counted locally and unenforceable.
+/// Folding them into one control would invite reading the weaker one as the
+/// stronger.
+Future<void> pickHideAfterRead(
+  BuildContext context,
+  WidgetRef ref,
+  NodeId peer,
+  int? current,
+) async {
+  final l = AppL10n.of(context);
+  final picked = await showDialog<(bool, int?)>(
+    context: context,
+    builder: (dialog) => SimpleDialog(
+      title: Text(l.chatHideAfterReadTitle),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+          child: Text(
+            l.chatHideAfterReadSubtitle,
+            style: Theme.of(dialog).textTheme.bodySmall,
+          ),
+        ),
+        SimpleDialogOption(
+          key: const ValueKey('hide-after-read-off'),
+          onPressed: () => Navigator.of(dialog).pop((true, null)),
+          child: _radioRow(l.chatDisappearingOff, current == null),
+        ),
+        for (final secs in kHideAfterReadPresets)
+          SimpleDialogOption(
+            key: ValueKey('hide-after-read-$secs'),
+            onPressed: () => Navigator.of(dialog).pop((true, secs)),
+            child: _radioRow(
+              formatDisappearingWindow(l, secs),
+              secs == current,
+            ),
+          ),
+      ],
+    ),
+  );
+  if (picked == null) return;
+  await ref
+      .read(messagingServiceProvider)
+      .setContactHideAfterRead(peer, picked.$2);
 }
 
 Future<void> pickRetention(

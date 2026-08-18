@@ -1204,6 +1204,8 @@
   "chatDisappearingTitle": "Исчезающие сообщения",
   "chatDisappearingSubtitle": "Сообщения этого чата стираются на ОБОИХ устройствах, когда срок выходит. Менять может любой из вас.",
   "chatDisappearingOff": "Выключено",
+  "chatHideAfterReadTitle": "Скрывать после прочтения",
+  "chatHideAfterReadSubtitle": "Отсчёт от момента, когда КАЖДОЕ устройство впервые показало сообщение, поэтому моменты разные. Сообщение скрывается, а не удаляется, и устройство вправе не подчиниться — отметок о прочтении здесь нет, и заставить нечем.",
   "chatDisappearingSetNotice": "Исчезающие сообщения: {window}",
   "@chatDisappearingSetNotice": {"placeholders": {"window": {"type": "String"}}},
   "chatDisappearingOffNotice": "Исчезающие сообщения выключены",
