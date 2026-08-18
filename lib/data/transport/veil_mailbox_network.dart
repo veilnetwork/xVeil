@@ -9,6 +9,7 @@ import 'dart:typed_data';
 import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../../core/ids.dart';
+import 'mailbox_deposit_targets.dart';
 import 'relay_key_cache.dart';
 import 'veil_mailbox.dart';
 import 'package:xveil/core/log.dart';
@@ -465,9 +466,20 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           '(cid=${NodeId(contentId).short}) needs a relay that serves '
           'slices — one predating the endpoint will drop it');
     }
-    final replicas = await _client.mailbox
-        .lookupRendezvousReplicas(receiver.bytes)
-        .timeout(_putStepTimeout);
+    // An ad that will not resolve is a ROUTING miss, not a verdict on the
+    // peer, so a throw here would be the wrong shape: the fallback below is
+    // exactly for the case where this returns nothing. A timeout counts as
+    // nothing for the same reason — a DHT that did not answer inside the step
+    // budget has told us as little as one that answered empty.
+    var replicas = const <veil.RendezvousReplica>[];
+    try {
+      replicas = await _client.mailbox
+          .lookupRendezvousReplicas(receiver.bytes)
+          .timeout(_putStepTimeout);
+    } catch (e) {
+      devLog(() => 'xVeil[stash-put]: ad lookup FAILED dst=${receiver.short} '
+          '— falling back to the last relays that held this peer\'s mailbox: $e');
+    }
     // A usable deposit target = the replica's relay + that relay's public
     // X25519 (the PUT's seal target). Prefer the key carried by the ad itself
     // (v5 KEM field); when the ad is KEM-LESS — e.g. the recipient's node
@@ -478,42 +490,42 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // Without this fallback a recipient restart black-holed deposits for as
     // long as no KEM-bearing ad was resolvable (observed ~19 min on the
     // stand): texts AND file offers from the peer silently stopped arriving.
-    final usable = <({Uint8List relayNodeId, Uint8List kemPk})>[];
-    final seenRelays = <String>{};
-    var filledFromCache = 0;
-    for (final r in replicas) {
-      if (usable.length >= _putReplicaFanout) break;
-      final relay = NodeId(Uint8List.fromList(r.relayNodeId));
-      if (!seenRelays.add(relay.hex)) continue;
-      if (r.rendezvousKemPk.length == 32) {
-        usable.add((
-          relayNodeId: r.relayNodeId,
-          kemPk: Uint8List.fromList(r.rendezvousKemPk),
-        ));
-        continue;
-      }
-      var kem = await _relayKeyCache?.get(relay);
-      if (kem == null || kem.length != 32) {
-        try {
-          kem = await _client
-              .lookupRelayX25519(relay.bytes)
-              .timeout(_putStepTimeout);
-        } catch (_) {
-          kem = null; // best-effort — the replica is simply skipped
-        }
-      }
-      if (kem != null && kem.length == 32) {
-        usable.add((relayNodeId: relay.bytes, kemPk: kem));
-        filledFromCache++;
-      }
-    }
+    //
+    // NO CAPABILITY TOKEN IS INVOLVED, which is why the cached fallback is
+    // sound at all. [encodeMailboxPut] writes the token trailer as ABSENT on
+    // every deposit, and the relay's `put_with_capability` accepts a tokenless
+    // PUT under the default `require_capability_token = false` (it lands in the
+    // Anonymous eviction pool rather than being refused). So the ad carries
+    // nothing a deposit needs beyond the relay's identity and key — it is a
+    // DIRECTORY entry, not a credential, and a lapsed one costs us the address
+    // and nothing else.
+    final plan = await planMailboxDeposit(
+      receiver: receiver,
+      adReplicas: [
+        for (final r in replicas)
+          (
+            relay: NodeId(Uint8List.fromList(r.relayNodeId)),
+            kemPk: r.rendezvousKemPk.length == 32
+                ? Uint8List.fromList(r.rendezvousKemPk)
+                : null,
+          ),
+      ],
+      resolveRelayKem: _resolveRelayKem,
+      fanout: _putReplicaFanout,
+      cache: _relayKeyCache,
+    );
+    final usable = plan.targets;
     devLog(() => 'xVeil[stash-put]: dst=${receiver.hex.substring(0, 8)} '
-        'replicas_resolved=${replicas.length} usable(KEM)=${usable.length}'
-        '${filledFromCache > 0 ? ' (kem_filled=$filledFromCache)' : ''}');
+        'replicas_resolved=${replicas.length} usable(KEM)=${usable.length} '
+        'via=${plan.source.name}');
     if (usable.isEmpty) {
+      // BOTH the ad and the cache came up empty, so this peer is genuinely
+      // unaddressable and the caller's unresolved-peer backoff should hold —
+      // that is what keeps a stranger from being hammered every flush tick.
       throw MailboxPeerUnresolved(
-          'no rendezvous replica with a usable KEM key for ${receiver.hex} — '
-          'recipient has not advertised a mailbox relay (or ad not resolved yet)');
+          'no rendezvous replica with a usable KEM key for ${receiver.hex}, and '
+          'no remembered relay either — recipient has never advertised a mailbox '
+          'relay to us (or the remembered one aged out)');
     }
     final payload = encodeMailboxPut(
       receiverId: receiver.bytes,
@@ -529,7 +541,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // Succeed overall if AT LEAST ONE replica took the full set (K-replica
     // redundancy). Throw only if all fail, so the caller's outbox retries.
     Object? lastErr;
-    var anyOk = false;
+    final accepted = <MailboxDepositTarget>[];
     for (final r in usable) {
       try {
         for (final chunk in chunks) {
@@ -545,13 +557,38 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
               )
               .timeout(_putStepTimeout);
         }
-        anyOk = true;
+        accepted.add(r);
       } catch (e) {
         lastErr = e;
       }
     }
-    if (!anyOk) {
+    if (accepted.isEmpty) {
       throw StateError('all ${usable.length} mailbox deposits failed: $lastErr');
+    }
+    // The deposit is DONE by here, so this bookkeeping may not be able to
+    // undo it. A container write that hangs would otherwise hold the messaging
+    // layer's single background deposit slot until its own 45s deadline and
+    // report a delivered message as failed; the write completes on its own
+    // afterwards either way.
+    await recordMailboxDeposit(
+      receiver: receiver,
+      accepted: accepted,
+      source: plan.source,
+      cache: _relayKeyCache,
+    ).timeout(_putStepTimeout, onTimeout: () {});
+  }
+
+  /// A relay's public X25519 from the relay directory — one hop to a connected
+  /// relay, not a recursive DHT walk. The ad's own KEM field and the persisted
+  /// cache are tried first by [planMailboxDeposit]; this is the last resort.
+  /// Best-effort: a relay whose key cannot be found is simply not a target.
+  Future<Uint8List?> _resolveRelayKem(NodeId relay) async {
+    try {
+      return await _client
+          .lookupRelayX25519(relay.bytes)
+          .timeout(_putStepTimeout);
+    } catch (_) {
+      return null;
     }
   }
 
