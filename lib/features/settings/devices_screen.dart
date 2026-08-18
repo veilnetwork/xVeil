@@ -374,25 +374,32 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     if (confirmed != true || words.isEmpty || !mounted) return;
     NativeSovereignGroupSigner? signer;
     var ok = false;
+    var keyStillCertified = false;
     try {
       final svc = ref.read(groupServiceProvider);
       signer = await svc?.openLocalSovereign(words);
       if (svc != null && signer != null) {
-        ok = await svc.revokeDevice(device, sovereign: signer);
-        if (ok) {
-          // The cryptographic half: the group stopped LISTING the device,
-          // and this stops the document VOUCHING for its key — a
-          // master-signed tombstone no stale sibling copy can union back
-          // in. Without it every row the revoked device signs keeps
-          // verifying on every peer until its cert ages out.
-          final storage = ref.read(storageProvider);
-          final docRevoked = await RealVeilStack.revokeDeviceFromDocument(
-            storage,
-            phrase: words,
-            deviceId: device.bytes,
-            stagingBase: Directory.systemTemp.path,
-          );
-          if (docRevoked) {
+        // THE TOMBSTONE FIRST, and the membership only after it.
+        //
+        // The two halves fail in opposite directions. A document that
+        // disowns a device still listed in the group is harmless: the key is
+        // dead everywhere, and the listing is cosmetic until the next retry
+        // clears it. The reverse — the group forgets the device while the
+        // document keeps certifying its key — is the dangerous half: every
+        // row that device signs keeps verifying on every peer, and the
+        // operator has been told the device is revoked. Reported 2026-08-18;
+        // the old order ran the group half first and reported ITS success as
+        // the whole outcome.
+        final storage = ref.read(storageProvider);
+        final revocation = await RealVeilStack.revokeDeviceFromDocument(
+          storage,
+          phrase: words,
+          deviceId: device.bytes,
+          stagingBase: Directory.systemTemp.path,
+        );
+        keyStillCertified = !revocation.keyIsRetired;
+        if (!keyStillCertified) {
+          if (revocation == DocumentRevocation.tombstoned) {
             final stack = ref.read(realStackProvider);
             if (stack != null) {
               await stack.refreshSovereignIdentity(storage);
@@ -415,6 +422,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
               );
             }
           }
+          ok = await svc.revokeDevice(device, sovereign: signer);
         }
       }
     } catch (_) {
@@ -426,9 +434,20 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     if (ok) {
       await _reload();
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.devicesOperationFailed)));
+      // A revocation that could not retire the key is its own message: the
+      // device is NOT revoked, and telling the operator "could not complete"
+      // would leave them believing a retry is all that stands between them
+      // and safety. On a certificate identity this is the expected outcome
+      // of the phrase-only document path.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            keyStillCertified
+                ? l.devicesRevokeKeyStillCertified
+                : l.devicesOperationFailed,
+          ),
+        ),
+      );
     }
   }
 

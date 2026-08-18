@@ -21,7 +21,11 @@ import '../core/posix_file_facts.dart' show posixChmod;
 import '../data/runtime_dir_sweep.dart' show sweepStaleRuntimeDirs;
 import '../data/serve_source.dart';
 import '../data/veil_stack.dart'
-    show claimRuntimeDirUnder, RealVeilStack, TombstonedDeviceException;
+    show
+        claimRuntimeDirUnder,
+        DocumentRevocation,
+        RealVeilStack,
+        TombstonedDeviceException;
 import '../data/transport/bootstrap_invite.dart';
 import '../data/node/identity_config_fields.dart';
 import '../data/transport/device_link_invite.dart';
@@ -2510,20 +2514,28 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     var docRevoked = false;
     try {
       sovereign = await svc.openLocalSovereign(phrase);
-      ok = await svc.revokeDevice(NodeId.fromHex(peer), sovereign: sovereign);
-      if (!ok) {
-        why = 'the group refused the revoke — the peer may not be a member, '
-            'or this identity may not own the device group';
+      // The TOMBSTONE first, mirroring the production screen: a group that
+      // still lists a device whose key is dead is cosmetic, while a group
+      // that forgot a device the document still certifies is the dangerous
+      // half — and it used to be reported as a successful revoke.
+      final revocation = await RealVeilStack.revokeDeviceFromDocument(
+        ref.read(storageProvider),
+        phrase: phrase.trim(),
+        deviceId: NodeId.fromHex(peer).bytes,
+        stagingBase: Directory.systemTemp.path,
+      );
+      docRevoked = revocation == DocumentRevocation.tombstoned;
+      if (!revocation.keyIsRetired) {
+        why = 'the document still certifies this device key — a certificate '
+            'identity cannot be revoked through the phrase path, and no '
+            'membership change was made';
       } else {
-        // The cryptographic half: the group stopped LISTING the device, and
-        // this stops the document VOUCHING for its key — a master-signed
-        // tombstone no stale sibling copy can union back in.
-        docRevoked = await RealVeilStack.revokeDeviceFromDocument(
-          ref.read(storageProvider),
-          phrase: phrase.trim(),
-          deviceId: NodeId.fromHex(peer).bytes,
-          stagingBase: Directory.systemTemp.path,
-        );
+        ok = await svc.revokeDevice(NodeId.fromHex(peer), sovereign: sovereign);
+        if (!ok) {
+          why = 'the key is tombstoned, but the group refused the membership '
+              'removal — the peer may not be a member, or this identity may '
+              'not own the device group';
+        }
         if (docRevoked) {
           final stack = ref.read(realStackProvider);
           if (stack != null) {

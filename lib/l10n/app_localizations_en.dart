@@ -5206,6 +5206,10 @@ class AppL10nEn extends AppL10n {
       'This device was revoked. Its old key can never be trusted again — reset the device and link it with a freshly created key.';
 
   @override
+  String get devicesRevokeKeyStillCertified =>
+      'Not revoked: the identity document still certifies this device\'s key. Use the credential that owns the identity and try again.';
+
+  @override
   String get devicesOperationFailed => 'Could not complete device linking';
 
   @override
