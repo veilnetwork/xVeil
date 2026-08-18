@@ -1214,6 +1214,8 @@
   "chatDisappearingTitle": "Disappearing messages",
   "chatDisappearingSubtitle": "Messages in this chat are erased on BOTH devices once the window passes. Either of you can change it.",
   "chatDisappearingOff": "Off",
+  "chatHideAfterReadTitle": "Hide after reading",
+  "chatHideAfterReadSubtitle": "Counted from the moment each device first showed the message, so the moments differ. The message is hidden, not deleted, and a device is free not to honour it — there are no read receipts here and nothing to enforce it with.",
   "chatDisappearingSetNotice": "Disappearing messages: {window}",
   "@chatDisappearingSetNotice": {"placeholders": {"window": {"type": "String"}}},
   "chatDisappearingOffNotice": "Disappearing messages turned off",

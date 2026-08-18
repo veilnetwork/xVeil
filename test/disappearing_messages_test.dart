@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:xveil/state/providers.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
@@ -397,6 +399,58 @@ void main() {
         0,
         reason: 'off means nothing is hidden, mark or no mark',
       );
+    });
+
+    /// The bookkeeping is only worth having if it reaches the screen. The
+    /// list the chat renders comes from a provider, so this drives that
+    /// provider rather than the service method it calls — a mark that moves
+    /// while the filter ignores it looks exactly like a working feature.
+    test('what is hidden stops reaching the chat list', () async {
+      clockB = clockB.add(const Duration(seconds: 1));
+      await mB.sendText(a, 'early');
+      await _pump();
+      clockA = clockA.add(const Duration(seconds: 2));
+      await mA.markRead(b.hex);
+
+      final container = ProviderContainer(
+        overrides: [
+          messagingServiceProvider.overrideWithValue(mA),
+          storageProvider.overrideWithValue(sA),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      // The provider is autoDispose: reading its future without a live
+      // listener disposes it mid-load and the read never completes.
+      final keepAlive = container.listen(
+        messagesProvider(b.hex),
+        (_, _) {},
+        fireImmediately: true,
+      );
+      addTearDown(keepAlive.close);
+
+      Future<List<String>> bodies() async => (await container
+              .read(messagesProvider(b.hex).future))
+          .map((m) => m.body)
+          .toList();
+
+      expect(await bodies(), contains('early'));
+
+      clockA = clockA.add(const Duration(seconds: 400));
+      container.invalidate(messagesProvider(b.hex));
+      expect(
+        await bodies(),
+        isNot(contains('early')),
+        reason: 'the mark moved past it, so the list must stop carrying it',
+      );
+
+      // A message that arrives AFTER the showing was never on screen, so the
+      // same mark must not swallow it.
+      clockB = clockA.add(const Duration(seconds: 1));
+      await mB.sendText(a, 'later');
+      await _pump();
+      container.invalidate(messagesProvider(b.hex));
+      expect(await bodies(), contains('later'));
     });
 
     /// The point of the whole shape: the record does not grow with the
