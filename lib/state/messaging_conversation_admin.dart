@@ -177,12 +177,22 @@ class _MessagingConversationAdmin {
     DisappearingSetting setting, {
     required bool incoming,
   }) async {
-    // Deterministic id: a re-delivered announcement (the sender's mailbox copy
-    // survives until acked) must not mint a second row. Same defence the
-    // chat-deleted marker needed after a restart cleared the RAM seen-set.
+    // Deterministic id — the stamp and the setter, nothing per-delivery in it.
+    // That is the WHOLE dedup: the event log folds by message id, so a
+    // re-delivered announcement lands on the same row, and a row the owner
+    // deleted stays deleted because its tombstone is keyed the same way.
+    //
+    // Deliberately no belt-and-braces "have I seen this id" read in front of
+    // it. Two guards used to sit here and neither could be told apart from the
+    // fold by any test — code a break-check cannot make fail is code that
+    // silently stops being true. The tests pin the two observable properties
+    // instead (a replay adds no second notice; a replay resurrects no deleted
+    // one), and those go red if the fold ever changes.
+    //
+    // The chat-deleted marker cannot do this: its id embeds the frame id, so a
+    // redelivery genuinely does mint a second row and genuinely does need a
+    // guard.
     final id = 'sys:disap:${setting.setAtMs}:${setting.setBy}';
-    if (await _owner._hasMessage(peer, id)) return;
-    if (await _owner._storage.isMessageDeleted(peer.hex, id)) return;
     await _owner._store(
       peer,
       incoming ? MessageDirection.incoming : MessageDirection.outgoing,
