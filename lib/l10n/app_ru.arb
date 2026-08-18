@@ -461,14 +461,6 @@
   },
   "spacePolicyAuditRetentionInherit": "наследует политику сообщества",
   "spacePolicyAuditRetentionForever": "хранит историю",
-  "spacePolicyAuditRetentionDays": "удаляет через {days} дн.",
-  "@spacePolicyAuditRetentionDays": {
-    "placeholders": {
-      "days": {
-        "type": "int"
-      }
-    }
-  },
   "spacePolicyAuditMediaOnly": "только медиа",
   "spaceRecentActionsTitle": "Последние действия",
   "spaceRecentActionsHint": "Подписанная история управления. Видно ровно то, что позволяют ваши права.",
@@ -826,6 +818,14 @@
   "groupMembersTooltip": "Участники",
   "groupSyncSettingsTooltip": "Синхронизация чата",
   "groupConvertToCommunity": "Преобразовать в сообщество",
+  "groupDisappearingTooltip": "Исчезающие сообщения",
+  "groupDisappearingTitle": "Исчезающие сообщения",
+  "groupDisappearingSubtitle": "Сообщения этой группы стираются У ВСЕХ, когда срок выходит. Менять может только владелец, а у участников со старой сборкой копии останутся.",
+  "groupDisappearingOff": "Не удалять",
+  "groupDisappearingCustom": "Своё время",
+  "groupDisappearingCustomTitle": "Своё время",
+  "groupDisappearingMinutesSuffix": "мин",
+  "groupDisappearingFailed": "Не удалось изменить срок",
   "groupConvertConfirm": "Чат станет сообществом с каналами, публикациями и лентой. Участники и история сохранятся. Он переедет в «Сообщества». Отменить нельзя.",
   "groupConvertAction": "Преобразовать",
   "groupSyncNeighborsTitle": "Синхронизация чата",

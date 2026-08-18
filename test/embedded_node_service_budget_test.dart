@@ -55,9 +55,3 @@ void main() {
     expect(twice, once);
   });
 }
-
-extension on String {
-  Iterable<Match> allMatches(String input) => RegExp(
-    RegExp.escape(this),
-  ).allMatches(input);
-}

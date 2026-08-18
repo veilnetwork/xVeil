@@ -62,6 +62,7 @@ import '../chat/custom_emoji_controller.dart';
 import '../chat/message_markdown.dart';
 import '../chat/reactors_sheet.dart';
 import '../chat/video_player_screen.dart';
+import 'group_disappearing.dart';
 
 void _cancelGroupContentDownload(WidgetRef ref, String contentId) {
   unawaited(
@@ -1047,6 +1048,19 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// Confirm + convert this group chat into a community (Space). Irreversible
   /// in practice: the chat gains a signed Space manifest and a default text
   /// channel, moves to «Сообщества», and keeps its members/history.
+  /// The current window is read HERE rather than kept in the app bar's
+  /// FutureBuilder: it is needed once, when the sheet opens, and putting it in
+  /// the builder would re-read the signed timeline on every rebuild of a screen
+  /// that rebuilds on every incoming message.
+  Future<void> _pickDisappearing(GroupService svc) async {
+    final current = groupDisappearingWindow(
+      await svc.spaceRetentionPolicyOf(_gid),
+    );
+    if (!mounted) return;
+    await pickGroupDisappearing(context, svc, _gid, current);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _convertToCommunity(GroupService svc) async {
     final l = AppL10n.of(context);
     final ok = await showDialog<bool>(
@@ -1481,7 +1495,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
             onPressed: () => _showSyncSettings(svc),
           ),
           // Owner-only, group-chat-only: the explicit "convert this chat into
-          // a community" action the canon reserves as a confirmed operation.
+          // a community" action the canon reserves as a confirmed operation,
+          // and the disappearing window, which is owner-only for the same
+          // reason (`manageStorage` is not a built-in below owner).
           if (_channelId == null)
             FutureBuilder<List<Object?>>(
               future: Future.wait<Object?>([svc.stateOf(_gid), svc.load(_gid)]),
@@ -1490,17 +1506,28 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                 final bundle = snap.data != null && snap.data!.length > 1
                     ? snap.data![1] as GroupBundle?
                     : null;
-                final convertible =
+                final ownedGroupChat =
                     bundle != null &&
                     bundle.manifest.isLegacyGroup &&
                     !bundle.manifest.isSpace &&
                     state?.roleOf(svc.selfId) == GroupRole.owner;
-                if (!convertible) return const SizedBox.shrink();
-                return IconButton(
-                  key: const ValueKey('group-convert-to-community'),
-                  icon: const Icon(Icons.workspaces_outline),
-                  tooltip: l.groupConvertToCommunity,
-                  onPressed: () => _convertToCommunity(svc),
+                if (!ownedGroupChat) return const SizedBox.shrink();
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      key: const ValueKey('group-disappearing'),
+                      icon: const Icon(Icons.timer_outlined),
+                      tooltip: l.groupDisappearingTooltip,
+                      onPressed: () => _pickDisappearing(svc),
+                    ),
+                    IconButton(
+                      key: const ValueKey('group-convert-to-community'),
+                      icon: const Icon(Icons.workspaces_outline),
+                      tooltip: l.groupConvertToCommunity,
+                      onPressed: () => _convertToCommunity(svc),
+                    ),
+                  ],
                 );
               },
             ),

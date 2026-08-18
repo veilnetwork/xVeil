@@ -2228,12 +2228,6 @@ abstract class AppL10n {
   /// **'keeps history'**
   String get spacePolicyAuditRetentionForever;
 
-  /// No description provided for @spacePolicyAuditRetentionDays.
-  ///
-  /// In en, this message translates to:
-  /// **'removes after {days} days'**
-  String spacePolicyAuditRetentionDays(int days);
-
   /// No description provided for @spacePolicyAuditMediaOnly.
   ///
   /// In en, this message translates to:
@@ -3325,6 +3319,54 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Convert to community'**
   String get groupConvertToCommunity;
+
+  /// No description provided for @groupDisappearingTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Disappearing messages'**
+  String get groupDisappearingTooltip;
+
+  /// No description provided for @groupDisappearingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Disappearing messages'**
+  String get groupDisappearingTitle;
+
+  /// No description provided for @groupDisappearingSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages in this group are erased for EVERYONE once the window passes. Only the owner can change it, and members on an older build keep their copies.'**
+  String get groupDisappearingSubtitle;
+
+  /// No description provided for @groupDisappearingOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Do not delete'**
+  String get groupDisappearingOff;
+
+  /// No description provided for @groupDisappearingCustom.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom'**
+  String get groupDisappearingCustom;
+
+  /// No description provided for @groupDisappearingCustomTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Custom window'**
+  String get groupDisappearingCustomTitle;
+
+  /// No description provided for @groupDisappearingMinutesSuffix.
+  ///
+  /// In en, this message translates to:
+  /// **'min'**
+  String get groupDisappearingMinutesSuffix;
+
+  /// No description provided for @groupDisappearingFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not change the window'**
+  String get groupDisappearingFailed;
 
   /// No description provided for @groupConvertConfirm.
   ///

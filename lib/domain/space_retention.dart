@@ -25,6 +25,16 @@ const int kMaxSpaceDeletionGraceMs = 365 * 24 * 60 * 60 * 1000;
 /// asked for. Authoring clamps the grace to zero below this line.
 const int kDisappearingWindowCeilingMs = 24 * 60 * 60 * 1000;
 
+/// The windows a group's picker offers, in the scale the feature is actually
+/// about. Anything longer is still reachable through the custom entry — these
+/// are the ones worth one tap, not the ones that exist.
+const List<Duration> kGroupDisappearingPresets = <Duration>[
+  Duration(minutes: 1),
+  Duration(minutes: 5),
+  Duration(minutes: 30),
+  Duration(minutes: 60),
+];
+
 /// A Space retention rule is a distinct signed policy, not a generic JSON bag.
 /// `inherit` is valid only for a channel and removes its explicit override.
 enum SpaceRetentionMode {
