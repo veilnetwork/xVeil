@@ -174,13 +174,20 @@ class _MessagingContacts {
     ).encode();
     // Expect the accept/decline back as mailbox mail.
     _owner._mailboxDelivery.noteActivity();
-    await _owner._send(dst, wire);
-    // Also deposit the request at the recipient's mailbox relay so a NAT'd /
-    // offline peer receives it. The live send above only lands if they're
+    // Deposit the request at the recipient's mailbox relay so a NAT'd /
+    // offline peer receives it. The live send below only lands if they're
     // directly reachable — which for two nodes behind NAT they never are, so
-    // WITHOUT this first contact could never be established. (flushOutbox only
-    // re-stashes ACCEPTED contacts, so the request must stash itself here.)
-    await _owner._maybeStash(dst, id, wire);
+    // WITHOUT this first contact could never be established.
+    //
+    // STARTED BEFORE THE LIVE LEG, not after it, and this is the one send in
+    // the app with no second chance: `flushOutbox` re-stashes ACCEPTED
+    // contacts only, so nothing ever retries a request's deposit. Behind an
+    // unbounded live send that made a stale direct address — a peer that
+    // changed networks, whose endpoint the node will keep dialling — the one
+    // condition under which first contact silently could not be made.
+    final deposit = _owner._maybeStash(dst, id, wire);
+    await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
+    await deposit;
   }
 
   /// Re-send a pending outgoing request that hasn't been accepted yet (e.g. it
@@ -201,9 +208,13 @@ class _MessagingContacts {
     }
     id ??= _uuid.v4();
     final wire = WireEnvelope.request(body ?? '', id: id).encode();
-    await _owner._send(dst, wire);
+    // Same order as [sendRequest], and for a sharper reason: this method is
+    // what a person reaches for when the request did not get through, so the
+    // peer it addresses is the one already known not to be answering.
     _owner._mailboxDelivery.removeStashed(id); // allow a fresh deposit
-    await _owner._maybeStash(dst, id, wire);
+    final deposit = _owner._maybeStash(dst, id, wire);
+    await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
+    await deposit;
     _owner._signal();
   }
 

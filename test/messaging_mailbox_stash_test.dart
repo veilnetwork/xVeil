@@ -25,6 +25,24 @@ class _BlackholeTransport implements VeilTransport {
   final _inbound = StreamController<InboundMessage>.broadcast();
   bool throwOnSend = false;
 
+  /// Live sends that never complete — the shape of a peer on a STALE DIRECT
+  /// ADDRESS. A sibling that changed networks leaves behind an endpoint that
+  /// will never answer, the node keeps working its dial ladder against it, and
+  /// the blocking FFI send under it comes back when it comes back. A throw is
+  /// the easy failure to survive; this is the one that has cost this project
+  /// outages, because nothing downstream is written to notice it.
+  bool hangOnSend = false;
+  final _hung = <Completer<void>>[];
+
+  /// Let every hung send finish, so a test does not leave the machine parked
+  /// mid-send for the next one.
+  void releaseHungSends() {
+    for (final completer in _hung) {
+      if (!completer.isCompleted) completer.complete();
+    }
+    _hung.clear();
+  }
+
   /// Push an inbound frame as if it arrived over the wire (the live path goes
   /// nowhere, so this is how a test simulates receiving from a NAT'd peer).
   void inject(InboundMessage m) => _inbound.add(m);
@@ -46,6 +64,11 @@ class _BlackholeTransport implements VeilTransport {
     bool anonymous = false,
   }) async {
     if (throwOnSend) throw StateError('live route unavailable');
+    if (hangOnSend) {
+      final completer = Completer<void>();
+      _hung.add(completer);
+      await completer.future;
+    }
   }
 
   @override
@@ -663,6 +686,168 @@ void main() {
           'the offer must reach the mailbox while the call is dialing — '
           'it is useless once the ring window has passed',
     );
+  });
+
+  // THE DEPOSIT MUST NOT QUEUE BEHIND A PEER THAT IS GONE (2026-08-18).
+  //
+  // A stale direct address is the ordinary way a peer disappears: a sibling
+  // changes networks and the endpoint in its invite stops answering, while the
+  // node keeps a dial ladder running against it. Reproduced on the e2e stand
+  // by handing out a dial hint for a device that is then stopped — the log
+  // repeats `peer.connect.failure … connection timed out after 10s`.
+  //
+  // Two properties, and the second is the one that turns a delay into an
+  // outage: the deposit does not wait on the live leg AT ALL, and a live leg
+  // that never returns does not end the pass that carries every other peer's
+  // deposit.
+  group('a live leg that never returns', () {
+    tearDown(() => tA.releaseHungSends());
+
+    test('does not hold up the durable copy of a durable send', () async {
+      tA.hangOnSend = true;
+      // Deliberately far longer than this test could ever run. It asserts the
+      // ORDER, not the deadline: a deposit that arrives only when the deadline
+      // fires is still a deposit that waited out a peer that is gone.
+      mA.liveLegDeadline = const Duration(hours: 1);
+
+      // Not awaited, because it cannot return — the live leg is the black
+      // hole. That is the whole point: the caller is stuck and the mailbox
+      // copy must be safe anyway.
+      unawaited(mA.sendRequest(b, 'the live leg is a black hole'));
+      await pumpEventQueue(times: 50);
+
+      expect(
+        sink.stashed.length,
+        1,
+        reason:
+            'the relay copy is the one that survives the peer being gone, so '
+            'it cannot be sequenced behind an attempt to reach it — and the '
+            'sequencing bought nothing, since the deposit happens whether the '
+            'live leg succeeds or fails',
+      );
+      expect(sink.stashed.single.$1, b);
+    });
+
+    /// An un-acked message to a peer that has stopped answering, which is what
+    /// a retry pass is for and the exact state case 10 leaves A in.
+    Future<void> unackedMessageToB() async {
+      await mA.acceptContact(b);
+      tA.hangOnSend = true;
+      unawaited(mA.sendText(b, 'sent while the peer was already gone'));
+      await pumpEventQueue(times: 50);
+      sink.stashed.clear();
+    }
+
+    test('does not stop the retry pass', () async {
+      await unackedMessageToB();
+      mA.liveLegDeadline = const Duration(milliseconds: 50);
+
+      // THE PASS MUST END. `_retryFlush` runs one at a time behind a
+      // `_flushing` flag, so a pass that never returns is not a slow pass —
+      // it is the last one this process runs, and every mailbox deposit to
+      // every peer stops with it. Same shape as the deposit slot that one
+      // stuck PUT froze for 10+ minutes in 2026-08-16; that half got a
+      // deadline and this half did not.
+      await mA.flushOutbox().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () => fail(
+              'the retry pass never ended — one unreachable peer has taken '
+              'the flush that carries every peer\'s deposit with it',
+            ),
+          );
+    });
+
+    test('does not hold up the deposit the retry pass owes', () async {
+      await unackedMessageToB();
+      // Long on purpose, so the deadline above cannot be what rescues this:
+      // a deposit that only lands when the live leg is abandoned is still a
+      // deposit that waited out a peer that is gone.
+      mA.liveLegDeadline = const Duration(seconds: 30);
+
+      unawaited(mA.flushOutbox());
+      await pumpEventQueue(times: 50);
+
+      expect(
+        sink.stashed.any((s) => s.$1 == b),
+        isTrue,
+        reason:
+            'the retry runs BECAUSE the message is un-acked, so the peer is by '
+            'definition the one we have failed to reach — the deposit belongs '
+            'in front of the next attempt to reach it, not behind it',
+      );
+    });
+
+    test('does not hold up the durable ACK owed to the sender', () async {
+      await mA.acceptContact(b);
+      sink.stashed.clear();
+      tA.hangOnSend = true;
+      mA.liveLegDeadline = const Duration(hours: 1);
+
+      // No reply circuit (replyId 0), so this is the durable ack path — the
+      // one that exists because the sender cannot be reached live. A sender
+      // left un-acked re-sends forever, which is the storm the deposit ends.
+      tA.inject(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.message(
+            'ping',
+            id: 'ack-order',
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ).encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await pumpEventQueue(times: 50);
+
+      expect(
+        sink.stashed.any((s) {
+          final env = WireEnvelope.decode(s.$2);
+          return s.$1 == b && env.kind == WireKind.ack && env.id == 'ack-order';
+        }),
+        isTrue,
+        reason:
+            'the ack rides the mailbox BECAUSE the sender is unreachable live; '
+            'waiting for the live leg first is waiting for the very thing the '
+            'deposit is standing in for',
+      );
+    });
+
+    test('does not delay ANOTHER peer\'s deposit in the same pass', () async {
+      final c = _id(3);
+      await mA.acceptContact(b);
+      await mA.acceptContact(c);
+      sink.stashed.clear();
+      // Straight into the store, which is how a restart finds them: no live
+      // backoff has been recorded yet, so this pass dials both. One flat list
+      // used to interleave the two halves — b's dial stood in front of c's
+      // DEPOSIT, and b is the peer that cannot be reached.
+      await sA.enqueueOutboxFrame(
+        'frame-for-b',
+        b.hex,
+        WireEnvelope.message('to b', id: 'frame-for-b', sentAtMs: 0).encode(),
+      );
+      await sA.enqueueOutboxFrame(
+        'frame-for-c',
+        c.hex,
+        WireEnvelope.message('to c', id: 'frame-for-c', sentAtMs: 0).encode(),
+      );
+      tA.hangOnSend = true;
+      // Long enough that a deposit which waited for the dial cannot sneak in
+      // under the pump below and pass by accident.
+      mA.liveLegDeadline = const Duration(seconds: 30);
+
+      unawaited(mA.debugFlushOutboxFrames());
+      await pumpEventQueue(times: 50);
+
+      expect(
+        sink.stashed.map((s) => s.$1).toSet(),
+        {b, c},
+        reason:
+            'every frame in a pass is offered to the deposit gate before any '
+            'of them is dialled, so an unreachable destination costs the live '
+            'half of the pass and nothing else',
+      );
+    });
   });
 
   test('ordinary traffic still yields to a call', () async {

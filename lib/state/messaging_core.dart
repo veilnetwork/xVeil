@@ -744,8 +744,15 @@ class MessagingService {
     // rides the same push. The mailbox-delivery subsystem dedups by id (at most
     // one deposit per message); fire-and-forget keeps the seal/PUT round-trip
     // off the receive path while the live send covers the online case.
-    await _send(m.src, ack);
+    //
+    // The deposit goes FIRST for the same reason the ack is durable at all: it
+    // is the leg that reaches a sender we cannot reach live, so it cannot be
+    // sequenced behind reaching them. It sat below a live send that nothing
+    // bounds, so a sender on a stale direct address got no ack at all until
+    // that send came back — and an un-acked sender is precisely the one that
+    // re-sends forever.
     _stashInBackground(m.src, 'ack:$id', ack);
+    await _send(m.src, ack);
   }
 
   final _changes = StreamController<void>.broadcast();
@@ -855,6 +862,34 @@ class MessagingService {
   Duration get mailboxStashDeadline => _mailboxDelivery.stashDeadline;
 
   Duration get mailboxAckGrace => _mailboxDelivery.ackGrace;
+
+  /// Hard deadline on ONE awaited live leg. The deposit slot got
+  /// [mailboxStashDeadline] for exactly this reason and the live leg got
+  /// nothing — so the half that was left unbounded is the half that wedges.
+  ///
+  /// A live send has no timeout of its own anywhere below this line, and it is
+  /// not ours to bound from the inside: it is a blocking FFI call
+  /// (`veil_send`/`veil_send_anonymous_authenticated`) taken under the app's
+  /// ONE sender mutex, over a peer that a stale direct address is keeping the
+  /// node busy dialling — the e2e stand logs that dial as
+  /// `peer.connect.failure … connection timed out after 10s` on a ladder that
+  /// keeps re-arming. Whatever share of that the send actually waits out, this
+  /// side must not wait indefinitely for it: `_retryFlush` runs one pass at a
+  /// time behind `_flushing`, so a live leg that never returns is not a slow
+  /// pass — it is the last pass this process ever runs, and every mailbox
+  /// deposit to every peer stops with it. A hung native call is not
+  /// hypothetical in this stack; it is why the deposit slot has a deadline.
+  ///
+  /// Abandoning the WAIT abandons nothing else. The frame is already durable
+  /// and already deposited (both flush loops now stash before they dial), the
+  /// send is fire-and-forget by contract — `VEIL_OK` means "handed to the
+  /// first hop", never delivered — and the relay dedups by contentId, so a
+  /// send that lands after we stopped waiting is harmless.
+  ///
+  /// An instance field, not a const, for the same reason as
+  /// [mailboxStashDeadline]: the test that proves a pass cannot wedge must not
+  /// sit out ten real seconds.
+  Duration liveLegDeadline = const Duration(seconds: 10);
 
   void onAppResumed() => _mailboxDelivery.nudgeDrain();
 
