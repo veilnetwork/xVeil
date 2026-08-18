@@ -151,13 +151,15 @@ class MailboxOrchestrator {
   /// must not be able to grow the container one commit per blob.
   final Set<String> _openFailedOnce = {};
 
-  /// Per-cid count of TRANSIENT open failures (the node's IPC didn't answer —
-  /// "timeout waiting for mailbox_open reply" — which says nothing about the
-  /// blob itself). Such a blob is retried on later drains WITHOUT acking, so
-  /// the relay keeps its copy; only after [_transientOpenCap] consecutive
-  /// timeouts is it treated as permanently poisoned. In-RAM only (a restart
-  /// retries from zero — correct for a node-side transient). Bounded so junk
-  /// cannot grow it.
+  /// Per-cid count of TRANSIENT open failures — the node's IPC did not answer
+  /// ("timeout waiting for mailbox_open reply"), or the sender's identity
+  /// document could not be resolved right now (`PeerUnresolved`). Neither
+  /// says anything about the blob: the first is a busy node, the second a
+  /// DHT that has not answered yet. Such a blob is retried on later drains
+  /// WITHOUT acking, so the relay keeps its copy; only after
+  /// [_transientOpenCap] consecutive failures is it treated as permanently
+  /// poisoned. In-RAM only (a restart retries from zero — correct for a
+  /// transient). Bounded so junk cannot grow it.
   final Map<String, int> _transientOpenFails = {};
   static const _transientOpenCap = 6;
   static const _transientOpenFailsMax = 512;
@@ -373,7 +375,20 @@ class MailboxOrchestrator {
         // Skip WITHOUT acking so the relay keeps it and a later drain retries;
         // a bounded per-cid counter still terminates a blob whose opens time
         // out forever.
-        if ('$e'.contains('timeout')) {
+        //
+        // AN UNRESOLVED SENDER IS THE SAME KIND OF NOTHING. `PeerUnresolved`
+        // says the sender's identity document could not be fetched right
+        // now, and that is a statement about the DHT rather than about the
+        // blob: a cold routing table after a restart, a resolve racing the
+        // node's own registration, an eclipse — or a relay pinning a stale
+        // document, which cost this network hours of unresolvable identities
+        // on 2026-08-17. Acking on it destroys the relay's only copy of a
+        // message that would have opened fine minutes later. Bounded exactly
+        // like the timeout: the blob is left for a later drain, and a sender
+        // whose document never resolves still terminates at the cap.
+        final transient =
+            '$e'.contains('timeout') || '$e'.contains('PeerUnresolved');
+        if (transient) {
           final n = (_transientOpenFails[cidHex] ?? 0) + 1;
           if (n < _transientOpenCap) {
             if (_transientOpenFails.length >= _transientOpenFailsMax) {
@@ -382,7 +397,7 @@ class MailboxOrchestrator {
             _transientOpenFails[cidHex] = n;
             devLog(
               () =>
-                  'xVeil[drain]: open TIMED OUT contentId=${_shortHex(b.contentId)} '
+                  'xVeil[drain]: open failed TRANSIENTLY contentId=${_shortHex(b.contentId)} '
                   '(attempt $n/$_transientOpenCap) — NOT acked, will retry: $e',
             );
             continue;
