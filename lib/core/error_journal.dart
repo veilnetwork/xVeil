@@ -32,6 +32,30 @@ class ErrorJournal {
 
   List<RecordedError> get entries => List.unmodifiable(_entries);
 
+  /// The kinds that mean a lock or wipe did NOT finish what it claimed: a
+  /// node whose stop ran out of its budget, a teardown step abandoned so the
+  /// container lock could still be released, or a VPN backend that never
+  /// confirmed the tunnel was down.
+  ///
+  /// Named here rather than at the screen because the recording sites are
+  /// what define them, and a reader looking at either end should find the
+  /// same list.
+  static const incompleteTeardownKinds = {
+    'teardown-abandoned',
+    'node-stop-abandoned',
+    'vpn-stop-incomplete',
+  };
+
+  /// Whether the last teardown left something running.
+  ///
+  /// The screen says "locked" the moment the keys are gone — which is the
+  /// right order, since holding them through a stuck teardown is the worse
+  /// outcome — but a node that outlived its stop still holds its sockets and
+  /// its network identity, and a tunnel that never confirmed may still be
+  /// routing. Both were journaled and neither was ever said out loud.
+  bool get teardownLeftSomethingRunning =>
+      _entries.any((e) => incompleteTeardownKinds.contains(e.kind));
+
   /// Record a failure, collapsing a repeat of one already held.
   ///
   /// Repeats are the normal case, not the exception: a screen that fails to
