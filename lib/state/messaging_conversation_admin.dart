@@ -481,6 +481,19 @@ class _MessagingConversationAdmin {
   /// Folds and PERSISTS the collapse as a side effect, which is what keeps the
   /// entry list short without a separate maintenance pass.
   Future<int> hiddenThroughTs(NodeId peer) async {
+    try {
+      return await _hiddenThroughTs(peer);
+    } catch (_) {
+      // Best-effort, like [markRead] and [sweepDisappearing] beside it. This
+      // runs on the chat's fifteen-second timer, which keeps firing while a
+      // screen tears down and the container closes under it; a locked store
+      // must mean "ask again next tick", not an exception out of a timer.
+      // Hiding nothing is also the direction that cannot lose a message.
+      return 0;
+    }
+  }
+
+  Future<int> _hiddenThroughTs(NodeId peer) async {
     final setting = await disappearingOf(peer);
     final window = setting.hideWindow;
     if (window == null) return 0;

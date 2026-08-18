@@ -453,6 +453,22 @@ void main() {
       expect(await bodies(), contains('later'));
     });
 
+    /// It runs on the chat's timer, which keeps firing while a screen tears
+    /// down and the container closes under it. An exception out of a timer is
+    /// not a recoverable state for the widget tree above it.
+    test('a locked store answers zero instead of throwing', () async {
+      clockB = clockB.add(const Duration(seconds: 1));
+      await mB.sendText(a, 'hello');
+      await _pump();
+      clockA = clockA.add(const Duration(seconds: 2));
+      await mA.markRead(b.hex);
+      clockA = clockA.add(const Duration(seconds: 400));
+      expect(await mA.hiddenThroughTs(b), greaterThan(0));
+
+      await sA.close();
+      expect(await mA.hiddenThroughTs(b), 0);
+    });
+
     /// The point of the whole shape: the record does not grow with the
     /// conversation. Once a showing's window has passed it becomes one integer.
     test('the record collapses instead of growing', () async {
