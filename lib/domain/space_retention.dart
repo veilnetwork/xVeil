@@ -25,6 +25,13 @@ const int kMaxSpaceDeletionGraceMs = 365 * 24 * 60 * 60 * 1000;
 /// asked for. Authoring clamps the grace to zero below this line.
 const int kDisappearingWindowCeilingMs = 24 * 60 * 60 * 1000;
 
+/// Bounds on the hide-after-read half of a policy: one minute to four weeks.
+/// The ceiling is a bound on what a signed row may CLAIM, not a policy about
+/// taste — without it one row could carry a number whose expiry arithmetic
+/// overflows every clock downstream.
+const int kMinHideAfterReadMs = 60 * 1000;
+const int kMaxHideAfterReadMs = 28 * 24 * 60 * 60 * 1000;
+
 /// The windows a group's picker offers, in the scale the feature is actually
 /// about. Anything longer is still reachable through the custom entry — these
 /// are the ones worth one tap, not the ones that exist.
@@ -56,6 +63,7 @@ class SpaceRetentionPolicy {
     this.channelId,
     this.retentionMs,
     this.mediaOnly = false,
+    this.hideAfterReadMs,
     this.physicalDeletionGraceMs = 7 * 24 * 60 * 60 * 1000,
     this.includeArchivedChannels = true,
     this.preservePinned = true,
@@ -91,6 +99,24 @@ class SpaceRetentionPolicy {
   /// It has a distinct wire version so an older client cannot mistake the
   /// policy for full-history deletion.
   final bool mediaOnly;
+
+  /// The read-clock half: hide a message from the interface this long after
+  /// the member's device first SHOWED it. Null is off.
+  ///
+  /// Everything that makes it different from [retentionMs] is deliberate. It
+  /// HIDES — the signed log keeps the row, sync and serve still carry it, and
+  /// only presentation stops. Its clock is LOCAL to each member's device,
+  /// because nothing in this protocol knows when anyone else read anything.
+  /// And it is a REQUEST: a member's build that ignores it is not detectable,
+  /// let alone stoppable. It rides the same signed revision as the deletion
+  /// half so there is one timeline, one authority (`manageStorage`) and one
+  /// audit trail for both.
+  ///
+  /// Orthogonal to [mode]: `keepForever` + a read window is a meaningful
+  /// policy ("never delete, but tidy the screen"), so validity does not tie
+  /// the two together. Only `inherit` excludes it, because inherit's whole
+  /// meaning is "this channel has no opinion of its own".
+  final int? hideAfterReadMs;
   final int physicalDeletionGraceMs;
   final bool includeArchivedChannels;
   final bool preservePinned;
@@ -101,9 +127,15 @@ class SpaceRetentionPolicy {
       physicalDeletionGraceMs <= kMaxSpaceDeletionGraceMs &&
       preservePinned &&
       preserveModerationEvidence &&
+      (hideAfterReadMs == null ||
+          (hideAfterReadMs! >= kMinHideAfterReadMs &&
+              hideAfterReadMs! <= kMaxHideAfterReadMs)) &&
       switch (mode) {
         SpaceRetentionMode.inherit =>
-          channelId != null && retentionMs == null && !mediaOnly,
+          channelId != null &&
+              retentionMs == null &&
+              !mediaOnly &&
+              hideAfterReadMs == null,
         SpaceRetentionMode.keepForever => retentionMs == null && !mediaOnly,
         SpaceRetentionMode.deleteAfter =>
           retentionMs != null &&
@@ -111,12 +143,23 @@ class SpaceRetentionPolicy {
               retentionMs! <= kMaxSpaceRetentionMs,
       };
 
+  /// v3 only when the read window is set, so every revision an old build CAN
+  /// represent keeps the wire shape that build expects. A v3 row is rejected
+  /// whole by a pre-read-window build (unknown version), which drops that one
+  /// revision and keeps the previous policy — under-hiding, never a surprise
+  /// deletion. The one-sidedness is the same as the retention floor's, and
+  /// like there, the UI owes the author a sentence about it.
   Map<String, dynamic> toJson() => {
-    'v': mediaOnly ? 2 : 1,
+    'v': hideAfterReadMs != null
+        ? 3
+        : mediaOnly
+        ? 2
+        : 1,
     'mode': mode.name,
     if (channelId != null) 'channel': channelId!.hex,
     if (retentionMs != null) 'retentionMs': retentionMs,
     if (mediaOnly) 'mediaOnly': true,
+    if (hideAfterReadMs != null) 'hideReadMs': hideAfterReadMs,
     'graceMs': physicalDeletionGraceMs,
     'archives': includeArchivedChannels,
     'pins': preservePinned,
@@ -125,7 +168,7 @@ class SpaceRetentionPolicy {
 
   static SpaceRetentionPolicy? fromJson(Object? value) {
     if (value is! Map ||
-        (value['v'] != 1 && value['v'] != 2) ||
+        (value['v'] != 1 && value['v'] != 2 && value['v'] != 3) ||
         value['mode'] is! String ||
         value['graceMs'] is! int ||
         value['archives'] is! bool ||
@@ -134,8 +177,15 @@ class SpaceRetentionPolicy {
       return null;
     }
     final version = value['v'] as int;
+    // Each version means exactly one field shape. A v1 row carrying mediaOnly,
+    // a v2 row without it, a v3 row without its window or a v1/v2 row WITH one
+    // are all malformed — accepting any of them would let one encoder's bug
+    // read as a different policy on half the fleet.
     if ((version == 1 && value.containsKey('mediaOnly')) ||
-        (version == 2 && value['mediaOnly'] != true)) {
+        (version == 2 && value['mediaOnly'] != true) ||
+        (version == 3
+            ? value['hideReadMs'] is! int
+            : value.containsKey('hideReadMs'))) {
       return null;
     }
     final mode = SpaceRetentionMode.fromName(value['mode'] as String);
@@ -149,7 +199,8 @@ class SpaceRetentionPolicy {
         retentionMs: value['retentionMs'] is int
             ? value['retentionMs'] as int
             : null,
-        mediaOnly: version == 2,
+        mediaOnly: version == 2 || (version == 3 && value['mediaOnly'] == true),
+        hideAfterReadMs: version == 3 ? value['hideReadMs'] as int : null,
         physicalDeletionGraceMs: value['graceMs'] as int,
         includeArchivedChannels: value['archives'] as bool,
         preservePinned: value['pins'] as bool,
