@@ -441,6 +441,73 @@ void main() {
       expect(opens, 3);
     });
 
+    test('an unresolvable sender is retried, not destroyed', () async {
+      // PeerUnresolved says the sender's identity document did not resolve
+      // RIGHT NOW — a cold routing table, a resolve racing our own
+      // registration, a relay pinning a stale document (which cost this
+      // network hours on 2026-08-17). Acking on it drops the relay's only
+      // copy of a message that opens fine minutes later. Reported
+      // 2026-08-18: it was classed permanent.
+      var fail = true;
+      var opens = 0;
+      final inner = LoopbackMailboxCrypto(senderForOpen: peer);
+      final flaky = _FlakyOpenCrypto(
+        inner,
+        onOpen: () => opens++,
+        shouldFail: () => fail,
+        failure: 'mailbox_open failed: PeerUnresolved',
+      );
+      final sticky = InMemoryMailboxRelay();
+      final orch2 = MailboxOrchestrator(
+        flaky,
+        sticky,
+        poisoned: freshRegistry(),
+      );
+      final data = Uint8List.fromList([9, 9, 9]);
+      final blob = await inner.seal(
+        recipient: me,
+        appId: _appId(0xAD),
+        endpointId: 7,
+        data: data,
+      );
+      await sticky.put(
+        receiver: me,
+        contentId: _cid(0xAD),
+        sender: peer,
+        blob: blob,
+      );
+
+      // Two drains while the DHT has nothing: the blob must survive both.
+      for (var i = 0; i < 2; i++) {
+        expect(
+          await orch2.drain(
+            me: me,
+            authCookie: cookie,
+            ourCertVersion: 1,
+            alreadyHave: never,
+          ),
+          isEmpty,
+        );
+      }
+      expect(
+        await sticky.fetch(me: me, authCookie: cookie),
+        isNotEmpty,
+        reason: 'an unresolved sender must not cost the relay its only copy',
+      );
+
+      // The document resolves; the message arrives and only now is acked.
+      fail = false;
+      final got = await orch2.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
+      expect(got.single.data, data);
+      expect(await sticky.fetch(me: me, authCookie: cookie), isEmpty);
+      expect(opens, 3);
+    });
+
     test(
       'opens that time out forever still terminate (bounded → quarantine)',
       () async {
@@ -524,10 +591,18 @@ class _FlakyOpenCrypto implements VeilMailboxCrypto {
     this._inner, {
     required this.onOpen,
     required this.shouldFail,
+    this.failure =
+        'mailbox_open failed: protocol error: timeout waiting for '
+        'mailbox_open reply',
   });
   final VeilMailboxCrypto _inner;
   final void Function() onOpen;
   final bool Function() shouldFail;
+
+  /// The native text an open failed with. The orchestrator reads the status
+  /// discriminant out of it, so a test that wants a different transient (or a
+  /// permanent failure) says so here.
+  final String failure;
 
   @override
   Future<Uint8List> seal({
@@ -549,10 +624,7 @@ class _FlakyOpenCrypto implements VeilMailboxCrypto {
   }) {
     onOpen();
     if (shouldFail()) {
-      throw Exception(
-        'mailbox_open failed: protocol error: timeout waiting for '
-        'mailbox_open reply',
-      );
+      throw Exception(failure);
     }
     return _inner.open(blob: blob, ourCertVersion: ourCertVersion);
   }
