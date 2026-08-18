@@ -464,14 +464,6 @@
   },
   "spacePolicyAuditRetentionInherit": "inherits the community policy",
   "spacePolicyAuditRetentionForever": "keeps history",
-  "spacePolicyAuditRetentionDays": "removes after {days} days",
-  "@spacePolicyAuditRetentionDays": {
-    "placeholders": {
-      "days": {
-        "type": "int"
-      }
-    }
-  },
   "spacePolicyAuditMediaOnly": "media only",
   "spaceRecentActionsTitle": "Recent actions",
   "spaceRecentActionsHint": "Signed administrative history. You see what your rights allow.",
@@ -829,6 +821,14 @@
   "groupMembersTooltip": "Members",
   "groupSyncSettingsTooltip": "Chat synchronization",
   "groupConvertToCommunity": "Convert to community",
+  "groupDisappearingTooltip": "Disappearing messages",
+  "groupDisappearingTitle": "Disappearing messages",
+  "groupDisappearingSubtitle": "Messages in this group are erased for EVERYONE once the window passes. Only the owner can change it, and members on an older build keep their copies.",
+  "groupDisappearingOff": "Do not delete",
+  "groupDisappearingCustom": "Custom",
+  "groupDisappearingCustomTitle": "Custom window",
+  "groupDisappearingMinutesSuffix": "min",
+  "groupDisappearingFailed": "Could not change the window",
   "groupConvertConfirm": "This chat becomes a community with channels, publications and a feed. Members and history are kept. It moves to Communities. This cannot be undone.",
   "groupConvertAction": "Convert",
   "groupSyncNeighborsTitle": "Chat synchronization",

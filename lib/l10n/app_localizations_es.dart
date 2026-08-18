@@ -1248,11 +1248,6 @@ class AppL10nEs extends AppL10n {
   String get spacePolicyAuditRetentionForever => 'conserva el historial';
 
   @override
-  String spacePolicyAuditRetentionDays(int days) {
-    return 'elimina pasados $days días';
-  }
-
-  @override
   String get spacePolicyAuditMediaOnly => 'solo el contenido multimedia';
 
   @override
@@ -1918,6 +1913,31 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get groupConvertToCommunity => 'Convertir en comunidad';
+
+  @override
+  String get groupDisappearingTooltip => 'Mensajes temporales';
+
+  @override
+  String get groupDisappearingTitle => 'Mensajes temporales';
+
+  @override
+  String get groupDisappearingSubtitle =>
+      'Los mensajes de este grupo se borran para TODOS al vencer el plazo. Solo el propietario puede cambiarlo, y los miembros con una versión antigua conservan sus copias.';
+
+  @override
+  String get groupDisappearingOff => 'No borrar';
+
+  @override
+  String get groupDisappearingCustom => 'Personalizado';
+
+  @override
+  String get groupDisappearingCustomTitle => 'Plazo personalizado';
+
+  @override
+  String get groupDisappearingMinutesSuffix => 'min';
+
+  @override
+  String get groupDisappearingFailed => 'No se pudo cambiar el plazo';
 
   @override
   String get groupConvertConfirm =>

@@ -183,9 +183,13 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
         null => l.spaceVisibilityPrivate,
       };
 
-  int? _retentionDays(SpaceRetentionPolicy policy) =>
+  /// Minutes, not days. Integer-dividing a signed window by a day answered
+  /// "0" for anything shorter than one — and `0` is this screen's code for
+  /// "keep everything", so a group set to delete every thirty minutes read as
+  /// unlimited retention.
+  int? _retentionMinutes(SpaceRetentionPolicy policy) =>
       policy.mode == SpaceRetentionMode.deleteAfter
-      ? policy.retentionMs! ~/ const Duration(days: 1).inMilliseconds
+      ? policy.retentionMs! ~/ const Duration(minutes: 1).inMilliseconds
       : null;
 
   String _date(BuildContext context, int timestampMs) {
@@ -198,16 +202,27 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
   Future<void> _setGlobalRetention(
     GroupService service,
     NodeId spaceId,
-    int? days, {
+    int? minutes, {
     required bool mediaOnly,
   }) async {
-    final policy = days == null
-        ? const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever)
-        : SpaceRetentionPolicy(
-            mode: SpaceRetentionMode.deleteAfter,
-            retentionMs: Duration(days: days).inMilliseconds,
-            mediaOnly: mediaOnly,
-          );
+    final SpaceRetentionPolicy policy;
+    if (minutes == null) {
+      policy = const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever);
+    } else {
+      final window = Duration(minutes: minutes);
+      // `forWindow` owns the grace decision, so a short window here gets the
+      // same zero grace it gets in a group chat. The media-only modifier is
+      // layered on top rather than re-deriving the rest.
+      final base = SpaceRetentionPolicy.forWindow(window);
+      policy = mediaOnly
+          ? SpaceRetentionPolicy(
+              mode: base.mode,
+              retentionMs: base.retentionMs,
+              mediaOnly: true,
+              physicalDeletionGraceMs: base.physicalDeletionGraceMs,
+            )
+          : base;
+    }
     if (!await service.setSpaceRetentionPolicy(spaceId, policy)) _failure();
   }
 
@@ -265,8 +280,12 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       switch (policy.mode) {
         SpaceRetentionMode.inherit => l.spacePolicyAuditRetentionInherit,
         SpaceRetentionMode.keepForever => l.spacePolicyAuditRetentionForever,
-        SpaceRetentionMode.deleteAfter => l.spacePolicyAuditRetentionDays(
-          policy.retentionMs! ~/ const Duration(days: 1).inMilliseconds,
+        // The window as it was signed. Reported in days, this line said
+        // "0 days" for every window shorter than one — an audit trail that
+        // could not describe the policy it was auditing.
+        SpaceRetentionMode.deleteAfter => formatDisappearingWindow(
+          l,
+          policy.retentionMs! ~/ 1000,
         ),
       };
 
@@ -1399,7 +1418,9 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             final accessGroups =
                 state.accessPolicy?.groups ?? const <SpaceMemberGroup>[];
             final globalRetentionPolicy = state.effectiveRetentionPolicy();
-            final globalRetentionDays = _retentionDays(globalRetentionPolicy);
+            final globalRetentionMinutes = _retentionMinutes(
+              globalRetentionPolicy,
+            );
             final members = state.members.values.toList()
               ..sort((a, b) {
                 final rank = b.role.rank.compareTo(a.role.rank);
@@ -2440,15 +2461,37 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                               key: const ValueKey('space-global-retention'),
                               title: l.spaceRetentionGlobal,
                               subtitle: l.spaceRetentionGlobalHint,
-                              value: globalRetentionDays,
+                              value: globalRetentionMinutes,
                               enabled: canManageRetention,
-                              onChanged: (days) => unawaited(
+                              // Minutes, because the signed policy now reaches
+                              // down to one and a converted group chat arrives
+                              // carrying such a window. The day presets stay —
+                              // they are what a community usually wants — they
+                              // are simply expressed in the finer unit.
+                              options: [
+                                (l.retentionUnlimited, 0),
+                                for (final window in kGroupDisappearingPresets)
+                                  (
+                                    formatDisappearingWindow(
+                                      l,
+                                      window.inSeconds,
+                                    ),
+                                    window.inMinutes,
+                                  ),
+                                (l.retention7, 7 * 24 * 60),
+                                (l.retention30, 30 * 24 * 60),
+                                (l.retention90, 90 * 24 * 60),
+                                (l.retention365, 365 * 24 * 60),
+                              ],
+                              unnamedLabel: (minutes) =>
+                                  formatDisappearingWindow(l, minutes * 60),
+                              onChanged: (minutes) => unawaited(
                                 _setGlobalRetention(
                                   service,
                                   spaceId,
-                                  days,
+                                  minutes,
                                   mediaOnly:
-                                      days != null &&
+                                      minutes != null &&
                                       globalRetentionPolicy.mediaOnly,
                                 ),
                               ),
@@ -2457,7 +2500,7 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                                 _setGlobalRetention(
                                   service,
                                   spaceId,
-                                  globalRetentionDays,
+                                  globalRetentionMinutes,
                                   mediaOnly: mediaOnly,
                                 ),
                               ),
@@ -2467,6 +2510,18 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                               title: l.spaceRetentionLocal,
                               subtitle: l.spaceRetentionLocalHint,
                               value: localRetentionDays,
+                              // Days, and staying days: this one is a private
+                              // preference stored as a whole number of them,
+                              // not the signed policy.
+                              options: [
+                                (l.retentionUnlimited, 0),
+                                (l.retention7, 7),
+                                (l.retention30, 30),
+                                (l.retention90, 90),
+                                (l.retention365, 365),
+                              ],
+                              unnamedLabel: (days) =>
+                                  l.chatDisappearingDays(days),
                               onChanged: (days) => unawaited(
                                 _setLocalRetention(service, spaceId, days),
                               ),
@@ -3423,10 +3478,16 @@ class _RetentionTile extends StatelessWidget {
     required this.subtitle,
     required this.value,
     required this.onChanged,
+    required this.options,
+    required this.unnamedLabel,
     this.enabled = true,
     this.mediaOnly = false,
     this.onMediaOnlyChanged,
   });
+
+  /// How to name a value none of the presets covers. The caller supplies it
+  /// because the caller owns the unit.
+  final String Function(int value) unnamedLabel;
 
   final String title;
   final String subtitle;
@@ -3436,16 +3497,30 @@ class _RetentionTile extends StatelessWidget {
   final bool mediaOnly;
   final ValueChanged<bool>? onMediaOnlyChanged;
 
+  /// `(label, value)` pairs, where `0` is always "keep everything". The UNIT is
+  /// the caller's, because the two tiles do not share one: the signed policy is
+  /// milliseconds and now reaches down to a minute, while the local preference
+  /// is stored in whole days. A tile hard-coded to days answered a
+  /// thirty-minute window with "unlimited" — the screen claiming the opposite
+  /// of what the group was doing.
+  final List<(String, int)> options;
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    // A window this build's presets do not name still has to be shown as
+    // itself, not silently rounded onto a neighbour.
+    final current = value ?? 0;
+    final shown = options.any((option) => option.$2 == current)
+        ? options
+        : [...options, (unnamedLabel(current), current)];
     return Column(
       children: [
         ListTile(
           title: Text(title),
           subtitle: Text(subtitle),
           trailing: DropdownButton<int>(
-            value: value ?? 0,
+            value: current,
             underline: const SizedBox.shrink(),
             onChanged: enabled
                 ? (next) {
@@ -3453,19 +3528,13 @@ class _RetentionTile extends StatelessWidget {
                   }
                 : null,
             selectedItemBuilder: (_) => [
-              for (final text in [
-                l.retentionUnlimited,
-                l.retention7,
-                l.retention30,
-                l.retention90,
-                l.retention365,
-              ])
+              for (final option in shown)
                 SizedBox(
                   width: 112,
                   child: Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      text,
+                      option.$1,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -3473,11 +3542,8 @@ class _RetentionTile extends StatelessWidget {
                 ),
             ],
             items: [
-              DropdownMenuItem(value: 0, child: Text(l.retentionUnlimited)),
-              DropdownMenuItem(value: 7, child: Text(l.retention7)),
-              DropdownMenuItem(value: 30, child: Text(l.retention30)),
-              DropdownMenuItem(value: 90, child: Text(l.retention90)),
-              DropdownMenuItem(value: 365, child: Text(l.retention365)),
+              for (final option in shown)
+                DropdownMenuItem(value: option.$2, child: Text(option.$1)),
             ],
           ),
         ),

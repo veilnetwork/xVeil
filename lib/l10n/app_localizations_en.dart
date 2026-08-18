@@ -1237,11 +1237,6 @@ class AppL10nEn extends AppL10n {
   String get spacePolicyAuditRetentionForever => 'keeps history';
 
   @override
-  String spacePolicyAuditRetentionDays(int days) {
-    return 'removes after $days days';
-  }
-
-  @override
   String get spacePolicyAuditMediaOnly => 'media only';
 
   @override
@@ -1899,6 +1894,31 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get groupConvertToCommunity => 'Convert to community';
+
+  @override
+  String get groupDisappearingTooltip => 'Disappearing messages';
+
+  @override
+  String get groupDisappearingTitle => 'Disappearing messages';
+
+  @override
+  String get groupDisappearingSubtitle =>
+      'Messages in this group are erased for EVERYONE once the window passes. Only the owner can change it, and members on an older build keep their copies.';
+
+  @override
+  String get groupDisappearingOff => 'Do not delete';
+
+  @override
+  String get groupDisappearingCustom => 'Custom';
+
+  @override
+  String get groupDisappearingCustomTitle => 'Custom window';
+
+  @override
+  String get groupDisappearingMinutesSuffix => 'min';
+
+  @override
+  String get groupDisappearingFailed => 'Could not change the window';
 
   @override
   String get groupConvertConfirm =>
