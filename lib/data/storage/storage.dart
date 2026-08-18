@@ -314,6 +314,16 @@ abstract interface class Storage {
   /// (unlimited). Returns how many messages were pruned. Local-only.
   Future<int> pruneConversation(NodeId peer, int retentionDays);
 
+  /// The same forensic prune as [pruneConversation], expressed as an INSTANT
+  /// rather than a number of days.
+  ///
+  /// Disappearing messages needs a window measured in seconds, and "0 days"
+  /// cannot say "thirty seconds ago". Both entry points share one
+  /// implementation so a message that disappears and a message that ages out
+  /// leave the store in exactly the same state — the same tombstones, the same
+  /// voided edit rows, the same scrub. Returns how many messages were pruned.
+  Future<int> pruneConversationBefore(NodeId peer, DateTime cutoff);
+
   /// Erase every message of the conversation with [peer] but KEEP the contact +
   /// chat-list entry — the chat stays, emptied. Tombstones + scrubs exactly like
   /// [removeConversation]; shared hash-CID blobs enter global GC quarantine.

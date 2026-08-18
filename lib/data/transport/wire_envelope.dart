@@ -245,6 +245,21 @@ enum WireKind {
   /// nothing about the answering device. Same live-only, contact-gated
   /// treatment as the request. Appended immediately before [unknown] (RULE WC).
   modelInventoryOffer,
+
+  /// The conversation's shared disappearing-message window changed. Body is
+  /// `{v:1, ttl:<seconds, 0=off>, ts:<ms since epoch>}`.
+  ///
+  /// Announced rather than kept private because a window only one side honours
+  /// is not a promise — the copy on the other device is exactly what the
+  /// setting is about. The sender identity comes from the envelope, never the
+  /// body, and the receiver keeps whichever of the two announcements is later
+  /// (see `DisappearingSetting.winner`) so both sides converge on ONE window
+  /// instead of each keeping its own.
+  ///
+  /// Contact-gated on receive like the other conversation-scoped kinds, and
+  /// appended immediately before [unknown] (RULE WC) so an older build maps
+  /// the out-of-range index to [unknown] and drops it.
+  disappearingSet,
   unknown,
 }
 
@@ -310,6 +325,22 @@ const kChatDeletedMarkerBody = 'sys:chat-deleted';
 
 /// True when a stored message body is the [WireKind.chatDeleted] marker.
 bool isChatDeletedMarker(String body) => body == kChatDeletedMarkerBody;
+
+/// Prefix of the LOCAL marker a disappearing-window change leaves in the chat,
+/// followed by the new window in seconds (`0` = off).
+///
+/// The value is carried IN the marker rather than looked up when the row is
+/// drawn, because the row has to keep saying what it said at the time: a chat
+/// that went 1 hour → off → 1 hour must read as three events, not as three
+/// copies of whatever the setting happens to be now.
+const kDisappearingMarkerPrefix = 'sys:disappearing:';
+
+/// The window a disappearing marker announces, or null when [body] is not one.
+/// `0` means the sender turned the window off.
+int? disappearingMarkerSeconds(String body) {
+  if (!body.startsWith(kDisappearingMarkerPrefix)) return null;
+  return int.tryParse(body.substring(kDisappearingMarkerPrefix.length));
+}
 
 /// The loopback dev transport echoes every wire frame back prefixed with this,
 /// so `↩︎ echo: {"t":..}` bodies land in the log. Echoes of CONTROL frames

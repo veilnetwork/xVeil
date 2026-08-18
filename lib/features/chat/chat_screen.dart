@@ -17,7 +17,8 @@ import '../common/async_error_view.dart';
 import '../../core/format.dart';
 import '../../core/ids.dart';
 import '../../data/serve_source.dart';
-import '../../data/transport/wire_envelope.dart' show isChatDeletedMarker;
+import '../../data/transport/wire_envelope.dart'
+    show disappearingMarkerSeconds, isChatDeletedMarker;
 import '../../core/log.dart';
 import 'attachment_preview.dart';
 import 'chat_actions.dart';
@@ -195,6 +196,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Flash highlight of a just-landed message (search hit / quote jump).
   String? _highlightId;
   Timer? _highlightTimer;
+
+  /// Sweeps the shared disappearing window while the chat is on screen. The
+  /// window is measured in seconds, so "delete it when the chat is opened" —
+  /// which is all retention ever needed — would leave an expired message on
+  /// screen for as long as the reader keeps looking at it.
+  Timer? _disappearingTimer;
 
   /// True when this is the Saved Messages chat (peer == our own node id) —
   /// set at the top of build, read by _submit / _bottom / the app bar.
@@ -451,6 +458,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ref
             .read(messagingServiceProvider)
             .pruneConversation(NodeId.fromHex(widget.peerHex));
+        // And the SHARED window, which is measured in seconds and therefore
+        // needs a sweep while the chat is open, not only when it is entered.
+        unawaited(_sweepDisappearing());
+        _disappearingTimer = Timer.periodic(
+          const Duration(seconds: 15),
+          (_) => unawaited(_sweepDisappearing()),
+        );
         // Mark this chat as the one on screen so the notification layer
         // suppresses alerts for it while it's open + foreground.
         ref.read(activeConversationProvider.notifier).state = widget.peerHex;
@@ -484,11 +498,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   void dispose() {
     _chatSearchDebounce?.cancel();
     _highlightTimer?.cancel();
+    _disappearingTimer?.cancel();
     _chatSearchCtl.dispose();
     _input.dispose();
     _inputFocus.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  Future<void> _sweepDisappearing() async {
+    final removed = await ref
+        .read(messagingServiceProvider)
+        .sweepDisappearing(NodeId.fromHex(widget.peerHex));
+    // Only rebuild when something actually went: a 15-second timer that calls
+    // setState unconditionally would repaint the whole chat forever.
+    if (removed > 0 && mounted) setState(() {});
   }
 
   Future<void> _submit(ContactStatus? status) async {
@@ -2324,6 +2348,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       );
                     }
                     final m = list[hasMore ? i - 1 : i];
+                    // A disappearing-window change renders as a centered
+                    // system notice on BOTH sides — the person who set it and
+                    // the person it was set on both need to see it.
+                    final disappearingSecs = disappearingMarkerSeconds(m.body);
+                    if (disappearingSecs != null) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            disappearingSecs <= 0
+                                ? l.chatDisappearingOffNotice
+                                : l.chatDisappearingSetNotice(
+                                    formatDisappearingWindow(
+                                      l,
+                                      disappearingSecs,
+                                    ),
+                                  ),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      );
+                    }
                     // A chatDeleted farewell marker renders as a centered
                     // system notice, not a peer bubble (nobody typed it).
                     if (m.direction == MessageDirection.incoming &&

@@ -2802,6 +2802,44 @@ class AppL10nEn extends AppL10n {
       'The other person deleted this chat on their device';
 
   @override
+  String get chatDisappearingTitle => 'Disappearing messages';
+
+  @override
+  String get chatDisappearingSubtitle =>
+      'Messages in this chat are erased on BOTH devices once the window passes. Either of you can change it.';
+
+  @override
+  String get chatDisappearingOff => 'Off';
+
+  @override
+  String chatDisappearingSetNotice(String window) {
+    return 'Disappearing messages: $window';
+  }
+
+  @override
+  String get chatDisappearingOffNotice => 'Disappearing messages turned off';
+
+  @override
+  String chatDisappearingSeconds(int n) {
+    return '$n sec';
+  }
+
+  @override
+  String chatDisappearingMinutes(int n) {
+    return '$n min';
+  }
+
+  @override
+  String chatDisappearingHours(int n) {
+    return '$n h';
+  }
+
+  @override
+  String chatDisappearingDays(int n) {
+    return '$n d';
+  }
+
+  @override
   String get chatEditTitle => 'Edit message';
 
   @override
