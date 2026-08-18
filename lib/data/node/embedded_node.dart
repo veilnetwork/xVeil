@@ -1068,6 +1068,9 @@ class EmbeddedNode {
     // node that has none — see [withIdentityDir] for why the node cannot find
     // it otherwise.
     String? identityDir,
+    // Whether this node serves the DHT for others. Null means "decide by
+    // platform" — see [withDhtParticipation].
+    bool? serveDht,
   }) {
     return _composeConfigImpl(
       identityToml: identityToml,
@@ -1083,6 +1086,7 @@ class EmbeddedNode {
       proxy: proxy,
       useBundledSeeds: useBundledSeeds,
       identityDir: identityDir,
+      serveDht: serveDht,
     );
   }
 
@@ -1423,6 +1427,36 @@ class EmbeddedNode {
     return '$toml\n[dht]\nservice_budget_bytes_per_hour = $perHour\n';
   }
 
+  /// Set `[dht] participate` — whether this node serves the DHT for OTHERS.
+  ///
+  /// Not the same question as the service budget beside it. The budget refuses
+  /// work AFTER the bytes have already crossed the network, which is why it
+  /// was measured to change the traffic by nothing at all. This is advertised
+  /// at handshake time (`NO_DHT_SERVICE`), so upgraded peers stop CHOOSING
+  /// this node as a store target or a walk hop — the only thing that can
+  /// reduce inbound traffic.
+  ///
+  /// What it does not touch: reachability. The node still publishes its own
+  /// records, still resolves, still receives mail. It only stops doing DHT
+  /// work on other people's behalf.
+  ///
+  /// The cost is real and belongs to the network, not to the person who turns
+  /// it off: on a fleet where every client is a leaf and only the seeds are
+  /// core, clients that serve nothing take the replica set down to the seeds.
+  /// Hence the default split — phones off (5 GB/day measured, against bytes of
+  /// their own traffic), desktops on — and hence the setting exists at all.
+  static String withDhtParticipation(String toml, {required bool participate}) {
+    if (toml.contains('participate')) return toml;
+    // `true` is veil's own default and serialises to nothing; writing it
+    // anyway makes the composed config say what it means, and makes a later
+    // flip visible in a diff rather than being an absence.
+    final line = 'participate = $participate';
+    if (toml.contains('[dht]')) {
+      return toml.replaceFirst('[dht]', '[dht]\n$line');
+    }
+    return '$toml\n[dht]\n$line\n';
+  }
+
   static String withSessionKeepalive(String toml) {
     if (toml.contains('[session]')) return toml;
     return '$toml\n[session]\nkeepalive_interval_secs = 10\nidle_timeout_secs = 45\n';
@@ -1505,6 +1539,7 @@ class EmbeddedNode {
     ProxyRouting proxy = ProxyRouting.disabled,
     bool useBundledSeeds = true,
     String? identityDir,
+    bool? serveDht,
   }) {
     final dl = lib ?? _veilLib();
     final composeFn = dl.lookupFunction<_ComposeNative, _ComposeDart>(
@@ -1560,11 +1595,18 @@ class EmbeddedNode {
                   withProxy(
                     withBootstrapPeers(
                       withMobileServiceBudget(
-                        withClientNodeRole(
-                          withLazyMining(
-                            withAnonymity(toml, anonymous),
-                            lazyMining,
+                        withDhtParticipation(
+                          withClientNodeRole(
+                            withLazyMining(
+                              withAnonymity(toml, anonymous),
+                              lazyMining,
+                            ),
                           ),
+                          // Platform default when the user has not chosen:
+                          // phones serve nothing, desktops serve.
+                          participate:
+                              serveDht ??
+                              !(Platform.isAndroid || Platform.isIOS),
                         ),
                         isMobile: Platform.isAndroid || Platform.isIOS,
                       ),

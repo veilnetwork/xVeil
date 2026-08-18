@@ -7,6 +7,7 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../common/shown_cause.dart';
 import '../../core/error_journal.dart';
+import '../../data/node/dht_participation.dart';
 import '../../data/node/bundled_seeds.dart' show shouldOfferBundledSeeds;
 import '../../data/node/bundled_seeds_prefs.dart'
     show setBundledSeedsAllowedFor, storedBundledSeedsAnswerFor;
@@ -110,6 +111,7 @@ class NetworkScreen extends ConsumerWidget {
           // is any way into. It is also the control the onboarding step promises
           // is here.
           const SharedSeedsSwitch(),
+          const ServeDhtSwitch(),
           const Divider(),
           // Secondary controls: proxy routing (oproxy SOCKS5 client + exit) is
           // live below; node management (ogate, SSH provisioning) is still a
@@ -272,6 +274,128 @@ class NetworkScreen extends ConsumerWidget {
 /// same process out of that same directory. So it read the same value, and with
 /// several identities online at once every node resolved the one answer: two
 /// identities could not disagree, and the last write won for all of them.
+/// Whether this device does DHT work for OTHER people.
+///
+/// ## Why it exists
+///
+/// Measured on an idle client: 13.6 KB/s received, of which about 85% was work
+/// for strangers — storing their records, answering their lookups, being a hop
+/// of their walks — while the node's own application traffic was three bytes
+/// per second. On a phone that was 5 GB a day.
+///
+/// ## Why it works, when the budget did not
+///
+/// A byte budget shipped before this refuses roughly half that work and was
+/// measured to change the traffic by NOTHING: the bytes cross the network and
+/// are counted before any local decision happens. Receive-side metering cannot
+/// reduce receive-side traffic. This switch instead ADVERTISES the refusal at
+/// handshake time, so upgraded peers stop choosing this device as a candidate.
+///
+/// ## What it does not touch
+///
+/// Reachability. The node still publishes its own records, still resolves
+/// others, still receives mail. The contact even stays in peers' routing
+/// tables — that is what lets them serve this node's own transport
+/// announcement. What stops is the unpaid work.
+///
+/// ## Why both answers are labelled with a cost
+///
+/// The cost of turning it off falls on the network, not on the person turning
+/// it off: every xVeil client runs as `leaf` and only the seeds are `core`, so
+/// a fleet that all declined would put the replica set on three machines. A
+/// switch that named only the traffic saved would make that invisible.
+class ServeDhtSwitch extends ConsumerStatefulWidget {
+  const ServeDhtSwitch({super.key});
+
+  @override
+  ConsumerState<ServeDhtSwitch> createState() => _ServeDhtSwitchState();
+}
+
+class _ServeDhtSwitchState extends ConsumerState<ServeDhtSwitch> {
+  bool _busy = false;
+  bool? _on;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncFromStore();
+  }
+
+  Future<void> _syncFromStore() async {
+    final stored = await dhtParticipationEffective(ref.read(storageProvider));
+    if (mounted) setState(() => _on = stored);
+  }
+
+  Future<void> _set(bool participate) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      // Persist FIRST and treat a refused write as "nothing happened" — the
+      // node config is composed from the STORE at the next boot, so moving the
+      // switch over a failed write would show an answer no node will read.
+      final saved = await setDhtParticipation(
+        ref.read(storageProvider),
+        participate,
+      );
+      if (!mounted) return;
+      if (!saved) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(content: Text(AppL10n.of(context).dhtServeSaveFailed)),
+          );
+        return;
+      }
+      setState(() => _on = participate);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final on = _on;
+    // Nothing until the store answers: rendering the platform default first
+    // and correcting it a frame later shows some people their switch moving on
+    // its own.
+    if (on == null) return const SizedBox.shrink();
+    return Column(
+      children: [
+        SwitchListTile(
+          key: const ValueKey('serve-dht-switch'),
+          secondary: const Icon(Icons.hub_outlined),
+          title: Text(l.dhtServeTitle),
+          subtitle: Text(on ? l.dhtServeOnSub : l.dhtServeOffSub),
+          isThreeLine: true,
+          value: on,
+          onChanged: _busy ? null : _set,
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          child: Row(
+            children: [
+              Icon(Icons.refresh, size: 18, color: scheme.outline),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  // Same fact, same sentence as the switch above: a running
+                  // node keeps the config it booted with.
+                  l.routeAppliesNextStart,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: scheme.outline),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class SharedSeedsSwitch extends ConsumerStatefulWidget {
   const SharedSeedsSwitch({super.key});
 

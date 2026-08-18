@@ -11276,6 +11276,30 @@ abstract class AppL10n {
   /// **'That choice could not be saved. It applies to this session only.'**
   String get seedsSaveFailed;
 
+  /// No description provided for @dhtServeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Serve the network'**
+  String get dhtServeTitle;
+
+  /// No description provided for @dhtServeOnSub.
+  ///
+  /// In en, this message translates to:
+  /// **'This device stores other people’s records and carries their lookups. Measured on an idle client: about 85% of everything received. Keeps the network’s data spread across many machines instead of a few.'**
+  String get dhtServeOnSub;
+
+  /// No description provided for @dhtServeOffSub.
+  ///
+  /// In en, this message translates to:
+  /// **'Peers are asked not to pick this device for their storage or lookups. Your own messages, contacts and delivery are unaffected. Fewer machines then hold the network’s data.'**
+  String get dhtServeOffSub;
+
+  /// No description provided for @dhtServeSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the setting'**
+  String get dhtServeSaveFailed;
+
   /// Title of the network-settings switch that changes the shared-seed answer given during onboarding.
   ///
   /// In en, this message translates to:
