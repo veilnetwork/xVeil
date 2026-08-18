@@ -189,13 +189,69 @@ void main() {
     );
   });
 
-  /// The window is owner-only because `manageStorage` is, so a member must not
-  /// even be offered the menu that holds it.
-  testWidgets('a member is not offered the owner menu', (tester) async {
+  /// The read window, end to end: menu -> picker -> a signed revision that
+  /// KEEPS the deletion half. A picker that rebuilt the policy from scratch
+  /// would turn "hide after five minutes" into "and stop deleting", silently.
+  testWidgets('the owner sets hide-after-read without losing deletion', (
+    tester,
+  ) async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
-    final owner = NodeId(Uint8List.fromList(List<int>.filled(32, 22)));
-    final member = NodeId(Uint8List.fromList(List<int>.filled(32, 23)));
+    final self = NodeId(Uint8List.fromList(List<int>.filled(32, 24)));
+    final service = GroupService(storage, _Signer(self));
+    addTearDown(service.dispose);
+    final groupId = await service.createGroup('Kitchen');
+    expect(
+      await service.setSpaceRetentionPolicy(
+        groupId,
+        SpaceRetentionPolicy.forWindow(const Duration(minutes: 30)),
+      ),
+      isTrue,
+      reason: 'a deletion window is already in force before the test starts',
+    );
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageProvider.overrideWithValue(storage),
+          groupServiceProvider.overrideWithValue(service),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: GroupChatScreen(groupIdHex: groupId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('group-owner-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-hide-after-read')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-hide-read-5')));
+    await tester.pumpAndSettle();
+
+    final policy = await service.spaceRetentionPolicyOf(groupId);
+    expect(policy?.hideAfterReadMs, const Duration(minutes: 5).inMilliseconds);
+    expect(
+      policy?.retentionMs,
+      const Duration(minutes: 30).inMilliseconds,
+      reason: 'the deletion half must survive the read-half edit',
+    );
+  });
+
+  /// A member gets the menu too now — the LOCAL ceiling is a display
+  /// preference, not a group operation — but only the local item.
+  testWidgets('a member sets a local ceiling and sees no owner items', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = NodeId(Uint8List.fromList(List<int>.filled(32, 25)));
+    final member = NodeId(Uint8List.fromList(List<int>.filled(32, 26)));
     final ownerSvc = GroupService(storage, _Signer(owner));
     addTearDown(ownerSvc.dispose);
     final groupId = await ownerSvc.createGroup('Kitchen');
@@ -208,7 +264,65 @@ void main() {
       ),
       isTrue,
     );
+    final memberSvc = GroupService(storage, _Signer(member));
+    addTearDown(memberSvc.dispose);
 
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageProvider.overrideWithValue(storage),
+          groupServiceProvider.overrideWithValue(memberSvc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: GroupChatScreen(groupIdHex: groupId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('group-owner-menu')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('group-disappearing')), findsNothing);
+    expect(find.byKey(const ValueKey('group-hide-after-read')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('group-convert-to-community')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('group-hide-after-read-local')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-hide-read-1')));
+    await tester.pumpAndSettle();
+
+    expect(
+      await memberSvc.localSpaceHideAfterReadMs(groupId),
+      const Duration(minutes: 1).inMilliseconds,
+    );
+    expect(
+      (await ownerSvc.load(groupId))!.control.where(
+        (entry) => entry.op == ControlOp.setRetention,
+      ),
+      isEmpty,
+      reason: 'a local ceiling writes no signed row at all',
+    );
+  });
+
+  /// The menu is for members now (the local ceiling lives there), so the line
+  /// that still needs pinning moved: someone who is not in the group at all
+  /// must not be offered any of it.
+  testWidgets('a non-member is not offered the menu', (tester) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = NodeId(Uint8List.fromList(List<int>.filled(32, 22)));
+    final member = NodeId(Uint8List.fromList(List<int>.filled(32, 23)));
+    final ownerSvc = GroupService(storage, _Signer(owner));
+    addTearDown(ownerSvc.dispose);
+    final groupId = await ownerSvc.createGroup('Kitchen');
+    // Deliberately NOT added to the group: `member` here is a stranger.
     final memberSvc = GroupService(storage, _Signer(member));
     addTearDown(memberSvc.dispose);
 

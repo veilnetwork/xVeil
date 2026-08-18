@@ -64,8 +64,9 @@ import '../chat/reactors_sheet.dart';
 import '../chat/video_player_screen.dart';
 import 'group_disappearing.dart';
 
-/// The owner-only actions that live behind the group chat's overflow menu.
-enum _GroupOwnerAction { disappearing, convert }
+/// The actions behind the group chat's overflow menu. Only some are
+/// owner-only: agreeing to see less on one's own device needs no role at all.
+enum _GroupOwnerAction { disappearing, hideAfterRead, hideAfterReadLocal, convert }
 
 void _cancelGroupContentDownload(WidgetRef ref, String contentId) {
   unawaited(
@@ -307,6 +308,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     // Everything rendered is read — advance the unread watermark (covers both
     // opening the chat and messages arriving while it is open).
     unawaited(svc.markGroupSeen(_gid));
+    // And separately record WHAT was rendered, in message coverage, for the
+    // hide-after-read window. Separate because the seen watermark is a
+    // wall-clock reading for the badge, and the two agree only while nobody's
+    // clock lies.
+    unawaited(
+      svc.recordSpaceShown(_gid, channelId: _channelId, messages: msgs),
+    );
     return (msgs, reacts);
   }
 
@@ -1514,27 +1522,51 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                     bundle.manifest.isLegacyGroup &&
                     !bundle.manifest.isSpace &&
                     state?.roleOf(svc.selfId) == GroupRole.owner;
-                if (!ownedGroupChat) return const SizedBox.shrink();
+                final member =
+                    bundle != null && state?.memberOf(svc.selfId) != null;
+                if (!member) return const SizedBox.shrink();
                 // An overflow menu rather than two more icons. The bar already
                 // carries four actions, and a sixth overflowed the row on a
                 // narrow phone — content the owner cannot see or reach.
+                //
+                // Shown to every member now, not only the owner: the local
+                // hide-after-read ceiling is a personal display preference and
+                // gating it behind a role would be refusing someone the right
+                // to see less.
                 return PopupMenuButton<_GroupOwnerAction>(
                   key: const ValueKey('group-owner-menu'),
                   onSelected: (action) => switch (action) {
                     _GroupOwnerAction.disappearing => _pickDisappearing(svc),
+                    _GroupOwnerAction.hideAfterRead =>
+                      pickGroupHideAfterRead(context, svc, _gid, signed: true),
+                    _GroupOwnerAction.hideAfterReadLocal =>
+                      pickGroupHideAfterRead(context, svc, _gid, signed: false),
                     _GroupOwnerAction.convert => _convertToCommunity(svc),
                   },
                   itemBuilder: (_) => [
+                    if (ownedGroupChat) ...[
+                      PopupMenuItem(
+                        key: const ValueKey('group-disappearing'),
+                        value: _GroupOwnerAction.disappearing,
+                        child: Text(l.groupDisappearingTooltip),
+                      ),
+                      PopupMenuItem(
+                        key: const ValueKey('group-hide-after-read'),
+                        value: _GroupOwnerAction.hideAfterRead,
+                        child: Text(l.groupHideAfterReadTitle),
+                      ),
+                    ],
                     PopupMenuItem(
-                      key: const ValueKey('group-disappearing'),
-                      value: _GroupOwnerAction.disappearing,
-                      child: Text(l.groupDisappearingTooltip),
+                      key: const ValueKey('group-hide-after-read-local'),
+                      value: _GroupOwnerAction.hideAfterReadLocal,
+                      child: Text(l.groupHideAfterReadLocalTitle),
                     ),
-                    PopupMenuItem(
-                      key: const ValueKey('group-convert-to-community'),
-                      value: _GroupOwnerAction.convert,
-                      child: Text(l.groupConvertToCommunity),
-                    ),
+                    if (ownedGroupChat)
+                      PopupMenuItem(
+                        key: const ValueKey('group-convert-to-community'),
+                        value: _GroupOwnerAction.convert,
+                        child: Text(l.groupConvertToCommunity),
+                      ),
                   ],
                 );
               },

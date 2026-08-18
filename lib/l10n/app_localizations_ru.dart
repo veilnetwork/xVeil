@@ -1917,6 +1917,21 @@ class AppL10nRu extends AppL10n {
   String get groupConvertToCommunity => 'Преобразовать в сообщество';
 
   @override
+  String get groupHideAfterReadTitle => 'Скрывать после прочтения';
+
+  @override
+  String get groupHideAfterReadLocalTitle =>
+      'Скрывать после прочтения (у меня)';
+
+  @override
+  String get groupHideAfterReadSubtitle =>
+      'Просит устройство каждого участника скрыть сообщение через этот срок после первого показа там. Журнал сообщение сохраняет — сокрытие про экран, и устройство вправе просьбу не исполнить.';
+
+  @override
+  String get groupHideAfterReadLocalSubtitle =>
+      'Только это устройство. Если группа тоже просит окно — побеждает меньшее из двух.';
+
+  @override
   String get groupDisappearingTooltip => 'Исчезающие сообщения';
 
   @override
