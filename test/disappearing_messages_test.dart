@@ -10,6 +10,9 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/disappearing_messages.dart';
+import 'package:xveil/features/chat/chat_actions.dart';
+import 'package:flutter/widgets.dart' show Locale;
+import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -159,6 +162,34 @@ void main() {
         ok.setBy,
         from.hex,
         reason: 'the setter is the envelope sender, never a field in the body',
+      );
+    });
+
+    // The stored body is a token. Any screen that prints message bodies without
+    // asking what they are will show `sys:disappearing:3600` to the user — the
+    // chat list did exactly that until this helper existed.
+    test('no window a user can pick renders as its raw token', () {
+      final l = lookupAppL10n(const Locale('en'));
+      for (final secs in [0, ...kDisappearingPresets]) {
+        final shown = disappearingPreview(l, '$kDisappearingMarkerPrefix$secs');
+        expect(shown, isNotNull, reason: 'no notice text for $secs');
+        expect(
+          shown,
+          isNot(contains(kDisappearingMarkerPrefix)),
+          reason: 'the token leaked into what the user reads',
+        );
+      }
+      expect(
+        disappearingPreview(l, 'an ordinary message'),
+        isNull,
+        reason: 'a real message must keep rendering as itself',
+      );
+      // Off is its own sentence, not a window of length zero. Falling through
+      // to the formatter renders "0 d", which reads as a window so short that
+      // everything vanishes — the opposite of what was chosen.
+      expect(
+        disappearingPreview(l, '${kDisappearingMarkerPrefix}0'),
+        l.chatDisappearingOffNotice,
       );
     });
 
