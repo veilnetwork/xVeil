@@ -64,6 +64,9 @@ import '../chat/reactors_sheet.dart';
 import '../chat/video_player_screen.dart';
 import 'group_disappearing.dart';
 
+/// The owner-only actions that live behind the group chat's overflow menu.
+enum _GroupOwnerAction { disappearing, convert }
+
 void _cancelGroupContentDownload(WidgetRef ref, String contentId) {
   unawaited(
     ref.read(messagingServiceProvider).cancelContentDownload(contentId),
@@ -1512,20 +1515,25 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                     !bundle.manifest.isSpace &&
                     state?.roleOf(svc.selfId) == GroupRole.owner;
                 if (!ownedGroupChat) return const SizedBox.shrink();
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
+                // An overflow menu rather than two more icons. The bar already
+                // carries four actions, and a sixth overflowed the row on a
+                // narrow phone — content the owner cannot see or reach.
+                return PopupMenuButton<_GroupOwnerAction>(
+                  key: const ValueKey('group-owner-menu'),
+                  onSelected: (action) => switch (action) {
+                    _GroupOwnerAction.disappearing => _pickDisappearing(svc),
+                    _GroupOwnerAction.convert => _convertToCommunity(svc),
+                  },
+                  itemBuilder: (_) => [
+                    PopupMenuItem(
                       key: const ValueKey('group-disappearing'),
-                      icon: const Icon(Icons.timer_outlined),
-                      tooltip: l.groupDisappearingTooltip,
-                      onPressed: () => _pickDisappearing(svc),
+                      value: _GroupOwnerAction.disappearing,
+                      child: Text(l.groupDisappearingTooltip),
                     ),
-                    IconButton(
+                    PopupMenuItem(
                       key: const ValueKey('group-convert-to-community'),
-                      icon: const Icon(Icons.workspaces_outline),
-                      tooltip: l.groupConvertToCommunity,
-                      onPressed: () => _convertToCommunity(svc),
+                      value: _GroupOwnerAction.convert,
+                      child: Text(l.groupConvertToCommunity),
                     ),
                   ],
                 );
