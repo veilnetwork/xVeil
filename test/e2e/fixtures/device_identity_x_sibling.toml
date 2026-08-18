@@ -1,0 +1,40 @@
+# TEST-ONLY device identity for the end-to-end multi-device harness
+# (test/e2e/device_fixture.dart). The private key is intentionally
+# public and must NEVER be used outside an isolated loopback test.
+[global]
+runtime_flavor = "multi_thread"
+admin_max_connections = 32
+logs = "stderr"
+log_level = "info"
+log_format = "text"
+builtin_seed_policy = "auto"
+mlkem_rotation_secs = 691200
+tls_ech_grease = true
+
+[transport]
+bandwidth_mimicry_enabled = false
+
+[transport.rotation]
+min_lifetime_secs = 1800
+max_lifetime_secs = 3600
+
+[transport.tls_fingerprint]
+mode = "rotate"
+profile = "chrome"
+rotation = [
+    "chrome",
+    "firefox",
+    "safari",
+]
+sticky = true
+
+[Identity]
+algo = "ed25519"
+public_key = "Y3lyy0Tdu2UBjmxC5SWecCHhAMNMsAzHHUHqxLOM7k8="
+private_key = "Ac7BF6fnYXJXGDL2uiqq/0yMGQJY65g1KZlKTK9Fzvw="
+nonce = "AKhU2A=="
+node_id = "72a428ad3c3451dffc66f60e62f6f359895083de26b59ecff3b39f5d6ddf95d1"
+
+[mobile]
+low_battery_multiplier = 0
+background_keepalive_multiplier = 0

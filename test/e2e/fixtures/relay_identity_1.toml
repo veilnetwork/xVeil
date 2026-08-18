@@ -1,0 +1,13 @@
+# TEST-ONLY relay identity for the local end-to-end island
+# (test/e2e/relay_cluster.dart). The private key is intentionally
+# public and must NEVER be used outside an isolated loopback test.
+# Minted at the canonical PoW difficulty (24) because veil refuses to
+# start a node whose nonce scores lower; committing it keeps a ~45s,
+# 12-CPU-minute mint out of every run.
+[Identity]
+algo = "ed25519"
+public_key = "wdmVTMoOcWslyoafog+2h5WhgynR2OnyTpsW07jEQsA="
+private_key = "1nQwH6IZJkd7lEo+6sjgciGDV1WT7k6ezJAZyRY7pHs="
+nonce = "AhDzPA=="
+node_id = "614740872ed5eb4d9f761c5b2e0323e9abb383c719fa1ddd7962d6b04d6b55e9"
+
