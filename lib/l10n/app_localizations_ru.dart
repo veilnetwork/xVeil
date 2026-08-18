@@ -2836,6 +2836,44 @@ class AppL10nRu extends AppL10n {
   String get chatDeletedByPeer => 'Собеседник удалил этот чат у себя';
 
   @override
+  String get chatDisappearingTitle => 'Исчезающие сообщения';
+
+  @override
+  String get chatDisappearingSubtitle =>
+      'Сообщения этого чата стираются на ОБОИХ устройствах, когда срок выходит. Менять может любой из вас.';
+
+  @override
+  String get chatDisappearingOff => 'Выключено';
+
+  @override
+  String chatDisappearingSetNotice(String window) {
+    return 'Исчезающие сообщения: $window';
+  }
+
+  @override
+  String get chatDisappearingOffNotice => 'Исчезающие сообщения выключены';
+
+  @override
+  String chatDisappearingSeconds(int n) {
+    return '$n с';
+  }
+
+  @override
+  String chatDisappearingMinutes(int n) {
+    return '$n мин';
+  }
+
+  @override
+  String chatDisappearingHours(int n) {
+    return '$n ч';
+  }
+
+  @override
+  String chatDisappearingDays(int n) {
+    return '$n д';
+  }
+
+  @override
   String get chatEditTitle => 'Изменить сообщение';
 
   @override

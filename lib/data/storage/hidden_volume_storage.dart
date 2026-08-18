@@ -358,6 +358,14 @@ class HiddenVolumeStorage implements Storage {
       if (contact.pinned) 'p': true,
       if (contact.archived) 'a': true,
       if (contact.retentionDays != null) 'rd': contact.retentionDays,
+      // The disappearing window and WHO set it WHEN. The stamp is written
+      // even for "off", because turning the window off is itself a decision
+      // that has to beat an older one on the peer's device.
+      if (contact.disappearingTtlSeconds != null)
+        'dts': contact.disappearingTtlSeconds,
+      if (contact.disappearingSetAtMs > 0) 'dsa': contact.disappearingSetAtMs,
+      if (contact.disappearingSetBy.isNotEmpty)
+        'dsb': contact.disappearingSetBy,
       // Written only when DISALLOWED — absence reads back as the default (allow).
       if (!contact.allowPeerDelete) 'apd': false,
       if (contact.p2pOverride != kDefaultContactP2POverride)
@@ -414,6 +422,9 @@ class HiddenVolumeStorage implements Storage {
       pinned: m['p'] as bool? ?? false,
       archived: m['a'] as bool? ?? false,
       retentionDays: m['rd'] as int?,
+      disappearingTtlSeconds: m['dts'] as int?,
+      disappearingSetAtMs: m['dsa'] as int? ?? 0,
+      disappearingSetBy: m['dsb'] as String? ?? '',
       allowPeerDelete: m['apd'] as bool? ?? true,
       p2pOverride: _contactP2POverride(m['p2p']),
     );
@@ -2024,9 +2035,16 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
-  Future<int> pruneConversation(NodeId peer, int retentionDays) async {
-    if (retentionDays <= 0) return 0; // unlimited — never auto-delete
-    final cutoff = DateTime.now().subtract(Duration(days: retentionDays));
+  Future<int> pruneConversation(NodeId peer, int retentionDays) {
+    if (retentionDays <= 0) return Future.value(0); // unlimited
+    return pruneConversationBefore(
+      peer,
+      DateTime.now().subtract(Duration(days: retentionDays)),
+    );
+  }
+
+  @override
+  Future<int> pruneConversationBefore(NodeId peer, DateTime cutoff) async {
     // Old messages by ORIGINAL post time (the fold keeps the post's original
     // timestamp; edits are separate rows and never refresh it).
     final oldMessages = [

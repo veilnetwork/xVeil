@@ -2834,6 +2834,44 @@ class AppL10nEs extends AppL10n {
       'La otra persona eliminó este chat en su dispositivo';
 
   @override
+  String get chatDisappearingTitle => 'Mensajes temporales';
+
+  @override
+  String get chatDisappearingSubtitle =>
+      'Los mensajes de este chat se borran en AMBOS dispositivos al vencer el plazo. Cualquiera de los dos puede cambiarlo.';
+
+  @override
+  String get chatDisappearingOff => 'Desactivado';
+
+  @override
+  String chatDisappearingSetNotice(String window) {
+    return 'Mensajes temporales: $window';
+  }
+
+  @override
+  String get chatDisappearingOffNotice => 'Mensajes temporales desactivados';
+
+  @override
+  String chatDisappearingSeconds(int n) {
+    return '$n s';
+  }
+
+  @override
+  String chatDisappearingMinutes(int n) {
+    return '$n min';
+  }
+
+  @override
+  String chatDisappearingHours(int n) {
+    return '$n h';
+  }
+
+  @override
+  String chatDisappearingDays(int n) {
+    return '$n d';
+  }
+
+  @override
   String get chatEditTitle => 'Editar el mensaje';
 
   @override

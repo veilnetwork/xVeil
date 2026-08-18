@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ids.dart';
 import '../../core/log.dart';
 import '../../domain/chat.dart';
+import '../../domain/disappearing_messages.dart';
 import '../../domain/p2p_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/messaging.dart';
@@ -11,7 +12,9 @@ import '../../state/messaging.dart';
 /// Shared conversation-management actions, reused by the in-chat AppBar menu AND
 /// the chats-list long-press so the user manages a dialog from either place. All
 /// actions are LOCAL (rename/pin/mute/retention/block/clear) or local-erase
-/// (delete) — none touch the wire.
+/// (delete) — none touch the wire, with ONE exception: the disappearing window
+/// is a shared setting and is announced to the peer, because a window only one
+/// side honours would not be the thing it claims to be.
 
 /// Bottom sheet of management actions for [contact]. [onDeleted] runs after a
 /// confirmed conversation delete (e.g. pop the chat screen); omit it on the
@@ -122,6 +125,27 @@ Future<void> showConversationActions(
                   svc.setContactArchived(peer, true);
                 },
               ),
+            ListTile(
+              leading: const Icon(Icons.timer_outlined),
+              title: Text(l.chatDisappearingTitle),
+              subtitle: Text(
+                contact.disappearingTtlSeconds == null
+                    ? l.chatDisappearingOff
+                    : formatDisappearingWindow(
+                        l,
+                        contact.disappearingTtlSeconds!,
+                      ),
+              ),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                pickDisappearing(
+                  context,
+                  ref,
+                  peer,
+                  contact.disappearingTtlSeconds,
+                );
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.auto_delete_outlined),
               title: Text(l.chatMenuRetention),
@@ -541,6 +565,61 @@ Future<NotificationMuteSelection?> _pickNotificationMuteDuration(
 /// Pick [peer]'s auto-delete window — the existing presets PLUS a custom day
 /// count. Applies immediately (prunes by original post time). Shared so the
 /// picker (and the custom-days input) live in one place.
+/// Human-readable form of a disappearing window.
+///
+/// Not `Duration.toString()` and not a date format: the presets are chosen so
+/// each falls exactly on one unit, and a person reading "1 h" in a chat header
+/// should see the same words they picked from the menu.
+String formatDisappearingWindow(AppL10n l, int seconds) {
+  if (seconds % 86400 == 0) return l.chatDisappearingDays(seconds ~/ 86400);
+  if (seconds % 3600 == 0) return l.chatDisappearingHours(seconds ~/ 3600);
+  if (seconds % 60 == 0) return l.chatDisappearingMinutes(seconds ~/ 60);
+  return l.chatDisappearingSeconds(seconds);
+}
+
+/// Choose the SHARED disappearing window. Unlike [pickRetention] this is not a
+/// private preference — the choice is announced to the peer and applies to
+/// their copy too, which is what the subtitle says out loud.
+Future<void> pickDisappearing(
+  BuildContext context,
+  WidgetRef ref,
+  NodeId peer,
+  int? current,
+) async {
+  final l = AppL10n.of(context);
+  final picked = await showDialog<(bool, int?)>(
+    context: context,
+    builder: (dialog) => SimpleDialog(
+      title: Text(l.chatDisappearingTitle),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+          child: Text(
+            l.chatDisappearingSubtitle,
+            style: Theme.of(dialog).textTheme.bodySmall,
+          ),
+        ),
+        SimpleDialogOption(
+          onPressed: () => Navigator.of(dialog).pop((true, null)),
+          child: _radioRow(l.chatDisappearingOff, current == null),
+        ),
+        for (final secs in kDisappearingPresets)
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(dialog).pop((true, secs)),
+            child: _radioRow(
+              formatDisappearingWindow(l, secs),
+              secs == current,
+            ),
+          ),
+      ],
+    ),
+  );
+  if (picked == null) return;
+  await ref
+      .read(messagingServiceProvider)
+      .setContactDisappearing(peer, picked.$2);
+}
+
 Future<void> pickRetention(
   BuildContext context,
   WidgetRef ref,
