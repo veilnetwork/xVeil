@@ -5275,6 +5275,10 @@ class AppL10nEs extends AppL10n {
       'Este dispositivo fue revocado. Su clave antigua ya no es de confianza: restablece el dispositivo y vincúlalo con una clave nueva.';
 
   @override
+  String get devicesRevokeKeyStillCertified =>
+      'No revocado: el documento de identidad aún certifica la clave de este dispositivo. Inténtalo de nuevo con la credencial propietaria de la identidad.';
+
+  @override
   String get devicesOperationFailed =>
       'No se pudo completar la vinculación del dispositivo';
 

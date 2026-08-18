@@ -52,6 +52,33 @@ class RuntimeDirNotPrivate implements Exception {
       'put the node control socket there';
 }
 
+/// What a document-side revocation actually accomplished.
+///
+/// A bool could not carry this: "already tombstoned" and "could not
+/// tombstone" both read as false, and the difference is the whole security
+/// question. The first means the key is dead — a retry of a revocation that
+/// already landed, which is the ordinary shape of a repair — while the second
+/// means the document still vouches for a device the operator believes they
+/// just revoked. Reported live 2026-08-18 as one indistinguishable `false`.
+enum DocumentRevocation {
+  /// A master-signed tombstone was written for this device id by this call.
+  tombstoned,
+
+  /// The document already carried the tombstone. The key is dead; there was
+  /// simply nothing left to do.
+  alreadyTombstoned,
+
+  /// The document was NOT amended: no usable sovereign material, the wrong
+  /// credential (a certificate identity cannot be revoked through the phrase
+  /// path), a refusal from the native guard, or an I/O failure. The device's
+  /// key remains certified — callers must not report a revocation.
+  failed;
+
+  /// Whether the device's key is now out of the document, however it got
+  /// there.
+  bool get keyIsRetired => this != DocumentRevocation.failed;
+}
+
 /// The identity document holds a master-signed tombstone for this device id,
 /// so its key can never be vouched for again — relinking requires a freshly
 /// minted device key.
@@ -1273,16 +1300,18 @@ class RealVeilStack {
   /// document it cannot sign with. Returns true when the stored document
   /// changed (callers then refresh the node and announce, exactly like a
   /// delegation).
-  static Future<bool> revokeDeviceFromDocument(
+  static Future<DocumentRevocation> revokeDeviceFromDocument(
     Storage storage, {
     required String phrase,
     required Uint8List deviceId,
     required String stagingBase,
     DynamicLibrary? lib,
   }) async {
-    if (phrase.isEmpty || deviceId.length != 32) return false;
+    if (phrase.isEmpty || deviceId.length != 32) {
+      return DocumentRevocation.failed;
+    }
     final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
-    if (storedRaw == null) return false;
+    if (storedRaw == null) return DocumentRevocation.failed;
     final stored = decodeSovereignIdentity(storedRaw);
     if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
       devLog(
@@ -1290,7 +1319,7 @@ class RealVeilStack {
             'xVeil[identity]: cannot revoke a device key — this device has no '
             'usable sovereign material',
       );
-      return false;
+      return DocumentRevocation.failed;
     }
     final staging =
         '$stagingBase/xveil-idrevoke-${Random.secure().nextInt(1 << 32)}';
@@ -1302,23 +1331,34 @@ class RealVeilStack {
         deviceId: deviceId,
         lib: lib,
       );
-      if (!changed) return false; // already tombstoned
+      if (!changed) {
+        // The native side answers false for exactly one reason: this device
+        // id is already in the tombstone list. The key is dead, so this is a
+        // success — a revocation retried after it landed, which is what a
+        // repair looks like.
+        return DocumentRevocation.alreadyTombstoned;
+      }
       final amended = await collectSovereignIdentity(staging);
-      if (missingSovereignIdentityFiles(amended).isNotEmpty) return false;
+      if (missingSovereignIdentityFiles(amended).isNotEmpty) {
+        return DocumentRevocation.failed;
+      }
       final encoded = encodeSovereignIdentity(amended);
-      if (encoded == storedRaw) return false;
+      if (encoded == storedRaw) return DocumentRevocation.failed;
       await storage.putSetting(kSovereignIdentitySetting, encoded);
       devLog(
         () =>
             'xVeil[identity]: revoked a device key from the document — a '
             'master-signed tombstone now outlives every stale sibling copy',
       );
-      return true;
+      return DocumentRevocation.tombstoned;
     } on Object catch (e) {
       // A wrong phrase and a self-revocation are both refused natively
-      // before anything is written.
+      // before anything is written. A CERTIFICATE identity lands here too:
+      // this path derives the master from a phrase, and a recovery code is
+      // not one — which is why the caller must never read a failure as a
+      // revocation.
       devLog(() => 'xVeil[identity]: could not revoke the device key: $e');
-      return false;
+      return DocumentRevocation.failed;
     } finally {
       try {
         await Directory(staging).delete(recursive: true);
