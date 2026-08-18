@@ -50,6 +50,7 @@ class Contact {
     this.disappearingTtlSeconds,
     this.disappearingSetAtMs = 0,
     this.disappearingSetBy = '',
+    this.hideAfterReadSeconds,
     this.allowPeerDelete = true,
     this.p2pOverride = kDefaultContactP2POverride,
   });
@@ -125,6 +126,12 @@ class Contact {
   final int disappearingSetAtMs;
   final String disappearingSetBy;
 
+  /// The read-clock half of the same conversation setting: how long a message
+  /// stays on screen after THIS device first showed it. Null is off. Travels
+  /// and is adopted with [disappearingTtlSeconds] because the two are one
+  /// announcement with one timestamp and one tie-break.
+  final int? hideAfterReadSeconds;
+
   String get label => name ?? nodeId.short;
 
   /// Free messaging is only allowed once the relationship is accepted.
@@ -133,7 +140,11 @@ class Contact {
   static const Object _unset = Object();
 
   Contact copyWith({
-    String? name,
+    // Sentinel, not `String?`: clearing a name is a real operation, and while
+    // this could not express it the call sites that needed to rebuilt the whole
+    // record by hand — and every hand-written field list silently dropped
+    // whatever was added to Contact afterwards.
+    Object? name = _unset,
     ContactStatus? status,
     // Nullable-field update: distinguish "leave as is" (omitted) from
     // "clear the mute" (explicit null) via a sentinel default.
@@ -141,17 +152,18 @@ class Contact {
     NotificationMuteMode? notificationMuteMode,
     bool? pinned,
     bool? archived,
-    int? retentionDays,
+    Object? retentionDays = _unset,
     // Nullable-field update, same sentinel reason as [mutedUntil]: turning
     // disappearing messages OFF is an explicit null, not an omission.
     Object? disappearingTtlSeconds = _unset,
+    Object? hideAfterReadSeconds = _unset,
     int? disappearingSetAtMs,
     String? disappearingSetBy,
     bool? allowPeerDelete,
     ContactP2POverride? p2pOverride,
   }) => Contact(
     nodeId: nodeId,
-    name: name ?? this.name,
+    name: identical(name, _unset) ? this.name : name as String?,
     status: status ?? this.status,
     mutedUntil: identical(mutedUntil, _unset)
         ? this.mutedUntil
@@ -159,12 +171,17 @@ class Contact {
     notificationMuteMode: notificationMuteMode ?? this.notificationMuteMode,
     pinned: pinned ?? this.pinned,
     archived: archived ?? this.archived,
-    retentionDays: retentionDays ?? this.retentionDays,
+    retentionDays: identical(retentionDays, _unset)
+        ? this.retentionDays
+        : retentionDays as int?,
     disappearingTtlSeconds: identical(disappearingTtlSeconds, _unset)
         ? this.disappearingTtlSeconds
         : disappearingTtlSeconds as int?,
     disappearingSetAtMs: disappearingSetAtMs ?? this.disappearingSetAtMs,
     disappearingSetBy: disappearingSetBy ?? this.disappearingSetBy,
+    hideAfterReadSeconds: identical(hideAfterReadSeconds, _unset)
+        ? this.hideAfterReadSeconds
+        : hideAfterReadSeconds as int?,
     allowPeerDelete: allowPeerDelete ?? this.allowPeerDelete,
     p2pOverride: p2pOverride ?? this.p2pOverride,
   );

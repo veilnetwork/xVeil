@@ -366,6 +366,11 @@ class HiddenVolumeStorage implements Storage {
       if (contact.disappearingSetAtMs > 0) 'dsa': contact.disappearingSetAtMs,
       if (contact.disappearingSetBy.isNotEmpty)
         'dsb': contact.disappearingSetBy,
+      // The read-clock half. Absent means off, and off needs no stamp of its
+      // own: it shares `dsa`/`dsb` with the post-time window because the two
+      // are one announcement.
+      if (contact.hideAfterReadSeconds != null)
+        'hrs': contact.hideAfterReadSeconds,
       // Written only when DISALLOWED — absence reads back as the default (allow).
       if (!contact.allowPeerDelete) 'apd': false,
       if (contact.p2pOverride != kDefaultContactP2POverride)
@@ -425,6 +430,7 @@ class HiddenVolumeStorage implements Storage {
       disappearingTtlSeconds: m['dts'] as int?,
       disappearingSetAtMs: m['dsa'] as int? ?? 0,
       disappearingSetBy: m['dsb'] as String? ?? '',
+      hideAfterReadSeconds: m['hrs'] as int?,
       allowPeerDelete: m['apd'] as bool? ?? true,
       p2pOverride: _contactP2POverride(m['p2p']),
     );
