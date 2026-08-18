@@ -1635,6 +1635,9 @@ class MessagingService {
   Future<void> setContactDisappearing(NodeId peer, int? seconds) =>
       _conversationAdmin.setContactDisappearing(peer, seconds);
 
+  Future<void> setContactHideAfterRead(NodeId peer, int? seconds) =>
+      _conversationAdmin.setContactHideAfterRead(peer, seconds);
+
   /// Delete whatever has outlived the window in this conversation.
   Future<int> sweepDisappearing(NodeId peer) =>
       _conversationAdmin.sweepDisappearing(peer);
