@@ -66,6 +66,34 @@ class _Link implements VeilTransport {
   Future<void> dispose() async => _in.close();
 }
 
+/// Counts the two reads the fetch can resolve a row with, and delegates both to
+/// a REAL store so neither is answered by a stub that agrees with itself.
+/// Anything else the fetch reaches for hits `noSuchMethod` and fails loudly.
+class _CountingStorage implements Storage {
+  _CountingStorage(this._inner);
+  final Storage _inner;
+  int conversationLoads = 0;
+  int byIdLoads = 0;
+
+  @override
+  Future<List<Message>> loadMessages(String conversationId, {int? limit}) {
+    conversationLoads++;
+    return _inner.loadMessages(conversationId, limit: limit);
+  }
+
+  @override
+  Future<Message?> loadMessageById(String conversationId, String messageId) {
+    byIdLoads++;
+    return _inner.loadMessageById(conversationId, messageId);
+  }
+
+  @override
+  Future<bool> hasFile(String fileId) => _inner.hasFile(fileId);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 SpaceOpener _mem() {
   final s = FakeKvLogStore();
   return ({required password, required bool create}) => s;
@@ -332,6 +360,84 @@ void main() {
         reason: 'and it still downloads, unchanged',
       );
     }, timeout: const Timeout(Duration(seconds: 90)));
+
+    // AUDIT X13-L1. The fetch named a conversation and a message and then
+    // resolved the row by asking for the WHOLE conversation: `loadMessages`
+    // projects every message in the log, filters it to this peer, computes the
+    // author-monotone display order and sorts on it — all so a caller could
+    // read one field off one row it had already named, on every fetch of every
+    // file, from an authenticated API.
+    group('the fetch resolves one row, not the history', () {
+      final cid = 'f' * 64;
+      late String messageId;
+
+      setUp(() async {
+        await sB.storeFile(cid, Uint8List.fromList([1, 2, 3]), name: 'held.bin');
+        final stored = await sB.appendMessage(
+          Message(
+            id: 'held-1',
+            conversationId: a.hex,
+            direction: MessageDirection.incoming,
+            body: '📎 held.bin',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+            status: MessageStatus.delivered,
+            fileId: cid,
+            fileName: 'held.bin',
+          ),
+        );
+        messageId = stored.id;
+      });
+
+      test('by id, with the conversation never loaded', () async {
+        final counting = _CountingStorage(sB);
+        expect(
+          await fetchDirectFile(counting, mB, a.hex, messageId),
+          isNull,
+          reason: 'the bytes are already held: idempotent success',
+        );
+        expect(counting.byIdLoads, 1);
+        expect(
+          counting.conversationLoads,
+          0,
+          reason: 'a named message must not cost the whole peer history',
+        );
+      });
+
+      test('and the row it resolves is the one loadMessages hands back',
+          () async {
+        // Anchored to the existing read rather than to what the new one
+        // happens to return, so the two cannot answer differently about
+        // status, the file handles, or the event-log fields.
+        final byList = (await sB.loadMessages(
+          a.hex,
+        )).firstWhere((m) => m.id == messageId);
+        final byId = await sB.loadMessageById(a.hex, messageId);
+        expect(byId, isNotNull);
+        expect(byId!.id, byList.id);
+        expect(byId.status, byList.status);
+        expect(byId.fileId, byList.fileId);
+        expect(byId.fileName, byList.fileName);
+        expect(byId.author, byList.author);
+        expect(byId.seq, byList.seq);
+      });
+
+      test('an id belonging to another conversation is not reachable',
+          () async {
+        // The scoping the edit/delete path already enforces, kept: the id in a
+        // fetch is caller-chosen, and resolving on it alone would name records
+        // in someone else\'s chat.
+        expect(await sB.loadMessageById(_id(9).hex, messageId), isNull);
+        expect(
+          await fetchDirectFile(sB, mB, _id(9).hex, messageId),
+          'message attachment not found',
+        );
+      });
+
+      test('a deleted message is not reachable', () async {
+        await sB.deleteMessage(a.hex, messageId);
+        expect(await sB.loadMessageById(a.hex, messageId), isNull);
+      });
+    });
 
     test('a fetch naming no file, or a peer that is not one, is refused',
         () async {

@@ -577,6 +577,28 @@ class HiddenVolumeStorage implements Storage {
   }
 
   @override
+  Future<Message?> loadMessageById(
+    String conversationId,
+    String messageId,
+  ) => _serialized(() async {
+    // The same warm, incremental fold [_liveEntryFor] uses — a map lookup on
+    // the composite key once the fold is current, instead of [loadMessages]'s
+    // project-filter-sort over every message in the log.
+    await _foldCritical();
+    final k = _msgKey(conversationId, messageId);
+    final msg = _scanById[k];
+    if (msg == null) return null;
+    // The same overlay [_scanLogCritical] applies on the way out, so a row read
+    // by id is the row `loadMessages` would have handed back and not a
+    // pre-status copy of it.
+    final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
+    final sig = _scanSigOps[k];
+    var out = s != null ? msg.copyWith(status: s) : msg;
+    if (sig != null) out = out.copyWith(signature: sig);
+    return out;
+  });
+
+  @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) =>
       // Serialize against other stores so the multi-commit read-base/bump-last
       // sequence can't interleave and collide chunk log-ids (see [_fileGate]).

@@ -114,14 +114,13 @@ Future<String?> fetchDirectFile(
   } catch (_) {
     return 'invalid peer';
   }
-  Message? row;
+  final Message? row;
   try {
-    for (final m in await storage.loadMessages(peer.hex)) {
-      if (m.id == messageId) {
-        row = m;
-        break;
-      }
-    }
+    // By id, not by loading the conversation and walking it. `loadMessages`
+    // projects the whole log, filters it to this peer and sorts the result into
+    // display order — work an authenticated caller could ask for on every fetch
+    // of every file, to read one field off one row it had already named.
+    row = await storage.loadMessageById(peer.hex, messageId);
   } catch (_) {
     return 'message attachment load failed';
   }

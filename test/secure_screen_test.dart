@@ -501,7 +501,7 @@ void main() {
       reason: 'the sheet that shows the adoption token, as a QR and as text, '
           'can be screenshotted and screen-recorded',
     );
-    final qr = body.indexOf('QrImageView(data: _token!');
+    final qr = body.indexOf('_linkCodeQr(context, _token!');
     expect(qr, isNonNegative, reason: 'the adoption QR moved');
     expect(
       qr,
