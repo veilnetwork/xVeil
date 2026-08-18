@@ -172,6 +172,40 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                       child: Text(l.lockStartOver),
                     ),
                     const Spacer(flex: 2),
+                    // A LOCK THAT DID NOT FINISH SAYS SO.
+                    //
+                    // "Locked" is published as soon as the keys are gone,
+                    // which is the right order — holding them through a stuck
+                    // teardown is the worse outcome — but it is a claim about
+                    // the network too, and a node that outlived its stop still
+                    // holds its sockets while a tunnel that never confirmed may
+                    // still be routing. Both were recorded and neither was ever
+                    // shown; the person read "locked" and had no way to learn
+                    // otherwise (reported 2026-08-18).
+                    if (errorJournal.teardownLeftSomethingRunning)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.warning_amber_outlined,
+                              size: 16,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                l.lockTeardownIncomplete,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     // The report belongs HERE and not only in Settings: an app
                     // that will not unlock is exactly the failure worth
                     // reporting, and Settings is on the other side of the lock.

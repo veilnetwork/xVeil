@@ -191,6 +191,10 @@ class AppL10nRu extends AppL10n {
   String get lockWrong => 'Неверный пароль';
 
   @override
+  String get lockTeardownIncomplete =>
+      'Блокировка завершилась не полностью: узел или VPN-туннель могут работать, пока приложение не закрыто целиком. Закройте и откройте приложение заново.';
+
+  @override
   String get lockStartOver => 'Начать заново';
 
   @override
