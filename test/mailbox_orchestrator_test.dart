@@ -573,13 +573,39 @@ void main() {
         for (var i = 0; i < 80; i++) {
           await reg.add(_cid(i));
         }
-        // Oldest evicted, newest kept (cap = 64).
+        // Visible at once — only the write waits for the end of the pass.
         expect(await reg.contains(_cid(0)), isFalse);
         expect(await reg.contains(_cid(79)), isTrue);
+        await reg.flush();
+        // Oldest evicted, newest kept (cap = 64).
         final stored = settings['mailbox.poisoned.v1']!;
         expect(RegExp('"').allMatches(stored).length ~/ 2, 64);
       },
     );
+
+    test('a pass of junk costs one container write, not one per blob', () {
+      // Each write lands in the deniable container, so the write RATE is the
+      // cost a junk producer controls — the FIFO cap bounds the size and says
+      // nothing about how often it is rewritten. Reported 2026-08-18.
+      var writes = 0;
+      final reg = PoisonedBlobRegistry(
+        getSetting: (k) async => settings[k],
+        putSetting: (k, v) async {
+          writes++;
+          settings[k] = v;
+        },
+      );
+      return Future(() async {
+        for (var i = 0; i < 10; i++) {
+          await reg.add(_cid(i));
+        }
+        expect(writes, 0, reason: 'nothing is written until the pass ends');
+        await reg.flush();
+        expect(writes, 1);
+        await reg.flush();
+        expect(writes, 1, reason: 'a flush with nothing new writes nothing');
+      });
+    });
   });
 }
 
