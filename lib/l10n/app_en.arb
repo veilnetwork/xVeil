@@ -2927,6 +2927,10 @@
   "@seedsSaveFailed": {
     "description": "Shown when the preference store refused the write."
   },
+  "dhtServeTitle": "Serve the network",
+  "dhtServeOnSub": "This device stores other people’s records and carries their lookups. Measured on an idle client: about 85% of everything received. Keeps the network’s data spread across many machines instead of a few.",
+  "dhtServeOffSub": "Peers are asked not to pick this device for their storage or lookups. Your own messages, contacts and delivery are unaffected. Fewer machines then hold the network’s data.",
+  "dhtServeSaveFailed": "Could not save the setting",
   "seedsSwitchTitle": "Use the shared entry nodes",
   "@seedsSwitchTitle": {
     "description": "Title of the network-settings switch that changes the shared-seed answer given during onboarding."
