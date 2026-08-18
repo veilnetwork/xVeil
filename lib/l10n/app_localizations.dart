@@ -3320,6 +3320,30 @@ abstract class AppL10n {
   /// **'Convert to community'**
   String get groupConvertToCommunity;
 
+  /// No description provided for @groupHideAfterReadTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide after reading'**
+  String get groupHideAfterReadTitle;
+
+  /// No description provided for @groupHideAfterReadLocalTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide after reading (this device)'**
+  String get groupHideAfterReadLocalTitle;
+
+  /// No description provided for @groupHideAfterReadSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Asks every member’s device to hide a message this long after it was first shown there. The log keeps the message — hiding is about the screen, and a device is free not to honour the request.'**
+  String get groupHideAfterReadSubtitle;
+
+  /// No description provided for @groupHideAfterReadLocalSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Only this device. If the group also asks for a window, the shorter of the two wins.'**
+  String get groupHideAfterReadLocalSubtitle;
+
   /// No description provided for @groupDisappearingTooltip.
   ///
   /// In en, this message translates to:

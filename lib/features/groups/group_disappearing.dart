@@ -166,6 +166,96 @@ class _MinutesDialogState extends State<_MinutesDialog> {
   }
 }
 
+/// Choose a hide-after-read window for a group — the SIGNED one when [signed]
+/// (owner asking every member's device) or this device's own ceiling.
+///
+/// One picker for both on purpose: the choices and their meaning are the same,
+/// and only the subtitle and the write differ. The signed write PRESERVES the
+/// deletion half of the policy — the two halves ride one revision, and a
+/// picker that rebuilt the policy from scratch would turn "hide after five
+/// minutes" into "and also stop deleting", silently.
+Future<void> pickGroupHideAfterRead(
+  BuildContext context,
+  GroupService service,
+  NodeId groupId, {
+  required bool signed,
+}) async {
+  final l = AppL10n.of(context);
+  final messenger = ScaffoldMessenger.of(context);
+  final current = signed
+      ? (await service.spaceRetentionPolicyOf(groupId))?.hideAfterReadMs
+      : await service.localSpaceHideAfterReadMs(groupId);
+  if (!context.mounted) return;
+
+  const presets = <Duration>[
+    Duration(minutes: 1),
+    Duration(minutes: 5),
+    Duration(minutes: 30),
+    Duration(minutes: 60),
+  ];
+  final currentWindow = current == null
+      ? null
+      : Duration(milliseconds: current);
+  final picked = await showDialog<(bool, Duration?)>(
+    context: context,
+    builder: (dialog) => SimpleDialog(
+      title: Text(
+        signed ? l.groupHideAfterReadTitle : l.groupHideAfterReadLocalTitle,
+      ),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+          child: Text(
+            signed
+                ? l.groupHideAfterReadSubtitle
+                : l.groupHideAfterReadLocalSubtitle,
+            style: Theme.of(dialog).textTheme.bodySmall,
+          ),
+        ),
+        SimpleDialogOption(
+          key: const ValueKey('group-hide-read-off'),
+          onPressed: () => Navigator.of(dialog).pop((true, null)),
+          child: _radioRow(l.groupDisappearingOff, currentWindow == null),
+        ),
+        for (final window in presets)
+          SimpleDialogOption(
+            key: ValueKey('group-hide-read-${window.inMinutes}'),
+            onPressed: () => Navigator.of(dialog).pop((true, window)),
+            child: _radioRow(
+              formatDisappearingWindow(l, window.inSeconds),
+              window == currentWindow,
+            ),
+          ),
+      ],
+    ),
+  );
+  if (picked == null || !context.mounted) return;
+  final ms = picked.$2?.inMilliseconds;
+
+  final bool ok;
+  if (signed) {
+    final held =
+        await service.spaceRetentionPolicyOf(groupId) ??
+        const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever);
+    ok = await service.setSpaceRetentionPolicy(
+      groupId,
+      SpaceRetentionPolicy(
+        mode: held.mode,
+        retentionMs: held.retentionMs,
+        mediaOnly: held.mediaOnly,
+        hideAfterReadMs: ms,
+        physicalDeletionGraceMs: held.physicalDeletionGraceMs,
+        includeArchivedChannels: held.includeArchivedChannels,
+      ),
+    );
+  } else {
+    ok = await service.setLocalSpaceHideAfterReadMs(groupId, ms);
+  }
+  if (!ok) {
+    messenger.showSnackBar(SnackBar(content: Text(l.groupDisappearingFailed)));
+  }
+}
+
 Widget _radioRow(String label, bool selected) => Row(
   children: [
     Icon(
