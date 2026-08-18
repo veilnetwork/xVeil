@@ -69,6 +69,7 @@ SpaceOpener _memOpener() {
 Future<void> _pump() => Future<void>.delayed(const Duration(milliseconds: 20));
 
 void main() {
+  _readClockTests();
   group('the shared window itself', () {
     // Two people can tap the menu at the same instant. If each simply kept its
     // own choice, one side would delete and the other would not, and the
@@ -232,6 +233,70 @@ void main() {
     tearDown(() async {
       await tA.dispose();
       await tB.dispose();
+    });
+
+    /// Renaming a contact used to turn their disappearing messages OFF.
+    ///
+    /// `setContactName` and `setContactRetention` each rebuilt the whole
+    /// Contact from a hand-written field list, and those lists predated the
+    /// disappearing window. Nothing announced the erasure as an erasure — the
+    /// next announcement simply carried "off" as a fresh decision, and the
+    /// peer adopted it.
+    test('renaming a contact does not clear their window', () async {
+      await mA.setContactDisappearing(b, 3600);
+      await mA.setContactHideAfterRead(b, 300);
+      await _pump();
+
+      await mA.setContactName(b, 'Bo');
+      await mA.setContactRetention(b, 30);
+
+      final held = await sA.getContact(b);
+      expect(held!.name, 'Bo');
+      expect(held.retentionDays, 30);
+      expect(held.disappearingTtlSeconds, 3600);
+      expect(held.hideAfterReadSeconds, 300);
+      expect(held.disappearingSetBy, a.hex, reason: 'and who set it survives');
+    });
+
+    /// Two halves, one announcement. Setting either must not silently clear
+    /// the other — locally or on the peer, which adopts whatever arrives.
+    test('the two clocks do not overwrite each other', () async {
+      await mA.setContactDisappearing(b, 3600);
+      await _pump();
+      await mA.setContactHideAfterRead(b, 300);
+      await _pump();
+
+      expect((await sA.getContact(b))!.disappearingTtlSeconds, 3600);
+      expect((await sA.getContact(b))!.hideAfterReadSeconds, 300);
+      expect((await sB.getContact(a))!.disappearingTtlSeconds, 3600);
+      expect(
+        (await sB.getContact(a))!.hideAfterReadSeconds,
+        300,
+        reason: 'the peer adopts both halves from the one v2 frame',
+      );
+
+      // And turning one off leaves the other standing.
+      await mA.setContactHideAfterRead(b, null);
+      await _pump();
+      expect((await sA.getContact(b))!.disappearingTtlSeconds, 3600);
+      expect((await sA.getContact(b))!.hideAfterReadSeconds, isNull);
+      expect((await sB.getContact(a))!.disappearingTtlSeconds, 3600);
+      expect((await sB.getContact(a))!.hideAfterReadSeconds, isNull);
+
+      // The OTHER order too. Both directions matter and only one of them was
+      // covered: a break that made `setContactDisappearing` drop the read half
+      // passed cleanly, because every assertion above set the read half last.
+      await mA.setContactHideAfterRead(b, 120);
+      await _pump();
+      await mA.setContactDisappearing(b, 60);
+      await _pump();
+      expect(
+        (await sA.getContact(b))!.hideAfterReadSeconds,
+        120,
+        reason: 'changing the post-time half must not clear the read half',
+      );
+      expect((await sB.getContact(a))!.hideAfterReadSeconds, 120);
+      expect((await sA.getContact(b))!.disappearingTtlSeconds, 60);
     });
 
     // The whole point of the feature: the copy on the OTHER device goes too.
@@ -423,6 +488,109 @@ void main() {
         1,
         reason: 'a re-delivered announcement must not mint a second notice',
       );
+    });
+  });
+}
+
+/// The READ clock: a second window on the same setting, with a different
+/// promise. These pin the model; the bookkeeping that records when a device
+/// first showed a message is a separate piece.
+void _readClockTests() {
+  group('hide after read', () {
+    const setting = DisappearingSetting(
+      ttlSeconds: null,
+      setAtMs: 1000,
+      setBy: 'aa',
+      hideAfterReadSeconds: 300,
+    );
+    final t0 = DateTime.fromMillisecondsSinceEpoch(2000000);
+
+    test('a message never shown is never hidden by this rule', () {
+      expect(
+        setting.isHiddenAfterRead(null, t0.add(const Duration(days: 365))),
+        isFalse,
+        reason: 'the whole difference from the post-time window is right here',
+      );
+    });
+
+    test('the boundary is exact and inclusive', () {
+      expect(
+        setting.isHiddenAfterRead(t0, t0.add(const Duration(seconds: 299))),
+        isFalse,
+      );
+      expect(
+        setting.isHiddenAfterRead(t0, t0.add(const Duration(seconds: 300))),
+        isTrue,
+      );
+    });
+
+    test('off means never hidden, however long ago it was shown', () {
+      const off = DisappearingSetting(
+        ttlSeconds: 60,
+        setAtMs: 1000,
+        setBy: 'aa',
+      );
+      expect(off.hidesAfterRead, isFalse);
+      expect(
+        off.isHiddenAfterRead(t0, t0.add(const Duration(days: 365))),
+        isFalse,
+      );
+    });
+
+    /// v1 readers must keep working, and the half they cannot carry is the
+    /// courtesy one — never the guarantee.
+    test('only a read window makes the announcement v2', () {
+      expect(
+        const DisappearingSetting(
+          ttlSeconds: 60,
+          setAtMs: 1,
+          setBy: 'aa',
+        ).toWireJson()['v'],
+        1,
+      );
+      final json = setting.toWireJson();
+      expect(json['v'], 2);
+      expect(json['rttl'], 300);
+      expect(json['ttl'], 0, reason: 'the post-time half is still carried');
+    });
+
+    test('a v1 announcement decodes with no read window', () {
+      final decoded = DisappearingSetting.fromWireJson(
+        {'v': 1, 'ttl': 60, 'ts': 5},
+        NodeId(Uint8List.fromList(List.filled(32, 3))),
+      );
+      expect(decoded?.ttlSeconds, 60);
+      expect(decoded?.hideAfterReadSeconds, isNull);
+    });
+
+    test('a v2 announcement round-trips both halves', () {
+      final decoded = DisappearingSetting.fromWireJson(
+        setting.toWireJson().cast<String, Object?>(),
+        NodeId(Uint8List.fromList(List.filled(32, 3))),
+      );
+      expect(decoded?.hideAfterReadSeconds, 300);
+    });
+
+    /// The same rule the post-time half already follows: a garbled field
+    /// rejects the whole announcement rather than falling back to "off",
+    /// or a peer could clear someone's window by sending nonsense.
+    test('a malformed read window rejects the announcement', () {
+      final from = NodeId(Uint8List.fromList(List.filled(32, 3)));
+      for (final bad in <Object>[
+        'soon',
+        0,
+        -1,
+        kDisappearingMaxSeconds + 1,
+      ]) {
+        expect(
+          DisappearingSetting.fromWireJson(
+            {'v': 2, 'ttl': 60, 'ts': 5, 'rttl': bad},
+            from,
+          ),
+          isNull,
+          reason: 'rttl=$bad must not silently become "off"',
+        );
+      }
     });
   });
 }
