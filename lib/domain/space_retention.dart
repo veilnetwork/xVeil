@@ -2,9 +2,28 @@ import '../core/ids.dart';
 import 'group_payload.dart';
 import 'space_discovery.dart' show kSpacePublicClockSkew;
 
-const int kMinSpaceRetentionMs = 24 * 60 * 60 * 1000;
+/// The floor is a minute because a group's disappearing window is this same
+/// signed policy, and a window measured in days is retention rather than
+/// disappearance.
+///
+/// Lowering it is a one-sided compatibility step, and the side it falls on is
+/// worth stating. A build that still carries the old day-long floor rejects a
+/// minute-long policy as structurally invalid, drops the revision, and so keeps
+/// the messages FOREVER — the opposite of what its author asked for, silently.
+/// It cannot fail the other way: no build deletes earlier than its own floor
+/// allows. So the window is a promise about the devices that understand it, and
+/// the picker says so rather than implying a guarantee across the whole group.
+const int kMinSpaceRetentionMs = 60 * 1000;
 const int kMaxSpaceRetentionMs = 100 * 365 * 24 * 60 * 60 * 1000;
 const int kMaxSpaceDeletionGraceMs = 365 * 24 * 60 * 60 * 1000;
+
+/// A window at or below this is a disappearing window rather than a retention
+/// policy, and the difference is what happens to the bytes. Retention can
+/// afford a grace period before physical deletion — a week is nothing against
+/// a year. A minute-long window cannot: hiding a message at read time while
+/// its ciphertext sits on disk for another week is not the thing the user
+/// asked for. Authoring clamps the grace to zero below this line.
+const int kDisappearingWindowCeilingMs = 24 * 60 * 60 * 1000;
 
 /// A Space retention rule is a distinct signed policy, not a generic JSON bag.
 /// `inherit` is valid only for a channel and removes its explicit override.
@@ -32,6 +51,26 @@ class SpaceRetentionPolicy {
     this.preservePinned = true,
     this.preserveModerationEvidence = true,
   });
+
+  /// The policy a picker produces for a chosen window.
+  ///
+  /// The grace period is the whole reason this exists rather than a plain
+  /// constructor call at each call site. Its default of a week is right for a
+  /// retention rule and wrong for a disappearing one: below
+  /// [kDisappearingWindowCeilingMs] the message leaves the screen in a minute
+  /// and its ciphertext would sit on disk until next Tuesday. Callers that
+  /// genuinely want a long window keep the default by passing a long one.
+  factory SpaceRetentionPolicy.forWindow(Duration window, {NodeId? channelId}) {
+    final ms = window.inMilliseconds;
+    return SpaceRetentionPolicy(
+      mode: SpaceRetentionMode.deleteAfter,
+      channelId: channelId,
+      retentionMs: ms,
+      physicalDeletionGraceMs: ms <= kDisappearingWindowCeilingMs
+          ? 0
+          : 7 * 24 * 60 * 60 * 1000,
+    );
+  }
 
   final SpaceRetentionMode mode;
   final NodeId? channelId;
