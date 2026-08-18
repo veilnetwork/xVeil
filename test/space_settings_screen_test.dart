@@ -163,6 +163,111 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
   });
 
+  /// The retention tile reports a value of 0 as "keep everything". While it
+  /// counted days, every window shorter than one day integer-divided to 0 — so
+  /// a community deleting its history every half hour showed the owner the
+  /// word "Unlimited". A group chat converted into a community arrives with
+  /// exactly such a window.
+  testWidgets('a sub-day window is shown as itself, not as unlimited', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(77)));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Half hour');
+    expect(
+      await service.setSpaceRetentionPolicy(
+        spaceId,
+        SpaceRetentionPolicy.forWindow(const Duration(minutes: 30)),
+      ),
+      isTrue,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+    final tile = find.byKey(const ValueKey('space-global-retention'));
+    // The settings list is lazy, so a card this far down is not in the element
+    // tree until it is scrolled to.
+    await tester.scrollUntilVisible(
+      tile,
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(tile, findsOneWidget);
+    expect(
+      find.descendant(of: tile, matching: find.text(l.retentionUnlimited)),
+      findsNothing,
+      reason: 'this is the whole defect: the screen said the opposite',
+    );
+    expect(
+      find.descendant(
+        of: tile,
+        matching: find.text(l.chatDisappearingMinutes(30)),
+      ),
+      findsWidgets,
+    );
+  });
+
+  /// Choosing a window through the tile must reach the SIGNED policy with the
+  /// grace rule applied — not just repaint. A minute-long window whose
+  /// ciphertext waits a week on disk is not the feature.
+  testWidgets('choosing a minute window signs it with no deletion grace', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _Signer(_id(78)));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Minute community');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('space-global-retention')),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    final dropdown = find.descendant(
+      of: find.byKey(const ValueKey('space-global-retention')),
+      matching: find.byType(DropdownButton<int>),
+    );
+    // In the tree is not the same as on the 800x600 test surface.
+    await tester.ensureVisible(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(dropdown);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l.chatDisappearingMinutes(5)).last);
+    await tester.pumpAndSettle();
+
+    final policy = await service.spaceRetentionPolicyOf(spaceId);
+    expect(policy?.mode, SpaceRetentionMode.deleteAfter);
+    expect(policy?.retentionMs, const Duration(minutes: 5).inMilliseconds);
+    expect(policy?.physicalDeletionGraceMs, 0);
+  });
+
   testWidgets('Space creation captures description and honest visibility', (
     tester,
   ) async {

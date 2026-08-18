@@ -461,14 +461,6 @@
   },
   "spacePolicyAuditRetentionInherit": "hereda la política de la comunidad",
   "spacePolicyAuditRetentionForever": "conserva el historial",
-  "spacePolicyAuditRetentionDays": "elimina pasados {days} días",
-  "@spacePolicyAuditRetentionDays": {
-    "placeholders": {
-      "days": {
-        "type": "int"
-      }
-    }
-  },
   "spacePolicyAuditMediaOnly": "solo el contenido multimedia",
   "spaceRecentActionsTitle": "Acciones recientes",
   "spaceRecentActionsHint": "Historial administrativo firmado. Ves lo que permiten tus permisos.",
@@ -826,6 +818,14 @@
   "groupMembersTooltip": "Miembros",
   "groupSyncSettingsTooltip": "Sincronización del chat",
   "groupConvertToCommunity": "Convertir en comunidad",
+  "groupDisappearingTooltip": "Mensajes temporales",
+  "groupDisappearingTitle": "Mensajes temporales",
+  "groupDisappearingSubtitle": "Los mensajes de este grupo se borran para TODOS al vencer el plazo. Solo el propietario puede cambiarlo, y los miembros con una versión antigua conservan sus copias.",
+  "groupDisappearingOff": "No borrar",
+  "groupDisappearingCustom": "Personalizado",
+  "groupDisappearingCustomTitle": "Plazo personalizado",
+  "groupDisappearingMinutesSuffix": "min",
+  "groupDisappearingFailed": "No se pudo cambiar el plazo",
   "groupConvertConfirm": "Este chat pasa a ser una comunidad con canales, publicaciones y novedades. Se conservan los miembros y el historial. Se moverá a Comunidades. Esto no se puede deshacer.",
   "groupConvertAction": "Convertir",
   "groupSyncNeighborsTitle": "Sincronización del chat",

@@ -7,7 +7,6 @@ import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/group_message.dart';
-import 'package:xveil/domain/group_policy.dart';
 import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';

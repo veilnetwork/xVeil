@@ -1251,11 +1251,6 @@ class AppL10nRu extends AppL10n {
   String get spacePolicyAuditRetentionForever => 'хранит историю';
 
   @override
-  String spacePolicyAuditRetentionDays(int days) {
-    return 'удаляет через $days дн.';
-  }
-
-  @override
   String get spacePolicyAuditMediaOnly => 'только медиа';
 
   @override
@@ -1920,6 +1915,31 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get groupConvertToCommunity => 'Преобразовать в сообщество';
+
+  @override
+  String get groupDisappearingTooltip => 'Исчезающие сообщения';
+
+  @override
+  String get groupDisappearingTitle => 'Исчезающие сообщения';
+
+  @override
+  String get groupDisappearingSubtitle =>
+      'Сообщения этой группы стираются У ВСЕХ, когда срок выходит. Менять может только владелец, а у участников со старой сборкой копии останутся.';
+
+  @override
+  String get groupDisappearingOff => 'Не удалять';
+
+  @override
+  String get groupDisappearingCustom => 'Своё время';
+
+  @override
+  String get groupDisappearingCustomTitle => 'Своё время';
+
+  @override
+  String get groupDisappearingMinutesSuffix => 'мин';
+
+  @override
+  String get groupDisappearingFailed => 'Не удалось изменить срок';
 
   @override
   String get groupConvertConfirm =>
