@@ -3478,9 +3478,20 @@ class GroupService {
     if ((e.op == ControlOp.transferOwnership ||
             e.op == ControlOp.setDescription ||
             e.op == ControlOp.publishRules ||
-            e.op == ControlOp.acceptRules ||
-            e.op == ControlOp.setRetention) &&
+            e.op == ControlOp.acceptRules) &&
         !manifest.isSpace) {
+      return false;
+    }
+    // `setRetention` is deliberately absent from that list. A group chat's
+    // disappearing window IS a retention revision — same signed row, same
+    // deterministic replay, same "a looser policy later never resurrects what
+    // an earlier one retired". What stays Space-only is the CHANNEL form (V15
+    // ciphertext under a channel epoch), and it stays so on its own terms: a
+    // legacy group has no channels, so `channelRetention` finds none and the
+    // fold rejects the row.
+    if (e.op == ControlOp.setRetention &&
+        !manifest.isSpace &&
+        (e.channelRetention != null || e.retentionPolicy?.channelId != null)) {
       return false;
     }
     if (manifest.isSovereignDevice) {
@@ -4509,6 +4520,15 @@ class GroupService {
     return List.unmodifiable(records);
   }
 
+  /// Whether this bundle has anything for the retention timeline to be built
+  /// from. Read paths used to ask `manifest.isSpace`, which was the same
+  /// question only while retention was a Space-only feature; a group chat's
+  /// disappearing window is the same signed row in a container that is not a
+  /// Space. Kept cheap on purpose — control logs are small next to message
+  /// history, and this runs on every read of every conversation.
+  static bool _hasRetentionRows(GroupBundle b) =>
+      b.control.any((entry) => entry.op == ControlOp.setRetention);
+
   /// Materialize the signed retention timeline visible to this device. V9
   /// rows are already clear; V15 rows are decrypted only for a currently
   /// visible restricted channel and validated against its historical epoch.
@@ -4705,6 +4725,12 @@ class GroupService {
   /// space-post comment) at [atMs]. Used symmetrically at the read, serve
   /// (sync/snapshot) and ingest boundaries so retired content is neither
   /// shown, redistributed nor resurrected by a stale holder.
+  ///
+  /// This is where the decision is actually made, so this is where the
+  /// container check had to go. Opening the gates that MATERIALIZE the
+  /// timeline while this still asked `isSpace` produced the quietest possible
+  /// failure: a group chat with a correct, signed, folded, effective one-minute
+  /// policy that retired nothing, on every path at once.
   bool _retentionRetiresMessage({
     required SpaceManifest manifest,
     required List<SpaceRetentionRevision> revisions,
@@ -4712,9 +4738,7 @@ class GroupService {
     required GroupMessage message,
     required int atMs,
   }) {
-    if (!manifest.isSpace || (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
-      return false;
-    }
+    if (revisions.isEmpty && hiddenThroughMs.isEmpty) return false;
     final NodeId? effectiveChannelId = message.spacePostId != null
         ? null
         : (message.channelId ?? defaultSpaceChannelId(manifest.groupId));
@@ -4754,6 +4778,8 @@ class GroupService {
     );
   }
 
+  /// A reaction outliving the message it reacts to would be a strange kind of
+  /// remnant, so this follows the message rule rather than the container kind.
   bool _retentionRetiresReaction({
     required SpaceManifest manifest,
     required List<SpaceRetentionRevision> revisions,
@@ -4761,9 +4787,7 @@ class GroupService {
     required GroupReaction reaction,
     required int atMs,
   }) {
-    if (!manifest.isSpace || (revisions.isEmpty && hiddenThroughMs.isEmpty)) {
-      return false;
-    }
+    if (revisions.isEmpty && hiddenThroughMs.isEmpty) return false;
     final channelId = reaction.channelId;
     final hiddenThrough = channelId == null
         ? null
@@ -5428,10 +5452,15 @@ class GroupService {
   String _groupKindHintKey(String hex) => 'group.kind.v1.$hex';
   final Map<String, String> _groupKindHints = {};
 
-  String _computeGroupKindHint(GroupBundle b) => !b.manifest.isSpace
-      ? 'g'
-      : b.control.any((entry) => entry.op == ControlOp.setRetention)
+  /// A retention row now outranks the container kind. A group chat with a
+  /// disappearing window has exactly as much to enforce as a Space with one,
+  /// and 'g' means "skip the load" — so leaving legacy groups on 'g' would
+  /// silently exempt every group chat from its own window.
+  String _computeGroupKindHint(GroupBundle b) =>
+      b.control.any((entry) => entry.op == ControlOp.setRetention)
       ? 'sb'
+      : !b.manifest.isSpace
+      ? 'g'
       : 's';
 
   Future<String?> _readGroupKindHint(String hex) async {
@@ -6478,7 +6507,10 @@ class GroupService {
           if (hint == null) {
             await _writeGroupKindHint(hex, _computeGroupKindHint(b));
           }
-          if (!b.manifest.isSpace) return;
+          // Not `isSpace` any more: what makes a bundle sweepable is having a
+          // bounded policy, and the check for that is four lines below. A group
+          // chat with no retention rows materializes an empty timeline and
+          // leaves on `!hasBoundedPolicy` without costing a scan.
           final state = foldControlLog(
             owner: b.manifest.owner,
             entries: b.control,
@@ -7916,7 +7948,6 @@ class GroupService {
             op == ControlOp.acceptRules ||
             op == ControlOp.moderate ||
             op == ControlOp.revokeModeration ||
-            op == ControlOp.setRetention ||
             op == ControlOp.setPostPin ||
             op == ControlOp.setRecommendationCampaign ||
             op == ControlOp.setRecommendationPolicy ||
@@ -8391,8 +8422,11 @@ class GroupService {
     SpaceRetentionPolicy policy,
   ) => _serialized(spaceId, () async {
     final bundle = await load(spaceId);
+    // A group chat may set its own disappearing window, which is a Space-WIDE
+    // policy in a container that has no channels. The channel form below still
+    // requires a Space, and asks the state for one rather than the manifest.
     if (bundle == null ||
-        !bundle.manifest.isSpace ||
+        (!bundle.manifest.isSpace && policy.channelId != null) ||
         !policy.isStructurallyValid) {
       return false;
     }
@@ -8490,7 +8524,11 @@ class GroupService {
     NodeId? channelId,
   }) async {
     final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) return null;
+    // A group chat answers about its own window; only the CHANNEL question
+    // needs a Space, and a group has no channels to ask about.
+    if (bundle == null || (!bundle.manifest.isSpace && channelId != null)) {
+      return null;
+    }
     final state = foldControlLog(
       owner: bundle.manifest.owner,
       entries: bundle.control,
@@ -8523,7 +8561,9 @@ class GroupService {
     NodeId spaceId,
   ) async {
     final bundle = await load(spaceId);
-    if (bundle == null || !bundle.manifest.isSpace) return const [];
+    // Who narrowed the window and when is exactly as auditable in a group
+    // chat as in a Space, and it is the same signed rows answering.
+    if (bundle == null) return const [];
     final state = foldControlLog(
       owner: bundle.manifest.owner,
       entries: bundle.control,
@@ -12018,7 +12058,11 @@ class GroupService {
     bool applyLocalRetention = false,
   }) async {
     final spaceId = bundle.manifest.groupId;
-    final readAt = DateTime.now().millisecondsSinceEpoch;
+    // Same seam as [_messagesOfBundle]: in production `_clockNowMs` IS
+    // `DateTime.now`, so nothing changes there. What it buys is that the two
+    // readers cannot answer "what time is it" differently under a test clock,
+    // which is how one of them could quietly stop being covered.
+    final readAt = _clockNowMs();
     final currentFold = foldControlLog(
       owner: bundle.manifest.owner,
       entries: bundle.control,
@@ -13133,7 +13177,7 @@ class GroupService {
       }
       return false;
     }
-    final retention = b.manifest.isSpace
+    final retention = b.manifest.isSpace || _hasRetentionRows(b)
         ? await _materializedRetentionHistory(b, state)
         : null;
     final retireAtMs = _now();
@@ -14151,7 +14195,11 @@ class GroupService {
       entries: b.control,
       verify: (e) => _validControlFor(b.manifest, e),
     ).state;
-    final readAt = DateTime.now().millisecondsSinceEpoch;
+    // The wall clock through the service's own seam rather than `DateTime.now`
+    // directly. A read-time expiry filter that cannot be driven by the test
+    // clock is a filter no test can put a boundary on, and this one now
+    // decides whether a message is on screen a minute after it was sent.
+    final readAt = _clockNowMs();
     final reader = state.memberOf(_signer.selfId);
     if (b.manifest.isSpace && (reader == null || state.isDeleted)) {
       return const [];
@@ -14162,7 +14210,7 @@ class GroupService {
     final protected = b.manifest.isSpace
         ? await _protectedChannelsOf(b, state)
         : const <String, SpaceChannelControlCleartext>{};
-    final retention = b.manifest.isSpace
+    final retention = b.manifest.isSpace || _hasRetentionRows(b)
         ? await _materializedRetentionHistory(
             b,
             state,
@@ -14214,15 +14262,21 @@ class GroupService {
           };
           if (!historyAllows) continue;
         }
-        final hiddenThrough = effectiveChannelId == null
-            ? null
-            : retention!.hiddenThroughMs[effectiveChannelId.hex];
-        if ((hiddenThrough != null && m.createdAtMs <= hiddenThrough) ||
-            spaceRetentionRemoves(
-              revisions: retention!.revisions,
-              createdAtMs: m.createdAtMs,
+      } else if (channelId != null) {
+        continue;
+      }
+      // Retention applies to both containers, so it sits OUTSIDE the Space
+      // branch — and it asks the same predicate the sweep, the serve path and
+      // ingest ask. The doc on that predicate already claimed the boundary was
+      // enforced symmetrically; re-deriving it inline here was what left the
+      // read path free to disagree with everyone else.
+      if (retention != null) {
+        if (_retentionRetiresMessage(
+              manifest: b.manifest,
+              revisions: retention.revisions,
+              hiddenThroughMs: retention.hiddenThroughMs,
+              message: m,
               atMs: readAt,
-              channelId: effectiveChannelId,
             ) ||
             m.createdAtMs <= localCutoff) {
           continue;
@@ -14233,8 +14287,6 @@ class GroupService {
           atMs: readAt,
           channelId: effectiveChannelId,
         );
-      } else if (channelId != null) {
-        continue;
       }
       if (!SpaceAcl(state).allows(
             m.author,
@@ -16039,7 +16091,7 @@ class GroupService {
     final encryptionEstablished = _encryptionEstablished(man, control);
     // Retention is enforced symmetrically at ingest: a stale or malicious
     // holder cannot resurrect rows the signed policy has already retired.
-    final ingestRetention = man.isSpace
+    final ingestRetention = man.isSpace || _hasRetentionRows(materialBundle)
         ? await _materializedRetentionHistory(materialBundle, mergedState)
         : null;
     final ingestAtMs = _now();

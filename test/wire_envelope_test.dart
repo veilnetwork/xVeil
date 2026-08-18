@@ -82,7 +82,10 @@ void main() {
     expect(WireKind.spacePublicMediaGrantRequest.index, 43);
     expect(WireKind.spaceAbuseReport.index, 44);
     expect(WireKind.spaceAbuseReportDecision.index, 45);
-    expect(WireKind.unknown.index, 48);
+    // Moved from 48 when `disappearingSet` was appended before it. That is the
+    // sentinel doing its job: every append shifts it, and this line is where a
+    // build says out loud how many kinds it knows.
+    expect(WireKind.unknown.index, 49);
 
     final report = WireEnvelope.decode(
       const WireEnvelope.spaceAbuseReport('{"kind":"report"}').encode(),

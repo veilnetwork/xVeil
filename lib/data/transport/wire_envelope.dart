@@ -301,6 +301,7 @@ const List<String> kWireKindOrder = [
   'groupContentManifest', 'spacePublicFeedRequest', 'spacePublicFeedChunk',
   'spacePublicMediaGrantRequest', 'spaceAbuseReport',
   'spaceAbuseReportDecision', 'modelInventoryRequest', 'modelInventoryOffer',
+  'disappearingSet',
   'unknown',
 ];
 
