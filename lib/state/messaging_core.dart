@@ -18,6 +18,7 @@ import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/chat.dart';
 import '../domain/chat_folder.dart';
+import '../domain/disappearing_messages.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/content_manifest.dart';
 import '../domain/content_transfer.dart';
@@ -1625,6 +1626,18 @@ class MessagingService {
 
   Future<void> pruneConversation(NodeId peer) =>
       _conversationAdmin.pruneConversation(peer);
+
+  /// The conversation's shared disappearing-message window.
+  Future<DisappearingSetting> disappearingOf(NodeId peer) =>
+      _conversationAdmin.disappearingOf(peer);
+
+  /// Choose the window and announce it to [peer]. `null`/<=0 turns it off.
+  Future<void> setContactDisappearing(NodeId peer, int? seconds) =>
+      _conversationAdmin.setContactDisappearing(peer, seconds);
+
+  /// Delete whatever has outlived the window in this conversation.
+  Future<int> sweepDisappearing(NodeId peer) =>
+      _conversationAdmin.sweepDisappearing(peer);
 
   Future<void> deleteConversation(NodeId peer, {bool notifyPeer = false}) =>
       _conversationAdmin.deleteConversation(peer, notifyPeer: notifyPeer);

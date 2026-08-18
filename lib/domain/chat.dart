@@ -47,6 +47,9 @@ class Contact {
     this.pinned = false,
     this.archived = false,
     this.retentionDays,
+    this.disappearingTtlSeconds,
+    this.disappearingSetAtMs = 0,
+    this.disappearingSetBy = '',
     this.allowPeerDelete = true,
     this.p2pOverride = kDefaultContactP2POverride,
   });
@@ -107,6 +110,21 @@ class Contact {
   /// + local-only, same store rationale as [muted].
   final int? retentionDays;
 
+  /// Shared disappearing-message window in SECONDS, or null for off.
+  ///
+  /// Unlike [retentionDays] this is not a private housekeeping preference: it
+  /// is announced to the peer and an announcement from the peer applies here,
+  /// because a window only one side honours is not a promise. See
+  /// `domain/disappearing_messages.dart` for the arithmetic and the rule that
+  /// decides which of two simultaneous announcements a conversation keeps.
+  final int? disappearingTtlSeconds;
+
+  /// When the held disappearing setting was made (ms since epoch), and by
+  /// whose node id. Stored because the SETTING has to converge on both
+  /// devices, not just be applied — see `DisappearingSetting.winner`.
+  final int disappearingSetAtMs;
+  final String disappearingSetBy;
+
   String get label => name ?? nodeId.short;
 
   /// Free messaging is only allowed once the relationship is accepted.
@@ -124,6 +142,11 @@ class Contact {
     bool? pinned,
     bool? archived,
     int? retentionDays,
+    // Nullable-field update, same sentinel reason as [mutedUntil]: turning
+    // disappearing messages OFF is an explicit null, not an omission.
+    Object? disappearingTtlSeconds = _unset,
+    int? disappearingSetAtMs,
+    String? disappearingSetBy,
     bool? allowPeerDelete,
     ContactP2POverride? p2pOverride,
   }) => Contact(
@@ -137,6 +160,11 @@ class Contact {
     pinned: pinned ?? this.pinned,
     archived: archived ?? this.archived,
     retentionDays: retentionDays ?? this.retentionDays,
+    disappearingTtlSeconds: identical(disappearingTtlSeconds, _unset)
+        ? this.disappearingTtlSeconds
+        : disappearingTtlSeconds as int?,
+    disappearingSetAtMs: disappearingSetAtMs ?? this.disappearingSetAtMs,
+    disappearingSetBy: disappearingSetBy ?? this.disappearingSetBy,
     allowPeerDelete: allowPeerDelete ?? this.allowPeerDelete,
     p2pOverride: p2pOverride ?? this.p2pOverride,
   );

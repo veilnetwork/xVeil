@@ -101,6 +101,146 @@ class _MessagingConversationAdmin {
     }
   }
 
+  /// Read the conversation's shared disappearing-message setting.
+  Future<DisappearingSetting> disappearingOf(NodeId peer) async {
+    final c = await _owner._storage.getContact(peer);
+    if (c == null) return DisappearingSetting.off;
+    return DisappearingSetting(
+      ttlSeconds: c.disappearingTtlSeconds,
+      setAtMs: c.disappearingSetAtMs,
+      setBy: c.disappearingSetBy,
+    );
+  }
+
+  /// Choose a disappearing window for this conversation and tell the peer.
+  ///
+  /// `seconds == null` (or <= 0) turns it off. The order matters: the setting
+  /// is persisted and applied HERE first, and only then announced. A send that
+  /// fails must still leave this device honouring what its owner asked for —
+  /// the peer's copy catches up on the next announcement, but a person who
+  /// asked for 30 seconds and got "the network was down" would have neither.
+  Future<void> setContactDisappearing(NodeId peer, int? seconds) async {
+    final existing = await _owner._storage.getContact(peer);
+    if (existing == null) return;
+    final ttl = (seconds == null || seconds <= 0)
+        ? null
+        : seconds.clamp(1, kDisappearingMaxSeconds);
+    final selfHex = await _owner._selfHex();
+    final setting = DisappearingSetting(
+      ttlSeconds: ttl,
+      setAtMs: _owner._now().millisecondsSinceEpoch,
+      setBy: selfHex,
+    );
+    await _applyDisappearing(peer, existing, setting, incoming: false);
+    await _announceDisappearing(peer, setting);
+  }
+
+  /// Adopt an announcement that arrived from [peer]. Returns whether it won.
+  Future<bool> adoptDisappearing(NodeId peer, DisappearingSetting incoming) async {
+    final existing = await _owner._storage.getContact(peer);
+    if (existing == null) return false;
+    final held = DisappearingSetting(
+      ttlSeconds: existing.disappearingTtlSeconds,
+      setAtMs: existing.disappearingSetAtMs,
+      setBy: existing.disappearingSetBy,
+    );
+    if (!identical(DisappearingSetting.winner(held, incoming), incoming)) {
+      return false;
+    }
+    await _applyDisappearing(peer, existing, incoming, incoming: true);
+    return true;
+  }
+
+  Future<void> _applyDisappearing(
+    NodeId peer,
+    Contact existing,
+    DisappearingSetting setting, {
+    required bool incoming,
+  }) async {
+    await _owner._putContactPrefs(
+      existing.copyWith(
+        disappearingTtlSeconds: setting.ttlSeconds,
+        disappearingSetAtMs: setting.setAtMs,
+        disappearingSetBy: setting.setBy,
+      ),
+    );
+    _owner._signal();
+    // A row in the timeline, not a silent toggle: the window governs what the
+    // OTHER person's device deletes too, so both people have to be able to see
+    // that it changed and when.
+    await _writeDisappearingMarker(peer, setting, incoming: incoming);
+    await sweepDisappearing(peer);
+  }
+
+  Future<void> _writeDisappearingMarker(
+    NodeId peer,
+    DisappearingSetting setting, {
+    required bool incoming,
+  }) async {
+    // Deterministic id: a re-delivered announcement (the sender's mailbox copy
+    // survives until acked) must not mint a second row. Same defence the
+    // chat-deleted marker needed after a restart cleared the RAM seen-set.
+    final id = 'sys:disap:${setting.setAtMs}:${setting.setBy}';
+    if (await _owner._hasMessage(peer, id)) return;
+    if (await _owner._storage.isMessageDeleted(peer.hex, id)) return;
+    await _owner._store(
+      peer,
+      incoming ? MessageDirection.incoming : MessageDirection.outgoing,
+      '$kDisappearingMarkerPrefix${setting.ttlSeconds ?? 0}',
+      MessageStatus.delivered,
+      id: id,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(setting.setAtMs),
+      selfAuthored: true,
+    );
+  }
+
+  Future<void> _announceDisappearing(
+    NodeId peer,
+    DisappearingSetting setting,
+  ) async {
+    final selfHex = await _owner._selfHex();
+    if (peer.hex == selfHex) return;
+    final contact = await _owner._storage.getContact(peer);
+    if (contact == null || contact.status != ContactStatus.accepted) return;
+    final fid = 'disap:${_uuid.v4()}';
+    final wire = WireEnvelope(
+      WireKind.disappearingSet,
+      jsonEncode(setting.toWireJson()),
+      sentAtMs: setting.setAtMs,
+    ).withFrameId(fid).encode();
+    try {
+      await _owner._send(peer, wire);
+    } catch (_) {
+      // Live path down — the durable copy below still carries it.
+    }
+    try {
+      await _owner._maybeStash(peer, fid, wire);
+    } catch (_) {
+      // Best-effort: an unreachable mailbox must not undo a setting the owner
+      // already has locally.
+    }
+  }
+
+  /// Delete everything in this conversation that has outlived the window.
+  ///
+  /// Cheap and idempotent by design, so it can be called on chat open, after
+  /// an inbound message, and on a timer without anyone having to reason about
+  /// which of those already ran.
+  Future<int> sweepDisappearing(NodeId peer) async {
+    try {
+      final setting = await disappearingOf(peer);
+      final cutoff = setting.cutoffAt(_owner._now());
+      if (cutoff == null) return 0;
+      final pruned = await _owner._storage.pruneConversationBefore(peer, cutoff);
+      if (pruned > 0) _owner._signal();
+      return pruned;
+    } catch (_) {
+      // Best-effort, like [pruneConversation]: a locked store means the sweep
+      // happens on the next call, not that the caller fails.
+      return 0;
+    }
+  }
+
   Future<void> pruneConversation(NodeId peer) async {
     try {
       final c = await _owner._storage.getContact(peer);

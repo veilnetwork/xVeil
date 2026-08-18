@@ -4904,6 +4904,60 @@ abstract class AppL10n {
   /// **'The other person deleted this chat on their device'**
   String get chatDeletedByPeer;
 
+  /// No description provided for @chatDisappearingTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Disappearing messages'**
+  String get chatDisappearingTitle;
+
+  /// No description provided for @chatDisappearingSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Messages in this chat are erased on BOTH devices once the window passes. Either of you can change it.'**
+  String get chatDisappearingSubtitle;
+
+  /// No description provided for @chatDisappearingOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get chatDisappearingOff;
+
+  /// No description provided for @chatDisappearingSetNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Disappearing messages: {window}'**
+  String chatDisappearingSetNotice(String window);
+
+  /// No description provided for @chatDisappearingOffNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Disappearing messages turned off'**
+  String get chatDisappearingOffNotice;
+
+  /// No description provided for @chatDisappearingSeconds.
+  ///
+  /// In en, this message translates to:
+  /// **'{n} sec'**
+  String chatDisappearingSeconds(int n);
+
+  /// No description provided for @chatDisappearingMinutes.
+  ///
+  /// In en, this message translates to:
+  /// **'{n} min'**
+  String chatDisappearingMinutes(int n);
+
+  /// No description provided for @chatDisappearingHours.
+  ///
+  /// In en, this message translates to:
+  /// **'{n} h'**
+  String chatDisappearingHours(int n);
+
+  /// No description provided for @chatDisappearingDays.
+  ///
+  /// In en, this message translates to:
+  /// **'{n} d'**
+  String chatDisappearingDays(int n);
+
   /// No description provided for @chatEditTitle.
   ///
   /// In en, this message translates to:
