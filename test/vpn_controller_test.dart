@@ -360,6 +360,57 @@ void main() {
   );
 
   test(
+    'a second start does not erase the record of the first (audit X13-M9)',
+    () async {
+      // The tap that arrives while the tunnel is coming up. `_start`'s opening
+      // guard refuses it, so it is OVER before `start` returns — and the record
+      // a teardown waits on used to be overwritten with that finished future.
+      // The lock then asked the backend to stop with the native start still
+      // inside its call, and answered `stopped` for a tunnel that had not come
+      // up yet.
+      final backend = _FakeBackend()..startBarrier = Completer<void>();
+      final container = await _container(backend);
+      await _configureExit(container);
+      final controller = container.read(vpnControllerProvider.notifier);
+
+      final first = controller.start();
+      for (var pump = 0; pump < 10; pump++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(backend.starts, 1, reason: 'the first start must be in flight');
+
+      await controller.start();
+      expect(
+        backend.starts,
+        1,
+        reason: 'the second start is refused while the first is busy',
+      );
+
+      final teardown = controller.stopForTeardown();
+      for (var pump = 0; pump < 10; pump++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(
+        backend.stops,
+        0,
+        reason:
+            'the teardown asked the backend to stop while the native start '
+            'it exists to cancel was still inside the call',
+      );
+
+      backend.startBarrier!.complete();
+      await first;
+      final phase = await teardown;
+
+      expect(phase, VpnBackendPhase.stopped);
+      expect(backend.stops, greaterThanOrEqualTo(1));
+      final state = container.read(vpnControllerProvider);
+      expect(state.isRunning, isFalse);
+      expect(state.policy.enabled, isFalse);
+    },
+  );
+
+  test(
     'a teardown that is the first read of the provider still stops the tunnel',
     () async {
       final backend = _FakeBackend()
