@@ -6481,6 +6481,20 @@ class AppL10nEs extends AppL10n {
       'No se pudo guardar esa elección. Solo se aplica a esta sesión.';
 
   @override
+  String get dhtServeTitle => 'Servir a la red';
+
+  @override
+  String get dhtServeOnSub =>
+      'Este dispositivo guarda registros de otras personas y transporta sus búsquedas. Medido en un cliente inactivo: cerca del 85% de todo lo recibido. Mantiene los datos de la red repartidos entre muchas máquinas.';
+
+  @override
+  String get dhtServeOffSub =>
+      'Se pide a los pares que no elijan este dispositivo para su almacenamiento ni sus búsquedas. Tus mensajes, contactos y entregas no se ven afectados. Menos máquinas guardan entonces los datos de la red.';
+
+  @override
+  String get dhtServeSaveFailed => 'No se pudo guardar el ajuste';
+
+  @override
   String get seedsSwitchTitle => 'Usar los nodos de entrada compartidos';
 
   @override

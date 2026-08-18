@@ -6402,6 +6402,20 @@ class AppL10nEn extends AppL10n {
       'That choice could not be saved. It applies to this session only.';
 
   @override
+  String get dhtServeTitle => 'Serve the network';
+
+  @override
+  String get dhtServeOnSub =>
+      'This device stores other people’s records and carries their lookups. Measured on an idle client: about 85% of everything received. Keeps the network’s data spread across many machines instead of a few.';
+
+  @override
+  String get dhtServeOffSub =>
+      'Peers are asked not to pick this device for their storage or lookups. Your own messages, contacts and delivery are unaffected. Fewer machines then hold the network’s data.';
+
+  @override
+  String get dhtServeSaveFailed => 'Could not save the setting';
+
+  @override
   String get seedsSwitchTitle => 'Use the shared entry nodes';
 
   @override
