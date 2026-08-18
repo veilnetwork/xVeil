@@ -9,7 +9,8 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import '../common/shown_cause.dart';
 import '../common/async_error_view.dart';
 import '../../core/ids.dart';
-import '../../data/transport/wire_envelope.dart' show isChatDeletedMarker;
+import '../../data/transport/wire_envelope.dart'
+    show disappearingMarkerSeconds, isChatDeletedMarker;
 import '../../domain/chat.dart';
 import '../../domain/chat_folder.dart';
 import '../../domain/space_recommendation.dart';
@@ -966,17 +967,21 @@ class _ConversationTile extends ConsumerWidget {
                     ? null
                     : (last.isFile ||
                               isChatDeletedMarker(last.body) ||
+                              disappearingMarkerSeconds(last.body) != null ||
                               recommendation != null
                           ? Text(
                               // Attachments render the shared human kind label
                               // (voice/video notes/stickers travel under opaque
-                              // uuid container names — never show those); a
-                              // chatDeleted farewell marker shows its system notice.
+                              // uuid container names — never show those); the
+                              // system markers render their notice, because the
+                              // stored body is a token nobody should ever read.
                               last.isFile
                                   ? messagePreviewText(l, last)
                                   : (isChatDeletedMarker(last.body)
                                         ? l.chatDeletedByPeer
-                                        : (recommendation?.name ?? last.body)),
+                                        : (disappearingPreview(l, last.body) ??
+                                              recommendation?.name ??
+                                              last.body)),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             )
@@ -1006,3 +1011,4 @@ class _ConversationTile extends ConsumerWidget {
     );
   }
 }
+

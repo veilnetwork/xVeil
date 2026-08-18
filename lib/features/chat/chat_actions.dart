@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
 import '../../core/log.dart';
+import '../../data/transport/wire_envelope.dart'
+    show disappearingMarkerSeconds;
 import '../../domain/chat.dart';
 import '../../domain/disappearing_messages.dart';
 import '../../domain/p2p_policy.dart';
@@ -575,6 +577,22 @@ String formatDisappearingWindow(AppL10n l, int seconds) {
   if (seconds % 3600 == 0) return l.chatDisappearingHours(seconds ~/ 3600);
   if (seconds % 60 == 0) return l.chatDisappearingMinutes(seconds ~/ 60);
   return l.chatDisappearingSeconds(seconds);
+}
+
+/// The one-line notice a disappearing-window change shows — in the timeline
+/// and in the chat list alike — or null when [body] is not one of those rows.
+///
+/// Lives beside the formatter rather than in either screen because the stored
+/// body is a TOKEN (`sys:disappearing:3600`). A screen that renders message
+/// bodies without asking what they are will print that token at the user, which
+/// is what happened the last time a system marker was added and the chat list
+/// was not touched.
+String? disappearingPreview(AppL10n l, String body) {
+  final secs = disappearingMarkerSeconds(body);
+  if (secs == null) return null;
+  return secs <= 0
+      ? l.chatDisappearingOffNotice
+      : l.chatDisappearingSetNotice(formatDisappearingWindow(l, secs));
 }
 
 /// Choose the SHARED disappearing window. Unlike [pickRetention] this is not a
