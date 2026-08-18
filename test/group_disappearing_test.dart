@@ -153,6 +153,7 @@ class _Signer implements GroupSigner {
 }
 
 void main() {
+  groupHideAfterReadTests();
   final owner = _id(1);
   final member = _id(2);
   const minuteMs = 60 * 1000;
@@ -410,5 +411,250 @@ void main() {
     );
     final sweep = await service.sweepSpaceRetention(nowMs: wall);
     expect(sweep.scanned, 0);
+  });
+}
+
+/// The read-clock half in groups and channels: the owner's SIGNED request plus
+/// the member's LOCAL ceiling, the shorter winning. Hiding, never deletion —
+/// the signed log keeps every row, which in a channel is the whole point.
+void groupHideAfterReadTests() {
+  final owner = _id(1);
+  final baseMs = DateTime.now().millisecondsSinceEpoch;
+  const fiveMinMs = 5 * 60 * 1000;
+
+  group('hide after read (signed policy wire)', () {
+    test('the version is 3 exactly when the window is set', () {
+      const without = SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever);
+      expect(without.toJson()['v'], 1);
+      const with3 = SpaceRetentionPolicy(
+        mode: SpaceRetentionMode.keepForever,
+        hideAfterReadMs: fiveMinMs,
+      );
+      expect(with3.toJson()['v'], 3);
+      expect(with3.toJson()['hideReadMs'], fiveMinMs);
+      final decoded = SpaceRetentionPolicy.fromJson(with3.toJson());
+      expect(decoded?.hideAfterReadMs, fiveMinMs);
+      expect(decoded?.mode, SpaceRetentionMode.keepForever);
+    });
+
+    test('each version means one shape, and nothing else decodes', () {
+      Map<String, dynamic> base() => const SpaceRetentionPolicy(
+        mode: SpaceRetentionMode.keepForever,
+        hideAfterReadMs: fiveMinMs,
+      ).toJson();
+
+      final v3WithoutWindow = base()..remove('hideReadMs');
+      expect(SpaceRetentionPolicy.fromJson(v3WithoutWindow), isNull);
+
+      final v1WithWindow = base()..['v'] = 1;
+      expect(SpaceRetentionPolicy.fromJson(v1WithWindow), isNull);
+
+      final zero = base()..['hideReadMs'] = 0;
+      expect(SpaceRetentionPolicy.fromJson(zero), isNull);
+    });
+
+    test('the window is bounded: a minute up to four weeks', () {
+      SpaceRetentionPolicy p(int ms) => SpaceRetentionPolicy(
+        mode: SpaceRetentionMode.keepForever,
+        hideAfterReadMs: ms,
+      );
+      expect(p(60 * 1000).isStructurallyValid, isTrue);
+      expect(p(60 * 1000 - 1).isStructurallyValid, isFalse);
+      expect(p(28 * 24 * 60 * 60 * 1000).isStructurallyValid, isTrue);
+      expect(p(28 * 24 * 60 * 60 * 1000 + 1).isStructurallyValid, isFalse);
+    });
+
+    test('inherit has no opinion, so it may not carry one', () {
+      final policy = SpaceRetentionPolicy(
+        mode: SpaceRetentionMode.inherit,
+        channelId: _id(7),
+        hideAfterReadMs: fiveMinMs,
+      );
+      expect(policy.isStructurallyValid, isFalse);
+    });
+  });
+
+  group('hide after read (group behaviour)', () {
+    late GroupService service;
+    late NodeId groupId;
+    late int wall;
+
+    setUp(() async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      wall = baseMs;
+      service = GroupService(storage, _Signer(owner));
+      service.debugWallClockMs = () => wall;
+      groupId = await service.createGroup('Kitchen');
+      expect(await service.postMessage(groupId, 'meet at seven'), isTrue);
+    });
+
+    Future<void> show() async => service.recordSpaceShown(
+      groupId,
+      messages: await service.messagesOf(groupId),
+    );
+
+    test('a shown message leaves the screen but never the log', () async {
+      expect(
+        await service.setSpaceRetentionPolicy(
+          groupId,
+          const SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            hideAfterReadMs: fiveMinMs,
+          ),
+        ),
+        isTrue,
+      );
+      await show();
+
+      wall = baseMs + fiveMinMs - 1000;
+      expect(await service.messagesOf(groupId), hasLength(1));
+
+      wall = baseMs + fiveMinMs + 1000;
+      expect(await service.messagesOf(groupId), isEmpty);
+      expect(
+        (await service.load(groupId))!.messages,
+        hasLength(1),
+        reason: 'hiding is presentation; the signed log keeps the row',
+      );
+      expect(
+        await service.messagesOf(groupId, applyLocalRetention: false),
+        hasLength(1),
+        reason: 'the serve/sync view is the one other members are fed from, '
+            'and hiding there would BE deletion under another name',
+      );
+    });
+
+    test('a message never shown stays visible forever', () async {
+      expect(
+        await service.setSpaceRetentionPolicy(
+          groupId,
+          const SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            hideAfterReadMs: fiveMinMs,
+          ),
+        ),
+        isTrue,
+      );
+      // No show() — the window has nothing to count from.
+      wall = baseMs + 30 * 24 * 60 * 60 * 1000;
+      expect(await service.messagesOf(groupId), hasLength(1));
+    });
+
+    test('a message that arrives after the showing is not swallowed', () async {
+      expect(
+        await service.setSpaceRetentionPolicy(
+          groupId,
+          const SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            hideAfterReadMs: fiveMinMs,
+          ),
+        ),
+        isTrue,
+      );
+      await show();
+      wall = baseMs + fiveMinMs + 1000;
+      expect(await service.postMessage(groupId, 'late arrival'), isTrue);
+      final bodies =
+          (await service.messagesOf(groupId)).map((m) => m.body).toList();
+      expect(bodies, ['late arrival']);
+    });
+
+    test('the local ceiling hides with no signed policy at all', () async {
+      expect(
+        await service.setLocalSpaceHideAfterReadMs(groupId, fiveMinMs),
+        isTrue,
+      );
+      await show();
+      wall = baseMs + fiveMinMs + 1000;
+      expect(await service.messagesOf(groupId), isEmpty);
+      expect((await service.load(groupId))!.messages, hasLength(1));
+    });
+
+    test('of the two windows the shorter always wins', () async {
+      expect(
+        await service.setSpaceRetentionPolicy(
+          groupId,
+          const SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            hideAfterReadMs: 30 * 60 * 1000,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await service.setLocalSpaceHideAfterReadMs(groupId, 60 * 1000),
+        isTrue,
+      );
+      await show();
+      wall = baseMs + 60 * 1000 + 1000;
+      expect(
+        await service.messagesOf(groupId),
+        isEmpty,
+        reason: 'the member agreed to less; less it is',
+      );
+    });
+
+    test('turning the policy off later does not resurrect', () async {
+      expect(
+        await service.setSpaceRetentionPolicy(
+          groupId,
+          const SpaceRetentionPolicy(
+            mode: SpaceRetentionMode.keepForever,
+            hideAfterReadMs: fiveMinMs,
+          ),
+        ),
+        isTrue,
+      );
+      await show();
+      wall = baseMs + fiveMinMs + 1000;
+      expect(await service.messagesOf(groupId), isEmpty);
+
+      expect(
+        await service.setSpaceRetentionPolicy(
+          groupId,
+          const SpaceRetentionPolicy(mode: SpaceRetentionMode.keepForever),
+        ),
+        isTrue,
+      );
+      wall += 1000;
+      expect(
+        await service.messagesOf(groupId),
+        isNot(contains(predicate<GroupMessage>((m) => m.body == 'meet at seven'))),
+        reason: 'what one policy hid, the next may not undo',
+      );
+    });
+
+    test('a future-dated row cannot drag the history off screen', () async {
+      expect(
+        await service.setLocalSpaceHideAfterReadMs(groupId, fiveMinMs),
+        isTrue,
+      );
+      // A hostile member claims next century; coverage must clamp to our own
+      // clock, so showing THIS list hides the honest row when its time comes
+      // and never the whole channel in one stroke.
+      final msgs = await service.messagesOf(groupId);
+      final hostile = GroupMessage(
+        groupId: groupId,
+        author: _id(9),
+        seq: 0,
+        prevHash: '',
+        body: 'from 2105',
+        policyVersion: 0,
+        createdAtMs: baseMs + 80 * 365 * 24 * 60 * 60 * 1000,
+        signature: Uint8List(64),
+        authorPubKey: _id(9).bytes,
+      );
+      await service.recordSpaceShown(groupId, messages: [...msgs, hostile]);
+
+      wall = baseMs + fiveMinMs + 1000;
+      final shown = await service.spaceHiddenThroughMs(groupId);
+      expect(shown['m'], isNotNull);
+      expect(
+        shown['m']!,
+        lessThanOrEqualTo(baseMs + 60 * 1000),
+        reason: 'coverage stopped at our clock, not at the claimed century',
+      );
+    });
   });
 }
