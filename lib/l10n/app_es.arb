@@ -2198,6 +2198,7 @@
   "devicesPrepare": "Preparar el enlace seguro",
   "devicesAdoptionQrTitle": "Escanea esto en el dispositivo nuevo",
   "devicesAdoptionQrHint": "Primero escanea allí este código de configuración. Después vuelve aquí y envía la configuración cifrada.",
+  "devicesQrTooLarge": "Este código es demasiado largo para mostrarse como código QR. Cópialo y pégalo en el otro dispositivo, o envía la configuración cifrada por la red.",
   "devicesSendSetup": "El dispositivo nuevo está listo: enviar configuración",
   "devicesSetupSent": "Configuración cifrada enviada",
   "devicesJoinToken": "Código de configuración del dispositivo existente",

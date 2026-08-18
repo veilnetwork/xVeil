@@ -5170,6 +5170,10 @@ class AppL10nEn extends AppL10n {
       'First scan this setup code there. Then return here and send the encrypted setup.';
 
   @override
+  String get devicesQrTooLarge =>
+      'This code is too long to be shown as a QR code. Copy it and paste it on the other device, or send the encrypted setup over the network instead.';
+
+  @override
   String get devicesSendSetup => 'New device is ready — send setup';
 
   @override

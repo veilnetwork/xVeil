@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../core/ids.dart';
 import '../data/transport/bootstrap_invite.dart';
+import '../data/transport/device_link_invite.dart';
 
 /// Do two identifiers name THE SAME DEVICE?
 ///
@@ -75,7 +76,20 @@ class DeviceLinkToken {
 
   static const _scheme = 'veil';
   static const _path = 'xveil-device';
-  static const _maxChars = 8 * 1024;
+
+  /// The membership half's own budget PLUS the document's, added up rather than
+  /// one governing the other.
+  ///
+  /// 8 KiB used to cover the whole string, document included, and that made the
+  /// envelope smaller than a document the node accepts: measured against a
+  /// `tcp://` source invite the largest document a token could carry was 5 793
+  /// bytes, so an identity with enough revocations behind it could no longer
+  /// issue an adoption token — `FormatException: device-link token too large`,
+  /// and no new device could ever be linked again. The 8 KiB stays as what it
+  /// really was, the ceiling on everything that is NOT the document: ids, the
+  /// expiry, and the percent-encoded source invite, measured at 462 chars for
+  /// all of it together.
+  static const _maxChars = 8 * 1024 + kMaxEncodedDocumentChars;
 
   bool isExpired(int nowMs) => expiresAtMs <= nowMs;
 
@@ -94,27 +108,11 @@ class DeviceLinkToken {
     },
   ).toString();
 
-  /// base64url with the padding stripped, matching the device-link invite: both
-  /// travel inside strings split on '&' and '=', which standard base64 would be
-  /// cut apart by.
-  String? get _encodedDocument {
-    final doc = document;
-    if (doc == null || doc.isEmpty) return null;
-    return base64Url.encode(doc).replaceAll('=', '');
-  }
-
-  static Uint8List? _decodeDocument(Object? raw) {
-    if (raw is! String || raw.isEmpty) return null;
-    try {
-      return Uint8List.fromList(
-        base64Url.decode(raw.padRight((raw.length + 3) ~/ 4 * 4, '=')),
-      );
-    } on FormatException {
-      // A document we cannot read is not a reason to refuse the link: the
-      // membership half of the token still stands on its own.
-      return null;
-    }
-  }
+  /// Shared with the device-link invite, deliberately: both travel inside
+  /// strings split on '&' and '=', both are bounded by what the node accepts,
+  /// and two copies of that arithmetic is two places for the envelope to end up
+  /// smaller than the document again.
+  String? get _encodedDocument => encodedLinkDocument(document);
 
   Map<String, dynamic> toJson() => {
     'v': 1,
@@ -147,7 +145,7 @@ class DeviceLinkToken {
         sourceDevice: value['sd'] is String
             ? NodeId.fromHex(value['sd'] as String)
             : null,
-        document: _decodeDocument(value['doc']),
+        document: decodedLinkDocument(value['doc']),
       );
     } catch (_) {
       return null;
@@ -186,7 +184,7 @@ class DeviceLinkToken {
         sourceInvite: BootstrapInvite.parse(invite),
         expiresAtMs: exp,
         sourceDevice: _optionalNodeId(uri.queryParameters['sd']),
-        document: _decodeDocument(uri.queryParameters['doc']),
+        document: decodedLinkDocument(uri.queryParameters['doc']),
       );
     } catch (e) {
       if (e is FormatException) rethrow;
