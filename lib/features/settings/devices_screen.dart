@@ -113,6 +113,14 @@ class DevicesScreen extends ConsumerStatefulWidget {
   ConsumerState<DevicesScreen> createState() => _DevicesScreenState();
 }
 
+/// The identity document could not be amended, so the ceremony stopped
+/// before the device group grew. Its own type because the screen must say
+/// something specific: a retry with the right credential is the way forward,
+/// not the generic "could not complete".
+class _DocumentNotAmended implements Exception {
+  const _DocumentNotAmended();
+}
+
 class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   List<NodeId> _members = const [];
 
@@ -1057,12 +1065,21 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       // accepts. The reverse mismatch (document names it, group add fails)
       // is harmless: nothing queues to a non-member, and a retry is
       // idempotent.
-      final delegatedTarget = await RealVeilStack.delegateDeviceIntoDocument(
+      final targetDelegation = await RealVeilStack.delegateDeviceIntoDocument(
         widget.service.storage,
         phrase: words,
         devicePubkey: target.publicKey,
         stagingBase: Directory.systemTemp.path,
       );
+      if (!targetDelegation.documentNamesDevice) {
+        // FAIL CLOSED, before the group grows. A membership the document
+        // does not back is the half-linked state: the group trusts a key no
+        // master certified, every row that device signs fails verification
+        // on every peer, and the operator was told the link succeeded.
+        // Reported 2026-08-18; the delegation's `false` used to be ignored.
+        throw const _DocumentNotAmended();
+      }
+      final delegatedTarget = targetDelegation == DeviceDelegation.delegated;
       signer = await widget.service.openLocalSovereign(words);
       final linked = await widget.service.linkDevice(
         target.nodeId,
@@ -1079,13 +1096,16 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
         try {
           delegated =
               await RealVeilStack.delegateDeviceIntoDocument(
-                widget.service.storage,
-                phrase: words,
-                devicePubkey: entry.value,
-                stagingBase: Directory.systemTemp.path,
-              ) ||
+                    widget.service.storage,
+                    phrase: words,
+                    devicePubkey: entry.value,
+                    stagingBase: Directory.systemTemp.path,
+                  ) ==
+                  DeviceDelegation.delegated ||
               delegated;
-        } on TombstonedDeviceException {
+        } on _DocumentNotAmended {
+      if (mounted) setState(() => _error = l.devicesDocumentNotAmended);
+    } on TombstonedDeviceException {
           // A revoked OLD member still listed by the group is its own
           // cleanup, not this ceremony's failure.
         }
