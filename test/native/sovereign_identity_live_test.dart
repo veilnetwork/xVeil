@@ -265,7 +265,11 @@ void main() {
     );
     // (a random 32B pubkey whose blake3 != phantomId delegates fine — this
     // asserts the wrapper path stays healthy alongside tombstones)
-    expect(relink, isTrue, reason: 'unrelated delegation unaffected');
+    expect(
+      relink,
+      DeviceDelegation.delegated,
+      reason: 'unrelated delegation unaffected',
+    );
   }, skip: skip);
 
   test('a revocation that cannot amend the document says so', () async {
@@ -338,7 +342,32 @@ void main() {
         stagingBase: tmp.path,
         lib: lib,
       ),
-      isTrue,
+      DeviceDelegation.delegated,
+    );
+    // A re-link of the SAME key is a success, not a failure: the document
+    // already names it. The ceremony must be able to tell this from a
+    // document it could not amend at all — reported 2026-08-18 as one
+    // indistinguishable `false` that let the group grow anyway.
+    expect(
+      await RealVeilStack.delegateDeviceIntoDocument(
+        storage,
+        phrase: phrase,
+        devicePubkey: pubkey,
+        stagingBase: tmp.path,
+        lib: lib,
+      ),
+      DeviceDelegation.alreadyPresent,
+    );
+    expect(
+      await RealVeilStack.delegateDeviceIntoDocument(
+        storage,
+        phrase: veilGeneratePhrase()!,
+        devicePubkey: Uint8List.fromList(List.generate(32, (i) => i + 3)),
+        stagingBase: tmp.path,
+        lib: lib,
+      ),
+      DeviceDelegation.failed,
+      reason: 'a credential that cannot derive this master amends nothing',
     );
 
     // The wire lays out each identity key as pubkey then device_id, so the

@@ -9248,6 +9248,12 @@ abstract class AppL10n {
   /// **'Not revoked: the identity document still certifies this device\'s key. Use the credential that owns the identity and try again.'**
   String get devicesRevokeKeyStillCertified;
 
+  /// No description provided for @devicesDocumentNotAmended.
+  ///
+  /// In en, this message translates to:
+  /// **'Not linked: the identity document could not be updated, so the device was left out. Use the credential that owns this identity and try again.'**
+  String get devicesDocumentNotAmended;
+
   /// No description provided for @devicesOperationFailed.
   ///
   /// In en, this message translates to:

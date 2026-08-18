@@ -23,6 +23,7 @@ import '../data/serve_source.dart';
 import '../data/veil_stack.dart'
     show
         claimRuntimeDirUnder,
+        DeviceDelegation,
         DocumentRevocation,
         RealVeilStack,
         TombstonedDeviceException;
@@ -2203,12 +2204,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // nothing queues to a non-member, and a retry is idempotent.
       var delegated = false;
       try {
-        delegated = await RealVeilStack.delegateDeviceIntoDocument(
+        final outcome = await RealVeilStack.delegateDeviceIntoDocument(
           ref.read(storageProvider),
           phrase: phrase.trim(),
           devicePubkey: target.publicKey,
           stagingBase: Directory.systemTemp.path,
         );
+        if (!outcome.documentNamesDevice) {
+          // FAIL CLOSED. A group membership added on top of a document that
+          // does not name the device is the half-linked state: the group
+          // trusts a key no master certified, and every row that device
+          // signs fails verification on every peer.
+          return _json(req, {
+            'ok': false,
+            'error': 'the identity document was not amended — the ceremony '
+                'would leave a device the identity does not vouch for',
+          });
+        }
+        delegated = outcome == DeviceDelegation.delegated;
       } on TombstonedDeviceException catch (e) {
         return _json(req, {'ok': false, 'error': '$e'});
       }
@@ -2231,11 +2244,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         try {
           delegated =
               await RealVeilStack.delegateDeviceIntoDocument(
-                ref.read(storageProvider),
-                phrase: phrase.trim(),
-                devicePubkey: entry.value,
-                stagingBase: Directory.systemTemp.path,
-              ) ||
+                    ref.read(storageProvider),
+                    phrase: phrase.trim(),
+                    devicePubkey: entry.value,
+                    stagingBase: Directory.systemTemp.path,
+                  ) ==
+                  DeviceDelegation.delegated ||
               delegated;
         } on TombstonedDeviceException {
           // A revoked OLD member still listed by the group is its own
