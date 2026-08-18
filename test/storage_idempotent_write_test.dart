@@ -452,5 +452,31 @@ void main() {
         expect((await second.getPreferredRelay())!.hex, relay.hex);
       },
     );
+
+    test(
+      'a re-recorded peer relay set does not re-commit for a fresh expiry',
+      () async {
+        final peer = NodeId(Uint8List.fromList(List.filled(32, 11)));
+        final relay = NodeId(Uint8List.fromList(List.filled(32, 12)));
+        final first = StorageRelayKeyCache(storage);
+        await first.setPeerRelays(peer, [relay]);
+        final after = counting.commits;
+
+        // Every successful deposit records its targets, so this runs at the
+        // send cadence. The stored value differs only in its timestamp, which
+        // no storage-level dedup can catch — the in-RAM shadow is the only
+        // thing standing between a chatty peer and a commit per message.
+        final second = StorageRelayKeyCache(storage);
+        await second.setPeerRelays(peer, [relay]);
+        expect(counting.commits, after);
+        expect((await second.getPeerRelays(peer)).single.hex, relay.hex);
+
+        // A peer that genuinely moved relays still persists.
+        final moved = NodeId(Uint8List.fromList(List.filled(32, 13)));
+        await second.setPeerRelays(peer, [moved]);
+        expect(counting.commits, greaterThan(after));
+        expect((await second.getPeerRelays(peer)).single.hex, moved.hex);
+      },
+    );
   });
 }
