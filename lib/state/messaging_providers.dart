@@ -358,8 +358,23 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
   // Load only the newest `window` messages, not the whole conversation — bounds
   // the decrypt + the ListView build to the page the user actually sees.
   final window = ref.watch(chatWindowProvider(conversationId));
+  // The read-after window HIDES rather than deletes, so the rows are still in
+  // the store and the filtering has to happen here. One integer answers for the
+  // whole conversation: everything posted at or before it was shown on this
+  // device long enough ago.
+  Future<int> hiddenThrough() async {
+    try {
+      return await service.hiddenThroughTs(NodeId.fromHex(conversationId));
+    } catch (_) {
+      // Not a peer conversation id, or the store is locked. Hiding nothing is
+      // the direction that cannot lose a message.
+      return 0;
+    }
+  }
+
   yield _visibleChatMessages(
     await storage.loadMessages(conversationId, limit: window),
+    hiddenThroughMs: await hiddenThrough(),
   );
   // Each `changes` tick re-loads + DECRYPTS the conversation window from the
   // container and rebuilds the ListView (+ auto-scroll). A burst of state
@@ -372,12 +387,22 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
   )) {
     yield _visibleChatMessages(
       await storage.loadMessages(conversationId, limit: window),
+      hiddenThroughMs: await hiddenThrough(),
     );
   }
 });
 
-List<Message> _visibleChatMessages(List<Message> messages) =>
-    messages.where((m) => !isServiceEchoBody(m.body)).toList(growable: false);
+List<Message> _visibleChatMessages(
+  List<Message> messages, {
+  int hiddenThroughMs = 0,
+}) => messages
+    .where(
+      (m) =>
+          !isServiceEchoBody(m.body) &&
+          (hiddenThroughMs <= 0 ||
+              m.timestamp.millisecondsSinceEpoch > hiddenThroughMs),
+    )
+    .toList(growable: false);
 
 extension _AuditTrailing<T> on Stream<T> {
   /// Trailing-edge throttle: collapses a burst of events into a single
