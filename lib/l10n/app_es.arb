@@ -52,6 +52,7 @@
   "lockPasswordHint": "Introduce tu contraseña",
   "lockUnlock": "Desbloquear",
   "lockWrong": "Contraseña incorrecta",
+  "lockTeardownIncomplete": "El bloqueo no se completó: un nodo o túnel VPN puede seguir activo hasta cerrar la app por completo. Ciérrala y vuelve a abrirla para asegurarte.",
   "lockStartOver": "Empezar de cero",
   "lockStartOverBody": "Configura una identidad nueva en este dispositivo. Tus datos actuales no se borran, pero necesitarás su contraseña para volver a ellos. ¿Continuar?",
   "lockWipe": "Borrar todos los datos",

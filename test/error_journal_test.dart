@@ -415,4 +415,36 @@ void _redactionVectors() {
       expect(r('SocketException: connection refused'), contains('refused'));
     });
   });
+
+  group('an incomplete teardown is answerable', () {
+    test('it names the three kinds that mean something is still running', () {
+      // The screen says "locked" as soon as the keys are gone, which is the
+      // right order — but a node that outlived its stop still holds its
+      // sockets, and a tunnel that never confirmed may still be routing.
+      // Both were recorded and neither was said out loud until this.
+      final journal = ErrorJournal();
+      expect(journal.teardownLeftSomethingRunning, isFalse);
+
+      journal.record(
+        kind: 'flutter',
+        error: StateError('an ordinary failure'),
+        atMs: 1,
+      );
+      expect(
+        journal.teardownLeftSomethingRunning,
+        isFalse,
+        reason: 'an ordinary error is not an unfinished lock',
+      );
+
+      for (final kind in ErrorJournal.incompleteTeardownKinds) {
+        final one = ErrorJournal();
+        one.record(kind: kind, error: StateError('x'), atMs: 1);
+        expect(
+          one.teardownLeftSomethingRunning,
+          isTrue,
+          reason: '$kind means the lock did not finish',
+        );
+      }
+    });
+  });
 }

@@ -191,6 +191,10 @@ class AppL10nEs extends AppL10n {
   String get lockWrong => 'Contraseña incorrecta';
 
   @override
+  String get lockTeardownIncomplete =>
+      'El bloqueo no se completó: un nodo o túnel VPN puede seguir activo hasta cerrar la app por completo. Ciérrala y vuelve a abrirla para asegurarte.';
+
+  @override
   String get lockStartOver => 'Empezar de cero';
 
   @override

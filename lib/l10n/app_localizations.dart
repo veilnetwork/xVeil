@@ -411,6 +411,12 @@ abstract class AppL10n {
   /// **'Wrong password'**
   String get lockWrong;
 
+  /// No description provided for @lockTeardownIncomplete.
+  ///
+  /// In en, this message translates to:
+  /// **'This lock did not finish: a node or VPN tunnel may still be running until the app is fully closed. Quit and reopen the app to be sure.'**
+  String get lockTeardownIncomplete;
+
   /// No description provided for @lockStartOver.
   ///
   /// In en, this message translates to:
