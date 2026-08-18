@@ -11,6 +11,14 @@ class _MessagingMailboxDelivery {
 
   MailboxSink? _mailbox;
   final Set<String> _stashed = {};
+
+  /// Whether this frame is already sitting in the recipient's mailbox.
+  ///
+  /// Exposed so the periodic flush can decline to re-offer it. The flush walks
+  /// every pending frame on every pass, and re-offering a deposited one spawns
+  /// a task and writes a log line to learn a fact it could have had for free —
+  /// per frame, per pass, forever, on a phone.
+  bool alreadyDeposited(String frameId) => _stashed.contains(frameId);
   final Set<String> _inFlight = {};
   final Map<String, DateTime> _failedAt = {};
   final Map<String, ({int count, DateTime nextAt})> _peerUnresolvedBackoff = {};
@@ -251,6 +259,11 @@ class _MessagingMailboxDelivery {
       return;
     }
     if (_stashed.contains(id)) {
+      // Reached only by a caller that did not ask [alreadyDeposited] first —
+      // the periodic flush does, because it walks EVERY pending frame on every
+      // pass and a frame already in the mailbox is the ordinary case, not the
+      // exception. One phone spent hours writing this line every three seconds
+      // for a single frame and dropped 31 414 log lines doing it.
       devLog(
         () =>
             'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed',
