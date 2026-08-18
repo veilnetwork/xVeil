@@ -5210,6 +5210,10 @@ class AppL10nEn extends AppL10n {
       'Not revoked: the identity document still certifies this device\'s key. Use the credential that owns the identity and try again.';
 
   @override
+  String get devicesDocumentNotAmended =>
+      'Not linked: the identity document could not be updated, so the device was left out. Use the credential that owns this identity and try again.';
+
+  @override
   String get devicesOperationFailed => 'Could not complete device linking';
 
   @override

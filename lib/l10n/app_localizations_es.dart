@@ -5279,6 +5279,10 @@ class AppL10nEs extends AppL10n {
       'No revocado: el documento de identidad aún certifica la clave de este dispositivo. Inténtalo de nuevo con la credencial propietaria de la identidad.';
 
   @override
+  String get devicesDocumentNotAmended =>
+      'No vinculado: no se pudo actualizar el documento de identidad, así que el dispositivo quedó fuera. Inténtalo con la credencial propietaria de esta identidad.';
+
+  @override
   String get devicesOperationFailed =>
       'No se pudo completar la vinculación del dispositivo';
 
