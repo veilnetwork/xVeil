@@ -16692,6 +16692,14 @@ void main() {
         ),
         isTrue,
       );
+      // Read a moment past the boundary rather than exactly on it. The rows
+      // were stamped by the service's monotonic counter, so 'first' is a
+      // millisecond or two YOUNGER than `t0` and is not a full day old when
+      // the wall reads `t0 + day`. This used to pass on the boundary only
+      // because the two readers took the REAL clock (a hundred days ahead of
+      // this fixture) while every write took the driven one; now both follow
+      // the clock the test is driving.
+      wall = t0 + day + 1000;
       expect(await bodies(), isNot(contains('first')));
       expect(await postBodies(), isNot(contains('post one')));
 
@@ -16718,6 +16726,10 @@ void main() {
 
       wall = t0 + 2 * day;
       expect(await svc.postMessage(spaceId, 'second'), isTrue);
+      // Observed a day later rather than at the instant it was written: the
+      // policy in force deletes after a day, and a reader that honours the
+      // driven clock cannot see a zero-second-old row as expired.
+      wall = t0 + 3 * day;
       expect(await bodies(), isNot(contains('second')));
 
       // The correction, from a device whose clock is right. Under the old rule
