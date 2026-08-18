@@ -1638,6 +1638,11 @@ class MessagingService {
   Future<void> setContactHideAfterRead(NodeId peer, int? seconds) =>
       _conversationAdmin.setContactHideAfterRead(peer, seconds);
 
+  /// Messages posted at or before this instant are hidden on THIS device by
+  /// the read-after window. Zero when the window is off.
+  Future<int> hiddenThroughTs(NodeId peer) =>
+      _conversationAdmin.hiddenThroughTs(peer);
+
   /// Delete whatever has outlived the window in this conversation.
   Future<int> sweepDisappearing(NodeId peer) =>
       _conversationAdmin.sweepDisappearing(peer);

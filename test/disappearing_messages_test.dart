@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -202,6 +203,223 @@ void main() {
           reason: 'preset $secs would be refused by the receiver',
         );
       }
+    });
+  });
+
+  /// The bookkeeping behind the read window: what this device has SHOWN, and
+  /// when. Driven through the real read marker rather than a test hook, because
+  /// the whole design rests on that marker being the monotone quantity.
+  group('shown bookkeeping', () {
+    late NodeId a, b;
+    late _FakeTransport tA, tB;
+    late HiddenVolumeStorage sA, sB;
+    late MessagingService mA, mB;
+    late DateTime clockA, clockB;
+
+    setUp(() async {
+      a = _id(1);
+      b = _id(2);
+      // Anchored to the REAL clock, not to a round number in the past. The
+      // storage stamps rows with its own `DateTime.now`, and the read marker
+      // rises to the newest of them — so a fixture set three years back leaves
+      // the marker permanently ahead of the injected clock, the future-clamp
+      // trims coverage to "now" on every visit, and the record grows one entry
+      // per visit instead of staying still. The first version of this group did
+      // exactly that and reported the bookkeeping as broken.
+      clockA = DateTime.now();
+      clockB = clockA;
+      tA = _FakeTransport(a);
+      tB = _FakeTransport(b);
+      tA.peer = tB;
+      tB.peer = tA;
+      sA = HiddenVolumeStorage(_memOpener());
+      sB = HiddenVolumeStorage(_memOpener());
+      await sA.open(password: 'a', createIfMissing: true);
+      await sB.open(password: 'b', createIfMissing: true);
+      mA = MessagingService(tA, sA, now: () => clockA)..start();
+      mB = MessagingService(tB, sB, now: () => clockB)..start();
+      await mA.sendRequest(b, 'hi');
+      await _pump();
+      await mB.acceptContact(a);
+      await _pump();
+      await mA.setContactHideAfterRead(b, 300);
+      await _pump();
+    });
+
+    tearDown(() async {
+      await tA.dispose();
+      await tB.dispose();
+    });
+
+    test('nothing is hidden before the window passes', () async {
+      clockB = clockB.add(const Duration(seconds: 1));
+      await mB.sendText(a, 'hello');
+      await _pump();
+      clockA = clockA.add(const Duration(seconds: 2));
+      await mA.markRead(b.hex);
+
+      expect(await mA.hiddenThroughTs(b), 0);
+      clockA = clockA.add(const Duration(seconds: 299));
+      expect(await mA.hiddenThroughTs(b), 0);
+    });
+
+    test('what was shown is hidden once its window passes', () async {
+      clockB = clockB.add(const Duration(seconds: 1));
+      await mB.sendText(a, 'hello');
+      await _pump();
+      final sentAt = (await sA.loadMessages(b.hex)).last.timestamp;
+      clockA = clockA.add(const Duration(seconds: 2));
+      await mA.markRead(b.hex);
+
+      clockA = clockA.add(const Duration(seconds: 300));
+      final through = await mA.hiddenThroughTs(b);
+      expect(through, greaterThanOrEqualTo(sentAt.millisecondsSinceEpoch));
+    });
+
+    /// The clock the marker rides on is the SENDER's, and the marker rises to
+    /// the newest message. Uncapped, one message dated to the next century
+    /// would cover the whole conversation with a single showing event and take
+    /// the entire history down with it once the window passed.
+    ///
+    /// The hostile row is written STRAIGHT into A's store. Sending it from B
+    /// with B's clock wound forward does not reach A at all — the first version
+    /// of this test did that, no future-dated row ever landed, and it passed
+    /// while testing nothing.
+    test('a message dated in the future does not hide the history', () async {
+      clockB = clockB.add(const Duration(seconds: 1));
+      await mB.sendText(a, 'honest');
+      await _pump();
+      final honestAt = (await sA.loadMessages(b.hex)).last.timestamp;
+
+      // Whole milliseconds: the store keeps ms, so a DateTime carrying
+      // microseconds never compares equal to what comes back out.
+      final hostileAt = DateTime.fromMillisecondsSinceEpoch(
+        clockA.add(const Duration(days: 365 * 80)).millisecondsSinceEpoch,
+      );
+      await sA.appendMessage(
+        Message(
+          id: 'hostile-row',
+          conversationId: b.hex,
+          direction: MessageDirection.incoming,
+          body: 'from the year 2105',
+          timestamp: hostileAt,
+          author: b.hex,
+        ),
+      );
+      expect(
+        (await sA.loadMessages(b.hex))
+            .map((m) => m.timestamp.millisecondsSinceEpoch)
+            .toList(),
+        contains(hostileAt.millisecondsSinceEpoch),
+        reason: 'the row this test is about must actually be in the store',
+      );
+
+      clockA = clockA.add(const Duration(seconds: 2));
+      await mA.markRead(b.hex);
+      expect(
+        await sA.readMarker(b.hex),
+        hostileAt.millisecondsSinceEpoch,
+        reason: 'and the marker must really have been dragged to 2105',
+      );
+
+      clockA = clockA.add(const Duration(seconds: 400));
+      final through = await mA.hiddenThroughTs(b);
+      expect(
+        through,
+        greaterThanOrEqualTo(honestAt.millisecondsSinceEpoch),
+        reason: 'the honest message was shown and its window passed',
+      );
+      expect(
+        through,
+        lessThan(hostileAt.millisecondsSinceEpoch),
+        reason: 'coverage stops at our own clock, so the future-dated row '
+            'cannot drag the history with it',
+      );
+    });
+
+    /// Re-opening a chat must not restart the clock, or a window would only
+    /// ever elapse for someone who never looked at the conversation again.
+    test('the first showing wins over later ones', () async {
+      clockB = clockB.add(const Duration(seconds: 1));
+      await mB.sendText(a, 'hello');
+      await _pump();
+      clockA = clockA.add(const Duration(seconds: 2));
+      await mA.markRead(b.hex);
+
+      final firstShownAt =
+          ((jsonDecode((await sA.getSetting('disap.shown.v1:${b.hex}'))!)
+                      as Map)['e']
+                  as List)
+              .single[1];
+
+      // Four more visits, no new messages.
+      for (var i = 0; i < 4; i++) {
+        clockA = clockA.add(const Duration(seconds: 60));
+        await mA.markRead(b.hex);
+      }
+
+      // Asserted on the RECORD, not on the outcome. Phrased as "and it is
+      // hidden by now", a break that refreshed the moment on every visit still
+      // passed, because by then enough total time had gone by for the refreshed
+      // moment to expire too.
+      expect(
+        ((jsonDecode((await sA.getSetting('disap.shown.v1:${b.hex}'))!)
+                    as Map)['e']
+                as List)
+            .single[1],
+        firstShownAt,
+        reason: 'the moment must be the FIRST showing, not the latest visit',
+      );
+
+      // 302s after the first showing; the last visit was 62s ago.
+      clockA = clockA.add(const Duration(seconds: 60));
+      expect(await mA.hiddenThroughTs(b), greaterThan(0));
+    });
+
+    test('a window turned off hides nothing', () async {
+      clockB = clockB.add(const Duration(seconds: 1));
+      await mB.sendText(a, 'hello');
+      await _pump();
+      clockA = clockA.add(const Duration(seconds: 2));
+      await mA.markRead(b.hex);
+
+      // Let the showing EXPIRE and collapse into the mark first. Turning the
+      // window off while the mark was still zero proved nothing: an answer
+      // that ignored the setting entirely returned zero too.
+      clockA = clockA.add(const Duration(seconds: 400));
+      expect(await mA.hiddenThroughTs(b), greaterThan(0));
+
+      await mA.setContactHideAfterRead(b, null);
+      await _pump();
+      clockA = clockA.add(const Duration(days: 30));
+      expect(
+        await mA.hiddenThroughTs(b),
+        0,
+        reason: 'off means nothing is hidden, mark or no mark',
+      );
+    });
+
+    /// The point of the whole shape: the record does not grow with the
+    /// conversation. Once a showing's window has passed it becomes one integer.
+    test('the record collapses instead of growing', () async {
+      for (var i = 0; i < 40; i++) {
+        clockB = clockB.add(const Duration(seconds: 10));
+        await mB.sendText(a, 'm$i');
+        await _pump();
+        clockA = clockB.add(const Duration(seconds: 1));
+        await mA.markRead(b.hex);
+      }
+      clockA = clockA.add(const Duration(seconds: 400));
+      await mA.hiddenThroughTs(b);
+
+      final raw = await sA.getSetting('disap.shown.v1:${b.hex}');
+      final decoded = jsonDecode(raw!) as Map;
+      expect(
+        (decoded['e'] as List),
+        isEmpty,
+        reason: 'every showing older than the window folded into the mark',
+      );
+      expect(decoded['w'], greaterThan(0));
     });
   });
 

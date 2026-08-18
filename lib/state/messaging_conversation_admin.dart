@@ -415,11 +415,129 @@ class _MessagingConversationAdmin {
       _owner._signal();
       final ts = await _owner._storage.readMarker(conversationId);
       if (ts > 0) {
+        await _recordShown(conversationId, ts);
         _owner.onConversationRead?.call(conversationId, ts);
       }
     } catch (_) {
       // storage locked / unavailable — skip the badge clear.
     }
+  }
+
+  // ── What this device has SHOWN, and when.
+  //
+  // The read-after window needs a per-message answer to "when did I first see
+  // this", and the obvious shape — a stamp per message id — is the wrong one.
+  // It grows for the life of the conversation, while the thing it describes is
+  // interesting for minutes; and once an entry is dropped the message it
+  // covered would reappear, because "no stamp" reads as "never shown".
+  //
+  // What is stored instead is the SHOWING: "at wall-clock `atMs` this device
+  // had shown everything posted up to `throughTs`". That is one entry per
+  // visit to the chat, and the moment its window has passed it collapses into
+  // a single watermark — every message at or below `throughTs` is hidden from
+  // then on, forever, with one integer holding the fact.
+  //
+  // The monotone quantity it rides on already existed: the read marker, which
+  // `markRead` advances to the newest message in the conversation. This just
+  // records WHEN each advance happened.
+
+  static const _kShownPrefix = 'disap.shown.v1:';
+
+  /// Entries kept before the oldest two are merged. A merge keeps the larger
+  /// coverage and the earlier moment, so it can only hide slightly SOONER than
+  /// the truth — never later, and never resurrect anything.
+  static const _kShownMaxEntries = 64;
+
+  String _shownKey(String conversationId) => '$_kShownPrefix$conversationId';
+
+  Future<void> _recordShown(String conversationId, int throughTs) async {
+    final nowMs = _owner._now().millisecondsSinceEpoch;
+    // A message's timestamp is its SENDER's clock, and the read marker rises
+    // to the newest one. Left uncapped, a peer dating a message to the year
+    // 3000 would push one showing event over the whole conversation and hide
+    // all of it once the window passed. Coverage therefore stops at our own
+    // now: a message claiming the future is not something we have shown, and
+    // it stays visible rather than taking the history with it.
+    final covered = throughTs < nowMs ? throughTs : nowMs;
+    if (covered <= 0) return;
+    final state = await _loadShown(conversationId);
+    if (covered <= state.watermark) return;
+    final entries = [...state.entries];
+    // First showing wins: an entry that already covers this much keeps its own
+    // earlier moment rather than being refreshed by re-opening the chat.
+    if (entries.isNotEmpty && entries.last.$1 >= covered) return;
+    entries.add((covered, nowMs));
+    while (entries.length > _kShownMaxEntries) {
+      final a = entries.removeAt(0);
+      final b = entries.removeAt(0);
+      entries.insert(0, (b.$1, a.$2 < b.$2 ? a.$2 : b.$2));
+    }
+    await _saveShown(conversationId, state.watermark, entries);
+  }
+
+  /// Messages posted at or before this instant are hidden on this device by
+  /// the read-after window. Zero when the window is off or nothing qualifies.
+  ///
+  /// Folds and PERSISTS the collapse as a side effect, which is what keeps the
+  /// entry list short without a separate maintenance pass.
+  Future<int> hiddenThroughTs(NodeId peer) async {
+    final setting = await disappearingOf(peer);
+    final window = setting.hideWindow;
+    if (window == null) return 0;
+    final conversationId = peer.hex;
+    final state = await _loadShown(conversationId);
+    final now = _owner._now();
+    var watermark = state.watermark;
+    final live = <(int, int)>[];
+    for (final entry in state.entries) {
+      final shownAt = DateTime.fromMillisecondsSinceEpoch(entry.$2);
+      if (setting.isHiddenAfterRead(shownAt, now)) {
+        if (entry.$1 > watermark) watermark = entry.$1;
+      } else {
+        live.add(entry);
+      }
+    }
+    if (watermark != state.watermark || live.length != state.entries.length) {
+      await _saveShown(conversationId, watermark, live);
+    }
+    return watermark;
+  }
+
+  Future<({int watermark, List<(int, int)> entries})> _loadShown(
+    String conversationId,
+  ) async {
+    try {
+      final raw = await _owner._storage.getSetting(_shownKey(conversationId));
+      if (raw == null || raw.isEmpty) return (watermark: 0, entries: const <(int, int)>[]);
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return (watermark: 0, entries: const <(int, int)>[]);
+      final entries = <(int, int)>[];
+      for (final row in (decoded['e'] as List? ?? const [])) {
+        if (row is List && row.length == 2 && row[0] is int && row[1] is int) {
+          entries.add((row[0] as int, row[1] as int));
+        }
+      }
+      return (watermark: decoded['w'] as int? ?? 0, entries: entries);
+    } catch (_) {
+      // A corrupt record must not hide a conversation, nor reveal one that is
+      // already hidden by the post-time window. Starting over means the read
+      // clock restarts, which is the visible-for-longer direction.
+      return (watermark: 0, entries: const <(int, int)>[]);
+    }
+  }
+
+  Future<void> _saveShown(
+    String conversationId,
+    int watermark,
+    List<(int, int)> entries,
+  ) async {
+    await _owner._storage.putSetting(
+      _shownKey(conversationId),
+      jsonEncode({
+        'w': watermark,
+        'e': [for (final e in entries) [e.$1, e.$2]],
+      }),
+    );
   }
 
   Future<bool> applyMirroredReadMark(String conversationId, int tsMs) async {
