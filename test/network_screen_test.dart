@@ -46,8 +46,16 @@ void main() {
     await tester.pumpWidget(
         _host(const NodeStatus(phase: NodePhase.connected, peerCount: 1)));
     await tester.pump();
-    expect(find.byIcon(Icons.vpn_lock_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.dns_outlined), findsOneWidget);
+    // Scrolled to, not merely pumped: the list is lazy and these rows sit
+    // below the fold on the test surface. They moved further down when the
+    // serve-the-network switch was added above them, and a `findsOneWidget`
+    // on an unbuilt row fails for a reason that has nothing to do with the
+    // row.
+    final list = find.byType(Scrollable).first;
+    for (final icon in [Icons.vpn_lock_outlined, Icons.dns_outlined]) {
+      await tester.scrollUntilVisible(find.byIcon(icon), 200, scrollable: list);
+      expect(find.byIcon(icon), findsOneWidget);
+    }
     // Lua extensions are not implemented. The row was a chevron leading to a
     // "coming later" snackbar, which reads as a feature that exists and is
     // merely switched off — so it is gone until there is something behind it.
