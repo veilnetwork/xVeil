@@ -9176,6 +9176,12 @@ abstract class AppL10n {
   /// **'First scan this setup code there. Then return here and send the encrypted setup.'**
   String get devicesAdoptionQrHint;
 
+  /// No description provided for @devicesQrTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'This code is too long to be shown as a QR code. Copy it and paste it on the other device, or send the encrypted setup over the network instead.'**
+  String get devicesQrTooLarge;
+
   /// No description provided for @devicesSendSetup.
   ///
   /// In en, this message translates to:

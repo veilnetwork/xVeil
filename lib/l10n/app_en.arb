@@ -2216,6 +2216,7 @@
   "devicesPrepare": "Prepare secure link",
   "devicesAdoptionQrTitle": "Scan this on the new device",
   "devicesAdoptionQrHint": "First scan this setup code there. Then return here and send the encrypted setup.",
+  "devicesQrTooLarge": "This code is too long to be shown as a QR code. Copy it and paste it on the other device, or send the encrypted setup over the network instead.",
   "devicesSendSetup": "New device is ready — send setup",
   "devicesSetupSent": "Encrypted setup sent",
   "devicesJoinToken": "Setup code from existing device",

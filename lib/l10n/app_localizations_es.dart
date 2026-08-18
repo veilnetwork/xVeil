@@ -5235,6 +5235,10 @@ class AppL10nEs extends AppL10n {
       'Primero escanea allí este código de configuración. Después vuelve aquí y envía la configuración cifrada.';
 
   @override
+  String get devicesQrTooLarge =>
+      'Este código es demasiado largo para mostrarse como código QR. Cópialo y pégalo en el otro dispositivo, o envía la configuración cifrada por la red.';
+
+  @override
   String get devicesSendSetup =>
       'El dispositivo nuevo está listo: enviar configuración';
 

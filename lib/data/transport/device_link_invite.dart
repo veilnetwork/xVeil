@@ -28,6 +28,62 @@ import 'dart:typed_data';
 import '../../core/ids.dart';
 import 'bootstrap_invite.dart';
 
+/// The largest identity document either link envelope will carry — the Dart
+/// mirror of veil's `MAX_IDENTITY_DOCUMENT_BYTES`
+/// (`crates/veil-proto/src/identity_document.rs`), which is what the native
+/// side will actually accept.
+///
+/// The envelopes used to be smaller than the thing they carry. A document grows
+/// with the identity's history — one entry per device, one tombstone per
+/// revocation — and the caps were set from what a document looked like when it
+/// named one device: 4 KiB for the whole invite URI, 8 KiB for the whole token.
+/// Measured against a `tcp://` invite, the base64url of the document plus the
+/// envelope around it put the largest carriable document at 2 973 bytes for the
+/// invite and 5 793 for the token — so a long-lived identity reached a point
+/// where its own document could no longer be handed to a new device at all: the
+/// URI parsed as `FormatException: bootstrap invite too large`, and linking
+/// simply stopped working, permanently, from ordinary use.
+///
+/// Sized off the native ceiling for that reason and no other: anything the node
+/// will accept has to fit through here, and anything it will not is refused one
+/// layer earlier at no cost.
+const int kMaxIdentityDocumentBytes = 16 * 1024;
+
+/// [kMaxIdentityDocumentBytes] as base64url with the padding stripped — 21 846
+/// chars, five and a third times the old whole-invite cap.
+///
+/// Both envelopes travel inside strings split on '&' and '=', which the
+/// standard alphabet's padding would be cut apart by, so this is the encoding
+/// both of them use and the inflation both of them have to budget for.
+const int kMaxEncodedDocumentChars = 4 * (kMaxIdentityDocumentBytes ~/ 3) + 2;
+
+/// A document as it rides inside a URI, or null when there is nothing to carry.
+String? encodedLinkDocument(Uint8List? document) {
+  final doc = document;
+  if (doc == null || doc.isEmpty) return null;
+  return base64Url.encode(doc).replaceAll('=', '');
+}
+
+/// The document out of a URI parameter, or NULL when there is not one this side
+/// can read.
+///
+/// A document we cannot read is never a reason to refuse the link — the
+/// membership half of both envelopes stands on its own — so a malformed or
+/// oversized one is dropped rather than thrown. Oversized is decided BEFORE the
+/// decode, on the encoded length, so a hostile string cannot make this allocate
+/// more than the native side would have accepted.
+Uint8List? decodedLinkDocument(Object? raw) {
+  if (raw is! String || raw.isEmpty) return null;
+  if (raw.length > kMaxEncodedDocumentChars) return null;
+  try {
+    return Uint8List.fromList(
+      base64Url.decode(raw.padRight((raw.length + 3) ~/ 4 * 4, '=')),
+    );
+  } on FormatException {
+    return null;
+  }
+}
+
 class DeviceLinkInvite {
   const DeviceLinkInvite({
     required this.device,
@@ -60,6 +116,13 @@ class DeviceLinkInvite {
 
   static const scheme = 'veil:device?';
 
+  /// The two halves added up, which is the only honest cap for a string that
+  /// carries both: the bootstrap body keeps its own [BootstrapInvite.maxUriChars]
+  /// (enforced on the body alone, below), and the document is allowed the
+  /// [kMaxEncodedDocumentChars] the native side would accept.
+  static const maxUriChars =
+      BootstrapInvite.maxUriChars + kMaxEncodedDocumentChars;
+
   /// The device's node id: what the device group holds and what delivery
   /// addresses. Meaningful only when [namesTheDevice].
   NodeId get nodeId => device.nodeId;
@@ -69,11 +132,8 @@ class DeviceLinkInvite {
   /// there cannot go missing here.
   String toUri() {
     final body = device.toUri().substring(BootstrapInvite.scheme.length);
-    final doc = document;
-    if (doc == null || doc.isEmpty) return '$scheme$body';
-    // base64url: the invite is split on '&' and '=', so the standard alphabet
-    // would be cut apart by its own padding.
-    return '$scheme$body&doc=${base64Url.encode(doc).replaceAll('=', '')}';
+    final doc = encodedLinkDocument(document);
+    return doc == null ? '$scheme$body' : '$scheme$body&doc=$doc';
   }
 
   /// Accepts BOTH spellings. A `veil:device?` URI names a device; a plain
@@ -88,21 +148,31 @@ class DeviceLinkInvite {
         namesTheDevice: false,
       );
     }
+    if (trimmed.length > maxUriChars) {
+      throw const FormatException('device-link invite too large');
+    }
     final body = trimmed.substring(scheme.length);
+    // The document is LIFTED OUT before the rest is handed on. It is this
+    // file's field, sized by [kMaxEncodedDocumentChars], and leaving it in the
+    // string would put it under the contact invite's 4 KiB cap instead — which
+    // is what refused an ordinary identity's own document once it had a few
+    // revocations in it.
     Uint8List? document;
+    var seenDoc = false;
+    final kept = <String>[];
     for (final part in body.split('&')) {
       final i = part.indexOf('=');
-      if (i <= 0 || part.substring(0, i) != 'doc') continue;
-      final raw = part.substring(i + 1);
-      try {
-        document = base64Url.decode(raw.padRight((raw.length + 3) ~/ 4 * 4, '='));
-      } on FormatException {
-        document = null; // a document we cannot read is not a reason to refuse
+      if (!seenDoc && i > 0 && part.substring(0, i) == 'doc') {
+        seenDoc = true;
+        document = decodedLinkDocument(part.substring(i + 1));
+        continue;
       }
-      break;
+      kept.add(part);
     }
     return DeviceLinkInvite(
-      device: BootstrapInvite.parse('${BootstrapInvite.scheme}$body'),
+      device: BootstrapInvite.parse(
+        '${BootstrapInvite.scheme}${kept.join('&')}',
+      ),
       document: document,
     );
   }

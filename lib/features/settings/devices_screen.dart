@@ -11,6 +11,7 @@ import '../../core/log.dart';
 
 import '../../core/clipboard_secret.dart';
 import '../../core/ids.dart';
+import '../../core/qr_payload.dart';
 import '../../state/messaging_providers.dart';
 import '../../data/veil_stack.dart';
 import '../../data/transport/device_link_invite.dart';
@@ -84,6 +85,45 @@ Future<DeviceSnapshotSend> sendDeviceSnapshotBounded(
   } catch (_) {
     return DeviceSnapshotSend.failed;
   }
+}
+
+/// The QR for a link code, or — when the code is longer than a QR can hold —
+/// what to do instead.
+///
+/// Both link envelopes carry the identity document, and a document grows with
+/// the identity: one entry per device, one tombstone per revocation, up to the
+/// 16 KiB the node accepts. A QR tops out at [kQrMaxBytes], five and a half
+/// times smaller, and `QrImageView` handed a string above that does not fall
+/// back and does not call `errorStateBuilder` — it throws
+/// `QrInputTooLongException` from inside the paint (see [fitsInQrCode]). So the
+/// camera path has a ceiling the other paths do not, and the person is told
+/// which of the ones beside it to use rather than being shown a broken square.
+Widget _linkCodeQr(BuildContext context, String data, double size) {
+  if (fitsInQrCode(data)) {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.all(12),
+      child: QrImageView(data: data, size: size),
+    );
+  }
+  return Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      border: Border.all(color: Theme.of(context).colorScheme.outline),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(
+          Icons.qr_code_2_outlined,
+          color: Theme.of(context).colorScheme.error,
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Text(AppL10n.of(context).devicesQrTooLarge)),
+      ],
+    ),
+  );
 }
 
 /// Whether the onboarding hand-off should open the join sheet on THIS build.
@@ -1267,13 +1307,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
             const SizedBox(height: 8),
             Text(l.devicesAdoptionQrHint),
             const SizedBox(height: 16),
-            Center(
-              child: Container(
-                color: Colors.white,
-                padding: const EdgeInsets.all(12),
-                child: QrImageView(data: _token!, size: 220),
-              ),
-            ),
+            Center(child: _linkCodeQr(context, _token!, 220)),
             SecretText(_token!, fontSize: 10),
             SecretCopyButton(
               label: l.actionCopy,
@@ -1467,13 +1501,7 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
           if (_pending == null) ...[
             Text(l.devicesShowMyInvite),
             const SizedBox(height: 8),
-            Center(
-              child: Container(
-                color: Colors.white,
-                padding: const EdgeInsets.all(10),
-                child: QrImageView(data: myInvite, size: 170),
-              ),
-            ),
+            Center(child: _linkCodeQr(context, myInvite, 170)),
             TextButton.icon(
               onPressed: () => Clipboard.setData(ClipboardData(text: myInvite)),
               icon: const Icon(Icons.copy),
