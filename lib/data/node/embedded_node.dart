@@ -1395,6 +1395,34 @@ class EmbeddedNode {
   /// subscriber lag → cookie_unknown introduce drops → delivery latency), so
   /// tighten to 10 s to cover more aggressive carrier-NAT / radio idle windows.
   /// Pure helper (no FFI), unit-testable.
+  /// Bytes per hour this device will spend on OTHER peers' DHT work.
+  ///
+  /// Measured 18.08.2026 on an idle client with three bytes per second of
+  /// actual application traffic: 1.3 GB a day on a desktop and 5 GB a day on a
+  /// phone, of which 85% was work done for strangers — storing their records,
+  /// answering their lookups, being a hop of their walks. The answers to this
+  /// device's own questions were one thousandth of the bill.
+  ///
+  /// veil's own default for a leaf is 8 MB/h. A phone gets an eighth of that:
+  /// it is the device paying in metered data and battery, and it is also the
+  /// one the network can least rely on as a replica, because it is asleep half
+  /// the time. Left alone on desktop, where the veil default already applies.
+  ///
+  /// Not a switch. Every xVeil client runs as `leaf` and only the seeds are
+  /// `core`, so a client that serves nothing takes the DHT's replica set down
+  /// to three machines. Pure helper (no FFI), unit-testable.
+  static String withMobileServiceBudget(String toml, {required bool isMobile}) {
+    if (!isMobile || toml.contains('service_budget_bytes_per_hour')) return toml;
+    const perHour = 1024 * 1024;
+    if (toml.contains('[dht]')) {
+      return toml.replaceFirst(
+        '[dht]',
+        '[dht]\nservice_budget_bytes_per_hour = $perHour',
+      );
+    }
+    return '$toml\n[dht]\nservice_budget_bytes_per_hour = $perHour\n';
+  }
+
   static String withSessionKeepalive(String toml) {
     if (toml.contains('[session]')) return toml;
     return '$toml\n[session]\nkeepalive_interval_secs = 10\nidle_timeout_secs = 45\n';
@@ -1531,11 +1559,14 @@ class EmbeddedNode {
                 withUdpReflectors(
                   withProxy(
                     withBootstrapPeers(
-                      withClientNodeRole(
-                        withLazyMining(
-                          withAnonymity(toml, anonymous),
-                          lazyMining,
+                      withMobileServiceBudget(
+                        withClientNodeRole(
+                          withLazyMining(
+                            withAnonymity(toml, anonymous),
+                            lazyMining,
+                          ),
                         ),
+                        isMobile: Platform.isAndroid || Platform.isIOS,
                       ),
                       bootstrapPeers,
                     ),
