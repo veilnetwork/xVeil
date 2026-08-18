@@ -120,6 +120,20 @@ abstract interface class Storage {
   /// find/dedup/flush paths that need every message).
   Future<List<Message>> loadMessages(String conversationId, {int? limit});
 
+  /// ONE live message of [conversationId] by id, or null when there is none —
+  /// deleted, unknown, or belonging to a different conversation.
+  ///
+  /// Scoped by BOTH ids for the same reason as the edit/delete path it shares a
+  /// lookup with: a bare id is attacker-chosen, and resolving on it alone would
+  /// name records in someone else's chat.
+  ///
+  /// Exists because [loadMessages] is the wrong shape for "is this id here":
+  /// it projects the whole log, filters it to the conversation and SORTS the
+  /// result into display order before the caller can look at one row. The
+  /// authenticated file fetch did that on every call, for a message it could
+  /// name exactly.
+  Future<Message?> loadMessageById(String conversationId, String messageId);
+
   /// Persist [message] and return it AS STORED — with its event-log (author,
   /// seq) filled in (the caller passes seq for a wire-delivered event to keep
   /// the sender's; otherwise storage allocates the next gap-free one). The
