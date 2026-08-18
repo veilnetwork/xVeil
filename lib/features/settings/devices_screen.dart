@@ -462,7 +462,18 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    final self = ref.watch(appControllerProvider).identity?.nodeId;
+    // THIS DEVICE, asked of the device id and not the identity.
+    //
+    // The member list holds DEVICE ids while `identity.nodeId` is the
+    // identity every device of the family shares, so on a linked or restored
+    // device the two never match: this device drew itself as a sibling and
+    // offered a revoke button for its own key. The native guard refuses to
+    // retire the key it signs with, so the attempt could not succeed — it
+    // simply presented an action that could only ever fail. Reported
+    // 2026-08-18. The identity remains the fallback for the one device where
+    // the two genuinely coincide and the device invite has not loaded yet.
+    final identityId = ref.watch(appControllerProvider).identity?.nodeId;
+    final self = _myDevice?.nodeId ?? identityId;
     final ready =
         ref.watch(groupServiceProvider) != null &&
         ref.watch(realStackProvider) != null;
