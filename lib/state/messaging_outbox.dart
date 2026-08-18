@@ -242,17 +242,55 @@ class _MessagingOutbox {
         return;
       }
     }
+    // THE DEPOSIT IS THE COPY THAT SURVIVES THE PEER BEING GONE, so it cannot
+    // be sequenced behind an attempt to reach a peer that is gone. It used to
+    // sit below the live wait, and the wait buys it nothing: [tryLive] swallows
+    // every error, so the deposit that follows happens on success and failure
+    // alike. All the ordering ever added was the live leg's latency — and a
+    // live leg has no deadline of its own, so "latency" includes "never".
+    //
+    // What that cost in the field: this method is awaited in serial fan-outs
+    // (`group_service.broadcast`, one recipient at a time; the chunk loop in
+    // `messaging_replication`), so ONE device on a stale direct address made
+    // every later recipient's deposit wait out its dial too.
+    _owner._stashInBackground(peer, frameId, wire);
     if (earlyLive != null) {
-      if (awaitLive) await earlyLive;
+      if (awaitLive) await boundedLiveLeg(earlyLive);
     } else if (awaitLive) {
-      await tryLive();
+      await boundedLiveLeg(tryLive());
     } else {
       unawaited(tryLive());
     }
-    _owner._stashInBackground(peer, frameId, wire);
     if (_MessagingMailboxDelivery.isCallSignalId(frameId) &&
         liveSender != null) {
       _scheduleFastCallRedrive(peer, frameId, wire, liveSender);
+    }
+  }
+
+  /// Wait for a live leg for at most [MessagingService.liveLegDeadline], and
+  /// never let it throw.
+  ///
+  /// The deadline is the point; the swallow is what makes it usable at the
+  /// call sites. `_owner._send` throws for a peer the transport rejects
+  /// outright, and every caller below is a best-effort re-drive standing in
+  /// front of other peers' work — one throw used to abandon the rest of the
+  /// pass, which is the same pile-up the deadline exists to stop.
+  ///
+  /// It returns a future that is DONE at the deadline, not one that cancels
+  /// the send: Dart cannot retract a `Future`, and the send must not be
+  /// retracted anyway — see [MessagingService.liveLegDeadline].
+  Future<void> boundedLiveLeg(Future<void> live) async {
+    try {
+      await live.timeout(_owner.liveLegDeadline);
+    } on TimeoutException {
+      devLog(
+        () =>
+            'xVeil[durable]: live leg ABANDONED after '
+            '${_owner.liveLegDeadline.inSeconds}s — the durable copy is '
+            'already deposited, so the pass moves on',
+      );
+    } catch (_) {
+      // Best-effort by contract; the durable copy and the deposit both stand.
     }
   }
 
@@ -328,18 +366,22 @@ class _MessagingOutbox {
       _pendingByPeer[frame.peerHex] = (_pendingByPeer[frame.peerHex] ?? 0) + 1;
     }
     _pendingSeeded = true;
-    // Peers whose live send already failed THIS pass.
+    // THE DEPOSITS ARE A PASS OF THEIR OWN, ahead of every dial.
     //
-    // The queue is one flat list walked in order, so a peer that cannot be
-    // reached costs an attempt for every frame it holds — and a device that
-    // was unlinked keeps its whole backlog forever. Measured: 117 frames
-    // pending, 109 of them group-sync to a device that no longer exists, while
-    // content re-requests to a HEALTHY peer sat behind them and the transfer
-    // they belonged to never moved.
+    // The queue is one flat list, so walking it as "admit, deposit, dial" put
+    // frame i's dial in front of frame i+1's DEPOSIT — and the dial is the
+    // slow half by orders of magnitude. Measured: 117 frames pending, 109 of
+    // them group-sync to a device that no longer exists, while content
+    // re-requests to a HEALTHY peer sat behind them and the transfer they
+    // belonged to never moved. Whatever one dial to a gone peer costs, that
+    // list multiplied it by 109 and charged it to everything behind it.
     //
-    // One failure is enough to know the rest will fail the same way in the
-    // same pass. The next pass tries again from scratch, so nothing is
-    // abandoned — only the pile-up is.
+    // Splitting the walk decouples the two: every frame in this pass is
+    // offered to the deposit gate before any of them is dialled, so a
+    // destination that cannot be reached costs the LIVE half of the pass and
+    // nothing else. The dials keep their serial order and their ladder —
+    // firing them all at once would trade a pile-up for a storm.
+    final redrive = <({NodeId peer, OutboxFrame frame, int attempt})>[];
     NodeId? selfNode;
     try {
       selfNode = await _owner._transport.nodeId();
@@ -462,20 +504,23 @@ class _MessagingOutbox {
         peer: frame.peerHex,
         lastSentAt: now,
       );
+      redrive.add((peer: peer, frame: frame, attempt: count));
+    }
+    // The live half, after every deposit this pass had to offer. Bounded per
+    // send: this is NOT a delivery signal — a send returns when the local node
+    // takes the frame, so an unreachable peer looks exactly like a reachable
+    // one from here, and retention reasons about AGE rather than about what
+    // this did. What it must never do is fail to return, because the pass is
+    // single-flighted behind `_flushing` and one that never ends is the last
+    // one this process runs.
+    for (final entry in redrive) {
       devLog(
         () =>
-            'xVeil[durable]: re-drive fid=${frame.frameId} '
-            'dst=${peer.short} attempt=$count '
+            'xVeil[durable]: re-drive fid=${entry.frame.frameId} '
+            'dst=${entry.peer.short} attempt=${entry.attempt} '
             't=${DateTime.now().millisecondsSinceEpoch}',
       );
-      try {
-        await _owner._send(peer, frame.wire);
-      } catch (_) {
-        // Best-effort. Note this is NOT a delivery signal: the send returns as
-        // soon as the local node takes the frame, so an unreachable peer looks
-        // exactly like a reachable one from here. Retention therefore reasons
-        // about AGE, never about whether this threw.
-      }
+      await boundedLiveLeg(_owner._send(entry.peer, entry.frame.wire));
     }
   }
 
