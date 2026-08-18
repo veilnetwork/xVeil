@@ -79,6 +79,32 @@ enum DocumentRevocation {
   bool get keyIsRetired => this != DocumentRevocation.failed;
 }
 
+/// What a delegation into the identity document actually accomplished.
+///
+/// Same reason [DocumentRevocation] exists: a bool collapsed "this key is
+/// already in the document" — the ordinary shape of a re-link, and a success
+/// — with "the document was not amended", which leaves the group trusting a
+/// key no master ever certified. The linking ceremony proceeded on both,
+/// producing a half-linked device whose every row fails verification on every
+/// peer. Reported 2026-08-18.
+enum DeviceDelegation {
+  /// The document now names this device key, added by this call.
+  delegated,
+
+  /// The document already named it. A re-link, or a retry of a delegation
+  /// that landed.
+  alreadyPresent,
+
+  /// The document was NOT amended: no usable sovereign material, a credential
+  /// that cannot derive this identity's master, the key limit, or an I/O
+  /// failure. The ceremony must stop — a group membership added on top of
+  /// this is a device the identity does not vouch for.
+  failed;
+
+  /// Whether the document names the device key, however it got there.
+  bool get documentNamesDevice => this != DeviceDelegation.failed;
+}
+
 /// The identity document holds a master-signed tombstone for this device id,
 /// so its key can never be vouched for again — relinking requires a freshly
 /// minted device key.
@@ -1228,16 +1254,18 @@ class RealVeilStack {
   /// refusal that must not be quiet: it throws [TombstonedDeviceException],
   /// because the ceremony around this call has a group half that would
   /// happily admit the id, and "false" here reads as "no change needed".
-  static Future<bool> delegateDeviceIntoDocument(
+  static Future<DeviceDelegation> delegateDeviceIntoDocument(
     Storage storage, {
     required String phrase,
     required Uint8List devicePubkey,
     required String stagingBase,
     DynamicLibrary? lib,
   }) async {
-    if (phrase.isEmpty || devicePubkey.length != 32) return false;
+    if (phrase.isEmpty || devicePubkey.length != 32) {
+      return DeviceDelegation.failed;
+    }
     final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
-    if (storedRaw == null) return false;
+    if (storedRaw == null) return DeviceDelegation.failed;
     final stored = decodeSovereignIdentity(storedRaw);
     if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
       devLog(
@@ -1245,7 +1273,7 @@ class RealVeilStack {
             'xVeil[identity]: cannot delegate a device — this device has no '
             'usable sovereign material',
       );
-      return false;
+      return DeviceDelegation.failed;
     }
     final staging =
         '$stagingBase/xveil-iddelegate-${Random.secure().nextInt(1 << 32)}';
@@ -1258,16 +1286,18 @@ class RealVeilStack {
         lib: lib,
       );
       final amended = await collectSovereignIdentity(staging);
-      if (missingSovereignIdentityFiles(amended).isNotEmpty) return false;
+      if (missingSovereignIdentityFiles(amended).isNotEmpty) {
+        return DeviceDelegation.failed;
+      }
       final encoded = encodeSovereignIdentity(amended);
-      if (encoded == storedRaw) return false;
+      if (encoded == storedRaw) return DeviceDelegation.failed;
       await storage.putSetting(kSovereignIdentitySetting, encoded);
       devLog(
         () =>
             'xVeil[identity]: delegated a device subkey into the document — '
             'the registry and every verifier now learn the new device',
       );
-      return true;
+      return DeviceDelegation.delegated;
     } on Object catch (e) {
       // The tombstone refusal must ABORT the caller's ceremony, not blend
       // into "nothing changed": measured live — the linking flow swallowed
@@ -1278,10 +1308,18 @@ class RealVeilStack {
       if ('$e'.contains('is REVOKED in this document')) {
         throw TombstonedDeviceException('$e');
       }
-      // AlreadyPresent (a re-link) and a wrong phrase both land here; the
-      // wrong phrase is refused natively before anything is written.
+      // AlreadyPresent is a SUCCESS — the document already names this key,
+      // which is what a re-link looks like — and it used to be reported with
+      // the same `false` as a wrong phrase or missing material, so the
+      // ceremony could not tell "nothing to do" from "the identity does not
+      // vouch for this device". The native text is the FFI's only channel;
+      // it is matched here rather than at the call sites so the distinction
+      // exists once.
+      if ('$e'.contains('already present as identity_keys[')) {
+        return DeviceDelegation.alreadyPresent;
+      }
       devLog(() => 'xVeil[identity]: could not delegate the device: $e');
-      return false;
+      return DeviceDelegation.failed;
     } finally {
       try {
         await Directory(staging).delete(recursive: true);
