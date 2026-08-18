@@ -15,18 +15,13 @@ class _MessagingConversationAdmin {
     final existing = await _owner._storage.getContact(peer);
     if (existing == null) return;
     final trimmed = name?.trim();
+    // copyWith, not a fresh Contact. The hand-written field list this replaces
+    // predated the disappearing window and never learned about it, so renaming
+    // a contact silently turned their disappearing messages OFF — and then
+    // announced that to them as a decision.
     await _owner._putContactPrefs(
-      Contact(
-        nodeId: existing.nodeId,
+      existing.copyWith(
         name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
-        status: existing.status,
-        mutedUntil: existing.mutedUntil,
-        notificationMuteMode: existing.notificationMuteMode,
-        pinned: existing.pinned,
-        archived: existing.archived,
-        retentionDays: existing.retentionDays,
-        allowPeerDelete: existing.allowPeerDelete,
-        p2pOverride: existing.p2pOverride,
       ),
     );
     _owner._signal();
@@ -80,20 +75,10 @@ class _MessagingConversationAdmin {
     final existing = await _owner._storage.getContact(peer);
     if (existing == null) return;
     final window = (days == null || days <= 0) ? null : days;
-    await _owner._putContactPrefs(
-      Contact(
-        nodeId: existing.nodeId,
-        name: existing.name,
-        status: existing.status,
-        mutedUntil: existing.mutedUntil,
-        notificationMuteMode: existing.notificationMuteMode,
-        pinned: existing.pinned,
-        archived: existing.archived,
-        retentionDays: window,
-        allowPeerDelete: existing.allowPeerDelete,
-        p2pOverride: existing.p2pOverride,
-      ),
-    );
+    // Same fix as [setContactName], same reason: this list did not carry the
+    // disappearing window either, so changing local retention wiped the shared
+    // one.
+    await _owner._putContactPrefs(existing.copyWith(retentionDays: window));
     _owner._signal();
     if (window != null) {
       await _owner._storage.pruneConversation(peer, window);
@@ -109,6 +94,7 @@ class _MessagingConversationAdmin {
       ttlSeconds: c.disappearingTtlSeconds,
       setAtMs: c.disappearingSetAtMs,
       setBy: c.disappearingSetBy,
+      hideAfterReadSeconds: c.hideAfterReadSeconds,
     );
   }
 
@@ -119,15 +105,41 @@ class _MessagingConversationAdmin {
   /// fails must still leave this device honouring what its owner asked for —
   /// the peer's copy catches up on the next announcement, but a person who
   /// asked for 30 seconds and got "the network was down" would have neither.
-  Future<void> setContactDisappearing(NodeId peer, int? seconds) async {
+  Future<void> setContactDisappearing(NodeId peer, int? seconds) =>
+      _setHalf(peer, ttl: (seconds,), hideAfterRead: null);
+
+  /// Choose the READ-clock window: how long a message stays on screen after
+  /// this device first showed it. Announced the same way and by the same
+  /// frame, because the two windows are one setting with one stamp.
+  Future<void> setContactHideAfterRead(NodeId peer, int? seconds) =>
+      _setHalf(peer, ttl: null, hideAfterRead: (seconds,));
+
+  /// One writer for both halves.
+  ///
+  /// A record passed as `(value,)` is being CHANGED (to `value`, which may be
+  /// null for off); a plain `null` means "leave this half alone". Written as
+  /// one method because two independent setters each building a whole
+  /// [DisappearingSetting] would each have to remember to carry the other half
+  /// — and the one that forgot would silently clear a window its owner set,
+  /// then announce the erasure to the peer as a fresh decision.
+  Future<void> _setHalf(
+    NodeId peer, {
+    required (int?,)? ttl,
+    required (int?,)? hideAfterRead,
+  }) async {
     final existing = await _owner._storage.getContact(peer);
     if (existing == null) return;
-    final ttl = (seconds == null || seconds <= 0)
+    int? clamp(int? seconds) => (seconds == null || seconds <= 0)
         ? null
         : seconds.clamp(1, kDisappearingMaxSeconds);
     final selfHex = await _owner._selfHex();
     final setting = DisappearingSetting(
-      ttlSeconds: ttl,
+      ttlSeconds: ttl == null
+          ? existing.disappearingTtlSeconds
+          : clamp(ttl.$1),
+      hideAfterReadSeconds: hideAfterRead == null
+          ? existing.hideAfterReadSeconds
+          : clamp(hideAfterRead.$1),
       setAtMs: _owner._now().millisecondsSinceEpoch,
       setBy: selfHex,
     );
@@ -143,6 +155,7 @@ class _MessagingConversationAdmin {
       ttlSeconds: existing.disappearingTtlSeconds,
       setAtMs: existing.disappearingSetAtMs,
       setBy: existing.disappearingSetBy,
+      hideAfterReadSeconds: existing.hideAfterReadSeconds,
     );
     if (!identical(DisappearingSetting.winner(held, incoming), incoming)) {
       return false;
@@ -162,6 +175,7 @@ class _MessagingConversationAdmin {
         disappearingTtlSeconds: setting.ttlSeconds,
         disappearingSetAtMs: setting.setAtMs,
         disappearingSetBy: setting.setBy,
+        hideAfterReadSeconds: setting.hideAfterReadSeconds,
       ),
     );
     _owner._signal();
