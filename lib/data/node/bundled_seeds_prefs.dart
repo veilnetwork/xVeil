@@ -1,5 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/log.dart';
 import '../../state/identity_scoped_prefs.dart';
 import '../storage/storage.dart';
 import 'bundled_seeds.dart';
@@ -109,12 +110,47 @@ Future<bool> setBundledSeedsAllowed(bool allowed) async {
 /// adoption is best-effort: a space that cannot be written to still boots on the
 /// value it would have stored, it simply migrates again next time.
 ///
+/// Three states, not two, and the third is the one that used to be wrong: an
+/// OPEN space that would not answer resolves to `false` and never migrates —
+/// see the branch below. "Never asked" is unchanged and still resolves to
+/// [kBundledSeedsDefault]; a first run cannot bootstrap otherwise.
+///
 /// The daemon does not come through here and must not: it has no preference to
 /// inherit from — see [bundledSeedsAllowedFromSpace].
 Future<bool> bundledSeedsAllowedFor(Storage storage) async {
   final own = await bundledSeedsAnswerInSpace(storage);
   final value = own.value;
   if (value != null) return value;
+  if (!own.readable && storage.isOpen) {
+    // An OPEN space that would not answer, which is NOT "never asked" — that
+    // one is `readable` with no value, and still takes the preference and the
+    // first-run default below.
+    //
+    // Falling back here was fail-open by construction. Since the answer moved
+    // into the space, the app deliberately leaves the profile preference EMPTY
+    // for every identity that ever answered (the decoy test asserts exactly
+    // that: `prefs.getBool(kBundledSeedsPrefKey)` is null), so for a refusing
+    // identity the fallback is not a fallback at all — it is
+    // [kBundledSeedsDefault] with a costume on. One failed `getSetting` and an
+    // identity that had said no was composed onto the shared seeds, with
+    // `builtin_seed_policy = "auto"`, and nobody asked it anything.
+    //
+    // Which of the two it is cannot be recovered from here, and the only place
+    // that could hold a second copy is the preference file — plaintext, outside
+    // every container, where a forensic tool reads it. Writing "this profile
+    // declined" there to keep a refusal readable would leak the very decision
+    // the refusal is about. So the unknown resolves to the answer that cannot
+    // undo a privacy decision, and the person is told: this is precisely the
+    // state [shouldOfferBundledSeeds] describes, so an identity with nothing
+    // else to dial gets the re-offer rather than a silent reconnection.
+    devLog(
+      () =>
+          'xVeil[seeds]: the identity space would not answer — composing '
+          'WITHOUT the shared seeds rather than undoing a refusal that only '
+          'the space remembers',
+    );
+    return false;
+  }
   final inherited = await bundledSeedsAllowed();
   if (own.readable) {
     // Only when the space really has no answer — see
