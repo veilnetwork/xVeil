@@ -19,8 +19,17 @@ void main() {
       'third_party/veil/flutter/veil_flutter/macos/Classes/VeilFlutterPlugin.swift',
     ).readAsString();
 
-    expect(script, contains('node-embedded,packet-tunnel'));
-    expect(script, contains('node-embedded,production-seeds,packet-tunnel'));
+    // The feature list is COMPOSED, not spelled out: the seed feature comes
+    // from scripts/veil-network.sh, which is the single rule deciding which
+    // network a build talks to. Asserting the literal `production-seeds` here
+    // is what this test used to do, and it put two gates in direct
+    // contradiction — seed_feature_single_rule_test forbids a cargo
+    // invocation that names a seed feature of its own, which is exactly what
+    // satisfying this literal would require. What still matters is that the
+    // tunnel is built with the embedded node and the tunnel feature, and that
+    // the network half is read from the rule rather than chosen here.
+    expect(script, contains('source "\$ROOT/scripts/veil-network.sh"'));
+    expect(script, contains('node-embedded,\$SEED_FEATURE,packet-tunnel'));
     expect(script, contains('target/xveil-packet-tunnel-macos-'));
     expect(project, contains('Build PacketTunnel Rust FFI'));
     expect(
