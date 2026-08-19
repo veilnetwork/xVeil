@@ -5661,7 +5661,6 @@ void main() {
       );
       final thirdStorage = FakeHvContainer().storage();
       await thirdStorage.open(password: 'pw', createIfMissing: true);
-      final shippedToThird = <String>[];
       final third = GroupService(
         thirdStorage,
         _FakeSigner(carol),

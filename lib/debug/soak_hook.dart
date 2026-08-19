@@ -2071,7 +2071,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'ok': true,
       'identity': idHex,
       'lookupBytes': bytes,
-      if (authorizes != null) 'authorizes': authorizes,
+      'authorizes': ?authorizes,
     });
   }
 

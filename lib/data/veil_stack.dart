@@ -848,7 +848,14 @@ class RealVeilStack {
   }) : _cli = veilCliPath,
        _config = configPath,
        _flutterTransport = nodeIpc,
+       // An initializing formal is what the analyzer asks for and what Dart
+       // forbids here: these are NAMED parameters, and a named parameter
+       // cannot begin with an underscore, so `this._registeredSeeds` does not
+       // compile. The fields stay private because nothing outside this class
+       // has business with them.
+       // ignore: prefer_initializing_formals
        _registeredSeeds = registeredSeeds,
+       // ignore: prefer_initializing_formals
        _joinEndpoint = joinEndpoint;
 
   /// Assemble a stack over parts that already exist.
