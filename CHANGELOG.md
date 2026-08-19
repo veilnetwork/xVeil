@@ -12,14 +12,14 @@ storage it was built against.
 
 ## [0.11.0] — 2026-08-19
 
-Built on veil
-[8a56e804](https://github.com/veilnetwork/veil/commit/8a56e804)
-(73 commits past v0.5.2) and hidden-volume
-[bc361f1](https://github.com/veilnetwork/hidden-volume/commit/bc361f1)
-(10 past v2.0.0). Neither carries a release tag for this work yet, so the pins
-are the commits themselves — an app version means nothing without knowing
-which network and which storage it was built against, and a tag that does not
-exist is not a better answer than a hash that does.
+Built on [veil v0.6.0](https://github.com/veilnetwork/veil/releases/tag/v0.6.0)
+and [hidden-volume v2.0.1](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.1),
+both cut for this release.
+
+veil's minor digit moves because its wire gained a capability bit and its FFI
+gained entry points; hidden-volume's is a patch, and deliberately so — no
+public surface moved and `PARAMS_VERSION` stays at 3, so a container written by
+the version 0.10.0 shipped opens here with no conversion.
 
 There is no wire flag day this time. A 0.11.0 node and a 0.10.0 node exchange
 frames normally; the new capability bit is expressed as a REFUSAL
