@@ -192,14 +192,24 @@ void main() {
     // The device key is a secret sitting in a directory the node also fills
     // with sockets. It gets 0600 rather than whatever the umask hands out.
     test('the device key is not readable by anyone else', () async {
-      if (Platform.isWindows) return;
+      if (Platform.isWindows) {
+        markTestSkipped('POSIX permission bits do not apply on Windows');
+        return;
+      }
       await materialiseSovereignIdentity(tmp.path, _material());
-      final mode = await Process.run('stat', [
-        '-f',
-        '%Lp',
+      // Read the bits rather than shelling out. `stat -f %Lp` is the BSD
+      // spelling: on Linux `-f` asks about the FILE SYSTEM and prints
+      // `File: "…"`, so this assertion compared a path against '600' and
+      // failed on CI while passing on every developer's Mac.
+      final mode = File(
         '${tmp.path}/$kDeviceIdentitySkFile',
-      ]);
-      expect((mode.stdout as String).trim(), '600');
+      ).statSync().mode & 0x1FF;
+      expect(
+        mode.toRadixString(8).padLeft(3, '0'),
+        '600',
+        reason: 'the device secret key shares a directory with sockets the '
+            'node creates; the umask is not allowed to decide who reads it',
+      );
     });
   });
 
