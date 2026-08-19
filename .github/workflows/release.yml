@@ -97,6 +97,7 @@ jobs:
   checks:
     name: analyze + tests
     if: github.event_name != 'workflow_dispatch' || inputs.run_checks
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -117,6 +118,7 @@ jobs:
     # while a RED `checks` still stops the build dead.
     needs: checks
     if: ${{ !cancelled() && needs.checks.result != 'failure' }}
+    timeout-minutes: 75
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -402,6 +404,7 @@ jobs:
     name: linux bundle
     needs: checks
     if: ${{ !cancelled() && needs.checks.result != 'failure' }}
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -411,11 +414,31 @@ jobs:
       # From prepare.py's LINUX_PACKAGES. libayatana-appindicator3-dev is for
       # tray_manager, which stops the CMake configure with a message naming a
       # pkg-config module and no package.
+      # Bounded on purpose. Unqualified, this step wedged the v0.11.0 release
+      # for an hour and fifty-two minutes on its first line: the runner image
+      # runs unattended-upgrades, apt waits on the dpkg lock forever by
+      # default, and a package that wants to ask something has no terminal to
+      # ask on. DPkg::Lock::Timeout bounds the wait, DEBIAN_FRONTEND answers
+      # for it, and the retry covers a mirror that is briefly unreachable.
       - name: System packages
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev libstdc++-12-dev libayatana-appindicator3-dev
+          set -euo pipefail
+          apt_get() { sudo apt-get -o DPkg::Lock::Timeout=180 "$@"; }
+          for attempt in 1 2 3; do
+            if apt_get update && apt_get install -y --no-install-recommends \
+              clang cmake ninja-build pkg-config \
+              libgtk-3-dev liblzma-dev libstdc++-12-dev \
+              libayatana-appindicator3-dev; then
+              exit 0
+            fi
+            echo "apt attempt $attempt failed; retrying" >&2
+            sleep $((attempt * 15))
+          done
+          echo "apt failed three times" >&2
+          exit 1
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
@@ -546,6 +569,7 @@ jobs:
     name: windows bundle
     needs: checks
     if: ${{ !cancelled() && needs.checks.result != 'failure' }}
+    timeout-minutes: 60
     runs-on: windows-latest
     # Unsigned, and it will stay that way until someone buys an Authenticode
     # certificate: SmartScreen warns on first run ("Windows protected your PC"
@@ -773,6 +797,7 @@ jobs:
   scan:
     name: scan artifacts
     needs: [android, linux, windows]
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -797,6 +822,7 @@ jobs:
     name: draft release
     needs: [checks, scan]
     if: startsWith(github.ref, 'refs/tags/') && needs.checks.result == 'success'
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     # The ONE job that needs to write: it attaches the artifacts to the draft.
     permissions:

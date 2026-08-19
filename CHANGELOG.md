@@ -13,13 +13,16 @@ storage it was built against.
 ## [0.11.0] — 2026-08-19
 
 Built on [veil v0.6.0](https://github.com/veilnetwork/veil/releases/tag/v0.6.0)
-and [hidden-volume v2.0.1](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.1),
+and [hidden-volume v2.0.2](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.2),
 both cut for this release.
 
 veil's minor digit moves because its wire gained a capability bit and its FFI
 gained entry points; hidden-volume's is a patch, and deliberately so — no
 public surface moved and `PARAMS_VERSION` stays at 3, so a container written by
-the version 0.10.0 shipped opens here with no conversion.
+the version 0.10.0 shipped opens here with no conversion. Its patch digit is
+at .2 rather than .1 because v2.0.1 shipped one accidental `pub` and a stale
+API-surface snapshot; v2.0.2 narrows the item back and changes nothing a
+container or this app can observe.
 
 There is no wire flag day this time. A 0.11.0 node and a 0.10.0 node exchange
 frames normally; the new capability bit is expressed as a REFUSAL
