@@ -13,10 +13,10 @@ storage it was built against.
 ## [0.11.0] — 2026-08-19
 
 Built on veil
-[69a112a6](https://github.com/veilnetwork/veil/commit/69a112a63703d3739bc0906b97cfc58e5850389b)
-(71 commits past v0.5.2) and hidden-volume
-[860694a](https://github.com/veilnetwork/hidden-volume/commit/860694acc08b6daa38256d1d718af3b1c3d284ae)
-(9 past v2.0.0). Neither carries a release tag for this work yet, so the pins
+[8a56e804](https://github.com/veilnetwork/veil/commit/8a56e804)
+(73 commits past v0.5.2) and hidden-volume
+[bc361f1](https://github.com/veilnetwork/hidden-volume/commit/bc361f1)
+(10 past v2.0.0). Neither carries a release tag for this work yet, so the pins
 are the commits themselves — an app version means nothing without knowing
 which network and which storage it was built against, and a tag that does not
 exist is not a better answer than a hash that does.
@@ -98,6 +98,12 @@ paired the wrong instance. Each looked like its own bug. They were one.
 
 ### Security
 
+- **h2 past RUSTSEC-2026-0258.** "Unbounded empty DATA frames", published two
+  days before this release and fixed in 0.4.16. It reaches the app through the
+  DNS resolver in the node's own bootstrap, so it is linked into the native
+  library on every platform here, not only into the update check. Caught by
+  `cargo audit`, which is a step of a gate that had been failing at its first
+  step since 14 August and therefore had not run in five days.
 - **The production obfs4 pre-shared key was in the source of a public
   repository.** It was generated on 2026-06-18 and pasted into
   `test/node_provisioner_test.dart` the next day as a fixture, where nothing
