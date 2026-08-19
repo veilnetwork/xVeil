@@ -879,3 +879,27 @@ jobs:
           draft: true
           files: artifacts/**/*
           fail_on_unmatched_files: true
+
+      # The action above writes the body only when it CREATES the release. Move
+      # a tag and re-run, and it replaces every asset while leaving the notes
+      # from the first attempt in place -- which is how v0.11.0's draft came to
+      # carry fresh binaries under a page saying it was built on
+      # hidden-volume v2.0.1, a version it was deliberately re-cut away from.
+      # Stale notes are worse than none: an empty page is obviously wrong,
+      # a confidently wrong one is not.
+      - name: The notes must match the tag, not the first attempt
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release edit "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY"
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json body -q .body > "$RUNNER_TEMP/published-notes.md"
+          if ! diff -q "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/published-notes.md" \
+               >/dev/null; then
+            echo "::error::the release page does not carry the CHANGELOG entry for $GITHUB_REF_NAME"
+            diff -u "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/published-notes.md" || true
+            exit 1
+          fi
+          echo "notes on the release page match the $GITHUB_REF_NAME entry"
