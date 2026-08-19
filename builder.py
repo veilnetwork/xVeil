@@ -297,8 +297,23 @@ def _check_android_native_fresh() -> None:
         if not staged:
             problems.append(f"{soname}: nothing staged under {stage_dir}\n      fix: {cure}")
             continue
+        # Only the ABIs this build actually PACKAGES. The release APK is
+        # arm64-only (`_RELEASE_APK_ABIS`), and gradle rebuilds only that
+        # slice, so an armeabi-v7a left over from before the ABI list narrowed
+        # is permanently older than the tree and would fail this check for
+        # ever. A gate that blocks correct builds is a gate somebody switches
+        # off, and then it protects nothing — so it asks about what ships, and
+        # names the leftovers separately instead of failing on them.
+        shipped = [(abi, path) for abi, path in staged if abi in _RELEASE_APK_ABIS]
+        leftover = [abi for abi, _ in staged if abi not in _RELEASE_APK_ABIS]
+        if not shipped:
+            problems.append(
+                f"{soname}: nothing staged for {', '.join(_RELEASE_APK_ABIS)}"
+                f"\n      fix: {cure}"
+            )
+            continue
         stale = []
-        for abi, path in staged:
+        for abi, path in shipped:
             newer = newer_source(path, sources)
             if newer:
                 stale.append(f"{abi} is older than {os.path.relpath(newer, ROOT)}")
@@ -307,7 +322,15 @@ def _check_android_native_fresh() -> None:
                 f"{soname}: " + "; ".join(stale) + f"\n      fix: {cure}"
             )
         else:
-            print(f"    {soname}: {len(staged)} ABI(s), each newer than its Rust source")
+            print(
+                f"    {soname}: {len(shipped)} shipped ABI(s), each newer than "
+                "its Rust source"
+                + (
+                    f" (not packaged, not checked: {', '.join(sorted(leftover))})"
+                    if leftover
+                    else ""
+                )
+            )
     if problems:
         raise RuntimeError(
             "NATIVE LIBRARIES ARE STALE — this APK would ship code that was not\n"
