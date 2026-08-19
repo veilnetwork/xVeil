@@ -7,10 +7,18 @@ void main() {
   // A well-known 64-hex digest used purely as a fixture.
   const sha =
       'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  // Decodes to `test-fixture-psk-not-real-value!` — deliberately readable,
+  // because the value that stood here for two months was the PRODUCTION obfs4
+  // pre-shared key, copied in the day after that network was stood up and
+  // published with every commit since. Nothing in these tests needs a real
+  // key: they assert that a valid base64 string survives validation and
+  // reaches the generated script. A fixture that says what it is cannot be
+  // mistaken for a deployment secret by the next person editing this file.
+  // test/no_deployment_secret_in_sources_test.dart keeps it that way.
   const cfg = NodeProvisionConfig(
     releaseUrl: 'https://example.com/releases/veil-cli-x86_64-linux-musl',
     expectedSha256: sha,
-    obfs4PskB64: 'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=',
+    obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
     listenPort: 5556,
     runExit: true,
   );
@@ -39,7 +47,7 @@ void main() {
       const NodeProvisionConfig(
         releaseUrl: 'https://x',
         expectedSha256: '',
-        obfs4PskB64: 'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=',
+        obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
       ).isValid,
       isFalse,
     );
@@ -47,7 +55,7 @@ void main() {
       const NodeProvisionConfig(
         releaseUrl: 'https://x',
         expectedSha256: 'not-a-sha',
-        obfs4PskB64: 'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=',
+        obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
       ).isValid,
       isFalse,
     );
@@ -57,7 +65,7 @@ void main() {
     NodeProvisionConfig u(String url) => NodeProvisionConfig(
       releaseUrl: url,
       expectedSha256: sha,
-      obfs4PskB64: 'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=',
+      obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
     );
     // The URL is interpolated into a root-sudo curl line; a quote-breakout or
     // any shell metacharacter must be refused even though it "starts with https".
@@ -86,7 +94,7 @@ void main() {
     // `<<'PSK_EOF'` block — valid base64 (no underscore, no newline) cannot.
     expect(p('not base64! with spaces').isValid, isFalse);
     expect(p('line1\nPSK_EOF\nrm -rf /').isValid, isFalse);
-    expect(p('CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=').isValid, isTrue);
+    expect(p('dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=').isValid, isTrue);
   });
 
   test('script verifies the checksum BEFORE installing/running as root', () {
@@ -106,7 +114,7 @@ void main() {
       greaterThan(verifyAt),
       reason: 'checksum verification must come before sudo install',
     );
-    expect(s, contains('CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI='));
+    expect(s, contains('dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE='));
     expect(s, contains('/usr/local/bin/veil-cli'));
     expect(s, contains('/etc/systemd/system/veil.service'));
     expect(s, contains("obfs4-tcp://0.0.0.0:5556"));
@@ -457,7 +465,7 @@ COMPONENTS: veil-cli,ogate,oproxy-server
       const withWs = NodeProvisionConfig(
         releaseUrl: 'https://example.com/veil-cli',
         expectedSha256: sha,
-        obfs4PskB64: 'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=',
+        obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
         listenPort: 5556,
         transports: {NodeListenTransport.ws},
         advertiseHost: 'node.example.org',

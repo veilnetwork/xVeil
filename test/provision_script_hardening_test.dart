@@ -17,7 +17,7 @@ void main() {
       releaseUrl: 'https://example.com/releases/veil-cli-x86_64-linux-musl',
       expectedSha256:
           '0000000000000000000000000000000000000000000000000000000000000000',
-      obfs4PskB64: 'CWz2E4fUutnZTr2KLjv62z1AUMWDORl1odamTdDdGAI=',
+      obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
     ),
   );
 
