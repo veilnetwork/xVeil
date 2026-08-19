@@ -10,7 +10,152 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
-## [0.10.1] — 2026-08-13
+## [0.11.0] — 2026-08-19
+
+Built on veil
+[69a112a6](https://github.com/veilnetwork/veil/commit/69a112a63703d3739bc0906b97cfc58e5850389b)
+(71 commits past v0.5.2) and hidden-volume
+[860694a](https://github.com/veilnetwork/hidden-volume/commit/860694acc08b6daa38256d1d718af3b1c3d284ae)
+(9 past v2.0.0). Neither carries a release tag for this work yet, so the pins
+are the commits themselves — an app version means nothing without knowing
+which network and which storage it was built against, and a tag that does not
+exist is not a better answer than a hash that does.
+
+There is no wire flag day this time. A 0.11.0 node and a 0.10.0 node exchange
+frames normally; the new capability bit is expressed as a REFUSAL
+(`NO_DHT_SERVICE`), so a peer that predates it advertises nothing and is read
+as willing, and a mixed network keeps behaving exactly as it did.
+
+**This is the release in which an identity stops being one device.** One
+recovery phrase now stands for a person, not for an installation: a second
+device links to the first, gets a key of its own under the same master, and
+from then on both are the same correspondent to everyone else. That took most
+of the work here — and most of the defects, because the same mistake kept
+reappearing in different clothes. Ten times, a question about a DEVICE was
+asked of an IDENTITY: the group fanout resolved a member to one device, the
+mailbox addressed the person and delivered to whoever answered first, the
+content server checked a device's key against the identity's name, the sender
+paired the wrong instance. Each looked like its own bug. They were one.
+
+### Added
+
+- **A second device, linked from a phrase.** Linking amends a signed identity
+  document that names every device key; a device that holds nothing can be
+  named into a family and adopt the document that names it. A linked device
+  receives the FULL history that predates it — proven end to end on three
+  devices, 25 of 25 messages identical — and both directions converge, not
+  just the new one.
+- **Revocation, with tombstones.** Removing a device retires its key from the
+  document and leaves a marker that survives a merge, so an older copy of the
+  document cannot quietly resurrect it. Verified against a live revoked
+  device rather than against a fixture.
+- **Calls ring every device.** The call signal is relayed to all of them and
+  the caller follows the call to whichever one answers.
+- **Disappearing messages, by two different clocks.** They are not the same
+  promise and the interface does not pretend they are.
+
+  The first is by POST TIME: a window (1, 5, 30, 60 minutes, or your own)
+  after which the message is deleted on every device that has it. Every peer
+  computes the same deadline from the same signed setting, so it is a
+  guarantee. It works in one-to-one chats, in groups and in channels.
+
+  The second is by READ TIME: a window that starts when a device first SHOWS
+  the message. It HIDES rather than deletes — in a channel the log keeps the
+  post, the interface stops offering it — and it is decided by the receiving
+  device, which may simply not do it. It is a courtesy, and it is described as
+  one. Groups and channels get both: a policy the owner signs, and a personal
+  ceiling any member can set for themselves; the shorter of the two wins.
+- **A choice about serving the DHT for other people.** An idle client was
+  measured receiving 13.6 KB/s, of which 85% was work done for strangers —
+  storing their records, answering their lookups, being a hop of their walks —
+  while its own application traffic was three bytes per second. On a phone
+  that is 5 GB a day.
+
+  Phones now advertise that they are not candidates for that work; desktops
+  still are; there is a switch in the network screen either way, and the
+  answer is per identity. Declining does NOT hide the device or make it
+  unreachable: it stays in everyone's routing table, still publishes its own
+  records, still resolves others, still receives mail. What stops is unpaid
+  work. Refusing the work locally had already been tried and measured to
+  change the traffic by nothing at all — the bytes cross the network before
+  any local decision happens — so the only lever is to stop being CHOSEN.
+- **Android offers the battery exemption at start-up, once, and takes no for
+  an answer.** Without that exemption the node loses every session as soon as
+  the screen goes off — measured, and it is not Doze: it happens well before
+  deep idle, so it is the background network restriction attached to the
+  battery whitelist. Someone who declines gets a working app that receives
+  nothing while it is in a pocket, which is a legitimate choice as long as it
+  is an informed one.
+- **A testnet, and one rule for which network a build talks to.** Debug builds
+  reach the testnet, release builds reach production, and `XVEIL_NETWORK`
+  overrides both. Development traffic used to land in production silently:
+  veil hands `debug_assertions` the production seed list, and no build path
+  passed a seed feature in debug.
+- **Mailbox slices.** A blob too large for one FETCH is announced by the relay
+  and collected in windows by the client, which is what a multi-device envelope
+  needs — one envelope per device stopped fitting at three devices, and the
+  answer was to cut the reply, not the payload.
+
+### Security
+
+- **The production obfs4 pre-shared key was in the source of a public
+  repository.** It was generated on 2026-06-18 and pasted into
+  `test/node_provisioner_test.dart` the next day as a fixture, where nothing
+  needed it to be real — the tests assert that a valid base64 string survives
+  validation and reaches the generated provisioning script, and any 44
+  characters would have done. It is replaced by base64 of a sentence that says
+  what it is, and a guard now refuses any source file that contains the bytes
+  of the bundled key.
+
+  **It is not being rotated, and that deserves stating plainly.** The same key
+  ships INSIDE every release artifact — the release job asserts that it does,
+  because without it the app reaches no bootstrap peer at all — so anyone who
+  downloads xVeil already holds it. A network PSK distributed with the client
+  is not a secret against anyone willing to install the app; it is a secret
+  against someone who has not bothered. Rotating restores only that second
+  property, and costs every installed client its network until it updates.
+  What it really says is that this PSK is a poor place to put the
+  unrecognisability of the transport, and that belongs to the secret-channel
+  work rather than to a key change.
+
+### Fixed
+
+- **The Windows bundle now carries the Visual C++ runtime it needs.**
+  `MSVCP140.dll`, `VCRUNTIME140.dll` and `VCRUNTIME140_1.dll` were absent from
+  the zip and every binary in it imports them, `xveil.exe` included — Flutter's
+  Windows template copies none of them, so a Windows without the Visual C++
+  Redistributable could not start the app at all. This was prepared as 0.10.1,
+  which was never published; the fix reaches a release here for the first time.
+  The gate asserts the three files are IN THE BUNDLE rather than asking whether
+  the machine can resolve them, because every machine that built or tested this
+  app had the redistributable installed, the CI runner included.
+- **One stuck deposit no longer freezes every other one.** The deposit slot was
+  a single lock held across an `await` with no deadline, so one mailbox PUT
+  that never returned wedged all outgoing mail indefinitely.
+- **A cleared history no longer silences a correspondent forever.** Clearing
+  set a per-author ceiling on the message number with no expiry, so once that
+  peer's counter reset, everything they sent afterwards was dropped in silence.
+- **Compaction no longer waits on a lock it holds itself.** The shutdown chain
+  was protected against exceptions but not against hangs.
+- **A device that has been offline too long can still be deposited to**, and an
+  unresolvable sender is retried rather than destroyed.
+- **A relayed call offer survives ordinary clock skew.**
+- **The APK freshness gate asks only about the ABIs that actually ship**, so a
+  correct build stops being blocked by a leftover it does not use.
+
+### Changed
+
+- The disappearing-window presets are expressed in minutes, and a custom value
+  is accepted.
+- The owner actions of a group moved into a menu.
+- Content served to your own devices no longer requires a contact grant — a
+  device of yours is not a stranger asking for a file.
+
+## [0.10.1] — 2026-08-13 (prepared, never published)
+
+This version was cut as a Windows-only fix and no artifacts were ever
+released under it. The fix it describes ships in 0.11.0.
+
 
 Built on the same [veil v0.5.2](https://github.com/veilnetwork/veil/releases/tag/v0.5.2)
 and [hidden-volume v2.0.0](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.0)
