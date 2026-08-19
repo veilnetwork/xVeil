@@ -6,6 +6,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/managed_node.dart';
+import 'package:xveil/data/node/network_flavor.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 import 'package:xveil/data/node/ssh_credentials.dart';
 import 'package:xveil/data/node/veil_github_release.dart';
@@ -56,7 +57,15 @@ Widget _host() => ProviderScope(
 
 // Any non-empty value will do: the screen only asks whether a deployment PSK
 // exists at all, and the checksum/base64 rules live in the provisioner.
-const _pskAsset = 'assets/prod/obfs4_psk.b64';
+//
+// The KEY, though, is not a constant. It comes from the same rule the screen
+// reads (`veilNetwork.obfs4PskAsset`), and it has to: this used to spell out
+// the production path, and then the testnet landed — a test build resolves to
+// `assets/testnet/...`, the mock answered a question nobody asked, and the
+// screen fell back to its "no PSK" body. Six tests then looked for controls
+// that were not on screen and failed for a reason that had nothing to do with
+// what they assert.
+String get _pskAsset => veilNetwork.obfs4PskAsset;
 const _testPsk = 'dGVzdC1vYmZzNC1wc2s=';
 
 void main() {
