@@ -17,6 +17,7 @@ so these run anywhere. That makes them a check of the rule, not of a machine.
 from __future__ import annotations
 
 import os
+import time
 import os.path
 import shutil
 import sys
@@ -165,6 +166,53 @@ with FakeWindows({"bash": WSL_BASH, "git": GIT}, {GIT_BASH}):
 check("the symbol check does not run the WSL launcher", argv[0], GIT_BASH)
 check("it still passes the script and the library", len(argv), 3)
 check("and the library is the last argument", argv[2], "lib\\arm64-v8a\\libveil_media.so")
+
+
+
+# ── The Android freshness gate asks only about ABIs that ship ────────────────
+#
+# The release APK is arm64-only, and gradle rebuilds only that slice, so an
+# armeabi-v7a staged before the ABI list narrowed is permanently older than the
+# tree. Failing on it blocks every correct build — and a gate that blocks
+# correct builds is one somebody switches off, after which it protects nothing.
+import builder  # noqa: E402
+
+with tempfile.TemporaryDirectory() as _tmp:
+    _source = os.path.join(_tmp, "src.rs")
+    _stage = os.path.join(_tmp, "jniLibs")
+    for _abi in ("arm64-v8a", "armeabi-v7a"):
+        os.makedirs(os.path.join(_stage, _abi))
+        with open(os.path.join(_stage, _abi, "lib.so"), "w") as _fh:
+            _fh.write("x")
+    with open(_source, "w") as _fh:
+        _fh.write("fn main() {}")
+    # Both .so files predate the source; only the shipped one is refreshed.
+    _future = time.time() + 10
+    os.utime(os.path.join(_stage, "arm64-v8a", "lib.so"), (_future, _future))
+
+    _held = builder._ANDROID_NATIVE
+    builder._ANDROID_NATIVE = (
+        ("lib.so", os.path.relpath(_stage, builder.ROOT), [_source], "rebuild"),
+    )
+    try:
+        builder._check_android_native_fresh()
+        _blocked = False
+    except RuntimeError:
+        _blocked = True
+    check("a stale ABI that is not packaged does not fail the build", _blocked, False)
+
+    # And the shipped ABI is still checked — otherwise the fix would have
+    # turned the gate off rather than aimed it.
+    _past = time.time() - 100
+    os.utime(os.path.join(_stage, "arm64-v8a", "lib.so"), (_past, _past))
+    try:
+        builder._check_android_native_fresh()
+        _blocked = False
+    except RuntimeError:
+        _blocked = True
+    check("a stale SHIPPED ABI still fails the build", _blocked, True)
+    builder._ANDROID_NATIVE = _held
+
 
 if failures:
     print(f"\nFAIL: {len(failures)} check(s): {', '.join(failures)}")
