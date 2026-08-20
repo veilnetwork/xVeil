@@ -475,32 +475,15 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     final cloud = _service;
     if (directory == null || capabilities == null || cloud == null) return;
     final l = AppL10n.of(context);
-    final controller = TextEditingController();
     final nickname = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l.cloudPublicDirOpen),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: l.cloudPublicDirNicknameHint,
-            prefixText: '@',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: Text(l.cloudPublicDirResolve),
-          ),
-        ],
+      builder: (context) => _TextPromptDialog(
+        title: l.cloudPublicDirOpen,
+        confirmLabel: l.cloudPublicDirResolve,
+        hint: l.cloudPublicDirNicknameHint,
+        prefixText: '@',
       ),
     );
-    controller.dispose();
     if (!mounted || nickname == null || nickname.isEmpty) return;
     setState(() => _busy = true);
     PublicDirectoryPointer? pointer;
@@ -532,31 +515,16 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     final cloud = _service;
     if (capabilities == null || cloud == null) return;
     final l = AppL10n.of(context);
-    final controller = TextEditingController();
     final link = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l.cloudFolderOpen),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 2,
-          maxLines: 5,
-          decoration: InputDecoration(hintText: l.cloudFolderOpenHint),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: Text(l.cloudDownload),
-          ),
-        ],
+      builder: (context) => _TextPromptDialog(
+        title: l.cloudFolderOpen,
+        confirmLabel: l.cloudDownload,
+        hint: l.cloudFolderOpenHint,
+        minLines: 2,
+        maxLines: 5,
       ),
     );
-    controller.dispose();
     if (!mounted || link == null || link.isEmpty) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -764,32 +732,17 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
     final cloud = _service;
     final capabilities = _capabilityService;
     if (cloud == null || capabilities == null || _busy) return;
-    final controller = TextEditingController();
     final l = AppL10n.of(context);
     final link = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l.cloudPublicImport),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 2,
-          maxLines: 5,
-          decoration: InputDecoration(hintText: l.cloudPublicPasteHint),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: Text(l.cloudDownload),
-          ),
-        ],
+      builder: (context) => _TextPromptDialog(
+        title: l.cloudPublicImport,
+        confirmLabel: l.cloudDownload,
+        hint: l.cloudPublicPasteHint,
+        minLines: 2,
+        maxLines: 5,
       ),
     );
-    controller.dispose();
     if (!mounted || link == null || link.isEmpty) return;
     setState(() => _busy = true);
     try {
@@ -1444,7 +1397,9 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
                     ),
                   // Desktop only: a phone has no folder to mirror that another
                   // app can also write to, and the picker returns nothing.
-                  if (Platform.isMacOS || Platform.isLinux || Platform.isWindows)
+                  if (Platform.isMacOS ||
+                      Platform.isLinux ||
+                      Platform.isWindows)
                     _menuItem(
                       _CloudMenu.folderSync,
                       Icons.sync_outlined,
@@ -1723,6 +1678,81 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
         ),
         FilledButton(
           onPressed: () => Navigator.pop(context, _name.text.trim()),
+          child: Text(widget.confirmLabel),
+        ),
+      ],
+    );
+  }
+}
+
+/// A one-field prompt that OWNS its controller.
+///
+/// The three callers of this used to build a `TextEditingController` beside
+/// `showDialog` and dispose it on the line after the await. That await returns
+/// when `Navigator.pop` runs, and the route keeps its subtree mounted for the
+/// exit transition — so the `TextField` went on using a disposed controller.
+/// Observed as three errors 0.15 s apart: "A TextEditingController was used
+/// after being disposed", then `_dependents.isEmpty` in
+/// `InheritedElement.debugDeactivated`, then "Tried to build dirty widget in
+/// the wrong build scope" on the dialog's own `_MaterialInterior`. Only the
+/// last one reaches the red screen, which is why this read as a framework bug.
+///
+/// A controller owned by the widget that uses it is disposed when that widget
+/// is, which is the only ordering that cannot race the transition.
+/// [`_FolderNameDialog`] already did it this way; this is the same shape for
+/// the prompts that take a link or a nickname.
+class _TextPromptDialog extends StatefulWidget {
+  const _TextPromptDialog({
+    required this.title,
+    required this.confirmLabel,
+    this.hint,
+    this.prefixText,
+    this.minLines,
+    this.maxLines = 1,
+  });
+
+  final String title;
+  final String confirmLabel;
+  final String? hint;
+  final String? prefixText;
+  final int? minLines;
+  final int maxLines;
+
+  @override
+  State<_TextPromptDialog> createState() => _TextPromptDialogState();
+}
+
+class _TextPromptDialogState extends State<_TextPromptDialog> {
+  final TextEditingController _text = TextEditingController();
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _text,
+        autofocus: true,
+        minLines: widget.minLines,
+        maxLines: widget.maxLines,
+        decoration: InputDecoration(
+          hintText: widget.hint,
+          prefixText: widget.prefixText,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _text.text.trim()),
           child: Text(widget.confirmLabel),
         ),
       ],

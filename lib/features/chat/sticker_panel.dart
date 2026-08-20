@@ -128,35 +128,15 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
 
   Future<String?> _promptPackName({required String initial}) async {
     final l = AppL10n.of(context);
-    final field = TextEditingController(text: initial);
-    try {
-      return await showDialog<String>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: Text(l.stickerPackNameHint),
-          content: TextField(
-            controller: field,
-            autofocus: true,
-            maxLength: 64,
-            decoration: InputDecoration(hintText: l.stickerPackNameHint),
-            onSubmitted: (v) => Navigator.of(dialogContext).pop(v.trim()),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(l.actionCancel),
-            ),
-            FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(field.text.trim()),
-              child: Text(l.actionDone),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      field.dispose();
-    }
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => _PackNameDialog(
+        initial: initial,
+        title: l.stickerPackNameHint,
+        cancelLabel: l.actionCancel,
+        doneLabel: l.actionDone,
+      ),
+    );
   }
 
   Future<void> _renamePack(StickerPack pack) async {
@@ -377,6 +357,65 @@ class _StickerCell extends ConsumerWidget {
           );
         },
       ),
+    );
+  }
+}
+
+/// Names a sticker pack, owning the controller that holds the name.
+///
+/// `try { await showDialog } finally { field.dispose(); }` disposes while the
+/// route is still animating out, so the `TextField` outlives its controller.
+/// A controller owned by the widget that renders it is disposed with that
+/// widget, which is the only ordering the transition cannot race.
+class _PackNameDialog extends StatefulWidget {
+  const _PackNameDialog({
+    required this.initial,
+    required this.title,
+    required this.cancelLabel,
+    required this.doneLabel,
+  });
+
+  final String initial;
+  final String title;
+  final String cancelLabel;
+  final String doneLabel;
+
+  @override
+  State<_PackNameDialog> createState() => _PackNameDialogState();
+}
+
+class _PackNameDialogState extends State<_PackNameDialog> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _name,
+        autofocus: true,
+        maxLength: 64,
+        decoration: InputDecoration(hintText: widget.title),
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(widget.cancelLabel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_name.text.trim()),
+          child: Text(widget.doneLabel),
+        ),
+      ],
     );
   }
 }
