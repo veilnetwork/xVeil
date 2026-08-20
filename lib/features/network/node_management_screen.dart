@@ -196,46 +196,10 @@ class NodeManagementScreen extends ConsumerWidget {
     ManagedNode node,
   ) async {
     final l = AppL10n.of(context);
-    final controller = TextEditingController();
-    var matches = false;
     final accepted = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text(l.nodeDebootstrap),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(l.nodeDebootstrapConfirm),
-              const SizedBox(height: 12),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                decoration: InputDecoration(
-                  labelText: l.nodeDebootstrapType,
-                  border: const OutlineInputBorder(),
-                ),
-                onChanged: (value) =>
-                    setState(() => matches = value.trim() == 'DELETE'),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text(l.actionCancel),
-            ),
-            FilledButton(
-              onPressed: matches
-                  ? () => Navigator.pop(dialogContext, true)
-                  : null,
-              child: Text(l.nodeDebootstrap),
-            ),
-          ],
-        ),
-      ),
+      builder: (dialogContext) => const _DebootstrapConfirmDialog(),
     );
-    controller.dispose();
     if (accepted != true || !context.mounted) return;
     await _run(
       context,
@@ -309,3 +273,67 @@ String _configLabel(NodeConfigTarget target) => switch (target) {
   NodeConfigTarget.oproxyClient => 'oproxy-client · client.toml',
   NodeConfigTarget.oproxyServer => 'oproxy-server · server.toml',
 };
+
+/// Type-to-confirm for debootstrap, owning both its controller and its
+/// enabled/disabled state.
+///
+/// It was a `StatefulBuilder` beside a controller the caller disposed on the
+/// line after the await. `showDialog`'s future completes when `Navigator.pop`
+/// runs, but the route keeps its subtree mounted through the exit transition,
+/// so the `TextField` went on using a disposed controller. Same defect, same
+/// shape, and the same three-error cascade it produced in cloud storage:
+/// "used after being disposed", then `_dependents.isEmpty`, then a dirty
+/// widget built in the wrong scope — only the last of which reaches the user.
+class _DebootstrapConfirmDialog extends StatefulWidget {
+  const _DebootstrapConfirmDialog();
+
+  @override
+  State<_DebootstrapConfirmDialog> createState() =>
+      _DebootstrapConfirmDialogState();
+}
+
+class _DebootstrapConfirmDialogState extends State<_DebootstrapConfirmDialog> {
+  final TextEditingController _typed = TextEditingController();
+  bool _matches = false;
+
+  @override
+  void dispose() {
+    _typed.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return AlertDialog(
+      title: Text(l.nodeDebootstrap),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(l.nodeDebootstrapConfirm),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _typed,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: l.nodeDebootstrapType,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (value) =>
+                setState(() => _matches = value.trim() == 'DELETE'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: _matches ? () => Navigator.pop(context, true) : null,
+          child: Text(l.nodeDebootstrap),
+        ),
+      ],
+    );
+  }
+}

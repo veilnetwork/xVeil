@@ -66,7 +66,12 @@ import 'group_disappearing.dart';
 
 /// The actions behind the group chat's overflow menu. Only some are
 /// owner-only: agreeing to see less on one's own device needs no role at all.
-enum _GroupOwnerAction { disappearing, hideAfterRead, hideAfterReadLocal, convert }
+enum _GroupOwnerAction {
+  disappearing,
+  hideAfterRead,
+  hideAfterReadLocal,
+  convert,
+}
 
 void _cancelGroupContentDownload(WidgetRef ref, String contentId) {
   unawaited(
@@ -394,34 +399,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     GroupMessage message,
   ) async {
     final l = AppL10n.of(context);
-    final controller = TextEditingController();
     final reason = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l.spaceModerationDeleteMessage),
-        content: TextField(
-          key: const ValueKey('space-message-moderation-reason'),
-          controller: controller,
-          autofocus: true,
-          maxLength: kSpaceModerationReasonMax,
-          decoration: InputDecoration(labelText: l.spaceModerationReason),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () {
-              final value = controller.text.trim();
-              if (value.isNotEmpty) Navigator.of(dialogContext).pop(value);
-            },
-            child: Text(l.spaceModerationDeleteMessage),
-          ),
-        ],
-      ),
+      builder: (dialogContext) => const _ModerationReasonDialog(),
     );
-    controller.dispose();
     if (reason == null) return;
     final channelId = message.channelId ?? _channelId;
     final actionId = await service.moderateSpace(
@@ -1537,8 +1518,12 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                   key: const ValueKey('group-owner-menu'),
                   onSelected: (action) => switch (action) {
                     _GroupOwnerAction.disappearing => _pickDisappearing(svc),
-                    _GroupOwnerAction.hideAfterRead =>
-                      pickGroupHideAfterRead(context, svc, _gid, signed: true),
+                    _GroupOwnerAction.hideAfterRead => pickGroupHideAfterRead(
+                      context,
+                      svc,
+                      _gid,
+                      signed: true,
+                    ),
                     _GroupOwnerAction.hideAfterReadLocal =>
                       pickGroupHideAfterRead(context, svc, _gid, signed: false),
                     _GroupOwnerAction.convert => _convertToCommunity(svc),
@@ -2517,6 +2502,59 @@ class _GroupVnoteCircle extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// Why a moderator is deleting a message, owning its own controller.
+///
+/// The caller used to dispose the controller on the line after the await, and
+/// `showDialog` returns while the route is still animating out — so the
+/// `TextField` kept using a disposed controller. Same defect as the cloud
+/// storage prompts and the debootstrap confirm; the visible symptom is three
+/// framework errors 0.15 s apart, the last of which is the red screen.
+class _ModerationReasonDialog extends StatefulWidget {
+  const _ModerationReasonDialog();
+
+  @override
+  State<_ModerationReasonDialog> createState() =>
+      _ModerationReasonDialogState();
+}
+
+class _ModerationReasonDialogState extends State<_ModerationReasonDialog> {
+  final TextEditingController _reason = TextEditingController();
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    return AlertDialog(
+      title: Text(l.spaceModerationDeleteMessage),
+      content: TextField(
+        key: const ValueKey('space-message-moderation-reason'),
+        controller: _reason,
+        autofocus: true,
+        maxLength: kSpaceModerationReasonMax,
+        decoration: InputDecoration(labelText: l.spaceModerationReason),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () {
+            final value = _reason.text.trim();
+            if (value.isNotEmpty) Navigator.of(context).pop(value);
+          },
+          child: Text(l.spaceModerationDeleteMessage),
+        ),
+      ],
     );
   }
 }

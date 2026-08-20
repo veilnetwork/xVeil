@@ -241,7 +241,9 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       // Nothing here is worth failing over: with no readable store there is no
       // device group, no document and no config, which is exactly the state the
       // screen already renders for a device that has not set one up.
-      devLog(() => 'xVeil[devices]: store not readable yet ($e) — showing empty');
+      devLog(
+        () => 'xVeil[devices]: store not readable yet ($e) — showing empty',
+      );
     } finally {
       // LOADING HAS TO END, whatever happened. `_loading` was cleared only at
       // the tail of a successful read, so any failure left it true — and the
@@ -385,41 +387,22 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 
   Future<void> _revoke(NodeId device) async {
     final l = AppL10n.of(context);
-    final phrase = TextEditingController();
     final usesCertificate = _credentialKind == 'certificate';
-    final confirmed = await showDialog<bool>(
+    // The dialog returns the WORDS, not a bool, so the secret never outlives
+    // the widget that held it: the controller is owned by the dialog's own
+    // State and cleared before it is disposed there.
+    final words = await showDialog<String>(
       context: context,
-      builder: (dialog) => AlertDialog(
-        title: Text(l.devicesRevokeTitle(device.short)),
-        content: TextField(
-          controller: phrase,
-          obscureText: true,
-          maxLines: 1,
-          decoration: InputDecoration(
-            labelText: usesCertificate
-                ? l.devicesRecoveryCode
-                : l.devicesPhrase,
-            helperText: usesCertificate
-                ? l.devicesRecoveryCodeHint
-                : l.devicesPhraseHint,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialog, false),
-            child: Text(MaterialLocalizations.of(dialog).cancelButtonLabel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialog, true),
-            child: Text(l.devicesRevoke),
-          ),
-        ],
+      builder: (dialog) => _RevokePhraseDialog(
+        title: l.devicesRevokeTitle(device.short),
+        confirmLabel: l.devicesRevoke,
+        fieldLabel: usesCertificate ? l.devicesRecoveryCode : l.devicesPhrase,
+        helperText: usesCertificate
+            ? l.devicesRecoveryCodeHint
+            : l.devicesPhraseHint,
       ),
     );
-    final words = phrase.text.trim();
-    phrase.clear();
-    phrase.dispose();
-    if (confirmed != true || words.isEmpty || !mounted) return;
+    if (words == null || words.isEmpty || !mounted) return;
     NativeSovereignGroupSigner? signer;
     var ok = false;
     var keyStillCertified = false;
@@ -589,7 +572,9 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
             ListTile(
               leading: const Icon(Icons.send_outlined),
               title: Text(l.devicesResendSetup),
-              subtitle: Text(_resending ? l.devicesWaitHint : l.devicesResendHint),
+              subtitle: Text(
+                _resending ? l.devicesWaitHint : l.devicesResendHint,
+              ),
               enabled: !_resending,
               onTap: _resending ? null : _resendSnapshot,
             ),
@@ -822,80 +807,80 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
     // screen a recorder could keep.
     return SecureScreenGuard(
       child: SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        24,
-        24,
-        24 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            _certificate == null
-                ? l.devicesCreateRecovery
-                : l.devicesCertificateReady,
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 12),
-          if (_certificate == null) ...[
-            TextField(
-              controller: _secret,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: usesCertificate
-                    ? l.devicesRecoveryCode
-                    : l.devicesPhrase,
-                helperText: usesCertificate
-                    ? l.devicesRecoveryCodeHint
-                    : l.devicesPhraseHint,
-              ),
-              onSubmitted: _busy ? null : (_) => _create(),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _busy ? null : _create,
-              icon: const Icon(Icons.key_outlined),
-              label: Text(l.devicesCreateRecovery),
-            ),
-          ] else ...[
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
             Text(
-              l.devicesCertificateWarning,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              _certificate == null
+                  ? l.devicesCreateRecovery
+                  : l.devicesCertificateReady,
+              style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),
-            Text('${l.nodeIdLabel}: ${_nodeId!.hex}'),
-            const SizedBox(height: 12),
-            SecretText(_certificate!, maxLines: 5, fontSize: 10),
-            SecretCopyButton(
-              label: l.devicesCopyCertificate,
-              value: () => _certificate!,
-              copiedMessage: l.devicesCertificateCopiedClears,
-            ),
-            const SizedBox(height: 8),
-            SecretText(_code!),
-            SecretCopyButton(
-              label: l.devicesCopyCode,
-              value: () => _code!,
-              copiedMessage: l.devicesCodeCopiedClears,
-            ),
-          ],
-          if (_busy)
-            const Padding(
-              padding: EdgeInsets.only(top: 12),
-              child: LinearProgressIndicator(),
-            ),
-          if (_failed)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                l.devicesOperationFailed,
+            if (_certificate == null) ...[
+              TextField(
+                controller: _secret,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: usesCertificate
+                      ? l.devicesRecoveryCode
+                      : l.devicesPhrase,
+                  helperText: usesCertificate
+                      ? l.devicesRecoveryCodeHint
+                      : l.devicesPhraseHint,
+                ),
+                onSubmitted: _busy ? null : (_) => _create(),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _busy ? null : _create,
+                icon: const Icon(Icons.key_outlined),
+                label: Text(l.devicesCreateRecovery),
+              ),
+            ] else ...[
+              Text(
+                l.devicesCertificateWarning,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            ),
-        ],
-      ),
+              const SizedBox(height: 12),
+              Text('${l.nodeIdLabel}: ${_nodeId!.hex}'),
+              const SizedBox(height: 12),
+              SecretText(_certificate!, maxLines: 5, fontSize: 10),
+              SecretCopyButton(
+                label: l.devicesCopyCertificate,
+                value: () => _certificate!,
+                copiedMessage: l.devicesCertificateCopiedClears,
+              ),
+              const SizedBox(height: 8),
+              SecretText(_code!),
+              SecretCopyButton(
+                label: l.devicesCopyCode,
+                value: () => _code!,
+                copiedMessage: l.devicesCodeCopiedClears,
+              ),
+            ],
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: LinearProgressIndicator(),
+              ),
+            if (_failed)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  l.devicesOperationFailed,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1155,8 +1140,8 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
                   DeviceDelegation.delegated ||
               delegated;
         } on _DocumentNotAmended {
-      if (mounted) setState(() => _error = l.devicesDocumentNotAmended);
-    } on TombstonedDeviceException {
+          if (mounted) setState(() => _error = l.devicesDocumentNotAmended);
+        } on TombstonedDeviceException {
           // A revoked OLD member still listed by the group is its own
           // cleanup, not this ceremony's failure.
         }
@@ -1238,7 +1223,6 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -1251,91 +1235,94 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
     // also takes the recovery code or phrase in the branch above.
     return SecureScreenGuard(
       child: SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        24,
-        24,
-        24 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(l.devicesLinkNew, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 16),
-          if (_token == null) ...[
-            TextField(
-              controller: _targetInvite,
-              minLines: 1,
-              maxLines: 3,
-              decoration: InputDecoration(
-                labelText: l.devicesTargetInvite,
-                helperText: l.devicesTargetInviteHint,
-                suffixIcon: IconButton(
-                  // The field says what to paste; the icon said nothing at all
-                  // — no hover hint, and nothing for a screen reader to read.
-                  tooltip: l.inviteScanTooltip,
-                  icon: const Icon(Icons.qr_code_scanner),
-                  onPressed: _busy ? null : _scan,
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              l.devicesLinkNew,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 16),
+            if (_token == null) ...[
+              TextField(
+                controller: _targetInvite,
+                minLines: 1,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: l.devicesTargetInvite,
+                  helperText: l.devicesTargetInviteHint,
+                  suffixIcon: IconButton(
+                    // The field says what to paste; the icon said nothing at all
+                    // — no hover hint, and nothing for a screen reader to read.
+                    tooltip: l.inviteScanTooltip,
+                    icon: const Icon(Icons.qr_code_scanner),
+                    onPressed: _busy ? null : _scan,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _phrase,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: usesCertificate
-                    ? l.devicesRecoveryCode
-                    : l.devicesPhrase,
-                helperText: usesCertificate
-                    ? l.devicesRecoveryCodeHint
-                    : l.devicesPhraseHint,
+              const SizedBox(height: 12),
+              TextField(
+                controller: _phrase,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: usesCertificate
+                      ? l.devicesRecoveryCode
+                      : l.devicesPhrase,
+                  helperText: usesCertificate
+                      ? l.devicesRecoveryCodeHint
+                      : l.devicesPhraseHint,
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _busy ? null : _prepare,
-              icon: const Icon(Icons.lock_outline),
-              label: Text(l.devicesPrepare),
-            ),
-          ] else ...[
-            Text(
-              l.devicesAdoptionQrTitle,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(l.devicesAdoptionQrHint),
-            const SizedBox(height: 16),
-            Center(child: _linkCodeQr(context, _token!, 220)),
-            SecretText(_token!, fontSize: 10),
-            SecretCopyButton(
-              label: l.actionCopy,
-              value: () => _token!,
-              copiedMessage: l.devicesTokenCopiedClears,
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _busy ? null : _send,
-              icon: const Icon(Icons.send),
-              label: Text(l.devicesSendSetup),
-            ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _busy ? null : _prepare,
+                icon: const Icon(Icons.lock_outline),
+                label: Text(l.devicesPrepare),
+              ),
+            ] else ...[
+              Text(
+                l.devicesAdoptionQrTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 8),
+              Text(l.devicesAdoptionQrHint),
+              const SizedBox(height: 16),
+              Center(child: _linkCodeQr(context, _token!, 220)),
+              SecretText(_token!, fontSize: 10),
+              SecretCopyButton(
+                label: l.actionCopy,
+                value: () => _token!,
+                copiedMessage: l.devicesTokenCopiedClears,
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _busy ? null : _send,
+                icon: const Icon(Icons.send),
+                label: Text(l.devicesSendSetup),
+              ),
+            ],
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: LinearProgressIndicator(),
+              ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
           ],
-          if (_busy)
-            const Padding(
-              padding: EdgeInsets.only(top: 12),
-              child: LinearProgressIndicator(),
-            ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ),
-        ],
-      ),
+        ),
       ),
     );
   }
@@ -1556,6 +1543,68 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// Asks for the recovery phrase, and owns the controller that holds it.
+///
+/// The caller used to build the controller, await `showDialog`, then clear and
+/// dispose it on the next line. That await returns when `Navigator.pop` runs
+/// and the route stays mounted through its exit transition, so the obscured
+/// `TextField` went on using a disposed controller. Ownership here also means
+/// the secret is cleared by the widget that displayed it, at the moment that
+/// widget goes away, rather than by a caller that has already moved on.
+class _RevokePhraseDialog extends StatefulWidget {
+  const _RevokePhraseDialog({
+    required this.title,
+    required this.confirmLabel,
+    required this.fieldLabel,
+    required this.helperText,
+  });
+
+  final String title;
+  final String confirmLabel;
+  final String fieldLabel;
+  final String helperText;
+
+  @override
+  State<_RevokePhraseDialog> createState() => _RevokePhraseDialogState();
+}
+
+class _RevokePhraseDialogState extends State<_RevokePhraseDialog> {
+  final TextEditingController _phrase = TextEditingController();
+
+  @override
+  void dispose() {
+    _phrase.clear();
+    _phrase.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _phrase,
+        obscureText: true,
+        maxLines: 1,
+        decoration: InputDecoration(
+          labelText: widget.fieldLabel,
+          helperText: widget.helperText,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _phrase.text.trim()),
+          child: Text(widget.confirmLabel),
+        ),
+      ],
     );
   }
 }

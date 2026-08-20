@@ -92,49 +92,20 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
   /// Free-form auto-download cap in MB (the presets don't have to fit everyone).
   Future<void> _pickCustomLimit(AppL10n l) async {
     final cur = _policy.autoMaxBytes / (1 << 20);
-    final ctl = TextEditingController(
-      text: cur == cur.roundToDouble()
-          ? cur.toStringAsFixed(0)
-          : cur.toStringAsFixed(1),
+    final mb = await showDialog<double>(
+      context: context,
+      builder: (d) => _CustomLimitDialog(
+        initial: cur == cur.roundToDouble()
+            ? cur.toStringAsFixed(0)
+            : cur.toStringAsFixed(1),
+        title: l.fileCustomSize,
+        fieldLabel: l.fileSizeMb,
+        cancelLabel: l.actionCancel,
+        saveLabel: l.actionSave,
+      ),
     );
-    try {
-      final mb = await showDialog<double>(
-        context: context,
-        builder: (d) {
-          double? parse() =>
-              double.tryParse(ctl.text.trim().replaceAll(',', '.'));
-          return AlertDialog(
-            title: Text(l.fileCustomSize),
-            content: TextField(
-              controller: ctl,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: InputDecoration(
-                labelText: l.fileSizeMb,
-                suffixText: 'MB',
-              ),
-              onSubmitted: (_) => Navigator.of(d).pop(parse()),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(d).pop(),
-                child: Text(l.actionCancel),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(d).pop(parse()),
-                child: Text(l.actionSave),
-              ),
-            ],
-          );
-        },
-      );
-      if (mb == null || mb < 0) return;
-      await _save(_policy.copyWith(autoMaxBytes: (mb * (1 << 20)).round()));
-    } finally {
-      ctl.dispose();
-    }
+    if (mb == null || mb < 0) return;
+    await _save(_policy.copyWith(autoMaxBytes: (mb * (1 << 20)).round()));
   }
 
   Future<void> _addType() async {
@@ -260,6 +231,74 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A megabyte cap typed by hand, owning the controller that holds it.
+///
+/// `try { await showDialog } finally { ctl.dispose(); }` looks careful and is
+/// not: the finally runs the moment `Navigator.pop` completes the future, and
+/// the route keeps its subtree mounted through the exit transition — so the
+/// `TextField` used a disposed controller. The visible result is three
+/// framework errors in a row, ending in a red screen that blames the widget
+/// tree rather than the disposal.
+class _CustomLimitDialog extends StatefulWidget {
+  const _CustomLimitDialog({
+    required this.initial,
+    required this.title,
+    required this.fieldLabel,
+    required this.cancelLabel,
+    required this.saveLabel,
+  });
+
+  final String initial;
+  final String title;
+  final String fieldLabel;
+  final String cancelLabel;
+  final String saveLabel;
+
+  @override
+  State<_CustomLimitDialog> createState() => _CustomLimitDialogState();
+}
+
+class _CustomLimitDialogState extends State<_CustomLimitDialog> {
+  late final TextEditingController _mb = TextEditingController(
+    text: widget.initial,
+  );
+
+  double? _parse() => double.tryParse(_mb.text.trim().replaceAll(',', '.'));
+
+  @override
+  void dispose() {
+    _mb.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _mb,
+        autofocus: true,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          labelText: widget.fieldLabel,
+          suffixText: 'MB',
+        ),
+        onSubmitted: (_) => Navigator.of(context).pop(_parse()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(widget.cancelLabel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_parse()),
+          child: Text(widget.saveLabel),
+        ),
+      ],
     );
   }
 }
