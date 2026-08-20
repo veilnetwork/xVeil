@@ -1304,28 +1304,14 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// note, since renameGroup returns false when the fold would reject the op.
   Future<void> _renameDialog(GroupService svc, String current) async {
     final l = AppL10n.of(context);
-    final ctrl = TextEditingController(text: current);
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l.groupRenameTitle),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          maxLength: 64,
-          decoration: InputDecoration(hintText: l.spaceNameHint),
-          onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(ctrl.text.trim()),
-            child: Text(l.groupRenameAction),
-          ),
-        ],
+      builder: (context) => _GroupRenameDialog(
+        initial: current,
+        title: l.groupRenameTitle,
+        hint: l.spaceNameHint,
+        cancelLabel: l.actionCancel,
+        renameLabel: l.groupRenameAction,
       ),
     );
     if (name == null || name.isEmpty || name == current.trim()) return;
@@ -2553,6 +2539,67 @@ class _ModerationReasonDialogState extends State<_ModerationReasonDialog> {
             if (value.isNotEmpty) Navigator.of(context).pop(value);
           },
           child: Text(l.spaceModerationDeleteMessage),
+        ),
+      ],
+    );
+  }
+}
+
+/// Renames a group, owning the controller that holds the name.
+///
+/// Same reason as every other dialog in this tree that grew its own State: a
+/// controller the caller owns is one `dispose()` away from outliving nothing
+/// and being used by a `TextField` that is still on screen through the route's
+/// exit transition.
+class _GroupRenameDialog extends StatefulWidget {
+  const _GroupRenameDialog({
+    required this.initial,
+    required this.title,
+    required this.hint,
+    required this.cancelLabel,
+    required this.renameLabel,
+  });
+
+  final String initial;
+  final String title;
+  final String hint;
+  final String cancelLabel;
+  final String renameLabel;
+
+  @override
+  State<_GroupRenameDialog> createState() => _GroupRenameDialogState();
+}
+
+class _GroupRenameDialogState extends State<_GroupRenameDialog> {
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _name,
+        autofocus: true,
+        maxLength: 64,
+        decoration: InputDecoration(hintText: widget.hint),
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(widget.cancelLabel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_name.text.trim()),
+          child: Text(widget.renameLabel),
         ),
       ],
     );

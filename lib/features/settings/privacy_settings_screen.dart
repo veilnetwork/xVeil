@@ -282,52 +282,17 @@ class PrivacySettingsScreen extends ConsumerWidget {
   }
 
   Future<void> _addToken(BuildContext context, WidgetRef ref, AppL10n l) async {
-    final nameCtrl = TextEditingController();
-    var readOnly = false;
-    final ok = await showDialog<bool>(
+    // The dialog returns BOTH answers, so the caller never reaches back into a
+    // controller the dialog owns. Reading `nameCtrl.text` after the await was
+    // the reason the controller had to outlive the dialog in the first place.
+    final result = await showDialog<({String name, bool readOnly})>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: Text(l.settingsApiAddToken),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                autofocus: true,
-                decoration: InputDecoration(hintText: l.settingsApiTokenName),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(l.settingsApiReadOnly),
-                // What the switch REFUSES, which is the part worth knowing
-                // before handing a token to a bot. "Read-only" alone leaves
-                // the reader to guess whether it stops sending messages or
-                // only stops changing settings; the string saying so was
-                // written and then never attached to anything.
-                subtitle: Text(l.settingsApiReadOnlyHint),
-                value: readOnly,
-                onChanged: (v) => setState(() => readOnly = v),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text(l.actionCancel),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(l.settingsApiAddToken),
-            ),
-          ],
-        ),
-      ),
+      builder: (ctx) => _AddTokenDialog(l: l),
     );
-    if (ok != true) return;
+    if (result == null) return;
     await ref
         .read(apiServerControllerProvider.notifier)
-        .addToken(nameCtrl.text, readOnly: readOnly);
+        .addToken(result.name, readOnly: result.readOnly);
   }
 
   /// Grant/withdraw the folders one token may send local files from (audit
@@ -487,7 +452,8 @@ class _BackupExclusionWarningState extends State<BackupExclusionWarning> {
   }
 
   Future<void> _ask() async {
-    final reason = await (widget.exclusion ?? const BackupExclusion()).problem();
+    final reason = await (widget.exclusion ?? const BackupExclusion())
+        .problem();
     if (!mounted || reason == null) return;
     setState(() => _reason = reason);
   }
@@ -532,6 +498,74 @@ class _BackupExclusionWarningState extends State<BackupExclusionWarning> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Names a new API token and says what it may do.
+///
+/// Owns its controller AND its switch state, which used to be a
+/// `StatefulBuilder` beside a controller the caller both read and never
+/// disposed. Returning a record rather than a bool removes the reason the
+/// caller held the controller at all.
+class _AddTokenDialog extends StatefulWidget {
+  const _AddTokenDialog({required this.l});
+
+  final AppL10n l;
+
+  @override
+  State<_AddTokenDialog> createState() => _AddTokenDialogState();
+}
+
+class _AddTokenDialogState extends State<_AddTokenDialog> {
+  final TextEditingController _name = TextEditingController();
+  bool _readOnly = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = widget.l;
+    return AlertDialog(
+      title: Text(l.settingsApiAddToken),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _name,
+            autofocus: true,
+            decoration: InputDecoration(hintText: l.settingsApiTokenName),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(l.settingsApiReadOnly),
+            // What the switch REFUSES, which is the part worth knowing
+            // before handing a token to a bot. "Read-only" alone leaves
+            // the reader to guess whether it stops sending messages or
+            // only stops changing settings; the string saying so was
+            // written and then never attached to anything.
+            subtitle: Text(l.settingsApiReadOnlyHint),
+            value: _readOnly,
+            onChanged: (v) => setState(() => _readOnly = v),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(
+            context,
+          ).pop((name: _name.text, readOnly: _readOnly)),
+          child: Text(l.settingsApiAddToken),
+        ),
+      ],
     );
   }
 }
