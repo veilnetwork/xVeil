@@ -85,29 +85,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
   Future<void> _create() async {
     final l = AppL10n.of(context);
-    final controller = TextEditingController();
     final name = await showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(l.profileCreateTitle),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: l.profileNameHint,
-            helperText: l.profileNameRule,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(l.actionCancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, controller.text.trim()),
-            child: Text(l.commonCreate),
-          ),
-        ],
+      builder: (context) => _NewProfileNameDialog(
+        title: l.profileCreateTitle,
+        hint: l.profileNameHint,
+        helper: l.profileNameRule,
+        cancelLabel: l.actionCancel,
+        createLabel: l.commonCreate,
       ),
     );
     if (name == null || name.isEmpty) return;
@@ -178,6 +163,67 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                 ),
               ],
             ),
+    );
+  }
+}
+
+/// Names a new profile, owning the controller that holds the name.
+///
+/// A controller built beside `showDialog` and left to the caller is one
+/// `dispose()` away from the disposal race that put a red screen on the cloud
+/// prompts: `showDialog`'s future completes while the route is still animating
+/// out, so a caller that disposes on the next line kills a live `TextField`.
+/// Owned by the widget that renders it, the lifetime cannot be got wrong.
+class _NewProfileNameDialog extends StatefulWidget {
+  const _NewProfileNameDialog({
+    required this.title,
+    required this.hint,
+    required this.helper,
+    required this.cancelLabel,
+    required this.createLabel,
+  });
+
+  final String title;
+  final String hint;
+  final String helper;
+  final String cancelLabel;
+  final String createLabel;
+
+  @override
+  State<_NewProfileNameDialog> createState() => _NewProfileNameDialogState();
+}
+
+class _NewProfileNameDialogState extends State<_NewProfileNameDialog> {
+  final TextEditingController _name = TextEditingController();
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _name,
+        autofocus: true,
+        decoration: InputDecoration(
+          hintText: widget.hint,
+          helperText: widget.helper,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(widget.cancelLabel),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _name.text.trim()),
+          child: Text(widget.createLabel),
+        ),
+      ],
     );
   }
 }

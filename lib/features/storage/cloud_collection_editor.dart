@@ -108,89 +108,12 @@ class _CloudCollectionEditorState extends State<CloudCollectionEditor> {
   Future<void> _editTask([CloudTask? task]) async {
     final state = _state;
     if (state == null || !state.canEdit || _busy) return;
-    final title = TextEditingController(text: task?.title);
-    final notes = TextEditingController(text: task?.notes);
-    var due = task?.dueAtMs == null
-        ? null
-        : DateTime.fromMillisecondsSinceEpoch(task!.dueAtMs!);
     final l = AppL10n.of(context);
     final submitted =
         await showDialog<({String title, String notes, int? due})>(
           context: context,
-          builder: (context) => StatefulBuilder(
-            builder: (context, setDialogState) => AlertDialog(
-              title: Text(task == null ? l.cloudTaskAdd : l.cloudTaskEdit),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      key: const ValueKey('cloud-task-title'),
-                      controller: title,
-                      autofocus: true,
-                      maxLength: 256,
-                      decoration: InputDecoration(labelText: l.cloudTaskTitle),
-                    ),
-                    TextField(
-                      key: const ValueKey('cloud-task-notes'),
-                      controller: notes,
-                      maxLines: 4,
-                      decoration: InputDecoration(labelText: l.cloudTaskNotes),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.event_outlined),
-                      title: Text(l.cloudTaskDue),
-                      subtitle: Text(
-                        due == null
-                            ? l.cloudTaskNoDue
-                            : _formatDate(context, due!),
-                      ),
-                      trailing: due == null
-                          ? null
-                          : IconButton(
-                              onPressed: () => setDialogState(() => due = null),
-                              icon: const Icon(Icons.clear),
-                            ),
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: due ?? DateTime.now(),
-                          firstDate: DateTime(1970),
-                          lastDate: DateTime(2200),
-                        );
-                        if (picked != null) setDialogState(() => due = picked);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(l.actionCancel),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final value = title.text.trim();
-                    if (value.isEmpty) return;
-                    Navigator.pop(context, (
-                      title: value,
-                      notes: notes.text,
-                      due: due?.millisecondsSinceEpoch,
-                    ));
-                  },
-                  child: Text(l.actionSave),
-                ),
-              ],
-            ),
-          ),
+          builder: (context) => _TaskDialog(l: l, task: task),
         );
-    // The dialog future resolves on pop while the reverse route animation can
-    // still build EditableText for one frame. Dispose after that transition.
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    title.dispose();
-    notes.dispose();
     if (submitted == null || !mounted) return;
     final CloudCollectionEdit edit;
     if (task == null) {
@@ -226,17 +149,6 @@ class _CloudCollectionEditorState extends State<CloudCollectionEditor> {
   Future<void> _editEvent([CloudCalendarEvent? event]) async {
     final state = _state;
     if (state == null || !state.canEdit || _busy) return;
-    final title = TextEditingController(text: event?.title);
-    final notes = TextEditingController(text: event?.notes);
-    final location = TextEditingController(text: event?.location);
-    final now = DateTime.now();
-    var start = event == null
-        ? DateTime(now.year, now.month, now.day, now.hour + 1)
-        : DateTime.fromMillisecondsSinceEpoch(event.startAtMs);
-    var end = event == null
-        ? start.add(const Duration(hours: 1))
-        : DateTime.fromMillisecondsSinceEpoch(event.endAtMs);
-    var allDay = event?.allDay ?? false;
     final l = AppL10n.of(context);
     final submitted =
         await showDialog<
@@ -250,106 +162,8 @@ class _CloudCollectionEditorState extends State<CloudCollectionEditor> {
           })
         >(
           context: context,
-          builder: (context) => StatefulBuilder(
-            builder: (context, setDialogState) => AlertDialog(
-              title: Text(event == null ? l.cloudEventAdd : l.cloudEventEdit),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      key: const ValueKey('cloud-event-title'),
-                      controller: title,
-                      autofocus: true,
-                      maxLength: 256,
-                      decoration: InputDecoration(labelText: l.cloudEventTitle),
-                    ),
-                    TextField(
-                      controller: notes,
-                      maxLines: 3,
-                      decoration: InputDecoration(labelText: l.cloudTaskNotes),
-                    ),
-                    TextField(
-                      controller: location,
-                      decoration: InputDecoration(
-                        labelText: l.cloudEventLocation,
-                      ),
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(l.cloudEventAllDay),
-                      value: allDay,
-                      onChanged: (value) =>
-                          setDialogState(() => allDay = value),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(l.cloudEventStart),
-                      subtitle: Text(_formatDateTime(context, start, allDay)),
-                      onTap: () async {
-                        final picked = await _pickDateTime(
-                          context,
-                          start,
-                          allDay: allDay,
-                        );
-                        if (picked != null) {
-                          setDialogState(() => start = picked);
-                        }
-                      },
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(l.cloudEventEnd),
-                      subtitle: Text(_formatDateTime(context, end, allDay)),
-                      onTap: () async {
-                        final picked = await _pickDateTime(
-                          context,
-                          end,
-                          allDay: allDay,
-                        );
-                        if (picked != null) setDialogState(() => end = picked);
-                      },
-                    ),
-                    if (end.isBefore(start))
-                      Text(
-                        l.cloudCollectionInvalidRange,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(l.actionCancel),
-                ),
-                FilledButton(
-                  onPressed: end.isBefore(start)
-                      ? null
-                      : () {
-                          final value = title.text.trim();
-                          if (value.isEmpty) return;
-                          Navigator.pop(context, (
-                            title: value,
-                            notes: notes.text,
-                            location: location.text,
-                            start: start.millisecondsSinceEpoch,
-                            end: end.millisecondsSinceEpoch,
-                            allDay: allDay,
-                          ));
-                        },
-                  child: Text(l.actionSave),
-                ),
-              ],
-            ),
-          ),
+          builder: (context) => _EventDialog(l: l, event: event),
         );
-    await Future<void>.delayed(const Duration(milliseconds: 250));
-    title.dispose();
-    notes.dispose();
-    location.dispose();
     if (submitted == null || !mounted) return;
     final CloudCollectionEdit edit;
     if (event == null) {
@@ -691,4 +505,258 @@ String _formatDateTime(BuildContext context, DateTime value, bool allDay) {
   return allDay
       ? date
       : '$date ${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(value))}';
+}
+
+/// A task, owning the three pieces of state its dialog edits.
+///
+/// This used to be a `StatefulBuilder` beside two controllers the caller
+/// disposed after `await Future.delayed(250ms)` — with a comment saying why:
+/// "the dialog future resolves on pop while the reverse route animation can
+/// still build EditableText for one frame". That is the disposal race, seen
+/// and papered over with a sleep rather than removed. A sleep is a bet on the
+/// machine: a slower one, a longer transition, or a `MaterialApp` with a
+/// different `pageTransitionsTheme` and the crash is back. A controller owned
+/// by the widget that renders it needs no bet.
+class _TaskDialog extends StatefulWidget {
+  const _TaskDialog({required this.l, this.task});
+
+  final AppL10n l;
+  final CloudTask? task;
+
+  @override
+  State<_TaskDialog> createState() => _TaskDialogState();
+}
+
+class _TaskDialogState extends State<_TaskDialog> {
+  late final TextEditingController _title = TextEditingController(
+    text: widget.task?.title,
+  );
+  late final TextEditingController _notes = TextEditingController(
+    text: widget.task?.notes,
+  );
+  late DateTime? _due = widget.task?.dueAtMs == null
+      ? null
+      : DateTime.fromMillisecondsSinceEpoch(widget.task!.dueAtMs!);
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = widget.l;
+    return AlertDialog(
+      title: Text(widget.task == null ? l.cloudTaskAdd : l.cloudTaskEdit),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const ValueKey('cloud-task-title'),
+              controller: _title,
+              autofocus: true,
+              maxLength: 256,
+              decoration: InputDecoration(labelText: l.cloudTaskTitle),
+            ),
+            TextField(
+              key: const ValueKey('cloud-task-notes'),
+              controller: _notes,
+              maxLines: 4,
+              decoration: InputDecoration(labelText: l.cloudTaskNotes),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.event_outlined),
+              title: Text(l.cloudTaskDue),
+              subtitle: Text(
+                _due == null ? l.cloudTaskNoDue : _formatDate(context, _due!),
+              ),
+              trailing: _due == null
+                  ? null
+                  : IconButton(
+                      onPressed: () => setState(() => _due = null),
+                      icon: const Icon(Icons.clear),
+                    ),
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: _due ?? DateTime.now(),
+                  firstDate: DateTime(1970),
+                  lastDate: DateTime(2200),
+                );
+                if (picked != null && mounted) {
+                  setState(() => _due = picked);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: () {
+            final value = _title.text.trim();
+            if (value.isEmpty) return;
+            Navigator.pop(context, (
+              title: value,
+              notes: _notes.text,
+              due: _due?.millisecondsSinceEpoch,
+            ));
+          },
+          child: Text(l.actionSave),
+        ),
+      ],
+    );
+  }
+}
+
+/// A calendar event, owning its three controllers and its date state.
+///
+/// Same history as [`_TaskDialog`]: three controllers and a 250 ms sleep.
+class _EventDialog extends StatefulWidget {
+  const _EventDialog({required this.l, this.event});
+
+  final AppL10n l;
+  final CloudCalendarEvent? event;
+
+  @override
+  State<_EventDialog> createState() => _EventDialogState();
+}
+
+class _EventDialogState extends State<_EventDialog> {
+  late final TextEditingController _title = TextEditingController(
+    text: widget.event?.title,
+  );
+  late final TextEditingController _notes = TextEditingController(
+    text: widget.event?.notes,
+  );
+  late final TextEditingController _location = TextEditingController(
+    text: widget.event?.location,
+  );
+  late DateTime _start;
+  late DateTime _end;
+  late bool _allDay = widget.event?.allDay ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _start = widget.event == null
+        ? DateTime(now.year, now.month, now.day, now.hour + 1)
+        : DateTime.fromMillisecondsSinceEpoch(widget.event!.startAtMs);
+    _end = widget.event == null
+        ? _start.add(const Duration(hours: 1))
+        : DateTime.fromMillisecondsSinceEpoch(widget.event!.endAtMs);
+  }
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _notes.dispose();
+    _location.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = widget.l;
+    final invalid = _end.isBefore(_start);
+    return AlertDialog(
+      title: Text(widget.event == null ? l.cloudEventAdd : l.cloudEventEdit),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: const ValueKey('cloud-event-title'),
+              controller: _title,
+              autofocus: true,
+              maxLength: 256,
+              decoration: InputDecoration(labelText: l.cloudEventTitle),
+            ),
+            TextField(
+              controller: _notes,
+              maxLines: 3,
+              decoration: InputDecoration(labelText: l.cloudTaskNotes),
+            ),
+            TextField(
+              controller: _location,
+              decoration: InputDecoration(labelText: l.cloudEventLocation),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(l.cloudEventAllDay),
+              value: _allDay,
+              onChanged: (value) => setState(() => _allDay = value),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(l.cloudEventStart),
+              subtitle: Text(_formatDateTime(context, _start, _allDay)),
+              onTap: () async {
+                final picked = await _pickDateTime(
+                  context,
+                  _start,
+                  allDay: _allDay,
+                );
+                if (picked != null && mounted) {
+                  setState(() => _start = picked);
+                }
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(l.cloudEventEnd),
+              subtitle: Text(_formatDateTime(context, _end, _allDay)),
+              onTap: () async {
+                final picked = await _pickDateTime(
+                  context,
+                  _end,
+                  allDay: _allDay,
+                );
+                if (picked != null && mounted) {
+                  setState(() => _end = picked);
+                }
+              },
+            ),
+            if (invalid)
+              Text(
+                l.cloudCollectionInvalidRange,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(l.actionCancel),
+        ),
+        FilledButton(
+          onPressed: invalid
+              ? null
+              : () {
+                  final value = _title.text.trim();
+                  if (value.isEmpty) return;
+                  Navigator.pop(context, (
+                    title: value,
+                    notes: _notes.text,
+                    location: _location.text,
+                    start: _start.millisecondsSinceEpoch,
+                    end: _end.millisecondsSinceEpoch,
+                    allDay: _allDay,
+                  ));
+                },
+          child: Text(l.actionSave),
+        ),
+      ],
+    );
+  }
 }
