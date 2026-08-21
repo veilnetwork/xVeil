@@ -117,6 +117,58 @@ class _MessagingOutbox {
   static const _callSignalLiveResend = Duration(milliseconds: 250);
   static const _fastCallRetryAttempts = 4;
   static const _liveResendCap = Duration(minutes: 10);
+
+  /// Spread of the deterministic jitter subtracted from every live-resend
+  /// delay, as a fraction of the delay itself.
+  ///
+  /// The backoff is per FRAME, and it saturates: after about six attempts every
+  /// pending frame is waiting the same ten minutes. Frames queued together then
+  /// come due together, and one flush pass emits the whole set back-to-back —
+  /// exponential backoff bounds how OFTEN a frame retries and says nothing
+  /// about how many retry at the same instant.
+  ///
+  /// Measured on the phone against three offline contacts: 55 bursts in 38
+  /// minutes, of which the four large ones carried ~1100-1600 sends each in
+  /// 6-7 s — about **175 sends per second** — while the quiet ticks in between
+  /// were three sends per minute. The bursts were ~95% of all attempts, and
+  /// each one is a DHT lookup for a peer that is not there.
+  ///
+  /// `veil_dht`'s `RepublishScheduler` already solves this shape for DHT keys:
+  /// a hash of the key picks an offset inside the interval so the herd never
+  /// forms. Same trick here, keyed on the frame id so a frame keeps its own
+  /// offset across recomputes rather than walking around under a fresh random
+  /// draw each pass.
+  static const _liveResendJitter = 0.25;
+
+  /// `delayMs` pulled EARLIER by a deterministic offset in
+  /// `[0, delayMs * _liveResendJitter]`, derived from `frameId`.
+  ///
+  /// Two properties, both load-bearing.
+  ///
+  /// **Earlier, never later.** The ladder is a promise the rest of the system
+  /// reads: a caller that waits `base * 2^n` expects the frame to have gone by
+  /// then, and `durable_redrive_test` pins exactly that by advancing a fake
+  /// clock 21 s and then 41 s. Jittering upward broke both of those, which is
+  /// the test doing its job — a frame would have retried LATER than the ladder
+  /// says, so delivery could only get slower. Subtracting cannot regress
+  /// latency; the cost is that the mean delay drops by half the spread.
+  ///
+  /// **Deterministic, not random.** A fresh draw each pass would let a frame
+  /// wander back into the herd it was just moved out of, and would make the
+  /// ladder untestable. FNV-1a because `String.hashCode` is not stable across
+  /// runs, and because it is the hash `veil_dht`'s `RepublishScheduler` uses to
+  /// solve this same shape for DHT keys.
+  static int _jittered(int delayMs, String frameId) {
+    if (delayMs <= 0) return delayMs;
+    final spread = (delayMs * _liveResendJitter).round();
+    if (spread <= 0) return delayMs;
+    var hash = 0xcbf29ce484222325;
+    for (final unit in frameId.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF;
+    }
+    return delayMs - (hash % spread);
+  }
   static const _callSignalTtl = Duration(minutes: 2);
 
   void recordQueued(String frameId, String peerHex, {bool callSignal = false}) {
@@ -316,10 +368,12 @@ class _MessagingOutbox {
         final now = _owner._now();
         final count = previous.count + 1;
         final nextDelay = Duration(
-          milliseconds:
-              (_callSignalLiveResend.inMilliseconds *
-                      (1 << (count - 1).clamp(0, 10)))
-                  .clamp(0, _liveResendCap.inMilliseconds),
+          milliseconds: _jittered(
+            (_callSignalLiveResend.inMilliseconds *
+                    (1 << (count - 1).clamp(0, 10)))
+                .clamp(0, _liveResendCap.inMilliseconds),
+            frameId,
+          ),
         );
         _liveBackoff[_key(peer.hex, frameId)] = (
           count: count,
@@ -502,9 +556,12 @@ class _MessagingOutbox {
       final baseMs = isCallSignal
           ? _callSignalLiveResend.inMilliseconds
           : _liveResend.inMilliseconds;
-      final delayMs = (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
-        0,
-        _liveResendCap.inMilliseconds,
+      final delayMs = _jittered(
+        (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
+          0,
+          _liveResendCap.inMilliseconds,
+        ),
+        frame.frameId,
       );
       _liveBackoff[_key(frame.peerHex, frame.frameId)] = (
         count: count,
