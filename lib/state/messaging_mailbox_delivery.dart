@@ -41,7 +41,36 @@ class _MessagingMailboxDelivery {
   /// An instance field, not a const, for the same reason as [ackGrace]: the
   /// test that proves the slot cannot wedge must not sit out 45 real seconds.
   Duration stashDeadline = const Duration(seconds: 45);
-  static const _peerUnresolvedCap = Duration(minutes: 30);
+  /// Ceiling on the unresolved-peer backoff.
+  ///
+  /// This ceiling does NOT govern how fast a peer that comes back is served.
+  /// That is event-driven: [notePeerReachable] clears the backoff outright on
+  /// the first authenticated delivery from the peer, and the outbox flush is
+  /// nudged from the same inbound path. So the only question the ceiling
+  /// answers is how often to BLINDLY re-check a peer that has said nothing.
+  ///
+  /// At thirty minutes that re-check was not cheap. A device group whose
+  /// siblings are gone keeps their frames on purpose — an absent device is not
+  /// a removed one, see `dropPendingFramesFor` — and the per-peer cap lets ~90
+  /// accumulate. Every time the backoff expired, the flush pass drove ALL of
+  /// them: measured on the phone, three siblings away 25h, 26h and 4.8 days,
+  /// 274 frames queued, and each expiry produced a burst of ~120 live sends in
+  /// six seconds, every one of them a DHT lookup for a device that cannot be
+  /// sealed for at all (`mailbox_seal: no recipient certificate`). Those bursts
+  /// were ~93% of the phone's send events and the largest line in its idle
+  /// traffic.
+  ///
+  /// Six hours because that is also how long the frames themselves live
+  /// (`_replicationMaxAge` in `messaging_outbox.dart`), so a frame now gets at
+  /// most one blind re-check inside its own lifetime — the natural stopping
+  /// point. Dart has no compile-time assert to hold those two numbers together;
+  /// they are joined here by name only.
+  ///
+  /// The ramp is untouched, and it is the part that matters for the ordinary
+  /// case: 30s, 1m, 2m, 4m, 8m, 16m, 32m... so a phone that dozes for a minute
+  /// still sees its next deposit attempt in half a minute. Reaching this
+  /// ceiling takes ten consecutive failures.
+  static const _peerUnresolvedCap = Duration(hours: 6);
   static const _suppressionLogEvery = Duration(minutes: 1);
 
   /// What the recipient has confirmed storing — see [MailboxDepositGate].
