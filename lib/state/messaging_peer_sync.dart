@@ -5,6 +5,50 @@ part of 'messaging_core.dart';
 /// Sync beacons advertise per-author high-water marks and holes. The peer then
 /// re-ships missing events, while throttles and bounded batches prevent an
 /// absent or hostile peer from creating background traffic or amplification.
+const _kSendInterval = Duration(seconds: 20);
+const _kBackoffCap = Duration(minutes: 10);
+
+/// The cadence a beacon to this peer gets.
+///
+/// Two independent reasons to ask less often, and the longer streak wins
+/// because neither cancels the other:
+///
+/// * `unanswered` — nobody is there. Any inbound frame settles it.
+/// * `quiet` — there is nothing to reconcile. Only a CHANGE settles it.
+///
+/// The second was missing, and its absence was the whole cost: a peer that
+/// answers an empty beacon with an equally empty beacon resets `unanswered`,
+/// so two idle conversations sat at one beacon every 20 s each way, for as
+/// long as both stayed online. Measured from the constants: 0.1 frames/s per
+/// idle contact, against a whole-node floor of ~2.4 frames/s — six such
+/// contacts would have been a quarter of everything the node sends.
+///
+/// Pure so the schedule can be checked without a clock.
+Duration beaconInterval({required int unanswered, required int quiet}) {
+  final escalation = unanswered > quiet ? unanswered : quiet;
+  final capped = escalation > 5 ? 5 : escalation;
+  final interval = _kSendInterval * (1 << capped);
+  return interval > _kBackoffCap ? _kBackoffCap : interval;
+}
+
+/// What a beacon SAYS, as a comparable string.
+///
+/// Deliberately excludes the `ep` timestamp the wire body carries: it moves
+/// every tick and is not news, so comparing whole bodies would make every
+/// beacon look new and the quiet streak could never start.
+///
+/// Pure so "did anything change" is testable without a conversation.
+String beaconStatement({
+  required Map<String, int> highWater,
+  required Map<String, List<List<int>>> holes,
+  required String selfHex,
+  required int ownFloor,
+}) => jsonEncode({
+  'hw': highWater,
+  if (holes.isNotEmpty) 'holes': holes,
+  if (ownFloor > 0) 'fl': {selfHex: ownFloor},
+});
+
 class _MessagingPeerSync {
   _MessagingPeerSync(this._owner);
 
@@ -14,8 +58,21 @@ class _MessagingPeerSync {
   final Map<String, DateTime> _lastActedAt = {};
   final Map<String, int> _unanswered = {};
 
-  static const _sendInterval = Duration(seconds: 20);
-  static const _backoffCap = Duration(minutes: 10);
+  /// What the last beacon to this peer actually SAID — high-water, holes and
+  /// floor, with the timestamp left out because it moves every tick and is not
+  /// news. Keyed by peer.
+  final Map<String, String> _lastStated = {};
+
+  /// Consecutive beacons that would have restated [_lastStated] verbatim.
+  ///
+  /// Separate from [_unanswered] because they answer different questions. That
+  /// one asks "is anyone there", and any inbound frame settles it. This one
+  /// asks "is there anything to reconcile", and only a CHANGE settles it — a
+  /// peer answering an empty beacon with an equally empty beacon is not
+  /// evidence that reconciliation is needed, and treating it as such is what
+  /// pinned two idle conversations at one beacon every 20 s forever.
+  final Map<String, int> _quiet = {};
+
   static const _actInterval = Duration(seconds: 5);
   static const _reshipCap = 100;
 
@@ -98,12 +155,14 @@ class _MessagingPeerSync {
   Future<void> _send(NodeId peer, {bool force = false}) async {
     final now = DateTime.now();
     final last = _lastSentAt[peer.hex];
-    // Escalate for peers that never answer: 20s → … → 10m.
+    // Escalate for peers that never answer: 20s → … → 10m — and, separately,
+    // for conversations where there is nothing to reconcile. Whichever streak
+    // is longer sets the cadence, because either one alone is a reason to ask
+    // less often and neither cancels the other.
     final streak = _unanswered[peer.hex] ?? 0;
-    var interval = _sendInterval * (1 << (streak > 5 ? 5 : streak));
-    if (interval > _backoffCap) interval = _backoffCap;
-    final throttled =
-        !force && last != null && now.difference(last) < interval;
+    final quiet = _quiet[peer.hex] ?? 0;
+    final interval = beaconInterval(unanswered: streak, quiet: quiet);
+    final throttled = !force && last != null && now.difference(last) < interval;
     // A throttled peer we are WAITING ON still has its stuck hole judged: the
     // give-up used to be a side effect of sending, so any cadence change
     // stretched it and brought back the re-shipping storm it exists to stop.
@@ -135,6 +194,14 @@ class _MessagingPeerSync {
           for (final h in e.value) [h.$1, h.$2],
         ],
     };
+    // What this beacon SAYS, without the timestamp. `ep` moves every tick and
+    // is not news; comparing the whole body would make every beacon look new.
+    final stated = beaconStatement(
+      highWater: sync.highWater,
+      holes: holes,
+      selfHex: selfHex,
+      ownFloor: ownFloor,
+    );
     final body = jsonEncode({
       'hw': sync.highWater,
       if (holes.isNotEmpty) 'holes': holes,
@@ -142,6 +209,21 @@ class _MessagingPeerSync {
       'ep': now.millisecondsSinceEpoch,
     });
     if (throttled) return; // judged above; the wire frame is what we skip
+    // Count the quiet round only on a round that actually SENDS: a throttled
+    // pass emits nothing, so letting it escalate would back the cadence off
+    // for beacons that were never on the wire.
+    if (_awaitingHoleFrom(peer.hex)) {
+      // A hole IS something to reconcile. However unchanged the beacon looks,
+      // this conversation is not quiet, and asking less often is the last
+      // thing it needs.
+      _quiet.remove(peer.hex);
+      _lastStated[peer.hex] = stated;
+    } else if (stated == _lastStated[peer.hex]) {
+      _quiet[peer.hex] = quiet + 1;
+    } else {
+      _lastStated[peer.hex] = stated;
+      _quiet.remove(peer.hex);
+    }
     devLog(
       () =>
           'xVeil[sync]: -> ${peer.short} hw=${sync.highWater} '
