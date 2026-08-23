@@ -192,5 +192,85 @@ void main() {
       final twice = EmbeddedNode.withTransportRotation(once);
       expect(twice, once);
     });
+
+    // The case production actually hands it, and the one the tests above never
+    // did: `veil_config_compose` renders a FULL config, so the section arrives
+    // already present, carrying veil's own defaults — 1800/3600, the very
+    // numbers this helper exists to replace. The old guard returned early on
+    // exactly this input, so the helper did nothing for as long as it existed
+    // while every test above stayed green. Measured 23.08 on the phone:
+    // sessions to one seed reopened at 37, 27 and 32 minutes.
+    const rendered =
+        '[global]\nruntime_flavor = "multi_thread"\n'
+        '[transport.rotation]\n'
+        'min_lifetime_secs = 1800\n'
+        'max_lifetime_secs = 3600\n';
+
+    test('replaces veil defaults when the section is ALREADY rendered', () {
+      final out = EmbeddedNode.withTransportRotation(rendered);
+      expect(out, contains('min_lifetime_secs = 21600'));
+      expect(out, contains('max_lifetime_secs = 43200'));
+      expect(out, isNot(contains('min_lifetime_secs = 1800')));
+      expect(out, isNot(contains('max_lifetime_secs = 3600')));
+    });
+
+    test('does not duplicate the rendered section', () {
+      final out = EmbeddedNode.withTransportRotation(rendered);
+      expect(
+        '[transport.rotation]'.allMatches(out).length,
+        1,
+        reason: 'a second table is a duplicate key the TOML parser rejects',
+      );
+      expect('min_lifetime_secs'.allMatches(out).length, 1);
+    });
+  });
+
+  group('EmbeddedNode.withOutboundCoalescing', () {
+    // Every frame costs framing and obfs4 padding whatever it carries: measured
+    // 23.08 over 599 s on one seed link, 260 bytes per frame against 190 B/s of
+    // bodies — about twice the payload. Outbound frames cluster, so a 200 ms
+    // window merges 39% of them.
+    test('sets both keys when [mobile] is absent', () {
+      const base = '[global]\nruntime_flavor = "multi_thread"\n';
+      final out = EmbeddedNode.withOutboundCoalescing(base);
+      expect(out, contains('[mobile]'));
+      expect(out, contains('outbound_batch_window_ms = 200'));
+      expect(out, contains('outbound_batch_always = true'));
+    });
+
+    // `always` is not optional: veil gates the window behind a LOW BATTERY
+    // reading because it was built as a radio-wake saver. Without the flag the
+    // window is inert on a charging phone, which is where it was measured.
+    test('always is set, or the window never engages on mains', () {
+      const base = '[global]\n';
+      expect(
+        EmbeddedNode.withOutboundCoalescing(base),
+        contains('outbound_batch_always = true'),
+      );
+    });
+
+    test('replaces rendered values instead of duplicating the table', () {
+      const rendered =
+          '[global]\n[mobile]\n'
+          'low_battery_multiplier = 0\n'
+          'outbound_batch_window_ms = 999\n';
+      final out = EmbeddedNode.withOutboundCoalescing(rendered);
+      expect(out, contains('outbound_batch_window_ms = 200'));
+      expect(out, isNot(contains('999')));
+      expect(out, contains('outbound_batch_always = true'));
+      expect('[mobile]'.allMatches(out).length, 1);
+      expect('outbound_batch_window_ms'.allMatches(out).length, 1);
+      expect(
+        out,
+        contains('low_battery_multiplier = 0'),
+        reason: 'untouched keys in the same table must survive',
+      );
+    });
+
+    test('is idempotent', () {
+      const base = '[global]\n[mobile]\nlow_battery_multiplier = 0\n';
+      final once = EmbeddedNode.withOutboundCoalescing(base);
+      expect(EmbeddedNode.withOutboundCoalescing(once), once);
+    });
   });
 }
