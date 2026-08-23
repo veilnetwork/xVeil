@@ -512,11 +512,10 @@ class EmbeddedNode {
             'veil_restore_identity_from_phrase_zeroize',
           );
     final restoreWithKeyFn = withNodeKey
-        ? dl
-              .lookupFunction<
-                _RestoreIdentityWithKeyNative,
-                _RestoreIdentityWithKeyDart
-              >('veil_restore_identity_from_phrase_zeroize_with_node_key')
+        ? dl.lookupFunction<
+            _RestoreIdentityWithKeyNative,
+            _RestoreIdentityWithKeyDart
+          >('veil_restore_identity_from_phrase_zeroize_with_node_key')
         : null;
     final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
       'veil_free_string',
@@ -659,25 +658,27 @@ class EmbeddedNode {
       throw ArgumentError('deviceId must be 32 bytes, got ${deviceId.length}');
     }
     final dl = lib ?? _veilLib();
-    final revokeFn = dl.lookupFunction<
-        Int32 Function(
-          Pointer<Uint8>,
-          UintPtr,
-          Pointer<Uint8>,
-          UintPtr,
-          Pointer<Uint8>,
-          Pointer<Uint8>,
-          Pointer<Pointer<Utf8>>,
-        ),
-        int Function(
-          Pointer<Uint8>,
-          int,
-          Pointer<Uint8>,
-          int,
-          Pointer<Uint8>,
-          Pointer<Uint8>,
-          Pointer<Pointer<Utf8>>,
-        )>('veil_revoke_identity_device_from_phrase_zeroize');
+    final revokeFn = dl
+        .lookupFunction<
+          Int32 Function(
+            Pointer<Uint8>,
+            UintPtr,
+            Pointer<Uint8>,
+            UintPtr,
+            Pointer<Uint8>,
+            Pointer<Uint8>,
+            Pointer<Pointer<Utf8>>,
+          ),
+          int Function(
+            Pointer<Uint8>,
+            int,
+            Pointer<Uint8>,
+            int,
+            Pointer<Uint8>,
+            Pointer<Uint8>,
+            Pointer<Pointer<Utf8>>,
+          )
+        >('veil_revoke_identity_device_from_phrase_zeroize');
     final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
       'veil_free_string',
     );
@@ -1416,7 +1417,8 @@ class EmbeddedNode {
   /// `core`, so a client that serves nothing takes the DHT's replica set down
   /// to three machines. Pure helper (no FFI), unit-testable.
   static String withMobileServiceBudget(String toml, {required bool isMobile}) {
-    if (!isMobile || toml.contains('service_budget_bytes_per_hour')) return toml;
+    if (!isMobile || toml.contains('service_budget_bytes_per_hour'))
+      return toml;
     const perHour = 1024 * 1024;
     if (toml.contains('[dht]')) {
       return toml.replaceFirst(
@@ -1473,10 +1475,91 @@ class EmbeddedNode {
   /// full `-1` disable). Either device can receive, so it is set unconditionally.
   /// Hot-reload re-applies it (`set_session_rotation_range`) — no native rebuild.
   /// Pure helper (no FFI), unit-testable.
+  ///
+  /// ⛔ This did nothing until 23.08. The guard was `if (toml.contains(
+  /// '[transport.rotation]')) return toml`, and `veil_config_compose` renders
+  /// that section with veil's own defaults — 1800/3600, the very numbers this
+  /// helper exists to replace. So the section was always present, the helper
+  /// always returned early, and the phone rotated every 30-60 min exactly as
+  /// if the fix had never been written. Measured 23.08: sessions to one seed
+  /// reopened at 37, 27 and 32 minute intervals.
+  ///
+  /// Replace the rendered values instead, the way `withBuiltinSeedPolicy`
+  /// already does for the same reason. Appending is not an option — a second
+  /// `[transport.rotation]` is a duplicate key the TOML parser rejects.
   static String withTransportRotation(String toml) {
-    if (toml.contains('[transport.rotation]')) return toml;
-    return '$toml\n[transport.rotation]\n'
-        'min_lifetime_secs = 21600\nmax_lifetime_secs = 43200\n';
+    const min = 'min_lifetime_secs = 21600';
+    const max = 'max_lifetime_secs = 43200';
+    final renderedMin = RegExp(
+      r'^[ \t]*min_lifetime_secs[ \t]*=.*$',
+      multiLine: true,
+    );
+    final renderedMax = RegExp(
+      r'^[ \t]*max_lifetime_secs[ \t]*=.*$',
+      multiLine: true,
+    );
+    if (toml.contains('[transport.rotation]')) {
+      var out = toml;
+      out = renderedMin.hasMatch(out)
+          ? out.replaceAll(renderedMin, min)
+          : out.replaceFirst(
+              '[transport.rotation]\n',
+              '[transport.rotation]\n$min\n',
+            );
+      out = renderedMax.hasMatch(out)
+          ? out.replaceAll(renderedMax, max)
+          : out.replaceFirst(
+              '[transport.rotation]\n',
+              '[transport.rotation]\n$max\n',
+            );
+      return out;
+    }
+    return '$toml\n[transport.rotation]\n$min\n$max\n';
+  }
+
+  /// Merge outbound frames on the wire.
+  ///
+  /// Every frame costs framing and obfs4 padding whatever it carries, and on an
+  /// idle phone that overhead is larger than the payload: measured 23.08 over
+  /// 599 s on one seed link, 521 frames carrying 190 B/s of bodies cost 413 B/s
+  /// on the wire — **260 bytes per frame**, about twice what each wrapped.
+  /// Outbound frames cluster (30% of gaps under 50 ms), so replaying that
+  /// capture through a 200 ms window merges 39% of them.
+  ///
+  /// `outbound_batch_always` is required: veil gates the window behind a LOW
+  /// BATTERY reading, because it was built as a radio-wake saver. The saving
+  /// here is bytes, and a charging phone pays the same 260 as a flat one.
+  ///
+  /// Interactive frames bypass the coalescer entirely, so liveness probes and
+  /// backpressure are unaffected; only non-interactive frames wait, and at most
+  /// one window.
+  ///
+  /// Replaces rendered values rather than skipping when the section exists —
+  /// `[mobile]` IS rendered by `veil_config_compose`, which is exactly the trap
+  /// that left `withTransportRotation` inert for as long as it existed.
+  static String withOutboundCoalescing(String toml) {
+    const window = 'outbound_batch_window_ms = 200';
+    const always = 'outbound_batch_always = true';
+    final renderedWindow = RegExp(
+      r'^[ \t]*outbound_batch_window_ms[ \t]*=.*$',
+      multiLine: true,
+    );
+    final renderedAlways = RegExp(
+      r'^[ \t]*outbound_batch_always[ \t]*=.*$',
+      multiLine: true,
+    );
+    const marker = '[mobile]\n';
+    if (!toml.contains(marker)) {
+      return '$toml\n[mobile]\n$window\n$always\n';
+    }
+    var out = toml;
+    out = renderedWindow.hasMatch(out)
+        ? out.replaceAll(renderedWindow, window)
+        : out.replaceFirst(marker, '$marker$window\n');
+    out = renderedAlways.hasMatch(out)
+        ? out.replaceAll(renderedAlways, always)
+        : out.replaceFirst(marker, '$marker$always\n');
+    return out;
   }
 
   /// Append `[proxy.socks5]` / `[proxy.exit]` tables for traffic routing. The
@@ -1588,35 +1671,37 @@ class EmbeddedNode {
       freeStr(out);
       return withIdentityDir(
         withBuiltinSeedPolicy(
-          withTransportRotation(
-            withSessionKeepalive(
-              withObfs4PskFile(
-                withUdpReflectors(
-                  withProxy(
-                    withBootstrapPeers(
-                      withMobileServiceBudget(
-                        withDhtParticipation(
-                          withClientNodeRole(
-                            withLazyMining(
-                              withAnonymity(toml, anonymous),
-                              lazyMining,
+          withOutboundCoalescing(
+            withTransportRotation(
+              withSessionKeepalive(
+                withObfs4PskFile(
+                  withUdpReflectors(
+                    withProxy(
+                      withBootstrapPeers(
+                        withMobileServiceBudget(
+                          withDhtParticipation(
+                            withClientNodeRole(
+                              withLazyMining(
+                                withAnonymity(toml, anonymous),
+                                lazyMining,
+                              ),
                             ),
+                            // Platform default when the user has not chosen:
+                            // phones serve nothing, desktops serve.
+                            participate:
+                                serveDht ??
+                                !(Platform.isAndroid || Platform.isIOS),
                           ),
-                          // Platform default when the user has not chosen:
-                          // phones serve nothing, desktops serve.
-                          participate:
-                              serveDht ??
-                              !(Platform.isAndroid || Platform.isIOS),
+                          isMobile: Platform.isAndroid || Platform.isIOS,
                         ),
-                        isMobile: Platform.isAndroid || Platform.isIOS,
+                        bootstrapPeers,
                       ),
-                      bootstrapPeers,
+                      proxy,
                     ),
-                    proxy,
+                    udpReflectors,
                   ),
-                  udpReflectors,
+                  obfs4PskFile,
                 ),
-                obfs4PskFile,
               ),
             ),
           ),
@@ -1753,10 +1838,9 @@ class EmbeddedNode {
       return false;
     }
     final dl = lib ?? _veilLib();
-    final fn = dl
-        .lookupFunction<_DocAuthorizesNative, _DocAuthorizesDart>(
-          'veil_identity_document_authorizes',
-        );
+    final fn = dl.lookupFunction<_DocAuthorizesNative, _DocAuthorizesDart>(
+      'veil_identity_document_authorizes',
+    );
     final docPtr = calloc<Uint8>(document.length);
     final nidPtr = calloc<Uint8>(32);
     final pkPtr = calloc<Uint8>(32);
