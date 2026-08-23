@@ -1519,6 +1519,19 @@ class EmbeddedNode {
 
   /// Merge outbound frames on the wire.
   ///
+  /// ⚠️ NOT IN THE CHAIN, on purpose. Measured 23.08 and not taken: the window
+  /// DEFERS a drain (`is_coalescing` is `now < last_drain_ts + window`) rather
+  /// than accumulating toward one, so at the idle rate of ~0.5 outbound frames
+  /// per second the next frame arrives seconds after the window has lapsed and
+  /// the deferral never fires. The 260 B/frame it was meant to save is the TLS
+  /// bucket floor (1300/4096/16384), and that is ALREADY amortised — 478 B of
+  /// wire against 218 B of body averages ~2.7 frames per bucket, packed by the
+  /// unconditional back-to-back path that needs no window.
+  ///
+  /// Kept because it is correct and tested, for traffic dense enough that
+  /// deferring 200 ms actually collects something. Wire it into
+  /// `_composeConfigImpl` when a measurement says so.
+  ///
   /// Every frame costs framing and obfs4 padding whatever it carries, and on an
   /// idle phone that overhead is larger than the payload: measured 23.08 over
   /// 599 s on one seed link, 521 frames carrying 190 B/s of bodies cost 413 B/s
@@ -1671,37 +1684,35 @@ class EmbeddedNode {
       freeStr(out);
       return withIdentityDir(
         withBuiltinSeedPolicy(
-          withOutboundCoalescing(
-            withTransportRotation(
-              withSessionKeepalive(
-                withObfs4PskFile(
-                  withUdpReflectors(
-                    withProxy(
-                      withBootstrapPeers(
-                        withMobileServiceBudget(
-                          withDhtParticipation(
-                            withClientNodeRole(
-                              withLazyMining(
-                                withAnonymity(toml, anonymous),
-                                lazyMining,
-                              ),
+          withTransportRotation(
+            withSessionKeepalive(
+              withObfs4PskFile(
+                withUdpReflectors(
+                  withProxy(
+                    withBootstrapPeers(
+                      withMobileServiceBudget(
+                        withDhtParticipation(
+                          withClientNodeRole(
+                            withLazyMining(
+                              withAnonymity(toml, anonymous),
+                              lazyMining,
                             ),
-                            // Platform default when the user has not chosen:
-                            // phones serve nothing, desktops serve.
-                            participate:
-                                serveDht ??
-                                !(Platform.isAndroid || Platform.isIOS),
                           ),
-                          isMobile: Platform.isAndroid || Platform.isIOS,
+                          // Platform default when the user has not chosen:
+                          // phones serve nothing, desktops serve.
+                          participate:
+                              serveDht ??
+                              !(Platform.isAndroid || Platform.isIOS),
                         ),
-                        bootstrapPeers,
+                        isMobile: Platform.isAndroid || Platform.isIOS,
                       ),
-                      proxy,
+                      bootstrapPeers,
                     ),
-                    udpReflectors,
+                    proxy,
                   ),
-                  obfs4PskFile,
+                  udpReflectors,
                 ),
+                obfs4PskFile,
               ),
             ),
           ),
