@@ -73,13 +73,15 @@ void devLog(String Function() message) {
   if (!_productMode || _releaseDiagnosticLog) {
     final line = message();
     developer.log(line, name: 'xVeil');
-    if (_echoToStdout) {
-      io.stdout.writeln('xVeil: $line');
-    }
     _devLogSeq++;
-    _devLogRing.addLast(
-      '${DateTime.now().toIso8601String()} #$_devLogSeq $line',
-    );
+    // One stamp for both sinks. The echo carried no time at first, which made
+    // it useless for the first question anyone asks a diagnostic log — how
+    // OFTEN — while the ring right beside it had the answer.
+    final stamped = '${DateTime.now().toIso8601String()} #$_devLogSeq $line';
+    if (_echoToStdout) {
+      io.stdout.writeln('xVeil: $stamped');
+    }
+    _devLogRing.addLast(stamped);
     if (_devLogRing.length > _devLogRingCapacity) {
       _devLogRing.removeFirst();
       _devLogDropped++;
