@@ -1,5 +1,6 @@
 import 'dart:collection';
 import 'dart:developer' as developer;
+import 'dart:io' as io;
 
 /// Diagnostic logging that is COMPILED OUT of release builds.
 ///
@@ -44,10 +45,37 @@ final ListQueue<String> _devLogRing = ListQueue<String>();
 int _devLogDropped = 0;
 int _devLogSeq = 0;
 
+/// Echo [devLog] to stdout as well, for a host with no debugger and no debug
+/// hook — the headless daemon.
+///
+/// Read INSIDE the compile-time gate below, never outside it. In a release
+/// build that whole branch is dead-code-eliminated, so this variable is not
+/// consulted, the thunk is not called, and no node-id-bearing string is
+/// constructed: the anonymity property the gate exists for is unchanged, and
+/// this cannot be flipped on in a distribution build.
+///
+/// It exists because the daemon could see none of its own diagnostics. Its app
+/// log went to `developer.log`, which the file's own comment already notes is
+/// invisible to a captured stdout; the ring buffer was filled but the daemon
+/// exposes no `/dev_log` hook to read it. And the documented escape hatch —
+/// "a DIAGNOSTIC release build with `--dart-define=XVEIL_RELEASE_LOG=true`" —
+/// cannot be built for this target at all: `dart build cli` is the only command
+/// that handles its native build hooks, and it takes no `--define`.
+///
+/// So a daemon whose whole purpose is unattended bots and server integrations
+/// had no way to answer "why did that not send", in any build.
+/// Resolved once: an environment lookup per logged line would be a map probe
+/// on a path that runs thousands of times a minute on a busy node.
+final bool _echoToStdout =
+    !_productMode && io.Platform.environment['XVEIL_LOG_STDOUT'] == '1';
+
 void devLog(String Function() message) {
   if (!_productMode || _releaseDiagnosticLog) {
     final line = message();
     developer.log(line, name: 'xVeil');
+    if (_echoToStdout) {
+      io.stdout.writeln('xVeil: $line');
+    }
     _devLogSeq++;
     _devLogRing.addLast(
       '${DateTime.now().toIso8601String()} #$_devLogSeq $line',
