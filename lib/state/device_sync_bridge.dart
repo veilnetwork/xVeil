@@ -480,7 +480,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             // a document naming us both, receives ours, finds nothing new in
             // it, and the exchange stops — otherwise two devices would trade
             // identical documents for as long as they are both running.
-            if (changed) {
+            if (changed == SovereignDocumentAdoption.adopted) {
               // The running node re-reads it, then we answer. Without the
               // re-read this device would announce a merge its own registry
               // does not reflect.

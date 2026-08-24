@@ -713,10 +713,11 @@ class E2eFleet {
       final theirDoc = link.document;
       if (theirDoc != null && theirDoc.isNotEmpty) {
         if (await RealVeilStack.adoptSovereignDocument(
-          master.storage,
-          document: theirDoc,
-          stagingBase: Directory.systemTemp.path,
-        )) {
+              master.storage,
+              document: theirDoc,
+              stagingBase: Directory.systemTemp.path,
+            ) ==
+            SovereignDocumentAdoption.adopted) {
           await master.stack.refreshSovereignIdentity(master.storage);
         }
       }
@@ -778,10 +779,11 @@ class E2eFleet {
         final sourceDoc = token.document;
         if (sourceDoc != null && sourceDoc.isNotEmpty) {
           if (await RealVeilStack.adoptSovereignDocument(
-            target.storage,
-            document: sourceDoc,
-            stagingBase: Directory.systemTemp.path,
-          )) {
+                target.storage,
+                document: sourceDoc,
+                stagingBase: Directory.systemTemp.path,
+              ) ==
+              SovereignDocumentAdoption.adopted) {
             await target.stack.refreshSovereignIdentity(target.storage);
           }
         }
