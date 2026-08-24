@@ -191,7 +191,14 @@ class GroupCallService {
     if (state == null ||
         admission == null ||
         !admission.recipients.contains(_groups.selfId)) {
-      _end(CallEndReason.error, roomOver: true);
+      // Against the room this verdict was computed FOR, the same check the
+      // participant update below already makes. Both reads above are awaited,
+      // and a room can end and another begin while they run — so an exclusion
+      // decided about the old one used to end whichever room happened to be
+      // current when it landed.
+      if (_current?.callId == call.callId) {
+        _end(CallEndReason.error, roomOver: true);
+      }
       return;
     }
     final participants = Map<String, GroupCallParticipant>.from(
@@ -497,7 +504,19 @@ class GroupCallService {
       await _media?.setScreenShareEnabled(false);
       if (call.cameraOn) await _media?.setCameraEnabled(true);
     }
-    _set(call.copyWith(screenOn: enabled));
+    // THE CALL IS RE-READ AFTER THE I/O, the way `setCameraEnabled` does it
+    // one method up. Everything above awaits the native engine, and the room
+    // can end or be replaced while that runs — `call` is a snapshot from
+    // before it. Publishing `call.copyWith(...)` then wrote the OLD room back
+    // over whatever is current: an ended call came back live, carrying its own
+    // callId, with no timers and no media behind it.
+    final current = _current;
+    if (current == null ||
+        !current.isLive ||
+        current.callId != call.callId) {
+      return;
+    }
+    _set(current.copyWith(screenOn: enabled));
     await _announceMedia();
   }
 
