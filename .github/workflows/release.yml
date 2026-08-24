@@ -896,10 +896,22 @@ jobs:
             --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY"
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --json body -q .body > "$RUNNER_TEMP/published-notes.md"
-          if ! diff -q "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/published-notes.md" \
-               >/dev/null; then
-            echo "::error::the release page does not carry the CHANGELOG entry for $GITHUB_REF_NAME"
-            diff -u "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/published-notes.md" || true
-            exit 1
-          fi
-          echo "notes on the release page match the $GITHUB_REF_NAME entry"
+          # Compare the CONTENT, not the trailing whitespace. `-q .body` writes
+          # its own closing newline and the API hands the body back with CRLF
+          # endings, so a byte-for-byte `diff` calls a correct page wrong -- it
+          # could never have matched. v0.12.0 ran analyze, the whole Dart suite
+          # and all three bundles green, wrote the right 6054 bytes of notes,
+          # and then failed here over ONE empty line. Same defect, same fix as
+          # veil 041bdbe5.
+          python3 - "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP/published-notes.md" <<'PY'
+          import difflib, sys
+          def read(p):
+              return open(p, encoding="utf-8").read().replace("\r\n", "\n").rstrip("\n")
+          want, got = read(sys.argv[1]), read(sys.argv[2])
+          if want != got:
+              print("::error::the release page does not carry the CHANGELOG entry")
+              sys.stdout.writelines(difflib.unified_diff(
+                  want.splitlines(True), got.splitlines(True), "expected", "published"))
+              sys.exit(1)
+          print(f"notes on the release page match ({len(want)} bytes)")
+          PY
