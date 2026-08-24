@@ -510,6 +510,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// tell "the mark moved" from "the mark is still where it was".
   int _hiddenThroughMs = 0;
 
+  /// The newest message this screen has already reported as shown.
+  int _shownThroughMs = 0;
+
+  /// Record that a message which arrived while this chat was OPEN was shown.
+  ///
+  /// The read-after window is measured from the moment this device first
+  /// SHOWED a message, and the only thing that records a showing is
+  /// `markRead`, which ran once from `initState`. So a message that arrived
+  /// while the chat was on screen was displayed and never recorded: its
+  /// window did not start until the user left the conversation and came back.
+  /// That is the ordinary way the feature is used — reading a conversation as
+  /// it happens — so "hide 30 minutes after reading" silently did not apply to
+  /// the messages actually being read.
+  ///
+  /// Only on an advance. `markRead` moves a durable marker and notifies the
+  /// device mirror, and this listener fires on every provider tick — including
+  /// the one `markRead` itself causes, which is also what stops it looping.
+  void _noteShownWhileOpen(List<Message>? messages) {
+    if (messages == null || messages.isEmpty) return;
+    var newest = 0;
+    for (final m in messages) {
+      final ms = m.timestamp.millisecondsSinceEpoch;
+      if (ms > newest) newest = ms;
+    }
+    if (newest <= _shownThroughMs) return;
+    _shownThroughMs = newest;
+    unawaited(ref.read(messagingServiceProvider).markRead(widget.peerHex));
+  }
+
   Future<void> _sweepDisappearing() async {
     final service = ref.read(messagingServiceProvider);
     final peer = NodeId.fromHex(widget.peerHex);
@@ -2068,7 +2097,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _saved = myHex != null && myHex == widget.peerHex;
     // Show the local alias when set, else the short node id (Contact.label).
     final title = _saved ? l.savedMessages : (contact?.label ?? _peer.short);
-    ref.listen(messagesProvider(widget.peerHex), (_, _) => _scrollToBottom());
+    ref.listen(messagesProvider(widget.peerHex), (_, next) {
+      _scrollToBottom();
+      _noteShownWhileOpen(next.value);
+    });
 
     final selectionBar = _selecting
         ? AppBar(
