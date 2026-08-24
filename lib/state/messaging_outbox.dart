@@ -549,6 +549,24 @@ class _MessagingOutbox {
       final now = _owner._now();
       final backoff = _liveBackoff[_key(frame.peerHex, frame.frameId)];
       if (backoff != null && now.isBefore(backoff.nextAt)) continue;
+      // A CEILING ON THE LIVE HALF OF ONE PASS.
+      //
+      // The ladder that spaces re-drives lives in `_liveBackoff`, which is RAM
+      // only. After a restart it is empty, so every frame in the queue is due
+      // at the same instant and the pass below sends all of them back to back —
+      // serial, but serial is not bounded. A backlog of a few hundred is an
+      // ordinary state for a device that was away, and this is the shape the
+      // outbox was already measured producing: bursts of about 175 sends a
+      // second, each one a radio wake and a DHT lookup.
+      //
+      // Frames past the ceiling are simply not dialled THIS pass. They keep
+      // their place, their deposit was already offered above — that half is
+      // what carries an offline peer — and the flush comes round again in
+      // seconds. Nothing is dropped and no attempt is counted against them,
+      // which is why the check sits before the ladder bookkeeping rather than
+      // after it: a frame that was never sent must not be told to wait longer
+      // for the next try.
+      if (redrive.length >= _maxLiveRedrivesPerPass) continue;
       final count = (backoff?.count ?? 0) + 1;
       // Call control is useful only inside the ring window and therefore uses
       // a sub-second initial ladder; ordinary durable control starts at 20s. Both grow
@@ -588,6 +606,13 @@ class _MessagingOutbox {
       await boundedLiveLeg(_owner._send(entry.peer, entry.frame.wire));
     }
   }
+
+  /// Frames dialled in one flush pass.
+  ///
+  /// The pass repeats on the flush cadence, so this is a rate rather than a
+  /// limit on the queue: a backlog drains over several passes instead of in
+  /// one burst. See the ceiling's use for why a restart is when it matters.
+  static const _maxLiveRedrivesPerPass = 16;
 
   /// How long a queued REPLICATION frame is worth keeping.
   ///
