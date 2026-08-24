@@ -171,7 +171,8 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spaceModerationAppeal ||
         env.kind == WireKind.spaceModerationAppealDecision ||
         env.kind == WireKind.spaceAbuseReport ||
-        env.kind == WireKind.spaceAbuseReportDecision;
+        env.kind == WireKind.spaceAbuseReportDecision ||
+        env.kind == WireKind.disappearingSet;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
     final liveOnlyNoAck =
         env.kind == WireKind.groupContentReceipt ||
@@ -956,18 +957,54 @@ extension _MessagingInboundDispatch on MessagingService {
         // stranger being able to set it would be a way to erase a chat we
         // never agreed to have with them.
         if (existing?.status != ContactStatus.accepted) return;
+        // Acked HERE rather than by the generic gate (report12 X-H4). What the
+        // sender is waiting on is the durable apply below, and the ack is what
+        // retires the frame from its outbox — so an ack that goes first turns
+        // a failed apply into a permanent divergence: the sender believes the
+        // conversation is on a one-minute window and this device keeps
+        // everything. For disappearing messages that divergence IS the
+        // feature failing, and nothing retries, because the frame is also
+        // remembered as processed.
+        //
+        // A decision still acks, whichever way it went. A refusal is not a
+        // thing a re-drive fixes, and an outbox that can never drain is its
+        // own cost.
+        Future<void> settleDisappearing() async {
+          if (fid == null) return;
+          await _ackFrame(m, fid);
+          _outbox.remember(m.src.hex, fid);
+        }
+
         final Map<String, Object?> body;
         try {
           body = jsonDecode(env.body) as Map<String, Object?>;
         } catch (_) {
+          await settleDisappearing();
           return;
         }
         // Sender identity comes from the ENVELOPE, never the body — otherwise
         // a peer could announce a window in somebody else's name and win the
         // tie-break with it.
         final announced = DisappearingSetting.fromWireJson(body, m.src);
-        if (announced == null) return;
-        await _conversationAdmin.adoptDisappearing(m.src, announced);
+        if (announced == null) {
+          await settleDisappearing();
+          return;
+        }
+        try {
+          await _conversationAdmin.adoptDisappearing(m.src, announced);
+        } catch (e) {
+          // Deliberately NOT settled: a full container or a busy space is the
+          // retryable kind of failure, and this is the one frame whose whole
+          // purpose is the write that just failed. The sender keeps it; the
+          // gate above re-acks without reprocessing once it does land.
+          devLog(
+            () =>
+                'xVeil[recv]: disappearingSet from ${m.src.short} NOT applied '
+                '($e) — left unacked so the sender re-drives it',
+          );
+          return;
+        }
+        await settleDisappearing();
         return;
       case WireKind.chatDeleted:
         // The peer deleted this conversation on their device and explicitly
