@@ -669,6 +669,49 @@ void main() {
       await tB.dispose();
     });
 
+    /// A policy applied here must reach the peer even when nothing was
+    /// reachable at the moment it was applied.
+    ///
+    /// The announcement was a live send in a `catch` — whose comment claimed
+    /// "the durable copy below still carries it" — followed by a mailbox
+    /// DEPOSIT, which is not an outbox entry and can fail just as quietly. With
+    /// both down for a moment the policy simply never left this device: the
+    /// switch here said messages disappear, and at the other end they did not.
+    test('a policy set while nothing is reachable still arrives', () async {
+      tA.deaf = true;
+      await mA.setContactDisappearing(b, 3600);
+      await _pump();
+
+      expect(
+        (await mB.disappearingOf(a)).ttlSeconds,
+        isNull,
+        reason: 'precondition: nothing could have reached B yet',
+      );
+      // The obligation itself, which is what changed: a row that will be
+      // re-driven, rather than two best-effort sends that both went nowhere.
+      expect(
+        (await sA.pendingOutboxFrames()).length,
+        1,
+        reason: 'an applied privacy policy owes the peer a delivery',
+      );
+
+      // A restart brings the connection back and re-drives the outbox.
+      await mA.dispose();
+      final mA2 = MessagingService(tA, sA)..start();
+      addTearDown(mA2.dispose);
+      tA.deaf = false;
+      await mA2.flushOutbox();
+      await _pump();
+
+      expect(
+        (await mB.disappearingOf(a)).ttlSeconds,
+        3600,
+        reason:
+            'the policy is a durable obligation, not a best-effort broadcast',
+      );
+      expect(await sA.pendingOutboxFrames(), isEmpty, reason: 'and it retires');
+    });
+
     /// Renaming a contact used to turn their disappearing messages OFF.
     ///
     /// `setContactName` and `setContactRetention` each rebuilt the whole

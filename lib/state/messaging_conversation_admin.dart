@@ -241,23 +241,31 @@ class _MessagingConversationAdmin {
     if (peer.hex == selfHex) return;
     final contact = await _owner._storage.getContact(peer);
     if (contact == null || contact.status != ContactStatus.accepted) return;
-    final fid = 'disap:${_uuid.v4()}';
-    final wire = WireEnvelope(
-      WireKind.disappearingSet,
-      jsonEncode(setting.toWireJson()),
-      sentAtMs: setting.setAtMs,
-    ).withFrameId(fid).encode();
-    try {
-      await _owner._send(peer, wire);
-    } catch (_) {
-      // Live path down — the durable copy below still carries it.
-    }
-    try {
-      await _owner._maybeStash(peer, fid, wire);
-    } catch (_) {
-      // Best-effort: an unreachable mailbox must not undo a setting the owner
-      // already has locally.
-    }
+    // Durable, like `clearConversation` beside it and for the same reason:
+    // this is a control frame whose loss is silent, and the loss is the whole
+    // conversation going on NOT disappearing at the other end while the switch
+    // here says it is.
+    //
+    // The live send used to sit in a catch whose comment read "the durable copy
+    // below still carries it". Below was `_maybeStash` — a mailbox DEPOSIT, not
+    // an outbox entry. A deposit fails too (a peer whose mailbox is
+    // unresolvable, a relay that is down), its catch swallowed that as well,
+    // and nothing retried: both channels could be unavailable for a moment and
+    // the policy simply never left this device.
+    //
+    // The frame id is the REVISION rather than a fresh uuid. Re-announcing the
+    // same policy — a reconnect, a second device applying it — then reuses the
+    // row instead of queueing another frame for a fact already queued, and the
+    // receiver's dedup recognises it as the same announcement.
+    await _owner.sendDurable(
+      peer,
+      'disap:${setting.setAtMs}:${setting.setBy}',
+      WireEnvelope(
+        WireKind.disappearingSet,
+        jsonEncode(setting.toWireJson()),
+        sentAtMs: setting.setAtMs,
+      ),
+    );
   }
 
   /// Delete everything in this conversation that has outlived the window.
