@@ -104,6 +104,31 @@ class _HangingSink implements MailboxSink {
   void noteActivity() {}
 }
 
+/// A sink whose every deposit fails, so the per-frame failure bookkeeping is
+/// actually written.
+class _FailingSink implements MailboxSink {
+  int calls = 0;
+
+  @override
+  bool backgroundDrainPaused = false;
+
+  @override
+  Future<void> stash({
+    required NodeId recipient,
+    required Uint8List payload,
+    required Uint8List contentId,
+  }) {
+    calls++;
+    return Future<void>.error(StateError('relay refused'));
+  }
+
+  @override
+  void nudgeDrain() {}
+
+  @override
+  void noteActivity() {}
+}
+
 /// Records every stash so we can assert the offline-deposit path fired.
 class _RecordingSink implements MailboxSink {
   final stashed = <(NodeId, Uint8List)>[];
@@ -170,6 +195,41 @@ void main() {
     // The retry backoff applies per-frame, not to the slot: the SECOND frame
     // has never failed and must go straight through.
     expect(hung.calls, 2, reason: 'slot freed by the deadline');
+  });
+
+  /// The failure row was dropped only on a stash SUCCESS, so a frame that
+  /// failed once and was then retired — delivered live, or ACKed by the peer —
+  /// kept its row for the life of the process. It stops affecting any decision
+  /// after the retry window; what it goes on doing is holding memory, one
+  /// entry per frame id that ever failed.
+  test('a retired frame leaves no bookkeeping behind', () async {
+    final failing = _FailingSink();
+    mA.attachMailbox(failing);
+
+    final before = mA.mailboxTrackedFrames;
+    await mA.sendRequest(b, 'this deposit fails');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(
+      failing.calls,
+      greaterThan(0),
+      reason: 'the deposit has to be attempted for a failure row to exist',
+    );
+    expect(
+      mA.mailboxTrackedFrames,
+      greaterThan(before),
+      reason: 'the failure is remembered, which is the point of the row',
+    );
+
+    // The peer comes back and ACKs it: the frame is retired. The durable id is
+    // a UUID minted inside `sendRequest`, so it is READ from the stored copy
+    // rather than guessed — the greeting is stored under the same id.
+    final greeting = (await sA.loadMessages(b.hex)).single;
+    mA.debugRetireOutboxFrame(b.hex, greeting.id);
+    expect(
+      mA.mailboxTrackedFrames,
+      before,
+      reason: 'a retired frame must take its bookkeeping with it',
+    );
   });
 
   test('a connection request is deposited at the recipient mailbox', () async {
@@ -749,12 +809,12 @@ void main() {
       // stuck PUT froze for 10+ minutes in 2026-08-16; that half got a
       // deadline and this half did not.
       await mA.flushOutbox().timeout(
-            const Duration(seconds: 5),
-            onTimeout: () => fail(
-              'the retry pass never ended — one unreachable peer has taken '
-              'the flush that carries every peer\'s deposit with it',
-            ),
-          );
+        const Duration(seconds: 5),
+        onTimeout: () => fail(
+          'the retry pass never ended — one unreachable peer has taken '
+          'the flush that carries every peer\'s deposit with it',
+        ),
+      );
     });
 
     test('does not hold up the deposit the retry pass owes', () async {
