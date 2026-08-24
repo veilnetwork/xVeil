@@ -368,6 +368,21 @@ class _ScrubCountingStore implements KvLogStore {
   void close() => inner.close();
 }
 
+/// A store whose ratchet purge fails while [failForget] is set.
+class _ForgetFailsStorage extends HiddenVolumeStorage {
+  _ForgetFailsStorage(super.opener);
+
+  bool failForget = false;
+
+  @override
+  Future<int> forgetRatchetStates(Iterable<Uint8List> keys) {
+    if (failForget) {
+      return Future<int>.error(StateError('purge failed'));
+    }
+    return super.forgetRatchetStates(keys);
+  }
+}
+
 /// A store whose FIRST write of the local-instance marker fails, and whose
 /// every other operation is the real one.
 class _MarkerWriteFailsOnce extends HiddenVolumeStorage {
@@ -913,6 +928,56 @@ void main() {
         reason: 'a failed migration has to be retried by the next pass',
       );
     });
+
+    /// A deletion that could not remove the stored bytes must not release the
+    /// live session either.
+    ///
+    /// It used to forget natively FIRST and delete second, with the delete's
+    /// failure swallowed by `_forgetRatchetWith` — which never throws, so a
+    /// failure to forget cannot leave a chat half-deleted. The pair produced
+    /// the worst available arrangement: session gone, blob still on disk, and
+    /// the next start importing the secret back into a chat the person had
+    /// deleted.
+    test(
+      'a failed purge leaves the session, so the deletion can be retried',
+      () async {
+        final store = FakeKvLogStore();
+        final failing = _ForgetFailsStorage(
+          ({required Uint8List password, required bool create}) =>
+              password.isEmpty ? null : store,
+        );
+        await failing.open(password: 'pw', createIfMissing: true);
+
+        final peer = NodeId(Uint8List.fromList(List.filled(32, 30)));
+        final key = _convKey(local: 1, peerNode: 30);
+        final node = _FakeRatchetNode();
+        final run = RatchetPersistence(native: node, storage: failing);
+        node.seal(key);
+        await run.flush();
+        expect(await failing.ratchetConversationKeys(), hasLength(1));
+
+        failing.failForget = true;
+        await expectLater(run.forgetPeer(peer), throwsA(isA<StateError>()));
+
+        expect(
+          node.list(),
+          hasLength(1),
+          reason:
+              'the live session is released only once the durable copy is gone',
+        );
+        expect(
+          await failing.ratchetConversationKeys(),
+          hasLength(1),
+          reason: 'and the stored bytes are still there to be deleted',
+        );
+
+        // The retry completes both halves.
+        failing.failForget = false;
+        await run.forgetPeer(peer);
+        expect(node.list(), isEmpty);
+        expect(await failing.ratchetConversationKeys(), isEmpty);
+      },
+    );
 
     test('a first run records the device without dropping anything', () async {
       // Nothing stored, nothing to prune — and the marker still gets written,
