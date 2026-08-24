@@ -304,6 +304,12 @@ class CloudCapabilityService {
   Future<void> start() => _started ??= _start();
 
   Future<void> _start() async {
+    // The event log is read FIRST, because it is the authority on what was
+    // revoked; the registry is only what was last written. Hosting from the
+    // registry and consulting the log afterwards meant a revoked share was
+    // served again from the moment the app opened until the first reconcile —
+    // and if its row had survived a crash, served for its whole lifetime.
+    await _loadEvents();
     final raw = await _loadMetadata(_registryFile, _registrySetting);
     final keep = <_RegistryRow>[];
     if (raw != null) {
@@ -324,6 +330,9 @@ class CloudCapabilityService {
               continue;
             }
             final key = _shareKey(capability.shareId);
+            // A tombstone outranks a row still sitting in the registry: that
+            // is what a crash between a revoke's two writes leaves behind.
+            if (_events[key]?.payload['deleted'] == true) continue;
             _rows[key] = row;
             _capabilities[key] = capability;
             try {
@@ -338,7 +347,6 @@ class CloudCapabilityService {
       } catch (_) {}
     }
     await _saveRows(keep);
-    await _loadEvents();
     for (final entry in _rows.entries) {
       if (!_events.containsKey(entry.key)) {
         await _recordCapabilityEvent(
@@ -576,10 +584,25 @@ class CloudCapabilityService {
   Future<bool> revoke(String shareId) async {
     await start();
     return _serialized(() async {
+      if (!_rows.containsKey(shareId)) return false;
+      // The tombstone goes down BEFORE the active row comes out.
+      //
+      // The registry says what was last written; the event log says what was
+      // revoked, and a restart reads the log to decide. Taking the row out
+      // first and recording the tombstone after left a window where the log
+      // still held the OLD active row — and if that write then failed, the
+      // window never closed: the next start folded the stale row and re-hosted
+      // the very capability the person had just withdrawn, for the rest of its
+      // lifetime, which defaults to seven days.
+      //
+      // In this order a crash in the middle leaves a tombstone and a row that
+      // is still in the registry, and `_start` reads the log before it hosts
+      // anything, so the row is never served. The opposite order had no such
+      // safe middle.
+      if (!await _recordCapabilityEvent(shareId, deleted: true)) return false;
       final hosted = _shares.remove(shareId);
-      final existed = _rows.remove(shareId) != null;
+      _rows.remove(shareId);
       _capabilities.remove(shareId);
-      if (!existed) return false;
       // Drop the request handler before any awaited write so revoke takes
       // effect immediately and invalid probes remain silent. Descriptor
       // withdrawal can wait on the native rendezvous mutex for tens of
@@ -588,7 +611,6 @@ class CloudCapabilityService {
       await hosted?.stopAccepting();
       if (hosted != null) _retire(hosted);
       await _saveCurrentRows();
-      await _recordCapabilityEvent(shareId, deleted: true);
       await _storage.scrubDeleted();
       return true;
     });
@@ -1223,7 +1245,22 @@ class CloudCapabilityService {
     jsonEncode([for (final event in _events.values) event.toBody()]),
   );
 
-  Future<void> _recordCapabilityEvent(
+  /// Record a capability event, and say whether it reached the disk.
+  ///
+  /// The return value is the whole point for a tombstone. The event log is
+  /// what a restart reads to decide which shares are still live, so a
+  /// tombstone that stayed in RAM is a revoke that will be undone by the
+  /// stale active row still sitting in the file. This used to swallow the
+  /// write error and carry on, and the caller reported the revoke as done.
+  ///
+  /// On failure the in-memory map is put back the way the file has it, so the
+  /// two never disagree about what was recorded.
+  ///
+  /// Delivery to the other devices is NOT part of the answer: an event that is
+  /// on disk here is re-posted by `_reconcileSync`, which offers every local
+  /// event the remote log does not already carry. A post that fails is a
+  /// retry, not a loss.
+  Future<bool> _recordCapabilityEvent(
     String shareId, {
     required bool deleted,
     _RegistryRow? row,
@@ -1237,13 +1274,22 @@ class CloudCapabilityService {
         if (!deleted && row != null) 'row': row.toJson(),
       },
     );
+    final previous = _events[shareId];
     _events[shareId] = event;
     try {
       await _saveEvents();
-    } catch (_) {}
+    } catch (_) {
+      if (previous == null) {
+        _events.remove(shareId);
+      } else {
+        _events[shareId] = previous;
+      }
+      return false;
+    }
     try {
       await _sync?.post(event);
     } catch (_) {}
+    return true;
   }
 
   Future<void> _reconcileSync() async {
