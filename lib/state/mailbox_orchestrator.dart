@@ -196,6 +196,25 @@ class MailboxOrchestrator {
   static const _transientOpenCap = 6;
   static const _transientOpenFailsMax = 512;
 
+  /// cids this session has stopped OPENING on transient grounds.
+  ///
+  /// Reaching [_transientOpenCap] used to fall through to the permanent path,
+  /// which quarantines durably and ACKS — and the ack drops the relay's only
+  /// copy. Nothing in a timeout or a `PeerUnresolved` says the blob is bad, so
+  /// six drains during a DHT outage destroyed a message that would have opened
+  /// fine afterwards. The cap exists to stop PAYING for the blob (a failed open
+  /// costs the full cert-resolve timeout, ~20 s observed live), not to justify
+  /// destroying it.
+  ///
+  /// So the cap now stops the work and nothing else: the blob is skipped
+  /// without an open and without an ack, the relay keeps its copy until its own
+  /// TTL, and a restart — which clears this, exactly as it clears
+  /// [_transientOpenFails] — tries again against a network that may have
+  /// recovered. Durable quarantine stays for blobs that failed open
+  /// PERMANENTLY, where retrying is provably useless.
+  final Set<String> _transientGaveUp = {};
+  static const _transientGaveUpMax = 512;
+
   /// Seal [data] for offline [recipient]'s ([appId], [endpointId]) and deposit
   /// it at the relay under [contentId] (the message uuid, so the recipient can
   /// dedup against a later live delivery of the same message).
@@ -317,6 +336,14 @@ class MailboxOrchestrator {
         // still in flight. Wait briefly and retry rather than deferring the
         // backlog to the next tick. Bounded so a relay that never removes
         // (pre-ack build) can't spin the loop: give up after a few settles.
+        //
+        // Unless there is no removal to wait for. The settle is for an ack WE
+        // sent; a drain that acked nothing is looking at a blob it left on
+        // purpose — one given up on transiently, which is not acked precisely
+        // so the relay keeps it. Waiting cannot change that, and paying the
+        // whole settle budget on every drain for it would put back, as latency,
+        // the cost the cap exists to remove.
+        if (cost.acks == 0) break;
         if (ackSettleRetries++ >= _maxAckSettleRetries) break;
         cost.settles++;
         final settleSw = Stopwatch()..start();
@@ -388,6 +415,10 @@ class MailboxOrchestrator {
         await _ack(cost, me, b.contentId, authCookie, knownRelays);
         continue;
       }
+      // Given up on THIS SESSION for transient reasons. Skip the expensive
+      // open — that is what the cap is for — but do not ack: the relay holds
+      // the only copy, and nothing that happened said the blob was bad.
+      if (_transientGaveUp.contains(cidHex)) continue;
       if (await alreadyHave(b.contentId)) {
         await _ack(cost, me, b.contentId, authCookie, knownRelays);
         continue;
@@ -437,7 +468,20 @@ class MailboxOrchestrator {
             );
             continue;
           }
-          // Cap reached — fall through to the permanent path below.
+          // Cap reached. Stop opening it, and stop there: acking would drop
+          // the relay's only copy of a message nothing has found fault with.
+          if (_transientGaveUp.length >= _transientGaveUpMax) {
+            _transientGaveUp.remove(_transientGaveUp.first);
+          }
+          _transientGaveUp.add(cidHex);
+          _transientOpenFails.remove(cidHex);
+          devLog(
+            () =>
+                'xVeil[drain]: open failed TRANSIENTLY contentId=${_shortHex(b.contentId)} '
+                '$_transientOpenCap times — no longer opening it this session, '
+                'NOT acked (the relay keeps it until its TTL): $e',
+          );
+          continue;
         }
         // Open failed PERMANENTLY — unverifiable / corrupt / forged /
         // stale-identity blob. The exception text carries the native status
