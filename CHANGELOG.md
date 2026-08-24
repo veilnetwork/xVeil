@@ -45,16 +45,19 @@ each names what it was measured against.
   to its rendezvous relay, and a sender's live introduce inside the
   re-registration gap black-holes into the slower mailbox path — which had been
   happening every 30–60 minutes.
-- **Outbound frames coalesce.** On one seed link over 599 s with the connection
-  intact, 521 frames carrying 190 B/s of bodies cost 413 B/s on the wire: about
-  260 bytes of framing and obfs4 padding per frame, roughly twice the payload
-  each wrapped, and the largest remaining item now that a circuit cell is 2048.
-  A 200 ms window merges 39% of them on a replay of that capture. The `always`
-  flag is required rather than decorative — veil gates the window behind a low
-  battery reading, and the phone disables battery awareness entirely, so
-  without it the setting is inert exactly where it was measured. Interactive
-  frames bypass the coalescer, so liveness probes and backpressure are
-  untouched.
+- **A 200 ms outbound coalescing window was written, measured, and NOT taken.**
+  Framing is the largest remaining per-frame cost now that a circuit cell is
+  2048: on one seed link over 599 s, 521 frames carrying 190 B/s of bodies cost
+  413 B/s on the wire, about 260 bytes each. A window looked like the answer and
+  is not one. veil's window DEFERS a drain rather than accumulating toward one,
+  so at an idle rate near 0.5 outbound frames per second the next frame arrives
+  after the window has already lapsed and the deferral never fires. The 260
+  bytes are the TLS bucket floor, and that is already amortised — 478 B of wire
+  against 218 B of body averages about 2.7 frames per bucket, packed by the
+  unconditional back-to-back path, which needs no window at all. The helper is
+  kept, correct and tested, for traffic dense enough to collect something; it is
+  deliberately not wired into the production config chain, and nothing in this
+  release changes coalescing behaviour.
 - **A device that is provably gone stops costing a burst every half hour.** The
   unresolved-peer backoff ceiling was thirty minutes and turned out to be the
   largest single line in an idle phone's bill: three sibling devices away 25 h,

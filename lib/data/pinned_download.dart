@@ -97,8 +97,32 @@ Future<PinnedDownload> fetchPinned({
   client.connectionTimeout = stallTimeout;
   try {
     var have = part.existsSync() ? part.lengthSync() : 0;
-    if (have >= artifact.bytes) {
-      // A complete-looking leftover: verify it rather than fetch it again.
+    if (have > artifact.bytes) {
+      // Longer than the artifact: it cannot be a prefix of it, so there is
+      // nothing to resume from and nothing worth hashing.
+      have = 0;
+      part.deleteSync();
+    } else if (have == artifact.bytes) {
+      // Exactly the artifact's length. The comment here used to promise
+      // "verify it rather than fetch it again" and the code deleted it — so a
+      // crash between the last byte and the rename destroyed the finished
+      // download, and the next run re-fetched 57-150 MiB. Offline, that is the
+      // difference between installing and not.
+      //
+      // Verify for real, with the same streaming digest the normal path uses.
+      // A leftover that hashes is the file; one that does not is deleted
+      // exactly as before, so nothing is trusted on length alone.
+      final actual = await sha256OfFileStreaming(part);
+      if (actual == artifact.sha256) {
+        onProgress?.call(1);
+        part.renameSync(target.path);
+        devLog(
+          () =>
+              'xVeil[$logTag]: installed ${target.path} '
+              '($have bytes, from a complete leftover)',
+        );
+        return PinnedDownload.ok(target.path);
+      }
       have = 0;
       part.deleteSync();
     }
@@ -136,7 +160,9 @@ Future<PinnedDownload> fetchPinned({
         sink.add(chunk);
         received += chunk.length;
         if (onProgress != null) {
-          onProgress(received >= artifact.bytes ? 1 : received / artifact.bytes);
+          onProgress(
+            received >= artifact.bytes ? 1 : received / artifact.bytes,
+          );
         }
       }
     } finally {
@@ -153,7 +179,9 @@ Future<PinnedDownload> fetchPinned({
     final onDisk = part.existsSync() ? part.lengthSync() : 0;
     if (onDisk != artifact.bytes) {
       part.deleteSync();
-      return PinnedDownload.failed('expected ${artifact.bytes} bytes, got $onDisk');
+      return PinnedDownload.failed(
+        'expected ${artifact.bytes} bytes, got $onDisk',
+      );
     }
     // Hash the finished FILE rather than the download stream: a resumed
     // download is half bytes this process never saw, so digesting the stream
