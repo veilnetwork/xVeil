@@ -239,6 +239,14 @@ class AppL10nEs extends AppL10n {
       'No se ha podido borrar el modelo de voz descargado y sigue en este dispositivo.';
 
   @override
+  String get lockWipeLeftSpeechModelUnknown =>
+      'No se pudo comprobar el modelo de voz: este dispositivo no indicó dónde se guarda.';
+
+  @override
+  String get lockWipeLeftTranslationsUnknown =>
+      'No se pudieron comprobar los modelos de traducción: este dispositivo no indicó dónde se guardan.';
+
+  @override
   String get lockWipeLeftTranslations =>
       'No se han podido borrar los idiomas de traducción descargados, y sus nombres siguen en este dispositivo.';
 

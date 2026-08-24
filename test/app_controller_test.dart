@@ -94,10 +94,7 @@ void main() {
       // this is the loopback stand-in's obviously-fake id — not a random value
       // that would then disagree with the node forever.
       expect(s.identity!.displayName, 'Me');
-      expect(
-        s.identity!.nodeId,
-        await c.read(veilTransportProvider).nodeId(),
-      );
+      expect(s.identity!.nodeId, await c.read(veilTransportProvider).nodeId());
     },
   );
 
@@ -262,60 +259,64 @@ void main() {
     expect(c2.read(appControllerProvider).phase, AppPhase.onboarding);
   });
 
-  test('a container that could not be deleted is NOT reported as wiped',
-      () async {
-    // audit report11 XV-H3. Every step of the wipe is best-effort by design —
-    // aborting halfway would leave MORE behind than carrying on. What was
-    // wrong is that the silence was total: the phase flipped to onboarding
-    // unconditionally, the function returned nothing, and a person whose
-    // container was still on disk saw the same screen as one whose container
-    // was gone. In an app whose whole promise is deniability, that is the
-    // worst direction for a lie to point.
-    final dir = Directory.systemTemp.createTempSync('xveil_wipe_locked_');
-    final file = File('${dir.path}/test.store')..writeAsStringSync('container');
-    try {
-      // Make the DIRECTORY unwritable: the file itself stays readable, but the
-      // unlink cannot happen. This is what a read-only volume, an ACL drift or
-      // a backup agent holding the directory looks like from here.
-      Process.runSync('chmod', ['a-w', dir.path]);
-      SharedPreferences.setMockInitialValues({'onboarded': true});
-      final container = FakeHvContainer();
-      final c = ProviderContainer(
-        overrides: [
-          storageProvider.overrideWith((ref) => container.storage()),
-          deniableBootProvider.overrideWithValue(
-            DeniableBootConfig(
-              runtimeDir: '/run',
-              listenPort: 9000,
-              storePath: file.path,
+  test(
+    'a container that could not be deleted is NOT reported as wiped',
+    () async {
+      // audit report11 XV-H3. Every step of the wipe is best-effort by design —
+      // aborting halfway would leave MORE behind than carrying on. What was
+      // wrong is that the silence was total: the phase flipped to onboarding
+      // unconditionally, the function returned nothing, and a person whose
+      // container was still on disk saw the same screen as one whose container
+      // was gone. In an app whose whole promise is deniability, that is the
+      // worst direction for a lie to point.
+      final dir = Directory.systemTemp.createTempSync('xveil_wipe_locked_');
+      final file = File('${dir.path}/test.store')
+        ..writeAsStringSync('container');
+      try {
+        // Make the DIRECTORY unwritable: the file itself stays readable, but the
+        // unlink cannot happen. This is what a read-only volume, an ACL drift or
+        // a backup agent holding the directory looks like from here.
+        Process.runSync('chmod', ['a-w', dir.path]);
+        SharedPreferences.setMockInitialValues({'onboarded': true});
+        final container = FakeHvContainer();
+        final c = ProviderContainer(
+          overrides: [
+            storageProvider.overrideWith((ref) => container.storage()),
+            deniableBootProvider.overrideWithValue(
+              DeniableBootConfig(
+                runtimeDir: '/run',
+                listenPort: 9000,
+                storePath: file.path,
+              ),
             ),
-          ),
-        ],
-      );
-      addTearDown(c.dispose);
-      final ctrl = c.read(appControllerProvider.notifier);
-      await _settle(c);
+          ],
+        );
+        addTearDown(c.dispose);
+        final ctrl = c.read(appControllerProvider.notifier);
+        await _settle(c);
 
-      final remaining = await ctrl.wipeContainers();
+        final remaining = await ctrl.wipeContainers();
 
-      // Checked by LOOKING. `delete()` returning without throwing is not the
-      // same as the file being gone, and this is the assertion the fix exists
-      // for: it cannot pass while the wipe reports success unconditionally.
-      expect(file.existsSync(), isTrue, reason: 'precondition: it survived');
-      expect(
-        remaining,
-        contains('container'),
-        reason: 'a wipe that could not delete the container must say so',
-      );
-      // The phase still flips, deliberately: parking a person on a lock screen
-      // for a container that may already be gone is its own disclosure. This
-      // assertion is a GUARD — it stays green with the fix removed.
-      expect(c.read(appControllerProvider).phase, AppPhase.onboarding);
-    } finally {
-      Process.runSync('chmod', ['u+w', dir.path]);
-      dir.deleteSync(recursive: true);
-    }
-  }, testOn: '!windows');
+        // Checked by LOOKING. `delete()` returning without throwing is not the
+        // same as the file being gone, and this is the assertion the fix exists
+        // for: it cannot pass while the wipe reports success unconditionally.
+        expect(file.existsSync(), isTrue, reason: 'precondition: it survived');
+        expect(
+          remaining,
+          contains('container'),
+          reason: 'a wipe that could not delete the container must say so',
+        );
+        // The phase still flips, deliberately: parking a person on a lock screen
+        // for a container that may already be gone is its own disclosure. This
+        // assertion is a GUARD — it stays green with the fix removed.
+        expect(c.read(appControllerProvider).phase, AppPhase.onboarding);
+      } finally {
+        Process.runSync('chmod', ['u+w', dir.path]);
+        dir.deleteSync(recursive: true);
+      }
+    },
+    testOn: '!windows',
+  );
 
   test('a wipe that removes everything reports nothing left', () async {
     // The positive control. Without it, "reports what survived" would also be
@@ -328,6 +329,19 @@ void main() {
       final c = ProviderContainer(
         overrides: [
           storageProvider.overrideWith((ref) => container.storage()),
+          // Both model roots have to be RESOLVABLE here, or this control is
+          // asserting the wrong thing. Without them the real store reaches
+          // `path_provider`, which a test binary has no answer for, and the
+          // wipe now says so — correctly: a root it could not resolve is a
+          // place it did not look, and "nothing left" would be a claim about
+          // it. Overriding them is what makes this a test of a COMPLETE wipe
+          // rather than of an unanswerable platform channel.
+          whisperModelStoreProvider.overrideWithValue(
+            WhisperModelStore(supportDirectory: () async => dir),
+          ),
+          translationModelsRootProvider.overrideWithValue(
+            () async => Directory('${dir.path}/translations'),
+          ),
           deniableBootProvider.overrideWithValue(
             DeniableBootConfig(
               runtimeDir: '/run',
@@ -1215,8 +1229,8 @@ Uint8List? _rawIdentityRecord(FakeHvContainer container, String password) =>
 
 void _keyWipeOnLockTests() {
   /// A master session with two children, unlocked and ready for roster edits.
-  Future<(ProviderContainer, AppController, FakeHvContainer)> unlockedMaster()
-  async {
+  Future<(ProviderContainer, AppController, FakeHvContainer)>
+  unlockedMaster() async {
     SharedPreferences.setMockInitialValues({'onboarded': true});
     errorJournal.clear();
     final container = FakeHvContainer();
@@ -1245,42 +1259,48 @@ void _keyWipeOnLockTests() {
     return (c, ctrl, container);
   }
 
-  test('a roster edit zeroes the keys it supersedes, not just the last set',
-      () async {
-    // audit report10 X-04. Only the CURRENT references were wiped at lock, and
-    // `loadRoster` hands back FRESH buffers every call — so every anonymity
-    // toggle, bind, unbind, delete and addIdentity abandoned a whole set of
-    // child space keys intact in the heap. A session with a few edits left
-    // several full sets readable after the container closed.
-    final (c, ctrl, _) = await unlockedMaster();
-    final before = [for (final e in ctrl.debugRoster!) e.spaceKeys];
-    expect(before, hasLength(2));
-    expect(before.every((k) => k.any((b) => b != 0)), isTrue,
-        reason: 'sanity: real key material before the edit');
-
-    await ctrl.setIdentityAnonymous('bob', true);
-    final after = [for (final e in ctrl.debugRoster!) e.spaceKeys];
-
-    // Anti-vacuity: if the edit did not actually replace the buffers there is
-    // nothing superseded and the next assertion means nothing.
-    expect(
-      before.any((b) => after.any((a) => identical(a, b))),
-      isFalse,
-      reason: 'the edit must have replaced the buffers, or the test is empty',
-    );
-    for (final k in before) {
+  test(
+    'a roster edit zeroes the keys it supersedes, not just the last set',
+    () async {
+      // audit report10 X-04. Only the CURRENT references were wiped at lock, and
+      // `loadRoster` hands back FRESH buffers every call — so every anonymity
+      // toggle, bind, unbind, delete and addIdentity abandoned a whole set of
+      // child space keys intact in the heap. A session with a few edits left
+      // several full sets readable after the container closed.
+      final (c, ctrl, _) = await unlockedMaster();
+      final before = [for (final e in ctrl.debugRoster!) e.spaceKeys];
+      expect(before, hasLength(2));
       expect(
-        k.every((b) => b == 0),
+        before.every((k) => k.any((b) => b != 0)),
         isTrue,
-        reason: 'superseded child keys must be zeroed AT THE SWAP, not at the '
-            'next lock — the next lock never sees them',
+        reason: 'sanity: real key material before the edit',
       );
-    }
-    // And the live ones must survive: over-wiping here would leave the app
-    // holding keys that open nothing.
-    expect(after.every((k) => k.any((b) => b != 0)), isTrue);
-    expect(c.read(appControllerProvider).phase, isNot(AppPhase.locked));
-  });
+
+      await ctrl.setIdentityAnonymous('bob', true);
+      final after = [for (final e in ctrl.debugRoster!) e.spaceKeys];
+
+      // Anti-vacuity: if the edit did not actually replace the buffers there is
+      // nothing superseded and the next assertion means nothing.
+      expect(
+        before.any((b) => after.any((a) => identical(a, b))),
+        isFalse,
+        reason: 'the edit must have replaced the buffers, or the test is empty',
+      );
+      for (final k in before) {
+        expect(
+          k.every((b) => b == 0),
+          isTrue,
+          reason:
+              'superseded child keys must be zeroed AT THE SWAP, not at the '
+              'next lock — the next lock never sees them',
+        );
+      }
+      // And the live ones must survive: over-wiping here would leave the app
+      // holding keys that open nothing.
+      expect(after.every((k) => k.any((b) => b != 0)), isTrue);
+      expect(c.read(appControllerProvider).phase, isNot(AppPhase.locked));
+    },
+  );
 
   test('replacing the master keys zeroes the old buffer', () async {
     final (_, ctrl, _) = await unlockedMaster();
@@ -1339,7 +1359,8 @@ void _keyWipeOnLockTests() {
     expect(
       await probe.loadRoster(),
       isNull,
-      reason: 'the damaged blob must make loadRoster fall back, or the '
+      reason:
+          'the damaged blob must make loadRoster fall back, or the '
           'aliasing this test exists for never happens',
     );
     await probe.close();
@@ -1356,12 +1377,16 @@ void _keyWipeOnLockTests() {
       expect(
         k.any((b) => b != 0),
         isTrue,
-        reason: 'a buffer the roster still holds was wiped — it opens nothing '
+        reason:
+            'a buffer the roster still holds was wiped — it opens nothing '
             'now, and the app cannot tell why',
       );
     }
-    expect(master.any((b) => b != 0), isTrue,
-        reason: 'the master keys are still in use');
+    expect(
+      master.any((b) => b != 0),
+      isTrue,
+      reason: 'the master keys are still in use',
+    );
   });
 
   test('locking ZEROES the cached space keys, not just the reference', () async {
@@ -1554,53 +1579,57 @@ void _damagedIdentityTests() {
       errorJournal.clear();
     });
 
-    test('unlocking one parks the app instead of minting a new identity', () async {
-      // The whole finding in one flow: the container opens (right password),
-      // the identity record inside it is unreadable, and the app used to hand
-      // the user a fresh random identity and a normal, working, EMPTY session.
-      // Someone whose identity had actually been lost saw no sign of it.
-      SharedPreferences.setMockInitialValues({'onboarded': true});
-      final container = FakeHvContainer();
-      final seeded = container.storage();
-      await seeded.open(password: 'right', createIfMissing: true);
-      await seeded.saveProfile(UserProfile(displayName: 'Real'));
-      await seeded.close();
-      final damaged = _damageIdentityRecord(container, 'right');
+    test(
+      'unlocking one parks the app instead of minting a new identity',
+      () async {
+        // The whole finding in one flow: the container opens (right password),
+        // the identity record inside it is unreadable, and the app used to hand
+        // the user a fresh random identity and a normal, working, EMPTY session.
+        // Someone whose identity had actually been lost saw no sign of it.
+        SharedPreferences.setMockInitialValues({'onboarded': true});
+        final container = FakeHvContainer();
+        final seeded = container.storage();
+        await seeded.open(password: 'right', createIfMissing: true);
+        await seeded.saveProfile(UserProfile(displayName: 'Real'));
+        await seeded.close();
+        final damaged = _damageIdentityRecord(container, 'right');
 
-      final app = container.storage();
-      final c = ProviderContainer(
-        overrides: [storageProvider.overrideWith((ref) => app)],
-      );
-      addTearDown(c.dispose);
-      final ctrl = c.read(appControllerProvider.notifier);
-      await _settle(c);
+        final app = container.storage();
+        final c = ProviderContainer(
+          overrides: [storageProvider.overrideWith((ref) => app)],
+        );
+        addTearDown(c.dispose);
+        final ctrl = c.read(appControllerProvider.notifier);
+        await _settle(c);
 
-      await ctrl.unlock('right');
+        await ctrl.unlock('right');
 
-      final s = c.read(appControllerProvider);
-      expect(
-        s.phase,
-        AppPhase.identityDamaged,
-        reason: 'a damaged record must not open a session',
-      );
-      expect(
-        s.identity,
-        isNull,
-        reason: 'no placeholder identity may be presented as the user',
-      );
-      expect(
-        s.unlockError,
-        isFalse,
-        reason: 'the password was right; saying otherwise sends people to '
-            'retype it forever',
-      );
-      // The record is EXACTLY as it was found — the session that would have
-      // written over it never started.
-      expect(_rawIdentityRecord(container, 'right'), damaged);
-      expect(app.isOpen, isFalse, reason: 'the space is released, not held');
-      // ...and it is diagnosable, which is the other half of the finding.
-      expect(errorJournal.entries.map((e) => e.kind), contains('identity'));
-    });
+        final s = c.read(appControllerProvider);
+        expect(
+          s.phase,
+          AppPhase.identityDamaged,
+          reason: 'a damaged record must not open a session',
+        );
+        expect(
+          s.identity,
+          isNull,
+          reason: 'no placeholder identity may be presented as the user',
+        );
+        expect(
+          s.unlockError,
+          isFalse,
+          reason:
+              'the password was right; saying otherwise sends people to '
+              'retype it forever',
+        );
+        // The record is EXACTLY as it was found — the session that would have
+        // written over it never started.
+        expect(_rawIdentityRecord(container, 'right'), damaged);
+        expect(app.isOpen, isFalse, reason: 'the space is released, not held');
+        // ...and it is diagnosable, which is the other half of the finding.
+        expect(errorJournal.entries.map((e) => e.kind), contains('identity'));
+      },
+    );
 
     test('a decoy master refuses to write over one', () async {
       // The destructive edge. `createDecoyMaster` asks "is anything already
@@ -1645,7 +1674,11 @@ void _damagedIdentityTests() {
         duressPassword: 'pw-hurt',
         includeLabels: ['bob'],
       );
-      expect(ok, isFalse, reason: 'something IS there — it just cannot be read');
+      expect(
+        ok,
+        isFalse,
+        reason: 'something IS there — it just cannot be read',
+      );
       expect(
         _rawIdentityRecord(container, 'pw-hurt'),
         damaged,
@@ -1663,47 +1696,56 @@ void _damagedIdentityTests() {
       await hurtAgain.close();
     });
 
-    test('an ABSENT record still opens a session — the two are not merged', () async {
-      // The control. If "damaged" were implemented by refusing on anything
-      // unusual, a fresh/erased space would stop opening too and every
-      // legitimate empty-identity install would be bricked.
-      SharedPreferences.setMockInitialValues({'onboarded': true});
-      final container = FakeHvContainer();
-      final seeded = container.storage();
-      await seeded.open(password: 'right', createIfMissing: true);
-      await seeded.close(); // created, never given an identity
+    test(
+      'an ABSENT record still opens a session — the two are not merged',
+      () async {
+        // The control. If "damaged" were implemented by refusing on anything
+        // unusual, a fresh/erased space would stop opening too and every
+        // legitimate empty-identity install would be bricked.
+        SharedPreferences.setMockInitialValues({'onboarded': true});
+        final container = FakeHvContainer();
+        final seeded = container.storage();
+        await seeded.open(password: 'right', createIfMissing: true);
+        await seeded.close(); // created, never given an identity
 
-      final app = container.storage();
-      final c = ProviderContainer(
-        overrides: [storageProvider.overrideWith((ref) => app)],
-      );
-      addTearDown(c.dispose);
-      final ctrl = c.read(appControllerProvider.notifier);
-      await _settle(c);
+        final app = container.storage();
+        final c = ProviderContainer(
+          overrides: [storageProvider.overrideWith((ref) => app)],
+        );
+        addTearDown(c.dispose);
+        final ctrl = c.read(appControllerProvider.notifier);
+        await _settle(c);
 
-      await ctrl.unlock('right');
-      expect(c.read(appControllerProvider).phase, AppPhase.ready);
-      expect(c.read(appControllerProvider).identity, isNotNull);
-    });
+        await ctrl.unlock('right');
+        expect(c.read(appControllerProvider).phase, AppPhase.ready);
+        expect(c.read(appControllerProvider).identity, isNotNull);
+      },
+    );
   });
 }
 
 void _p2pPolicyTests() {
   group('AppController.lanListenAllowed', () {
-    test('an unreadable policy denies, it does not fall back to the default', () {
-      // Audit X-14. The old `catch` returned the DEFAULT, which is permissive,
-      // so a transient storage error bound a LAN listener for a user who had
-      // explicitly denied P2P.
-      expect(
-        AppController.lanListenAllowed(storedPolicy: null, readFailed: true),
-        isFalse,
-      );
-      // Even when a policy string was already in hand, a failed read denies.
-      expect(
-        AppController.lanListenAllowed(storedPolicy: 'allowed', readFailed: true),
-        isFalse,
-      );
-    });
+    test(
+      'an unreadable policy denies, it does not fall back to the default',
+      () {
+        // Audit X-14. The old `catch` returned the DEFAULT, which is permissive,
+        // so a transient storage error bound a LAN listener for a user who had
+        // explicitly denied P2P.
+        expect(
+          AppController.lanListenAllowed(storedPolicy: null, readFailed: true),
+          isFalse,
+        );
+        // Even when a policy string was already in hand, a failed read denies.
+        expect(
+          AppController.lanListenAllowed(
+            storedPolicy: 'allowed',
+            readFailed: true,
+          ),
+          isFalse,
+        );
+      },
+    );
 
     test('an absent policy is not the same as an unreadable one', () {
       // Never set = fresh install. Denying here would break every one of them,
@@ -1735,8 +1777,10 @@ class _OpenRefusingStorage implements Storage {
   bool usedAfterRefusal = false;
 
   @override
-  Future<bool> open({required String password, bool createIfMissing = false}) async =>
-      false;
+  Future<bool> open({
+    required String password,
+    bool createIfMissing = false,
+  }) async => false;
 
   @override
   dynamic noSuchMethod(Invocation invocation) {
@@ -1867,7 +1911,8 @@ void _wipeRemovesBlobsTests() {
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
-    final store = File('${dir.path}/test.store')..writeAsStringSync('container');
+    final store = File('${dir.path}/test.store')
+      ..writeAsStringSync('container');
     final blobs = blobRootFor(store.path)..createSync(recursive: true);
     File('${blobs.path}/aa/ciphertext').createSync(recursive: true);
 
@@ -1908,7 +1953,7 @@ void _wipeRemovesBlobsTests() {
 /// production does, or the test would be exercising a different lock.
 class _CloseFailingStorage extends HiddenVolumeStorage {
   _CloseFailingStorage(FakeHvContainer c)
-      : super(c.passwordOpener, keysOpener: c.keysOpener);
+    : super(c.passwordOpener, keysOpener: c.keysOpener);
 
   bool closeAttempted = false;
 
@@ -1976,8 +2021,7 @@ void _lockAlwaysCompletesTests() {
 }
 
 void _wipeClearsPostureTests() {
-  test('wipe removes the network posture, not just the onboarding flag',
-      () async {
+  test('wipe removes the network posture, not just the onboarding flag', () async {
     // Audit XV-15. `wipeContainers` cleared `onboarded` and `storage_mode` and
     // nothing else, so "clear all data" left the proxy exit, the VPN app list,
     // CIDR and DNS, the preview mode and the always-online choice sitting in
@@ -2026,55 +2070,59 @@ void _wipeClearsPostureTests() {
     }
   });
 
-  test('wipe takes the translation models, which name the languages you read',
-      () async {
-    // A stronger disclosure than the speech model's. Whisper's is a single
-    // generic file and says only that transcription was enabled; a translation
-    // model is one directory per DIRECTION, so what survived a wipe was a list
-    // of the languages this person reads — in plaintext directory names that
-    // need nothing unlocked to read.
-    SharedPreferences.setMockInitialValues(<String, Object>{'onboarded': true});
+  test(
+    'wipe takes the translation models, which name the languages you read',
+    () async {
+      // A stronger disclosure than the speech model's. Whisper's is a single
+      // generic file and says only that transcription was enabled; a translation
+      // model is one directory per DIRECTION, so what survived a wipe was a list
+      // of the languages this person reads — in plaintext directory names that
+      // need nothing unlocked to read.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'onboarded': true,
+      });
 
-    final dir = Directory.systemTemp.createTempSync('xveil_wipe_translate');
-    addTearDown(() {
-      if (dir.existsSync()) dir.deleteSync(recursive: true);
-    });
-    final store = File('${dir.path}/test.store')..writeAsStringSync('c');
-    final translateRoot = Directory('${dir.path}/translate')..createSync();
-    for (final id in ['ru-en', 'en-ru']) {
-      final pair = Directory('${translateRoot.path}/$id')..createSync();
-      File('${pair.path}/model.bin').writeAsStringSync('weights');
-    }
+      final dir = Directory.systemTemp.createTempSync('xveil_wipe_translate');
+      addTearDown(() {
+        if (dir.existsSync()) dir.deleteSync(recursive: true);
+      });
+      final store = File('${dir.path}/test.store')..writeAsStringSync('c');
+      final translateRoot = Directory('${dir.path}/translate')..createSync();
+      for (final id in ['ru-en', 'en-ru']) {
+        final pair = Directory('${translateRoot.path}/$id')..createSync();
+        File('${pair.path}/model.bin').writeAsStringSync('weights');
+      }
 
-    final container = FakeHvContainer();
-    final app = container.storage();
-    final c = ProviderContainer(
-      overrides: [
-        storageProvider.overrideWith((ref) => app),
-        translationModelsRootProvider.overrideWithValue(
-          () async => translateRoot,
-        ),
-        deniableBootProvider.overrideWithValue(
-          DeniableBootConfig(
-            runtimeDir: '${dir.path}/rt',
-            listenPort: 9001,
-            storePath: store.path,
+      final container = FakeHvContainer();
+      final app = container.storage();
+      final c = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => app),
+          translationModelsRootProvider.overrideWithValue(
+            () async => translateRoot,
           ),
-        ),
-      ],
-    );
-    addTearDown(c.dispose);
-    final ctrl = c.read(appControllerProvider.notifier);
-    await _settle(c);
+          deniableBootProvider.overrideWithValue(
+            DeniableBootConfig(
+              runtimeDir: '${dir.path}/rt',
+              listenPort: 9001,
+              storePath: store.path,
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
 
-    await ctrl.wipeContainers();
+      await ctrl.wipeContainers();
 
-    expect(
-      translateRoot.existsSync(),
-      isFalse,
-      reason: 'the directory names alone said which languages are read',
-    );
-  });
+      expect(
+        translateRoot.existsSync(),
+        isFalse,
+        reason: 'the directory names alone said which languages are read',
+      );
+    },
+  );
 
   test('wipe takes the speech model and the OS tunnel down too', () async {
     // The remaining two halves of XV-15. The ~57 MiB model is fetched from a

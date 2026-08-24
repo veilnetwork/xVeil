@@ -386,6 +386,13 @@ class _WipeLeftoverDialog extends StatelessWidget {
         l.lockWipeLeftFiles,
       if (remaining.contains('speech-model')) l.lockWipeLeftSpeechModel,
       if (remaining.contains('translations')) l.lockWipeLeftTranslations,
+      // Could-not-check is its own line, not silence. Folding it into the
+      // reassurance below would make "everything else is gone" a claim about
+      // a place nobody looked.
+      if (remaining.contains('speech-model-unknown'))
+        l.lockWipeLeftSpeechModelUnknown,
+      if (remaining.contains('translations-unknown'))
+        l.lockWipeLeftTranslationsUnknown,
     ];
     // Nothing was verified: either the wipe threw, or it came back with codes
     // this build has no sentence for. Saying "everything else is gone" over
