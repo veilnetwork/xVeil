@@ -71,7 +71,7 @@ const int kPeerRelayCacheMaxRelays = 4;
 /// just means "resolve fresh").
 class StorageRelayKeyCache implements RelayKeyCache {
   StorageRelayKeyCache(this._storage, {Duration ttl = const Duration(days: 7)})
-      : _ttlMs = ttl.inMilliseconds;
+    : _ttlMs = ttl.inMilliseconds;
 
   final Storage _storage;
   final int _ttlMs;
@@ -114,8 +114,7 @@ class StorageRelayKeyCache implements RelayKeyCache {
       final dot = raw.lastIndexOf('.');
       if (dot <= 0) return null;
       final expiry = int.tryParse(raw.substring(dot + 1));
-      if (expiry == null ||
-          DateTime.now().millisecondsSinceEpoch >= expiry) {
+      if (expiry == null || DateTime.now().millisecondsSinceEpoch >= expiry) {
         return null; // expired (or malformed) → resolve fresh
       }
       final key = base64.decode(raw.substring(0, dot));
@@ -157,12 +156,26 @@ class StorageRelayKeyCache implements RelayKeyCache {
     final s = _shadow[relay.hex];
     if (s != null && s.key64 == key64 && (s.expiry - now) > _ttlMs ~/ 2) return;
     final expiry = now + _ttlMs;
-    _shadow[relay.hex] = (key64: key64, expiry: expiry);
     try {
       await _storage.putSetting(_settingKey(relay), '$key64.$expiry');
     } catch (_) {
-      // best-effort — a failed write just means we resolve fresh next time
+      // The shadow is a picture of what is STORED, so a write that did not
+      // happen must not appear in it.
+      //
+      // It used to be written first, under a comment saying a failed write
+      // "just means we resolve fresh next time". It meant the opposite: the
+      // shadow then claimed a full TTL, so the skip above — same key, more
+      // than half its TTL left — swallowed every retry for half a TTL. The one
+      // case the cache is allowed to skip a write is the case where the value
+      // is already on disk, and a failed write is precisely when it is not.
+      //
+      // Dropping the entry rather than restoring the previous one keeps this
+      // honest without guessing: the next put re-seeds from storage and learns
+      // what is actually there.
+      _shadow.remove(relay.hex);
+      return;
     }
+    _shadow[relay.hex] = (key64: key64, expiry: expiry);
   }
 
   @override
@@ -203,12 +216,19 @@ class StorageRelayKeyCache implements RelayKeyCache {
         // best-effort — fall through to the normal persist
       }
     }
-    _preferredShadow = relay.hex;
     try {
       await _storage.putSetting(_preferredKey, relay.hex);
     } catch (_) {
-      // best-effort — a failed write just means no preference next launch
+      // Same reasoning as `put`, and the old comment here was wrong in the
+      // same way: with the shadow already set, the equality guard at the top of
+      // this method suppressed every retry for the rest of the PROCESS, not
+      // merely the next launch. Cross-session relay drift is what this
+      // preference exists to stop — it leaves a stale ad slot at the old relay
+      // that a sender can still deposit to.
+      _preferredShadow = null;
+      return;
     }
+    _preferredShadow = relay.hex;
   }
 
   @override
@@ -321,7 +341,7 @@ class StorageRelayKeyCache implements RelayKeyCache {
 /// there is no deniable space to persist into). Holds keys + expiries in a map.
 class InMemoryRelayKeyCache implements RelayKeyCache {
   InMemoryRelayKeyCache({Duration ttl = const Duration(days: 7)})
-      : _ttlMs = ttl.inMilliseconds;
+    : _ttlMs = ttl.inMilliseconds;
 
   final int _ttlMs;
   final Map<String, ({Uint8List key, int expiry})> _entries = {};
