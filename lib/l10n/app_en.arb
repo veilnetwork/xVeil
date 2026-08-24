@@ -68,6 +68,8 @@
   "lockWipeLeftFiles": "The large files kept beside the container could not be deleted and are still on this device.",
   "lockWipeLeftBoth": "Neither the container nor the large files kept beside it could be deleted, and both are still on this device.",
   "lockWipeLeftSpeechModel": "The downloaded speech model could not be deleted and is still on this device.",
+  "lockWipeLeftSpeechModelUnknown": "The speech model could not be checked — this device did not answer where it is stored.",
+  "lockWipeLeftTranslationsUnknown": "The translation models could not be checked — this device did not answer where they are stored.",
   "lockWipeLeftTranslations": "The downloaded translation languages could not be deleted, and their names are still on this device.",
   "lockWipeLeftRest": "Everything else was destroyed. Try again — if it keeps failing, something else on this computer is holding on to it, such as a backup tool or a read-only disk.",
   "lockWipeStopped": "The deletion stopped partway through, so some of your data may still be on this device. Try again.",

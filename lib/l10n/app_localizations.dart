@@ -489,6 +489,18 @@ abstract class AppL10n {
   /// **'The downloaded speech model could not be deleted and is still on this device.'**
   String get lockWipeLeftSpeechModel;
 
+  /// No description provided for @lockWipeLeftSpeechModelUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'The speech model could not be checked — this device did not answer where it is stored.'**
+  String get lockWipeLeftSpeechModelUnknown;
+
+  /// No description provided for @lockWipeLeftTranslationsUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'The translation models could not be checked — this device did not answer where they are stored.'**
+  String get lockWipeLeftTranslationsUnknown;
+
   /// No description provided for @lockWipeLeftTranslations.
   ///
   /// In en, this message translates to:

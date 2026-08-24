@@ -65,6 +65,8 @@
   "lockWipeLeftFiles": "No se han podido borrar los archivos grandes guardados junto al contenedor y siguen en este dispositivo.",
   "lockWipeLeftBoth": "No se han podido borrar ni el contenedor ni los archivos grandes guardados junto a él, y ambos siguen en este dispositivo.",
   "lockWipeLeftSpeechModel": "No se ha podido borrar el modelo de voz descargado y sigue en este dispositivo.",
+  "lockWipeLeftSpeechModelUnknown": "No se pudo comprobar el modelo de voz: este dispositivo no indicó dónde se guarda.",
+  "lockWipeLeftTranslationsUnknown": "No se pudieron comprobar los modelos de traducción: este dispositivo no indicó dónde se guardan.",
   "lockWipeLeftTranslations": "No se han podido borrar los idiomas de traducción descargados, y sus nombres siguen en este dispositivo.",
   "lockWipeLeftRest": "Todo lo demás se ha destruido. Vuelve a intentarlo; si sigue sin conseguirlo, es que algo más de este equipo lo está reteniendo, como una herramienta de copias de seguridad o un disco de solo lectura.",
   "lockWipeStopped": "El borrado se ha interrumpido a medias, así que parte de tus datos puede seguir en este dispositivo. Vuelve a intentarlo.",

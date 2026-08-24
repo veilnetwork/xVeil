@@ -237,6 +237,14 @@ class AppL10nEn extends AppL10n {
       'The downloaded speech model could not be deleted and is still on this device.';
 
   @override
+  String get lockWipeLeftSpeechModelUnknown =>
+      'The speech model could not be checked — this device did not answer where it is stored.';
+
+  @override
+  String get lockWipeLeftTranslationsUnknown =>
+      'The translation models could not be checked — this device did not answer where they are stored.';
+
+  @override
   String get lockWipeLeftTranslations =>
       'The downloaded translation languages could not be deleted, and their names are still on this device.';
 
