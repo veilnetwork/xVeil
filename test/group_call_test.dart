@@ -667,8 +667,16 @@ void main() {
       // The channel-epoch re-ring rides a real 300 ms one-shot Timer; poll for
       // it rather than sleeping a hair over 300 ms, which races under parallel
       // test load (the timer can miss a fixed 350 ms window on a busy machine).
+      //
+      // The bound is 10 s rather than the 2 s it was, because 2 s was still not
+      // enough: this assertion is the one test that reddened the v0.12.0 tag on
+      // a two-core CI runner, with an EMPTY frame list — the timer had simply
+      // not fired yet. Waiting longer cannot hide a regression: a re-ring that
+      // never happens still fails, just ten seconds later, and the assertion
+      // below is unchanged. The loop exits on the first frame, so a healthy run
+      // pays nothing for the larger ceiling.
       final before = ownerFrames.length;
-      for (var i = 0; i < 40 && ownerFrames.length == before; i++) {
+      for (var i = 0; i < 200 && ownerFrames.length == before; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
         await pumpEventQueue();
       }
