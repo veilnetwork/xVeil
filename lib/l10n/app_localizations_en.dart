@@ -6120,6 +6120,9 @@ class AppL10nEn extends AppL10n {
   String get modelBundleMissing => 'the file is not on this device';
 
   @override
+  String get modelBundleTooLarge => 'the file is too large to install';
+
+  @override
   String get modelBundleTrust =>
       'A model decides what this app says other people wrote. Install one only from someone you trust.';
 

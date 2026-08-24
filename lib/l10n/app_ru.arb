@@ -2602,6 +2602,7 @@
   "modelBundleInstalled": "Установлена",
   "modelBundleFailed": "Установить не удалось",
   "modelBundleMissing": "файла нет на этом устройстве",
+  "modelBundleTooLarge": "файл не установить: он слишком велик",
   "modelBundleTrust": "Модель решает, что приложение скажет о чужих словах. Ставьте её только от того, кому доверяете.",
   "voiceModelImport": "Установить из файла…",
   "voiceModelImportHint": "Файл .veilaudio, если его уже кто-то скачал",
