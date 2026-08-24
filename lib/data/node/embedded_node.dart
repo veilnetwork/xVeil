@@ -1417,8 +1417,9 @@ class EmbeddedNode {
   /// `core`, so a client that serves nothing takes the DHT's replica set down
   /// to three machines. Pure helper (no FFI), unit-testable.
   static String withMobileServiceBudget(String toml, {required bool isMobile}) {
-    if (!isMobile || toml.contains('service_budget_bytes_per_hour'))
+    if (!isMobile || toml.contains('service_budget_bytes_per_hour')) {
       return toml;
+    }
     const perHour = 1024 * 1024;
     if (toml.contains('[dht]')) {
       return toml.replaceFirst(
