@@ -268,6 +268,60 @@ void switchTests() {
     expect(tester.widget<SwitchListTile>(tile).value, kDhtParticipationDefault);
   });
 
+  /// The answer is PER IDENTITY, and switching identity re-points
+  /// `storageProvider` at another space without stopping any node. This widget
+  /// read the store once, in `initState`, so after a switch it went on showing
+  /// the previous identity's choice while a tap wrote to the NEW identity's
+  /// space: one identity silently reconfigured, and the switch showing the
+  /// other one's answer.
+  testWidgets('the switch follows a change of identity', (tester) async {
+    final first = _FakeStorage()
+      ..settings[kDhtParticipationSettingKey] = 'true';
+    final second = _FakeStorage()
+      ..settings[kDhtParticipationSettingKey] = 'false';
+    // The active space, as `storageProvider` resolves it. Swapping it and
+    // invalidating is what an identity switch does to this provider.
+    var active = first;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [storageProvider.overrideWith((ref) => active)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: const Scaffold(body: ServeDhtSwitch()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+
+    // The person switches identity. Nothing about this widget is rebuilt from
+    // scratch — the node stays online and the screen stays put.
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(ServeDhtSwitch)),
+    );
+    active = second;
+    container.invalidate(storageProvider);
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.widget<SwitchListTile>(tile).value,
+      isFalse,
+      reason: "it must show the ACTIVE identity's answer, not the last one's",
+    );
+
+    // And a tap now belongs to the identity on screen.
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(second.settings[kDhtParticipationSettingKey], 'true');
+    expect(
+      first.settings[kDhtParticipationSettingKey],
+      'true',
+      reason: 'the identity that is not on screen must not be touched',
+    );
+  });
+
   /// A switch that moved but stored nothing would promise a posture no node
   /// will ever boot with — the exact shape of lie the control exists to avoid.
   testWidgets('a refused write leaves the switch where it was', (tester) async {
