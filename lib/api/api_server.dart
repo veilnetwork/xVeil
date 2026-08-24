@@ -4800,7 +4800,18 @@ class ApiHandler {
       if (lockAccount == null) {
         return const ApiResponse(501, {'error': 'lock unavailable'});
       }
-      await lockAccount!();
+      try {
+        await lockAccount!();
+      } catch (e) {
+        // A teardown leg failed, so the boundary is not closed — and this
+        // server is still answering, which is itself the tell. Reporting 200
+        // here would be the one claim nothing else in the system makes.
+        return ApiResponse(500, {
+          'error': 'lock incomplete',
+          'detail': '$e',
+          'locked': false,
+        });
+      }
       // Deliberately not re-reading the account here: the host stops this
       // server as part of locking, so anything read now would describe a state
       // that is already gone.

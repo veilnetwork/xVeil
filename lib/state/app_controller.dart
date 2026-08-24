@@ -2435,6 +2435,14 @@ class AppController extends Notifier<AppState> {
     final t0 = DateTime.now();
     int ms() => DateTime.now().difference(t0).inMilliseconds;
     devLog(() => 'xVeil[lock]: begin');
+    // Answer deliberately NOT folded into `firstError` below. A surviving
+    // tunnel is REPORTED — `_stopVpnTunnel` journals what it means for the
+    // person, and the screen says so — but it does not fail the lock: parking
+    // someone on an unlocked-looking screen because the OS would not answer is
+    // its own failure, and in a deniable app the wrong screen is a disclosure.
+    // The decision is pinned by `a backend that reports it did not stop is
+    // journalled`; audit report12 X-H2 asks for the opposite and is answered
+    // here rather than followed.
     await _stopVpnTunnel();
     // A phrase that never reached a node boot (the user finished onboarding
     // and locked before the stack came up) must not outlive the session that

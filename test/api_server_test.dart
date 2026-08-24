@@ -76,6 +76,9 @@ void main() {
   Map<String, dynamic>? localSpacePostDraft;
   Map<String, dynamic>? localScheduledSpacePost;
   var accountLocked = false;
+  /// Set to make the injected lock fail the way a teardown leg does — the
+  /// tunnel that would not stop, a session that would not close.
+  Object? lockFailure;
   var activeIdentity = 'personal';
   final cloudRows = <Map<String, dynamic>>[
     {'id': 'n1', 'name': 'Note', 'kind': 'note', 'size': 12, 'deleted': false},
@@ -113,6 +116,7 @@ void main() {
     List<String> fileRoots = const <String>[],
   }) {
     accountLocked = false;
+    lockFailure = null;
     activeIdentity = 'personal';
     cloudDeletes.clear();
     cloudNotes.clear();
@@ -230,7 +234,13 @@ void main() {
               'activeIdentity': activeIdentity,
               'identities': const ['personal', 'work'],
             },
-      lockAccount: !accountAvailable ? null : () async => accountLocked = true,
+      lockAccount: !accountAvailable
+          ? null
+          : () async {
+              final failure = lockFailure;
+              if (failure != null) throw failure;
+              accountLocked = true;
+            },
       switchIdentity: !accountAvailable
           ? null
           : (label) async {
@@ -1367,6 +1377,38 @@ void main() {
     expect(lock.status, 200);
     expect((lock.body! as Map)['locked'], isTrue);
     expect(accountLocked, isTrue);
+  });
+
+  /// `locked: true` is the only statement in the system that the privacy
+  /// boundary has closed, and it used to be written before anything had been
+  /// asked to close: the state layer scheduled the lock and returned at once,
+  /// so the response went out while the tunnel, the node and the container
+  /// were all still up, and any failure landed where nothing could report it.
+  test('a lock that did not finish is not answered with locked: true', () async {
+    final h = make();
+    lockFailure = StateError(
+      'the VPN tunnel did not stop: traffic may still be routed through the '
+      'configured exit while the app presents itself as locked',
+    );
+
+    final res = await h.handle(
+      'POST',
+      Uri.parse('/v1/account/lock'),
+      'Bearer secret-token',
+    );
+
+    expect(res.status, 500, reason: 'the boundary is not closed');
+    expect((res.body! as Map)['locked'], isFalse);
+    expect(
+      '${(res.body! as Map)['detail']}',
+      contains('tunnel'),
+      reason: 'the caller is told WHICH leg is still up, not just that one is',
+    );
+    expect(
+      accountLocked,
+      isFalse,
+      reason: 'the fixture must actually have failed, or this proves nothing',
+    );
   });
 
   test('a read-only token may read the account but not act on it', () async {
