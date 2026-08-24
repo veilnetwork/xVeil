@@ -100,6 +100,64 @@ void main() {
     );
   }
 
+  test('a share works on a bounded number of requests at once', () async {
+    // The nonce cache stops a datagram being replayed and the egress budget
+    // stops a big reply being reflected; neither bounds how many requests are
+    // IN PROGRESS. Many small ones, each with a fresh nonce, pass both — and
+    // the endpoint listener starts every MAC-valid datagram unawaited, so each
+    // carries a container read, an AEAD seal and a send over an anonymous
+    // circuit with the byte budget barely touched.
+    final fixture = await buildFolder(fileCount: 1);
+    final hostToClient = StreamController<Uint8List>.broadcast();
+    // The host's outbound never lands, so every serve that reaches it holds
+    // its place — which is what makes "at once" observable at all.
+    final wedged = Completer<void>();
+    final host = CloudFolderShareHost(
+      capability: fixture.capability,
+      storage: fixture.storage,
+      listing: fixture.listing,
+      maxConcurrentServes: 3,
+      send:
+          ({
+            required servicePublicKey,
+            required targetAppId,
+            required targetEndpointId,
+            required data,
+          }) => wedged.future,
+    );
+    addTearDown(() => wedged.complete());
+
+    final client = CloudFolderShareClient(
+      capability: fixture.capability,
+      returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+      returnAppId: Uint8List.fromList(List.filled(32, 4)),
+      returnEndpointId: 48,
+      incoming: hostToClient.stream,
+      send: (data) async => unawaited(host.serve(data)),
+      randomBytes: _counterBytes(),
+    );
+
+    // Twenty distinct, MAC-valid requests. Not awaited: with the host's send
+    // wedged no reply ever comes back, which is the point.
+    for (var i = 0; i < 20; i++) {
+      unawaited(client.fetchListing().catchError((Object _) => <String, Object?>{}));
+    }
+    for (var i = 0; i < 10; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+
+    expect(
+      host.servesInFlight,
+      lessThanOrEqualTo(3),
+      reason: 'twenty fresh requests must not become twenty live operations',
+    );
+    expect(
+      host.servesInFlight,
+      greaterThan(0),
+      reason: 'a ceiling that admits nothing is not a ceiling',
+    );
+  });
+
   test(
     'client fetches the listing and every file through the folder share',
     () async {
