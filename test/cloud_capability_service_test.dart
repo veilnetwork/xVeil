@@ -15,6 +15,27 @@ import 'package:xveil/state/cloud_capability_service.dart';
 
 import 'support/fake_hv_container.dart';
 
+
+/// Fails the capability EVENT-log write on demand. The registry and every
+/// other file keep working, which is the shape that matters: the two are
+/// separate writes and only one of them is what a restart trusts.
+class _EventsWriteFails extends HiddenVolumeStorage {
+  _EventsWriteFails(super.opener, {super.keysOpener});
+
+  static const eventsFile = 'cloud.capability.events.v2';
+  static const registryFile = 'cloud.capabilities.registry.v2';
+
+  bool fail = false;
+
+  @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) {
+    if (fail && fileId == eventsFile) {
+      throw StateError('no space left on device');
+    }
+    return super.storeFile(fileId, bytes, name: name);
+  }
+}
+
 class _Random implements Random {
   int value = 1;
   @override
@@ -1289,6 +1310,144 @@ void main() {
           'keeps answering, keeps its provider slot, and nothing will ever '
           'close it because the service it belongs to is gone',
     );
+    await storage.close();
+  });
+
+  /// A revoke the person is told succeeded must not come back.
+  ///
+  /// The registry says what was last written; the EVENT LOG says what was
+  /// revoked, and a restart reads the log to decide. Taking the row out first
+  /// and recording the tombstone after left a window where the log still held
+  /// the old active row — and the write that closed it swallowed its own
+  /// error. When it failed, the next start folded the stale row and re-hosted
+  /// the capability the person had just withdrawn, for the rest of its
+  /// lifetime: seven days by default.
+  test('a revoke whose tombstone will not go down is not a revoke', () async {
+    final container = FakeHvContainer();
+    final storage = _EventsWriteFails(
+      container.passwordOpener,
+      keysOpener: container.keysOpener,
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+    final network = _Network();
+    final service = CloudCapabilityService(storage, network, random: _Random());
+
+    final bytes = Uint8List.fromList(List.generate(32, (i) => i));
+    final manifest = ContentManifest.fromBytes('f.bin', bytes);
+    await storage.storeFile(manifest.contentId, bytes);
+    await storage.storeFile(
+      'mf:${manifest.contentId}',
+      Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+    );
+    final share = await service.createShare(
+      CloudItem(
+        id: 'f',
+        kind: CloudItemKind.file,
+        name: manifest.name,
+        contentId: manifest.contentId,
+        size: bytes.length,
+        createdAtMs: 1,
+        modifiedAtMs: 1,
+        revision: 1,
+        deleted: false,
+      ),
+    );
+    expect(await service.listShares(), hasLength(1));
+
+    storage.fail = true;
+    expect(
+      await service.revoke(share.shareId),
+      isFalse,
+      reason: 'no tombstone on disk, no revoke to report',
+    );
+    expect(
+      await service.listShares(),
+      hasLength(1),
+      reason: 'a refused revoke leaves the share whole, not half taken apart',
+    );
+    expect(
+      jsonDecode(
+        utf8.decode(
+          (await storage.loadFile(_EventsWriteFails.registryFile))!,
+        ),
+      ),
+      hasLength(1),
+      reason: 'the registry still holds the row it was never told to drop',
+    );
+
+    // The container comes back and the same call now goes through.
+    storage.fail = false;
+    expect(await service.revoke(share.shareId), isTrue);
+    expect(await service.listShares(), isEmpty);
+
+    await service.close();
+    await storage.close();
+  });
+
+  /// The crash the new order leaves behind, and what a restart must do with it.
+  ///
+  /// With the tombstone written first, a crash before the registry save leaves
+  /// a tombstone AND a row still in the registry. `_start` used to host every
+  /// row it read and consult the event log afterwards, so that share was
+  /// served from the moment the app opened.
+  test('a tombstone outranks a row a crash left in the registry', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final network = _Network();
+    final service = CloudCapabilityService(storage, network, random: _Random());
+
+    final bytes = Uint8List.fromList(List.generate(32, (i) => i + 5));
+    final manifest = ContentManifest.fromBytes('g.bin', bytes);
+    await storage.storeFile(manifest.contentId, bytes);
+    await storage.storeFile(
+      'mf:${manifest.contentId}',
+      Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+    );
+    final share = await service.createShare(
+      CloudItem(
+        id: 'g',
+        kind: CloudItemKind.file,
+        name: manifest.name,
+        contentId: manifest.contentId,
+        size: bytes.length,
+        createdAtMs: 1,
+        modifiedAtMs: 1,
+        revision: 1,
+        deleted: false,
+      ),
+    );
+    final liveRegistry = (await storage.loadFile(
+      _EventsWriteFails.registryFile,
+    ))!;
+
+    expect(await service.revoke(share.shareId), isTrue);
+    await service.close();
+
+    // Put the registry back the way a crash between the two writes leaves it:
+    // the tombstone is down, the row never came out.
+    await storage.storeFile(_EventsWriteFails.registryFile, liveRegistry);
+
+    final hostedBefore = network.endpoints.length;
+    final restarted = CloudCapabilityService(
+      storage,
+      network,
+      random: _Random(),
+    );
+    await restarted.start();
+    expect(
+      await restarted.listShares(),
+      isEmpty,
+      reason: 'the log says it was revoked; the registry is only what was last '
+          'written',
+    );
+    expect(
+      network.endpoints.length,
+      hostedBefore,
+      reason: 'and nothing was put back on the network to find out',
+    );
+
+    await restarted.close();
     await storage.close();
   });
 }
