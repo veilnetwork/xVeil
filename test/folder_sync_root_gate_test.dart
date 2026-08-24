@@ -8,7 +8,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/posix_file_facts.dart';
 import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/domain/folder_sync.dart';
 import 'package:xveil/state/folder_sync_controller.dart';
+import 'package:xveil/state/folder_sync_engine.dart';
 import 'package:xveil/state/providers.dart';
 
 /// A Storage that only remembers files — everything else a caller reaches for
@@ -25,6 +27,31 @@ class _FileOnlyStorage implements Storage {
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async =>
       files[fileId];
 
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+
+/// Counts passes and does nothing else: the question is whether the engine is
+/// reached at all, not what it would have done.
+class _CountingEngine extends FolderSyncEngine {
+  _CountingEngine(super.cloud, super.disk, super.store, super.now);
+
+  int runs = 0;
+
+  @override
+  Future<FolderSyncReport> runOnce(FolderSyncPair pair) async {
+    runs++;
+    return const FolderSyncReport(applied: [], failed: [], conflicts: {});
+  }
+}
+
+class _UnusedCloud implements FolderSyncCloud {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _UnusedDisk implements FolderSyncDisk {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -64,6 +91,69 @@ void main() {
   // cloud account admits. If somebody else on the machine can swap that folder
   // — or any folder ABOVE it — for a link, the app carries their redirection
   // out with the user's authority: the confused deputy the mirror must not be.
+
+  // The gate above runs when the folder is CHOSEN. A root can stop being safe
+  // afterwards, and every pass since had been trusting an answer from the day
+  // the pair was added.
+  test('a root that stops being safe is refused on the next pass', () async {
+    final tmp = tempRoot('xveil_gate_later');
+    final parent = Directory('${tmp.path}/holder')..createSync();
+    final root = Directory('${parent.path}/mirror')..createSync();
+    _chmod(root, _mode0755);
+    _chmod(parent, _mode0755);
+
+    late _CountingEngine engine;
+    final c = ProviderContainer(
+      overrides: [
+        storageProvider.overrideWith((ref) => _FileOnlyStorage()),
+        folderSyncEngineProvider.overrideWith((ref) {
+          engine = _CountingEngine(
+            _UnusedCloud(),
+            _UnusedDisk(),
+            ref.watch(folderSyncStoreProvider),
+            () => 0,
+          );
+          return engine;
+        }),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(folderSyncControllerProvider.notifier);
+
+    expect(
+      await ctrl.addPair(localPath: root.path, id: 'later'),
+      isNull,
+      reason: 'the fixture must start from a root that IS acceptable',
+    );
+    final pair = c.read(folderSyncControllerProvider).single.pair;
+
+    // A pass while it is still safe: the engine is reached.
+    expect((await ctrl.runOnce(pair))?.isRefused, isFalse);
+    expect(engine.runs, 1);
+
+    // Now somebody opens the parent up — the folder itself is untouched.
+    _chmod(parent, _mode0777);
+
+    final report = await ctrl.runOnce(pair);
+    expect(
+      report?.isRefused,
+      isTrue,
+      reason: 'the pass has to re-ask, not trust the answer from setup',
+    );
+    expect(
+      engine.runs,
+      1,
+      reason: 'a pass that cannot vouch for its root must not run a partial '
+          'one',
+    );
+    expect(
+      c.read(folderSyncControllerProvider).single.lastRefusal,
+      isNotNull,
+      reason: 'and the screen has to be able to say why nothing is sy'
+          'ncing',
+    );
+  });
+
   group('a folder another account can reach is not accepted as a sync root',
       () {
     test('a private folder inside a world-writable PARENT is refused',

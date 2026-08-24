@@ -160,6 +160,40 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     final engine = _engine;
     if (engine == null || !_running.add(pair.id)) return null;
     try {
+      // EVERY PASS, not only at setup.
+      //
+      // `addPair` checked this once, when the folder was chosen, and every
+      // pass afterwards trusted that answer for as long as the pair existed. A
+      // root can stop being safe later: a parent directory made writable by
+      // other accounts, or the folder replaced by a symlink pointing
+      // elsewhere. From then on each pass read and wrote through a root
+      // nothing had looked at since the day it was added.
+      //
+      // Refused rather than narrowed, and recorded where the screen already
+      // shows a refusal — a pass that cannot vouch for its root must not run a
+      // partial one.
+      final unsafe = folderSyncRootRefusal(pair.localPath);
+      if (unsafe != null) {
+        final reason = 'the sync root is no longer safe to use '
+            '(${unsafe.code.name}${unsafe.path == null ? '' : ': ${unsafe.path}'})';
+        final saved = await _store.state(pair.id);
+        await _store.saveState(
+          pair.id,
+          FolderSyncState(
+            base: saved.base,
+            pendingConflicts: saved.pendingConflicts,
+            resolutions: saved.resolutions,
+            lastPassAtMs: saved.lastPassAtMs,
+            lastRefusal: reason,
+          ),
+        );
+        return FolderSyncReport(
+          applied: const [],
+          failed: const [],
+          conflicts: saved.pendingConflicts,
+          refusedReason: reason,
+        );
+      }
       // Inside the try, not before it. `_running` is what stops a second pass
       // over the same pair, and the id went in one statement earlier — so a
       // throw from this reload left the pair marked busy for the lifetime of
