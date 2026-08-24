@@ -141,6 +141,21 @@ bool shouldOpenJoinSheet({
   required bool alreadyOpened,
 }) => autoJoin && ready && !alreadyOpened;
 
+/// Whether link and revoke can run for a sovereign credential of this kind.
+///
+/// Both take the document half through native calls that derive the master key
+/// from a PHRASE — `revokeIdentityDeviceFromPhrase`,
+/// `delegateDeviceIntoDocument`. A recovery certificate's code is not a phrase
+/// and cannot be decoded as one, so those calls fail: correctly, and with
+/// nothing half-applied, but only after the person has typed the one secret
+/// that unlocks their identity into a dialog that could never use it.
+///
+/// Refused up front instead. The capability is not implemented for this
+/// credential rather than broken by it, and saying so is the honest state of
+/// the feature until the native side takes either secret (report12 X-M6).
+bool documentActionsAvailable(String? credentialKind) =>
+    credentialKind != 'certificate';
+
 class DevicesScreen extends ConsumerStatefulWidget {
   const DevicesScreen({super.key, this.autoJoin = false});
 
@@ -387,6 +402,12 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 
   Future<void> _revoke(NodeId device) async {
     final l = AppL10n.of(context);
+    if (!documentActionsAvailable(_credentialKind)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(l.devicesCertificateNoDocumentActions)),
+      );
+      return;
+    }
     final usesCertificate = _credentialKind == 'certificate';
     // The dialog returns the WORDS, not a bool, so the secret never outlives
     // the widget that held it: the controller is owned by the dialog's own
@@ -1058,6 +1079,10 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
 
   Future<void> _prepare() async {
     final l = AppL10n.of(context);
+    if (!documentActionsAvailable(widget.credentialKind)) {
+      setState(() => _error = l.devicesCertificateNoDocumentActions);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;

@@ -2215,6 +2215,7 @@
   "devicesPhrase": "Frase de recuperación",
   "devicesPhraseHint": "La frase descifra la clave soberana solo para esta acción. No se guarda.",
   "devicesRecoveryCode": "Código de recuperación",
+  "devicesCertificateNoDocumentActions": "esta identidad se desbloquea con un certificado de recuperación, y vincular o revocar un dispositivo todavía requiere la frase maestra",
   "devicesRecoveryCodeHint": "El código descifra el certificado de recuperación solo para esta acción. No se guarda.",
   "devicesTargetInvite": "Invitación del dispositivo nuevo",
   "devicesTargetInviteHint": "Escanea o pega la invitación de arranque que muestra el dispositivo nuevo",

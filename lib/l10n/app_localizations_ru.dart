@@ -5287,6 +5287,10 @@ class AppL10nRu extends AppL10n {
   String get devicesRecoveryCode => 'Код восстановления';
 
   @override
+  String get devicesCertificateNoDocumentActions =>
+      'эта личность открывается сертификатом восстановления, а связывание и отзыв устройства пока требуют мастер-фразы';
+
+  @override
   String get devicesRecoveryCodeHint =>
       'Код расшифрует сертификат восстановления только для этого действия и не сохранится.';
 
