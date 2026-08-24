@@ -15358,6 +15358,15 @@ class GroupService {
       );
       return false;
     }
+    // NOT compared here: `manifest.owner` against `pending.source`. Audit
+    // report12 X-H1 asks for that equality, and it cannot hold — a device
+    // group's owner is `sovereign.nodeId`, the sovereign authority key, while
+    // a token's source is the identity id. Different layers by design; the
+    // comparison refuses every genuine adoption (proven by `guided adoption
+    // admits one pinned stranger snapshot then auto-adopts`). The binding the
+    // finding is really after runs through the identity DOCUMENT, which is
+    // what ties an identity to its sovereign key — a design step, not an
+    // equality, and it is not made here.
     if (!await ingestSnapshot(bundleJson)) {
       _devicesRefused('the bundle failed to fold in (gid ${pending.groupId.short})');
       return false;

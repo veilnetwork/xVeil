@@ -225,6 +225,54 @@ void main() {
       return storage;
     }
 
+    /// THE CEREMONY RULE, which is a different question from the merge's own.
+    ///
+    /// A refusal used to be the same `false` as "we already hold this
+    /// document", and all three link paths read it that way and carried on. A
+    /// device could finish linking to a family whose document it does not
+    /// hold: publishing a registry naming itself alone, sealing for nobody.
+    /// The usual reason for a refusal is that the document does not name this
+    /// device's key, or is not this family's document at all — which is what a
+    /// substituted ceremony produces.
+    test('a refused document ends the ceremony', () async {
+      final storage = await provisioned();
+      await expectLater(
+        adoptCeremonyDocument(
+          storage,
+          document: Uint8List.fromList([4, 5, 6, 7]),
+          stagingBase: tmp.path,
+          // The native side's refusal: it wipes the staging copy rather than
+          // writing a document, so nothing usable comes back.
+          merge: (toml, dir, doc) async {
+            await Directory(dir).delete(recursive: true);
+            await Directory(dir).create(recursive: true);
+          },
+        ),
+        throwsA(isA<SovereignDocumentRefused>()),
+      );
+    });
+
+    test('a document already held lets the ceremony go on', () async {
+      final storage = await provisioned();
+      final held = decodeSovereignIdentity(
+        storage.settings[kSovereignIdentitySetting]!,
+      )!;
+      final onward = await adoptCeremonyDocument(
+        storage,
+        document: Uint8List.fromList([4, 5, 6, 7]),
+        stagingBase: tmp.path,
+        // Writes back exactly what this device already holds.
+        merge: (toml, dir, doc) async =>
+            materialiseSovereignIdentity(dir, held),
+      );
+      expect(
+        onward,
+        isFalse,
+        reason: 'nothing changed, so the node has nothing to be handed — but '
+            'the ceremony is not stopped either',
+      );
+    });
+
     test('merges and keeps what the delegation produced', () async {
       final storage = await provisioned();
       final seen = <String>[];
@@ -241,7 +289,7 @@ void main() {
           });
         },
       );
-      expect(ok, isTrue);
+      expect(ok, SovereignDocumentAdoption.adopted);
       expect(seen, hasLength(1));
       final kept = decodeSovereignIdentity(
         storage.settings[kSovereignIdentitySetting]!,
@@ -263,7 +311,7 @@ void main() {
         merge: (toml, dir, doc) async =>
             throw StateError('delegate_device: master does not match'),
       );
-      expect(ok, isFalse);
+      expect(ok, SovereignDocumentAdoption.refused);
       expect(storage.settings[kSovereignIdentitySetting], before);
     });
 
@@ -299,7 +347,7 @@ void main() {
           await materialiseSovereignIdentity(dir, _material());
         },
       );
-      expect(ok, isTrue);
+      expect(ok, SovereignDocumentAdoption.adopted);
       expect(mergeCalled, isFalse, reason: 'no master to merge under');
       expect(seen, hasLength(1));
       expect(storage.settings[kSovereignIdentitySetting], isNotNull);
@@ -316,7 +364,7 @@ void main() {
         merge: (toml, dir, doc) async => called = true,
         adoptNamed: (toml, dir, doc) async => called = true,
       );
-      expect(ok, isFalse);
+      expect(ok, SovereignDocumentAdoption.refused);
       expect(called, isFalse);
     });
 
@@ -333,7 +381,7 @@ void main() {
         adoptNamed: (toml, dir, doc) async =>
             throw StateError('document does not name this device'),
       );
-      expect(ok, isFalse);
+      expect(ok, SovereignDocumentAdoption.refused);
       expect(storage.settings[kSovereignIdentitySetting], isNull);
     });
 
@@ -348,7 +396,7 @@ void main() {
           await materialiseSovereignIdentity(dir, partial);
         },
       );
-      expect(ok, isFalse);
+      expect(ok, SovereignDocumentAdoption.refused);
       expect(storage.settings[kSovereignIdentitySetting], isNull);
     });
 
@@ -364,7 +412,7 @@ void main() {
         stagingBase: tmp.path,
         merge: (toml, dir, doc) async => called = true,
       );
-      expect(ok, isFalse);
+      expect(ok, SovereignDocumentAdoption.refused);
       expect(called, isFalse);
     });
 
@@ -386,7 +434,7 @@ void main() {
             await Directory(dir).create(recursive: true);
           },
         );
-        expect(ok, isFalse);
+        expect(ok, SovereignDocumentAdoption.refused);
         expect(storage.settings[kSovereignIdentitySetting], before);
       },
     );
@@ -409,7 +457,7 @@ void main() {
           merge: (toml, dir, doc) async =>
               materialiseSovereignIdentity(dir, _material()),
         );
-        expect(ok, isFalse, reason: 'nothing changed, so nothing to announce');
+        expect(ok, SovereignDocumentAdoption.alreadyHeld, reason: 'nothing changed, so nothing to announce');
         expect(storage.settings[kSovereignIdentitySetting], before);
       },
     );
@@ -423,7 +471,7 @@ void main() {
         stagingBase: tmp.path,
         merge: (toml, dir, doc) async => called = true,
       );
-      expect(ok, isFalse);
+      expect(ok, SovereignDocumentAdoption.nothingOffered);
       expect(called, isFalse);
     });
   });

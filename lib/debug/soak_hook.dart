@@ -24,6 +24,7 @@ import '../data/veil_stack.dart'
     show
         claimRuntimeDirUnder,
         DeviceDelegation,
+        adoptCeremonyDocument,
         DocumentRevocation,
         RealVeilStack,
         TombstonedDeviceException;
@@ -2182,7 +2183,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // precisely so this can happen before anything is sent.
       final theirDoc = link.document;
       if (theirDoc != null && theirDoc.isNotEmpty) {
-        final merged = await RealVeilStack.adoptSovereignDocument(
+        final merged = await adoptCeremonyDocument(
           ref.read(storageProvider),
           document: theirDoc,
           stagingBase: Directory.systemTemp.path,
@@ -2190,7 +2191,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         devLog(() => 'xVeil[link]: sibling document merged=$merged');
         // A merge nobody hands to the node changes nothing anyone can see: it
         // keeps publishing a registry naming one instance.
-        if (merged) await stack.refreshSovereignIdentity(ref.read(storageProvider));
+        if (merged) {
+          await stack.refreshSovereignIdentity(ref.read(storageProvider));
+        }
       }
       await stack.addContact(target);
       // THE DOCUMENT HALF FIRST, fail-closed — see devices_screen: without
@@ -2308,7 +2311,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // alone and have nowhere to send a sync.
       final theirDoc = token.document;
       if (theirDoc != null && theirDoc.isNotEmpty) {
-        final merged = await RealVeilStack.adoptSovereignDocument(
+        final merged = await adoptCeremonyDocument(
           ref.read(storageProvider),
           document: theirDoc,
           stagingBase: Directory.systemTemp.path,
