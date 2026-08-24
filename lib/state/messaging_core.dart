@@ -663,6 +663,23 @@ class MessagingService {
     // over is the glue between the two — the isolate a send is wrapped in.
     // Only meaningful with one send in flight; with two, each await absorbs
     // the other's waiting and both numbers inflate.
+    // Nothing new goes on the wire while the chain is ahead of the disk.
+    //
+    // A ratchet write that fails leaves one published ciphertext whose message
+    // key was never persisted, and `_persistRatchet` below still reports that
+    // send as finished — a lie it names, and one that cannot be taken back
+    // once the frame is out. What CAN be taken back is every send after it.
+    // Each one burns another key from a chain the container has not seen, so
+    // if the process then dies, the state restored from disk replays all of
+    // them: same header counter, same key, same nonce, different plaintext.
+    // Two ciphertexts under one nonce give up the XOR of their plaintexts.
+    //
+    // So the exposure is not "a send failed to persist" — it is how many sends
+    // follow it. This holds that number at one: try once more to get the state
+    // down, and refuse if it will not go. A refusal is a live-leg failure like
+    // any other, and the durable outbox re-drives the frame when the container
+    // comes back, so the message is queued rather than lost.
+    await _requireDurableRatchet();
     final sw = Stopwatch()..start();
     if (_anonymous && wantReply) {
       await _transport.sendWithReply(dst, payload);
@@ -805,6 +822,22 @@ class MessagingService {
   /// failure no longer costs the notice: the marks are only cleared once the
   /// bytes are down, so the conversations in that batch are still listed and
   /// the next flush writes them.
+  /// Refuse to publish another ciphertext while the ratchet state behind the
+  /// last one is not on disk. See the call site in [_send] for what the count
+  /// of following sends costs.
+  Future<void> _requireDurableRatchet() async {
+    final ratchet = this.ratchet;
+    if (ratchet == null || !ratchet.degraded) return;
+    try {
+      await ratchet.flush(why: 'send-precondition');
+    } catch (e) {
+      throw RatchetNotDurable(e);
+    }
+    // `flush` clears the mark only on a pass that reached the container, so a
+    // still-set flag here means the retry did not get there either.
+    if (ratchet.degraded) throw const RatchetNotDurable(null);
+  }
+
   Future<void> _persistRatchet(String why) async {
     final ratchet = this.ratchet;
     if (ratchet == null) return;
@@ -3313,6 +3346,25 @@ class _ActiveRangeTask {
 /// than a sender that stopped serving. Distinguished from the plain idle
 /// [TimeoutException] so the resume loop retries in place even at zero
 /// received bytes instead of failing the range.
+/// A send refused because the ratchet chain is ahead of what the container
+/// holds — see [MessagingService._requireDurableRatchet].
+///
+/// Typed rather than a bare exception so a caller can tell "the container is
+/// behind" from "the peer is unreachable": the first means the frame must wait
+/// and the second means it must be re-driven at the transport.
+class RatchetNotDurable implements Exception {
+  const RatchetNotDurable(this.cause);
+
+  /// The write error, when the retry produced one. Null when the retry
+  /// completed without throwing but the state still had not reached disk.
+  final Object? cause;
+
+  @override
+  String toString() =>
+      'RatchetNotDurable: ratchet state is not on disk; refusing to burn '
+      'another message key${cause == null ? '' : ' ($cause)'}';
+}
+
 class _RangeStallTimeout extends TimeoutException {
   _RangeStallTimeout(String super.message, Duration super.duration);
 }
