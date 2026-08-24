@@ -6176,6 +6176,9 @@ class AppL10nRu extends AppL10n {
   String get modelBundleMissing => 'файла нет на этом устройстве';
 
   @override
+  String get modelBundleTooLarge => 'файл не установить: он слишком велик';
+
+  @override
   String get modelBundleTrust =>
       'Модель решает, что приложение скажет о чужих словах. Ставьте её только от того, кому доверяете.';
 

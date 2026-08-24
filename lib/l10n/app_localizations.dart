@@ -10844,6 +10844,12 @@ abstract class AppL10n {
   /// **'the file is not on this device'**
   String get modelBundleMissing;
 
+  /// No description provided for @modelBundleTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'the file is too large to install'**
+  String get modelBundleTooLarge;
+
   /// No description provided for @modelBundleTrust.
   ///
   /// In en, this message translates to:

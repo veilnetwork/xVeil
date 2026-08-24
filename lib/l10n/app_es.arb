@@ -2612,6 +2612,7 @@
   "modelBundleInstalled": "Instalado",
   "modelBundleFailed": "No se pudo instalar",
   "modelBundleMissing": "el archivo no está en este dispositivo",
+  "modelBundleTooLarge": "el archivo es demasiado grande para instalarlo",
   "modelBundleTrust": "Un modelo decide lo que esta aplicación dice que otros escribieron. Instálalo solo de alguien en quien confíes.",
   "voiceModelImport": "Instalar desde un archivo…",
   "voiceModelImportHint": "Un archivo .veilaudio, si alguien ya lo descargó",

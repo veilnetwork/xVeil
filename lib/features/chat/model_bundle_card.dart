@@ -59,8 +59,34 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
     });
     File? staged;
     try {
-      final bytes = await ref.read(storageProvider).loadFile(widget.fileKey);
+      // WITH THE CEILING, so the read itself is bounded.
+      //
+      // This used to be a bare `loadFile`: the whole blob was pulled into RAM
+      // and the bundle's own 2 GiB ceiling was applied by the reader that runs
+      // after it, so the allocation the ceiling exists to prevent had already
+      // happened by the time anyone looked. A received file is whatever the
+      // other side sent.
+      //
+      // The argument, not a size read here: `loadFile` checks the STORED size,
+      // which is the one number that describes the bytes about to be
+      // allocated — see its own contract for why a call-site check on a
+      // sender-supplied size is not the same thing.
+      final storage = ref.read(storageProvider);
+      final bytes = await storage.loadFile(
+        widget.fileKey,
+        maxBytes: kMaxBundleBytes,
+      );
       if (bytes == null) {
+        // Null covers both "not here" and "past the ceiling", and the two read
+        // very differently to a person. Only now is it worth a second question
+        // — and it allocates nothing.
+        final stored = await storage.fileSize(widget.fileKey);
+        if (stored != null && stored > kMaxBundleBytes) {
+          if (mounted) {
+            setState(() => _error = AppL10n.of(context).modelBundleTooLarge);
+          }
+          return;
+        }
         // Silence here was a defect: tapping Install did nothing at all, with
         // no error and no change, which reads as a dead button. It happens
         // when the blob is gone — a cleared history, a store that never
