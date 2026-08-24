@@ -27,6 +27,10 @@ class _Link implements VeilTransport {
   _Link? peer;
   bool online = true;
 
+  /// Frames that actually left this egress, for tests that assert on the RATE
+  /// of sending rather than on what arrived.
+  int sent = 0;
+
   @override
   Future<NodeId> nodeId() async => _me;
   @override
@@ -43,6 +47,7 @@ class _Link implements VeilTransport {
     bool anonymous = false,
   }) async {
     if (!online) return; // our egress is down — drop
+    sent++;
     final p = peer;
     if (p == null || p._me != dst) return; // routed by dst, like the real net
     p._inbound.add(
@@ -568,6 +573,61 @@ void main() {
         );
       },
     );
+
+    /// A restart must not empty the queue in one burst.
+    ///
+    /// The ladder that spaces re-drives lives in RAM, so after a restart every
+    /// queued frame is due at the same instant and the flush dialled all of
+    /// them back to back — serial, but serial is not bounded. A backlog of a
+    /// few hundred is ordinary for a device that was away, and this is the
+    /// shape the outbox was already measured producing: bursts of about 175
+    /// sends a second, each one a radio wake and a lookup.
+    test('a restart drains the queue over passes, not in one burst', () async {
+      tA.online = false;
+      for (var i = 0; i < 40; i++) {
+        await mA.sendCallSignal(
+          b,
+          CallSignal(callId: 'burst-$i', type: CallSignalType.offer),
+        );
+      }
+      await _settle();
+      expect((await sA.pendingOutboxFrames()).length, 40);
+
+      // The restart: a fresh service over the same storage, so the in-memory
+      // ladder is empty and every one of the 40 is due at once.
+      await mA.dispose();
+      final mA2 = MessagingService(tA, sA, now: () => clock)..start();
+      addTearDown(mA2.dispose);
+      await _settle();
+
+      tA.online = true;
+      tA.sent = 0;
+      await mA2.flushOutbox();
+      await _settle();
+
+      expect(
+        tA.sent,
+        greaterThan(0),
+        reason: 'a ceiling is not a stall — the pass must make progress',
+      );
+      // Measured on this very fixture: without the ceiling one pass puts 41
+      // frames on the wire — the whole backlog — and leaves the second pass
+      // with nothing to do. With it, 17.
+      expect(
+        tA.sent,
+        lessThan(40),
+        reason: 'one pass dials a slice, not the whole backlog',
+      );
+
+      // And the rest is not stranded: the next pass takes the next slice.
+      final afterFirst = (await sA.pendingOutboxFrames()).length;
+      expect(afterFirst, lessThan(40), reason: 'the first slice went out');
+      clock = clock.add(const Duration(seconds: 21));
+      tA.sent = 0;
+      await mA2.flushOutbox();
+      await _settle();
+      expect(tA.sent, greaterThan(0), reason: 'the queue keeps draining');
+    });
 
     test(
       'call health heartbeat is live-only and never enters durable outbox',
