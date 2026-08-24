@@ -2677,6 +2677,7 @@
   "modelBundleInstalled": "Installed",
   "modelBundleFailed": "Could not install",
   "modelBundleMissing": "the file is not on this device",
+  "modelBundleTooLarge": "the file is too large to install",
   "modelBundleTrust": "A model decides what this app says other people wrote. Install one only from someone you trust.",
   "voiceModelImport": "Install from a file…",
   "voiceModelImportHint": "A .veilaudio file, if someone has already downloaded it",

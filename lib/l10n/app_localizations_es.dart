@@ -6196,6 +6196,10 @@ class AppL10nEs extends AppL10n {
   String get modelBundleMissing => 'el archivo no está en este dispositivo';
 
   @override
+  String get modelBundleTooLarge =>
+      'el archivo es demasiado grande para instalarlo';
+
+  @override
   String get modelBundleTrust =>
       'Un modelo decide lo que esta aplicación dice que otros escribieron. Instálalo solo de alguien en quien confíes.';
 
