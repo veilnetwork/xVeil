@@ -1077,7 +1077,10 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       // afterwards is sealed for nobody.
       final theirDoc = link.document;
       if (theirDoc != null && theirDoc.isNotEmpty) {
-        final merged = await RealVeilStack.adoptSovereignDocument(
+        // Throws when the document is refused — see `adoptCeremonyDocument`
+        // for why a refusal must end the ceremony rather than read as
+        // "nothing changed".
+        final merged = await adoptCeremonyDocument(
           widget.service.storage,
           document: theirDoc,
           stagingBase: Directory.systemTemp.path,
@@ -1406,7 +1409,9 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
       // and have nowhere to send a sync.
       final theirDoc = token.document;
       if (theirDoc != null && theirDoc.isNotEmpty) {
-        final merged = await RealVeilStack.adoptSovereignDocument(
+        // Same rule as the other half of the ceremony: a document this device
+        // would not take in must not be followed by an admission.
+        final merged = await adoptCeremonyDocument(
           widget.service.storage,
           document: theirDoc,
           stagingBase: Directory.systemTemp.path,

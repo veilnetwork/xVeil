@@ -828,6 +828,82 @@ bool debugMetricsWanted({
   required bool hookDefine,
 }) => debugBuild && (metricsDefine || hookDefine);
 
+/// A link ceremony offered a document this device would not take in.
+class SovereignDocumentRefused implements Exception {
+  const SovereignDocumentRefused();
+
+  @override
+  String toString() =>
+      'SovereignDocumentRefused: the identity document was not adopted — it '
+      'does not name this device, or is not this family\'s document';
+}
+
+/// Take in a ceremony partner's identity document, or end the ceremony.
+///
+/// Returns whether the running node needs to be handed the new material
+/// (adopted); false means this device already held exactly that document, or
+/// none was offered, and there is nothing to publish.
+///
+/// Throws [SovereignDocumentRefused] when the document was NOT taken in. That
+/// case used to be indistinguishable from "nothing changed" — the same `false`
+/// — and all three ceremony paths carried on regardless, so a device could
+/// finish linking to a family whose document it does not hold: publishing a
+/// registry naming itself alone, sealing for nobody. The usual reason for a
+/// refusal is that the document does not name this device's key, or is not
+/// this family's document at all, which is exactly what a substituted ceremony
+/// produces.
+///
+/// [merge] and [adoptNamed] are the same injection seams
+/// [RealVeilStack.adoptSovereignDocument] takes, so this rule is testable
+/// without a dylib.
+Future<bool> adoptCeremonyDocument(
+  Storage storage, {
+  required Uint8List document,
+  required String stagingBase,
+  Future<void> Function(String identityToml, String veilDir, Uint8List document)?
+  merge,
+  Future<void> Function(String identityToml, String veilDir, Uint8List document)?
+  adoptNamed,
+}) async {
+  final outcome = await RealVeilStack.adoptSovereignDocument(
+    storage,
+    document: document,
+    stagingBase: stagingBase,
+    merge: merge,
+    adoptNamed: adoptNamed,
+  );
+  if (outcome == SovereignDocumentAdoption.refused) {
+    throw const SovereignDocumentRefused();
+  }
+  return outcome == SovereignDocumentAdoption.adopted;
+}
+
+/// What came of an attempt to take in another device's identity document.
+///
+/// This used to be a bare `bool`, and of its eight false paths exactly one was
+/// benign — "we already hold this document", which ends the exchange instead of
+/// trading identical documents forever. The other seven are refusals, and one
+/// of them is the security-relevant case: the native adopt threw because the
+/// document does not name this device's key, or is not this family's document
+/// at all. A link ceremony read all eight the same way and carried on, so a
+/// device could finish linking to a family whose document it does not hold —
+/// publishing a registry naming itself alone, and sealing for nobody.
+enum SovereignDocumentAdoption {
+  /// Merged, and the material written.
+  adopted,
+
+  /// Already exactly what this device holds. Nothing to do, nothing wrong.
+  alreadyHeld,
+
+  /// No document was offered.
+  nothingOffered,
+
+  /// The document was NOT taken in: it does not name this device, this device
+  /// has no material to merge under, or the merge left it incomplete. A
+  /// ceremony must stop here rather than treat it as "no change needed".
+  refused,
+}
+
 class RealVeilStack {
   RealVeilStack._({
     required this.controller,
@@ -1438,7 +1514,7 @@ class RealVeilStack {
   /// material of its own, or no config to authorise with. Those are the
   /// mined-identity and legacy cases, where there is no master and so nothing
   /// to delegate under.
-  static Future<bool> adoptSovereignDocument(
+  static Future<SovereignDocumentAdoption> adoptSovereignDocument(
     Storage storage, {
     required Uint8List document,
     required String stagingBase,
@@ -1459,7 +1535,7 @@ class RealVeilStack {
     )?
     adoptNamed,
   }) async {
-    if (document.isEmpty) return false;
+    if (document.isEmpty) return SovereignDocumentAdoption.nothingOffered;
     final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
     if (storedRaw == null) {
       // No sovereign material at all — the mined-identity case: no master, no
@@ -1476,7 +1552,7 @@ class RealVeilStack {
               'xVeil[identity]: cannot adopt a document — no sovereign '
               'material and no node config to authorise a named adopt with',
         );
-        return false;
+        return SovereignDocumentAdoption.refused;
       }
       final staging =
           '$stagingBase/xveil-idadopt-${Random.secure().nextInt(1 << 32)}';
@@ -1499,7 +1575,7 @@ class RealVeilStack {
                 'xVeil[identity]: named adopt left the material incomplete '
                 '(${missing.join(', ')})',
           );
-          return false;
+          return SovereignDocumentAdoption.refused;
         }
         await storage.putSetting(
           kSovereignIdentitySetting,
@@ -1510,13 +1586,13 @@ class RealVeilStack {
               'xVeil[identity]: adopted the family document that names this '
               'device — sovereign material created from nothing',
         );
-        return true;
+        return SovereignDocumentAdoption.adopted;
       } on Object catch (e) {
         // The usual reason: the document does not name this device's key —
         // either the ceremony partner has not delegated us yet, or the
         // document is not this family's at all.
         devLog(() => 'xVeil[identity]: could not adopt that document: $e');
-        return false;
+        return SovereignDocumentAdoption.refused;
       } finally {
         try {
           await Directory(staging).delete(recursive: true);
@@ -1532,14 +1608,14 @@ class RealVeilStack {
             'xVeil[identity]: cannot adopt a document — this device has no '
             'usable sovereign material',
       );
-      return false;
+      return SovereignDocumentAdoption.refused;
     }
     // The master authority, preferring the key kept for exactly this over the
     // node config. The config answers only while it IS the master; the stored
     // key answers either way.
     final masterRaw = await storage.getSetting(kMasterKeySetting);
     final identityToml = await storage.loadNodeConfig();
-    if (masterRaw == null && identityToml == null) return false;
+    if (masterRaw == null && identityToml == null) return SovereignDocumentAdoption.refused;
 
     final staging =
         '$stagingBase/xveil-idmerge-${Random.secure().nextInt(1 << 32)}';
@@ -1609,12 +1685,12 @@ class RealVeilStack {
         }
       }
       final merged = await collectSovereignIdentity(staging);
-      if (missingSovereignIdentityFiles(merged).isNotEmpty) return false;
+      if (missingSovereignIdentityFiles(merged).isNotEmpty) return SovereignDocumentAdoption.refused;
       final encoded = encodeSovereignIdentity(merged);
       // Already what we hold: a device answering our announcement with the
       // document we sent it. Saying "nothing changed" is what ends the
       // exchange instead of trading identical documents forever.
-      if (encoded == storedRaw) return false;
+      if (encoded == storedRaw) return SovereignDocumentAdoption.alreadyHeld;
       // Already what we hold: a device answering our announcement with the
       // document we sent it. Saying "nothing changed" is what ends the
       // exchange instead of trading identical documents forever.
@@ -1624,13 +1700,13 @@ class RealVeilStack {
             'xVeil[identity]: adopted a document from another device of this '
             'identity and added this one to it',
       );
-      return true;
+      return SovereignDocumentAdoption.adopted;
     } on Object catch (e) {
       // A document from a DIFFERENT identity is refused natively, and that is
       // the common case here: it means the sender is not who the ceremony took
       // them for. Nothing has changed, so the device carries on as it was.
       devLog(() => 'xVeil[identity]: could not adopt that document: $e');
-      return false;
+      return SovereignDocumentAdoption.refused;
     } finally {
       try {
         await Directory(staging).delete(recursive: true);
