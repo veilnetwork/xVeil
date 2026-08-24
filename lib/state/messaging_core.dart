@@ -768,6 +768,10 @@ class MessagingService {
   Timer? _settingsGcTimer;
   bool _flushing = false;
 
+  /// Frames the mailbox subsystem still holds per-frame bookkeeping for.
+  /// Test seam for the bound on it.
+  int get mailboxTrackedFrames => _mailboxDelivery.trackedFrameCount;
+
   bool get backgroundStashPaused => _mailboxDelivery.paused;
 
   set backgroundStashPaused(bool value) {
