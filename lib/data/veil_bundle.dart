@@ -313,9 +313,44 @@ class VeilBundleInstall {
 /// Verify a bundle and put the pair where the app looks for it.
 ///
 /// Nothing is visible until everything has been verified. The files land in a
+/// Put back models an interrupted install left aside.
+///
+/// [installBundle] replaces a pair with two renames — the old one out to
+/// `.replacing-<id>`, the new one in — and a crash between them leaves a
+/// complete, working model under a name nothing looks for: the pair reads as
+/// uninstalled while its bytes are right there.
+///
+/// Restores any such directory whose destination is missing and returns the
+/// pair ids it brought back. Safe to call wherever the models root is read:
+/// with the destination present the leftover is debris from a finished
+/// replace, and it is left for the next install to clear.
+List<String> recoverInterruptedInstalls(Directory modelsRoot) {
+  if (!modelsRoot.existsSync()) return const [];
+  final restored = <String>[];
+  for (final entry in modelsRoot.listSync().whereType<Directory>()) {
+    final name = entry.path.split(Platform.pathSeparator).last;
+    if (!name.startsWith('.replacing-')) continue;
+    final id = name.substring('.replacing-'.length);
+    final destination = Directory('${modelsRoot.path}/$id');
+    if (destination.existsSync()) continue;
+    try {
+      entry.renameSync(destination.path);
+      restored.add(id);
+    } on FileSystemException {
+      // Best-effort: one we cannot move is left where it is rather than
+      // removed, because it may still be the only copy.
+    }
+  }
+  return restored;
+}
+
 /// temporary directory beside the destination and are moved into place at the
 /// end, so an import interrupted at any point leaves either the previous model
 /// or nothing — never a directory with four files in it.
+///
+/// "The previous model" may be sitting under `.replacing-<id>` when the
+/// interruption landed between the two renames; see
+/// [recoverInterruptedInstalls], which this calls for on the way in.
 Future<VeilBundleInstall> installBundle(
   File bundle, {
   required Directory modelsRoot,
@@ -389,7 +424,24 @@ Future<VeilBundleInstall> installBundle(
 
     final destination = Directory('${modelsRoot.path}/${info.pair!.id}');
     final displaced = Directory('${modelsRoot.path}/.replacing-${info.pair!.id}');
-    if (displaced.existsSync()) displaced.deleteSync(recursive: true);
+    // A leftover `.replacing-*` means one of two things, and they need
+    // opposite treatment.
+    //
+    // With the destination present it is debris from a completed replace, and
+    // deleting it is right. With the destination ABSENT it is the only copy of
+    // a working model: a previous install was interrupted between its two
+    // renames — the old pair moved aside, the new one not yet moved in. This
+    // used to delete it either way, so a power loss during an install left the
+    // model invisible to `refresh` (which lists only `xx-yy` directories) and
+    // the next attempt destroyed it before trying. If that attempt then failed,
+    // the person had neither version.
+    if (displaced.existsSync()) {
+      if (destination.existsSync()) {
+        displaced.deleteSync(recursive: true);
+      } else {
+        displaced.renameSync(destination.path);
+      }
+    }
     final replacing = destination.existsSync();
     if (replacing) destination.renameSync(displaced.path);
     try {
