@@ -291,10 +291,24 @@ class RatchetPersistence {
         doomed.add(key);
       }
     }
+    // STORED bytes first, live session second, and the order is the point.
+    //
+    // It used to forget natively and then delete, with the delete's failure
+    // swallowed a level up (`_forgetRatchetWith` never throws, so that a
+    // failure to forget cannot leave the chat half-deleted). The result of
+    // that pair was the worst arrangement available: the live session gone,
+    // the blob still on disk, and the next start importing the secret back
+    // into a chat the person had deleted. The comment below this one worried
+    // about a session surviving in MEMORY and re-persisting itself; the disk
+    // surviving into memory is the same mistake facing the other way.
+    //
+    // Now a throw here leaves both sides untouched and the deletion
+    // retryable, and the native session is released only once the durable
+    // copy is provably gone.
+    final forgotten = await _storage.forgetRatchetStates(doomed);
     for (final key in doomed) {
       _native.forget(key);
     }
-    final forgotten = await _storage.forgetRatchetStates(doomed);
     devLog(
       () =>
           'xVeil[ratchet]: forgot ${doomed.length} conversation(s) '
