@@ -156,9 +156,25 @@ Future<void> _run(List<String> args) async {
     if (!stopped.isCompleted) stopped.complete();
   }
 
-  if (!Platform.isWindows) {
-    subscriptions.add(ProcessSignal.sigterm.watch().listen(stop));
-    subscriptions.add(ProcessSignal.sigint.watch().listen(stop));
+  for (final signal in stopSignals(isWindows: Platform.isWindows)) {
+    try {
+      subscriptions.add(signal.watch().listen(stop));
+    } on Object catch (e) {
+      // A platform that refuses a signal this list says it allows. Say so:
+      // the consequence is that one of the ways to stop this daemon quietly
+      // stops working, and nothing else would ever mention it.
+      stderr.writeln('xveil: cannot watch ${signal.name} ($e)');
+    }
+  }
+  if (subscriptions.isEmpty) {
+    // Nothing can ask this process to stop, so `stopped` never completes and
+    // the ordered close below never runs — the container keeps its exclusive
+    // lock and the node stays up until something kills the process. Worth a
+    // line before it happens rather than a mystery afterwards.
+    stderr.writeln(
+      'xveil: no stop signal could be watched — only a forced kill will end '
+      'this process, and it will skip the ordered close',
+    );
   }
   try {
     await stopped.future;
@@ -175,6 +191,20 @@ Future<void> _run(List<String> args) async {
   // process explicitly just like a conventional daemon entrypoint.
   exit(0);
 }
+
+/// The signals this daemon takes as "stop", by platform.
+///
+/// SIGINT is watchable everywhere, Windows included — it is what Ctrl-C and a
+/// console stop deliver. Only SIGTERM (and SIGUSR1/2, SIGWINCH) are absent
+/// there. A blanket `if (!Platform.isWindows)` skipped both, so on Windows
+/// nothing ever completed the stop future: `runtime.close` never ran, the
+/// encrypted container kept its exclusive lock and the node stayed up until
+/// something killed the process — which is precisely the ordered close being
+/// skipped.
+List<ProcessSignal> stopSignals({required bool isWindows}) => [
+  ProcessSignal.sigint,
+  if (!isWindows) ProcessSignal.sigterm,
+];
 
 String _next(List<String> args, int index, String option) {
   if (index >= args.length) throw FormatException('$option needs a value');
