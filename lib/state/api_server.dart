@@ -188,17 +188,21 @@ class ApiServerController extends Notifier<ApiConfig> {
     };
   }
 
-  /// Locking tears down this very server, so commit to it and let the response
-  /// flush first. The caller gets a plain 200 and then finds the API gone,
-  /// which is the honest shape of "the account is now locked".
-  Future<void> _lock() async {
-    unawaited(
-      Future<void>.delayed(
-        Duration.zero,
-        () => ref.read(appControllerProvider.notifier).lock(),
-      ),
-    );
-  }
+  /// Lock, and wait for it.
+  ///
+  /// This used to schedule the lock and return at once, so the endpoint wrote
+  /// `200 {"locked": true}` while the tunnel, the node and the container were
+  /// all still up — and any failure landed in an unhandled async gap where
+  /// nothing could report it. The response was the one thing in the system
+  /// that claimed the boundary had closed, and it was written before anything
+  /// had been asked to close.
+  ///
+  /// Locking does tear down this very server, so the answer may never reach
+  /// the caller: the API going silent IS the success signal, and the endpoint
+  /// says so in its own summary. A failure, by contrast, leaves the server up
+  /// to report it — which is the case worth being able to tell apart.
+  @visibleForTesting
+  Future<void> lockForApi() => ref.read(appControllerProvider.notifier).lock();
 
   Future<String?> _switchIdentity(String label) async {
     final app = ref.read(appControllerProvider);
@@ -753,7 +757,7 @@ class ApiServerController extends Notifier<ApiConfig> {
       account: _account,
       accountInvite: () async =>
           ref.read(realStackProvider)?.myInvite.toUri(),
-      lockAccount: _lock,
+      lockAccount: lockForApi,
       switchIdentity: _switchIdentity,
       contacts: _contacts,
       requestContact: _requestContact,
