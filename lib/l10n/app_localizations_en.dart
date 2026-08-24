@@ -5242,6 +5242,10 @@ class AppL10nEn extends AppL10n {
   String get devicesRecoveryCode => 'Recovery code';
 
   @override
+  String get devicesCertificateNoDocumentActions =>
+      'this identity is unlocked by a recovery certificate, and linking or revoking a device still needs the master phrase';
+
+  @override
   String get devicesRecoveryCodeHint =>
       'The code decrypts the recovery certificate for this one action. It is not stored.';
 

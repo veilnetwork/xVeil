@@ -2235,6 +2235,7 @@
   "devicesPhrase": "Recovery phrase",
   "devicesPhraseHint": "The phrase decrypts the sovereign key for this one action. It is not stored.",
   "devicesRecoveryCode": "Recovery code",
+  "devicesCertificateNoDocumentActions": "this identity is unlocked by a recovery certificate, and linking or revoking a device still needs the master phrase",
   "devicesRecoveryCodeHint": "The code decrypts the recovery certificate for this one action. It is not stored.",
   "devicesTargetInvite": "New device invite",
   "devicesTargetInviteHint": "Scan or paste the bootstrap invite shown by the new device",

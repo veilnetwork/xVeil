@@ -5308,6 +5308,10 @@ class AppL10nEs extends AppL10n {
   String get devicesRecoveryCode => 'Código de recuperación';
 
   @override
+  String get devicesCertificateNoDocumentActions =>
+      'esta identidad se desbloquea con un certificado de recuperación, y vincular o revocar un dispositivo todavía requiere la frase maestra';
+
+  @override
   String get devicesRecoveryCodeHint =>
       'El código descifra el certificado de recuperación solo para esta acción. No se guarda.';
 

@@ -9290,6 +9290,12 @@ abstract class AppL10n {
   /// **'Recovery code'**
   String get devicesRecoveryCode;
 
+  /// No description provided for @devicesCertificateNoDocumentActions.
+  ///
+  /// In en, this message translates to:
+  /// **'this identity is unlocked by a recovery certificate, and linking or revoking a device still needs the master phrase'**
+  String get devicesCertificateNoDocumentActions;
+
   /// No description provided for @devicesRecoveryCodeHint.
   ///
   /// In en, this message translates to:
