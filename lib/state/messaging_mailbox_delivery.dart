@@ -29,6 +29,10 @@ class _MessagingMailboxDelivery {
   static const _maxBackgroundStashes = 1;
   static const _retryBackoff = Duration(seconds: 30);
 
+  /// Failed-frame rows held before the stale ones are dropped. See
+  /// [_pruneFailedAt].
+  static const _maxFailedFrames = 256;
+
   /// Hard deadline on one deposit attempt. The background slot is GLOBAL and
   /// there is exactly one, so a stash that never completes does not lose one
   /// message — it freezes every mailbox deposit to every peer until the app
@@ -41,6 +45,7 @@ class _MessagingMailboxDelivery {
   /// An instance field, not a const, for the same reason as [ackGrace]: the
   /// test that proves the slot cannot wedge must not sit out 45 real seconds.
   Duration stashDeadline = const Duration(seconds: 45);
+
   /// Ceiling on the unresolved-peer backoff.
   ///
   /// This ceiling does NOT govern how fast a peer that comes back is served.
@@ -108,7 +113,33 @@ class _MessagingMailboxDelivery {
 
   void noteActivity() => _mailbox?.noteActivity();
 
-  void removeStashed(String id) => _stashed.remove(id);
+  /// Forget everything this subsystem holds about one frame.
+  ///
+  /// `_failedAt` used to be dropped only on a stash SUCCESS, so a frame that
+  /// failed once and was then retired — delivered live, or ACKed by the peer —
+  /// left its row behind for the life of the process. The row stops affecting
+  /// any decision once `_retryBackoff` has passed; what it goes on doing is
+  /// holding memory, one entry per frame id that ever failed.
+  void removeStashed(String id) {
+    _stashed.remove(id);
+    _failedAt.remove(id);
+  }
+
+  /// Frames this subsystem still holds bookkeeping for. A test seam for the
+  /// bound on that bookkeeping, in the shape of the other seams beside it.
+  int get trackedFrameCount => _stashed.length + _failedAt.length;
+
+  /// Entries past the retry window can never change a decision again.
+  ///
+  /// [removeStashed] covers a frame that is retired. This covers the one that
+  /// is not: a peer that never comes back leaves a row nothing will ever ask
+  /// about. Bounded rather than swept on a timer — the map is small in the
+  /// healthy case, and the ceiling is what matters when it is not.
+  void _pruneFailedAt() {
+    if (_failedAt.length <= _maxFailedFrames) return;
+    final cutoff = DateTime.now().subtract(_retryBackoff);
+    _failedAt.removeWhere((_, at) => at.isBefore(cutoff));
+  }
 
   void clearPeerBackoff(String peerHex) {
     _peerUnresolvedBackoff.remove(peerHex);
@@ -301,6 +332,7 @@ class _MessagingMailboxDelivery {
     }
     // A failed seal can block a worker for ~12s. Never respawn it on every 3s
     // flush; the durable entry remains pending and retries after this window.
+    _pruneFailedAt();
     final failedAt = _failedAt[id];
     if (failedAt != null &&
         DateTime.now().difference(failedAt) < _retryBackoff) {
@@ -311,11 +343,7 @@ class _MessagingMailboxDelivery {
     try {
       try {
         await mailbox
-            .stash(
-              recipient: peer,
-              payload: wire,
-              contentId: _contentIdFor(id),
-            )
+            .stash(recipient: peer, payload: wire, contentId: _contentIdFor(id))
             .timeout(stashDeadline);
         _stashed.add(id);
         _failedAt.remove(id);
