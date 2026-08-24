@@ -248,13 +248,16 @@ class CloudFolderShareHost {
     DateTime Function()? now,
     int egressBudgetBytes = defaultEgressBudgetBytes,
     Duration egressWindow = defaultEgressWindow,
+    int maxConcurrentServes = defaultMaxConcurrentServes,
     // ignore: prefer_initializing_formals
   }) : _send = send,
        _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals
        _egressBudgetBytes = egressBudgetBytes,
        // ignore: prefer_initializing_formals
-       _egressWindow = egressWindow {
+       _egressWindow = egressWindow,
+       // ignore: prefer_initializing_formals
+       _maxConcurrentServes = maxConcurrentServes {
     _ready = setListing(listing);
   }
 
@@ -281,6 +284,24 @@ class CloudFolderShareHost {
   /// however many the attacker cares to ask for.
   static const int defaultEgressBudgetBytes = 32 * 1024 * 1024;
   static const Duration defaultEgressWindow = Duration(minutes: 1);
+
+  /// How many requests this host works on AT ONCE.
+  ///
+  /// The two defences above bound different things and neither bounds this
+  /// one. The nonce cache stops a datagram being replayed; the egress budget
+  /// stops a big reply being reflected. Many SMALL requests, each with a fresh
+  /// nonce, pass both — and every one of them was started immediately by the
+  /// endpoint listener, which fires them off unawaited. Each carries a
+  /// container read, an AEAD seal and a send over an anonymous circuit, so
+  /// tens of thousands can be in progress at once with the byte budget barely
+  /// touched.
+  ///
+  /// Requests past the ceiling are DROPPED, not queued: this path is
+  /// deliberately lossy and unattributable, a queue would be the same
+  /// accumulation under another name, and a real client retries. Eight at once
+  /// is far above what the onion path delivers to one share and far below what
+  /// costs anything.
+  static const int defaultMaxConcurrentServes = 8;
 
   /// Nonces of requests already ANSWERED, bounded FIFO — the shape the group
   /// content path uses (see `authorizeGroupContentRequest`). Only MAC-valid
@@ -420,6 +441,10 @@ class CloudFolderShareHost {
   /// Handle one inbound datagram. Every malformed, unauthorized or unavailable
   /// request follows the same silent path — never an existence oracle.
   Future<void> serve(Uint8List wire) async {
+    // Admission first: the work below is what has to be bounded, and the
+    // caller starts every MAC-valid datagram unawaited.
+    if (_servesInFlight >= _maxConcurrentServes) return;
+    _servesInFlight++;
     try {
       // An expired link is served the same silent denial as a bad MAC — the
       // holder has the folder key but the capability is no longer valid.
@@ -435,8 +460,16 @@ class CloudFolderShareHost {
       }
       final file = _FolderFileRequest.parse(wire);
       if (file != null) await _serveFile(file);
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _servesInFlight--;
+    }
   }
+
+  /// Requests being worked on right now — see [defaultMaxConcurrentServes].
+  int get servesInFlight => _servesInFlight;
+  int _servesInFlight = 0;
+  final int _maxConcurrentServes;
 
   Future<void> _serveListing(_ListingRequest request) async {
     if (!_equal(request.shareId, capability.shareId)) return;
