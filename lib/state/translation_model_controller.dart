@@ -123,6 +123,11 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
       if (!_disposed) state = state.copyWith(installed: const []);
       return;
     }
+    // Before listing: a model an interrupted install left under
+    // `.replacing-<id>` is complete and working, and the loop below would not
+    // see it — the pair would read as uninstalled while its bytes sit beside
+    // the name it is looked for under.
+    recoverInterruptedInstalls(dir);
     final pairs = <TranslationPair>[];
     for (final entry in dir.listSync().whereType<Directory>()) {
       final id = entry.path.split(Platform.pathSeparator).last;
