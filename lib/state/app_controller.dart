@@ -623,8 +623,10 @@ class AppController extends Notifier<AppState> {
     required String reopenWith,
   }) async {
     if (roster.length == 0) {
-      throw StateError('compaction with an empty roster would delete every '
-          'identity in the container');
+      throw StateError(
+        'compaction with an empty roster would delete every '
+        'identity in the container',
+      );
     }
     return _compactKeeping(
       passwords: [
@@ -710,7 +712,9 @@ class AppController extends Notifier<AppState> {
         isMaster: roster != null,
         displayName: profile?.displayName,
         username: profile?.username,
-        subordinates: <String>[for (final e in roster ?? const <RosterEntry>[]) e.label],
+        subordinates: <String>[
+          for (final e in roster ?? const <RosterEntry>[]) e.label,
+        ],
       );
     } catch (_) {
       // A damaged record is not an identity we may claim to have found. Audit
@@ -951,10 +955,7 @@ class AppController extends Notifier<AppState> {
       _offerPeriodDaysKey,
       '${settings.period.inDays < 1 ? 1 : settings.period.inDays}',
     );
-    await storage.putSetting(
-      _offerThresholdKey,
-      '${settings.thresholdBytes}',
-    );
+    await storage.putSetting(_offerThresholdKey, '${settings.thresholdBytes}');
   }
 
   /// Remember that the offer was SHOWN — not that compaction ran.
@@ -1023,7 +1024,9 @@ class AppController extends Notifier<AppState> {
 
   Future<DateTime?> lastCompactionOfferAt() async {
     try {
-      final raw = await ref.read(storageProvider).getSetting(_offerLastShownKey);
+      final raw = await ref
+          .read(storageProvider)
+          .getSetting(_offerLastShownKey);
       final ms = int.tryParse(raw ?? '');
       return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
     } catch (_) {
@@ -2265,7 +2268,8 @@ class AppController extends Notifier<AppState> {
     if (ref.read(bundledSeedsChoiceProvider) != seeds.useBundledSeeds) {
       // The screens read the live value; leaving it on the previous identity's
       // answer is the same lie in a different place.
-      ref.read(bundledSeedsChoiceProvider.notifier).state = seeds.useBundledSeeds;
+      ref.read(bundledSeedsChoiceProvider.notifier).state =
+          seeds.useBundledSeeds;
     }
     Future<RealVeilStack> startStack() async {
       final starter = debugDeniableStackStarter;
@@ -2826,6 +2830,12 @@ class AppController extends Notifier<AppState> {
     // question — and the case worth reporting is precisely the one where that
     // channel has already misbehaved.
     Directory? speechRoot;
+    // Whether we never learned where to look, as opposed to looking and
+    // finding nothing. The re-stat below is skipped when the root is null, so
+    // without this a platform channel that failed reported as a clean wipe —
+    // and the comment on that resolve already says the case worth reporting is
+    // precisely the one where the channel has misbehaved.
+    var speechUnknown = false;
     try {
       // Bounded for the same reason as the tunnel: resolving the support
       // directory goes through a platform channel, and a wipe that hangs on an
@@ -2837,6 +2847,9 @@ class AppController extends Notifier<AppState> {
       );
       await store.remove().timeout(const Duration(seconds: 3));
     } catch (e) {
+      // Only when the PATH is still unknown. A resolve that succeeded and a
+      // remove that then failed is the ordinary case the re-stat handles.
+      speechUnknown = speechRoot == null;
       devLog(() => 'xVeil[wipe]: failed to remove the speech model: $e');
     }
     // The translation models too, and for a STRONGER reason than the speech
@@ -2852,6 +2865,7 @@ class AppController extends Notifier<AppState> {
     // unresponsive plugin is worse than one that leaves a re-downloadable
     // file behind.
     Directory? translationRoot;
+    var translationsUnknown = false;
     try {
       translationRoot = await ref
           .read(translationModelsRootProvider)()
@@ -2860,6 +2874,9 @@ class AppController extends Notifier<AppState> {
         translationRoot.deleteSync(recursive: true);
       }
     } catch (e) {
+      // A null root RETURNED is a platform that has no such directory, which
+      // is nothing to report. A throw before we had one means we do not know.
+      translationsUnknown = translationRoot == null;
       devLog(() => 'xVeil[wipe]: failed to remove translation models: $e');
     }
     // Look, do not assume. `delete()` returning without throwing is not the
@@ -2894,6 +2911,13 @@ class AppController extends Notifier<AppState> {
     if (translationRoot != null && translationRoot.existsSync()) {
       remaining.add('translations');
     }
+    // Unknown is its own answer, and the one this re-stat used to lose. Both
+    // model deletes go through a platform channel and both catches swallow
+    // everything, so a channel that failed left the root null, the check
+    // skipped, and the person told the wipe was complete over a directory
+    // nobody had looked at.
+    if (speechUnknown) remaining.add('speech-model-unknown');
+    if (translationsUnknown) remaining.add('translations-unknown');
     if (remaining.isNotEmpty) {
       errorJournal.record(
         kind: 'wipe-incomplete',
@@ -3046,8 +3070,10 @@ class WipeReport {
 
   /// The codes [AppController.wipeContainers] returns for what it re-stat'd and
   /// found still present (`container`, `files`, `speech-model`,
-  /// `translations`). Codes rather than sentences, precisely so the sentence
-  /// can be a translated one.
+  /// `translations`), plus what it could not re-stat at all
+  /// (`speech-model-unknown`, `translations-unknown` — the platform channel
+  /// that resolves those roots failed, so nothing looked). Codes rather than
+  /// sentences, precisely so the sentence can be a translated one.
   final List<String> remaining;
 
   /// The wipe threw instead of returning. Nothing was verified, so a report
@@ -3118,7 +3144,6 @@ class WipeReportController extends Notifier<WipeReport?> {
   void dismiss() => state = null;
 }
 
-final wipeReportProvider =
-    NotifierProvider<WipeReportController, WipeReport?>(
-      WipeReportController.new,
-    );
+final wipeReportProvider = NotifierProvider<WipeReportController, WipeReport?>(
+  WipeReportController.new,
+);

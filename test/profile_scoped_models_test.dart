@@ -238,6 +238,61 @@ void main() {
     });
   });
 
+  /// A wipe that could not LOOK must not report that it found nothing.
+  ///
+  /// Both model deletes go through a platform channel, both are bounded by a
+  /// timeout, and both catches swallow everything. The re-stat that follows is
+  /// guarded on the resolved root being non-null — so a channel that failed
+  /// left the root null, the check skipped, and the person was told the wipe
+  /// was complete over a directory nobody had looked at. The comment on that
+  /// resolve already said the case worth reporting is precisely the one where
+  /// the channel has misbehaved.
+  test(
+    'a root the platform will not resolve is reported, not assumed clean',
+    () async {
+      activeProfile = AppProfiles.defaultName;
+      final storeFile = File(AppProfiles.storePath(support.path, 'throwaway'));
+      storeFile.parent.createSync(recursive: true);
+      storeFile.writeAsStringSync('container');
+
+      final container = FakeHvContainer();
+      final c = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => container.storage()),
+          whisperModelStoreProvider.overrideWithValue(speechStore()),
+          // The channel never answers where the models live.
+          translationModelsRootProvider.overrideWithValue(
+            () async => throw StateError('platform channel failed'),
+          ),
+          deniableBootProvider.overrideWithValue(
+            DeniableBootConfig(
+              runtimeDir: '${support.path}/rt',
+              listenPort: 9003,
+              storePath: storeFile.path,
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      final remaining = await ctrl.wipeContainers();
+
+      expect(
+        remaining,
+        contains('translations-unknown'),
+        reason:
+            'not looking is not the same answer as looking and finding none',
+      );
+      expect(
+        remaining,
+        isNot(contains('translations')),
+        reason: 'and it must not claim to have SEEN something either',
+      );
+    },
+  );
+
   test(
     'a WIPE in one profile leaves the other profile\'s model file alone',
     () async {

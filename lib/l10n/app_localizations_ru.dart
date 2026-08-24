@@ -238,6 +238,14 @@ class AppL10nRu extends AppL10n {
       'Загруженную модель распознавания речи удалить не удалось — она всё ещё на этом устройстве.';
 
   @override
+  String get lockWipeLeftSpeechModelUnknown =>
+      'Модель распознавания речи проверить не удалось — устройство не ответило, где она хранится.';
+
+  @override
+  String get lockWipeLeftTranslationsUnknown =>
+      'Модели перевода проверить не удалось — устройство не ответило, где они хранятся.';
+
+  @override
   String get lockWipeLeftTranslations =>
       'Загруженные языки перевода удалить не удалось — их названия всё ещё на этом устройстве.';
 
