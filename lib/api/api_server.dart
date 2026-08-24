@@ -3809,6 +3809,13 @@ class ApiBlobSource {
 /// peak: one chunk in flight, not one file.
 const int kBlobStreamChunkBytes = 64 * 1024;
 
+/// A blob transfer abandoned because the socket stopped draining.
+class _BlobWriteStalled implements Exception {
+  const _BlobWriteStalled();
+  @override
+  String toString() => 'blob write stalled: the client stopped reading';
+}
+
 /// Raised when a blob stops being readable partway through a walk — deleted
 /// under us, or a needed record is missing.
 class BlobUnreadable implements Exception {
@@ -7150,10 +7157,12 @@ class ApiServer {
     this._handler,
     this._events, {
     Duration? bodyDeadline,
+    Duration? writeIdleDeadline,
     int? maxInFlight,
     int? maxLiveSockets,
     int? maxQueuedEvents,
   })  : _bodyDeadline = bodyDeadline ?? _defaultBodyDeadline,
+        _writeIdleDeadline = writeIdleDeadline ?? _defaultWriteIdleDeadline,
         _maxInFlight = maxInFlight ?? _defaultMaxInFlight,
         _maxLiveSockets = maxLiveSockets ?? _defaultMaxLiveSockets,
         _maxQueuedEvents = maxQueuedEvents ?? _defaultMaxQueuedEvents;
@@ -7193,6 +7202,22 @@ class ApiServer {
   /// everything else.
   static const _defaultMaxInFlight = 32;
   final int _maxInFlight;
+
+  /// How long one chunk of a blob may fail to move before the transfer is
+  /// abandoned.
+  ///
+  /// `flush()` is the backpressure that keeps a big file out of memory, and it
+  /// resolves as the socket drains — so a client that simply stops reading
+  /// makes it never resolve, and the in-flight slot is held for as long as
+  /// that client cares to wait. `_maxInFlight` of them wedges the whole local
+  /// API, and a read-only token is enough to do it: the reads are ordinary
+  /// GETs.
+  ///
+  /// Idle rather than total: a legitimately slow reader that keeps taking
+  /// bytes is never cut off however long the file is. This fires only when
+  /// NOTHING moves.
+  static const _defaultWriteIdleDeadline = Duration(seconds: 30);
+  final Duration _writeIdleDeadline;
   int _inFlight = 0;
 
   /// Concurrent `/v1/events` subscriptions (audit XV-14).
@@ -7808,8 +7833,20 @@ class ApiServer {
         // This await is the backpressure: it resolves as the socket drains, so
         // a slow reader slows the READS rather than letting the whole blob
         // queue up in memory.
-        await req.response.flush();
+        //
+        // Bounded, because the same property is what a client can abuse: stop
+        // reading and this never resolves, holding an in-flight slot for as
+        // long as they like. See `_writeIdleDeadline`.
+        await req.response.flush().timeout(
+          _writeIdleDeadline,
+          onTimeout: () => throw const _BlobWriteStalled(),
+        );
       }
+    } on _BlobWriteStalled {
+      // Same reasoning as an unreadable blob: Content-Length is already on the
+      // wire, so the only honest end is a failed transfer. Not a persistent
+      // connection either — this socket has proven it does not drain.
+      req.response.persistentConnection = false;
     } on BlobUnreadable {
       // Content-Length is already on the wire, so there is no honest way to
       // finish. Stop writing and let the short body fail the transfer — a
