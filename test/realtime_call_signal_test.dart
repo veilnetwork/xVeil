@@ -186,7 +186,8 @@ void main() {
       expect(transport.lastRealtimeAnonymous, isFalse);
       expect(
         (await storage.pendingOutboxFrames()).map((f) => f.frameId),
-        contains('call:fast-answer:answer'),
+        // Destination-bound: a fan-out owes each recipient its own row.
+        contains('call:fast-answer:answer:${peer.hex}'),
       );
       transport.realtimeGate.complete();
     },
@@ -327,7 +328,7 @@ void main() {
     expect(transport.normalSends, 1);
     expect(
       (await storage.pendingOutboxFrames()).map((f) => f.frameId),
-      contains('call:relay-transition:transportInfo'),
+      contains('call:relay-transition:transportInfo:${peer.hex}'),
     );
   });
 
@@ -400,56 +401,62 @@ void main() {
     // accepted contact WAS that contact — any node on the network could ring
     // this phone as one, or hand it bootstrap URIs to dial.
 
-    test('an unauthenticated frame wearing a contact name does not ring', () async {
-      final messaging = MessagingService(transport, storage)..start();
-      addTearDown(messaging.dispose);
-      var rings = 0;
-      messaging.onCallSignal = (_, _) => rings++;
+    test(
+      'an unauthenticated frame wearing a contact name does not ring',
+      () async {
+        final messaging = MessagingService(transport, storage)..start();
+        addTearDown(messaging.dispose);
+        var rings = 0;
+        messaging.onCallSignal = (_, _) => rings++;
 
-      // `peer` IS an accepted contact — that is the whole point. The only
-      // thing wrong with this frame is that nothing verified who sent it.
-      transport.realtimeInbound.add(
-        InboundMessage(
-          src: peer,
-          payload: WireEnvelope.callSignal(
-            const CallSignal(
-              callId: 'spoofed-offer',
-              type: CallSignalType.offer,
+        // `peer` IS an accepted contact — that is the whole point. The only
+        // thing wrong with this frame is that nothing verified who sent it.
+        transport.realtimeInbound.add(
+          InboundMessage(
+            src: peer,
+            payload: WireEnvelope.callSignal(
+              const CallSignal(
+                callId: 'spoofed-offer',
+                type: CallSignalType.offer,
+              ).encode(),
             ).encode(),
-          ).encode(),
-        ),
-      );
+          ),
+        );
 
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(
-        rings,
-        0,
-        reason: 'a stranger rang the phone as one of the user\'s contacts',
-      );
-    });
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          rings,
+          0,
+          reason: 'a stranger rang the phone as one of the user\'s contacts',
+        );
+      },
+    );
 
-    test('an unauthenticated frame wearing a contact name is not dialled', () async {
-      final messaging = MessagingService(transport, storage)..start();
-      addTearDown(messaging.dispose);
-      var calls = 0;
-      messaging.onP2PEndpoints = (_, _) => calls++;
+    test(
+      'an unauthenticated frame wearing a contact name is not dialled',
+      () async {
+        final messaging = MessagingService(transport, storage)..start();
+        addTearDown(messaging.dispose);
+        var calls = 0;
+        messaging.onP2PEndpoints = (_, _) => calls++;
 
-      transport.realtimeInbound.add(
-        InboundMessage(
-          src: peer,
-          payload: WireEnvelope.p2pEndpoints(
-            '{"v":1,"ts":111,"e":["veil:bootstrap?attacker"]}',
-          ).withFrameId('p2p:ep:111').encode(),
-        ),
-      );
+        transport.realtimeInbound.add(
+          InboundMessage(
+            src: peer,
+            payload: WireEnvelope.p2pEndpoints(
+              '{"v":1,"ts":111,"e":["veil:bootstrap?attacker"]}',
+            ).withFrameId('p2p:ep:111').encode(),
+          ),
+        );
 
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(
-        calls,
-        0,
-        reason: 'the app would have dialled an address the attacker chose',
-      );
-    });
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          calls,
+          0,
+          reason: 'the app would have dialled an address the attacker chose',
+        );
+      },
+    );
 
     test('the session cache cannot be used to answer for the claim', () async {
       // The accepted-peer cache is primed by anything that ever looked like
