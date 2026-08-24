@@ -87,14 +87,35 @@ class _MessagingDeviceMirror {
     required bool archived,
     int? retentionDays,
     required bool allowPeerDelete,
+    DisappearingSetting? disappearing,
   }) async {
     final existing = await _owner._storage.getContact(peer);
     if (existing == null) return false;
+    // The retention policy is decided by the SAME rule a peer's announcement
+    // goes through, not by whoever mirrored last. A sibling that has been
+    // offline holds an older view, and its alias edit must not roll the window
+    // back — `winner` is last-writer-wins with a deterministic tie-break, so
+    // both devices land on one answer whichever order the events arrive in.
+    final held = DisappearingSetting(
+      ttlSeconds: existing.disappearingTtlSeconds,
+      setAtMs: existing.disappearingSetAtMs,
+      setBy: existing.disappearingSetBy,
+      hideAfterReadSeconds: existing.hideAfterReadSeconds,
+    );
+    final policy = disappearing == null
+        ? held
+        : DisappearingSetting.winner(held, disappearing);
+    // `copyWith`, NOT a fresh `Contact`. A hand-written field list here named
+    // the seven fields the bridge carries and silently defaulted the rest, so
+    // mirroring an alias, a pin or a mute wiped the disappearing policy: ttl
+    // to null, the stamp to 0, the setter to empty. Turning the window off is
+    // an explicit act with a timestamp behind it; an unrelated edit on another
+    // device is not that act. The sentinels on `copyWith` exist precisely so a
+    // merge can say "leave what I was not told about" — which is what a
+    // partial mirror is.
     await _owner._storage.upsertContact(
-      Contact(
-        nodeId: existing.nodeId,
+      existing.copyWith(
         name: name,
-        status: existing.status,
         mutedUntil: mutedUntilMs == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(mutedUntilMs),
@@ -103,7 +124,10 @@ class _MessagingDeviceMirror {
         archived: archived,
         retentionDays: retentionDays,
         allowPeerDelete: allowPeerDelete,
-        p2pOverride: existing.p2pOverride,
+        disappearingTtlSeconds: policy.ttlSeconds,
+        disappearingSetAtMs: policy.setAtMs,
+        disappearingSetBy: policy.setBy,
+        hideAfterReadSeconds: policy.hideAfterReadSeconds,
       ),
     );
     _owner._signal();

@@ -24,8 +24,9 @@ import '../data/node/sovereign_identity_material.dart';
 import '../data/veil_stack.dart';
 import '../domain/call_log.dart';
 import '../domain/chat.dart'
-    show ContactStatus, NotificationMuteMode, SignaturePolicy;
+    show Contact, ContactStatus, NotificationMuteMode, SignaturePolicy;
 import '../domain/device_sync.dart';
+import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
 import 'device_settings_sync.dart';
 import 'providers.dart' show realStackProvider;
@@ -37,6 +38,51 @@ import 'signature_policy_controller.dart';
 
 /// Wires the brick-4 sync kinds. Eagerly watched from the app scope (next to
 /// [groupServiceProvider]); rebuilds with the service on identity switch.
+/// The preference fields a contact record puts on the device-sync wire.
+///
+/// Named rather than inline so both halves of the round trip can be checked in
+/// one place: a field added to `Contact` and forgotten here does not sync, and
+/// nothing about the running app says so. That is how the retention policy came
+/// to be missing from it — four fields the interface makes a promise about,
+/// travelling nowhere.
+///
+/// Relationship status and the per-device P2P override are deliberately absent:
+/// they ride their own key namespace, or are local by design.
+Map<String, Object?> contactPrefsPayload(Contact c) => {
+  'name': c.name,
+  'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
+  'muteMode': c.notificationMuteMode.name,
+  'pin': c.pinned,
+  'arc': c.archived,
+  'ret': c.retentionDays,
+  'apd': c.allowPeerDelete,
+  // The retention policy travels WITH the preferences, carrying its own stamp
+  // and setter so the sibling can run the same last-writer-wins rule a peer's
+  // announcement goes through.
+  'dtl': c.disappearingTtlSeconds,
+  'dsa': c.disappearingSetAtMs,
+  'dsb': c.disappearingSetBy,
+  'har': c.hideAfterReadSeconds,
+};
+
+/// The retention policy carried by [contactPrefsPayload], or null when the
+/// event came from a build that did not carry one.
+///
+/// Absent, not null: treating silence as "the window is off" would let an old
+/// build's alias edit switch off a window a new one had set. The presence of
+/// the stamp is what makes it an answer.
+DisappearingSetting? disappearingFromPayload(Map<String, Object?> payload) {
+  final setAt = payload['dsa'];
+  if (setAt is! int) return null;
+  final ttl = payload['dtl'], hide = payload['har'], by = payload['dsb'];
+  return DisappearingSetting(
+    ttlSeconds: ttl is int ? ttl : null,
+    setAtMs: setAt,
+    setBy: by is String ? by : '',
+    hideAfterReadSeconds: hide is int ? hide : null,
+  );
+}
+
 final deviceSyncBridgeProvider = Provider<void>((ref) {
   final svc = ref.watch(groupServiceProvider);
   if (svc == null) return;
@@ -135,15 +181,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           kind: DeviceSyncKind.contactUp,
           key: c.nodeId.hex,
           tsMs: nextTs(),
-          payload: {
-            'name': c.name,
-            'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
-            'muteMode': c.notificationMuteMode.name,
-            'pin': c.pinned,
-            'arc': c.archived,
-            'ret': c.retentionDays,
-            'apd': c.allowPeerDelete,
-          },
+          payload: contactPrefsPayload(c),
         ),
       );
     }());
@@ -328,6 +366,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       archived: e.payload['arc'] == true,
       retentionDays: ret is int ? ret : null,
       allowPeerDelete: e.payload['apd'] != false,
+      disappearing: disappearingFromPayload(e.payload),
     );
   }
 
