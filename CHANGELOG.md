@@ -10,6 +10,104 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.12.0] — 2026-08-24
+
+Built on [veil v0.7.0](https://github.com/veilnetwork/veil/releases/tag/v0.7.0),
+cut for this release, and
+[hidden-volume v2.0.2](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.2),
+unchanged since 0.11.0 — no public surface moved and `PARAMS_VERSION` stays at
+3, so a container written by 0.11.0 opens here with no conversion.
+
+**There IS a wire flag day this time**, and it is the reason for the minor
+digit. veil v0.7.0 breaks the wire in three places: a circuit's cells carry a
+size negotiated at setup (and that size dropped from 16384 to 2048 bytes), the
+hole-punch token is derived from the deployment's PSK instead of being sent,
+and the LAN beacon moved to a port of its own. A 0.12.0 client and a 0.11.0
+node still speak OVL1, but they cannot share a circuit, cannot punch each
+other, and cannot hear each other's beacons. Update the network and the clients
+together; a client left behind degrades to relayed paths and loses LAN
+discovery.
+
+The release is otherwise about one thing: what an idle phone pays. Every item
+below was found by measuring a real device rather than by reading code, and
+each names what it was measured against.
+
+### Changed
+
+- **The 6–12 h transport rotation had never applied.** Its guard returned early
+  whenever the config already contained `[transport.rotation]`, and the config
+  renderer always emits that section — carrying veil's own 1800/3600 defaults,
+  the very numbers the helper exists to replace. Measured on the phone:
+  sessions to one seed reopened at 37, 27 and 32 minutes, squarely the default
+  band. Its three tests had stayed green throughout because all three fed it a
+  config WITHOUT the section, the one input production never produces. This
+  costs more than bytes: a rotation gracefully closes the recipient's session
+  to its rendezvous relay, and a sender's live introduce inside the
+  re-registration gap black-holes into the slower mailbox path — which had been
+  happening every 30–60 minutes.
+- **Outbound frames coalesce.** On one seed link over 599 s with the connection
+  intact, 521 frames carrying 190 B/s of bodies cost 413 B/s on the wire: about
+  260 bytes of framing and obfs4 padding per frame, roughly twice the payload
+  each wrapped, and the largest remaining item now that a circuit cell is 2048.
+  A 200 ms window merges 39% of them on a replay of that capture. The `always`
+  flag is required rather than decorative — veil gates the window behind a low
+  battery reading, and the phone disables battery awareness entirely, so
+  without it the setting is inert exactly where it was measured. Interactive
+  frames bypass the coalescer, so liveness probes and backpressure are
+  untouched.
+- **A device that is provably gone stops costing a burst every half hour.** The
+  unresolved-peer backoff ceiling was thirty minutes and turned out to be the
+  largest single line in an idle phone's bill: three sibling devices away 25 h,
+  26 h and 4.8 days had 274 frames queued for them, and every expiry drove all
+  of them — bursts of ~120 sends inside six seconds, about 93% of the phone's
+  send events, each a DHT lookup for a device that cannot be sealed for at all.
+  The ceiling moves to six hours, which is also how long the frames themselves
+  live, so a frame now gets at most one blind re-check inside its own lifetime.
+  The ramp is untouched and it is the ramp the ordinary case rides; a returning
+  peer is served immediately, because the first authenticated delivery clears
+  the backoff outright.
+- **The resend ladder now bounds how many retry at once, not only how often.**
+  Per-frame exponential backoff saturates, so frames queued together come due
+  together: measured against three offline contacts over 38 minutes, 55 bursts
+  of which four carried 1100–1600 sends inside 6–7 seconds — about 175 sends
+  per second — while the ticks between them ran at three sends per minute. The
+  bursts were ~95% of all attempts, and on the seed side the same thing reads
+  as 47–52 recursive queries per second against a single key. Each frame's
+  delay now carries a deterministic offset derived from its id. The offset
+  subtracts rather than adds, so a frame can only retry earlier than the ladder
+  promises, never later.
+- **A conversation with nothing to reconcile asks less often.** The gap-fill
+  beacon had one reason to slow down — nobody answered — and none for nothing
+  happened. Since a peer answering an empty beacon sends one back, two idle
+  conversations pinned each other at a beacon every 20 s in each direction for
+  as long as both stayed online, to say that nothing had changed: 0.1 frames/s
+  per idle contact against a whole-node floor of ~2.4 frames/s, so the 5–6
+  contacts this is sized for would have been a quarter of everything the node
+  sends. A second streak now counts beacons that would restate the last one
+  verbatim, and the longer streak sets the cadence. A conversation awaiting a
+  hole is never quiet, however unchanged its beacon looks.
+
+### Added
+
+- **The headless daemon can see its own diagnostics.** Its whole purpose is
+  unattended bots and server integrations, and it had no way to answer "why did
+  that not send" in any build: `devLog` writes where a captured stdout cannot
+  see it, the ring buffer behind it is exposed only through a debug hook the
+  daemon does not have, and the documented escape hatch could not be built for
+  this target at all. `XVEIL_LOG_STDOUT=1` now echoes each line, read inside
+  the existing compile-time gate — so in a release build the branch is
+  eliminated, the variable is never consulted, and no node-id-bearing string is
+  ever constructed. It is deliberately not a runtime switch on the gate itself,
+  which is the obvious change and the wrong one.
+
+### Fixed
+
+- A dialog's controller must outlive the dialog rather than the caller; the
+  last eight dialog controllers were given owners, and two that were sleeping
+  were woken.
+- The stdout echo carried no timestamp.
+- Release notes must match the tag rather than the first attempt.
+
 ## [0.11.0] — 2026-08-19
 
 Built on [veil v0.6.0](https://github.com/veilnetwork/veil/releases/tag/v0.6.0)
