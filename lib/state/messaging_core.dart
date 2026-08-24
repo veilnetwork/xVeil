@@ -366,6 +366,10 @@ class MessagingService {
     required bool archived,
     int? retentionDays,
     required bool allowPeerDelete,
+    /// The sibling's view of the retention policy, or null when the event came
+    /// from a build that did not carry it — in which case the policy already
+    /// held here is kept rather than cleared.
+    DisappearingSetting? disappearing,
   }) => _deviceMirror.applyContact(
     peer: peer,
     name: name,
@@ -375,6 +379,7 @@ class MessagingService {
     archived: archived,
     retentionDays: retentionDays,
     allowPeerDelete: allowPeerDelete,
+    disappearing: disappearing,
   );
 
   /// Attached by the group layer: a group snapshot from a NON-contact sender
