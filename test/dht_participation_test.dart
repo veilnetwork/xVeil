@@ -48,7 +48,8 @@ void main() {
       expect(
         EmbeddedNode.withDhtParticipation(base, participate: true),
         contains('participate = true'),
-        reason: 'written even though true is veil\'s own default, so the '
+        reason:
+            'written even though true is veil\'s own default, so the '
             'composed config says what it means and a flip shows in a diff',
       );
     });
@@ -129,6 +130,48 @@ void main() {
       expect(await dhtParticipationAnswer(storage), isNull);
     });
 
+    /// The failure this setting cannot afford: an explicit OFF that quietly
+    /// becomes ON.
+    ///
+    /// A throw from an OPEN store was swallowed into the same `null` as "never
+    /// asked", and on desktop `null` resolves to the platform default, `true`.
+    /// So a transient storage fault booted a node that had opted OUT as one
+    /// serving the DHT for strangers — the unpaid work this whole setting
+    /// exists to stop — while the UI still showed the choice that was made.
+    test('a read fault does not turn serving back on', () async {
+      final faulty = _FakeStorage()
+        ..settings[kDhtParticipationSettingKey] = 'false'
+        ..readThrows = true;
+
+      expect(
+        faulty.isOpen,
+        isTrue,
+        reason: 'a fault on an OPEN store, not the closed-store lifecycle case',
+      );
+      expect(
+        await dhtParticipationEffective(faulty),
+        isFalse,
+        reason: 'an answer that could not be read must not resolve to serving',
+      );
+      expect(
+        await dhtParticipationUnreadable(faulty),
+        isTrue,
+        reason: 'and the fault is nameable, not folded into "never asked"',
+      );
+    });
+
+    /// The same store, healthy, still follows the platform default when the
+    /// question was genuinely never asked — the fix must not turn every
+    /// unanswered device off.
+    test('a healthy store with no answer still takes the default', () async {
+      final healthy = _FakeStorage();
+      expect(await dhtParticipationUnreadable(healthy), isFalse);
+      expect(
+        await dhtParticipationEffective(healthy),
+        kDhtParticipationDefault,
+      );
+    });
+
     /// A switch that silently did not stick is worse than one that reports it.
     test('a closed store refuses the write and reads as unanswered', () async {
       await storage.close();
@@ -159,6 +202,10 @@ class _FakeStorage implements Storage {
   /// cover, so the one test about that gap widens it deliberately.
   Duration readDelay = Duration.zero;
 
+  /// An OPEN store whose read fails. Distinct from `unlocked = false`, which
+  /// is a lifecycle state the switch is allowed to meet before unlock.
+  bool readThrows = false;
+
   @override
   bool get isOpen => unlocked;
 
@@ -171,6 +218,7 @@ class _FakeStorage implements Storage {
   @override
   Future<String?> getSetting(String key) async {
     if (!unlocked) throw StateError('storage is locked');
+    if (readThrows) throw StateError('read fault');
     if (readDelay > Duration.zero) await Future<void>.delayed(readDelay);
     return settings[key];
   }
@@ -195,8 +243,9 @@ void switchTests() {
     final storage = _FakeStorage();
     // Explicitly the OPPOSITE of the platform default, so a switch that
     // ignored the store and rendered the default would fail here.
-    storage.settings[kDhtParticipationSettingKey] =
-        kDhtParticipationDefault ? 'false' : 'true';
+    storage.settings[kDhtParticipationSettingKey] = kDhtParticipationDefault
+        ? 'false'
+        : 'true';
 
     await tester.pumpWidget(host(storage));
     await tester.pumpAndSettle();
@@ -251,7 +300,8 @@ void switchTests() {
     expect(
       tile,
       findsNothing,
-      reason: 'a switch rendered at the platform default and corrected a '
+      reason:
+          'a switch rendered at the platform default and corrected a '
           'frame later is a switch people watch move on its own',
     );
     // `pumpAndSettle` returns at once here: a pending timer with no animation
