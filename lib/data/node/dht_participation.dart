@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../../core/log.dart';
 import '../storage/storage.dart';
 
 /// Whether this device serves the DHT for OTHER people.
@@ -28,8 +29,7 @@ const String kDhtParticipationSettingKey = 'dht.participate.v1';
 /// Phones off, desktops on. Not a guess — see the measurement above; the
 /// asymmetry is that a desktop is usually on mains and unmetered while a
 /// phone is neither.
-bool get kDhtParticipationDefault =>
-    !(Platform.isAndroid || Platform.isIOS);
+bool get kDhtParticipationDefault => !(Platform.isAndroid || Platform.isIOS);
 
 /// One identity's answer, or null when it has never been asked.
 ///
@@ -53,13 +53,51 @@ Future<bool?> dhtParticipationAnswer(Storage storage) async {
   }
 }
 
+/// Whether the stored answer could not be read at all, as opposed to never
+/// having been given.
+///
+/// A CLOSED space is not this: it is a normal lifecycle state — the switch may
+/// be asked before unlock — and it deliberately resolves to the platform
+/// default, which `a closed store refuses the write and reads as unanswered`
+/// pins. A throw from an OPEN space is different. It is a fault, it was
+/// swallowed into the same `null`, and on desktop that `null` became the
+/// default: `true`.
+///
+/// So a transient storage fault could boot a node that had explicitly turned
+/// this OFF as one that serves the DHT for strangers — the exact unpaid work
+/// the setting exists to stop, switched back on by an error nobody saw, with
+/// the UI still showing the choice that was made.
+Future<bool> dhtParticipationUnreadable(Storage storage) async {
+  if (!storage.isOpen) return false;
+  try {
+    await storage.getSetting(kDhtParticipationSettingKey);
+    return false;
+  } catch (error) {
+    devLog(() => 'xVeil[dht.participate]: setting unreadable ($error)');
+    return true;
+  }
+}
+
 /// The answer to boot with: this identity's choice, else the platform default.
 ///
 /// Never writes. Resolving a default is not answering the question, and
 /// freezing the invention into the container would make tomorrow's default
 /// unable to reach a device that simply never chose.
-Future<bool> dhtParticipationEffective(Storage storage) async =>
-    (await dhtParticipationAnswer(storage)) ?? kDhtParticipationDefault;
+Future<bool> dhtParticipationEffective(Storage storage) async {
+  final answer = await dhtParticipationAnswer(storage);
+  if (answer != null) return answer;
+  // Never asked resolves to the platform default, as it always has. A read
+  // that FAILED does not: resolve it to NOT serving.
+  //
+  // The asymmetry is the reason, not the odds. Failing to serve costs the
+  // network one replica for one session, and the node still publishes its own
+  // records, still resolves others, still receives mail — the doc above says
+  // so. Failing to honour an opt-out spends someone else's battery and metered
+  // data against a decision they made deliberately, and it does it invisibly.
+  // The next boot that can read the space restores the real answer.
+  if (await dhtParticipationUnreadable(storage)) return false;
+  return kDhtParticipationDefault;
+}
 
 /// Write this identity's answer. **False means it was not written**, including
 /// "the space is not open" — the caller has to be able to say so rather than
