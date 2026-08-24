@@ -122,12 +122,18 @@ void main() {
         setAtMs: 1,
         setBy: 'a',
       );
-      expect(oneHour.hasExpired(sent, sent.add(const Duration(minutes: 59))),
-          isFalse);
-      expect(oneHour.hasExpired(sent, sent.add(const Duration(hours: 1))),
-          isTrue);
-      expect(DisappearingSetting.off.hasExpired(sent, DateTime.utc(3000)),
-          isFalse);
+      expect(
+        oneHour.hasExpired(sent, sent.add(const Duration(minutes: 59))),
+        isFalse,
+      );
+      expect(
+        oneHour.hasExpired(sent, sent.add(const Duration(hours: 1))),
+        isTrue,
+      );
+      expect(
+        DisappearingSetting.off.hasExpired(sent, DateTime.utc(3000)),
+        isFalse,
+      );
       expect(DisappearingSetting.off.cutoffAt(sent), isNull);
     });
 
@@ -150,23 +156,103 @@ void main() {
         isNull,
       );
       expect(
-        DisappearingSetting.fromWireJson(
-          {'ttl': kDisappearingMaxSeconds + 1, 'ts': 1},
-          from,
-        ),
+        DisappearingSetting.fromWireJson({
+          'ttl': kDisappearingMaxSeconds + 1,
+          'ts': 1,
+        }, from),
         isNull,
         reason: 'an unbounded window overflows every expiry sum downstream',
       );
-      final ok = DisappearingSetting.fromWireJson(
-        {'ttl': kDisappearingMaxSeconds, 'ts': 5},
-        from,
-      );
+      final ok = DisappearingSetting.fromWireJson({
+        'ttl': kDisappearingMaxSeconds,
+        'ts': 5,
+      }, from);
       expect(ok!.ttlSeconds, kDisappearingMaxSeconds);
       expect(
         ok.setBy,
         from.hex,
         reason: 'the setter is the envelope sender, never a field in the body',
       );
+    });
+
+    /// `winner` is last-writer-wins on `ts`, so a stamp in the far future is
+    /// not an odd value in a record — it is a permanent victory. An
+    /// authenticated contact could announce `ttl = 1` dated years ahead: the
+    /// sweep starts deleting the conversation at once, and every honest update
+    /// afterwards LOSES the comparison for as long as the claim says. A Space
+    /// already refuses exactly this; the direct path is the half that did not.
+    test('a stamp our clock could not have produced is refused', () {
+      final from = _id(11);
+      final now = DateTime.fromMillisecondsSinceEpoch(1_700_000_000_000);
+
+      expect(
+        DisappearingSetting.fromWireJson(
+          {'ttl': 1, 'ts': now.millisecondsSinceEpoch + 365 * 86400 * 1000},
+          from,
+          now: now,
+        ),
+        isNull,
+        reason: 'a year ahead is a claim no clock here could have made',
+      );
+      expect(
+        DisappearingSetting.fromWireJson(
+          {'ttl': 1, 'ts': 9223372036854775807},
+          from,
+          now: now,
+        ),
+        isNull,
+        reason: 'and the extreme that used to throw building a DateTime',
+      );
+
+      // Inside the tolerance, and in the past, both stay honoured: a device
+      // back from a week offline must keep last Tuesday's setting, and an early
+      // stamp can only expire less.
+      final skewed = DisappearingSetting.fromWireJson(
+        {
+          'ttl': 60,
+          'ts':
+              now.millisecondsSinceEpoch +
+              kDisappearingClockSkew.inMilliseconds -
+              1000,
+        },
+        from,
+        now: now,
+      );
+      expect(
+        skewed,
+        isNotNull,
+        reason: 'ordinary clock drift is not an attack',
+      );
+
+      final past = DisappearingSetting.fromWireJson(
+        {'ttl': 60, 'ts': now.millisecondsSinceEpoch - 7 * 86400 * 1000},
+        from,
+        now: now,
+      );
+      expect(past, isNotNull);
+      expect(past!.ttlSeconds, 60);
+    });
+
+    /// Refusal must leave the conversation on the window it already had —
+    /// the same contract the parser keeps for anything else it cannot believe.
+    test('a refused stamp cannot displace the setting in force', () {
+      final from = _id(12);
+      final now = DateTime.fromMillisecondsSinceEpoch(1_700_000_000_000);
+      final held = DisappearingSetting(
+        ttlSeconds: 3600,
+        setAtMs: now.millisecondsSinceEpoch - 1000,
+        setBy: from.hex,
+      );
+
+      final hostile = DisappearingSetting.fromWireJson(
+        {'ttl': 1, 'ts': now.millisecondsSinceEpoch + 10 * 365 * 86400 * 1000},
+        from,
+        now: now,
+      );
+      expect(hostile, isNull);
+
+      // Nothing to feed `winner`, so the held window stands.
+      expect(held.ttlSeconds, 3600);
     });
 
     // The stored body is a token. Any screen that prints message bodies without
@@ -309,9 +395,9 @@ void main() {
         ),
       );
       expect(
-        (await sA.loadMessages(b.hex))
-            .map((m) => m.timestamp.millisecondsSinceEpoch)
-            .toList(),
+        (await sA.loadMessages(
+          b.hex,
+        )).map((m) => m.timestamp.millisecondsSinceEpoch).toList(),
         contains(hostileAt.millisecondsSinceEpoch),
         reason: 'the row this test is about must actually be in the store',
       );
@@ -334,7 +420,8 @@ void main() {
       expect(
         through,
         lessThan(hostileAt.millisecondsSinceEpoch),
-        reason: 'coverage stops at our own clock, so the future-dated row '
+        reason:
+            'coverage stops at our own clock, so the future-dated row '
             'cannot drag the history with it',
       );
     });
@@ -429,10 +516,9 @@ void main() {
       );
       addTearDown(keepAlive.close);
 
-      Future<List<String>> bodies() async => (await container
-              .read(messagesProvider(b.hex).future))
-          .map((m) => m.body)
-          .toList();
+      Future<List<String>> bodies() async => (await container.read(
+        messagesProvider(b.hex).future,
+      )).map((m) => m.body).toList();
 
       expect(await bodies(), contains('early'));
 
@@ -669,9 +755,9 @@ void main() {
       final noticeId = 'sys:disap:$stamp:${a.hex}';
       await sB.deleteMessage(a.hex, noticeId);
       expect(
-        (await sB.loadMessages(a.hex))
-            .where((m) => disappearingMarkerSeconds(m.body) != null)
-            .length,
+        (await sB.loadMessages(
+          a.hex,
+        )).where((m) => disappearingMarkerSeconds(m.body) != null).length,
         0,
       );
 
@@ -685,9 +771,9 @@ void main() {
       );
       await _pump();
       expect(
-        (await sB.loadMessages(a.hex))
-            .where((m) => disappearingMarkerSeconds(m.body) != null)
-            .length,
+        (await sB.loadMessages(
+          a.hex,
+        )).where((m) => disappearingMarkerSeconds(m.body) != null).length,
         0,
         reason: 'a re-delivered announcement must not undo a deletion',
       );
@@ -714,14 +800,16 @@ void main() {
     // The owner asked for a window. A network that happens to be down at that
     // moment must not leave them with no window at all — the peer catches up
     // on the next announcement, but this device honours the choice now.
-    test('the choice applies here even when the announcement cannot go out',
-        () async {
-      tA.deaf = true;
-      await mA.setContactDisappearing(b, 30);
-      await _pump();
-      expect((await sA.getContact(b))!.disappearingTtlSeconds, 30);
-      expect((await sB.getContact(a))!.disappearingTtlSeconds, isNull);
-    });
+    test(
+      'the choice applies here even when the announcement cannot go out',
+      () async {
+        tA.deaf = true;
+        await mA.setContactDisappearing(b, 30);
+        await _pump();
+        expect((await sA.getContact(b))!.disappearingTtlSeconds, 30);
+        expect((await sB.getContact(a))!.disappearingTtlSeconds, isNull);
+      },
+    );
 
     // The sweep is the part that actually deletes. It must take what has run
     // out of time and nothing else.
@@ -749,34 +837,35 @@ void main() {
     // The change is a row in the timeline on BOTH sides: a window that governs
     // what the other person's device deletes is not something either of them
     // should have to discover by noticing an absence.
-    test('both sides get a visible notice, and a replay does not double it',
-        () async {
-      await mA.setContactDisappearing(b, 3600);
-      await _pump();
-      int notices(List<Message> ms) => ms
-          .where((m) => disappearingMarkerSeconds(m.body) != null)
-          .length;
-      expect(notices(await sA.loadMessages(b.hex)), 1);
-      expect(notices(await sB.loadMessages(a.hex)), 1);
+    test(
+      'both sides get a visible notice, and a replay does not double it',
+      () async {
+        await mA.setContactDisappearing(b, 3600);
+        await _pump();
+        int notices(List<Message> ms) =>
+            ms.where((m) => disappearingMarkerSeconds(m.body) != null).length;
+        expect(notices(await sA.loadMessages(b.hex)), 1);
+        expect(notices(await sB.loadMessages(a.hex)), 1);
 
-      // Re-deliver the very same announcement: the sender's durable copy sits
-      // in the mailbox until acked, and a restart clears the RAM seen-set.
-      final stamp = (await sB.getContact(a))!.disappearingSetAtMs;
-      await tA.send(
-        b,
-        WireEnvelope(
-          WireKind.disappearingSet,
-          '{"v":1,"ttl":3600,"ts":$stamp}',
-          sentAtMs: stamp,
-        ).withFrameId('replay:2').encode(),
-      );
-      await _pump();
-      expect(
-        notices(await sB.loadMessages(a.hex)),
-        1,
-        reason: 'a re-delivered announcement must not mint a second notice',
-      );
-    });
+        // Re-deliver the very same announcement: the sender's durable copy sits
+        // in the mailbox until acked, and a restart clears the RAM seen-set.
+        final stamp = (await sB.getContact(a))!.disappearingSetAtMs;
+        await tA.send(
+          b,
+          WireEnvelope(
+            WireKind.disappearingSet,
+            '{"v":1,"ttl":3600,"ts":$stamp}',
+            sentAtMs: stamp,
+          ).withFrameId('replay:2').encode(),
+        );
+        await _pump();
+        expect(
+          notices(await sB.loadMessages(a.hex)),
+          1,
+          reason: 'a re-delivered announcement must not mint a second notice',
+        );
+      },
+    );
   });
 }
 
@@ -843,10 +932,11 @@ void _readClockTests() {
     });
 
     test('a v1 announcement decodes with no read window', () {
-      final decoded = DisappearingSetting.fromWireJson(
-        {'v': 1, 'ttl': 60, 'ts': 5},
-        NodeId(Uint8List.fromList(List.filled(32, 3))),
-      );
+      final decoded = DisappearingSetting.fromWireJson({
+        'v': 1,
+        'ttl': 60,
+        'ts': 5,
+      }, NodeId(Uint8List.fromList(List.filled(32, 3))));
       expect(decoded?.ttlSeconds, 60);
       expect(decoded?.hideAfterReadSeconds, isNull);
     });
@@ -864,17 +954,14 @@ void _readClockTests() {
     /// or a peer could clear someone's window by sending nonsense.
     test('a malformed read window rejects the announcement', () {
       final from = NodeId(Uint8List.fromList(List.filled(32, 3)));
-      for (final bad in <Object>[
-        'soon',
-        0,
-        -1,
-        kDisappearingMaxSeconds + 1,
-      ]) {
+      for (final bad in <Object>['soon', 0, -1, kDisappearingMaxSeconds + 1]) {
         expect(
-          DisappearingSetting.fromWireJson(
-            {'v': 2, 'ttl': 60, 'ts': 5, 'rttl': bad},
-            from,
-          ),
+          DisappearingSetting.fromWireJson({
+            'v': 2,
+            'ttl': 60,
+            'ts': 5,
+            'rttl': bad,
+          }, from),
           isNull,
           reason: 'rttl=$bad must not silently become "off"',
         );

@@ -87,8 +87,7 @@ class DisappearingSetting {
 
   bool get isOn => (ttlSeconds ?? 0) > 0;
 
-  Duration? get window =>
-      isOn ? Duration(seconds: ttlSeconds!) : null;
+  Duration? get window => isOn ? Duration(seconds: ttlSeconds!) : null;
 
   /// Which of two announcements a conversation ends up holding.
   ///
@@ -142,14 +141,39 @@ class DisappearingSetting {
   /// the conversation on the window it already had: silently falling back to
   /// "off" would turn a corrupt frame into a way to disable someone's
   /// disappearing messages.
+  /// [now] is injectable for tests; production reads the wall clock.
   static DisappearingSetting? fromWireJson(
     Map<String, Object?> json,
-    NodeId from,
-  ) {
+    NodeId from, {
+    DateTime? now,
+  }) {
     final ttl = json['ttl'];
     final ts = json['ts'];
     if (ttl is! int || ts is! int || ttl < 0 || ts < 0) return null;
     if (ttl > kDisappearingMaxSeconds) return null;
+    // A stamp our clock could not have produced is refused.
+    //
+    // `winner` is last-writer-wins on this field, so a far-future `ts` is not
+    // an odd value in a record — it is a permanent victory. An authenticated
+    // contact could announce `ttl = 1` dated years ahead: the aggressive sweep
+    // starts deleting the conversation immediately, and every honest update
+    // after it LOSES the comparison for as long as the claim says. There was no
+    // upper bound at all, so `9223372036854775807` was accepted too, and the
+    // marker `DateTime` built from it downstream threw — after the frame had
+    // been ACKed and deduped.
+    //
+    // A Space already refuses exactly this, one-sided, on the same five
+    // minutes: see `spaceRetentionRevisionBelievable`. The direct path is the
+    // half that never got it. Past stamps stay honoured — a device back from a
+    // week offline must keep last Tuesday's setting, and an early stamp can
+    // only expire less.
+    //
+    // Refusing rather than clamping to `now` is deliberate, for the reason that
+    // function's doc gives: a clamped claim moves on every evaluation. And a
+    // refusal here means the conversation keeps the window it already had,
+    // which is what this parser promises for anything it cannot believe.
+    final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    if (ts > nowMs + kDisappearingClockSkew.inMilliseconds) return null;
     // Absent is off. Present and malformed is a REJECT of the whole
     // announcement, not a silent fallback: the same reasoning as above, one
     // level down. A peer must not be able to clear someone's read-window by
@@ -167,6 +191,14 @@ class DisappearingSetting {
     );
   }
 }
+
+/// How far ahead of this device's clock an announcement may be stamped.
+///
+/// Five minutes, and one-sided, matching `spaceRetentionRevisionBelievable`
+/// for a Space. The two are the same policy for the same danger, and the value
+/// is repeated rather than imported so a domain file about direct messages does
+/// not depend on the Space-discovery module.
+const Duration kDisappearingClockSkew = Duration(minutes: 5);
 
 /// Ceiling on an announced window: four weeks.
 ///
@@ -194,9 +226,4 @@ const List<int> kDisappearingPresets = <int>[
 /// day of the reader's attention rather than a day of calendar — which is not
 /// a thing anyone means. Longer values stay reachable through the custom
 /// entry.
-const List<int> kHideAfterReadPresets = <int>[
-  60,
-  5 * 60,
-  30 * 60,
-  60 * 60,
-];
+const List<int> kHideAfterReadPresets = <int>[60, 5 * 60, 30 * 60, 60 * 60];
