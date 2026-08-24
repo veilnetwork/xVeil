@@ -255,6 +255,66 @@ void main() {
       expect(held.ttlSeconds, 3600);
     });
 
+    /// The marker used to carry the TTL alone, so a policy of "hide 30 minutes
+    /// after reading, no post-time window" stored `…:0` and announced itself as
+    /// "Disappearing messages turned off" — the opposite of what was in force.
+    /// The state is reachable from the wire: an announcement may carry `ttl = 0`
+    /// with a read-window.
+    test('a read-window is not rendered as "off"', () {
+      final l = lookupAppL10n(const Locale('en'));
+      final hideOnly = disappearingPreview(
+        l,
+        '${kDisappearingMarkerPrefix}0:r1800',
+      );
+      expect(hideOnly, isNotNull);
+      expect(
+        hideOnly,
+        isNot(equals(l.chatDisappearingOffNotice)),
+        reason: 'a window that IS in force must not read as off',
+      );
+      expect(hideOnly, isNot(contains(kDisappearingMarkerPrefix)));
+
+      // Both halves present: both are named.
+      final both = disappearingPreview(
+        l,
+        '${kDisappearingMarkerPrefix}3600:r1800',
+      );
+      expect(both, isNotNull);
+      expect(both, isNot(contains(kDisappearingMarkerPrefix)));
+      expect(
+        both,
+        isNot(
+          equals(disappearingPreview(l, '${kDisappearingMarkerPrefix}3600')),
+        ),
+        reason: 'a read-window has to change what the row says',
+      );
+    });
+
+    /// Callers use a non-null parse as "this row is a system marker". If the
+    /// extended form did not parse, those rows would be rendered as ordinary
+    /// messages — printing the token itself at the user.
+    test('the extended marker still reads as a marker', () {
+      expect(
+        disappearingMarkerSeconds('${kDisappearingMarkerPrefix}3600:r1800'),
+        3600,
+      );
+      expect(disappearingMarkerSeconds('${kDisappearingMarkerPrefix}0:r60'), 0);
+      // Unchanged for the form without a read-window, byte for byte.
+      expect(
+        disappearingMarkerSeconds('${kDisappearingMarkerPrefix}3600'),
+        3600,
+      );
+      expect(
+        disappearingMarker(
+          '${kDisappearingMarkerPrefix}3600',
+        )?.hideAfterReadSeconds,
+        isNull,
+      );
+      // Malformed extensions are not markers.
+      expect(disappearingMarker('${kDisappearingMarkerPrefix}3600:rx'), isNull);
+      expect(disappearingMarker('${kDisappearingMarkerPrefix}3600:r0'), isNull);
+    });
+
     // The stored body is a token. Any screen that prints message bodies without
     // asking what they are will show `sys:disappearing:3600` to the user — the
     // chat list did exactly that until this helper existed.

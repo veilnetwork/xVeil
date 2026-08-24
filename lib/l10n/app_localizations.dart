@@ -5006,6 +5006,18 @@ abstract class AppL10n {
   /// **'Disappearing messages: {window}'**
   String chatDisappearingSetNotice(String window);
 
+  /// No description provided for @chatHideAfterReadNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Hide after reading: {window}'**
+  String chatHideAfterReadNotice(String window);
+
+  /// No description provided for @chatDisappearingAndHideNotice.
+  ///
+  /// In en, this message translates to:
+  /// **'Disappearing messages: {window} · hide after reading: {readWindow}'**
+  String chatDisappearingAndHideNotice(String window, String readWindow);
+
   /// No description provided for @chatDisappearingOffNotice.
   ///
   /// In en, this message translates to:

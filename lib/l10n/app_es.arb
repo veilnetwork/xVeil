@@ -1219,6 +1219,8 @@
   "chatHideAfterReadSubtitle": "Se cuenta desde que CADA dispositivo mostró el mensaje por primera vez, así que los momentos difieren. El mensaje se oculta, no se borra, y un dispositivo puede no respetarlo: aquí no hay confirmaciones de lectura ni forma de imponerlo.",
   "chatDisappearingSetNotice": "Mensajes temporales: {window}",
   "@chatDisappearingSetNotice": {"placeholders": {"window": {"type": "String"}}},
+  "chatHideAfterReadNotice": "Ocultar tras leer: {window}",
+  "chatDisappearingAndHideNotice": "Mensajes temporales: {window} · ocultar tras leer: {readWindow}",
   "chatDisappearingOffNotice": "Mensajes temporales desactivados",
   "chatDisappearingSeconds": "{n} s",
   "@chatDisappearingSeconds": {"placeholders": {"n": {"type": "int"}}},
