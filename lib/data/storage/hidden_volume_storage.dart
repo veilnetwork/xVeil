@@ -1126,24 +1126,47 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<int> forgetRatchetStates(Iterable<Uint8List> conversationKeys) async {
-    final ops = <KvLogOp>[];
+    var pending = <KvLogOp>[];
     var forgotten = 0;
+    var wrote = false;
+    Future<void> flush() async {
+      if (pending.isEmpty) return;
+      final ops = pending;
+      pending = <KvLogOp>[];
+      await _as.commit(ops);
+      wrote = true;
+    }
+
     for (final key in conversationKeys) {
       if (key.length != kRatchetKeyLen) continue;
       final chunks = await _ratchetStoredChunkCount(key);
       if (chunks == 0) continue;
       forgotten++;
-      for (var i = 0; i < chunks; i++) {
-        ops.add(DeleteOp(Ns.ratchet, _ratchetRecordKey(key, i)));
+      final ops = <KvLogOp>[
+        for (var i = 0; i < chunks; i++)
+          DeleteOp(Ns.ratchet, _ratchetRecordKey(key, i)),
+      ];
+      // The same rule [saveRatchetStates] keeps, for the same reason facing
+      // the other way. This used to cut a flat list of every conversation's
+      // deletes every 128 ops, so a conversation straddled a commit boundary
+      // whenever the total crossed one — which any multi-conversation
+      // `forgetPeer` does. A crash between the two halves took the head
+      // record, so the read path answered "nothing held" and nothing ever
+      // looked for the rest: the tail chunks stayed on disk, holding chain
+      // keys, unreachable and never scrubbed. Forward secrecy a password
+      // still opens is the thing this namespace exists to prevent.
+      if (pending.isNotEmpty &&
+          pending.length + ops.length > _kRatchetOpsPerCommit) {
+        await flush();
       }
+      pending.addAll(ops);
+      if (pending.length >= _kRatchetOpsPerCommit) await flush();
     }
-    for (var i = 0; i < ops.length; i += _kRatchetOpsPerCommit) {
-      await _as.commit(ops.skip(i).take(_kRatchetOpsPerCommit).toList());
-    }
+    await flush();
     // The bytes are key material, so the records they occupied are reclaimed
     // rather than orphaned — a tombstone that leaves the old chunk readable to
     // a key-holder is not forgetting.
-    if (ops.isNotEmpty) await _as.scrub();
+    if (wrote) await _as.scrub();
     return forgotten;
   }
 
