@@ -1502,4 +1502,105 @@ void main() {
       );
     });
   });
+
+  // ── A chain that has run ahead of the container must stop putting new
+  // ciphertexts on the wire.
+  group('a chain ahead of the disk stops sending', () {
+    late NodeId a, b;
+    late _FakeRatchetNode nA, nB;
+    late _FailingStorage sA;
+    late HiddenVolumeStorage sB;
+    late _FakeTransport tA, tB;
+    late MessagingService mA, mB;
+    var sends = 0;
+
+    setUp(() async {
+      a = _node(1);
+      b = _node(2);
+      nA = _FakeRatchetNode();
+      nB = _FakeRatchetNode();
+      sends = 0;
+      final storeA = FakeKvLogStore();
+      final storeB = FakeKvLogStore();
+      sA = _FailingStorage(
+        ({required Uint8List password, required bool create}) => storeA,
+      )..failRatchetSaves = false;
+      sB = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) => storeB,
+      );
+      await sA.open(password: 'a', createIfMissing: true);
+      await sB.open(password: 'b', createIfMissing: true);
+      tA = _FakeTransport(
+        a,
+        onSend: (dst) {
+          sends++;
+          nA.seal(_convKey(local: 1, peerNode: 2));
+        },
+      );
+      tB = _FakeTransport(
+        b,
+        onSend: (dst) => nB.seal(_convKey(local: 2, peerNode: 1)),
+      );
+      tA.peer = tB;
+      tB.peer = tA;
+      mA = MessagingService(tA, sA)
+        ..ratchet = RatchetPersistence(native: nA, storage: sA)
+        ..start();
+      mB = MessagingService(tB, sB)
+        ..ratchet = RatchetPersistence(native: nB, storage: sB)
+        ..start();
+    });
+
+    tearDown(() async {
+      await mA.dispose();
+      await mB.dispose();
+    });
+
+    /// The published frame cannot be recalled, so the first send past a
+    /// container fault is allowed to finish — that is the lie `_persistRatchet`
+    /// names. What must not happen is the SECOND one. Each send burns another
+    /// message key from a chain the container has never seen, so a crash
+    /// restores a state that replays all of them: same header counter, same
+    /// key, same nonce, different plaintext. Two ciphertexts under one nonce
+    /// give up the XOR of their plaintexts, so the exposure is not "a write
+    /// failed" — it is how many sends follow it.
+    test('one send may outrun the disk; the next may not', () async {
+      await mA.sendRequest(b, 'hello');
+      await _pump();
+      final beforeFault = sends;
+      expect(beforeFault, greaterThan(0), reason: 'the fixture must send');
+
+      // The container stops taking writes.
+      sA.failRatchetSaves = true;
+      await mA.sendRequest(b, 'past the fault').catchError((_) {});
+      await _pump();
+      final afterFault = sends;
+      expect(
+        afterFault,
+        greaterThan(beforeFault),
+        reason: 'the frame is already out; it cannot be unpublished',
+      );
+
+      // Every send after it is refused while the state is not down.
+      for (var i = 0; i < 5; i++) {
+        await mA.sendRequest(b, 'must not go out $i').catchError((_) {});
+      }
+      await _pump();
+      expect(
+        sends,
+        afterFault,
+        reason: 'the count of keys burned past the disk is held at one',
+      );
+
+      // A hold, not a break: the container comes back and sending resumes.
+      sA.failRatchetSaves = false;
+      await mA.sendRequest(b, 'after recovery').catchError((_) {});
+      await _pump();
+      expect(
+        sends,
+        greaterThan(afterFault),
+        reason: 'a recovered container must let the chain move again',
+      );
+    });
+  });
 }
