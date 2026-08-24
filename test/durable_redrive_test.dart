@@ -530,6 +530,45 @@ void main() {
       },
     );
 
+    /// One signal, two destinations, two obligations.
+    ///
+    /// The durable outbox keys a row by frame id ALONE —
+    /// `enqueueOutboxFrame` returns early on `_outboxById.containsKey(frameId)`
+    /// — and the call fan-out built its id from the call and the signal type
+    /// with no destination in it. So the first recipient took the only row and
+    /// every other one silently got nothing durable, left with a live leg that
+    /// is sent `awaitLive: false` and is nothing at all to a peer that is
+    /// offline: exactly the peer a durable control frame exists for. The
+    /// fan-out addresses sibling DEVICES too, so this is the ordinary
+    /// multi-device case, not a large-group one.
+    test(
+      'a call fan-out owes each destination its own durable frame',
+      () async {
+        final c = _id(3);
+        await sA.upsertContact(
+          Contact(nodeId: c, status: ContactStatus.accepted),
+        );
+        tA.online = false;
+
+        const signal = CallSignal(callId: 'fanout', type: CallSignalType.offer);
+        await mA.sendCallSignal(b, signal);
+        await mA.sendCallSignal(c, signal);
+        await _settle();
+
+        final pending = await sA.pendingOutboxFrames();
+        expect(
+          pending.length,
+          2,
+          reason: 'each destination is owed the signal, not just the first',
+        );
+        expect(
+          pending.map((f) => f.peerHex).toSet(),
+          {b.hex, c.hex},
+          reason: 'and the two rows are for the two different peers',
+        );
+      },
+    );
+
     test(
       'call health heartbeat is live-only and never enters durable outbox',
       () async {
@@ -730,7 +769,9 @@ void main() {
         await _settle();
         expect(
           (await sA.pendingOutboxFrames()).map((f) => f.frameId),
-          contains('call:call-stale:offer'),
+          // Destination-bound: one signal fanned out owes each recipient its
+          // own row, and the outbox keys rows by frame id alone.
+          contains('call:call-stale:offer:${b.hex}'),
         );
 
         tA.online = true;
@@ -756,7 +797,8 @@ void main() {
       var offers = 0;
       final sub = tB.messages().listen((m) {
         try {
-          if (WireEnvelope.decode(m.payload).frameId == 'call:dup:offer') {
+          if (WireEnvelope.decode(m.payload).frameId ==
+              'call:dup:offer:${b.hex}') {
             offers++;
           }
         } catch (_) {}
