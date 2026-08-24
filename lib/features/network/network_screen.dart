@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -315,19 +317,37 @@ class _ServeDhtSwitchState extends ConsumerState<ServeDhtSwitch> {
   bool _busy = false;
   bool? _on;
 
+  /// Which read is still entitled to publish its answer.
+  ///
+  /// The answer is PER IDENTITY, and switching identity re-points
+  /// `storageProvider` at another space without stopping any node — the
+  /// provider says so, and `identityOriginProvider` beside it already follows
+  /// that. This widget read the store once, in `initState`, and never again:
+  /// after a switch it went on showing the previous identity's choice while
+  /// `_set` wrote to the new identity's space. Two identities, one of them
+  /// silently reconfigured, and the switch showing the other one's answer.
+  ///
+  /// The counter covers the other half of the same race: a read that started
+  /// against A and completed after the switch to B would publish A's answer
+  /// for B.
+  int _generation = 0;
+
   @override
   void initState() {
     super.initState();
-    _syncFromStore();
+    unawaited(_syncFromStore());
   }
 
   Future<void> _syncFromStore() async {
+    final generation = ++_generation;
     final stored = await dhtParticipationEffective(ref.read(storageProvider));
-    if (mounted) setState(() => _on = stored);
+    if (!mounted || generation != _generation) return;
+    setState(() => _on = stored);
   }
 
   Future<void> _set(bool participate) async {
     if (_busy) return;
+    final generation = _generation;
     setState(() => _busy = true);
     try {
       // Persist FIRST and treat a refused write as "nothing happened" — the
@@ -338,6 +358,10 @@ class _ServeDhtSwitchState extends ConsumerState<ServeDhtSwitch> {
         participate,
       );
       if (!mounted) return;
+      // The identity changed under the write. Whatever was stored belongs to
+      // whichever space was current when it landed; this switch is now showing
+      // a different one, and its answer is the pending read's to publish.
+      if (generation != _generation) return;
       if (!saved) {
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
@@ -354,6 +378,15 @@ class _ServeDhtSwitchState extends ConsumerState<ServeDhtSwitch> {
 
   @override
   Widget build(BuildContext context) {
+    // Follow identity switches, the way `identityOriginProvider` does. Blank
+    // while the new space is asked rather than leaving the old answer on
+    // screen: showing one identity's choice under another's name is the defect
+    // this closes, and a stale value for a frame is the same defect, briefly.
+    ref.listen(storageProvider, (previous, next) {
+      if (identical(previous, next)) return;
+      setState(() => _on = null);
+      unawaited(_syncFromStore());
+    });
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final on = _on;
