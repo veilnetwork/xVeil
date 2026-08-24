@@ -245,8 +245,7 @@ void main() {
       expect(sticky.fetchCalls, lessThanOrEqualTo(9));
     });
 
-    test('a message is handed up while the loop is still hunting a backlog',
-        () async {
+    test('a message is handed up while the loop is still hunting a backlog', () async {
       // The rounds after the one that produced a message are looking for a
       // BACKLOG: they re-fetch, meet the relay still serving the blob whose ack
       // is in flight, and wait for the removal to land. Returning the batch only
@@ -508,8 +507,20 @@ void main() {
       expect(opens, 3);
     });
 
+    /// The cap stops the WORK, not the message.
+    ///
+    /// Reaching it used to fall through to the permanent path, which
+    /// quarantines durably and ACKS — and the ack drops the relay's only copy.
+    /// Nothing in a timeout or a `PeerUnresolved` says the blob is bad, so six
+    /// drains during a DHT outage destroyed a message that would have opened
+    /// fine afterwards. This test used to pin that, in its own words: "after
+    /// the transient cap the blob is quarantined + acked".
+    ///
+    /// What the cap is actually for — a failed open costs the full
+    /// cert-resolve timeout, ~20 s observed live — is still asserted below:
+    /// the blob is never decrypt-attempted again.
     test(
-      'opens that time out forever still terminate (bounded → quarantine)',
+      'opens that time out forever stop costing anything, and are not destroyed',
       () async {
         var opens = 0;
         final inner = LoopbackMailboxCrypto(senderForOpen: peer);
@@ -537,7 +548,7 @@ void main() {
           blob: blob,
         );
 
-        // Retried across drains up to the cap, then treated as permanent.
+        // Retried across drains up to the cap, then left alone.
         for (var i = 0; i < 6; i++) {
           await orch2.drain(
             me: me,
@@ -548,8 +559,10 @@ void main() {
         }
         expect(
           await sticky.fetch(me: me, authCookie: cookie),
-          isEmpty,
-          reason: 'after the transient cap the blob is quarantined + acked',
+          isNotEmpty,
+          reason:
+              'the relay holds the only copy, and nothing said the blob was '
+              'bad — a restart, or a network that recovers, must still get it',
         );
         final opensAtCap = opens;
         await orch2.drain(
@@ -561,7 +574,82 @@ void main() {
         expect(
           opens,
           opensAtCap,
-          reason: 'quarantined cid is never decrypt-attempted again',
+          reason:
+              'past the cap the blob costs nothing: skipped without an open, '
+              'which is the whole reason the cap exists',
+        );
+      },
+    );
+
+    /// The point of not acking: the message is still there to be had.
+    ///
+    /// A DHT outage longer than six drains is the case this exists for — a
+    /// cold routing table after a restart, a resolve racing the node's own
+    /// registration, a relay pinning a stale document (which cost this network
+    /// hours on 2026-08-17). The blob was fine the whole time.
+    test(
+      'a blob given up on transiently still arrives once the node recovers',
+      () async {
+        final inner = LoopbackMailboxCrypto(senderForOpen: peer);
+        var failing = true;
+        final flaky = _FlakyOpenCrypto(
+          inner,
+          onOpen: () {},
+          shouldFail: () => failing,
+        );
+        final sticky = InMemoryMailboxRelay();
+        final registry = freshRegistry();
+        final data = Uint8List.fromList([9, 9, 9]);
+        final blob = await inner.seal(
+          recipient: me,
+          appId: _appId(0xAD),
+          endpointId: 7,
+          data: data,
+        );
+        await sticky.put(
+          receiver: me,
+          contentId: _cid(0xAD),
+          sender: peer,
+          blob: blob,
+        );
+
+        final duringOutage = MailboxOrchestrator(
+          flaky,
+          sticky,
+          poisoned: registry,
+        );
+        for (var i = 0; i < 8; i++) {
+          await duringOutage.drain(
+            me: me,
+            authCookie: cookie,
+            ourCertVersion: 1,
+            alreadyHave: never,
+          );
+        }
+        expect(
+          await registry.contains(_cid(0xAD)),
+          isFalse,
+          reason: 'a transient failure must not earn a DURABLE quarantine',
+        );
+
+        // The network comes back, and so does the app.
+        failing = false;
+        final afterRestart = MailboxOrchestrator(
+          flaky,
+          sticky,
+          poisoned: registry,
+        );
+        final got = await afterRestart.drain(
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        );
+        expect(got.single.data, data, reason: 'the message was never lost');
+        expect(
+          await sticky.fetch(me: me, authCookie: cookie),
+          isEmpty,
+          reason: 'and NOW it is acked, because it was actually delivered',
         );
       },
     );
