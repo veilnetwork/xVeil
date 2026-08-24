@@ -154,12 +154,35 @@ abstract interface class Storage {
   /// [conversationId]: [conversationSync] then treats every seq ≤ [floor] as
   /// consumed (no hole, high-water starts there). Monotonic max-merge.
   ///
-  /// The floor is the author's own declaration (carried on its sync beacon)
-  /// that nothing at/below it still exists AT THE SOURCE — its early history
-  /// was cleared/erased, so those seqs are unfillable by ANY re-request.
-  /// Without it, a receiver holding only the author's newer events named the
-  /// missing prefix as holes and re-triggered the same futile re-ship on every
-  /// beacon round, forever (the observed sync ping-pong).
+  /// TWO writers reach this, with DIFFERENT warrants, and the difference
+  /// matters to anyone reasoning about what a floor means.
+  ///
+  /// 1. The author's own declaration, carried on its sync beacon: nothing
+  ///    at/below it still exists AT THE SOURCE — its early history was
+  ///    cleared/erased, so those seqs are unfillable by ANY re-request.
+  ///    Without it, a receiver holding only the author's newer events named
+  ///    the missing prefix as holes and re-triggered the same futile re-ship
+  ///    on every beacon round, forever (the observed sync ping-pong).
+  ///
+  /// 2. The RECEIVER giving up on a hole nobody filled — see
+  ///    `_MessagingPeerSync._giveUpOnStuckHoles`. That is a statement about
+  ///    how long WE waited, not about what exists at the source, and it is
+  ///    load-bearing for the same reason: a high-water is a claim of
+  ///    contiguity, so one sequence nobody supplies pins it forever and the
+  ///    peer re-ships the whole tail above it every round — measured at 316
+  ///    frames and 1.4 MB per round between two idle devices.
+  ///
+  /// The consequence of (2) is worth stating plainly, because the first
+  /// warrant does not imply it: those seqs are never REQUESTED again, and the
+  /// peer re-ships from our high-water, so nothing offers them either. They
+  /// are not refused — this floor is read only by [conversationSync], never on
+  /// the store path, so a copy that arrives by any route is still stored.
+  ///
+  /// Collapsing the two into one monotonic integer is the compromise: a
+  /// receiver-side timeout cannot be told from a source-side erasure once it
+  /// is written. Separating them needs either sparse accepted-ranges or an
+  /// explicit signed skip on the wire, which is a protocol change and not one
+  /// this field can carry.
   Future<void> applyAuthorSyncFloor(
     String conversationId,
     String author,

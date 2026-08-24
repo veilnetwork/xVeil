@@ -235,6 +235,16 @@ class _MessagingPeerSync {
   /// Stop waiting for a hole that has not moved for [_holeGiveUpRounds]
   /// beacons, by flooring past it. Returns whether anything changed.
   ///
+  /// The floor written here is the SAME field an author uses to declare its
+  /// own early history gone, and the two claims are not the same: this one
+  /// says how long we waited, not what still exists at the source. Once
+  /// written they are indistinguishable, and the seqs inside the gap are never
+  /// requested again — the peer re-ships from our high-water, so nothing
+  /// offers them either. They are not refused: the floor is read only by
+  /// `conversationSync`, never on the store path, so a copy arriving by any
+  /// route is still stored. See `Storage.applyAuthorSyncFloor`, which now
+  /// names both writers.
+  ///
   /// One hole per pass, the LOWEST: a floor is a prefix, so flooring at the
   /// first hole's end covers exactly that gap and leaves every later one still
   /// requested.
