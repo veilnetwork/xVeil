@@ -276,10 +276,18 @@ class _MessagingRealtimeControl {
       await _sendRealtimePaths('gcall-sig', peer, envelope.encode());
       return;
     }
+    // The DESTINATION is part of the id, and it was not.
+    //
+    // The durable outbox keys a row by frame id alone —
+    // `enqueueOutboxFrame` returns early on `_outboxById.containsKey(frameId)`
+    // — so one signal fanned out to N members enqueued for the FIRST peer and
+    // silently did nothing for the rest. They were left with the live leg,
+    // which is sent `awaitLive: false` and is nothing at all for a member who
+    // is offline: exactly the member a durable control frame exists for.
     await _owner.sendDurable(
       peer,
       'gcall:${signal.groupId.hex}:${signal.callId}:'
-      '${signal.type.name}:${signal.nonce}',
+      '${signal.type.name}:${signal.nonce}:${peer.hex}',
       envelope,
       liveSender: (wire) => _sendRealtimePaths('gcall-sig', peer, wire),
       awaitLive: false,
@@ -362,9 +370,14 @@ class _MessagingRealtimeControl {
       await _sendRealtimePaths('call-sig', peer, envelope.encode());
       return;
     }
+    // Destination-bound for the same reason as the group signal above: this
+    // fan-out addresses sibling devices too — the comment at the top of this
+    // method says so — and a shared id meant the first sibling took the only
+    // durable row while the others got a live leg that is not awaited.
     final frameId = stamped.type == CallSignalType.renegotiate
         ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
-        : 'call:${signal.callId}:${signal.type.name}';
+              ':${peer.hex}'
+        : 'call:${signal.callId}:${signal.type.name}:${peer.hex}';
     await _owner.sendDurable(
       peer,
       frameId,
@@ -447,8 +460,11 @@ class _MessagingRealtimeControl {
         }
       }
     } catch (e) {
-      devLog(() => 'xVeil[p2p]: could not retire earlier endpoint frames for '
-          '${peer.short} (non-fatal): $e');
+      devLog(
+        () =>
+            'xVeil[p2p]: could not retire earlier endpoint frames for '
+            '${peer.short} (non-fatal): $e',
+      );
     }
   }
 }
