@@ -17,6 +17,8 @@ import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/device_sync.dart';
+import 'package:xveil/domain/disappearing_messages.dart';
+import 'package:xveil/state/device_sync_bridge.dart';
 import 'package:xveil/state/call_log.dart';
 import 'package:xveil/state/device_settings_sync.dart';
 import 'package:xveil/state/messaging.dart';
@@ -129,6 +131,150 @@ void main() {
       expect(await storage.getContact(_id(9)), isNull);
     },
   );
+
+  /// The retention window is the one preference the interface makes a promise
+  /// about, and mirroring an unrelated edit used to switch it off.
+  ///
+  /// `applyContact` rebuilt the whole record from the seven fields the bridge
+  /// carries, so everything it was not told about fell to its default: ttl to
+  /// null, the stamp to 0, the setter to empty. Renaming a contact on a phone
+  /// silently stopped the laptop deleting anything in that conversation.
+  test('a mirrored alias edit leaves the disappearing window alone', () async {
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+
+    await svc.setContactDisappearing(peer, 3600);
+    await svc.setContactHideAfterRead(peer, 300);
+    final set = (await storage.getContact(peer))!;
+    expect(set.disappearingTtlSeconds, 3600);
+    expect(set.hideAfterReadSeconds, 300);
+    expect(set.disappearingSetAtMs, greaterThan(0));
+
+    // An event from a build that never carried the policy: no keys, so
+    // nothing to say about it. Silence is not "off".
+    await svc.applyMirroredContact(
+      peer: peer,
+      name: 'renamed elsewhere',
+      pinned: true,
+      archived: false,
+      allowPeerDelete: true,
+    );
+    final after = (await storage.getContact(peer))!;
+    expect(after.name, 'renamed elsewhere', reason: 'the edit still lands');
+    expect(after.pinned, isTrue);
+    expect(
+      after.disappearingTtlSeconds,
+      3600,
+      reason: 'an unrelated mirror must not switch the window off',
+    );
+    expect(after.hideAfterReadSeconds, 300);
+    expect(after.disappearingSetAtMs, set.disappearingSetAtMs);
+    expect(after.disappearingSetBy, set.disappearingSetBy);
+  });
+
+  /// The wire half of the same finding: a policy that never leaves the device
+  /// cannot converge anywhere, however carefully the receiver merges it.
+  test('the prefs payload carries every field it promises', () async {
+    final c = Contact(
+      nodeId: _id(2),
+      name: 'Alice',
+      status: ContactStatus.accepted,
+      mutedUntil: DateTime.fromMillisecondsSinceEpoch(1700000000000),
+      notificationMuteMode: NotificationMuteMode.mentionsOnly,
+      pinned: true,
+      archived: true,
+      retentionDays: 30,
+      disappearingTtlSeconds: 3600,
+      disappearingSetAtMs: 1700000000123,
+      disappearingSetBy: 'bb',
+      hideAfterReadSeconds: 300,
+      allowPeerDelete: false,
+    );
+
+    final payload = contactPrefsPayload(c);
+    expect(payload['name'], 'Alice');
+    expect(payload['mutedMs'], 1700000000000);
+    expect(payload['muteMode'], NotificationMuteMode.mentionsOnly.name);
+    expect(payload['pin'], isTrue);
+    expect(payload['arc'], isTrue);
+    expect(payload['ret'], 30);
+    expect(payload['apd'], isFalse);
+
+    final policy = disappearingFromPayload(payload)!;
+    expect(policy.ttlSeconds, 3600);
+    expect(policy.hideAfterReadSeconds, 300);
+    expect(
+      policy.setAtMs,
+      1700000000123,
+      reason: 'the stamp travels, or the sibling cannot order two views',
+    );
+    expect(policy.setBy, 'bb', reason: 'the setter breaks an exact tie');
+
+    // An event from before the policy travelled says nothing about it, and
+    // nothing is not "off".
+    expect(disappearingFromPayload(const {'name': 'x'}), isNull);
+  });
+
+  /// Convergence, and which way it goes. A sibling that has been offline holds
+  /// an older view; its edit must not roll the window back, and a genuinely
+  /// newer choice must win — the same last-writer-wins rule a peer's own
+  /// announcement goes through, so both devices land on one answer whichever
+  /// order the events arrive in.
+  test('a sibling policy wins only when it is newer', () async {
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+
+    await svc.setContactDisappearing(peer, 3600);
+    final stamp = (await storage.getContact(peer))!.disappearingSetAtMs;
+
+    // Stale: an older stamp, whatever it claims.
+    await svc.applyMirroredContact(
+      peer: peer,
+      pinned: false,
+      archived: false,
+      allowPeerDelete: true,
+      disappearing: DisappearingSetting(
+        ttlSeconds: null,
+        setAtMs: stamp - 1000,
+        setBy: 'aa',
+      ),
+    );
+    expect(
+      (await storage.getContact(peer))!.disappearingTtlSeconds,
+      3600,
+      reason: 'an older view does not roll the window back',
+    );
+
+    // Newer: the other device really did change it, including to off.
+    await svc.applyMirroredContact(
+      peer: peer,
+      pinned: false,
+      archived: false,
+      allowPeerDelete: true,
+      disappearing: DisappearingSetting(
+        ttlSeconds: null,
+        setAtMs: stamp + 1000,
+        setBy: 'aa',
+      ),
+    );
+    final off = (await storage.getContact(peer))!;
+    expect(
+      off.disappearingTtlSeconds,
+      isNull,
+      reason: 'turning it off IS an act, and a newer one wins',
+    );
+    expect(off.disappearingSetAtMs, stamp + 1000);
+  });
 
   test('settings hub: local sets pass through, applyIncoming is echo-proof, '
       'unregistered keys are refused', () async {
