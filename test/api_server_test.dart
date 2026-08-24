@@ -193,9 +193,13 @@ void main() {
             },
       cloudFile: !cloudAvailable
           ? null
-          : (id) async => id == 'f1'
-                ? inMemoryBlobSource(Uint8List.fromList(const [1, 2, 3, 4]))
-                : null,
+          : (id) async => switch (id) {
+              'f1' => inMemoryBlobSource(Uint8List.fromList(const [1, 2, 3, 4])),
+              // Bigger than any socket buffer, so a client that stops reading
+              // actually stalls the writer rather than being absorbed.
+              'big' => inMemoryBlobSource(Uint8List(8 * 1024 * 1024)),
+              _ => null,
+            },
       saveCloudNote: !cloudAvailable
           ? null
           : ({
@@ -5693,6 +5697,50 @@ void main() {
       final res = await req.close();
       await res.drain<void>();
       expect(res.statusCode, 503);
+    });
+
+    test('a client that stops reading does not keep its slot', () async {
+      // `flush()` is the backpressure that keeps a big file out of memory, and
+      // it resolves as the socket drains — so a client that simply stops
+      // reading makes it never resolve. The slot was then held for as long as
+      // that client cared to wait, and `maxInFlight` of them wedge the local
+      // API. A read-only token is enough: these are ordinary GETs.
+      final capped = ApiServer(
+        make(),
+        const Stream.empty(),
+        maxInFlight: 1,
+        writeIdleDeadline: const Duration(milliseconds: 300),
+      );
+      final port = (await capped.start(0))!;
+      addTearDown(capped.stop);
+
+      // A raw socket, because an HttpClient reads eagerly and the whole point
+      // is a peer that does not.
+      final deaf = await Socket.connect('127.0.0.1', port);
+      addTearDown(() => deaf.destroy());
+      deaf.write(
+        'GET /v1/cloud/file?id=big HTTP/1.1\r\n'
+        'Host: 127.0.0.1\r\n'
+        'Authorization: Bearer secret-token\r\n'
+        '\r\n',
+      );
+      await deaf.flush();
+      // Never listened to: nothing drains, so the writer stalls after the
+      // socket buffer fills.
+
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+
+      final other = HttpClient();
+      addTearDown(() => other.close(force: true));
+      final req = await other.get('127.0.0.1', port, '/v1/health');
+      req.headers.set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+      final res = await req.close().timeout(const Duration(seconds: 5));
+      await res.drain<void>();
+      expect(
+        res.statusCode,
+        200,
+        reason: 'the stalled transfer must have given its slot back',
+      );
     });
 
     test('the in-flight slot is released after every request', () async {
