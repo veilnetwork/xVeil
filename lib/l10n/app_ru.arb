@@ -1212,6 +1212,8 @@
   "chatHideAfterReadSubtitle": "Отсчёт от момента, когда КАЖДОЕ устройство впервые показало сообщение, поэтому моменты разные. Сообщение скрывается, а не удаляется, и устройство вправе не подчиниться — отметок о прочтении здесь нет, и заставить нечем.",
   "chatDisappearingSetNotice": "Исчезающие сообщения: {window}",
   "@chatDisappearingSetNotice": {"placeholders": {"window": {"type": "String"}}},
+  "chatHideAfterReadNotice": "Скрывать после прочтения: {window}",
+  "chatDisappearingAndHideNotice": "Исчезающие сообщения: {window} · скрывать после прочтения: {readWindow}",
   "chatDisappearingOffNotice": "Исчезающие сообщения выключены",
   "chatDisappearingSeconds": "{n} с",
   "@chatDisappearingSeconds": {"placeholders": {"n": {"type": "int"}}},

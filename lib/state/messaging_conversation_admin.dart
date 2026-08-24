@@ -134,9 +134,7 @@ class _MessagingConversationAdmin {
         : seconds.clamp(1, kDisappearingMaxSeconds);
     final selfHex = await _owner._selfHex();
     final setting = DisappearingSetting(
-      ttlSeconds: ttl == null
-          ? existing.disappearingTtlSeconds
-          : clamp(ttl.$1),
+      ttlSeconds: ttl == null ? existing.disappearingTtlSeconds : clamp(ttl.$1),
       hideAfterReadSeconds: hideAfterRead == null
           ? existing.hideAfterReadSeconds
           : clamp(hideAfterRead.$1),
@@ -148,7 +146,10 @@ class _MessagingConversationAdmin {
   }
 
   /// Adopt an announcement that arrived from [peer]. Returns whether it won.
-  Future<bool> adoptDisappearing(NodeId peer, DisappearingSetting incoming) async {
+  Future<bool> adoptDisappearing(
+    NodeId peer,
+    DisappearingSetting incoming,
+  ) async {
     final existing = await _owner._storage.getContact(peer);
     if (existing == null) return false;
     final held = DisappearingSetting(
@@ -210,12 +211,26 @@ class _MessagingConversationAdmin {
     await _owner._store(
       peer,
       incoming ? MessageDirection.incoming : MessageDirection.outgoing,
-      '$kDisappearingMarkerPrefix${setting.ttlSeconds ?? 0}',
+      _disappearingMarkerBody(setting),
       MessageStatus.delivered,
       id: id,
       timestamp: DateTime.fromMillisecondsSinceEpoch(setting.setAtMs),
       selfAuthored: true,
     );
+  }
+
+  /// The stored body for a policy marker.
+  ///
+  /// The read-window is appended only when there IS one, so a marker without it
+  /// stays byte-identical to what earlier builds wrote. Carrying it at all is
+  /// the point: a setting of "hide after reading, no post-time window" used to
+  /// store `…:0` and render as "Disappearing messages turned off".
+  static String _disappearingMarkerBody(DisappearingSetting setting) {
+    final ttl = setting.ttlSeconds ?? 0;
+    final read = setting.hideAfterReadSeconds;
+    return read != null && read > 0
+        ? '$kDisappearingMarkerPrefix$ttl:r$read'
+        : '$kDisappearingMarkerPrefix$ttl';
   }
 
   Future<void> _announceDisappearing(
@@ -255,7 +270,10 @@ class _MessagingConversationAdmin {
       final setting = await disappearingOf(peer);
       final cutoff = setting.cutoffAt(_owner._now());
       if (cutoff == null) return 0;
-      final pruned = await _owner._storage.pruneConversationBefore(peer, cutoff);
+      final pruned = await _owner._storage.pruneConversationBefore(
+        peer,
+        cutoff,
+      );
       if (pruned > 0) _owner._signal();
       return pruned;
     } catch (_) {
@@ -521,7 +539,9 @@ class _MessagingConversationAdmin {
   ) async {
     try {
       final raw = await _owner._storage.getSetting(_shownKey(conversationId));
-      if (raw == null || raw.isEmpty) return (watermark: 0, entries: const <(int, int)>[]);
+      if (raw == null || raw.isEmpty) {
+        return (watermark: 0, entries: const <(int, int)>[]);
+      }
       final decoded = jsonDecode(raw);
       if (decoded is! Map) return (watermark: 0, entries: const <(int, int)>[]);
       final entries = <(int, int)>[];
@@ -548,7 +568,9 @@ class _MessagingConversationAdmin {
       _shownKey(conversationId),
       jsonEncode({
         'w': watermark,
-        'e': [for (final e in entries) [e.$1, e.$2]],
+        'e': [
+          for (final e in entries) [e.$1, e.$2],
+        ],
       }),
     );
   }

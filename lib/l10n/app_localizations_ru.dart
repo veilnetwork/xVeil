@@ -2893,6 +2893,16 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String chatHideAfterReadNotice(String window) {
+    return 'Скрывать после прочтения: $window';
+  }
+
+  @override
+  String chatDisappearingAndHideNotice(String window, String readWindow) {
+    return 'Исчезающие сообщения: $window · скрывать после прочтения: $readWindow';
+  }
+
+  @override
   String get chatDisappearingOffNotice => 'Исчезающие сообщения выключены';
 
   @override

@@ -2891,6 +2891,16 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String chatHideAfterReadNotice(String window) {
+    return 'Ocultar tras leer: $window';
+  }
+
+  @override
+  String chatDisappearingAndHideNotice(String window, String readWindow) {
+    return 'Mensajes temporales: $window · ocultar tras leer: $readWindow';
+  }
+
+  @override
   String get chatDisappearingOffNotice => 'Mensajes temporales desactivados';
 
   @override

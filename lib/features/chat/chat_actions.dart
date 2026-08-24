@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ids.dart';
 import '../../core/log.dart';
 import '../../data/transport/wire_envelope.dart'
-    show disappearingMarkerSeconds;
+    show disappearingMarker;
 import '../../domain/chat.dart';
 import '../../domain/disappearing_messages.dart';
 import '../../domain/p2p_policy.dart';
@@ -610,8 +610,23 @@ String formatDisappearingWindow(AppL10n l, int seconds) {
 /// is what happened the last time a system marker was added and the chat list
 /// was not touched.
 String? disappearingPreview(AppL10n l, String body) {
-  final secs = disappearingMarkerSeconds(body);
-  if (secs == null) return null;
+  final marker = disappearingMarker(body);
+  if (marker == null) return null;
+  final secs = marker.ttlSeconds;
+  final read = marker.hideAfterReadSeconds;
+  // A read-window is half of the policy and used to be dropped before it got
+  // here, so "hide 30 minutes after reading, no post-time window" announced
+  // itself as "Disappearing messages turned off" — the opposite of what was in
+  // force, about a privacy setting.
+  if (read != null) {
+    final readWindow = formatDisappearingWindow(l, read);
+    return secs <= 0
+        ? l.chatHideAfterReadNotice(readWindow)
+        : l.chatDisappearingAndHideNotice(
+            formatDisappearingWindow(l, secs),
+            readWindow,
+          );
+  }
   return secs <= 0
       ? l.chatDisappearingOffNotice
       : l.chatDisappearingSetNotice(formatDisappearingWindow(l, secs));
