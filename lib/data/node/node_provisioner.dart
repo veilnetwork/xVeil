@@ -515,14 +515,25 @@ set_toml_scalar() {
 
 String _downloadAndVerify(NodeReleaseArtifact a) {
   final temp = _artifactTempPath(a.component);
-  return '''curl -fsSL '${a.releaseUrl.trim()}' -o '$temp'
-echo '${a.expectedSha256.trim().toLowerCase()}  $temp' | sha256sum -c -''';
+  // The staging path is DOUBLE-quoted: it contains `$XVEIL_TMP`, and a shell
+  // does not expand a variable inside single quotes. Single-quoted, `curl -o`
+  // wrote to a literal file called `$XVEIL_TMP/veil-cli` under whatever the
+  // login cwd happened to be, which normally does not exist — so curl failed
+  // and `set -e` aborted provisioning before the hash, the install, the config
+  // and the service. The URL and the digest stay single-quoted: those are data
+  // and must not be expanded at all.
+  //
+  // `printf` rather than `echo` for the digest line, so the two fields are
+  // joined without a quoting seam.
+  return '''curl -fsSL '${a.releaseUrl.trim()}' -o "$temp"
+printf '%s  %s\\n' '${a.expectedSha256.trim().toLowerCase()}' "$temp" | sha256sum -c -''';
 }
 
 String _installArtifact(NodeReleaseArtifact a) {
   final binary = a.component.binaryName;
   final temp = _artifactTempPath(a.component);
-  return "sudo install -o root -g root -m 0755 '$temp' '/usr/local/bin/$binary'";
+  return 'sudo install -o root -g root -m 0755 "$temp" '
+      "'/usr/local/bin/$binary'";
 }
 
 String _artifactTempPath(NodeComponent component) =>
