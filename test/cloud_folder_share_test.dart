@@ -140,7 +140,9 @@ void main() {
     // Twenty distinct, MAC-valid requests. Not awaited: with the host's send
     // wedged no reply ever comes back, which is the point.
     for (var i = 0; i < 20; i++) {
-      unawaited(client.fetchListing().catchError((Object _) => <String, Object?>{}));
+      unawaited(
+        client.fetchListing().then<void>((_) {}, onError: (Object _) {}),
+      );
     }
     for (var i = 0; i < 10; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 10));
