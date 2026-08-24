@@ -105,7 +105,20 @@ void main() {
     // before it is ever placed on PATH or executed as root.
     // The staging path is now a private mktemp -d directory, not a fixed
     // /tmp name anyone on the host could occupy first.
-    expect(s, contains("echo '$sha  \$XVEIL_TMP/veil-cli' | sha256sum -c -"));
+    // The staging path must be DOUBLE-quoted so the shell expands `$XVEIL_TMP`.
+    // Single-quoted it is a literal directory name that does not exist, curl
+    // fails, and `set -e` ends the run before this check ever happens.
+    expect(
+      s,
+      contains(
+        "printf '%s  %s\\n' '$sha' \"\$XVEIL_TMP/veil-cli\" | sha256sum -c -",
+      ),
+    );
+    expect(
+      s,
+      isNot(contains("'\$XVEIL_TMP/")),
+      reason: 'a single-quoted staging path is never expanded by the shell',
+    );
     final verifyAt = s.indexOf('sha256sum -c -');
     final installAt = s.indexOf('sudo install -o root -g root');
     expect(verifyAt, greaterThanOrEqualTo(0));

@@ -143,11 +143,18 @@ class _DrainCost {
 /// it at a relay, and on reconnect drain our mailbox (fetch → open → dedup →
 /// ack), returning the recovered messages for the caller to store + signal.
 ///
-/// DORMANT: nothing invokes this yet. The live triggers (un-acked + peer offline
-/// → [stash]; node-connect → [drain]) and the relay-specific inputs (`authCookie`
-/// from our rendezvous registration, the recipient's mailbox addressing) are the
-/// relay-infrastructure decision; they are passed in so this state machine can be
-/// built + tested ([LoopbackMailboxCrypto] + [InMemoryMailboxRelay]) ahead of it.
+/// LIVE. Constructed in production by `VeilFlutterTransport` (see
+/// `lib/data/transport/veil_flutter_transport.dart`, `orchestrator:
+/// MailboxOrchestrator(crypto, relay, poisoned: poisonedBlobs)`), which owns it
+/// for the lifetime of the transport and drives both triggers: un-acked + peer
+/// offline → [stash], node-connect → [drain].
+///
+/// This doc used to say "DORMANT: nothing invokes this yet", written when the
+/// state machine was built and tested ([LoopbackMailboxCrypto] +
+/// [InMemoryMailboxRelay]) ahead of the relay infrastructure. It stayed after
+/// the transport started constructing it, which is worse than no comment: this
+/// is the offline-delivery path, and a reader auditing it had a note at the top
+/// telling them it was dead code.
 class MailboxOrchestrator {
   // Named public API keeps `poisoned`; a private initializing formal would
   // expose `_poisoned` to callers, which Dart forbids across libraries.

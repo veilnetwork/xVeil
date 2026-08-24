@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 
@@ -62,4 +64,91 @@ void main() {
       reason: 'the PSK must not be written before the private dir exists',
     );
   });
+
+  // Everything above reads the script as TEXT, and text is what let the
+  // staging path regress: `-o '$XVEIL_TMP/veil-cli'` looks right in a diff and
+  // is inert in a shell, because single quotes suppress expansion. curl then
+  // wrote to a literal relative path that does not exist, and `set -e` ended
+  // provisioning before the hash, the install, the config and the service —
+  // while an ordering assertion over the same text stayed green.
+  //
+  // So run the two lines that matter, with fake tools, and look at where the
+  // bytes actually land.
+  test(
+    'the download really stages under the private scratch dir',
+    () async {
+      final s = script();
+      final curlLine = s
+          .split('\n')
+          .firstWhere(
+            (l) => l.contains('curl -fsSL') && l.contains('veil-cli'),
+          );
+      final verifyLine = s
+          .split('\n')
+          .firstWhere((l) => l.contains('sha256sum -c -'));
+
+      final cwd = Directory.systemTemp.createTempSync('xveil-prov-cwd');
+      addTearDown(() => cwd.deleteSync(recursive: true));
+      final fakeBin = Directory('${cwd.path}/bin')..createSync();
+
+      // curl writes whatever `-o` names; that is the whole behaviour under test.
+      File('${fakeBin.path}/curl')
+        ..writeAsStringSync(
+          '#!/bin/sh\n'
+          'while [ \$# -gt 0 ]; do\n'
+          '  if [ "\$1" = "-o" ]; then shift; printf backend > "\$1"; exit 0; fi\n'
+          '  shift\n'
+          'done\n'
+          'exit 9\n',
+        )
+        ..parent.createSync(recursive: true);
+      Process.runSync('chmod', ['+x', '${fakeBin.path}/curl']);
+
+      // sha256sum -c - reads "<digest>  <path>" and must find that path.
+      File('${fakeBin.path}/sha256sum').writeAsStringSync(
+        '#!/bin/sh\n'
+        'read -r _digest path\n'
+        '[ -f "\$path" ] || { echo "no such staged file: \$path" >&2; exit 1; }\n'
+        'exit 0\n',
+      );
+      Process.runSync('chmod', ['+x', '${fakeBin.path}/sha256sum']);
+
+      final run = Process.runSync(
+        'bash',
+        [
+          '-c',
+          'set -e\n'
+              'umask 077\n'
+              'XVEIL_TMP="\$(mktemp -d)"\n'
+              'trap \'rm -rf -- "\$XVEIL_TMP"\' EXIT\n'
+              '$curlLine\n'
+              '$verifyLine\n'
+              'ls "\$XVEIL_TMP"\n',
+        ],
+        workingDirectory: cwd.path,
+        environment: {
+          'PATH': '${fakeBin.path}:${Platform.environment['PATH']}',
+        },
+      );
+
+      expect(
+        run.exitCode,
+        0,
+        reason: 'download+verify must survive a real shell: ${run.stderr}',
+      );
+      expect(
+        (run.stdout as String).trim(),
+        'veil-cli',
+        reason: 'the binary belongs in the private scratch dir, by that name',
+      );
+      expect(
+        Directory('${cwd.path}/\$XVEIL_TMP').existsSync(),
+        isFalse,
+        reason:
+            'a literal \$XVEIL_TMP directory in the cwd is what an unexpanded '
+            'single-quoted path would have created',
+      );
+    },
+    skip: Platform.isWindows ? 'POSIX shell only' : null,
+  );
 }
