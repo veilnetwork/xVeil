@@ -316,10 +316,21 @@ class RatchetPersistence {
     );
     final known = _localInstance;
     if (known != null && _sameKey(known, current)) return;
-    _localInstance = current;
+    // The RAM mark goes LAST, after everything durable has actually happened.
+    //
+    // It used to be set here, before the read, the enumeration, the delete and
+    // the marker write. A throw from any of them left this process believing
+    // the migration was done: the next call took the early return above, the
+    // stale device's stored conversations were never dropped, and the marker
+    // was never written — so nothing retried until a restart. Secrets for a
+    // device we no longer are is the one thing this function removes.
     final stored = await _storage.getSetting(kRatchetLocalInstanceSetting);
     final currentHex = _hex(current);
-    if (stored == currentHex) return;
+    if (stored == currentHex) {
+      // Durable state already agrees; there is nothing to redo.
+      _localInstance = current;
+      return;
+    }
     if (stored != null) {
       final doomed = [
         for (final key in await _storage.ratchetConversationKeys())
@@ -339,6 +350,8 @@ class RatchetPersistence {
       }
     }
     await _storage.putSetting(kRatchetLocalInstanceSetting, currentHex);
+    // Durable now, so the shortcut above is finally entitled to skip the work.
+    _localInstance = current;
   }
 
   /// The keys of [named] that [exported] does not account for — the ones veil
