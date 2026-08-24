@@ -288,19 +288,54 @@ enum WireKind {
 /// mismatched test then says which kind moved and where to, instead of "the
 /// enum changed".
 const List<String> kWireKindOrder = [
-  'request', 'accept', 'message', 'fileMeta', 'fileChunk', 'ack', 'edit',
-  'del', 'sync', 'voidSeq', 'fileQuery', 'fileNack', 'reconnect',
-  'fileStream', 'contentManifest', 'pieceRequest', 'pieceChunk', 'clear',
-  'contentReoffer', 'contentGone', 'signRequest', 'signResponse',
-  'callSignal', 'reaction', 'groupEntry', 'groupEntryChunk',
-  'groupContentRequest', 'chatDeleted', 'cloudDocument',
-  'cloudDocumentChunk', 'groupCallSignal', 'p2pEndpoints', 'spaceInvite',
-  'spaceInviteDecision', 'spaceJoinRequest', 'spaceJoinDecision',
-  'spaceRecommendation', 'spaceModerationAppeal',
-  'spaceModerationAppealDecision', 'groupContentReceipt',
-  'groupContentManifest', 'spacePublicFeedRequest', 'spacePublicFeedChunk',
-  'spacePublicMediaGrantRequest', 'spaceAbuseReport',
-  'spaceAbuseReportDecision', 'modelInventoryRequest', 'modelInventoryOffer',
+  'request',
+  'accept',
+  'message',
+  'fileMeta',
+  'fileChunk',
+  'ack',
+  'edit',
+  'del',
+  'sync',
+  'voidSeq',
+  'fileQuery',
+  'fileNack',
+  'reconnect',
+  'fileStream',
+  'contentManifest',
+  'pieceRequest',
+  'pieceChunk',
+  'clear',
+  'contentReoffer',
+  'contentGone',
+  'signRequest',
+  'signResponse',
+  'callSignal',
+  'reaction',
+  'groupEntry',
+  'groupEntryChunk',
+  'groupContentRequest',
+  'chatDeleted',
+  'cloudDocument',
+  'cloudDocumentChunk',
+  'groupCallSignal',
+  'p2pEndpoints',
+  'spaceInvite',
+  'spaceInviteDecision',
+  'spaceJoinRequest',
+  'spaceJoinDecision',
+  'spaceRecommendation',
+  'spaceModerationAppeal',
+  'spaceModerationAppealDecision',
+  'groupContentReceipt',
+  'groupContentManifest',
+  'spacePublicFeedRequest',
+  'spacePublicFeedChunk',
+  'spacePublicMediaGrantRequest',
+  'spaceAbuseReport',
+  'spaceAbuseReportDecision',
+  'modelInventoryRequest',
+  'modelInventoryOffer',
   'disappearingSet',
   'unknown',
 ];
@@ -336,12 +371,51 @@ bool isChatDeletedMarker(String body) => body == kChatDeletedMarkerBody;
 /// copies of whatever the setting happens to be now.
 const kDisappearingMarkerPrefix = 'sys:disappearing:';
 
-/// The window a disappearing marker announces, or null when [body] is not one.
-/// `0` means the sender turned the window off.
-int? disappearingMarkerSeconds(String body) {
+/// Both halves of the policy a disappearing marker announces.
+///
+/// `ttlSeconds == 0` means the sender turned the post-time window off.
+/// [hideAfterReadSeconds] is non-null when messages are also hidden that long
+/// after this device first SHOWED them, which is a different clock and a
+/// different promise.
+typedef DisappearingMarker = ({int ttlSeconds, int? hideAfterReadSeconds});
+
+/// The policy a disappearing marker announces, or null when [body] is not one.
+///
+/// The marker used to carry the TTL alone, and the read-window was simply lost
+/// on the way to the screen: a setting of "hide 30 minutes after reading, no
+/// post-time window" stored `…:0` and rendered as "Disappearing messages
+/// turned off" — a false statement about a privacy setting that was ON. That
+/// state is reachable from the wire, since an announcement may carry `ttl = 0`
+/// with a read-window.
+///
+/// `<ttl>:r<seconds>` extends the old `<ttl>` rather than replacing it, so a
+/// marker without a read-window is byte-identical to what was written before.
+/// A build older than this one parses the extended form as "not a marker" and
+/// would print the raw token, which is why the read-window is only ever
+/// appended when there IS one — the older build cannot represent that setting
+/// anyway.
+DisappearingMarker? disappearingMarker(String body) {
   if (!body.startsWith(kDisappearingMarkerPrefix)) return null;
-  return int.tryParse(body.substring(kDisappearingMarkerPrefix.length));
+  final rest = body.substring(kDisappearingMarkerPrefix.length);
+  final at = rest.indexOf(':r');
+  if (at < 0) {
+    final ttl = int.tryParse(rest);
+    return ttl == null ? null : (ttlSeconds: ttl, hideAfterReadSeconds: null);
+  }
+  final ttl = int.tryParse(rest.substring(0, at));
+  final read = int.tryParse(rest.substring(at + 2));
+  if (ttl == null || read == null || read <= 0) return null;
+  return (ttlSeconds: ttl, hideAfterReadSeconds: read);
 }
+
+/// The post-time window a disappearing marker announces, or null when [body] is
+/// not one. `0` means the sender turned the window off.
+///
+/// Callers use a non-null answer as "this row is a system marker", so it must
+/// stay non-null for the extended form too or those rows would be rendered as
+/// ordinary messages — showing the token itself to the user.
+int? disappearingMarkerSeconds(String body) =>
+    disappearingMarker(body)?.ttlSeconds;
 
 /// The loopback dev transport echoes every wire frame back prefixed with this,
 /// so `↩︎ echo: {"t":..}` bodies land in the log. Echoes of CONTROL frames
@@ -545,7 +619,8 @@ class WireEnvelope {
   /// "What models have you got?" — see [WireKind.modelInventoryRequest]. The
   /// body is empty: the question has no parameters, and a version field would
   /// only invite a sender to put something in it.
-  const WireEnvelope.modelInventoryRequest() : this(WireKind.modelInventoryRequest, '');
+  const WireEnvelope.modelInventoryRequest()
+    : this(WireKind.modelInventoryRequest, '');
 
   /// The answer — see [WireKind.modelInventoryOffer].
   const WireEnvelope.modelInventoryOffer(String bodyJson)
