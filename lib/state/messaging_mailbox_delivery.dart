@@ -162,6 +162,20 @@ class _MessagingMailboxDelivery {
   /// wrote (see `_speaksForContact`), so accepting it here would let anyone
   /// clear anyone's backoff on demand and aim the retry loop at an unresolvable
   /// peer — the exact hammering the backoff exists to stop.
+  /// Install a backoff the way a failed resolve does — test seam only.
+  ///
+  /// The registration lives inline in the send error path, so there is no
+  /// other way to reach the state whose CLEARING is the thing worth pinning:
+  /// the six-hour ceiling is only safe because an authenticated delivery ends
+  /// it outright.
+  @visibleForTesting
+  void debugArmBackoff(String peerHex, Duration wait) {
+    _peerUnresolvedBackoff[peerHex] = (
+      count: 10,
+      nextAt: DateTime.now().add(wait),
+    );
+  }
+
   void notePeerReachable(String peerHex) {
     if (_peerUnresolvedBackoff.remove(peerHex) == null) return;
     _lastSuppressionLog.remove(peerHex);

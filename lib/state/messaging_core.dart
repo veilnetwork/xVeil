@@ -90,6 +90,41 @@ class MessagingService {
   static int debugLiveResendDelayMs(int delayMs, String frameId) =>
       _MessagingOutbox._jittered(delayMs, frameId);
 
+  /// The unresolved-peer backoff ceiling and the lifetime of the frames it
+  /// governs, for the test that holds them together.
+  ///
+  /// The ceiling was raised to six hours because a blind re-check of a device
+  /// that cannot be sealed for was the largest line in an idle phone's
+  /// traffic — bursts of ~120 sends, ~93% of its send events. Six hours is
+  /// also how long a frame lives, so a frame gets at most one blind re-check
+  /// inside its own lifetime. The comment beside the constant says it plainly:
+  /// "Dart has no compile-time assert to hold those two numbers together;
+  /// they are joined here by name only."
+  @visibleForTesting
+  static Duration get debugPeerUnresolvedCap =>
+      _MessagingMailboxDelivery._peerUnresolvedCap;
+
+  @visibleForTesting
+  static Duration get debugReplicationMaxAge =>
+      _MessagingOutbox._replicationMaxAge;
+
+  /// Put [peerHex] into the unresolved-peer backoff, as a failed resolve does.
+  @visibleForTesting
+  void debugArmPeerBackoff(String peerHex, Duration wait) {
+    _mailboxDelivery.debugArmBackoff(peerHex, wait);
+  }
+
+  /// Whether a deposit for [peerHex] is currently suppressed.
+  @visibleForTesting
+  bool debugDepositSuppressed(String peerHex) =>
+      _mailboxDelivery.suppressedByBackoff(peerHex, DateTime.now(), 'test');
+
+  /// What an authenticated delivery from [peerHex] does to that backoff.
+  @visibleForTesting
+  void debugNotePeerReachable(String peerHex) {
+    _mailboxDelivery.notePeerReachable(peerHex);
+  }
+
   MessagingService(
     this._transport,
     this._storage, {
