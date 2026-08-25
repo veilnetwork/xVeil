@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/transport/veil_mailbox.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 
 /// A message recovered by [MailboxOrchestrator.drain]: the verified sender +
 /// routing target + plaintext, plus the content id for storage-side dedup.
@@ -208,12 +209,33 @@ class MailboxOrchestrator {
   ///
   /// So the cap now stops the work and nothing else: the blob is skipped
   /// without an open and without an ack, the relay keeps its copy until its own
-  /// TTL, and a restart — which clears this, exactly as it clears
-  /// [_transientOpenFails] — tries again against a network that may have
-  /// recovered. Durable quarantine stays for blobs that failed open
-  /// PERMANENTLY, where retrying is provably useless.
-  final Set<String> _transientGaveUp = {};
+  /// TTL. Durable quarantine stays for blobs that failed open PERMANENTLY,
+  /// where retrying is provably useless.
+  ///
+  /// A DEADLINE rather than a verdict. It used to be a plain set, so a blob
+  /// that hit the cap was skipped for the rest of the session and only a
+  /// RESTART would look at it again — for a cause that says nothing about the
+  /// blob and usually clears in minutes (a cold routing table, a node still
+  /// starting, a resolve racing our own registration). Worse, an unacked blob
+  /// is re-served on every fetch and the relay fills its reply oldest-first, so
+  /// a large enough one sits at the head of every batch: what stalls is not
+  /// only that message but everything queued behind it (report14 X14-M4).
+  ///
+  /// Backing off instead costs one open attempt per blob per
+  /// [_transientGiveUpCooldown] and gets the message — and the tail behind it —
+  /// as soon as the network is back, without waiting for the app to restart.
+  final Map<String, DateTime> _transientGaveUpUntil = {};
   static const _transientGaveUpMax = 512;
+
+  /// How long a blob that hit the cap is left alone before it is worth another
+  /// try. Long against the ~20 s a failed open costs, short against the relay's
+  /// seven-day TTL.
+  static const _transientGiveUpCooldown = Duration(minutes: 10);
+
+  /// The clock the cooldown is measured on. Injectable so a test does not have
+  /// to wait ten minutes to prove the retry happens.
+  @visibleForTesting
+  DateTime Function() now = DateTime.now;
 
   /// Seal [data] for offline [recipient]'s ([appId], [endpointId]) and deposit
   /// it at the relay under [contentId] (the message uuid, so the recipient can
@@ -288,6 +310,7 @@ class MailboxOrchestrator {
     required Future<bool> Function(Uint8List contentId) alreadyHave,
     List<NodeId> knownRelays = const [],
     bool Function()? shouldContinue,
+
     /// Invoked the moment a blob is opened and verified, BEFORE the loop goes
     /// looking for more. The returned list still carries everything, so a
     /// caller that only wants the batch can ignore this.
@@ -418,7 +441,14 @@ class MailboxOrchestrator {
       // Given up on THIS SESSION for transient reasons. Skip the expensive
       // open — that is what the cap is for — but do not ack: the relay holds
       // the only copy, and nothing that happened said the blob was bad.
-      if (_transientGaveUp.contains(cidHex)) continue;
+      final gaveUpUntil = _transientGaveUpUntil[cidHex];
+      if (gaveUpUntil != null) {
+        if (now().isBefore(gaveUpUntil)) continue;
+        // The back-off is spent. Try it once more from scratch — the cause was
+        // transient, and by now it may simply be gone.
+        _transientGaveUpUntil.remove(cidHex);
+        _transientOpenFails.remove(cidHex);
+      }
       if (await alreadyHave(b.contentId)) {
         await _ack(cost, me, b.contentId, authCookie, knownRelays);
         continue;
@@ -470,10 +500,10 @@ class MailboxOrchestrator {
           }
           // Cap reached. Stop opening it, and stop there: acking would drop
           // the relay's only copy of a message nothing has found fault with.
-          if (_transientGaveUp.length >= _transientGaveUpMax) {
-            _transientGaveUp.remove(_transientGaveUp.first);
+          if (_transientGaveUpUntil.length >= _transientGaveUpMax) {
+            _transientGaveUpUntil.remove(_transientGaveUpUntil.keys.first);
           }
-          _transientGaveUp.add(cidHex);
+          _transientGaveUpUntil[cidHex] = now().add(_transientGiveUpCooldown);
           _transientOpenFails.remove(cidHex);
           devLog(
             () =>
