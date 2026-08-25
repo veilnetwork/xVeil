@@ -951,29 +951,52 @@ void main() {
         'Single coherent observability read',
         visibility: SpaceVisibility.public,
       );
+      // A CHAT too. The pass folds a control log for these as well now, to
+      // count how much of each chat this device can see, and the cost of a
+      // diagnostic is exactly the kind of thing this project has been bitten
+      // by before — a probe that rescanned the journal on every call. It must
+      // still be one read per group, not one per group per question asked.
+      final chatId = await service.createGroup('Coherent chat read');
+      await service.addControlOp(
+        chatId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
       storage.groupBundleReads = 0;
 
+      final firstPass = await service.spaceObservabilitySnapshot();
+      expect(firstPass.replication.spaces, 1);
       expect(
-        (await service.spaceObservabilitySnapshot()).replication.spaces,
+        firstPass.replication.chatGroups,
         1,
+        reason: 'the chat must be in this pass, or the read count below is '
+            'about a pass that skipped it',
       );
       expect(
         storage.groupBundleReads,
-        1,
+        3,
         reason:
             'frontier and message materialization must reuse the validated '
-            'bundle loaded by the snapshot',
+            'bundle loaded by the snapshot — ONE read per durable group, and '
+            'there are three: the space, the chat, and the device group that '
+            'admitting a member brings into the index. The chat-coverage fold '
+            'must reuse the bundle the pass already loaded rather than '
+            'fetching its own; measured with the fold bypassed, the count is '
+            'the same 3',
       );
 
       storage.groupBundleReads = 0;
-      expect(
-        (await service.spaceObservabilitySnapshot()).replication.spaces,
-        1,
-      );
+      final secondPass = await service.spaceObservabilitySnapshot();
+      expect(secondPass.replication.spaces, 1);
       expect(
         storage.groupBundleReads,
-        1,
-        reason: 'a later snapshot must still perform one fresh durable read',
+        secondPass.replication.spaces + secondPass.replication.chatGroups,
+        reason:
+            'a later snapshot must still read every group it reports on, '
+            'freshly — stated against what the pass counted rather than a '
+            'fixed number, because the device group materialises once and is '
+            'not fetched again',
       );
     },
   );
