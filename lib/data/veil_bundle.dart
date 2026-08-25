@@ -89,7 +89,25 @@ const List<String> kSpeechFiles = ['ggml-base-q5_1.bin'];
 
 /// No pair is anywhere near this. It exists so a declared size cannot ask for
 /// an allocation before the arithmetic below has been checked.
+///
+/// A FORMAT bound, not a product one: it says what the arithmetic in this file
+/// can be trusted with. What a device is willing to receive is a separate,
+/// much smaller question — see [kMaxReceivedBundleBytes].
 const int kMaxBundleBytes = 2 * 1024 * 1024 * 1024;
+
+/// The largest bundle this app will accept from a correspondent.
+///
+/// The format bound above is 2 GiB, and a phone asked to install a 2 GiB
+/// bundle does not refuse it — it dies. The real sizes are two orders of
+/// magnitude below: the speech model is one ~57 MB file, and a translation
+/// pair is a few hundred MB at the outside. 512 MiB leaves room for both to
+/// grow several times over while staying inside what a mid-range phone can
+/// write to its own temporary directory (report14 X14-M2).
+///
+/// This is a receiving policy. A bundle the person picked from their own disk
+/// is not bound by it — they chose it, they know where it came from, and the
+/// installer streams either way.
+const int kMaxReceivedBundleBytes = 512 * 1024 * 1024;
 
 class VeilBundleFile {
   const VeilBundleFile({
