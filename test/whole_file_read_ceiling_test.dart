@@ -117,4 +117,38 @@ void main() {
       );
     });
   });
+
+  test('no path reads an image content id with no ceiling at all', () {
+    // `contains` above only needs ONE guarded call in the file, and that is
+    // how it stayed green while `space_post_media` read the very same content
+    // id a second time — in the tap-to-open path — with no ceiling, and handed
+    // the result straight to `Image.memory`. `maxBytes` is opt-in: without it
+    // `loadFile` builds the whole blob in RAM, so a guarded render next to an
+    // unguarded one buys nothing.
+    //
+    // So the bare form is named and forbidden, per file, rather than trusting
+    // that one good call speaks for the rest.
+    //
+    // The chat widgets are here for the same reason: the gallery, the resolved
+    // image and the thumbnail each read a peer-supplied blob whole and hand it
+    // to `Image.memory`, and none of them asked for a ceiling either.
+    const bare = {
+      'lib/features/spaces/space_post_media.dart': 'loadFile(_cid)',
+      'lib/features/groups/group_chat_screen.dart': 'loadFile(cid)',
+      'lib/features/chat/chat_message_widgets.dart': 'loadFile(fileKey)',
+    };
+    bare.forEach((path, call) {
+      final source = File(
+        path,
+      ).readAsStringSync().replaceAll(RegExp(r'\s+'), ' ');
+      expect(
+        source.contains(call),
+        isFalse,
+        reason:
+            '$path reads the image content id with no ceiling: the blob is '
+            'built whole in RAM and decoded on top of it, at a size whoever '
+            'sent it chose',
+      );
+    });
+  });
 }
