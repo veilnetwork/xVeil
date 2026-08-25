@@ -1004,17 +1004,38 @@ class GroupService {
       _observability.snapshot(replication: await _spaceReplicationSnapshot());
 
 
+  static const _reachableCacheForMs = 3000;
+  Set<String>? _reachableCache;
+  int? _reachableCachedAtMs;
+
   /// Members this device currently believes are up, as hex ids.
   ///
   /// Best effort and advisory: the overlay selection treats it as a preference
   /// and still fills to `k`, so an empty or stale answer costs nothing. Errors
   /// are swallowed for the same reason — a reader that throws must not stop a
   /// delta going out.
+  ///
+  /// CACHED for a few seconds, because the reader is not free: it crosses into
+  /// the node and materialises the whole peer table, and `broadcastDelta` runs
+  /// on the send path of every group message. A probe whose cost lands on a
+  /// hot path is a defect this project has paid for before. Peer state does
+  /// not change per message, so a burst of sends asks once.
   Future<Set<String>?> _reachableNow() async {
     final reader = _activePeers;
     if (reader == null) return null;
+    // [_clockNowMs], not [_now]: this only asks what time it is, and taking
+    // the monotonic counter would shift every stamp written afterwards by one
+    // per send.
+    final nowMs = _clockNowMs();
+    final cachedAt = _reachableCachedAtMs;
+    if (cachedAt != null && nowMs - cachedAt < _reachableCacheForMs) {
+      return _reachableCache;
+    }
     try {
-      return {for (final peer in await reader()) peer.hex};
+      final fresh = {for (final peer in await reader()) peer.hex};
+      _reachableCache = fresh;
+      _reachableCachedAtMs = nowMs;
+      return fresh;
     } catch (_) {
       return null;
     }
@@ -18631,12 +18652,17 @@ class GroupService {
     final neighborCount = sparse
         ? await groupSyncNeighborCount(groupId)
         : kGroupSyncNeighbors;
+    // Only ask when it can change the answer: below the degree every candidate
+    // is chosen anyway, so a liveness lookup there is pure cost on the send
+    // path.
     final peers = sparse
         ? nearestGroupNodesByXor(
             _signer.selfId,
             candidates,
             k: neighborCount,
-            reachable: await _reachableNow(),
+            reachable: candidates.length > neighborCount
+                ? await _reachableNow()
+                : null,
           )
         : candidates;
     // The one place a membership-ending decision is handed to the person it

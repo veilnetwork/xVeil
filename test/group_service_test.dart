@@ -564,6 +564,71 @@ void main() {
     );
   });
 
+  /// The liveness probe must not land on the send path.
+  ///
+  /// `_reachableNow` crosses into the node and materialises the whole peer
+  /// table — `peers()` was moved off the UI isolate for exactly that reason —
+  /// and `broadcastDelta` runs on every group message. A probe whose cost
+  /// lands on a hot path is a defect this project has already paid for once,
+  /// so the lookup is cached for a few seconds and skipped outright when it
+  /// cannot change the answer.
+  test('the liveness probe is not paid on every send', () async {
+    var probes = 0;
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    var wall = 1000;
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      activePeers: () async {
+        probes++;
+        return {bob};
+      },
+      // Without a sender `broadcastDelta` returns before it ever selects, so
+      // the probe would look free for the wrong reason.
+      send: (peer, groupId, json) async {},
+    )..debugWallClockMs = () => wall;
+    addTearDown(service.dispose);
+
+    final gid = await service.createGroup('Chatty');
+    // MORE members than the overlay degree, or the selection takes them all
+    // and the probe is skipped for a different reason than the cache.
+    for (var i = 0; i < GroupService.kGroupSyncNeighbors + 2; i++) {
+      await service.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: NodeId.fromHex(
+          i.toRadixString(16).padLeft(2, '0') * 32,
+        ),
+        role: GroupRole.member,
+      );
+    }
+    probes = 0;
+
+    for (var i = 0; i < 8; i++) {
+      await service.postMessage(gid, 'burst $i');
+    }
+
+    expect(
+      probes,
+      lessThanOrEqualTo(1),
+      reason:
+          'a burst of sends inside the cache window must ask the node ONCE; '
+          'asking per message puts a native round trip and a full peer-table '
+          'copy on the send path (saw $probes)',
+    );
+
+    // And it does refresh once the window passes — a cache that never expires
+    // would pin a peer table from boot.
+    wall += 10000;
+    await service.postMessage(gid, 'after the window');
+    expect(
+      probes,
+      greaterThanOrEqualTo(2),
+      reason: 'the view must refresh after its window, or it is frozen',
+    );
+  });
+
   /// How much of a chat's membership this device can actually see.
   ///
   /// The sparse overlay prefers members it believes are up and can only choose
