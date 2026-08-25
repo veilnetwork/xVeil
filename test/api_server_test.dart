@@ -76,6 +76,7 @@ void main() {
   Map<String, dynamic>? localSpacePostDraft;
   Map<String, dynamic>? localScheduledSpacePost;
   var accountLocked = false;
+
   /// Set to make the injected lock fail the way a teardown leg does — the
   /// tunnel that would not stop, a session that would not close.
   Object? lockFailure;
@@ -194,7 +195,9 @@ void main() {
       cloudFile: !cloudAvailable
           ? null
           : (id) async => switch (id) {
-              'f1' => inMemoryBlobSource(Uint8List.fromList(const [1, 2, 3, 4])),
+              'f1' => inMemoryBlobSource(
+                Uint8List.fromList(const [1, 2, 3, 4]),
+              ),
               // Bigger than any socket buffer, so a client that stops reading
               // actually stalls the writer rather than being absorbed.
               'big' => inMemoryBlobSource(Uint8List(8 * 1024 * 1024)),
@@ -389,9 +392,7 @@ void main() {
           ? (error: 'group content not downloaded', source: null)
           : (
               error: null,
-              source: inMemoryBlobSource(
-                Uint8List.fromList(const [4, 5, 6]),
-              ),
+              source: inMemoryBlobSource(Uint8List.fromList(const [4, 5, 6])),
             ),
       groupMembers: (group, isSpace) async => group == 'missing'
           ? null
@@ -1388,32 +1389,36 @@ void main() {
   /// asked to close: the state layer scheduled the lock and returned at once,
   /// so the response went out while the tunnel, the node and the container
   /// were all still up, and any failure landed where nothing could report it.
-  test('a lock that did not finish is not answered with locked: true', () async {
-    final h = make();
-    lockFailure = StateError(
-      'the VPN tunnel did not stop: traffic may still be routed through the '
-      'configured exit while the app presents itself as locked',
-    );
+  test(
+    'a lock that did not finish is not answered with locked: true',
+    () async {
+      final h = make();
+      lockFailure = StateError(
+        'the VPN tunnel did not stop: traffic may still be routed through the '
+        'configured exit while the app presents itself as locked',
+      );
 
-    final res = await h.handle(
-      'POST',
-      Uri.parse('/v1/account/lock'),
-      'Bearer secret-token',
-    );
+      final res = await h.handle(
+        'POST',
+        Uri.parse('/v1/account/lock'),
+        'Bearer secret-token',
+      );
 
-    expect(res.status, 500, reason: 'the boundary is not closed');
-    expect((res.body! as Map)['locked'], isFalse);
-    expect(
-      '${(res.body! as Map)['detail']}',
-      contains('tunnel'),
-      reason: 'the caller is told WHICH leg is still up, not just that one is',
-    );
-    expect(
-      accountLocked,
-      isFalse,
-      reason: 'the fixture must actually have failed, or this proves nothing',
-    );
-  });
+      expect(res.status, 500, reason: 'the boundary is not closed');
+      expect((res.body! as Map)['locked'], isFalse);
+      expect(
+        '${(res.body! as Map)['detail']}',
+        contains('tunnel'),
+        reason:
+            'the caller is told WHICH leg is still up, not just that one is',
+      );
+      expect(
+        accountLocked,
+        isFalse,
+        reason: 'the fixture must actually have failed, or this proves nothing',
+      );
+    },
+  );
 
   test('a read-only token may read the account but not act on it', () async {
     final h = make(readOnly: true);
@@ -3347,8 +3352,9 @@ void main() {
       createGroup: (_) async => 'gid',
       groupMessages: (_, _) async => const [],
       sendGroupMessage: (_, _, _) async => null,
-      sendGroupFile: (_, _, _, _, _, _, {kind, width, height, durationMs}) async =>
-          (error: null, contentId: 'cid'),
+      sendGroupFile:
+          (_, _, _, _, _, _, {kind, width, height, durationMs}) async =>
+              (error: null, contentId: 'cid'),
       fetchGroupFile: (_, _) async => null,
       loadGroupFile: (_, _) async =>
           (error: null, source: inMemoryBlobSource(Uint8List(0))),
@@ -3378,11 +3384,7 @@ void main() {
       // No sleeps: the wait ends as soon as each attempt has either parked at
       // the gate or been refused.
       final events = StreamController<Map<String, dynamic>>.broadcast();
-      final server = ApiServer(
-        twoTokens(),
-        events.stream,
-        maxLiveSockets: 2,
-      );
+      final server = ApiServer(twoTokens(), events.stream, maxLiveSockets: 2);
       var gated = 0;
       final open = Completer<void>();
       server.debugUpgradeGate = () {
@@ -3398,32 +3400,40 @@ void main() {
       var settled = 0;
       final attempts = <Future<WebSocket?>>[
         for (var i = 0; i < 12; i++)
-          WebSocket.connect('ws://127.0.0.1:$port/v1/events?token=tok-a').then<
-              WebSocket?>((ws) {
-            settled++;
-            return ws;
-          }, onError: (Object _) {
-            settled++;
-            return null;
-          }),
+          WebSocket.connect(
+            'ws://127.0.0.1:$port/v1/events?token=tok-a',
+          ).then<WebSocket?>(
+            (ws) {
+              settled++;
+              return ws;
+            },
+            onError: (Object _) {
+              settled++;
+              return null;
+            },
+          ),
       ];
 
       for (var spin = 0; spin < 2000 && settled + gated < 12; spin++) {
         await Future<void>.delayed(const Duration(milliseconds: 1));
       }
       expect(
-        settled + gated, 12,
+        settled + gated,
+        12,
         reason: 'every attempt should be refused or parked at the gate',
       );
       expect(
-        gated, 2,
-        reason: 'a cap that is merely CHECKED lets the whole rush through to '
+        gated,
+        2,
+        reason:
+            'a cap that is merely CHECKED lets the whole rush through to '
             'the upgrade; only a slot claimed before the await stops them',
       );
 
       open.complete();
-      final opened =
-          (await Future.wait(attempts)).whereType<WebSocket>().toList();
+      final opened = (await Future.wait(
+        attempts,
+      )).whereType<WebSocket>().toList();
       addTearDown(() async {
         for (final ws in opened) {
           await ws.close();
@@ -3463,7 +3473,8 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 5));
         }
         expect(
-          server.liveSocketCount, 0,
+          server.liveSocketCount,
+          0,
           reason: 'subscription ${i + 1} leaked its slot',
         );
       }
@@ -3535,14 +3546,16 @@ void main() {
         expect(
           ws.closeCode,
           ApiServer.kEventFeedTooSlowCloseCode,
-          reason: 'the client must learn WHY, and it must not be the 1008 of a '
+          reason:
+              'the client must learn WHY, and it must not be the 1008 of a '
               'revoked token — falling behind calls for a reconnect, a dead '
               'token calls for the opposite',
         );
         expect(
           ws.closeCode,
           isNot(1013),
-          reason: 'dart:io refuses to SEND 1013, so asking it to is the same '
+          reason:
+              'dart:io refuses to SEND 1013, so asking it to is the same '
               'as not closing at all',
         );
 
@@ -3552,7 +3565,8 @@ void main() {
         expect(
           server.liveSocketCount,
           0,
-          reason: 'a subscriber we hung up on must not go on being counted '
+          reason:
+              'a subscriber we hung up on must not go on being counted '
               'against the ceiling',
         );
 
@@ -3613,13 +3627,15 @@ void main() {
       expect(
         head,
         startsWith('HTTP/1.1 101'),
-        reason: 'the upgrade itself must still succeed, or this test would '
+        reason:
+            'the upgrade itself must still succeed, or this test would '
             'pass for the wrong reason',
       );
       expect(
         head.toLowerCase(),
         isNot(contains('sec-websocket-extensions')),
-        reason: 'agreeing to permessage-deflate is what hands a caller an '
+        reason:
+            'agreeing to permessage-deflate is what hands a caller an '
             'unbounded inflate',
       );
     });
@@ -3679,154 +3695,155 @@ void main() {
       },
     );
 
-    test(
-      'one endless message cannot outgrow the raw socket ceiling',
-      () async {
-        // Audit XV-M2. The budget above is charged in the `ws.listen`
-        // callback, which dart:io reaches only after it has JOINED every frame
-        // of a message: `websocket_impl.dart` assembles into a
-        // `BytesBuilder(copy: false)` with no length check on the path, and
-        // `WebSocketTransformer.upgrade` exposes no size parameter to add one.
-        // So a message that NEVER ENDS — FIN=0, then continuation frames
-        // forever — is allocated in full before a single byte of it is
-        // charged, and the budget never fires at all. The test above passes
-        // the whole time, because it sends messages that finish.
-        //
-        // Any token reaches this. The gate on the feed checks that the token
-        // exists, not what it is allowed to do, so the cheapest read-only
-        // credential in the app buys an unbounded allocation.
-        //
-        // RAW SOCKET, because a `WebSocket` client will not send a message it
-        // never finishes — the endless message has to be framed by hand.
-        final events = StreamController<Map<String, dynamic>>.broadcast();
-        final server = ApiServer(twoTokens(), events.stream);
-        final port = await server.start(0);
-        addTearDown(() async {
-          await events.close();
-          await server.stop();
-        });
+    test('one endless message cannot outgrow the raw socket ceiling', () async {
+      // Audit XV-M2. The budget above is charged in the `ws.listen`
+      // callback, which dart:io reaches only after it has JOINED every frame
+      // of a message: `websocket_impl.dart` assembles into a
+      // `BytesBuilder(copy: false)` with no length check on the path, and
+      // `WebSocketTransformer.upgrade` exposes no size parameter to add one.
+      // So a message that NEVER ENDS — FIN=0, then continuation frames
+      // forever — is allocated in full before a single byte of it is
+      // charged, and the budget never fires at all. The test above passes
+      // the whole time, because it sends messages that finish.
+      //
+      // Any token reaches this. The gate on the feed checks that the token
+      // exists, not what it is allowed to do, so the cheapest read-only
+      // credential in the app buys an unbounded allocation.
+      //
+      // RAW SOCKET, because a `WebSocket` client will not send a message it
+      // never finishes — the endless message has to be framed by hand.
+      final events = StreamController<Map<String, dynamic>>.broadcast();
+      final server = ApiServer(twoTokens(), events.stream);
+      final port = await server.start(0);
+      addTearDown(() async {
+        await events.close();
+        await server.stop();
+      });
 
-        final socket = await Socket.connect('127.0.0.1', port!);
-        addTearDown(socket.destroy);
-        unawaited(socket.done.catchError((Object _) => socket));
+      final socket = await Socket.connect('127.0.0.1', port!);
+      addTearDown(socket.destroy);
+      unawaited(socket.done.catchError((Object _) => socket));
 
-        final fromServer = <int>[];
-        final dead = Completer<void>();
-        void die() {
-          if (!dead.isCompleted) dead.complete();
+      final fromServer = <int>[];
+      final dead = Completer<void>();
+      void die() {
+        if (!dead.isCompleted) dead.complete();
+      }
+
+      socket.listen(
+        fromServer.addAll,
+        onDone: die,
+        onError: (Object _) => die(),
+      );
+
+      socket.write(
+        'GET /v1/events?token=tok-a HTTP/1.1\r\n'
+        'Host: 127.0.0.1:$port\r\n'
+        'Upgrade: websocket\r\n'
+        'Connection: Upgrade\r\n'
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
+        'Sec-WebSocket-Version: 13\r\n'
+        '\r\n',
+      );
+      await socket.flush();
+      for (var spin = 0; spin < 500; spin++) {
+        if (String.fromCharCodes(fromServer).contains('\r\n\r\n')) break;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      final head = String.fromCharCodes(fromServer);
+      expect(
+        head,
+        startsWith('HTTP/1.1 101'),
+        reason:
+            'the upgrade is now done by hand, so the handshake itself is '
+            'part of what this pins',
+      );
+      expect(
+        head.toLowerCase(),
+        contains('upgrade: websocket'),
+        reason: 'a 101 without the upgrade header is not an upgrade',
+      );
+      expect(
+        head,
+        // RFC 6455 §1.3's worked example for the key sent above. A cap
+        // bought with a handshake nobody can complete is not a fix.
+        contains('s3pPLMBiTxaQ9kYGzzhZRbK+xOo='),
+        reason: 'Sec-WebSocket-Accept must be base64(sha1(key + GUID))',
+      );
+      final handshakeBytes = fromServer.length;
+
+      // FIN=0 forever: the first fragment opens a binary message, every one
+      // after it continues the same message, and none of them ever ends it.
+      const payloadBytes = 0xFFFF;
+      const frameBytes = 8 + payloadBytes;
+      Uint8List fragment({required bool first}) {
+        final frame = Uint8List(frameBytes);
+        frame[0] = first ? 0x02 : 0x00; // FIN=0; binary, then continuation
+        frame[1] = 0x80 | 126; // MASKED, 16-bit length follows
+        frame[2] = 0xFF;
+        frame[3] = 0xFF;
+        // Bytes 4-7 are the masking key, left at zero: the server requires
+        // a key from a client, not an interesting one, and zeros make the
+        // payload its own plaintext.
+        return frame;
+      }
+
+      // The 256 KiB ceiling falls inside the fourth fragment. Sixteen is a
+      // megabyte — four times the room the cap needs, and an amount the old
+      // code swallowed whole without noticing.
+      const fragments = 16;
+      var written = 0;
+      for (var i = 0; i < fragments && !dead.isCompleted; i++) {
+        try {
+          socket.add(fragment(first: i == 0));
+          await socket.flush();
+        } catch (_) {
+          break; // dropped mid-write, which is the outcome under test
         }
+        written += frameBytes;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
 
-        socket.listen(
-          fromServer.addAll,
-          onDone: die,
-          onError: (Object _) => die(),
-        );
+      await dead.future.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail(
+          'one endless message was assembled without limit: the server held '
+          '${written ~/ 1024} KiB of a message it can never deliver, and '
+          'would have held as much again for the asking',
+        ),
+      );
+      expect(
+        written,
+        greaterThanOrEqualTo(ApiServer.kEventFeedRawSocketCeiling),
+        reason:
+            'the raw cap is a BACKSTOP under the inbound byte budget, '
+            'not a replacement for it — firing below the documented budget '
+            'would tear down clients that rule says are in good standing',
+      );
+      expect(
+        written,
+        lessThanOrEqualTo(ApiServer.kEventFeedRawSocketCeiling * 2),
+        reason:
+            'and it must stop NEAR the ceiling: a cap that only fires '
+            'eventually is a slower leak, not a bounded one',
+      );
+      expect(
+        fromServer,
+        hasLength(handshakeBytes),
+        reason:
+            'not one byte came back after the handshake, which is how we '
+            'know no message was ever delivered: a joined message would '
+            'have been charged to the inbound budget and answered with a '
+            '1008 close frame',
+      );
 
-        socket.write(
-          'GET /v1/events?token=tok-a HTTP/1.1\r\n'
-          'Host: 127.0.0.1:$port\r\n'
-          'Upgrade: websocket\r\n'
-          'Connection: Upgrade\r\n'
-          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n'
-          'Sec-WebSocket-Version: 13\r\n'
-          '\r\n',
-        );
-        await socket.flush();
-        for (var spin = 0; spin < 500; spin++) {
-          if (String.fromCharCodes(fromServer).contains('\r\n\r\n')) break;
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-        final head = String.fromCharCodes(fromServer);
-        expect(
-          head,
-          startsWith('HTTP/1.1 101'),
-          reason: 'the upgrade is now done by hand, so the handshake itself is '
-              'part of what this pins',
-        );
-        expect(
-          head.toLowerCase(),
-          contains('upgrade: websocket'),
-          reason: 'a 101 without the upgrade header is not an upgrade',
-        );
-        expect(
-          head,
-          // RFC 6455 §1.3's worked example for the key sent above. A cap
-          // bought with a handshake nobody can complete is not a fix.
-          contains('s3pPLMBiTxaQ9kYGzzhZRbK+xOo='),
-          reason: 'Sec-WebSocket-Accept must be base64(sha1(key + GUID))',
-        );
-        final handshakeBytes = fromServer.length;
-
-        // FIN=0 forever: the first fragment opens a binary message, every one
-        // after it continues the same message, and none of them ever ends it.
-        const payloadBytes = 0xFFFF;
-        const frameBytes = 8 + payloadBytes;
-        Uint8List fragment({required bool first}) {
-          final frame = Uint8List(frameBytes);
-          frame[0] = first ? 0x02 : 0x00; // FIN=0; binary, then continuation
-          frame[1] = 0x80 | 126; // MASKED, 16-bit length follows
-          frame[2] = 0xFF;
-          frame[3] = 0xFF;
-          // Bytes 4-7 are the masking key, left at zero: the server requires
-          // a key from a client, not an interesting one, and zeros make the
-          // payload its own plaintext.
-          return frame;
-        }
-
-        // The 256 KiB ceiling falls inside the fourth fragment. Sixteen is a
-        // megabyte — four times the room the cap needs, and an amount the old
-        // code swallowed whole without noticing.
-        const fragments = 16;
-        var written = 0;
-        for (var i = 0; i < fragments && !dead.isCompleted; i++) {
-          try {
-            socket.add(fragment(first: i == 0));
-            await socket.flush();
-          } catch (_) {
-            break; // dropped mid-write, which is the outcome under test
-          }
-          written += frameBytes;
-          await Future<void>.delayed(const Duration(milliseconds: 20));
-        }
-
-        await dead.future.timeout(
-          const Duration(seconds: 5),
-          onTimeout: () => fail(
-            'one endless message was assembled without limit: the server held '
-            '${written ~/ 1024} KiB of a message it can never deliver, and '
-            'would have held as much again for the asking',
-          ),
-        );
-        expect(
-          written,
-          greaterThanOrEqualTo(ApiServer.kEventFeedRawSocketCeiling),
-          reason: 'the raw cap is a BACKSTOP under the inbound byte budget, '
-              'not a replacement for it — firing below the documented budget '
-              'would tear down clients that rule says are in good standing',
-        );
-        expect(
-          written,
-          lessThanOrEqualTo(ApiServer.kEventFeedRawSocketCeiling * 2),
-          reason: 'and it must stop NEAR the ceiling: a cap that only fires '
-              'eventually is a slower leak, not a bounded one',
-        );
-        expect(
-          fromServer,
-          hasLength(handshakeBytes),
-          reason: 'not one byte came back after the handshake, which is how we '
-              'know no message was ever delivered: a joined message would '
-              'have been charged to the inbound budget and answered with a '
-              '1008 close frame',
-        );
-
-        // A destroyed socket still has to give its slot back, or the cap has
-        // traded an unbounded allocation for the wedged-at-503 feed.
-        for (var spin = 0; spin < 200 && server.liveSocketCount > 0; spin++) {
-          await Future<void>.delayed(const Duration(milliseconds: 5));
-        }
-        expect(server.liveSocketCount, 0);
-      },
-    );
+      // A destroyed socket still has to give its slot back, or the cap has
+      // traded an unbounded allocation for the wedged-at-503 feed.
+      for (var spin = 0; spin < 200 && server.liveSocketCount > 0; spin++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(server.liveSocketCount, 0);
+    });
 
     test('stop() disconnects live subscribers', () async {
       // `HttpServer.close(force: true)` does NOT take upgraded WebSockets with
@@ -4566,18 +4583,15 @@ void main() {
       await outside.delete(recursive: true);
     });
 
-    Future<ApiResponse> post(
-      ApiHandler h,
-      String route,
-      String path,
-    ) => h.handle(
-      'POST',
-      u(route),
-      'Bearer secret-token',
-      body: route == '/v1/files'
-          ? {'to': 'peer', 'path': path}
-          : {'group': 'gid', 'path': path},
-    );
+    Future<ApiResponse> post(ApiHandler h, String route, String path) =>
+        h.handle(
+          'POST',
+          u(route),
+          'Bearer secret-token',
+          body: route == '/v1/files'
+              ? {'to': 'peer', 'path': path}
+              : {'group': 'gid', 'path': path},
+        );
 
     for (final route in ['/v1/files', '/v1/groups/files']) {
       test('$route refuses a token with no granted folders', () async {
@@ -4587,7 +4601,8 @@ void main() {
         expect(
           (res.body as Map)['error'],
           'this token may not send local files',
-          reason: 'the refusal has to name the fix, or a working integration '
+          reason:
+              'the refusal has to name the fix, or a working integration '
               'that stops working is undiagnosable',
         );
         expect(pathsSent, isEmpty, reason: 'nothing may be opened');
@@ -4639,21 +4654,25 @@ void main() {
         expect(pathsSent, isEmpty);
       });
 
-      test('$route answers a missing path the same as a forbidden one',
-          () async {
-        // Otherwise a stolen token keeps the filesystem-probe capability,
-        // metered at one bit per request instead of whole files.
-        final h = make(fileRoots: [root.path]);
-        final missing = await post(
-          h,
-          route,
-          '${outside.path}${Platform.pathSeparator}not-here',
-        );
-        final forbidden = await post(h, route, secret.path);
-        expect(missing.status, forbidden.status);
-        expect((missing.body as Map)['error'],
-            (forbidden.body as Map)['error']);
-      });
+      test(
+        '$route answers a missing path the same as a forbidden one',
+        () async {
+          // Otherwise a stolen token keeps the filesystem-probe capability,
+          // metered at one bit per request instead of whole files.
+          final h = make(fileRoots: [root.path]);
+          final missing = await post(
+            h,
+            route,
+            '${outside.path}${Platform.pathSeparator}not-here',
+          );
+          final forbidden = await post(h, route, secret.path);
+          expect(missing.status, forbidden.status);
+          expect(
+            (missing.body as Map)['error'],
+            (forbidden.body as Map)['error'],
+          );
+        },
+      );
     }
 
     test('the RESOLVED path is what reaches the send', () async {
@@ -4680,11 +4699,9 @@ void main() {
       await real.writeAsString('x');
       final h = make(fileRoots: [root.path]);
       expect((await post(h, '/v1/files', real.path)).status, 200);
-      expect(
-        rootsSent.single,
-        [root.path],
-        reason: 'the send was handed no grant to record',
-      );
+      expect(rootsSent.single, [
+        root.path,
+      ], reason: 'the send was handed no grant to record');
     });
 
     test('the GROUP send records its grant too', () async {
@@ -4744,10 +4761,7 @@ void main() {
       expect(legacy.toJson().containsKey('fr'), isFalse);
       final granted = legacy.withFileRoots(const ['/srv/outbox']);
       expect(granted.token, 's', reason: 'the secret is not re-minted');
-      expect(
-        ApiToken.fromJson(granted.toJson())!.fileRoots,
-        ['/srv/outbox'],
-      );
+      expect(ApiToken.fromJson(granted.toJson())!.fileRoots, ['/srv/outbox']);
     });
   });
 
@@ -4839,10 +4853,7 @@ void main() {
         body: {'peer': peer, 'messageId': 'ghost'},
       );
       expect(ghost.status, 404);
-      expect(
-        (ghost.body! as Map)['error'],
-        'message attachment not found',
-      );
+      expect((ghost.body! as Map)['error'], 'message attachment not found');
       final gone = await h.handle(
         'POST',
         u('/v1/files/fetch'),
@@ -4868,42 +4879,42 @@ void main() {
       expect(filesFetched, isEmpty);
     });
 
-    test(
-      'a token denied local files may still fetch INTO the node, like the '
-      'group pair',
-      () async {
-        // `fileRoots` is the grant to read a path off the HOST's disk and send
-        // it out. Pulling a file a peer already offered into this node's own
-        // store touches no host path, so it is not that permission — and the
-        // group fetch has never asked for it either. Inventing a stricter rule
-        // here would be a policy of one route's own.
-        final h = make(fileRoots: const []);
-        expect(
-          (await h.handle(
-            'POST',
-            u('/v1/files'),
-            'Bearer secret-token',
-            body: {'to': 'beef', 'path': '/etc/passwd'},
-          )).status,
-          403,
-          reason: 'sanity: this token genuinely may not send local files',
-        );
-        final res = await h.handle(
+    test('a token denied local files may still fetch INTO the node, like the '
+        'group pair', () async {
+      // `fileRoots` is the grant to read a path off the HOST's disk and send
+      // it out. Pulling a file a peer already offered into this node's own
+      // store touches no host path, so it is not that permission — and the
+      // group fetch has never asked for it either. Inventing a stricter rule
+      // here would be a policy of one route's own.
+      final h = make(fileRoots: const []);
+      expect(
+        (await h.handle(
           'POST',
-          u('/v1/files/fetch'),
+          u('/v1/files'),
           'Bearer secret-token',
-          body: {'peer': peer, 'messageId': 'msg-1'},
-        );
-        expect(res.status, 200);
-        expect(filesFetched, [(peer, 'msg-1')]);
-      },
-    );
+          body: {'to': 'beef', 'path': '/etc/passwd'},
+        )).status,
+        403,
+        reason: 'sanity: this token genuinely may not send local files',
+      );
+      final res = await h.handle(
+        'POST',
+        u('/v1/files/fetch'),
+        'Bearer secret-token',
+        body: {'peer': peer, 'messageId': 'msg-1'},
+      );
+      expect(res.status, 200);
+      expect(filesFetched, [(peer, 'msg-1')]);
+    });
 
     test('the published contract describes it', () async {
       final h = make();
       final spec =
-          (await h.handle('GET', u('/v1/openapi.json'), 'Bearer secret-token'))
-                  .body!
+          (await h.handle(
+                'GET',
+                u('/v1/openapi.json'),
+                'Bearer secret-token',
+              )).body!
               as Map<String, dynamic>;
       final paths = spec['paths'] as Map<String, dynamic>;
       expect(
@@ -5449,7 +5460,10 @@ void main() {
       try {
         final req = await client.post('127.0.0.1', port, '/v1/messages');
         if (authorised) {
-          req.headers.set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+          req.headers.set(
+            HttpHeaders.authorizationHeader,
+            'Bearer secret-token',
+          );
         }
         // Chunked on purpose: no Content-Length to consult, so the cap has to
         // count what actually arrives rather than trust a declared length.
@@ -5472,10 +5486,7 @@ void main() {
       // body would pass the test above while serving nobody. 400 here is the
       // handler rejecting the filler payload — it got past the transport,
       // which is the whole point.
-      expect(
-        await post(bytes: 16, authorised: true),
-        isNot(anyOf(413, 401)),
-      );
+      expect(await post(bytes: 16, authorised: true), isNot(anyOf(413, 401)));
     });
 
     /// POST [raw] verbatim with a valid token; returns the status and body.
@@ -5483,10 +5494,7 @@ void main() {
       final client = HttpClient();
       try {
         final req = await client.post('127.0.0.1', port, '/v1/messages');
-        req.headers.set(
-          HttpHeaders.authorizationHeader,
-          'Bearer secret-token',
-        );
+        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
         req.headers.contentType = ContentType.json;
         req.add(utf8.encode(raw));
         final res = await req.close();
@@ -5556,7 +5564,8 @@ void main() {
       expect(
         await post(bytes: 5 * 1024 * 1024, authorised: false),
         401,
-        reason: '413 here means the server buffered the body of a caller it '
+        reason:
+            '413 here means the server buffered the body of a caller it '
             'had not authenticated yet',
       );
     });
@@ -5576,29 +5585,35 @@ void main() {
     });
     tearDown(() => server.stop());
 
-    test('a read-only token is refused BEFORE its write body is read', () async {
-      // 403 rather than 413 is the whole assertion, exactly as above. The
-      // refusal was already decided at the first byte — reading the other
-      // 5 MiB was work the token holder was never entitled to ask for.
-      final client = HttpClient();
-      try {
-        final req = await client.post('127.0.0.1', port, '/v1/messages');
-        req.headers
-            .set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
-        req.headers.chunkedTransferEncoding = true;
-        req.add(utf8.encode('{"filler":"${'x' * (5 * 1024 * 1024)}"}'));
-        final res = await req.close();
-        await res.drain<void>();
-        expect(
-          res.statusCode,
-          403,
-          reason: '413 here means the server buffered a body it had already '
-              'decided to refuse on scope',
-        );
-      } finally {
-        client.close(force: true);
-      }
-    });
+    test(
+      'a read-only token is refused BEFORE its write body is read',
+      () async {
+        // 403 rather than 413 is the whole assertion, exactly as above. The
+        // refusal was already decided at the first byte — reading the other
+        // 5 MiB was work the token holder was never entitled to ask for.
+        final client = HttpClient();
+        try {
+          final req = await client.post('127.0.0.1', port, '/v1/messages');
+          req.headers.set(
+            HttpHeaders.authorizationHeader,
+            'Bearer secret-token',
+          );
+          req.headers.chunkedTransferEncoding = true;
+          req.add(utf8.encode('{"filler":"${'x' * (5 * 1024 * 1024)}"}'));
+          final res = await req.close();
+          await res.drain<void>();
+          expect(
+            res.statusCode,
+            403,
+            reason:
+                '413 here means the server buffered a body it had already '
+                'decided to refuse on scope',
+          );
+        } finally {
+          client.close(force: true);
+        }
+      },
+    );
 
     test('a body that never finishes is cut off, not held', () async {
       // The size cap bounded memory; nothing bounded TIME. A token holder
@@ -5678,8 +5693,7 @@ void main() {
         final c = HttpClient();
         clients.add(c);
         final req = await c.post('127.0.0.1', cappedPort, '/v1/messages');
-        req.headers
-            .set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
         req.headers.chunkedTransferEncoding = true;
         req.add(utf8.encode('{"held":'));
         // flush, NOT close: close() ends the chunked body, which is exactly
@@ -5743,17 +5757,73 @@ void main() {
       );
     });
 
+    test('a client that stops reading loses its CONNECTION too', () async {
+      // Giving the slot back is half of it. `timeout` completes the Dart
+      // future; it does not touch the socket underneath, which stayed
+      // ESTABLISHED with our write still queued on it — so the handler
+      // finished, the slot came back, and the descriptor did not. A client
+      // that opens requests and never reads therefore leaked one FD per
+      // stall, on nothing more than a read-only token (report14 X14-M1).
+      //
+      // Asked of the SERVER, because the client cannot answer it: a stalled
+      // socket is handed back to a client only when it starts reading, and not
+      // reading is precisely what this client does.
+      final capped = ApiServer(
+        make(),
+        const Stream.empty(),
+        maxInFlight: 4,
+        writeIdleDeadline: const Duration(milliseconds: 300),
+      );
+      final port = (await capped.start(0))!;
+      addTearDown(capped.stop);
+
+      final deaf = await Socket.connect('127.0.0.1', port);
+      addTearDown(() => deaf.destroy());
+      // Never listened to at all: nothing is consumed, the socket buffer
+      // fills, and the server's write stalls.
+      deaf.write(
+        'GET /v1/cloud/file?id=big HTTP/1.1\r\n'
+        'Host: 127.0.0.1\r\n'
+        'Authorization: Bearer secret-token\r\n'
+        '\r\n',
+      );
+      await deaf.flush();
+
+      // The connection is really there first, or "none held" below is a
+      // statement about the fixture.
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(
+        capped.debugConnections?.total,
+        greaterThan(0),
+        reason:
+            'the request never reached the server, so nothing below is '
+            'about the stall',
+      );
+
+      // Past the idle deadline the transfer is abandoned — and the connection
+      // has to go with it.
+      var held = -1;
+      for (var i = 0; i < 30; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        held = capped.debugConnections?.total ?? -1;
+        if (held == 0) break;
+      }
+      expect(
+        held,
+        0,
+        reason:
+            'the slot came back and the socket did not: this descriptor is '
+            'held for as long as the client cares to say nothing',
+      );
+    });
+
     test('the in-flight slot is released after every request', () async {
       // A cap that only counts up is worse than no cap: after enough requests
       // the server answers 503 forever and never recovers. Sequential calls
       // past the limit are the cheapest way to see it — a leaked counter
       // wedges on the third here, and the version with the decrement deleted
       // passed every other test in this group.
-      final capped = ApiServer(
-        make(),
-        const Stream.empty(),
-        maxInFlight: 2,
-      );
+      final capped = ApiServer(make(), const Stream.empty(), maxInFlight: 2);
       final cappedPort = (await capped.start(0))!;
       addTearDown(capped.stop);
 
@@ -5761,8 +5831,7 @@ void main() {
       addTearDown(() => client.close(force: true));
       for (var i = 0; i < 5; i++) {
         final req = await client.get('127.0.0.1', cappedPort, '/v1/health');
-        req.headers
-            .set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
         final res = await req.close();
         await res.drain<void>();
         expect(res.statusCode, 200, reason: 'request ${i + 1} was refused');
@@ -5775,8 +5844,7 @@ void main() {
       final client = HttpClient();
       try {
         final req = await client.get('127.0.0.1', port, '/v1/health');
-        req.headers
-            .set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
+        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer secret-token');
         final res = await req.close();
         await res.drain<void>();
         expect(res.statusCode, 200);

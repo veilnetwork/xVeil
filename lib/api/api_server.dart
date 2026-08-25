@@ -17,6 +17,7 @@ import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:meta/meta.dart' show visibleForTesting;
 
 import '../domain/group_message.dart';
 import '../domain/space_abuse_report.dart';
@@ -3523,10 +3524,7 @@ Map<String, dynamic> openApiSpec({
 /// Per OPERATION, not per path: `POST /v1/contacts` can be absent from a host
 /// that still lists its contacts, and describing the path while dropping the
 /// verb is the difference between a smaller contract and a wrong one.
-void _keepOnlyServed(
-  Map<String, dynamic> spec,
-  ApiCapabilities capabilities,
-) {
+void _keepOnlyServed(Map<String, dynamic> spec, ApiCapabilities capabilities) {
   const verbs = {
     'get',
     'put',
@@ -3837,7 +3835,11 @@ class BlobUnreadable implements Exception {
 ///
 /// Throws [BlobUnreadable] rather than ending short: a caller must never be
 /// able to mistake a truncated blob for a complete one.
-Stream<Uint8List> blobChunks(ApiBlobSource source, int start, int total) async* {
+Stream<Uint8List> blobChunks(
+  ApiBlobSource source,
+  int start,
+  int total,
+) async* {
   var sent = 0;
   while (sent < total) {
     final want = total - sent;
@@ -3908,7 +3910,9 @@ ParsedByteRange? parseByteRange(String? header, int size) {
   final start = int.tryParse(startText);
   if (start == null || start < 0) return null;
   // An empty size cannot satisfy any explicit start, including 0.
-  if (size <= 0 || start > size - 1) return const ParsedByteRange.unsatisfiable();
+  if (size <= 0 || start > size - 1) {
+    return const ParsedByteRange.unsatisfiable();
+  }
 
   if (endText.isEmpty) return ParsedByteRange(start, size - 1);
   final end = int.tryParse(endText);
@@ -4162,6 +4166,7 @@ class ApiHandler {
   groupMessages;
   final Future<String?> Function(String groupHex, String body, String? replyTo)
   sendGroupMessage;
+
   /// Send the file at [path] into a group. [roots] are the token's granted
   /// folders — the grant this send is made under, recorded with the durable
   /// offer so a reopen can ask whether it still holds (audit XV-04).
@@ -7076,8 +7081,7 @@ class _CappedSocket extends Stream<Uint8List> implements Socket {
   bool setOption(SocketOption option, bool enabled) =>
       _inner.setOption(option, enabled);
   @override
-  Uint8List getRawOption(RawSocketOption option) =>
-      _inner.getRawOption(option);
+  Uint8List getRawOption(RawSocketOption option) => _inner.getRawOption(option);
   @override
   void setRawOption(RawSocketOption option) => _inner.setRawOption(option);
   @override
@@ -7161,11 +7165,11 @@ class ApiServer {
     int? maxInFlight,
     int? maxLiveSockets,
     int? maxQueuedEvents,
-  })  : _bodyDeadline = bodyDeadline ?? _defaultBodyDeadline,
-        _writeIdleDeadline = writeIdleDeadline ?? _defaultWriteIdleDeadline,
-        _maxInFlight = maxInFlight ?? _defaultMaxInFlight,
-        _maxLiveSockets = maxLiveSockets ?? _defaultMaxLiveSockets,
-        _maxQueuedEvents = maxQueuedEvents ?? _defaultMaxQueuedEvents;
+  }) : _bodyDeadline = bodyDeadline ?? _defaultBodyDeadline,
+       _writeIdleDeadline = writeIdleDeadline ?? _defaultWriteIdleDeadline,
+       _maxInFlight = maxInFlight ?? _defaultMaxInFlight,
+       _maxLiveSockets = maxLiveSockets ?? _defaultMaxLiveSockets,
+       _maxQueuedEvents = maxQueuedEvents ?? _defaultMaxQueuedEvents;
 
   final ApiHandler _handler;
   final Stream<Map<String, dynamic>> _events;
@@ -7191,6 +7195,15 @@ class ApiServer {
 
   bool get running => _server != null;
   int? get port => _server?.port;
+
+  /// Connections this server is holding right now.
+  ///
+  /// A test seam, and the only honest way to ask the question this exists for:
+  /// whether a descriptor came back. A client cannot answer it — the socket is
+  /// released to it only when it starts READING, which is the very thing a
+  /// stalling client does not do (report14 X14-M1).
+  @visibleForTesting
+  HttpConnectionsInfo? get debugConnections => _server?.connectionsInfo();
 
   /// Requests being read or served at once.
   ///
@@ -7218,6 +7231,13 @@ class ApiServer {
   /// NOTHING moves.
   static const _defaultWriteIdleDeadline = Duration(seconds: 30);
   final Duration _writeIdleDeadline;
+
+  /// How long the teardown of a connection we have given up on may take.
+  ///
+  /// The same budget as the write itself, because it is the same judgement:
+  /// everything it covers is an operation on a socket that has already proven
+  /// it does not drain, so waiting is exactly what must not happen.
+  Duration get _abortDeadline => _writeIdleDeadline;
   int _inFlight = 0;
 
   /// Concurrent `/v1/events` subscriptions (audit XV-14).
@@ -7629,11 +7649,15 @@ class ApiServer {
         }
       });
       live.pump = ws
-          .addStream(queue.stream.map((line) {
-            queued--;
-            return line;
-          }))
-          .catchError((Object _) {/* socket died mid-send */});
+          .addStream(
+            queue.stream.map((line) {
+              queued--;
+              return line;
+            }),
+          )
+          .catchError((Object _) {
+            /* socket died mid-send */
+          });
       // A subscriber that hangs up is noticed through the INBOUND stream.
       //
       // The release used to hang off `ws.done`, which on a server-side socket
@@ -7680,6 +7704,9 @@ class ApiServer {
       return;
     }
     _inFlight++;
+    // Whether this connection can be closed politely. A stalled write cannot:
+    // see [_abort].
+    var healthy = true;
     try {
       final auth = req.headers.value(HttpHeaders.authorizationHeader);
       Map<String, dynamic>? body;
@@ -7699,9 +7726,11 @@ class ApiServer {
           req.response.persistentConnection = false;
           req.response.statusCode = refusal;
           req.response.headers.contentType = ContentType.json;
-          req.response.write(jsonEncode({
-            'error': refusal == 403 ? 'read-only token' : 'unauthorized',
-          }));
+          req.response.write(
+            jsonEncode({
+              'error': refusal == 403 ? 'read-only token' : 'unauthorized',
+            }),
+          );
           await req.response.close();
           return;
         }
@@ -7761,7 +7790,7 @@ class ApiServer {
       final res = await _handler.handle(req.method, req.uri, auth, body: body);
       final blob = res.blob;
       if (blob != null) {
-        await _writeBlob(req, blob);
+        healthy = await _writeBlob(req, blob);
       } else if (res.bytes != null) {
         req.response.statusCode = res.status;
         req.response.headers.contentType = ContentType.parse(
@@ -7782,12 +7811,23 @@ class ApiServer {
       } catch (_) {}
     } finally {
       _inFlight--;
-      // A blob cut short leaves fewer bytes than the promised Content-Length,
-      // so close() throws by design. The connection still tears down, which is
-      // the signal the client needs.
-      try {
-        await req.response.close();
-      } catch (_) {}
+      if (!healthy) {
+        // The slot is already back; the DESCRIPTOR is what is still owed.
+        _abort(req);
+      } else {
+        // A blob cut short leaves fewer bytes than the promised
+        // Content-Length, so close() throws by design. The connection still
+        // tears down, which is the signal the client needs.
+        //
+        // Bounded for the same reason the blob write is: `close()` waits for
+        // the write queue to drain, and a client that has stopped reading
+        // never lets it. Past the deadline the socket is destroyed instead.
+        try {
+          await req.response.close().timeout(_abortDeadline);
+        } catch (_) {
+          _abort(req);
+        }
+      }
     }
   }
 
@@ -7799,8 +7839,13 @@ class ApiServer {
   /// the whole blob pile up in the write queue. That is the difference between
   /// bounded memory and a byte-array response, which has the entire file
   /// resident before the first byte goes out.
-  Future<void> _writeBlob(HttpRequest req, ApiBlobSource blob) async {
-    final range = parseByteRange(req.headers.value(HttpHeaders.rangeHeader), blob.size);
+  /// Returns whether the connection may be closed normally. `false` means the
+  /// socket has to be destroyed — see [_abort].
+  Future<bool> _writeBlob(HttpRequest req, ApiBlobSource blob) async {
+    final range = parseByteRange(
+      req.headers.value(HttpHeaders.rangeHeader),
+      blob.size,
+    );
     // Advertised unconditionally so a client knows it may seek at all.
     req.response.headers.set(HttpHeaders.acceptRangesHeader, 'bytes');
 
@@ -7810,7 +7855,7 @@ class ApiServer {
         ..set(HttpHeaders.contentRangeHeader, 'bytes */${blob.size}')
         ..contentType = ContentType.json;
       req.response.write(jsonEncode({'error': 'range not satisfiable'}));
-      return;
+      return true;
     }
 
     final start = range?.start ?? 0;
@@ -7847,12 +7892,42 @@ class ApiServer {
       // wire, so the only honest end is a failed transfer. Not a persistent
       // connection either — this socket has proven it does not drain.
       req.response.persistentConnection = false;
+      // And ABANDONED, not merely un-awaited. `timeout` completes the Dart
+      // future; it does not touch the socket underneath, which stays
+      // ESTABLISHED with our write still queued on it. The handler then
+      // returned, the in-flight slot came back, and the descriptor did not —
+      // so a client that opens requests and never reads leaks one FD per
+      // stall, forever, on nothing more than a read-only token
+      // (report14 X14-M1).
+      return false;
     } on BlobUnreadable {
       // Content-Length is already on the wire, so there is no honest way to
       // finish. Stop writing and let the short body fail the transfer — a
       // client must never be able to mistake a truncated file for a whole one,
       // which is exactly what closing cleanly here would produce.
       req.response.persistentConnection = false;
+      // The socket itself is fine here — the FILE was not — so an ordinary
+      // close is the right end, and the short body is what fails the transfer.
+      return true;
+    }
+    return true;
+  }
+
+  /// Tear the connection down rather than hope the client goes away.
+  ///
+  /// `close()` on a socket that is not draining waits for a queue that will
+  /// never empty, and `detachSocket` waits on the same queue — tried first,
+  /// and it does not return. What does work is the deadline dart:io keeps for
+  /// exactly this: when it passes with the response still unfinished, the
+  /// connection is DESTROYED rather than closed politely. Set here rather than
+  /// at the start of the request because it is a total budget, not an idle
+  /// one, and a legitimately slow reader taking a large file must not be cut
+  /// off by it.
+  void _abort(HttpRequest req) {
+    try {
+      req.response.deadline = const Duration(milliseconds: 1);
+    } catch (_) {
+      // The response is already finished or detached; nothing to tear down.
     }
   }
 
