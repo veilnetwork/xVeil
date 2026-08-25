@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
+
+import 'package:meta/meta.dart' show visibleForTesting;
 
 import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/secret_wipe.dart' show wipeSecretBytes;
@@ -498,6 +501,19 @@ class RuntimeDirLease {
   final String _secret;
   final PosixFileFacts? _identity;
   bool _released = false;
+  Timer? _heartbeat;
+
+  /// How often the marker's mtime is refreshed while this lease is held.
+  ///
+  /// The sweep reads that mtime as "somebody is still here" on a platform
+  /// where process liveness cannot be asked for — Windows (report12 X-M11).
+  /// Before this, recency meant the newest mtime anywhere under the tree,
+  /// which an IDLE but perfectly alive sibling never moves: it does no I/O,
+  /// so after a day of quiet its directory was reclaimed out from under it.
+  ///
+  /// Far below the sweep's staleness window, so a missed tick or two costs
+  /// nothing, and one file timestamp an hour is not a cost worth measuring.
+  static const Duration heartbeatEvery = Duration(minutes: 15);
 
   /// Bases nothing may be leased directly on top of.
   ///
@@ -622,7 +638,31 @@ class RuntimeDirLease {
   /// Idempotent, and silent about a directory that has already gone. Returns
   /// the reason it declined, so a caller that cares can log it; production
   /// callers treat teardown as best-effort.
+  /// Refresh the marker's mtime now, and keep doing it until release.
+  ///
+  /// Separate from [acquire] so a caller that only wants the directory (a
+  /// test, a one-shot tool) does not leave a timer behind, and so the touch
+  /// itself is drivable without waiting a quarter of an hour.
+  void startHeartbeat() {
+    _heartbeat?.cancel();
+    touchLease();
+    _heartbeat = Timer.periodic(heartbeatEvery, (_) => touchLease());
+  }
+
+  /// One heartbeat. Best-effort: a marker that cannot be touched is not a
+  /// reason to bring anything down, and the sweep's other guards — the pid,
+  /// the marker's presence, its secret — all still stand.
+  @visibleForTesting
+  void touchLease() {
+    if (_released) return;
+    try {
+      File('$path/$kRuntimeDirMarker').setLastModifiedSync(DateTime.now());
+    } catch (_) {}
+  }
+
   Future<String?> release() async {
+    _heartbeat?.cancel();
+    _heartbeat = null;
     final refusal = refusalToRelease();
     if (refusal != null) {
       _released = true;
@@ -1842,6 +1882,11 @@ class RealVeilStack {
     final storedRatchet = await loadStoredRatchetStates(storage);
 
     final lease = await RuntimeDirLease.acquire(runtimeDirBase);
+    // From here on this process says, on a timer, that the directory is still
+    // in use. A sibling launch that cannot ask the OS whether our pid is alive
+    // reads that instead of guessing from whatever I/O happened to touch the
+    // tree — and an idle instance does none (report12 X-M11).
+    lease.startHeartbeat();
     try {
       return await _startDeniableIn(
         lease,
