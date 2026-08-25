@@ -141,6 +141,16 @@ Future<int> sweepStaleRuntimeDirs(
             if (live == true) continue;
             // Liveness unknowable: fall back to the evidence of recency rather
             // than to a guess in either direction (see the doc above).
+            //
+            // The newest mtime under the tree INCLUDES the lease marker, which
+            // its owner now refreshes on a timer while it holds the directory
+            // (`RuntimeDirLease.startHeartbeat`). That is what makes this
+            // measurement mean something for an IDLE owner: it does no I/O of
+            // its own, so before the heartbeat existed a sibling doing nothing
+            // looked exactly like one that had crashed, and after a day of
+            // quiet its directory was reclaimed out from under it (report12
+            // X-M11). An owner that really did crash stops refreshing, so a
+            // dead tree is still collected.
             if (live == null &&
                 clock().difference(await newestMtimeUnder(e)) < staleAfter) {
               devLog(
