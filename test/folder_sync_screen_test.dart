@@ -40,6 +40,14 @@ void main() {
 
   Directory tempRoot(String prefix) {
     final dir = Directory.systemTemp.createTempSync(prefix);
+    // MADE private, not assumed private — the same reason as the root-gate
+    // test beside it. The gate walks every step above the root and refuses a
+    // group-writable one, and `createTempSync` comes out 0775 on a machine
+    // whose umask is 002, so the screen would be showing a refusal that
+    // belongs to the machine. Measured on an aarch64 Linux box.
+    if (!Platform.isWindows) {
+      posixChmod(dir.path, 0x1C0); // 0700
+    }
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });

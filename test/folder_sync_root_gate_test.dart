@@ -58,6 +58,7 @@ class _UnusedDisk implements FolderSyncDisk {
 
 const _mode0777 = 0x1FF;
 const _mode0755 = 0x1ED;
+const _mode0700 = 0x1C0;
 
 void _chmod(Directory dir, int mode) {
   expect(
@@ -81,6 +82,17 @@ void main() {
 
   Directory tempRoot(String prefix) {
     final dir = Directory.systemTemp.createTempSync(prefix);
+    // MADE private, not assumed private.
+    //
+    // The gate walks every step above the root and refuses a group- or
+    // other-writable one, so the fixture's own scratch directory is part of
+    // what it measures. `createTempSync` is 0700 on macOS, but on a machine
+    // whose umask is 002 it comes out 0775 — group-writable — and every case
+    // in this file then refuses for a reason that belongs to the machine
+    // rather than to the folder under test. Measured on an aarch64 Linux box
+    // where `stat` and the gate agreed at 775: the gate was right and the
+    // fixture was not.
+    _chmod(dir, _mode0700);
     addTearDown(() {
       if (dir.existsSync()) dir.deleteSync(recursive: true);
     });
