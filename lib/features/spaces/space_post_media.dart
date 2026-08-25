@@ -418,7 +418,16 @@ class _SpacePostMediaTileState extends ConsumerState<_SpacePostMediaTile> {
           ),
         );
       } else if (widget.media.kind == 'image') {
-        final bytes = _image ?? await ref.read(storageProvider).loadFile(_cid);
+        // The same ceiling as the inline render above. `maxBytes` is opt-in
+        // — without it `loadFile` builds the whole blob in RAM and
+        // `Image.memory` decodes on top of that, at a size whoever sent it
+        // chose. Over the ceiling `loadFile` returns null, and the null arm
+        // below already offers to save the file instead of showing it.
+        final bytes =
+            _image ??
+            await ref
+                .read(storageProvider)
+                .loadFile(_cid, maxBytes: kInlineImageMaxBytes);
         if (bytes != null && mounted) {
           await showDialog<void>(
             context: context,

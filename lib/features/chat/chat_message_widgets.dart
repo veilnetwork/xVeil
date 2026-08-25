@@ -249,7 +249,9 @@ class _StickerContentState extends ConsumerState<_StickerContent> {
     _lastAttemptAt = DateTime.now();
     Uint8List? bytes;
     try {
-      bytes = await ref.read(storageProvider).loadFile(fileKey);
+      bytes = await ref
+          .read(storageProvider)
+          .loadFile(fileKey, maxBytes: kInlineImageMaxBytes);
     } catch (_) {
       // A transient storage failure keeps the micro-thumb/download affordance;
       // the next provider rebuild can retry after the throttle below.
@@ -1141,7 +1143,9 @@ class _ImagePreviewState extends ConsumerState<_ImagePreview> {
     _loadInFlight = true;
     _lastAttemptAt = DateTime.now();
     try {
-      final bytes = await ref.read(storageProvider).loadFile(widget.fileKey);
+      final bytes = await ref
+          .read(storageProvider)
+          .loadFile(widget.fileKey, maxBytes: kInlineImageMaxBytes);
       if (!mounted) return;
       if (bytes != null || _initialLoading) {
         setState(() {
@@ -1429,9 +1433,13 @@ class _MediaGalleryState extends ConsumerState<_MediaGallery> {
     final fileKey = widget.items[index].fileKey;
     final keep = mediaGalleryRetainedKeys(widget.items, _current);
     if (!keep.contains(fileKey)) {
-      return ref.read(storageProvider).loadFile(fileKey);
+      return ref
+          .read(storageProvider)
+          .loadFile(fileKey, maxBytes: kInlineImageMaxBytes);
     }
-    return _loads[fileKey] ??= ref.read(storageProvider).loadFile(fileKey);
+    return _loads[fileKey] ??= ref
+        .read(storageProvider)
+        .loadFile(fileKey, maxBytes: kInlineImageMaxBytes);
   }
 
   void _onPageChanged(int index) {
