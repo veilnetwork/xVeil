@@ -251,6 +251,18 @@ abstract interface class KvLogStore {
   /// as 0 bytes of dead padding.
   SlotUtilization? slotUtilization();
 
+  /// The container's sticky post-commit hardening failure, if it has one, as a
+  /// short stable description — or null when there is none and when the store
+  /// cannot answer.
+  ///
+  /// The container keeps this in MEMORY only: a reopened handle starts clean,
+  /// so a warning nobody read before the app closed is simply gone (report12
+  /// HV-L4). It matters because of what each step means if it did not run —
+  /// a commit's SIZE readable to a multi-snapshot adversary, or reused slots
+  /// standing alone in a snapshot diff. Reading it is the first half of not
+  /// losing it; the caller's durable copy is the second.
+  String? hardeningWarning();
+
   void close();
 }
 

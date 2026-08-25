@@ -16,6 +16,8 @@ SpaceOpener _mem() {
 
 /// Counts non-empty commits — asserts the padded-commit cost of a code path.
 class _CountingStore implements KvLogStore {
+  @override
+  String? hardeningWarning() => null;
   _CountingStore(this._inner);
   final FakeKvLogStore _inner;
   int commits = 0;

@@ -95,6 +95,8 @@ class _StubNode implements NodeController {
 /// Records whether the shared container lock was released: `disposeAll` ends in
 /// `_backing.close()`, and that flock is what the next unlock needs back.
 class _RecordingBacking implements AsyncMultiSpaceBacking {
+  @override
+  Future<String?> hardeningWarning(int id) async => null;
   _RecordingBacking(this._inner);
   final MultiSpaceBacking _inner;
   var closed = 0;

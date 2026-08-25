@@ -10,6 +10,8 @@ import 'package:xveil/data/storage/multi_space_store.dart';
 /// first open), so two distinct keys give two isolated, concurrently-usable
 /// stores.
 class FakeMultiSpaceBacking implements MultiSpaceBacking {
+  @override
+  String? hardeningWarning(int id) => null;
   /// Space ids handed out by [openSpace], in call order. Paired with
   /// [vacuumed] so a test can assert every space that OPENED also got its
   /// post-unlock scrub, without hardcoding how ids are assigned.

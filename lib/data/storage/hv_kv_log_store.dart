@@ -99,6 +99,21 @@ class HvKvLogStore implements KvLogStore {
   }
 
   @override
+  String? hardeningWarning() {
+    // Best-effort for the same reason `slotUtilization` is: this feeds a
+    // readout, and a container that will not report its stats must degrade to
+    // "unknown" rather than take down the call that asked.
+    try {
+      final failure = _space.stats().hardeningFailure;
+      if (failure == null) return null;
+      return '${failure.step.name}: ${failure.message}';
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: hardening warning unavailable: $e');
+      return null;
+    }
+  }
+
+  @override
   void close() => _space.close();
 }
 
@@ -271,6 +286,15 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
     // than saying nothing. Nothing is lost in practice: a container hosting
     // several spaces is exactly the one where compaction is NOT offered —
     // `compact_known` keeps only the spaces whose passwords it was given.
+    return null;
+  }
+
+  @override
+  String? hardeningWarning(int id) {
+    // Unknown for the same reason as above, and said the same way: the
+    // multi-space handle has no `stats` on the FFI surface, and a null that
+    // means "not reported" is the only honest answer. It must never be read
+    // as "there was no warning".
     return null;
   }
 
