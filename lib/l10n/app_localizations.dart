@@ -11395,6 +11395,36 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Don\'t ask again'**
   String get networkBackgroundNeverAsk;
+
+  /// No description provided for @settingsStorageHardening.
+  ///
+  /// In en, this message translates to:
+  /// **'A masking step did not complete'**
+  String get settingsStorageHardening;
+
+  /// No description provided for @settingsStorageHardeningBody.
+  ///
+  /// In en, this message translates to:
+  /// **'One commit was written without its usual disguise: {detail}. The data is safe; what a snapshot of this file could reveal about that one write is not. Later writes are unaffected.'**
+  String settingsStorageHardeningBody(String detail);
+
+  /// No description provided for @settingsStorageHardeningDismiss.
+  ///
+  /// In en, this message translates to:
+  /// **'Got it'**
+  String get settingsStorageHardeningDismiss;
+
+  /// No description provided for @hardeningSyncNoticeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Masking writes may not be on disk yet'**
+  String get hardeningSyncNoticeTitle;
+
+  /// No description provided for @hardeningSyncNoticeBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Your data is saved. The extra writes that hide WHAT changed had not reached the disk when this was reported. If the device loses power before they do, a snapshot taken afterwards can show more than it should.'**
+  String get hardeningSyncNoticeBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

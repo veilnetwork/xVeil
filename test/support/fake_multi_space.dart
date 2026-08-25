@@ -11,6 +11,8 @@ import 'package:xveil/data/storage/multi_space_store.dart';
 /// stores.
 class FakeMultiSpaceBacking implements MultiSpaceBacking {
   @override
+  void acknowledgeHardeningWarning(int id) {}
+  @override
   String? hardeningWarning(int id) => null;
   /// Space ids handed out by [openSpace], in call order. Paired with
   /// [vacuumed] so a test can assert every space that OPENED also got its

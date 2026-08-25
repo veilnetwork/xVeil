@@ -13,6 +13,8 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 /// whole settings namespace ([kvKeys]) plus every page of the chunk log.
 class _CountingStore implements KvLogStore {
   @override
+  void acknowledgeHardeningWarning() {}
+  @override
   String? hardeningWarning() => null;
   _CountingStore(this._inner);
 

@@ -1220,18 +1220,48 @@
   "chatHideAfterReadTitle": "Ocultar tras leer",
   "chatHideAfterReadSubtitle": "Se cuenta desde que CADA dispositivo mostró el mensaje por primera vez, así que los momentos difieren. El mensaje se oculta, no se borra, y un dispositivo puede no respetarlo: aquí no hay confirmaciones de lectura ni forma de imponerlo.",
   "chatDisappearingSetNotice": "Mensajes temporales: {window}",
-  "@chatDisappearingSetNotice": {"placeholders": {"window": {"type": "String"}}},
+  "@chatDisappearingSetNotice": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
   "chatHideAfterReadNotice": "Ocultar tras leer: {window}",
   "chatDisappearingAndHideNotice": "Mensajes temporales: {window} · ocultar tras leer: {readWindow}",
   "chatDisappearingOffNotice": "Mensajes temporales desactivados",
   "chatDisappearingSeconds": "{n} s",
-  "@chatDisappearingSeconds": {"placeholders": {"n": {"type": "int"}}},
+  "@chatDisappearingSeconds": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "chatDisappearingMinutes": "{n} min",
-  "@chatDisappearingMinutes": {"placeholders": {"n": {"type": "int"}}},
+  "@chatDisappearingMinutes": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "chatDisappearingHours": "{n} h",
-  "@chatDisappearingHours": {"placeholders": {"n": {"type": "int"}}},
+  "@chatDisappearingHours": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "chatDisappearingDays": "{n} d",
-  "@chatDisappearingDays": {"placeholders": {"n": {"type": "int"}}},
+  "@chatDisappearingDays": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "chatEditTitle": "Editar el mensaje",
   "chatEditSave": "Guardar",
   "chatDeleteTitle": "¿Eliminar el mensaje?",
@@ -2725,5 +2755,17 @@
   "devicesSendUnreachable": "El otro dispositivo no respondió. Abre xVeil allí, espera a que se conecte e inténtalo de nuevo.",
   "devicesSendNoTargets": "Todavía no hay ningún dispositivo vinculado al que enviar",
   "networkBackgroundOfferBody": "Sin esto Android detiene xVeil en cuanto se apaga la pantalla: el nodo se para, dejan de llegar mensajes y la aplicación sigue pareciendo correcta. Algunos teléfonos (Xiaomi, Samsung) esconden además un “Inicio automático” en los ajustes de la propia aplicación que también debe estar activado.\n\nPuedes activarlo más tarde en cualquier momento: Ajustes → Red overlay → Funcionar en segundo plano.",
-  "networkBackgroundNeverAsk": "No volver a preguntar"
+  "networkBackgroundNeverAsk": "No volver a preguntar",
+  "settingsStorageHardening": "Un paso de enmascaramiento no se completó",
+  "settingsStorageHardeningBody": "Una escritura quedó sin su disfraz habitual: {detail}. Los datos están intactos; lo que está en duda es lo que una instantánea de este archivo podría revelar sobre esa escritura. Las siguientes no se ven afectadas.",
+  "@settingsStorageHardeningBody": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsStorageHardeningDismiss": "Entendido",
+  "hardeningSyncNoticeTitle": "Las escrituras de enmascaramiento quizá no estén en disco",
+  "hardeningSyncNoticeBody": "Tus datos están guardados. Las escrituras adicionales que ocultan QUÉ cambió aún no habían llegado al disco. Si el dispositivo pierde energía antes, una instantánea posterior mostrará más de lo debido."
 }

@@ -29,6 +29,15 @@ class FakeKvLogStore implements KvLogStore {
   @override
   String? hardeningWarning() => stagedHardeningWarning;
 
+  /// How many times the container was told the person has seen it.
+  int hardeningAcknowledgements = 0;
+
+  @override
+  void acknowledgeHardeningWarning() {
+    hardeningAcknowledgements++;
+    stagedHardeningWarning = null;
+  }
+
   /// Invoked on [close]. Lets a multi-space container model the native
   /// exclusive per-file lock by releasing it when this handle closes.
   void Function()? onClose;

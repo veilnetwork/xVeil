@@ -6475,4 +6475,23 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get networkBackgroundNeverAsk => 'Don\'t ask again';
+
+  @override
+  String get settingsStorageHardening => 'A masking step did not complete';
+
+  @override
+  String settingsStorageHardeningBody(String detail) {
+    return 'One commit was written without its usual disguise: $detail. The data is safe; what a snapshot of this file could reveal about that one write is not. Later writes are unaffected.';
+  }
+
+  @override
+  String get settingsStorageHardeningDismiss => 'Got it';
+
+  @override
+  String get hardeningSyncNoticeTitle =>
+      'Masking writes may not be on disk yet';
+
+  @override
+  String get hardeningSyncNoticeBody =>
+      'Your data is saved. The extra writes that hide WHAT changed had not reached the disk when this was reported. If the device loses power before they do, a snapshot taken afterwards can show more than it should.';
 }

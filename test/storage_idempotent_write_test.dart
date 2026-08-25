@@ -18,6 +18,8 @@ import 'package:xveil/domain/roster.dart';
 /// bucket — the invariant under test is "no change ⇒ no commit".
 class _CountingStore implements KvLogStore {
   @override
+  void acknowledgeHardeningWarning() {}
+  @override
   String? hardeningWarning() => null;
   _CountingStore(this._inner);
   final FakeKvLogStore _inner;

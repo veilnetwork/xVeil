@@ -1213,18 +1213,48 @@
   "chatHideAfterReadTitle": "Скрывать после прочтения",
   "chatHideAfterReadSubtitle": "Отсчёт от момента, когда КАЖДОЕ устройство впервые показало сообщение, поэтому моменты разные. Сообщение скрывается, а не удаляется, и устройство вправе не подчиниться — отметок о прочтении здесь нет, и заставить нечем.",
   "chatDisappearingSetNotice": "Исчезающие сообщения: {window}",
-  "@chatDisappearingSetNotice": {"placeholders": {"window": {"type": "String"}}},
+  "@chatDisappearingSetNotice": {
+    "placeholders": {
+      "window": {
+        "type": "String"
+      }
+    }
+  },
   "chatHideAfterReadNotice": "Скрывать после прочтения: {window}",
   "chatDisappearingAndHideNotice": "Исчезающие сообщения: {window} · скрывать после прочтения: {readWindow}",
   "chatDisappearingOffNotice": "Исчезающие сообщения выключены",
   "chatDisappearingSeconds": "{n} с",
-  "@chatDisappearingSeconds": {"placeholders": {"n": {"type": "int"}}},
+  "@chatDisappearingSeconds": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "chatDisappearingMinutes": "{n} мин",
-  "@chatDisappearingMinutes": {"placeholders": {"n": {"type": "int"}}},
+  "@chatDisappearingMinutes": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "chatDisappearingHours": "{n} ч",
-  "@chatDisappearingHours": {"placeholders": {"n": {"type": "int"}}},
+  "@chatDisappearingHours": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "chatDisappearingDays": "{n} д",
-  "@chatDisappearingDays": {"placeholders": {"n": {"type": "int"}}},
+  "@chatDisappearingDays": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
   "chatEditTitle": "Изменить сообщение",
   "chatEditSave": "Сохранить",
   "chatDeleteTitle": "Удалить сообщение?",
@@ -2707,5 +2737,17 @@
   "devicesSendUnreachable": "Другое устройство не ответило. Откройте на нём xVeil, дождитесь подключения к сети и повторите.",
   "devicesSendNoTargets": "Пока некому отправлять — привязанных устройств нет",
   "networkBackgroundOfferBody": "Без этого Android останавливает xVeil, как только гаснет экран: узел выключается, сообщения перестают приходить, а приложение выглядит исправным. На некоторых телефонах (Xiaomi, Samsung) в настройках самого приложения есть ещё «Автозапуск» — его тоже нужно включить.\n\nВключить это можно и потом, в любой момент: Настройки → Оверлей-сеть → Работать в фоне.",
-  "networkBackgroundNeverAsk": "Больше не спрашивать"
+  "networkBackgroundNeverAsk": "Больше не спрашивать",
+  "settingsStorageHardening": "Шаг маскировки не завершился",
+  "settingsStorageHardeningBody": "Одна запись легла без обычной маскировки: {detail}. Данные целы; под вопросом лишь то, что снимок этого файла способен сказать про ту единственную запись. Последующие записи не затронуты.",
+  "@settingsStorageHardeningBody": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsStorageHardeningDismiss": "Понятно",
+  "hardeningSyncNoticeTitle": "Маскирующие записи, возможно, ещё не на диске",
+  "hardeningSyncNoticeBody": "Данные сохранены. Дополнительные записи, скрывающие ЧТО изменилось, на момент сообщения до диска не дошли. Если устройство потеряет питание раньше них, снимок, снятый после, покажет больше, чем должен."
 }

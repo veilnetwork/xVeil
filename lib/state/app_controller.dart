@@ -830,6 +830,28 @@ class AppController extends Notifier<AppState> {
     );
   }
 
+  /// The container's kept hardening warning, or null when there is none.
+  ///
+  /// Reading it is also what KEEPS it: the container forgets at close, so the
+  /// first read of a fresh record is what writes the durable copy. See
+  /// `Storage.retainHardeningWarning`.
+  Future<String?> containerHardeningWarning() async {
+    try {
+      return await ref.read(storageProvider).retainHardeningWarning();
+    } catch (_) {
+      // A readout, not a gate: a store that will not answer must not take the
+      // settings screen down with it.
+      return null;
+    }
+  }
+
+  /// "I have shown this to the person" — clears both copies.
+  Future<void> acknowledgeHardeningWarning() async {
+    try {
+      await ref.read(storageProvider).acknowledgeHardeningWarning();
+    } catch (_) {}
+  }
+
   /// Turn a size + slot occupancy into the maintenance readout, and decide
   /// whether it deserves an unprompted nudge.
   ///

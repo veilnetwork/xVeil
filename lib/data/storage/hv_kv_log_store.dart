@@ -114,6 +114,17 @@ class HvKvLogStore implements KvLogStore {
   }
 
   @override
+  void acknowledgeHardeningWarning() {
+    // Best-effort like its reader: a container that will not take the
+    // acknowledgement is not a reason to fail the screen that asked.
+    try {
+      _space.acknowledgeHardeningError();
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: hardening acknowledge failed: $e');
+    }
+  }
+
+  @override
   void close() => _space.close();
 }
 
@@ -287,6 +298,12 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
     // several spaces is exactly the one where compaction is NOT offered —
     // `compact_known` keeps only the spaces whose passwords it was given.
     return null;
+  }
+
+  @override
+  void acknowledgeHardeningWarning(int id) {
+    // Nothing to clear: the multi-space handle reports no hardening record in
+    // the first place — see `hardeningWarning` below.
   }
 
   @override
