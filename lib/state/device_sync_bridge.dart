@@ -66,22 +66,18 @@ Map<String, Object?> contactPrefsPayload(Contact c) => {
 };
 
 /// The retention policy carried by [contactPrefsPayload], or null when the
-/// event came from a build that did not carry one.
+/// event came from a build that did not carry one — or carried one this
+/// device will not believe.
 ///
 /// Absent, not null: treating silence as "the window is off" would let an old
 /// build's alias edit switch off a window a new one had set. The presence of
 /// the stamp is what makes it an answer.
-DisappearingSetting? disappearingFromPayload(Map<String, Object?> payload) {
-  final setAt = payload['dsa'];
-  if (setAt is! int) return null;
-  final ttl = payload['dtl'], hide = payload['har'], by = payload['dsb'];
-  return DisappearingSetting(
-    ttlSeconds: ttl is int ? ttl : null,
-    setAtMs: setAt,
-    setBy: by is String ? by : '',
-    hideAfterReadSeconds: hide is int ? hide : null,
-  );
-}
+///
+/// The believing is [DisappearingSetting.fromMirrorJson]'s, and it is the
+/// same set of rules the direct wire applies. This used to take the payload's
+/// numbers verbatim (report14 X14-M5).
+DisappearingSetting? disappearingFromPayload(Map<String, Object?> payload) =>
+    DisappearingSetting.fromMirrorJson(payload);
 
 final deviceSyncBridgeProvider = Provider<void>((ref) {
   final svc = ref.watch(groupServiceProvider);
