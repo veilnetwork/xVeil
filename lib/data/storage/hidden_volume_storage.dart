@@ -2834,15 +2834,22 @@ class HiddenVolumeStorage implements Storage {
 
   @override
   Future<void> acknowledgeHardeningWarning() async {
-    // Both copies, or the one left standing re-reports it forever.
-    await putSetting(_kHardeningWarningSetting, '');
+    // CONTAINER FIRST, and its failure is the whole operation's failure.
+    //
+    // The other order wrote the app's copy off and then tried the container
+    // best-effort. When the container's half failed, its record stayed —
+    // correctly, nobody acknowledged it — while the app side had already
+    // marked the thing dismissed, so the warning was invisible from then on
+    // (report14 X14-M6). An acknowledgement that only half happened must read
+    // as not having happened.
     final store = _store;
-    if (store == null) return;
-    try {
-      await store.acknowledgeHardeningWarning();
-    } catch (e) {
-      devLog(() => 'xVeil[storage]: hardening acknowledge failed: $e');
+    if (store == null) {
+      // Nothing to acknowledge to. Leaving the kept copy standing is the safe
+      // half of the pair: the warning is only ever shown from an open store.
+      return;
     }
+    await store.acknowledgeHardeningWarning();
+    await putSetting(_kHardeningWarningSetting, '');
   }
 
   @override
@@ -2850,11 +2857,18 @@ class HiddenVolumeStorage implements Storage {
     final store = _store;
     if (store == null) return null;
     final stored = await getSetting(_kHardeningWarningSetting);
-    // An EMPTY value is "acknowledged", not "never seen": without the
-    // distinction the next read would take the container's still-fresh record
-    // and put the warning back the moment it was dismissed.
-    if (stored != null && stored.isEmpty) return null;
-    final kept = stored;
+    // An EMPTY value means NOTHING IS KEPT — it does not mean "never ask
+    // again". Treating it as a permanent tombstone hid every hardening failure
+    // that ever followed the first dismissal, on a store whose whole purpose
+    // is to report when a commit stopped being as deniable as the policy asked
+    // for (report14 X14-M6).
+    //
+    // Nothing needs a tombstone, because the acknowledgement clears the
+    // CONTAINER's record too and does so before this key is written. A read
+    // after a successful acknowledgement therefore finds nothing on either
+    // side; a read after a failed one finds the container's record still
+    // standing, which is exactly what should be shown again.
+    final kept = (stored == null || stored.isEmpty) ? null : stored;
     final String? fresh;
     try {
       fresh = await store.hardeningWarning();
