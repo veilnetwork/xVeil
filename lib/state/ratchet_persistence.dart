@@ -133,6 +133,67 @@ class RatchetPersistence {
   bool get degraded => _degraded;
   bool _degraded = false;
 
+  /// How far ahead a reservation runs.
+  ///
+  /// One durable write covers this many messages, so the cost of the
+  /// guarantee is amortised instead of paid per send. The other end of the
+  /// trade is what a crash costs: up to this many unused keys are burned on
+  /// recovery, and the peer's skipped-key window absorbs a gap that size
+  /// without noticing. Well under `MAX_SEND_SKIP`, which is what bounds a
+  /// corrupted mark.
+  static const int reserveAhead = 32;
+
+  /// Reservations this process has already written, so the ordinary send pays
+  /// a map lookup rather than a container write.
+  final Map<String, ({Uint8List chain, int reservedTo})> _reserved = {};
+
+  /// Record, durably, where this conversation's sending chain is ALLOWED to
+  /// get to — before anything sealed from it is published.
+  ///
+  /// The state behind a published ciphertext is written after the frame goes
+  /// out, and that write can fail. A restart then brings back the state from
+  /// before the send, and the next message re-derives the key and nonce that
+  /// frame already used, for different plaintext (report12 X-H5). The state is
+  /// far too big to write before publishing; the POSITION is 36 bytes, and
+  /// [recoverReservedPositions] is what turns it back into the guarantee.
+  ///
+  /// Cheap by design: only when a reservation runs out, or the chain moves
+  /// under it, does anything reach the container.
+  Future<void> reserveBeforePublish(NodeId peer) =>
+      _exclusive(() => _reserveBeforePublish(peer));
+
+  Future<void> _reserveBeforePublish(NodeId peer) async {
+    for (final key in _native.list()) {
+      if (!_peerNodeMatches(key, peer.bytes)) continue;
+      final at = _native.sendPosition(key);
+      // No sending chain yet means nothing has been sealed, so there is no
+      // published ciphertext to be accountable for.
+      if (at == null) continue;
+      final held = _reserved[_hex(key)];
+      if (held != null &&
+          _sameKey(held.chain, at.chain) &&
+          at.next < held.reservedTo) {
+        continue; // still inside what is already on disk
+      }
+      final to = at.next + reserveAhead;
+      await _storage.putSetting(
+        ratchetReservationKey(key),
+        '${_hex(at.chain)}:$to',
+      );
+      _reserved[_hex(key)] = (chain: at.chain, reservedTo: to);
+    }
+  }
+
+  /// Step every restored conversation past the indices its last reservation
+  /// allowed, and report how many keys were burned in total.
+  ///
+  /// A STARTUP step, run after the states are restored and before anything is
+  /// sealed. A conversation whose state reached disk is already at or past its
+  /// reservation and moves nothing; one whose last write never landed is
+  /// fast-forwarded over every index it might already have spent.
+  Future<int> recoverReservedPositions() =>
+      _exclusive(() => recoverReservedSendPositions(_native, _storage));
+
   /// Persist every conversation veil has named as changed.
   ///
   /// Peek, persist, THEN acknowledge — and the acknowledgement carries the

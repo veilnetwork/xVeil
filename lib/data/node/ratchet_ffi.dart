@@ -33,6 +33,26 @@ import '../storage/storage.dart'
 /// An interface rather than the FFI class directly, because everything that
 /// matters about the persistence contract — WHEN the host writes, and WHAT —
 /// has to be provable without a native node in the loop.
+/// A point in a conversation's sending chain: which chain, and the index the
+/// next sealed message will carry.
+///
+/// Small on purpose. A host records this durably before it publishes, and the
+/// whole reason it is not the state itself is that the state is too big to
+/// write on the send path.
+class RatchetSendPosition {
+  const RatchetSendPosition(this.chain, this.next);
+
+  /// The sending DH public key. A sending chain lives and dies with it, so it
+  /// says whether a recorded position still refers to the chain in hand.
+  final Uint8List chain;
+
+  /// The index the next sealed message will carry.
+  final int next;
+
+  @override
+  String toString() => 'RatchetSendPosition(next: $next)';
+}
+
 abstract interface class RatchetStateHandle {
   /// Ratchet operations this node has COMMITTED since it started.
   ///
@@ -82,6 +102,24 @@ abstract interface class RatchetStateHandle {
   /// has already advanced its chain, so nothing will re-send it in a form this
   /// node can read. Returns false when veil refuses the blob.
   bool import(Uint8List conversationKey, Uint8List blob);
+
+  /// Where a conversation's sending chain stands, or null when the key names
+  /// nothing held or nothing with a sending chain yet.
+  ///
+  /// 36 bytes, which is what makes it affordable to write durably BEFORE a
+  /// ciphertext is published. The state itself runs to kilobytes and is
+  /// written after — and that ordering is what lets a failed write plus a
+  /// restart re-derive a key already spent on the wire (report12 X-H5).
+  RatchetSendPosition? sendPosition(Uint8List conversationKey);
+
+  /// Step a conversation's sending chain past every index that might already
+  /// have been spent, and return how many keys were burned.
+  ///
+  /// The recovery half of [sendPosition], run at startup against the last
+  /// position recorded. A position naming a chain the conversation is no
+  /// longer on, or an index it has already passed, burns nothing and is not an
+  /// error. Returns 0 when the key names nothing held.
+  int skipSendTo(Uint8List conversationKey, RatchetSendPosition to);
 
   /// Drop one conversation. IRREVERSIBLE — nothing public can rebuild the
   /// chain, so every message the peer has already sealed to it is unreadable
@@ -196,6 +234,40 @@ typedef _ExportDart =
       Pointer<Uint8>,
       int,
       Pointer<Size>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _SendPositionNative =
+    Int32 Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Uint32>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _SendPositionDart =
+    int Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Uint32>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _SkipSendNative =
+    Int32 Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Uint32,
+      Pointer<Uint32>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _SkipSendDart =
+    int Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint32>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _ImportNative =
@@ -546,6 +618,84 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
   }
 
   @override
+  RatchetSendPosition? sendPosition(Uint8List conversationKey) {
+    _checkKey(conversationKey);
+    final fn = _dl.lookupFunction<_SendPositionNative, _SendPositionDart>(
+      'veil_ratchet_send_position',
+    );
+    final keyPtr = calloc<Uint8>(kRatchetKeyLen);
+    final chainPtr = calloc<Uint8>(32);
+    final nextPtr = calloc<Uint32>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      keyPtr.asTypedList(kRatchetKeyLen).setAll(0, conversationKey);
+      final rc = fn(_handle, keyPtr, chainPtr, nextPtr, errOut);
+      if (rc == kVeilErrRatchetNoConversation) {
+        // Nothing held, or nothing sealed yet. Either way there is no position
+        // to record and nothing has been published under one.
+        _takeErr(errOut);
+        return null;
+      }
+      if (rc != 0) {
+        throw StateError(
+          'veil_ratchet_send_position failed: ${_takeErr(errOut)}',
+        );
+      }
+      return RatchetSendPosition(
+        Uint8List.fromList(chainPtr.asTypedList(32)),
+        nextPtr.value,
+      );
+    } finally {
+      calloc.free(keyPtr);
+      // The chain is our own PUBLIC key, not key material — no wipe owed.
+      calloc.free(chainPtr);
+      calloc.free(nextPtr);
+      calloc.free(errOut);
+    }
+  }
+
+  @override
+  int skipSendTo(Uint8List conversationKey, RatchetSendPosition to) {
+    _checkKey(conversationKey);
+    if (to.chain.length != 32) {
+      throw ArgumentError.value(
+        to.chain.length,
+        'to.chain',
+        'a sending chain is exactly 32 bytes',
+      );
+    }
+    final fn = _dl.lookupFunction<_SkipSendNative, _SkipSendDart>(
+      'veil_ratchet_skip_send_to',
+    );
+    final keyPtr = calloc<Uint8>(kRatchetKeyLen);
+    final chainPtr = calloc<Uint8>(32);
+    final burnedPtr = calloc<Uint32>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      keyPtr.asTypedList(kRatchetKeyLen).setAll(0, conversationKey);
+      chainPtr.asTypedList(32).setAll(0, to.chain);
+      final rc = fn(_handle, keyPtr, chainPtr, to.next, burnedPtr, errOut);
+      if (rc == kVeilErrRatchetNoConversation) {
+        // A recorded position for a conversation that is gone — deleted, or
+        // never restored. Nothing to step, and nothing wrong.
+        _takeErr(errOut);
+        return 0;
+      }
+      if (rc != 0) {
+        throw StateError(
+          'veil_ratchet_skip_send_to failed: ${_takeErr(errOut)}',
+        );
+      }
+      return burnedPtr.value;
+    } finally {
+      calloc.free(keyPtr);
+      calloc.free(chainPtr);
+      calloc.free(burnedPtr);
+      calloc.free(errOut);
+    }
+  }
+
+  @override
   Uint8List? export(Uint8List conversationKey) {
     _checkKey(conversationKey);
     final fn = _dl.lookupFunction<_ExportNative, _ExportDart>(
@@ -755,6 +905,64 @@ Future<void> dropRejectedRatchetStates(
 }
 
 /// Load, import, and drop whatever veil refused. Returns how many were
+/// The settings key a conversation's send reservation is written under.
+///
+/// Lives beside the reader rather than the writer: the startup recovery reads
+/// what the send path writes, and a format known in two places is a format
+/// that drifts.
+String ratchetReservationKey(Uint8List conversationKey) =>
+    'ratchet_reserve:${[for (final b in conversationKey) b.toRadixString(16).padLeft(2, '0')].join()}';
+
+/// Step every restored conversation past the indices its last reservation
+/// allowed, and report how many keys were burned in total.
+///
+/// A STARTUP step, run after the stored states are handed back to veil and
+/// before this app's traffic starts. A conversation whose state reached disk
+/// is already at or past its reservation and moves nothing; one whose last
+/// write never landed is fast-forwarded over every index it might already have
+/// spent on the wire (report12 X-H5).
+///
+/// Free-standing rather than a method because the one caller that matters runs
+/// where the stack is built — the same place [importRatchetStates] runs — and
+/// has the node handle and the storage but no [RatchetPersistence] yet.
+Future<int> recoverReservedSendPositions(
+  RatchetStateHandle native,
+  Storage storage,
+) async {
+  var burned = 0;
+  for (final key in native.list()) {
+    final raw = await storage.getSetting(
+      ratchetReservationKey(key),
+    );
+    if (raw == null) continue;
+    final at = raw.lastIndexOf(':');
+    if (at <= 0) continue;
+    final chain = _unhexChain(raw.substring(0, at));
+    final next = int.tryParse(raw.substring(at + 1));
+    if (chain == null || next == null) continue;
+    burned += native.skipSendTo(key, RatchetSendPosition(chain, next));
+  }
+  if (burned > 0) {
+    devLog(
+      () =>
+          'xVeil[ratchet]: burned $burned send key(s) a reservation says may '
+          'already be on the wire',
+    );
+  }
+  return burned;
+}
+
+Uint8List? _unhexChain(String hex) {
+  if (hex.length != 64) return null;
+  final out = Uint8List(32);
+  for (var i = 0; i < 32; i++) {
+    final b = int.tryParse(hex.substring(i * 2, i * 2 + 2), radix: 16);
+    if (b == null) return null;
+    out[i] = b;
+  }
+  return out;
+}
+
 /// restored.
 Future<int> restoreRatchetStates(
   RatchetStateHandle handle,
