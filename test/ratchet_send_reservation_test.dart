@@ -100,8 +100,15 @@ class _Node implements RatchetStateHandle {
     return cleared;
   }
 
+  /// How many times the whole conversation set has been copied out. The
+  /// reservation runs on EVERY send, and this is an FFI call in production.
+  int listCalls = 0;
+
   @override
-  List<Uint8List> list() => [for (final k in _held.keys) _unhex(k)];
+  List<Uint8List> list() {
+    listCalls++;
+    return [for (final k in _held.keys) _unhex(k)];
+  }
 
   @override
   Uint8List? export(Uint8List key) {
@@ -193,6 +200,30 @@ void main() {
             'ciphertexts under one nonce',
       );
     }
+  });
+
+  test('the reservation does not walk every conversation per send', () async {
+    final node = _Node();
+    final ratchet = RatchetPersistence(native: node, storage: storage);
+    node.seal(key);
+    await ratchet.flush(why: 'setup');
+
+    await ratchet.reserveBeforePublish(peer);
+    final after1 = node.listCalls;
+    expect(after1, greaterThan(0), reason: 'the first one has to look');
+
+    for (var i = 0; i < 20; i++) {
+      node.seal(key);
+      await ratchet.reserveBeforePublish(peer);
+    }
+    expect(
+      node.listCalls,
+      after1,
+      reason:
+          'listing copies EVERY conversation key out of the node — in '
+          'production an FFI call — so doing it per message is a scan per '
+          'message',
+    );
   });
 
   test('a reservation costs one write per run, not one per send', () async {

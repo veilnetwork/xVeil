@@ -162,9 +162,32 @@ class RatchetPersistence {
   Future<void> reserveBeforePublish(NodeId peer) =>
       _exclusive(() => _reserveBeforePublish(peer));
 
+  /// `peer hex → that peer's conversation keys`, so the ordinary send does not
+  /// walk every conversation this node holds.
+  ///
+  /// [_native.list] is an FFI call that copies EVERY key out, and calling it
+  /// per send is a scan per message — the shape of defect I have paid for
+  /// before. The cache is per peer and rebuilt only on a miss; `forgetPeer`
+  /// drops the entry, and a conversation that appears later shows up because a
+  /// peer with no cached keys always re-asks.
+  final Map<String, List<Uint8List>> _peerKeys = {};
+
+  List<Uint8List> _keysFor(NodeId peer) {
+    final cached = _peerKeys[peer.hex];
+    // An empty answer is not cached: it is exactly the state a first send is
+    // in, and caching it would mean never noticing the conversation veil
+    // opens a moment later.
+    if (cached != null && cached.isNotEmpty) return cached;
+    final found = [
+      for (final key in _native.list())
+        if (_peerNodeMatches(key, peer.bytes)) key,
+    ];
+    _peerKeys[peer.hex] = found;
+    return found;
+  }
+
   Future<void> _reserveBeforePublish(NodeId peer) async {
-    for (final key in _native.list()) {
-      if (!_peerNodeMatches(key, peer.bytes)) continue;
+    for (final key in _keysFor(peer)) {
       final at = _native.sendPosition(key);
       // No sending chain yet means nothing has been sealed, so there is no
       // published ciphertext to be accountable for.
@@ -366,6 +389,7 @@ class RatchetPersistence {
     // Now a throw here leaves both sides untouched and the deletion
     // retryable, and the native session is released only once the durable
     // copy is provably gone.
+    _peerKeys.remove(peer.hex);
     final forgotten = await _storage.forgetRatchetStates(doomed);
     for (final key in doomed) {
       _native.forget(key);
