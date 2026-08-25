@@ -57,6 +57,33 @@ void main() {
     );
   });
 
+  test('acknowledging clears BOTH copies and it does not come back', () async {
+    final backing = FakeKvLogStore()
+      ..stagedHardeningWarning = 'padding: could not extend the file';
+    HiddenVolumeStorage open() => HiddenVolumeStorage(
+      ({required password, required bool create}) => backing,
+    );
+
+    final first = open();
+    await first.open(password: 'pw', createIfMissing: true);
+    expect(await first.retainHardeningWarning(), isNotNull);
+
+    await first.acknowledgeHardeningWarning();
+    expect(
+      backing.hardeningAcknowledgements,
+      1,
+      reason: "the container's own sticky record must be cleared too",
+    );
+    expect(await first.retainHardeningWarning(), isNull);
+
+    // And a reopen does not resurrect it. An empty kept value has to mean
+    // "acknowledged" rather than "never seen", or the next read takes the
+    // container's record again and puts the warning back.
+    final second = open();
+    await second.open(password: 'pw', createIfMissing: false);
+    expect(await second.retainHardeningWarning(), isNull);
+  });
+
   test('a container with nothing to say records nothing', () async {
     final backing = FakeKvLogStore();
     final storage = HiddenVolumeStorage(

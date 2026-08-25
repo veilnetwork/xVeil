@@ -211,6 +211,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   Future<String?> hardeningWarning(int id) =>
       _call<String?>((reply) => _MHardeningWarning(id, reply));
   @override
+  Future<void> acknowledgeHardeningWarning(int id) =>
+      _call<void>((reply) => _MAckHardening(id, reply));
+  @override
   Future<void> vacuumOrphans(int id) =>
       _call<void>((reply) => _MVacuumOrphans(id, reply));
 
@@ -456,6 +459,11 @@ class _MHardeningWarning extends _MReq {
   final int id;
 }
 
+class _MAckHardening extends _MReq {
+  const _MAckHardening(this.id, super.reply);
+  final int id;
+}
+
 class _MClose extends _MReq {
   const _MClose(super.reply);
 }
@@ -555,6 +563,11 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
         run(() => backing.slotUtilization(id));
       case _MHardeningWarning(:final id):
         run(() => backing.hardeningWarning(id));
+      case _MAckHardening(:final id):
+        run(() {
+          backing.acknowledgeHardeningWarning(id);
+          return null;
+        });
       case _MClose():
         try {
           backing.close();

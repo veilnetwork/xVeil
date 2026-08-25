@@ -36,6 +36,13 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   /// (no real container, several identities, a backing that cannot measure).
   /// Null renders the size ALONE — never "0 B reclaimable".
   StorageReclaim? _reclaim;
+  /// The container's kept hardening warning, or null when there is none and
+  /// when it cannot be read. Shown here rather than announced: what it reports
+  /// is a PAST commit whose disguise did not land, and nothing can repair that
+  /// one. `Sync` is the exception and is announced on unlock, because it is
+  /// the only variant with something the person can act on.
+  String? _hardening;
+
   bool _autoCompact = false;
   bool _leanPadding = true;
   bool _loaded = false;
@@ -65,6 +72,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     final leanPadding = await ctrl.leanStoragePaddingEnabled();
     final offer = await ctrl.compactionOfferSettings();
     final offerNow = await ctrl.compactionOffer();
+    final hardening = await ctrl.containerHardeningWarning();
     // Mark it the moment it is SHOWN, not when it is acted on. Otherwise the
     // period never starts, the nudge returns on every visit, and "ask no more
     // often than" is a setting that changes nothing.
@@ -73,6 +81,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     }
     if (!mounted) return;
     setState(() {
+      _hardening = hardening;
       _size = size;
       _reclaim = reclaim;
       _autoCompact = autoCompact;
@@ -257,6 +266,31 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                               '${l.settingsStorageReclaimable(fmtBytes(_reclaim!.reclaimableBytes))}',
                   ),
                 ),
+                if (_hardening != null)
+                  ListTile(
+                    leading: Icon(
+                      Icons.privacy_tip_outlined,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    title: Text(l.settingsStorageHardening),
+                    subtitle: Text(
+                      l.settingsStorageHardeningBody(_hardening!),
+                    ),
+                    // Dismissing is what acknowledges it, to the container as
+                    // well: the record is sticky on purpose, and clearing it
+                    // on RENDER would mean a warning shown to a screen nobody
+                    // read counts as shown to a person.
+                    trailing: TextButton(
+                      onPressed: () async {
+                        await ref
+                            .read(appControllerProvider.notifier)
+                            .acknowledgeHardeningWarning();
+                        if (!context.mounted) return;
+                        setState(() => _hardening = null);
+                      },
+                      child: Text(l.settingsStorageHardeningDismiss),
+                    ),
+                  ),
                 if (ctrl.canCompactStorage)
                   ListTile(
                     leading: const Icon(Icons.compress),

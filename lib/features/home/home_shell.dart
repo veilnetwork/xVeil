@@ -19,6 +19,7 @@ import '../spaces/space_feed_screen.dart';
 import '../spaces/space_list_screen.dart';
 import 'home_section_scaffold.dart';
 import 'menu_tiles_screen.dart';
+import '../settings/hardening_sync_notice.dart';
 
 /// The main authenticated surface. Chats and Communities are real tabs:
 /// switching keeps the bottom bar and highlights the active destination —
@@ -58,6 +59,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       // actually open, rather than left as a messenger that quietly never
       // connects. Silent for everyone else — see [maybeOfferBundledSeeds].
       unawaited(maybeOfferBundledSeeds(context, ref));
+      // The one hardening failure with something to do about it: the masking
+      // writes behind a commit had not reached the disk. The other two kinds
+      // are about a commit already past and wait on the storage screen, where
+      // nobody is interrupted by news they cannot act on.
+      unawaited(maybeWarnHardeningSync(context, ref));
       // The same argument, one layer down the stack. Without the battery
       // exemption Android stops the node as soon as the screen goes off, and
       // the app goes on reporting itself ready — so an install that never

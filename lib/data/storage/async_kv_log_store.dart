@@ -46,6 +46,9 @@ abstract interface class AsyncKvLogStore {
   /// See [KvLogStore.hardeningWarning].
   Future<String?> hardeningWarning();
 
+  /// See [KvLogStore.acknowledgeHardeningWarning].
+  Future<void> acknowledgeHardeningWarning();
+
   Future<void> close();
 }
 
@@ -103,6 +106,10 @@ class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
 
   @override
   Future<String?> hardeningWarning() async => _inner.hardeningWarning();
+
+  @override
+  Future<void> acknowledgeHardeningWarning() async =>
+      _inner.acknowledgeHardeningWarning();
   @override
   Future<void> close() async => _inner.close();
 }
@@ -221,6 +228,10 @@ class _HardeningWarningReq extends _Req {
   const _HardeningWarningReq(super.reply);
 }
 
+class _AckHardeningReq extends _Req {
+  const _AckHardeningReq(super.reply);
+}
+
 class _SlotUtilizationReq extends _Req {
   const _SlotUtilizationReq(super.reply);
 }
@@ -334,6 +345,11 @@ void _workerEntry(_OpenConfig cfg) {
         run(() => store.slotUtilization());
       case _HardeningWarningReq():
         run(() => store.hardeningWarning());
+      case _AckHardeningReq():
+        run(() {
+          store.acknowledgeHardeningWarning();
+          return null;
+        });
       case _CloseReq():
         try {
           store.close();
@@ -546,6 +562,10 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   @override
   Future<String?> hardeningWarning() =>
       _call<String?>((reply) => _HardeningWarningReq(reply));
+
+  @override
+  Future<void> acknowledgeHardeningWarning() =>
+      _call<void>((reply) => _AckHardeningReq(reply));
 
   @override
   Future<void> close() async {

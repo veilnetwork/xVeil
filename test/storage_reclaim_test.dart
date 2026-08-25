@@ -21,6 +21,8 @@ import 'package:xveil/state/whisper_model_controller.dart';
 /// can produce on its own.
 class _UtilStore implements KvLogStore {
   @override
+  void acknowledgeHardeningWarning() {}
+  @override
   String? hardeningWarning() => null;
   _UtilStore(this._utilization, {FakeKvLogStore? inner})
     : _inner = inner ?? FakeKvLogStore();
@@ -67,6 +69,8 @@ class _UtilStore implements KvLogStore {
 /// A [MultiSpaceBacking] that answers a DIFFERENT occupancy per hosted space,
 /// so a view that reports another space's numbers is visible as such.
 class _PerIdBacking implements MultiSpaceBacking {
+  @override
+  void acknowledgeHardeningWarning(int id) {}
   @override
   String? hardeningWarning(int id) => null;
   _PerIdBacking(this._byId);
