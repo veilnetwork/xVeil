@@ -94,6 +94,9 @@ final class SpaceReplicationObservability {
   const SpaceReplicationObservability({
     required this.liveSourceAvailable,
     required this.spaces,
+    required this.chatGroups,
+    required this.chatGroupMembers,
+    required this.chatGroupMembersActive,
     required this.eligibleRemoteSpreaders,
     required this.targetReplicationFactorTotal,
     this.confirmedProofTtlMs = 86400000,
@@ -120,6 +123,19 @@ final class SpaceReplicationObservability {
 
   final bool liveSourceAvailable;
   final int spaces;
+  /// Chat groups (not spaces, not the device group) with at least one other
+  /// member, and the members across them.
+  ///
+  /// [chatGroupMembersActive] is how many of those this device currently holds
+  /// a live connection to — null when the peer table could not be read. The
+  /// RATIO is the question the sparse overlay turns on: selection prefers
+  /// reachable members and can only choose among the ones it can see, so a low
+  /// ratio measures what a liveness hint on the wire would buy, and a high one
+  /// says it would buy nothing.
+  final int chatGroups;
+  final int chatGroupMembers;
+  final int? chatGroupMembersActive;
+
   final int eligibleRemoteSpreaders;
   final int targetReplicationFactorTotal;
   final int confirmedProofTtlMs;
@@ -151,6 +167,12 @@ final class SpaceReplicationObservability {
     'confirmedProofTtlMs': confirmedProofTtlMs,
     'liveSourceAvailable': liveSourceAvailable,
     'spaces': spaces,
+    'chatGroups': chatGroups,
+    'chatGroupMembers': chatGroupMembers,
+    // -1, not null: the map is `Object` valued and a reader that sees -1 knows
+    // the peer table could not be read, which is a different fact from "none
+    // of them are up".
+    'chatGroupMembersActive': chatGroupMembersActive ?? -1,
     'eligibleRemoteSpreaders': eligibleRemoteSpreaders,
     'targetReplicationFactorTotal': targetReplicationFactorTotal,
     'confirmedRemoteHolderSlots': confirmedRemoteHolderSlots,
@@ -321,6 +343,9 @@ final class SpaceObservability {
         const SpaceReplicationObservability(
           liveSourceAvailable: false,
           spaces: 0,
+          chatGroups: 0,
+          chatGroupMembers: 0,
+          chatGroupMembersActive: null,
           eligibleRemoteSpreaders: 0,
           targetReplicationFactorTotal: 0,
         ),
