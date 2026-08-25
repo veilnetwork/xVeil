@@ -110,6 +110,127 @@ void main() {
     expect((await relay.fetch(me: me, authCookie: cookie)), isEmpty);
   });
 
+  /// A blob that cannot be opened YET must not take the queue behind it down.
+  ///
+  /// An unacked blob is re-served on every fetch, and the relay fills its reply
+  /// oldest-first — so the head of the queue is in every batch. Once the drain
+  /// gave up on that head it skipped it forever, the round acked nothing, and
+  /// the loop stopped: everything queued behind it waited for the app to be
+  /// restarted, on a cause that usually clears in minutes (report14 X14-M4).
+  ///
+  /// The give-up is a deadline now. This pins both halves — that the stall is
+  /// real while it lasts, and that it ENDS.
+  group('a transiently unopenable head', () {
+    test('stops blocking the tail once its back-off is spent', () async {
+      final crypto = _StallsOnOneBlob(0xE1, senderForOpen: peer);
+      final budgeted = _OneBlobPerFetchRelay();
+      var clock = DateTime.utc(2026, 8, 25, 12);
+      final orch = MailboxOrchestrator(crypto, budgeted)..now = () => clock;
+
+      // Oldest first: the head is the one that will not open.
+      for (final byte in [0xE1, 0xE2, 0xE3]) {
+        await orch.stash(
+          me: peer,
+          recipient: me,
+          appId: _appId(1),
+          endpointId: 2,
+          data: Uint8List.fromList([byte]),
+          contentId: _cid(byte),
+        );
+      }
+
+      // Drain until the head has burned its attempts and been set aside.
+      var recovered = <DrainedMessage>[];
+      for (var i = 0; i < 8; i++) {
+        recovered = await orch.drain(
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        );
+        if (recovered.isNotEmpty) break;
+      }
+      expect(
+        recovered,
+        isEmpty,
+        reason:
+            'while the head is unopenable and unacked it is the whole '
+            'reply, so nothing behind it can be reached — this is the stall '
+            'the back-off bounds, not something it prevents',
+      );
+      expect(
+        crypto.attempts,
+        greaterThan(0),
+        reason:
+            'the fixture never even '
+            'tried to open the stalled blob',
+      );
+
+      // The network recovers, and so does the sender's document. Nothing
+      // restarted; only time passed.
+      crypto.recovered = true;
+      clock = clock.add(const Duration(minutes: 11));
+
+      final after = await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
+      expect(
+        after.map((d) => d.data.single).toList(),
+        [0xE1, 0xE2, 0xE3],
+        reason:
+            'a blob set aside for a transient reason must be tried again '
+            'when the reason has had time to pass — and the queue behind it '
+            'comes with it',
+      );
+    });
+
+    test('is left alone while the back-off is still running', () async {
+      final crypto = _StallsOnOneBlob(0xF1, senderForOpen: peer);
+      final budgeted = _OneBlobPerFetchRelay();
+      var clock = DateTime.utc(2026, 8, 25, 12);
+      final orch = MailboxOrchestrator(crypto, budgeted)..now = () => clock;
+
+      await orch.stash(
+        me: peer,
+        recipient: me,
+        appId: _appId(1),
+        endpointId: 2,
+        data: Uint8List.fromList([0xF1]),
+        contentId: _cid(0xF1),
+      );
+      for (var i = 0; i < 8; i++) {
+        await orch.drain(
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        );
+      }
+      final spent = crypto.attempts;
+
+      // Two more drains inside the cooldown must cost nothing: a failed open
+      // is ~20 s of cert-resolve timeout, which is what the cap exists to stop
+      // paying.
+      clock = clock.add(const Duration(minutes: 1));
+      for (var i = 0; i < 2; i++) {
+        await orch.drain(
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        );
+      }
+      expect(
+        crypto.attempts,
+        spent,
+        reason: 'retrying every drain would put back the cost the cap removed',
+      );
+    });
+  });
+
   group('drain-until-empty (1-blob-per-fetch relay reply budget)', () {
     test('one drain() collects a whole queued backlog, oldest-first', () async {
       final budgeted = _OneBlobPerFetchRelay();
@@ -783,6 +904,40 @@ class _AckIgnoringRelay extends InMemoryMailboxRelay {
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
   }) async {}
+}
+
+/// Opens everything except one payload byte, and for THAT one throws the
+/// transient error the drain is built to wait out.
+///
+/// The failure names a timeout on purpose: that word is the discriminator the
+/// orchestrator uses to tell "the node was busy" from "this blob is bad", and
+/// the whole point of the transient class is that it says nothing about the
+/// blob.
+class _StallsOnOneBlob extends LoopbackMailboxCrypto {
+  _StallsOnOneBlob(this.stalledByte, {super.senderForOpen});
+
+  /// Payload byte identifying the blob that will not open yet.
+  final int stalledByte;
+
+  /// Flip to let it through, the way a DHT that has caught up would.
+  bool recovered = false;
+
+  int attempts = 0;
+
+  @override
+  Future<OpenedMailboxMessage> open({
+    required Uint8List blob,
+    required int ourCertVersion,
+  }) async {
+    final opened = await super.open(blob: blob, ourCertVersion: ourCertVersion);
+    if (!recovered &&
+        opened.data.isNotEmpty &&
+        opened.data.first == stalledByte) {
+      attempts++;
+      throw StateError('timeout waiting for mailbox_open reply');
+    }
+    return opened;
+  }
 }
 
 /// Models the real relay's reply budget: a FETCH reply fits ONE ~4 KB blob, so
