@@ -162,29 +162,29 @@ class RatchetPersistence {
   Future<void> reserveBeforePublish(NodeId peer) =>
       _exclusive(() => _reserveBeforePublish(peer));
 
-  /// `peer hex → that peer's conversation keys`, so the ordinary send does not
-  /// walk every conversation this node holds.
+  /// This peer's conversation keys, read fresh.
   ///
-  /// [_native.list] is an FFI call that copies EVERY key out, and calling it
-  /// per send is a scan per message — the shape of defect I have paid for
-  /// before. The cache is per peer and rebuilt only on a miss; `forgetPeer`
-  /// drops the entry, and a conversation that appears later shows up because a
-  /// peer with no cached keys always re-asks.
-  final Map<String, List<Uint8List>> _peerKeys = {};
-
-  List<Uint8List> _keysFor(NodeId peer) {
-    final cached = _peerKeys[peer.hex];
-    // An empty answer is not cached: it is exactly the state a first send is
-    // in, and caching it would mean never noticing the conversation veil
-    // opens a moment later.
-    if (cached != null && cached.isNotEmpty) return cached;
-    final found = [
-      for (final key in _native.list())
-        if (_peerNodeMatches(key, peer.bytes)) key,
-    ];
-    _peerKeys[peer.hex] = found;
-    return found;
-  }
+  /// A conversation key names `local instance || peer node || peer instance`,
+  /// so one peer has one per DEVICE, and which of them a send uses is chosen
+  /// by veil, not here. That is what killed the cache this used to have: keyed
+  /// by the peer and answered once, it covered the first device forever and
+  /// left a second phone — or a reinstall — publishing with no reservation at
+  /// all (report14 X14-H3).
+  ///
+  /// Version-stamping it does not help either: every send commits a ratchet
+  /// operation, so the stamp moves every time and the cache never hits.
+  ///
+  /// So it reads every time, and the cost is worth naming rather than
+  /// assuming. `list` copies 64 bytes per conversation held, bounded at
+  /// `MAX_CONVERSATIONS` — 64 KB at the ceiling, a couple of KB for anybody
+  /// real. The send path this sits on already waits on a container flush
+  /// measured at 8 ms. What the reservation actually amortises is the durable
+  /// WRITE, which still happens once per run of indices and not once per
+  /// message.
+  List<Uint8List> _keysFor(NodeId peer) => [
+    for (final key in _native.list())
+      if (_peerNodeMatches(key, peer.bytes)) key,
+  ];
 
   Future<void> _reserveBeforePublish(NodeId peer) async {
     for (final key in _keysFor(peer)) {
@@ -389,7 +389,6 @@ class RatchetPersistence {
     // Now a throw here leaves both sides untouched and the deletion
     // retryable, and the native session is released only once the durable
     // copy is provably gone.
-    _peerKeys.remove(peer.hex);
     final forgotten = await _storage.forgetRatchetStates(doomed);
     for (final key in doomed) {
       _native.forget(key);
