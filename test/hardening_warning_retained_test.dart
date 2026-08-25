@@ -84,6 +84,79 @@ void main() {
     expect(await second.retainHardeningWarning(), isNull);
   });
 
+  /// Dismissing one warning must not switch the reporting OFF.
+  ///
+  /// The kept copy was cleared by writing an EMPTY value, and the read treated
+  /// empty as "acknowledged — do not ask the container again". So the first
+  /// dismissal in a container's life silenced every hardening failure that
+  /// followed it, on a store whose entire job here is to say when a commit
+  /// stopped being as deniable as the policy asked for (report14 X14-M6).
+  test(
+    'a LATER failure is reported after an earlier one was dismissed',
+    () async {
+      final backing = FakeKvLogStore()
+        ..stagedHardeningWarning = 'padding: first';
+      final storage = HiddenVolumeStorage(
+        ({required password, required bool create}) => backing,
+      );
+      await storage.open(password: 'pw', createIfMissing: true);
+      expect(await storage.retainHardeningWarning(), 'padding: first');
+      await storage.acknowledgeHardeningWarning();
+      expect(await storage.retainHardeningWarning(), isNull);
+
+      // Next week, a different step fails.
+      backing.stagedHardeningWarning = 'sync: writes are not on the platter';
+      expect(
+        await storage.retainHardeningWarning(),
+        'sync: writes are not on the platter',
+        reason:
+            'dismissing one notice must not be a permanent opt-out from '
+            'every notice this container will ever have',
+      );
+    },
+  );
+
+  /// An acknowledgement the container refused is not an acknowledgement.
+  ///
+  /// The app used to write its own copy off FIRST and then try the container
+  /// best-effort. When the container's half failed its record stayed — rightly,
+  /// nobody acknowledged it — while the app side was already clear, so the
+  /// warning was invisible from then on.
+  test('a refused acknowledgement leaves the warning standing', () async {
+    final backing = FakeKvLogStore()
+      ..stagedHardeningWarning = 'padding: could not extend the file'
+      ..hardeningAcknowledgeThrows = true;
+    HiddenVolumeStorage open() => HiddenVolumeStorage(
+      ({required password, required bool create}) => backing,
+    );
+
+    final storage = open();
+    await storage.open(password: 'pw', createIfMissing: true);
+    expect(await storage.retainHardeningWarning(), isNotNull);
+
+    await expectLater(
+      storage.acknowledgeHardeningWarning(),
+      throwsA(isA<StateError>()),
+      reason: 'the caller has to be able to tell that nothing was dismissed',
+    );
+    expect(
+      await storage.retainHardeningWarning(),
+      'padding: could not extend the file',
+      reason:
+          'the container still holds this record, so the person still has '
+          'not been told anything they can act on',
+    );
+
+    // And it survives a restart, because the app copy was never cleared.
+    backing.stagedHardeningWarning = null;
+    final second = open();
+    await second.open(password: 'pw', createIfMissing: false);
+    expect(
+      await second.retainHardeningWarning(),
+      'padding: could not extend the file',
+    );
+  });
+
   test('a container with nothing to say records nothing', () async {
     final backing = FakeKvLogStore();
     final storage = HiddenVolumeStorage(
