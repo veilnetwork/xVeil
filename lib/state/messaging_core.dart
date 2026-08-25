@@ -854,11 +854,19 @@ class MessagingService {
 
   /// Ensure a durable reservation covers the indices this send may use.
   ///
-  /// Never throws: unlike the flush this guards, a reservation that cannot be
-  /// written is not a reason to hold the message — the send is no worse off
-  /// than it was before this existed, and `degraded` already reports a
-  /// container that is refusing writes. It IS worth saying, because a silent
-  /// failure here quietly removes the guarantee.
+  /// THROWS when it cannot, and the frame does not go out.
+  ///
+  /// It used to log and carry on, on the reasoning that a send is no worse off
+  /// than before the reservation existed. That reasoning was wrong in the one
+  /// case that matters. Carrying on publishes a ciphertext whose key and nonce
+  /// have no durable record — which is precisely the state this guard was
+  /// added to prevent, so a failure here does not degrade the guarantee, it
+  /// removes it while reporting success.
+  ///
+  /// The outbox still holds the frame, so refusing costs a delivery that will
+  /// be retried, against a nonce that could be reused for a different
+  /// plaintext. Nothing to reserve — a conversation that has never sealed —
+  /// is not a failure and does not throw.
   Future<void> _reserveRatchetSendWindow(NodeId dst) async {
     final ratchet = this.ratchet;
     if (ratchet == null) return;
@@ -868,8 +876,10 @@ class MessagingService {
       devLog(
         () =>
             'xVeil[ratchet]: send-window reservation FAILED for ${dst.short}: '
-            '$e — a lost state write is unguarded until one succeeds',
+            '$e — holding the frame rather than publishing one whose key we '
+            'cannot account for',
       );
+      throw RatchetNotDurable(e);
     }
   }
 
