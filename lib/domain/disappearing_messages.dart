@@ -142,6 +142,61 @@ class DisappearingSetting {
   /// "off" would turn a corrupt frame into a way to disable someone's
   /// disappearing messages.
   /// [now] is injectable for tests; production reads the wall clock.
+  /// The same rules as [fromWireJson], for the MIRRORED form a linked device
+  /// of this identity sends over the device-sync bridge.
+  ///
+  /// Same rules is the point. This half had none: it checked that `dsa` was an
+  /// `int` and took `dtl`, `har` and `dsb` verbatim. A sibling — authenticated,
+  /// but a sibling running an old build, a corrupted store, or a device
+  /// somebody else now holds — could therefore mirror a window the direct wire
+  /// would have refused outright: a stamp years ahead, which last-writer-wins
+  /// turns into a permanent victory over every honest update after it, with a
+  /// one-second TTL under it that deletes almost the whole conversation
+  /// (report14 X14-M5). The outer gate does not cover this: it ranks the
+  /// EVENT's timestamp, not the policy stamp inside the payload.
+  ///
+  /// Field names differ because the mirrored payload carries the contact's
+  /// stored columns rather than the wire's abbreviations, and `dsb` names the
+  /// ORIGINAL setter — the peer whose announcement this device recorded — so
+  /// it comes from the payload here where the wire takes it from the envelope.
+  ///
+  /// Null means "no answer in this event": the caller leaves the window it
+  /// already has, which is also what a REFUSAL must do. A malformed policy
+  /// takes the policy down, not the alias or mute state travelling beside it.
+  static DisappearingSetting? fromMirrorJson(
+    Map<String, Object?> json, {
+    DateTime? now,
+  }) {
+    final setAt = json['dsa'];
+    if (setAt is! int || setAt < 0) return null;
+    final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    if (setAt > nowMs + kDisappearingClockSkew.inMilliseconds) return null;
+
+    // Absent or zero is "off", which is a real answer and not a malformation:
+    // a device that turned the window off mirrors exactly that. Out of range
+    // is a malformation.
+    final ttl = json['dtl'];
+    if (ttl != null &&
+        (ttl is! int || ttl < 0 || ttl > kDisappearingMaxSeconds)) {
+      return null;
+    }
+    final hide = json['har'];
+    if (hide != null &&
+        (hide is! int || hide <= 0 || hide > kDisappearingMaxSeconds)) {
+      return null;
+    }
+    final by = json['dsb'];
+    if (by != null && by is! String) return null;
+
+    final ttlSeconds = ttl is int && ttl > 0 ? ttl : null;
+    return DisappearingSetting(
+      ttlSeconds: ttlSeconds,
+      setAtMs: setAt,
+      setBy: by is String ? by : '',
+      hideAfterReadSeconds: hide as int?,
+    );
+  }
+
   static DisappearingSetting? fromWireJson(
     Map<String, Object?> json,
     NodeId from, {
