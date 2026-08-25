@@ -30,6 +30,18 @@ class _FakeGroups implements GroupService {
   /// in flight about the OLD room while the NEW one is admitted.
   Completer<void>? excludeOnceGate;
 
+  /// One-shot: the NEXT admission read waits on it and then answers NORMALLY.
+  ///
+  /// The exclusion gate above models a verdict about a room that is gone. This
+  /// one models the ordinary case — a reconcile parked mid-read while the
+  /// person carries on using the call.
+  Completer<void>? admitOnceGate;
+
+  /// What the admission reports as the channel epoch. Changing it is what
+  /// gives a reconcile something to publish — otherwise it finds nothing
+  /// different and writes nothing, and a test built on it proves nothing.
+  int? channelEpoch;
+
   final _incoming = StreamController<GroupCallSignal>.broadcast();
 
   @override
@@ -55,8 +67,13 @@ class _FakeGroups implements GroupService {
       await gate.future;
       return (channelEpoch: null, recipients: <NodeId>{});
     }
+    final admit = admitOnceGate;
+    if (admit != null) {
+      admitOnceGate = null;
+      await admit.future;
+    }
     return channelId == null
-        ? (channelEpoch: null, recipients: {_selfId})
+        ? (channelEpoch: channelEpoch, recipients: {_selfId})
         : null;
   }
 
@@ -95,7 +112,6 @@ class _FakeGroups implements GroupService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-
 /// A media engine whose screen-share switch can be held open, so the window
 /// between the native call and the state publish is observable.
 class _GatedMedia extends GroupCallMediaController {
@@ -126,89 +142,142 @@ void main() {
     return svc;
   }
 
-  test('a screen share that lands after the room ended does not revive it',
-      () async {
-    // Everything in `setScreenShareEnabled` awaits the native engine, and the
-    // room can end while that runs. The call it publishes afterwards used to
-    // be the snapshot taken BEFORE the await, so an ended room came back live
-    // — carrying its own callId, with no timers and no media behind it.
+  test(
+    'a screen share that lands after the room ended does not revive it',
+    () async {
+      // Everything in `setScreenShareEnabled` awaits the native engine, and the
+      // room can end while that runs. The call it publishes afterwards used to
+      // be the snapshot taken BEFORE the await, so an ended room came back live
+      // — carrying its own callId, with no timers and no media behind it.
+      final fake = _FakeGroups(NodeId.fromHex('a' * 64));
+      final media = _GatedMedia();
+      final svc = GroupCallService(fake, media: media)..start();
+      addTearDown(svc.dispose);
+      expect(
+        await svc.startCall(groupId, const CallMedia(audio: true, video: true)),
+        isTrue,
+      );
+
+      media.shareGate = Completer<void>();
+      final sharing = svc.setScreenShareEnabled(true);
+
+      // The room ends while the engine is still switching.
+      await svc.leave();
+      expect(svc.current?.status, GroupCallStatus.ended);
+
+      media.shareGate!.complete();
+      await sharing;
+      await pumpEventQueue();
+
+      expect(
+        svc.current?.status,
+        GroupCallStatus.ended,
+        reason: 'a late share must not put the ended room back on screen',
+      );
+      expect(
+        svc.current?.screenOn,
+        isNot(isTrue),
+        reason: 'and must not report sharing from a room nobody is in',
+      );
+    },
+  );
+
+  test('a reconcile that was parked does not undo a mic toggle', () async {
+    // The membership reads are awaited, and the verdict is published as
+    // `snapshot.copyWith(...)` — the WHOLE snapshot, taken before the awaits.
+    // So anything the person changed while they ran is written back to what it
+    // was: a mic muted mid-reconcile comes back on, and the peers are told so
+    // by the reannounce that follows (report14 X14-M7).
     final fake = _FakeGroups(NodeId.fromHex('a' * 64));
-    final media = _GatedMedia();
-    final svc = GroupCallService(fake, media: media)..start();
+    final svc = await liveRoom(fake);
     addTearDown(svc.dispose);
-    expect(
-      await svc.startCall(groupId, const CallMedia(audio: true, video: true)),
-      isTrue,
-    );
+    expect(svc.current?.micOn, isTrue, reason: 'the room starts with audio');
 
-    media.shareGate = Completer<void>();
-    final sharing = svc.setScreenShareEnabled(true);
-
-    // The room ends while the engine is still switching.
-    await svc.leave();
-    expect(svc.current?.status, GroupCallStatus.ended);
-
-    media.shareGate!.complete();
-    await sharing;
-    await pumpEventQueue();
-
-    expect(
-      svc.current?.status,
-      GroupCallStatus.ended,
-      reason: 'a late share must not put the ended room back on screen',
-    );
-    expect(
-      svc.current?.screenOn,
-      isNot(isTrue),
-      reason: 'and must not report sharing from a room nobody is in',
-    );
-  });
-
-  test('an exclusion decided about the old room does not end the new one',
-      () async {
-    // Both membership reads are awaited, and a room can end and another begin
-    // while they run. The exclusion branch ended whatever room was current
-    // when its verdict landed — the participant update two lines below it has
-    // always checked that it is still talking about the same call.
-    final fake = _FakeGroups(NodeId.fromHex('a' * 64));
-    final svc = GroupCallService(fake)..start();
-    addTearDown(svc.dispose);
-    expect(
-      await svc.startCall(groupId, const CallMedia(audio: true)),
-      isTrue,
-    );
-    final first = svc.current!.callId;
-
-    // A reconcile starts against the first room and parks in its admission
-    // read, which will answer "you are not in this room".
-    // Held here, not read back from the fake: the fake CONSUMES the field the
-    // moment it parks, so `fake.excludeOnceGate` is null by the time the test
-    // wants to release it — and the first version of this fixture quietly
-    // released nothing.
-    final verdict = Completer<void>();
-    fake.excludeOnceGate = verdict;
+    // A reconcile starts and parks in its admission read — and it has
+    // something to publish when it comes back, or the assertion below is
+    // about a pass that writes nothing.
+    fake.channelEpoch = 7;
+    final admitted = Completer<void>();
+    fake.admitOnceGate = admitted;
     fake.changes.value++;
     await pumpEventQueue();
 
-    // That room ends and a new one begins while the verdict is in flight. The
-    // gate is one-shot, so this room is admitted normally.
-    await svc.leave();
-    expect(
-      await svc.startCall(groupId, const CallMedia(audio: true)),
-      isTrue,
-      reason: 'the fixture needs a NEW live room for the verdict to land on',
-    );
+    // The person mutes while it is parked.
+    await svc.setMicEnabled(false);
+    expect(svc.current?.micOn, isFalse);
 
-    verdict.complete();
+    admitted.complete();
     await pumpEventQueue();
 
     expect(
+      svc.current?.micOn,
+      isFalse,
+      reason:
+          'the reconcile owns membership, not the microphone — publishing '
+          'its own stale snapshot un-mutes a person who muted',
+    );
+    expect(
       svc.current?.isLive,
       isTrue,
-      reason: 'the new room must survive a verdict about the old one',
+      reason: 'and it must still be the same live room',
     );
-    expect(svc.current?.callId, isNot(first));
+    expect(
+      svc.current?.channelEpoch,
+      7,
+      reason:
+          'the reconcile DID publish — without that this test is about a '
+          'pass that writes nothing',
+    );
   });
+
+  test(
+    'an exclusion decided about the old room does not end the new one',
+
+    () async {
+      // Both membership reads are awaited, and a room can end and another begin
+      // while they run. The exclusion branch ended whatever room was current
+      // when its verdict landed — the participant update two lines below it has
+      // always checked that it is still talking about the same call.
+      final fake = _FakeGroups(NodeId.fromHex('a' * 64));
+      final svc = GroupCallService(fake)..start();
+      addTearDown(svc.dispose);
+      expect(
+        await svc.startCall(groupId, const CallMedia(audio: true)),
+        isTrue,
+      );
+      final first = svc.current!.callId;
+
+      // A reconcile starts against the first room and parks in its admission
+      // read, which will answer "you are not in this room".
+      // Held here, not read back from the fake: the fake CONSUMES the field the
+      // moment it parks, so `fake.excludeOnceGate` is null by the time the test
+      // wants to release it — and the first version of this fixture quietly
+      // released nothing.
+      final verdict = Completer<void>();
+      fake.excludeOnceGate = verdict;
+      fake.changes.value++;
+      await pumpEventQueue();
+
+      // That room ends and a new one begins while the verdict is in flight. The
+      // gate is one-shot, so this room is admitted normally.
+      await svc.leave();
+      expect(
+        await svc.startCall(groupId, const CallMedia(audio: true)),
+        isTrue,
+        reason: 'the fixture needs a NEW live room for the verdict to land on',
+      );
+
+      verdict.complete();
+      await pumpEventQueue();
+
+      expect(
+        svc.current?.isLive,
+        isTrue,
+        reason: 'the new room must survive a verdict about the old one',
+      );
+      expect(svc.current?.callId, isNot(first));
+    },
+  );
 
   test('leave clears the room before the fan-out broadcast lands', () async {
     final fake = _FakeGroups(NodeId.fromHex('a' * 64));

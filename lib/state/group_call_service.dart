@@ -180,6 +180,26 @@ class GroupCallService {
 
   void _onGroupChanged() => unawaited(_reconcileMembership());
 
+  /// The call this pass was about, as it stands NOW — or null if it is no
+  /// longer the one to publish against.
+  ///
+  /// Every pass in here starts by taking `_current` into a local, then awaits
+  /// the group state, an admission read or a broadcast. What comes back is a
+  /// decision about the call as it was; publishing it as `was.copyWith(...)`
+  /// writes back the WHOLE snapshot, so anything the person changed while the
+  /// awaits ran — a mic toggled, a camera turned on, a peer joined — is
+  /// silently undone, and an ended call can be put back on screen as live
+  /// (report14 X14-M7).
+  ///
+  /// Matching the id is not enough on its own: it says the room is the same
+  /// room, not that the snapshot is still the truth about it. So the caller
+  /// takes the CURRENT one from here and merges only the fields it owns.
+  GroupCall? _stillCurrent(GroupCall was) {
+    final live = _current;
+    if (live == null || live.callId != was.callId || !live.isLive) return null;
+    return live;
+  }
+
   Future<void> _reconcileMembership() async {
     final call = _current;
     if (call == null || !call.isLive) return;
@@ -201,22 +221,26 @@ class GroupCallService {
       }
       return;
     }
+    // From here on the CURRENT call, not the snapshot this pass started from:
+    // the two reads above are awaited, and what they say about membership must
+    // be merged onto whatever else has happened meanwhile.
+    final live = _stillCurrent(call);
+    if (live == null) return;
     final participants = Map<String, GroupCallParticipant>.from(
-      call.participants,
+      live.participants,
     );
     participants.removeWhere(
       (hex, participant) =>
           state.members[hex] == null ||
           !admission.recipients.contains(participant.nodeId),
     );
-    final epochChanged = state.epoch != call.membershipEpoch;
-    final channelEpochChanged = admission.channelEpoch != call.channelEpoch;
-    if ((participants.length != call.participants.length ||
-            epochChanged ||
-            channelEpochChanged) &&
-        _current?.callId == call.callId) {
+    final epochChanged = state.epoch != live.membershipEpoch;
+    final channelEpochChanged = admission.channelEpoch != live.channelEpoch;
+    if (participants.length != live.participants.length ||
+        epochChanged ||
+        channelEpochChanged) {
       _set(
-        call.copyWith(
+        live.copyWith(
           membershipEpoch: state.epoch,
           channelEpoch: admission.channelEpoch,
           participants: participants,
@@ -224,9 +248,9 @@ class GroupCallService {
       );
       await _syncMedia();
       if ((epochChanged || channelEpochChanged) &&
-          call.isJoined(_groups.selfId)) {
+          live.isJoined(_groups.selfId)) {
         if (channelEpochChanged) {
-          _scheduleChannelEpochReannounces(call.callId, admission.channelEpoch);
+          _scheduleChannelEpochReannounces(live.callId, admission.channelEpoch);
         }
         await _reannounce();
       }
@@ -511,9 +535,7 @@ class GroupCallService {
     // over whatever is current: an ended call came back live, carrying its own
     // callId, with no timers and no media behind it.
     final current = _current;
-    if (current == null ||
-        !current.isLive ||
-        current.callId != call.callId) {
+    if (current == null || !current.isLive || current.callId != call.callId) {
       return;
     }
     _set(current.copyWith(screenOn: enabled));
@@ -795,8 +817,7 @@ class GroupCallService {
         continue;
       }
       final rxAt = media.lastMediaRxAt(participant.nodeId);
-      if (rxAt == null ||
-          now.difference(rxAt) > kGroupCallMediaRepairSilence) {
+      if (rxAt == null || now.difference(rxAt) > kGroupCallMediaRepairSilence) {
         starved = true;
         break;
       }
@@ -838,12 +859,16 @@ class GroupCallService {
       media: _localMedia(call),
     );
     _maybeRequestMediaRepair(call);
+    // The broadcast above is awaited, so the liveness verdict below has to be
+    // computed against — and written back onto — the call as it stands now.
+    final live = _stillCurrent(call);
+    if (live == null) return;
     final now = _now();
     final participants = Map<String, GroupCallParticipant>.from(
-      call.participants,
+      live.participants,
     );
     var changed = false;
-    for (final participant in call.participants.values) {
+    for (final participant in live.participants.values) {
       if (participant.nodeId == _groups.selfId) continue;
       final mediaAt = _media?.lastMediaRxAt(participant.nodeId);
       final aliveAt = mediaAt != null && mediaAt.isAfter(participant.lastSeenAt)
@@ -854,8 +879,8 @@ class GroupCallService {
         changed = true;
       }
     }
-    if (changed && _current?.callId == call.callId) {
-      _set(call.copyWith(participants: participants));
+    if (changed) {
+      _set(live.copyWith(participants: participants));
       await _syncMedia();
     }
   }
