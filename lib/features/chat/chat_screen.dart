@@ -66,6 +66,7 @@ import 'reactors_sheet.dart';
 import 'vnote_preview.dart';
 import 'video_player_screen.dart';
 import '../../domain/file_names.dart';
+import '../../domain/media_object.dart' show kInlineImageMaxBytes;
 
 part 'chat_message_widgets.dart';
 part 'chat_composer.dart';
