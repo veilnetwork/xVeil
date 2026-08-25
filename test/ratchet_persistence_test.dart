@@ -366,6 +366,8 @@ class _FailingStorage extends HiddenVolumeStorage {
 
 /// Counts vacuum passes, which the in-memory fake has no reason to model.
 class _ScrubCountingStore implements KvLogStore {
+  @override
+  String? hardeningWarning() => null;
   final FakeKvLogStore inner = FakeKvLogStore();
   int scrubs = 0;
 

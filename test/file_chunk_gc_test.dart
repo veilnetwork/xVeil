@@ -12,6 +12,8 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 /// [count] walks every leaf of a namespace with no cache, and a sweep walks the
 /// whole settings namespace ([kvKeys]) plus every page of the chunk log.
 class _CountingStore implements KvLogStore {
+  @override
+  String? hardeningWarning() => null;
   _CountingStore(this._inner);
 
   final FakeKvLogStore _inner;

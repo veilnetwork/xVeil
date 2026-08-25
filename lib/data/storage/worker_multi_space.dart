@@ -208,6 +208,9 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   Future<SlotUtilization?> slotUtilization(int id) =>
       _call<SlotUtilization?>((reply) => _MSlotUtilization(id, reply));
   @override
+  Future<String?> hardeningWarning(int id) =>
+      _call<String?>((reply) => _MHardeningWarning(id, reply));
+  @override
   Future<void> vacuumOrphans(int id) =>
       _call<void>((reply) => _MVacuumOrphans(id, reply));
 
@@ -448,6 +451,11 @@ class _MSlotUtilization extends _MReq {
   final int id;
 }
 
+class _MHardeningWarning extends _MReq {
+  const _MHardeningWarning(this.id, super.reply);
+  final int id;
+}
+
 class _MClose extends _MReq {
   const _MClose(super.reply);
 }
@@ -545,6 +553,8 @@ void _multiWorkerEntry(_MOpenConfig cfg) {
         });
       case _MSlotUtilization(:final id):
         run(() => backing.slotUtilization(id));
+      case _MHardeningWarning(:final id):
+        run(() => backing.hardeningWarning(id));
       case _MClose():
         try {
           backing.close();

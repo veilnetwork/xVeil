@@ -22,6 +22,13 @@ class FakeKvLogStore implements KvLogStore {
   final Uint8List _keys;
   int _seq = 0;
 
+  /// What [hardeningWarning] answers. Settable so a test can stage the
+  /// container condition this fake cannot produce for itself.
+  String? stagedHardeningWarning;
+
+  @override
+  String? hardeningWarning() => stagedHardeningWarning;
+
   /// Invoked on [close]. Lets a multi-space container model the native
   /// exclusive per-file lock by releasing it when this handle closes.
   void Function()? onClose;
