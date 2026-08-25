@@ -172,6 +172,82 @@ void main() {
       );
     });
 
+    /// The dangerous fault is the one that goes AWAY.
+    ///
+    /// The resolution used to read the setting twice — once for the value,
+    /// once to ask whether the read had worked. A store that fails on the
+    /// first read and succeeds on the second answered "no value" to one and
+    /// "no fault" to the other, so an explicit OFF was thrown away and the
+    /// platform default took its place. On a desktop that default is `true`:
+    /// serving, against a deliberate refusal, with the UI still showing the
+    /// choice (report14 X14-M3).
+    test(
+      'a fault on the first read only still honours an explicit off',
+      () async {
+        final flaky = _FakeStorage()
+          ..settings[kDhtParticipationSettingKey] = 'false'
+          ..readThrowsTimes = 1;
+
+        expect(
+          await dhtParticipationEffective(flaky),
+          isFalse,
+          reason:
+              'a transient fault must not promote the platform default over '
+              'an answer the person actually gave',
+        );
+        expect(
+          flaky.reads,
+          1,
+          reason:
+              'asking twice is what let the two answers disagree; one read '
+              'has one outcome',
+        );
+      },
+    );
+
+    /// And the same shape with the fault on the SECOND read, which is what a
+    /// resolution that reads twice would trip over from the other side.
+    test('one read means a later fault cannot contradict the answer', () async {
+      final flaky = _FakeStorage()
+        ..settings[kDhtParticipationSettingKey] = 'false';
+
+      expect(await dhtParticipationEffective(flaky), isFalse);
+      flaky.readThrowsTimes = 1;
+      expect(
+        await dhtParticipationEffective(flaky),
+        isFalse,
+        reason: 'a failed read resolves to NOT serving, never to the default',
+      );
+    });
+
+    /// The outcomes are three, and they must stay distinguishable — this is
+    /// what the two helpers above collapse.
+    test('the read reports which of the three cases it met', () async {
+      final answered = _FakeStorage()
+        ..settings[kDhtParticipationSettingKey] = 'true';
+      expect(await readDhtParticipation(answered), (
+        state: DhtParticipationState.answered,
+        value: true,
+      ));
+
+      expect(
+        (await readDhtParticipation(_FakeStorage())).state,
+        DhtParticipationState.absent,
+      );
+
+      expect(
+        (await readDhtParticipation(_FakeStorage()..readThrows = true)).state,
+        DhtParticipationState.unreadable,
+      );
+
+      final closed = _FakeStorage()..unlocked = false;
+      expect(
+        (await readDhtParticipation(closed)).state,
+        DhtParticipationState.absent,
+        reason: 'a locked store is a lifecycle state, not a fault',
+      );
+    });
+
     /// A switch that silently did not stick is worse than one that reports it.
     test('a closed store refuses the write and reads as unanswered', () async {
       await storage.close();
@@ -206,6 +282,19 @@ class _FakeStorage implements Storage {
   /// is a lifecycle state the switch is allowed to meet before unlock.
   bool readThrows = false;
 
+  /// Fail the next N reads and then answer normally.
+  ///
+  /// A store that fails FOREVER is the easy case, and it was the only one
+  /// modelled. The dangerous one is a store that fails ONCE: the resolution
+  /// used to read twice, so a fault that hit only the first read looked like
+  /// "never asked" to one call and "readable" to the other, and the explicit
+  /// answer was discarded in favour of the platform default (report14 X14-M3).
+  int readThrowsTimes = 0;
+
+  /// Reads this store has served or refused — a resolution that asks twice is
+  /// visible here even when its answer happens to come out right.
+  int reads = 0;
+
   @override
   bool get isOpen => unlocked;
 
@@ -218,7 +307,12 @@ class _FakeStorage implements Storage {
   @override
   Future<String?> getSetting(String key) async {
     if (!unlocked) throw StateError('storage is locked');
+    reads++;
     if (readThrows) throw StateError('read fault');
+    if (readThrowsTimes > 0) {
+      readThrowsTimes--;
+      throw StateError('transient read fault');
+    }
     if (readDelay > Duration.zero) await Future<void>.delayed(readDelay);
     return settings[key];
   }
