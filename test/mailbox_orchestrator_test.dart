@@ -187,6 +187,70 @@ void main() {
       );
     });
 
+    test('the relay is TOLD, so the tail is not stuck behind it', () async {
+      // The back-off bounds how long the stall lasts. Telling the relay
+      // removes it: a relay new enough to read the hint passes over the head
+      // and serves what is behind it (report14 X14-M4).
+      //
+      // Proved by COMPARISON, because "the tail arrived" alone would also be
+      // true of a fixture that never stalled: the same sequence against a
+      // relay that ignores the hint must yield nothing.
+      Future<List<int>> drainAll(VeilMailboxRelay relay, DateTime at) async {
+        final crypto = _StallsOnOneBlob(0xD1, senderForOpen: peer);
+        final orch = MailboxOrchestrator(crypto, relay)..now = () => at;
+        for (final byte in [0xD1, 0xD2, 0xD3]) {
+          await orch.stash(
+            me: peer,
+            recipient: me,
+            appId: _appId(1),
+            endpointId: 2,
+            data: Uint8List.fromList([byte]),
+            contentId: _cid(byte),
+          );
+        }
+        final got = <int>[];
+        for (var i = 0; i < 10; i++) {
+          final drained = await orch.drain(
+            me: me,
+            authCookie: cookie,
+            ourCertVersion: 1,
+            alreadyHave: never,
+          );
+          got.addAll(drained.map((d) => d.data.single));
+        }
+        return got;
+      }
+
+      // The clock never moves in either run: no back-off is waited out.
+      final at = DateTime.utc(2026, 8, 25, 12);
+
+      final deaf = _OneBlobPerFetchRelay();
+      expect(
+        await drainAll(deaf, at),
+        isEmpty,
+        reason:
+            'a relay that ignores the hint keeps serving the blob we '
+            'cannot use, and nothing behind it is reachable — this is the '
+            'finding',
+      );
+
+      final listening = _SkipHonouringRelay();
+      expect(
+        await drainAll(listening, at),
+        containsAll(<int>[0xD2, 0xD3]),
+        reason:
+            'once the relay is told to pass over the head, the queue '
+            'behind it moves without waiting for anything',
+      );
+      expect(
+        listening.asked,
+        isNotEmpty,
+        reason:
+            'and it was told: an empty hint would make this test about '
+            'the fixture',
+      );
+    });
+
     test('is left alone while the back-off is still running', () async {
       final crypto = _StallsOnOneBlob(0xF1, senderForOpen: peer);
       final budgeted = _OneBlobPerFetchRelay();
@@ -940,6 +1004,41 @@ class _StallsOnOneBlob extends LoopbackMailboxCrypto {
   }
 }
 
+/// A one-blob relay that HONOURS the skip hint, the way a relay new enough to
+/// read the field does.
+///
+/// The skip list is what makes the difference visible: without it the head of
+/// the queue is served on every fetch and nothing behind it is reachable
+/// (report14 X14-M4).
+class _SkipHonouringRelay extends InMemoryMailboxRelay {
+  /// Everything the caller has asked to be passed over, across all fetches.
+  final asked = <String>{};
+
+  @override
+  Future<List<StoredMailboxBlob>> fetch({
+    required NodeId me,
+    required Uint8List authCookie,
+    List<NodeId> knownRelays = const [],
+    List<Uint8List> skip = const [],
+  }) async {
+    for (final s in skip) {
+      asked.add(_hex(s));
+    }
+    final all = await super.fetch(
+      me: me,
+      authCookie: authCookie,
+      knownRelays: knownRelays,
+    );
+    final servable = all
+        .where((b) => !skip.any((s) => _hex(s) == _hex(b.contentId)))
+        .toList();
+    return servable.isEmpty ? const [] : [servable.first];
+  }
+
+  static String _hex(Uint8List b) =>
+      [for (final x in b) x.toRadixString(16).padLeft(2, '0')].join();
+}
+
 /// Models the real relay's reply budget: a FETCH reply fits ONE ~4 KB blob, so
 /// a backlog is served strictly one-at-a-time (oldest first).
 class _OneBlobPerFetchRelay extends InMemoryMailboxRelay {
@@ -950,6 +1049,7 @@ class _OneBlobPerFetchRelay extends InMemoryMailboxRelay {
     required NodeId me,
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
+    List<Uint8List> skip = const [],
   }) async {
     fetchCalls++;
     final all = await super.fetch(

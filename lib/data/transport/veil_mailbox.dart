@@ -197,10 +197,19 @@ abstract interface class VeilMailboxRelay {
   /// publisher with — when non-empty, the fetch goes straight to them and
   /// SKIPS re-resolving our own rendezvous ad over the DHT (which can transiently
   /// time out and silently strand pending mail). Empty = resolve via the DHT.
+  ///
+  /// [skip] names content ids this caller already holds and cannot use yet.
+  /// A relay serves oldest-first under a reply budget, so a blob we keep
+  /// failing to open sits at the front and is served again on every fetch —
+  /// spending the slots and bytes everything behind it is waiting for. Saying
+  /// so lets the relay pass over it; the record is NOT deleted, and a relay
+  /// that does not understand the field simply serves as before
+  /// (report14 X14-M4).
   Future<List<StoredMailboxBlob>> fetch({
     required NodeId me,
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
+    List<Uint8List> skip = const [],
   });
 
   /// Acknowledge (and let the relay drop) the blob [contentId] for [me].
@@ -241,7 +250,8 @@ class VeilFlutterMailboxRelay implements VeilMailboxRelay {
   Future<List<StoredMailboxBlob>> fetch({
     required NodeId me,
     required Uint8List authCookie,
-    List<NodeId> knownRelays = const [], // FFI resolves the relay internally
+    List<NodeId> knownRelays = const [], // FFI resolves the relay internally,
+    List<Uint8List> skip = const [],
   }) async {
     final raw = await _mailbox.fetch(receiverId: me.bytes, authCookie: authCookie);
     return raw
@@ -292,6 +302,7 @@ class InMemoryMailboxRelay implements VeilMailboxRelay {
     required NodeId me,
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
+    List<Uint8List> skip = const [],
   }) async =>
       List.unmodifiable(_store[me.hex] ?? const []);
 

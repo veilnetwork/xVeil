@@ -29,6 +29,36 @@ final Uint8List kMailboxAppId = Uint8List.fromList(const [
 const int kMailboxPutEndpointId = 1;
 const int kMailboxFetchEndpointId = 2;
 
+/// Leading byte of a FETCH request body — see `MailboxFetchRequest` on the
+/// veil side. A relay that does not recognise it reads the body as "skip
+/// nothing", which is what every relay did before the field existed.
+const int _kFetchRequestMagic = 0xF1;
+
+/// Content ids one request may name. Mirrors `MAX_FETCH_SKIP`: a relay
+/// truncates past this, so sending more is only waste.
+const int kMaxFetchSkip = 64;
+
+/// Encode the "do not serve these" hint carried by a FETCH.
+///
+/// A relay serves oldest-first under a reply budget, so a blob the caller
+/// keeps failing to open sits at the front and is served again on every fetch,
+/// spending the slots and bytes everything behind it needs (report14 X14-M4).
+/// An empty list encodes to an EMPTY BODY — byte-for-byte what every build
+/// before this sent — so nothing changes for a caller with nothing to skip.
+Uint8List encodeFetchRequest(List<Uint8List> skip) {
+  if (skip.isEmpty) return Uint8List(0);
+  final n = skip.length > kMaxFetchSkip ? kMaxFetchSkip : skip.length;
+  final out = BytesBuilder();
+  out.addByte(_kFetchRequestMagic);
+  out.add((ByteData(2)..setUint16(0, n)).buffer.asUint8List());
+  for (var i = 0; i < n; i++) {
+    final cid = skip[i];
+    if (cid.length != 32) continue;
+    out.add(cid);
+  }
+  return out.toBytes();
+}
+
 /// Receiver-authenticated SLICE: "give me `content_id` from `offset`".
 ///
 /// The way a blob larger than one FETCH reply comes out of the store. A blob
@@ -597,7 +627,12 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     required NodeId me,
     required Uint8List authCookie, // ignored — verified identity is the auth
     List<NodeId> knownRelays = const [],
+    List<Uint8List> skip = const [],
   }) async {
+    // Built once for the whole pass: every relay is asked the same question,
+    // and an empty list encodes to an empty body — byte-for-byte what this
+    // send carried before the field existed.
+    final requestBody = encodeFetchRequest(skip);
     // Prefer the relay(s) we already REGISTERED with: we know them, so go
     // STRAIGHT to them instead of re-resolving our own rendezvous ad over the
     // DHT every poll. That DHT lookup transiently times out (especially on
@@ -761,7 +796,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
               dstAppId: kMailboxAppId,
               dstEndpointId: kMailboxFetchEndpointId,
               replyEndpointId: _replyEndpointId,
-              data: Uint8List(0),
+              data: requestBody,
             );
           } else {
             // No known key — fall back to the self-resolving authenticated send.
@@ -770,7 +805,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
               dstAppId: kMailboxAppId,
               dstEndpointId: kMailboxFetchEndpointId,
               replyEndpointId: _replyEndpointId,
-              data: Uint8List(0),
+              data: requestBody,
             );
           }
           expected++;
