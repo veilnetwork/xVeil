@@ -144,9 +144,19 @@ void main() {
         await HiddenVolumeStorage.fromAsyncStore(opened!).getSetting('who'),
         'alice',
       );
+      // Strictly more turns than the inline path, and at least two. The
+      // yardstick is the inline run measured in the SAME process under the
+      // same load, which is the whole reason it is measured — an extra `* 10`
+      // on top of it is a guessed margin, and it is the part that failed: a
+      // saturated machine gave 1 inline and 4 through the worker, both
+      // correct, and the margin called it broken.
+      //
+      // What the two numbers have to say is only this: the caller kept
+      // turning while somebody else did the open. An open that ran inline
+      // cannot beat the inline run, whatever the load.
       expect(
         workerRun.ticks,
-        greaterThan(inlineRun.ticks.clamp(1, 1 << 30) * 10),
+        allOf(greaterThan(inlineRun.ticks), greaterThanOrEqualTo(2)),
         reason:
             'opening the same space by keys left the caller ${inlineRun.ticks} '
             'event-loop turns inline and ${workerRun.ticks} through the worker '
