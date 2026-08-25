@@ -869,5 +869,10 @@ String p2pPunchReasonPhrase(VeilHolePunchStatus status) => switch (status) {
   VeilHolePunchStatus.refusedAnonymous => 'anonymous mode',
   VeilHolePunchStatus.unknownPeer => 'peer not yet exchanged',
   VeilHolePunchStatus.unsupported => 'punch unsupported',
+  // NOT "no NAT reflector": the daemon could not read its own config, so it
+  // never got as far as looking for one. Sending an operator after missing
+  // NAT settings when the file itself is the problem is the whole reason this
+  // status exists separately.
+  VeilHolePunchStatus.configUnavailable => 'node config unreadable',
   VeilHolePunchStatus.unknown => 'direct punch failed',
 };
