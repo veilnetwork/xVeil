@@ -81,6 +81,42 @@ class _FakeRatchetNode implements RatchetStateHandle {
     return true;
   }
 
+  /// The fake's stand-in for a sending DH key: one per conversation and
+  /// stable for its life, which is the property the real chain field has.
+  static Uint8List _chainOf(String hex) => Uint8List.fromList(
+    List<int>.generate(32, (i) => hex.codeUnitAt(i % hex.length) & 0xff),
+  );
+
+  @override
+  RatchetSendPosition? sendPosition(Uint8List key) {
+    final c = _held[_hex(key)];
+    if (c == null) return null;
+    return RatchetSendPosition(_chainOf(_hex(key)), c.sent);
+  }
+
+  @override
+  int skipSendTo(Uint8List key, RatchetSendPosition to) {
+    final hex = _hex(key);
+    final c = _held[hex];
+    if (c == null) return 0;
+    // Modelled on the real one and no more permissive: a position from
+    // another chain, or one already passed, burns nothing.
+    if (!_sameBytes(to.chain, _chainOf(hex)) || to.next <= c.sent) return 0;
+    final burned = to.next - c.sent;
+    c.sent = to.next;
+    _version++;
+    _dirty[hex] = _version;
+    return burned;
+  }
+
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
   @override
   int stateVersion() => _version;
 

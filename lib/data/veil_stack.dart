@@ -27,7 +27,8 @@ import 'node/ratchet_ffi.dart'
         RatchetStateHandle,
         dropRejectedRatchetStates,
         importRatchetStates,
-        loadStoredRatchetStates;
+        loadStoredRatchetStates,
+        recoverReservedSendPositions;
 import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
@@ -2154,6 +2155,16 @@ class RealVeilStack {
       // Whatever veil would not take can never open a frame again, so the
       // records go rather than being re-read on every launch forever.
       await dropRejectedRatchetStates(storage, rejected);
+      // Before ANY of this app's traffic starts, and right after the states
+      // are back: step every conversation past the send indices its last
+      // reservation allowed (report12 X-H5). A state whose write never landed
+      // is behind what was already published from it, and without this the
+      // next send re-derives a key and nonce that a frame on the wire already
+      // used. Keys burned here were never emitted, so the peer sees a gap its
+      // skipped-key window absorbs.
+      if (ratchetState != null) {
+        await recoverReservedSendPositions(ratchetState, storage);
+      }
       // Age out conversations nobody ever answered, now that the store is
       // whole. veil sweeps by itself only when the store hits its ceiling, so
       // a device that was flooded once would otherwise carry the wreckage in
