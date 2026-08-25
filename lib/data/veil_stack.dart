@@ -2371,24 +2371,50 @@ class RealVeilStack {
   /// Dev boot from an existing `config.toml`. [embedded] runs the node
   /// in-process; otherwise it spawns `veil-cli node run`. Still used by the
   /// dev scripts — see the class doc.
+  /// Test seam: the controller this boot drives. Production leaves it null and
+  /// gets the embedded or subprocess one below.
+  ///
+  /// Here because the unwind is the thing worth testing and it cannot be
+  /// reached otherwise: what has to be proved is that a node which STARTED and
+  /// then failed to come up is stopped again, and only a controller that can
+  /// be told to fail that way can prove it.
+  @visibleForTesting
+  static NodeController Function()? debugControllerFactory;
+
   static Future<RealVeilStack> start({
     required String veilCliPath,
     required String configPath,
     required String appSocketPath,
     bool embedded = false,
   }) async {
-    final NodeController controller = embedded
-        ? EmbeddedNodeController(
-            configPath: configPath,
-            appSocketPath: appSocketPath,
-          )
-        : veilSubprocessController(
-            veilCliPath: veilCliPath,
-            configPath: configPath,
-            appSocketPath: appSocketPath,
-          );
+    final NodeController controller =
+        debugControllerFactory?.call() ??
+        (embedded
+            ? EmbeddedNodeController(
+                configPath: configPath,
+                appSocketPath: appSocketPath,
+              )
+            : veilSubprocessController(
+                veilCliPath: veilCliPath,
+                configPath: configPath,
+                appSocketPath: appSocketPath,
+              ));
     await controller.start();
+    // From here on there is a STARTED node behind every line, so every way out
+    // has to take it down again — a node left running with nobody holding it
+    // keeps its sockets, its runtime directory and, on the embedded path, an
+    // in-process runtime inside an app that has given up on it (report12
+    // X-L5).
+    //
+    // Two exits used to leave it: a phase that never reached `connected`
+    // threw with nothing stopped, and a failing bootstrap invite skipped both
+    // the node and the transport. Naming the legs in one place is what keeps
+    // the next exit from being a third.
+    Future<void> unwind(List<(String, Future<void> Function())> legs) =>
+        runCleanupLegs('veil-stack-dev-boot', legs).then((_) {});
+
     if (controller.current.phase != NodePhase.connected) {
+      await unwind([('controller', controller.stop)]);
       throw StateError(
         'node did not reach connected: ${controller.current.phase}',
       );
@@ -2397,15 +2423,24 @@ class RealVeilStack {
     final VeilTransport transport;
     try {
       transport = await VeilFlutterTransport.connect(appSocketPath);
-    } catch (e) {
-      await controller.stop();
+    } catch (_) {
+      await unwind([('controller', controller.stop)]);
       rethrow;
     }
 
-    final invite = await veilBootstrapInvite(
-      veilCliPath: veilCliPath,
-      configPath: configPath,
-    );
+    final BootstrapInvite invite;
+    try {
+      invite = await veilBootstrapInvite(
+        veilCliPath: veilCliPath,
+        configPath: configPath,
+      );
+    } catch (_) {
+      await unwind([
+        ('transport', transport.dispose),
+        ('controller', controller.stop),
+      ]);
+      rethrow;
+    }
     return RealVeilStack._(
       controller: controller,
       transport: transport,
