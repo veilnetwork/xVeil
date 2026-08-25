@@ -7,7 +7,8 @@ import '../../data/veil_bundle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/model_import.dart';
 import '../../state/model_message.dart';
-import '../../state/translation_model_controller.dart' show translationBundlePickerProvider;
+import '../../state/translation_model_controller.dart'
+    show translationBundlePickerProvider;
 import '../common/ask_contacts_for_models_sheet.dart';
 import 'model_provenance_dialog.dart';
 import '../../state/providers.dart';
@@ -57,7 +58,7 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
       _installing = true;
       _error = null;
     });
-    File? staged;
+    StagedBundle? staged;
     try {
       // WITH THE CEILING, so the read itself is bounded.
       //
@@ -96,12 +97,11 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
         }
         return;
       }
-      staged = await materialiseBundle(
-        bytes,
-        name: widget.fileName ?? 'received.veiltranslate',
-      );
+      // No name is passed: the sender's is a label for the card, not a place
+      // on this disk (report14 X14-H1).
+      staged = await materialiseBundle(bytes);
       var result = await installReceivedModel(
-        staged,
+        staged.file,
         into: targetsFromWidgetRef(ref),
       );
       if (!mounted) return;
@@ -114,7 +114,7 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
         switch (choice) {
           case ProvenanceChoice.installAnyway:
             result = await installReceivedModel(
-              staged,
+              staged.file,
               into: targetsFromWidgetRef(ref),
               acceptUnverified: true,
             );
@@ -157,10 +157,10 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
       });
     } finally {
       // The staged copy is a second full copy of a model; leaving it behind
-      // would double what a phone spends on every install.
-      if (staged != null && staged.parent.existsSync()) {
-        staged.parent.deleteSync(recursive: true);
-      }
+      // would double what a phone spends on every install. What is deleted is
+      // the directory this install CREATED — not the staged file's parent,
+      // which is only the same directory while the leaf name is one we chose.
+      await staged?.dispose();
       if (mounted) setState(() => _installing = false);
     }
   }
@@ -168,10 +168,9 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
   /// What the NAME claims. The manifest decides what installs, and the two can
   /// disagree — so this is a label, and the card never states more than it has
   /// read.
-  String _title(AppL10n l) =>
-      modelBundleKind(widget.fileName) == kBundleSpeech
-          ? l.modelBundleSpeech
-          : l.modelBundleTranslate;
+  String _title(AppL10n l) => modelBundleKind(widget.fileName) == kBundleSpeech
+      ? l.modelBundleSpeech
+      : l.modelBundleTranslate;
 
   String? _subtitle() {
     final hint = pairHintFromFileName(widget.fileName);
@@ -217,17 +216,17 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
               padding: const EdgeInsets.only(top: 2),
               child: Text(
                 subtitle,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ),
           const SizedBox(height: 8),
           Text(
             l.modelBundleTrust,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 8),
           if (_installed)
@@ -280,9 +279,9 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
                 // The reason, not just the verdict: a truncated transfer and a
                 // file that was never a bundle call for different actions.
                 '${l.modelBundleFailed}: $_error',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: scheme.error,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.error),
               ),
             ),
         ],

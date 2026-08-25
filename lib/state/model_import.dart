@@ -12,7 +12,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-
 import '../data/model_provenance.dart';
 import '../data/veil_bundle.dart';
 import 'translation_model_controller.dart';
@@ -25,8 +24,10 @@ class ModelImportResult {
   /// Nothing was installed because the model's provenance is not settled. Not
   /// a failure: the bundle parsed and its bytes are intact, and the person now
   /// has a decision to make that this layer must not make for them.
-  const ModelImportResult.needsDecision(ProvenanceVerdict this.verdict, {this.kind})
-    : error = null;
+  const ModelImportResult.needsDecision(
+    ProvenanceVerdict this.verdict, {
+    this.kind,
+  }) : error = null;
 
   /// What the manifest said it was, when that much could be read.
   final String? kind;
@@ -40,6 +41,32 @@ class ModelImportResult {
   bool get needsDecision => verdict != null;
 }
 
+/// A bundle written out for the reader, together with the directory it was
+/// written into.
+///
+/// Both, because the two used to be conflated: the caller deleted
+/// `file.parent`, on the assumption that the file's parent IS the stage. That
+/// holds only while the file's name is one this side chose — and it was the
+/// SENDER's name, so `../elsewhere/x.veiltranslate` made `file.parent` an
+/// unrelated directory and cleanup removed it recursively (report14 X14-H1).
+///
+/// [dispose] therefore deletes [directory], which the call that produced it
+/// created and nothing else has a handle to.
+class StagedBundle {
+  const StagedBundle(this.file, this.directory);
+
+  /// Where the bytes are. The leaf is chosen here, never received.
+  final File file;
+
+  /// The temp directory this staging created — the only thing cleanup deletes.
+  final Directory directory;
+
+  Future<void> dispose() async {
+    if (!directory.existsSync()) return;
+    await directory.delete(recursive: true);
+  }
+}
+
 /// Write [bytes] somewhere the bundle reader can stream them from.
 ///
 /// The reader works on a file rather than a buffer on purpose — a pair is tens
@@ -47,14 +74,20 @@ class ModelImportResult {
 /// received file comes out of the encrypted store as bytes, so this is the
 /// bridge, and it is the only place the whole thing sits in memory.
 ///
-/// The caller deletes it. Left in the system temp directory rather than beside
-/// the models, so a crash mid-install cannot leave something that looks like a
-/// half-installed pair.
-Future<File> materialiseBundle(Uint8List bytes, {String name = 'received'}) async {
+/// The caller disposes it. Left in the system temp directory rather than
+/// beside the models, so a crash mid-install cannot leave something that looks
+/// like a half-installed pair.
+///
+/// The leaf name is FIXED and internal. Nothing downstream reads it: the kind
+/// of model a bundle holds is decided by its manifest, which is the point
+/// `installReceivedModel` is built around, and the extension is a label the
+/// card shows from the message rather than from this path. A received name
+/// therefore has no reason to reach the filesystem, and every reason not to.
+Future<StagedBundle> materialiseBundle(Uint8List bytes) async {
   final dir = await Directory.systemTemp.createTemp('xveil-bundle');
-  final file = File('${dir.path}/$name');
+  final file = File('${dir.path}/staged.veilbundle');
   await file.writeAsBytes(bytes, flush: true);
-  return file;
+  return StagedBundle(file, dir);
 }
 
 /// The two controllers this needs, behind an interface.
@@ -88,8 +121,7 @@ class _RefTargets implements ModelInstallTargets {
 
   @override
   Future<bool> installSpeech(String path) =>
-      (_read(whisperModelControllerProvider.notifier)
-              as WhisperModelController)
+      (_read(whisperModelControllerProvider.notifier) as WhisperModelController)
           .importBundle(path);
 
   @override
@@ -148,8 +180,7 @@ Future<ModelImportResult> installReceivedModel(
       final ok = await into.installTranslation(bundle.path);
       if (ok) return const ModelImportResult.ok(kBundleTranslate);
       return ModelImportResult.failed(
-        into.translationError ??
-            'the model could not be installed',
+        into.translationError ?? 'the model could not be installed',
         kind: kBundleTranslate,
       );
 
@@ -157,8 +188,7 @@ Future<ModelImportResult> installReceivedModel(
       final ok = await into.installSpeech(bundle.path);
       if (ok) return const ModelImportResult.ok(kBundleSpeech);
       return ModelImportResult.failed(
-        into.speechError ??
-            'the model could not be installed',
+        into.speechError ?? 'the model could not be installed',
         kind: kBundleSpeech,
       );
 
