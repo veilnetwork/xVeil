@@ -294,7 +294,10 @@ void main() {
       }
     },
     skip: skip,
-    timeout: const Timeout(Duration(seconds: 90)),
+    // Three real nodes have been booted in this process by the time this one
+    // runs, and a boot is tens of seconds on its own. 90 s was a budget for
+    // the first test in the file, not the third.
+    timeout: const Timeout(Duration(minutes: 4)),
   );
 }
 
@@ -323,6 +326,8 @@ Future<_LiveNode> _bootNode(DynamicLibrary lib, int port) async {
     ipcSocket: ipcSock,
     adminSocket: adminSock,
     lib: lib,
+    // No bundled seeds — see the note at the other config in this file.
+    useBundledSeeds: false,
   );
   final controller = EmbeddedNodeController(
     appSocketPath: ipcSock,
