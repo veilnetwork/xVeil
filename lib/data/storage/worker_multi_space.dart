@@ -122,7 +122,7 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     );
     Object? first;
     try {
-      first = await Future.any<Object?>([boot.first, death.future]);
+      first = await death.race(boot.first);
     } catch (e) {
       boot.close();
       death.dispose();
@@ -163,7 +163,7 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     // would end, and every later call joined it (audit XV-07).
     final Object? r;
     try {
-      r = await Future.any<Object?>([reply.first, _watch!.future]);
+      r = await _watch!.race(reply.first);
     } finally {
       reply.close();
     }
@@ -281,11 +281,10 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
       //
       // The worker never replies a bare null (`_MOk`/`_MErr` are objects), so
       // null unambiguously means the timeout fired.
-      answer =
-          await (watch == null
-                  ? done
-                  : Future.any<Object?>([done, watch.future]))
-              .timeout(closeTimeout, onTimeout: () => null);
+      answer = await (watch == null ? done : watch.race(done)).timeout(
+        closeTimeout,
+        onTimeout: () => null,
+      );
     } catch (e) {
       died = e;
     }
