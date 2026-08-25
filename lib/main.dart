@@ -110,6 +110,24 @@ Future<void> runStartup({
 
 /// Everything between process start and the app appearing on screen. Extracted
 /// so [runStartup] has one thing to guard and one thing to fall back from.
+/// Whether the config-file dev boot may run on this platform (report12 X-L5).
+///
+/// It ends at `veil-cli`, a BINARY: iOS cannot spawn one at all, and a phone
+/// that half-started a subprocess launcher is worse off than one that never
+/// tried. Mobile boots the node in-process instead, which is what the app
+/// actually ships.
+///
+/// `no_subprocess_on_mobile_paths_test` already lists `veil_node.dart` as
+/// desktop-only and names THIS branch as the reason a phone never reaches it.
+/// That was a claim about reachability with nothing enforcing it — two
+/// environment variables were the whole condition. This is what makes it true.
+@visibleForTesting
+bool configFileDevBootAllowed({
+  required bool isMacOS,
+  required bool isLinux,
+  required bool isWindows,
+}) => isMacOS || isLinux || isWindows;
+
 Future<void> _bootAndRunApp() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -388,7 +406,15 @@ Future<BootstrapResult> _bootstrapOverrides() async {
 
   final cli = Platform.environment['XVEIL_VEIL_CLI'];
   final config = Platform.environment['XVEIL_VEIL_CONFIG'];
-  if (cli != null && cli.isNotEmpty && config != null && config.isNotEmpty) {
+  if (configFileDevBootAllowed(
+        isMacOS: Platform.isMacOS,
+        isLinux: Platform.isLinux,
+        isWindows: Platform.isWindows,
+      ) &&
+      cli != null &&
+      cli.isNotEmpty &&
+      config != null &&
+      config.isNotEmpty) {
     // Config-file dev path: boot from a pre-made config.toml at launch.
     try {
       if (ensureVeilClientLoaded()) {
