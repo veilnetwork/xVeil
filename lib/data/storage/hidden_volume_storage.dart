@@ -2829,6 +2829,37 @@ class HiddenVolumeStorage implements Storage {
     return store.slotUtilization();
   }
 
+  /// Settings key the kept warning lives under.
+  static const _kHardeningWarningSetting = 'container_hardening_warning';
+
+  @override
+  Future<String?> retainHardeningWarning() async {
+    final store = _store;
+    if (store == null) return null;
+    final kept = await getSetting(_kHardeningWarningSetting);
+    final String? fresh;
+    try {
+      fresh = await store.hardeningWarning();
+    } catch (_) {
+      // A store that cannot answer leaves whatever was kept standing: an
+      // unreadable stat is not evidence that the warning went away.
+      return kept;
+    }
+    if (fresh == null) return kept;
+    // FIRST one kept, not the latest. The container keeps the first for the
+    // same reason: between two reads a replaced record is the earlier warning
+    // gone, and the earlier one is the one nobody has seen yet.
+    if (kept != null) return kept;
+    await putSetting(_kHardeningWarningSetting, fresh);
+    devLog(
+      () =>
+          'xVeil[storage]: container hardening step FAILED ($fresh). Kept on '
+          'disk — the container forgets it at close, and what it means is that '
+          'this commit is not as deniable as the policy asked for.',
+    );
+    return fresh;
+  }
+
   @override
   Future<Map<String, int>> namespaceCounts() async {
     await _ensureMessageLogNamespacesLoaded();

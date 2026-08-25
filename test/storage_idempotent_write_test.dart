@@ -17,6 +17,8 @@ import 'package:xveil/domain/roster.dart';
 /// Every real commit permanently grows the append-only container by a padded
 /// bucket — the invariant under test is "no change ⇒ no commit".
 class _CountingStore implements KvLogStore {
+  @override
+  String? hardeningWarning() => null;
   _CountingStore(this._inner);
   final FakeKvLogStore _inner;
   int commits = 0;

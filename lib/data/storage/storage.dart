@@ -419,6 +419,24 @@ abstract interface class Storage {
   /// Read-only and cheap: it reports, it never repacks.
   Future<SlotUtilization?> containerUtilization();
 
+  /// Read the container's sticky hardening failure and, if there is one this
+  /// store has not written down yet, KEEP it.
+  ///
+  /// The container holds that record in memory only, so a warning nobody read
+  /// before the app closed is gone on the next open — and what it says is that
+  /// a commit's size is readable to a multi-snapshot adversary, or that the
+  /// slots it reused stand alone in a snapshot diff (report12 HV-L4). The
+  /// durable copy is what survives the restart the in-memory one does not.
+  ///
+  /// Returns what is now on record, container-fresh or previously kept, and
+  /// null when there is nothing and when the store cannot answer — a null is
+  /// "not reported", never "there was none".
+  ///
+  /// It deliberately does NOT acknowledge the record to the container.
+  /// Acknowledging means "I have shown this to the person", and writing it to
+  /// a settings key shows it to nobody.
+  Future<String?> retainHardeningWarning();
+
   /// Bench/debug: entry counts per storage namespace, for diagnosing which
   /// namespace is approaching the log-index cap. Message-log diagnostics also
   /// split the total into legacy/sharded rows and report the active shard count.
