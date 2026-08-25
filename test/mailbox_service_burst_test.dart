@@ -44,6 +44,11 @@ class _FakeClient implements VeilClient {
 
 /// Counts drain calls; each returns a scripted queue entry (or empty).
 class _FakeOrchestrator implements MailboxOrchestrator {
+  /// The real orchestrator times its transient back-off on this; nothing here
+  /// opens a blob, so the real clock is fine.
+  @override
+  DateTime Function() now = DateTime.now;
+
   int drains = 0;
   final List<List<DrainedMessage>> queued = [];
 
@@ -64,9 +69,7 @@ class _FakeOrchestrator implements MailboxOrchestrator {
     drains++;
     final held = gate;
     if (held != null) await held.future;
-    final out = queued.isEmpty
-        ? const <DrainedMessage>[]
-        : queued.removeAt(0);
+    final out = queued.isEmpty ? const <DrainedMessage>[] : queued.removeAt(0);
     // The real orchestrator hands each message up as it opens, BEFORE the loop
     // ends, and the service now delivers from here rather than from the
     // returned batch. A fake that skipped this would deliver nothing and quietly
@@ -151,34 +154,37 @@ void main() {
     );
   });
 
-  test('drained mail is delivered as a PROVEN sender, not a claimed one', () async {
-    // X/V-01. The drain is the one inbound path this app authenticates for
-    // itself: `DrainedMessage.sender` is the orchestrator's crypto-verified
-    // sender, recovered from the blob's sidecar and confirmed by the
-    // auth-deliver signature, never the relay's wire hint. It must say so, or
-    // the gates that ask cannot tell it from a frame that named anyone.
-    final delivered = <InboundMessage>[];
-    final service = MailboxService(
-      client: _FakeClient(),
-      me: _id(1),
-      orchestrator: orch,
-      deliver: delivered.add,
-      drainInterval: const Duration(milliseconds: 100),
-    );
-    addTearDown(service.dispose);
-    orch.queued.add([_mail()]);
-    await service.start(relays: [_id(7)]);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+  test(
+    'drained mail is delivered as a PROVEN sender, not a claimed one',
+    () async {
+      // X/V-01. The drain is the one inbound path this app authenticates for
+      // itself: `DrainedMessage.sender` is the orchestrator's crypto-verified
+      // sender, recovered from the blob's sidecar and confirmed by the
+      // auth-deliver signature, never the relay's wire hint. It must say so, or
+      // the gates that ask cannot tell it from a frame that named anyone.
+      final delivered = <InboundMessage>[];
+      final service = MailboxService(
+        client: _FakeClient(),
+        me: _id(1),
+        orchestrator: orch,
+        deliver: delivered.add,
+        drainInterval: const Duration(milliseconds: 100),
+      );
+      addTearDown(service.dispose);
+      orch.queued.add([_mail()]);
+      await service.start(relays: [_id(7)]);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
-    expect(delivered, isNotEmpty, reason: 'nothing was drained at all');
-    expect(delivered.first.src, _id(9));
-    expect(
-      delivered.first.provenance,
-      SenderProvenance.signed,
-      reason: 'a verified sender reached the app as an unverified claim',
-    );
-    expect(delivered.first.provenance.isAuthenticated, isTrue);
-  });
+      expect(delivered, isNotEmpty, reason: 'nothing was drained at all');
+      expect(delivered.first.src, _id(9));
+      expect(
+        delivered.first.provenance,
+        SenderProvenance.signed,
+        reason: 'a verified sender reached the app as an unverified claim',
+      );
+      expect(delivered.first.provenance.isAuthenticated, isTrue);
+    },
+  );
 
   test('a wake that lands mid-drain is spent, not dropped', () async {
     // A wake is a relay naming a deposit that just landed, and the pass under
@@ -249,7 +255,8 @@ void main() {
     expect(
       nudged,
       greaterThanOrEqualTo(1),
-      reason: 'the frame still earns one prompt drain — that is the latency '
+      reason:
+          'the frame still earns one prompt drain — that is the latency '
           'lever for a dropped live introduce',
     );
     expect(
@@ -387,8 +394,7 @@ void main() {
       expect(kIdleDrainInterval, const Duration(seconds: 60));
     });
 
-    test('the back-off ceiling is a TIME, so the interval cannot blow it up',
-        () {
+    test('the back-off ceiling is a TIME, so the interval cannot blow it up', () {
       // It used to be a tick count. Raising the interval then multiplied the
       // worst case with it — at 60s a 32-tick back-off is half an hour of
       // undelivered mail, and this poll exists to catch the deposit whose ping
