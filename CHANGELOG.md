@@ -10,6 +10,49 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.0] — 2026-08-25
+
+A report audit, and then the first runs of the test suites on Windows and on
+aarch64 Linux. Those runs are why the last few entries exist at all.
+
+### Fixed
+
+- **The node's private key sat in a leaked buffer.** `restoreIdentityFromPhrase`
+  copies the config into native memory and then neither wiped nor freed it. The
+  cleanup block listed the phrase, the directory and the label; `tomlC` was
+  added later and never joined them. That config carries
+  `[identity] private_key`, and veil's contract for the entry point says in as
+  many words that it does NOT zeroize those bytes because the caller owns them.
+  The Dart string is collected; the native copy was not.
+
+- **Inline images were read whole and decoded on top.** The guard for this
+  asserted each watched file CONTAINS a call carrying `maxBytes`, which one good
+  call satisfies — so it stayed green while the same content id was read a
+  second time, in the tap-to-open path, with no ceiling. Four more of the same
+  in the chat widgets: the gallery, the resolved image and the thumbnail. Every
+  one already handled a null result, so the ceiling degrades into the behaviour
+  that was there.
+
+- **Every storage RPC retained its own answer.** `Future.any([reply, death])`
+  attaches a listener to both futures and cancels neither, so each answered call
+  left a listener on the never-completed death future holding the completer that
+  carries the reply — a KV value, i.e. plaintext. This was found and fixed in
+  the hidden_volume plugin; `WorkerDeath` is a second copy of the same design
+  behind `async_kv_log_store` and `worker_multi_space`, and it was not swept
+  with the first.
+
+- **The mailbox drain could stall behind one blob.** A record the client has set
+  aside occupied the head of an oldest-first queue and the reply budget with it.
+  A FETCH may now name what it cannot use yet, and the relay skips those at
+  selection rather than after it. Additive in both directions: an empty list is
+  byte-for-byte the request that was sent before.
+
+- **A received bundle is copied out a megabyte at a time**, against a receiving
+  ceiling that describes this device rather than what the format allows.
+
+- **A received filename is a label, never a path**, and a stalled API response
+  loses its connection rather than only its slot.
+
 ## [0.12.0] — 2026-08-24
 
 Built on [veil v0.7.0](https://github.com/veilnetwork/veil/releases/tag/v0.7.0),
