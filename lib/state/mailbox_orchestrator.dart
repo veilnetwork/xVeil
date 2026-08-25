@@ -227,6 +227,30 @@ class MailboxOrchestrator {
   final Map<String, DateTime> _transientGaveUpUntil = {};
   static const _transientGaveUpMax = 512;
 
+  /// Content ids currently inside their back-off, as the relay wants them.
+  ///
+  /// Bounded by what the wire accepts — a relay truncates past its own cap, so
+  /// sending more is only waste — and by the fact that the map itself is
+  /// bounded. Oldest deadlines first: those are the ones most likely to still
+  /// be in the way when the next fetch lands.
+  List<Uint8List> _setAsideContentIds() {
+    final now = this.now();
+    final live =
+        _transientGaveUpUntil.entries
+            .where((e) => now.isBefore(e.value))
+            .toList()
+          ..sort((a, b) => a.value.compareTo(b.value));
+    return [for (final e in live.take(_maxSkipPerFetch)) _unhex(e.key)];
+  }
+
+  /// Mirrors the relay's own cap on the hint.
+  static const _maxSkipPerFetch = 64;
+
+  static Uint8List _unhex(String hex) => Uint8List.fromList([
+    for (var i = 0; i + 1 < hex.length; i += 2)
+      int.parse(hex.substring(i, i + 2), radix: 16),
+  ]);
+
   /// How long a blob that hit the cap is left alone before it is worth another
   /// try. Long against the ~20 s a failed open costs, short against the relay's
   /// seven-day TTL.
@@ -340,10 +364,19 @@ class MailboxOrchestrator {
       if (shouldContinue?.call() == false) break;
       cost.rounds++;
       final fetchSw = Stopwatch()..start();
+      // Told to the relay, not just remembered here.
+      //
+      // A relay serves oldest-first under a reply budget, so a blob we have
+      // set aside sits at the FRONT and is served again on every fetch —
+      // spending the slots and bytes everything behind it is waiting for. The
+      // back-off above bounds how long that lasts; saying so removes the wait
+      // entirely, on any relay new enough to read the field (report14
+      // X14-M4). One that is not serves exactly as it did.
       final blobs = await _relay.fetch(
         me: me,
         authCookie: authCookie,
         knownRelays: knownRelays,
+        skip: _setAsideContentIds(),
       );
       cost.fetchMs += fetchSw.elapsedMilliseconds;
       // A call may have started while the native FETCH was in flight. Leave
