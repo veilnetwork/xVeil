@@ -139,6 +139,7 @@ List<NodeId> nearestGroupNodesByXor(
   NodeId self,
   Iterable<NodeId> members, {
   int k = GroupService.kGroupSyncNeighbors,
+  Set<String>? reachable,
 }) {
   if (k <= 0) return const [];
   // No self-filter here, and its absence is deliberate. `self` is the SORT
@@ -154,7 +155,26 @@ List<NodeId> nearestGroupNodesByXor(
     for (final member in members) member.hex: member,
   }.values.toList();
   unique.sort((left, right) => _compareXorDistance(self, left, right));
-  return unique.length <= k ? unique : unique.sublist(0, k);
+  if (unique.length <= k) return unique;
+  // Reachable members first, XOR order kept INSIDE each half.
+  //
+  // The set is deterministic on identity and knows nothing about who is up, so
+  // a neighbour that goes away takes its slot with it: the overlay keeps
+  // addressing it, and this device's own gap-fill waits for it to come back.
+  // Sends are durable, so nothing is lost — but a member that never returns
+  // holds a slot forever, and the design was always meant to move on.
+  //
+  // A PREFERENCE, not a filter. The list is still filled to `k` from the
+  // nearest of the rest, so a stale or empty liveness view can only reorder
+  // this, never shrink it — with no view at all the result is what it was.
+  if (reachable == null || reachable.isEmpty) return unique.sublist(0, k);
+  final live = <NodeId>[];
+  final rest = <NodeId>[];
+  for (final member in unique) {
+    (reachable.contains(member.hex) ? live : rest).add(member);
+  }
+  final out = <NodeId>[...live, ...rest];
+  return out.sublist(0, k);
 }
 
 /// Flutter-free change signal used by both the GUI provider and headless host.
@@ -982,6 +1002,23 @@ class GroupService {
   /// Bounded RAM-only counters/events with a compile-time privacy-safe schema.
   Future<SpaceObservabilitySnapshot> spaceObservabilitySnapshot() async =>
       _observability.snapshot(replication: await _spaceReplicationSnapshot());
+
+
+  /// Members this device currently believes are up, as hex ids.
+  ///
+  /// Best effort and advisory: the overlay selection treats it as a preference
+  /// and still fills to `k`, so an empty or stale answer costs nothing. Errors
+  /// are swallowed for the same reason — a reader that throws must not stop a
+  /// delta going out.
+  Future<Set<String>?> _reachableNow() async {
+    final reader = _activePeers;
+    if (reader == null) return null;
+    try {
+      return {for (final peer in await reader()) peer.hex};
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<SpaceReplicationObservability> _spaceReplicationSnapshot() async {
     _purgeSpaceReceiptState();
@@ -14339,12 +14376,14 @@ class GroupService {
         if (!others.contains(device)) others.add(device);
       }
     }
+    final reachable = await _reachableNow();
     final basePeers = bundle.manifest.name == kDeviceGroupName
         ? others
         : nearestGroupNodesByXor(
             _signer.selfId,
             others,
             k: await readNeighborCount(),
+            reachable: reachable,
           );
     final peersById = <String, NodeId>{
       for (final peer in basePeers) peer.hex: peer,
@@ -14357,6 +14396,7 @@ class GroupService {
           _signer.selfId,
           clear.recipients,
           k: k,
+          reachable: reachable,
         )) {
           peersById[peer.hex] = peer;
         }
@@ -18553,7 +18593,12 @@ class GroupService {
         ? await groupSyncNeighborCount(groupId)
         : kGroupSyncNeighbors;
     final peers = sparse
-        ? nearestGroupNodesByXor(_signer.selfId, candidates, k: neighborCount)
+        ? nearestGroupNodesByXor(
+            _signer.selfId,
+            candidates,
+            k: neighborCount,
+            reachable: await _reachableNow(),
+          )
         : candidates;
     // The one place a membership-ending decision is handed to the person it
     // ends. `state` is folded AFTER the removal is already in the log, so the
