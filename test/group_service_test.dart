@@ -595,7 +595,8 @@ void main() {
       );
     }
 
-    final r = (await service.spaceObservabilitySnapshot()).replication;
+    final snapshot = await service.spaceObservabilitySnapshot();
+    final r = snapshot.replication;
     expect(r.chatGroups, 1);
     expect(
       r.chatGroupMembers,
@@ -608,6 +609,21 @@ void main() {
       reason:
           'one of the two is in the live peer table, and that ratio is what '
           'decides whether a liveness hint on the wire buys anything',
+    );
+
+    // And it SURVIVES serialization, because the only reader is an HTTP
+    // endpoint that serves `toJson()` — a number that exists on the object and
+    // not in the payload is a measurement nobody can take. (The API test for
+    // that route fakes this map wholesale, so it could never catch this.)
+    final wire = snapshot.toJson()['replication'] as Map<String, Object?>;
+    expect(wire['chatGroups'], 1);
+    expect(wire['chatGroupMembers'], 2);
+    expect(wire['chatGroupMembersActive'], 1);
+    // Counts only: a coverage metric must not become a membership listing.
+    expect(
+      RegExp(r'[0-9a-f]{64}').hasMatch(jsonEncode(wire)),
+      isFalse,
+      reason: 'the replication payload must carry no node ids',
     );
   });
 
@@ -625,8 +641,16 @@ void main() {
       role: GroupRole.member,
     );
 
-    final r = (await service.spaceObservabilitySnapshot()).replication;
+    final snapshot = await service.spaceObservabilitySnapshot();
+    final r = snapshot.replication;
     expect(r.chatGroupMembers, 1);
+    expect(
+      (snapshot.toJson()['replication'] as Map)['chatGroupMembersActive'],
+      -1,
+      reason:
+          'the map is Object-valued, so "unknown" crosses as -1 — a reader '
+          'deserves to tell it from "none of them are up"',
+    );
     expect(
       r.chatGroupMembersActive,
       isNull,
