@@ -65,6 +65,7 @@ import 'custom_emoji_controller.dart';
 import 'reactors_sheet.dart';
 import 'vnote_preview.dart';
 import 'video_player_screen.dart';
+import '../../domain/file_names.dart';
 
 part 'chat_message_widgets.dart';
 part 'chat_composer.dart';
@@ -104,13 +105,12 @@ String _uncontestedPath(String dir, String name) {
   return '$dir/$name';
 }
 
-String _safeDownloadName(String? value) {
-  final sanitized = (value ?? 'file').trim().replaceAll(
-    RegExp(r'[/\\\x00]'),
-    '_',
-  );
-  return sanitized.isEmpty ? 'file' : sanitized;
-}
+/// The name offered when the person saves a received file.
+///
+/// Delegates, so this and the manifest boundary cannot drift apart. The local
+/// version handled `/`, `\\` and NUL but not `.`/`..` — which as a leaf name
+/// the whole directory, not a file in it — nor other control characters.
+String _safeDownloadName(String? value) => safeFileLeaf(value);
 
 Future<void> _cancelContentDownload(WidgetRef ref, String contentId) async {
   final partialPath = await ref

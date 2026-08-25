@@ -33,7 +33,9 @@ void main() {
     }
     container = ProviderContainer(
       overrides: [
-        translationModelsRootProvider.overrideWithValue(() async => translateRoot),
+        translationModelsRootProvider.overrideWithValue(
+          () async => translateRoot,
+        ),
       ],
     );
     addTearDown(container.dispose);
@@ -81,17 +83,23 @@ void main() {
     expect(Directory('${translateRoot.path}/ru-en').existsSync(), isTrue);
   });
 
-  test('a file that is not a bundle fails with a reason, and does not throw',
-      () async {
-    final junk = File('${tmp.path}/holiday.jpg')..writeAsStringSync('nope');
-    final result = await installReceivedModel(
-      junk,
-      into: targetsFromContainer(container),
-    );
-    expect(result.succeeded, isFalse);
-    expect(result.error, isNotEmpty);
-    expect(result.kind, isNull, reason: 'nothing was readable to name a kind');
-  });
+  test(
+    'a file that is not a bundle fails with a reason, and does not throw',
+    () async {
+      final junk = File('${tmp.path}/holiday.jpg')..writeAsStringSync('nope');
+      final result = await installReceivedModel(
+        junk,
+        into: targetsFromContainer(container),
+      );
+      expect(result.succeeded, isFalse);
+      expect(result.error, isNotEmpty);
+      expect(
+        result.kind,
+        isNull,
+        reason: 'nothing was readable to name a kind',
+      );
+    },
+  );
 
   test('a failure carries the reason the controller gave', () async {
     // Sizes honest, hash a lie: past every length check, caught by hashing.
@@ -129,8 +137,7 @@ void main() {
   });
 
   group('provenance decides before anything is unpacked', () {
-    test('an unpinned model is not installed, and does not fail either',
-        () async {
+    test('an unpinned model is not installed, and does not fail either', () async {
       // The live state today: nothing is pinned for language pairs, so this is
       // what a person actually meets. It must be a QUESTION, not a silent
       // install and not an error — the bundle is fine, its origin is unsettled.
@@ -150,7 +157,11 @@ void main() {
       );
       expect(result.needsDecision, isTrue);
       expect(result.succeeded, isFalse);
-      expect(result.error, isNull, reason: 'nothing went wrong; nothing was decided');
+      expect(
+        result.error,
+        isNull,
+        reason: 'nothing went wrong; nothing was decided',
+      );
       expect(result.verdict!.status, ModelProvenance.unknown);
     });
 
@@ -180,7 +191,11 @@ void main() {
           kBundleTranslate: {for (final f in info.files) f.name: f.sha256},
         },
       );
-      expect(result.needsDecision, isFalse, reason: 'it matched what was pinned');
+      expect(
+        result.needsDecision,
+        isFalse,
+        reason: 'it matched what was pinned',
+      );
       expect(result.succeeded, isTrue, reason: result.error);
       expect(Directory('${translateRoot.path}/ru-en').existsSync(), isTrue);
     });
@@ -191,8 +206,11 @@ void main() {
       final bundle = await pairBundle();
       final bytes = bundle.readAsBytesSync();
 
-      final written = await materialiseBundle(bytes, name: 'ru-en.veiltranslate');
-      addTearDown(() => written.parent.deleteSync(recursive: true));
+      // No name: the leaf is chosen by the staging, and the sender's name is
+      // a label for the card (report14 X14-H1).
+      final staged = await materialiseBundle(bytes);
+      addTearDown(staged.dispose);
+      final written = staged.file;
 
       expect(written.readAsBytesSync(), equals(bytes));
       // Not beside the models: a crash mid-install must not leave something

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'file_names.dart';
 
 /// A content-addressed, hash-verified file manifest — the "torrent file" of the
 /// decentralized content layer. A file is split into fixed-size PIECES; each
@@ -364,6 +365,19 @@ class ContentManifest {
     try {
       final id = j['id'] as String;
       final name = j['name'] as String;
+      // A DISPLAY name, and nothing else. It reaches `Message.fileName` and
+      // from there the places that offer to save the file, one of which used
+      // it as a path component and deleted that path's parent afterwards
+      // (report14 X14-H1). The uses were fixed; this refuses the input as
+      // well, because every sender in this project takes the last segment of
+      // a path, so a name carrying a separator, a control character or a
+      // directory alias is not something an honest peer produces.
+      //
+      // Refusing costs the whole transfer, which is the right price: the name
+      // is bound into `contentId`, so it cannot be corrected here without
+      // breaking the self-consistency check that makes the manifest
+      // tamper-evident.
+      if (!isSafeFileLabel(name)) return null;
       final size = j['size'] as int;
       final ps = j['ps'] as int;
       // chunkBytes is a transport hint (not in contentId); tolerate an older
