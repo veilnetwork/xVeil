@@ -25,11 +25,20 @@ class _SizeReportingStorage extends HiddenVolumeStorage {
   int? reportedSize;
 
   /// Bytes this fake would have allocated: null when the ceiling refused the
-  /// read, which is the whole property under test.
+  /// read, which is the whole property under test. It must now stay null
+  /// ALWAYS — the install streams, and reading a blob whole is the allocation
+  /// the streaming exists to avoid (report14 X14-M2).
   int? allocated;
 
+  /// How often the size was consulted. The refusal is decided from the store's
+  /// own record, so this is what proves the card got that far.
+  int sizeQueries = 0;
+
   @override
-  Future<int?> fileSize(String fileId) async => reportedSize;
+  Future<int?> fileSize(String fileId) async {
+    sizeQueries++;
+    return reportedSize;
+  }
 
   @override
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
@@ -189,7 +198,7 @@ void main() {
   ) async {
     final storage = _SizeReportingStorage(
       ({required Uint8List password, required bool create}) => FakeKvLogStore(),
-    )..reportedSize = kMaxBundleBytes + 1;
+    )..reportedSize = kMaxReceivedBundleBytes + 1;
     await storage.open(password: 'pw', createIfMissing: true);
 
     await tester.pumpWidget(
@@ -225,7 +234,7 @@ void main() {
     expect(find.textContaining('too large'), findsOneWidget);
   });
 
-  testWidgets('a blob within the ceiling is still read', (tester) async {
+  testWidgets('a blob within the ceiling is not refused', (tester) async {
     final storage = _SizeReportingStorage(
       ({required Uint8List password, required bool create}) => FakeKvLogStore(),
     )..reportedSize = 64 * 1024;
@@ -254,10 +263,28 @@ void main() {
       await tester.pump(const Duration(milliseconds: 20));
     }
 
+    // A guard that refuses everything is not a guard. What is checked here is
+    // the DECISION, not the copy: the copy is real file I/O, which inside
+    // `testWidgets` does not fail — it hangs — and it has its own test in
+    // bundle_staging_streams_test.dart.
+    expect(
+      storage.sizeQueries,
+      greaterThan(0),
+      reason:
+          'the refusal is decided from the stored size, so the card has '
+          'to have asked for it',
+    );
+    expect(
+      find.textContaining('too large'),
+      findsNothing,
+      reason: '64 KiB is nowhere near what this device declines',
+    );
     expect(
       storage.allocated,
-      64 * 1024,
-      reason: 'a guard that refuses everything is not a guard',
+      isNull,
+      reason:
+          'the install streams; pulling the blob whole is the allocation '
+          'that took phones down',
     );
   });
 }
