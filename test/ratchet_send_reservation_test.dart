@@ -140,7 +140,11 @@ class _Node implements RatchetStateHandle {
   ]);
 }
 
-Uint8List _convKey({required int local, required int peerNode}) {
+Uint8List _convKey({
+  required int local,
+  required int peerNode,
+  int peerInstance = 0,
+}) {
   // The peer's node id sits at [kRatchetKeyPeerNodeOffset] and OVERLAPS the
   // local part, so it is written second and wholly. Filling both in one loop
   // let the local bytes land back on top of the first half of the peer id,
@@ -148,6 +152,11 @@ Uint8List _convKey({required int local, required int peerNode}) {
   final out = Uint8List(kRatchetKeyLen)..fillRange(0, kRatchetKeyLen, local);
   for (var i = 0; i < 32; i++) {
     out[kRatchetKeyPeerNodeOffset + i] = peerNode;
+  }
+  // The peer's DEVICE instance is the tail, past the node id — what makes two
+  // conversations with one correspondent distinct.
+  for (var i = kRatchetKeyPeerNodeOffset + 32; i < kRatchetKeyLen; i++) {
+    out[i] = peerInstance;
   }
   return out;
 }
@@ -202,27 +211,56 @@ void main() {
     }
   });
 
-  test('the reservation does not walk every conversation per send', () async {
+  test('the reservation writes once per run, not once per send', () async {
+    // What the reservation amortises is the durable WRITE. It used to also
+    // cache the conversation list, and that cache was the X14-H3 hole: keyed
+    // by the peer, it covered the first device forever. Listing is cheap —
+    // 64 bytes per conversation held — and is now done every time; this pins
+    // the part that is actually expensive.
     final node = _Node();
     final ratchet = RatchetPersistence(native: node, storage: storage);
     node.seal(key);
     await ratchet.flush(why: 'setup');
 
     await ratchet.reserveBeforePublish(peer);
-    final after1 = node.listCalls;
-    expect(after1, greaterThan(0), reason: 'the first one has to look');
+    final first = await storage.getSetting(ratchetReservationKey(key));
+    expect(first, isNotNull);
 
-    for (var i = 0; i < 20; i++) {
+    for (var i = 0; i < RatchetPersistence.reserveAhead ~/ 2; i++) {
       node.seal(key);
       await ratchet.reserveBeforePublish(peer);
     }
     expect(
-      node.listCalls,
-      after1,
+      await storage.getSetting(ratchetReservationKey(key)),
+      first,
+      reason: 'these sends are inside the run already on disk',
+    );
+  });
+
+  test('a second device of the same peer is reserved too', () async {
+    // A conversation key is `local instance || peer node || peer instance`, so
+    // one peer has one per device. A cache keyed only by the PEER answered for
+    // device A forever, and the conversation with device B — a second phone, a
+    // reinstall — was never reserved (report14 X14-H3).
+    final node = _Node();
+    final ratchet = RatchetPersistence(native: node, storage: storage);
+    final deviceA = key;
+    node.seal(deviceA);
+    await ratchet.flush(why: 'setup');
+    await ratchet.reserveBeforePublish(peer);
+    expect(await storage.getSetting(ratchetReservationKey(deviceA)), isNotNull);
+
+    // The same peer reaches us from another device. Nothing about A changed.
+    final deviceB = _convKey(local: 1, peerNode: 2, peerInstance: 7);
+    node.seal(deviceB);
+    await ratchet.reserveBeforePublish(peer);
+
+    expect(
+      await storage.getSetting(ratchetReservationKey(deviceB)),
+      isNotNull,
       reason:
-          'listing copies EVERY conversation key out of the node — in '
-          'production an FFI call — so doing it per message is a scan per '
-          'message',
+          'the send native picks is per DEVICE, so a reservation that only '
+          'ever covers the first one leaves the rest publishing unguarded',
     );
   });
 
