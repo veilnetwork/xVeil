@@ -1,3 +1,4 @@
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -72,6 +73,23 @@ part 'messaging_inbound_dispatch.dart';
 /// stream, which keeps it testable and avoids invalidating providers from
 /// async stream callbacks.
 class MessagingService {
+  /// The live-resend delay one frame actually waits, for the test that pins
+  /// the SPREAD.
+  ///
+  /// The ladder is per frame and saturates: past about six attempts every
+  /// pending frame waits the same ten minutes, so frames queued together come
+  /// due together and one pass emits the lot. Measured on the phone against
+  /// three offline contacts: four bursts of 1100-1600 sends inside 6-7 seconds
+  /// while the ticks between them were three sends a minute.
+  ///
+  /// `durable_redrive_test` pins the ladder itself and would stay green with
+  /// the offset deleted — it only ever advances the clock far enough for one
+  /// frame. A named seam, because the spread is a property of the DELAY and
+  /// standing up a live outbox to observe it would test the plumbing instead.
+  @visibleForTesting
+  static int debugLiveResendDelayMs(int delayMs, String frameId) =>
+      _MessagingOutbox._jittered(delayMs, frameId);
+
   MessagingService(
     this._transport,
     this._storage, {
