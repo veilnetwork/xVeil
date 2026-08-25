@@ -60,48 +60,38 @@ class _ModelBundleCardState extends ConsumerState<ModelBundleCard> {
     });
     StagedBundle? staged;
     try {
-      // WITH THE CEILING, so the read itself is bounded.
+      // STREAMED, never read whole.
       //
-      // This used to be a bare `loadFile`: the whole blob was pulled into RAM
-      // and the bundle's own 2 GiB ceiling was applied by the reader that runs
-      // after it, so the allocation the ceiling exists to prevent had already
-      // happened by the time anyone looked. A received file is whatever the
-      // other side sent.
-      //
-      // The argument, not a size read here: `loadFile` checks the STORED size,
-      // which is the one number that describes the bytes about to be
-      // allocated — see its own contract for why a call-site check on a
-      // sender-supplied size is not the same thing.
+      // This used to be a `loadFile` with a ceiling: the entire blob came into
+      // RAM and the stage then wrote a second full copy, so the peak was twice
+      // a model against a 2 GiB bound that describes the FORMAT rather than
+      // the phone. A bundle anywhere near that bound did not get refused, it
+      // took the app down (report14 X14-M2). Now the size is checked from the
+      // store's own record before a byte is read, and the copy runs a
+      // megabyte at a time.
       final storage = ref.read(storageProvider);
-      final bytes = await storage.loadFile(
-        widget.fileKey,
-        maxBytes: kMaxBundleBytes,
-      );
-      if (bytes == null) {
-        // Null covers both "not here" and "past the ceiling", and the two read
-        // very differently to a person. Only now is it worth a second question
-        // — and it allocates nothing.
-        final stored = await storage.fileSize(widget.fileKey);
-        if (stored != null && stored > kMaxBundleBytes) {
-          if (mounted) {
-            setState(() => _error = AppL10n.of(context).modelBundleTooLarge);
-          }
+      final stage = await stageReceivedBundle(storage, widget.fileKey);
+      // Held BEFORE the mounted check: a screen closed mid-stage still leaves
+      // a full copy of a model in the temp directory unless `finally` can see
+      // it.
+      staged = stage.bundle;
+      if (!mounted) return;
+      switch (stage.refusal) {
+        case BundleStageRefusal.tooLarge:
+          setState(() => _error = AppL10n.of(context).modelBundleTooLarge);
           return;
-        }
-        // Silence here was a defect: tapping Install did nothing at all, with
-        // no error and no change, which reads as a dead button. It happens
-        // when the blob is gone — a cleared history, a store that never
-        // finished the download.
-        if (mounted) {
+        case BundleStageRefusal.missing:
+          // Silence here was a defect: tapping Install did nothing at all,
+          // with no error and no change, which reads as a dead button. It
+          // happens when the blob is gone — a cleared history, a store that
+          // never finished the download.
           setState(() => _error = AppL10n.of(context).modelBundleMissing);
-        }
-        return;
+          return;
+        case null:
+          break;
       }
-      // No name is passed: the sender's is a label for the card, not a place
-      // on this disk (report14 X14-H1).
-      staged = await materialiseBundle(bytes);
       var result = await installReceivedModel(
-        staged.file,
+        staged!.file,
         into: targetsFromWidgetRef(ref),
       );
       if (!mounted) return;

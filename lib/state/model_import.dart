@@ -13,6 +13,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../data/model_provenance.dart';
+import '../data/storage/storage.dart';
 import '../data/veil_bundle.dart';
 import 'translation_model_controller.dart';
 import 'whisper_model_controller.dart';
@@ -67,22 +68,106 @@ class StagedBundle {
   }
 }
 
+/// How much of a received bundle is held in RAM at once while it is staged.
+///
+/// One megabyte, because the point is that the number is small and fixed.
+const int _stageChunkBytes = 1024 * 1024;
+
+/// Refusals [stageReceivedBundle] can give, so the caller can say which.
+enum BundleStageRefusal {
+  /// The blob is not in the store — a cleared history, a download that never
+  /// finished.
+  missing,
+
+  /// Larger than this device is willing to receive.
+  tooLarge,
+}
+
+class BundleStageResult {
+  const BundleStageResult.staged(StagedBundle this.bundle) : refusal = null;
+  const BundleStageResult.refused(BundleStageRefusal this.refusal)
+    : bundle = null;
+
+  final StagedBundle? bundle;
+  final BundleStageRefusal? refusal;
+}
+
+/// Copy a received bundle out of the store and onto disk, a chunk at a time.
+///
+/// STREAMED, and that is the whole reason this exists rather than the caller
+/// reading the blob and handing over bytes. Installing used to pull the entire
+/// thing into one `Uint8List` and then write a second full copy to the stage:
+/// two complete copies of a model in RAM at the peak, against a ceiling of
+/// 2 GiB. That ceiling is what the FORMAT arithmetic can be trusted with, not
+/// what a phone can hold, and a bundle anywhere near it took the app down
+/// rather than being refused (report14 X14-M2).
+///
+/// Now the peak is [_stageChunkBytes] regardless of the bundle's size, and the
+/// size is checked against [kMaxReceivedBundleBytes] BEFORE anything is read —
+/// against the store's own record of the stored length, not against a number
+/// the sender wrote down.
+Future<BundleStageResult> stageReceivedBundle(
+  Storage storage,
+  String fileKey, {
+  int maxBytes = kMaxReceivedBundleBytes,
+}) async {
+  final size = await storage.fileSize(fileKey);
+  if (size == null) {
+    return const BundleStageResult.refused(BundleStageRefusal.missing);
+  }
+  if (size > maxBytes) {
+    return const BundleStageResult.refused(BundleStageRefusal.tooLarge);
+  }
+
+  final dir = await Directory.systemTemp.createTemp('xveil-bundle');
+  // The leaf name is FIXED and internal. Nothing downstream reads it: the kind
+  // of model a bundle holds is decided by its manifest, which is the point
+  // `installReceivedModel` is built around, and the extension is a label the
+  // card shows from the message rather than from this path. A received name
+  // therefore has no reason to reach the filesystem, and every reason not to
+  // (report14 X14-H1).
+  final file = File('${dir.path}/staged.veilbundle');
+  final staged = StagedBundle(file, dir);
+  final sink = file.openWrite();
+  try {
+    for (var offset = 0; offset < size; offset += _stageChunkBytes) {
+      final want = size - offset < _stageChunkBytes
+          ? size - offset
+          : _stageChunkBytes;
+      final chunk = await storage.readFileRange(fileKey, offset, want);
+      if (chunk == null || chunk.isEmpty) {
+        // A record that went missing under us. Nothing partial is left behind
+        // for the reader to choke on.
+        await sink.close();
+        await staged.dispose();
+        return const BundleStageResult.refused(BundleStageRefusal.missing);
+      }
+      sink.add(chunk);
+      // Let the write drain before the next megabyte is read, or the sink's
+      // own buffer becomes the second full copy this exists to avoid.
+      await sink.flush();
+    }
+    await sink.close();
+  } catch (_) {
+    await sink.close().catchError((_) {});
+    await staged.dispose();
+    rethrow;
+  }
+  return BundleStageResult.staged(staged);
+}
+
 /// Write [bytes] somewhere the bundle reader can stream them from.
 ///
-/// The reader works on a file rather than a buffer on purpose — a pair is tens
-/// of megabytes and holding one twice over is a spike a phone notices. A
-/// received file comes out of the encrypted store as bytes, so this is the
-/// bridge, and it is the only place the whole thing sits in memory.
+/// For callers that ALREADY hold the bytes — a test, or an import from a
+/// buffer. A received bundle goes through [stageReceivedBundle] instead, which
+/// never holds more than a chunk.
 ///
 /// The caller disposes it. Left in the system temp directory rather than
 /// beside the models, so a crash mid-install cannot leave something that looks
 /// like a half-installed pair.
 ///
-/// The leaf name is FIXED and internal. Nothing downstream reads it: the kind
-/// of model a bundle holds is decided by its manifest, which is the point
-/// `installReceivedModel` is built around, and the extension is a label the
-/// card shows from the message rather than from this path. A received name
-/// therefore has no reason to reach the filesystem, and every reason not to.
+/// The leaf name is fixed and internal, for the reason given in
+/// [stageReceivedBundle].
 Future<StagedBundle> materialiseBundle(Uint8List bytes) async {
   final dir = await Directory.systemTemp.createTemp('xveil-bundle');
   final file = File('${dir.path}/staged.veilbundle');
