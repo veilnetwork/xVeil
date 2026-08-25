@@ -409,7 +409,6 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   /// Racing each wait against this turns an invisible hang into an error the
   /// caller can report and recover from.
   final WorkerDeath _watch;
-  Future<Never> get _death => _watch.future;
   bool _closed = false;
 
   /// Spawn a worker that opens (or, with [create], opens-or-adds) the space at
@@ -474,7 +473,7 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     );
     Object? first;
     try {
-      first = await Future.any<Object?>([boot.first, death.future]);
+      first = await death.race(boot.first);
     } catch (e) {
       boot.close();
       death.dispose();
@@ -509,7 +508,7 @@ class WorkerKvLogStore implements AsyncKvLogStore {
       _toWorker.send(build(reply.sendPort));
       // Raced against the worker's death (audit XV-07): without it a crashed
       // worker leaves this pending forever, and every later call joins it.
-      final r = await Future.any<Object?>([reply.first, _death]);
+      final r = await _watch.race(reply.first);
       if (r is _Err) throw hv.HvException(r.kind, r.message);
       return (r as _Ok).value as T;
     } finally {
@@ -584,10 +583,9 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     try {
       // The worker never replies a bare null (`_Ok`/`_Err` are objects), so null
       // unambiguously means the timeout fired.
-      r = await Future.any<Object?>([
-        done,
-        _death,
-      ]).timeout(closeTimeout, onTimeout: () => null);
+      r = await _watch
+          .race(done)
+          .timeout(closeTimeout, onTimeout: () => null);
     } catch (e) {
       // The worker died mid-close. Nothing is left to wait for, and whether the
       // container handle was released with it is not something this can claim.
