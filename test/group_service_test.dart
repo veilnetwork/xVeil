@@ -564,6 +564,97 @@ void main() {
     );
   });
 
+  /// How much of a chat's membership this device can actually see.
+  ///
+  /// The sparse overlay prefers members it believes are up and can only choose
+  /// among the ones it can SEE — the node's live peer table. Whether a liveness
+  /// hint on the wire would buy anything is therefore a RATIO, and it was
+  /// measured for spaces only: the observability pass skipped every non-space
+  /// outright. Measuring before building is how this project settled its
+  /// idle-traffic work.
+  test('a chat is counted for coverage, and its live share with it', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      activePeers: () async => {bob},
+    );
+    addTearDown(service.dispose);
+
+    final gid = await service.createGroup('Family');
+    for (final peer in [bob, carol]) {
+      expect(
+        await service.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: peer,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+    }
+
+    final r = (await service.spaceObservabilitySnapshot()).replication;
+    expect(r.chatGroups, 1);
+    expect(
+      r.chatGroupMembers,
+      2,
+      reason: 'the owner is not a member it could sync WITH',
+    );
+    expect(
+      r.chatGroupMembersActive,
+      1,
+      reason:
+          'one of the two is in the live peer table, and that ratio is what '
+          'decides whether a liveness hint on the wire buys anything',
+    );
+  });
+
+  test('an unreadable peer table is not the same as nobody being up', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner));
+    addTearDown(service.dispose);
+
+    final gid = await service.createGroup('Family');
+    await service.addControlOp(
+      gid,
+      ControlOp.addMember,
+      target: bob,
+      role: GroupRole.member,
+    );
+
+    final r = (await service.spaceObservabilitySnapshot()).replication;
+    expect(r.chatGroupMembers, 1);
+    expect(
+      r.chatGroupMembersActive,
+      isNull,
+      reason:
+          'with no reader wired the answer is unknown, and reporting 0 would '
+          'read as a total outage',
+    );
+  });
+
+  test('a chat with nobody else in it is not counted', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      activePeers: () async => const <NodeId>{},
+    );
+    addTearDown(service.dispose);
+    await service.createGroup('Just me');
+
+    final r = (await service.spaceObservabilitySnapshot()).replication;
+    expect(
+      r.chatGroups,
+      0,
+      reason: 'a group with no other member says nothing about coverage',
+    );
+  });
+
   test(
     'group chats and Spaces have disjoint creation and list semantics',
     () async {
