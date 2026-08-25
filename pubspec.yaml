@@ -44,6 +44,13 @@ dependencies:
   go_router: ^17.3.0
   # i18n — primary audience is Russian-speaking users in censored regions.
   intl: any
+  # `@visibleForTesting` on the headless daemon's import path. Flutter re-exports
+  # it through `foundation.dart`, which that path must not import — one
+  # package:flutter import stopped `dart build cli` producing the daemon at all
+  # (see the note in lib/data/veil_stack.dart). Declared rather than taken
+  # transitively so `flutter analyze` stays clean, which the release tag runs
+  # before anything else.
+  meta: ^1.16.0
   # Unicode grapheme boundaries for the shared-note sequence CRDT. Flutter
   # selections use UTF-16 offsets, but CRDT atoms must never split emoji or a
   # combining sequence into independently deletable halves.
