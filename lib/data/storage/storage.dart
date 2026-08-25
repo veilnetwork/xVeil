@@ -439,10 +439,18 @@ abstract interface class Storage {
 
   /// Forget the kept warning — "I have shown this to the person".
   ///
-  /// Clears BOTH copies: this store's durable one and the container's own
-  /// sticky record. Acknowledging only one would leave the other to re-report
-  /// it forever, and the container's contract for its half is exactly this
-  /// sentence.
+  /// Clears BOTH copies: the container's own sticky record first, then this
+  /// store's durable one. Acknowledging only one would leave the other to
+  /// re-report it forever, and the container's contract for its half is
+  /// exactly this sentence.
+  ///
+  /// THROWS if the container refuses, and then nothing is cleared: an
+  /// acknowledgement that half happened must read as not having happened, or
+  /// the app side hides a record the container is still holding.
+  ///
+  /// Clearing is not a tombstone. A later hardening failure — a padding, churn
+  /// or sync step that fails next week — is a new record and is reported
+  /// again; only THIS one is dismissed.
   Future<void> acknowledgeHardeningWarning();
 
   /// Bench/debug: entry counts per storage namespace, for diagnosing which

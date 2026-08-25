@@ -32,8 +32,15 @@ class FakeKvLogStore implements KvLogStore {
   /// How many times the container was told the person has seen it.
   int hardeningAcknowledgements = 0;
 
+  /// Make the container refuse the acknowledgement. Its record then stays, and
+  /// so must the app's — a half-done acknowledgement is not one.
+  bool hardeningAcknowledgeThrows = false;
+
   @override
   void acknowledgeHardeningWarning() {
+    if (hardeningAcknowledgeThrows) {
+      throw StateError('the container refused the acknowledgement');
+    }
     hardeningAcknowledgements++;
     stagedHardeningWarning = null;
   }
