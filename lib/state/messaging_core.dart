@@ -685,6 +685,15 @@ class MessagingService {
     // any other, and the durable outbox re-drives the frame when the container
     // comes back, so the message is queued rather than lost.
     await _requireDurableRatchet();
+    // Where the chain is ALLOWED to get to, on disk before anything sealed
+    // from it is observable (report12 X-H5). The state itself still follows
+    // the send — it is far too big to write first — but a reservation is 36
+    // bytes and costs a container write only once every
+    // `RatchetPersistence.reserveAhead` messages. What it buys: a state write
+    // that never lands can no longer let a restart re-derive a key this frame
+    // already spent, because the recovery on start steps over every index the
+    // reservation covers.
+    await _reserveRatchetSendWindow(dst);
     final sw = Stopwatch()..start();
     if (_anonymous && wantReply) {
       await _transport.sendWithReply(dst, payload);
@@ -841,6 +850,27 @@ class MessagingService {
     // `flush` clears the mark only on a pass that reached the container, so a
     // still-set flag here means the retry did not get there either.
     if (ratchet.degraded) throw const RatchetNotDurable(null);
+  }
+
+  /// Ensure a durable reservation covers the indices this send may use.
+  ///
+  /// Never throws: unlike the flush this guards, a reservation that cannot be
+  /// written is not a reason to hold the message — the send is no worse off
+  /// than it was before this existed, and `degraded` already reports a
+  /// container that is refusing writes. It IS worth saying, because a silent
+  /// failure here quietly removes the guarantee.
+  Future<void> _reserveRatchetSendWindow(NodeId dst) async {
+    final ratchet = this.ratchet;
+    if (ratchet == null) return;
+    try {
+      await ratchet.reserveBeforePublish(dst);
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[ratchet]: send-window reservation FAILED for ${dst.short}: '
+            '$e — a lost state write is unguarded until one succeeds',
+      );
+    }
   }
 
   Future<void> _persistRatchet(String why) async {
