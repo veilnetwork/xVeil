@@ -1032,6 +1032,17 @@ class GroupService {
       }
     }
 
+    // Chat groups too, counted separately so the space numbers keep meaning
+    // what they meant. This pair IS the question the sparse overlay turns on:
+    // of the members a chat could sync with, how many does this device
+    // currently hold a live connection to? Selection prefers reachable members
+    // and can only choose among those it can SEE, so a low ratio is the size
+    // of what a liveness hint on the wire would buy — and a high one says it
+    // would buy nothing.
+    var chatGroups = 0;
+    var chatGroupMembers = 0;
+    var chatGroupMembersActive = 0;
+
     var spaces = 0;
     var eligibleRemoteSpreaders = 0;
     var availableRemoteSpreaders = 0;
@@ -1058,7 +1069,30 @@ class GroupService {
     for (final hex in await _index()) {
       try {
         final bundle = await load(NodeId.fromHex(hex));
-        if (bundle == null || !bundle.manifest.isSpace) continue;
+        if (bundle == null) continue;
+        if (!bundle.manifest.isSpace) {
+          if (bundle.manifest.name == kDeviceGroupName) continue;
+          final chatState = foldControlLog(
+            owner: bundle.manifest.owner,
+            entries: bundle.control,
+            verify: (entry) => _validControlFor(bundle.manifest, entry),
+            initialName: bundle.manifest.name,
+            initialDescription: bundle.manifest.description ?? '',
+          ).state;
+          final others = [
+            for (final member in chatState.members.values)
+              if (member.nodeId != _signer.selfId) member.nodeId,
+          ];
+          if (others.isEmpty) continue;
+          chatGroups++;
+          chatGroupMembers += others.length;
+          if (activePeerIds != null) {
+            chatGroupMembersActive += others
+                .where((peer) => activePeerIds!.contains(peer.hex))
+                .length;
+          }
+          continue;
+        }
         final state = foldControlLog(
           owner: bundle.manifest.owner,
           entries: bundle.control,
@@ -1198,6 +1232,11 @@ class GroupService {
     return SpaceReplicationObservability(
       liveSourceAvailable: liveSourceAvailable,
       spaces: spaces,
+      chatGroups: chatGroups,
+      chatGroupMembers: chatGroupMembers,
+      chatGroupMembersActive: activePeerIds == null
+          ? null
+          : chatGroupMembersActive,
       eligibleRemoteSpreaders: eligibleRemoteSpreaders,
       targetReplicationFactorTotal: targetReplicationFactorTotal,
       confirmedProofTtlMs: _spaceReceiptTtl.inMilliseconds,
