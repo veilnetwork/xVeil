@@ -561,6 +561,17 @@ class EmbeddedNode {
       // secret.
       wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
       calloc.free(phraseC);
+      // The config is a secret too, and this copy was neither wiped nor freed.
+      // veil's contract for this entry point says so in as many words:
+      // `identity_toml` carries the node's private key and is NOT zeroized
+      // there, the caller owns those bytes. The Dart string is collected; this
+      // NATIVE copy is not, so the node's private key sat in a leaked block
+      // for the life of the process — the same shape as the selector token in
+      // report10 X-09, on the more valuable secret.
+      if (tomlC != null) {
+        wipeNativeSecret(tomlC.cast<Uint8>(), tomlC.length);
+        calloc.free(tomlC);
+      }
       calloc.free(dirC);
       calloc.free(labelC);
       calloc.free(errOut);
