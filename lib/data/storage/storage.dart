@@ -437,6 +437,14 @@ abstract interface class Storage {
   /// a settings key shows it to nobody.
   Future<String?> retainHardeningWarning();
 
+  /// Forget the kept warning — "I have shown this to the person".
+  ///
+  /// Clears BOTH copies: this store's durable one and the container's own
+  /// sticky record. Acknowledging only one would leave the other to re-report
+  /// it forever, and the container's contract for its half is exactly this
+  /// sentence.
+  Future<void> acknowledgeHardeningWarning();
+
   /// Bench/debug: entry counts per storage namespace, for diagnosing which
   /// namespace is approaching the log-index cap. Message-log diagnostics also
   /// split the total into legacy/sharded rows and report the active shard count.

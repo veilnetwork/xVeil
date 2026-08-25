@@ -6538,4 +6538,23 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get networkBackgroundNeverAsk => 'Больше не спрашивать';
+
+  @override
+  String get settingsStorageHardening => 'Шаг маскировки не завершился';
+
+  @override
+  String settingsStorageHardeningBody(String detail) {
+    return 'Одна запись легла без обычной маскировки: $detail. Данные целы; под вопросом лишь то, что снимок этого файла способен сказать про ту единственную запись. Последующие записи не затронуты.';
+  }
+
+  @override
+  String get settingsStorageHardeningDismiss => 'Понятно';
+
+  @override
+  String get hardeningSyncNoticeTitle =>
+      'Маскирующие записи, возможно, ещё не на диске';
+
+  @override
+  String get hardeningSyncNoticeBody =>
+      'Данные сохранены. Дополнительные записи, скрывающие ЧТО изменилось, на момент сообщения до диска не дошли. Если устройство потеряет питание раньше них, снимок, снятый после, покажет больше, чем должен.';
 }

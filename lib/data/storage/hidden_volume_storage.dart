@@ -2833,10 +2833,28 @@ class HiddenVolumeStorage implements Storage {
   static const _kHardeningWarningSetting = 'container_hardening_warning';
 
   @override
+  Future<void> acknowledgeHardeningWarning() async {
+    // Both copies, or the one left standing re-reports it forever.
+    await putSetting(_kHardeningWarningSetting, '');
+    final store = _store;
+    if (store == null) return;
+    try {
+      await store.acknowledgeHardeningWarning();
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: hardening acknowledge failed: $e');
+    }
+  }
+
+  @override
   Future<String?> retainHardeningWarning() async {
     final store = _store;
     if (store == null) return null;
-    final kept = await getSetting(_kHardeningWarningSetting);
+    final stored = await getSetting(_kHardeningWarningSetting);
+    // An EMPTY value is "acknowledged", not "never seen": without the
+    // distinction the next read would take the container's still-fresh record
+    // and put the warning back the moment it was dismissed.
+    if (stored != null && stored.isEmpty) return null;
+    final kept = stored;
     final String? fresh;
     try {
       fresh = await store.hardeningWarning();

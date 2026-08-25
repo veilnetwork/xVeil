@@ -6556,4 +6556,24 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get networkBackgroundNeverAsk => 'No volver a preguntar';
+
+  @override
+  String get settingsStorageHardening =>
+      'Un paso de enmascaramiento no se completó';
+
+  @override
+  String settingsStorageHardeningBody(String detail) {
+    return 'Una escritura quedó sin su disfraz habitual: $detail. Los datos están intactos; lo que está en duda es lo que una instantánea de este archivo podría revelar sobre esa escritura. Las siguientes no se ven afectadas.';
+  }
+
+  @override
+  String get settingsStorageHardeningDismiss => 'Entendido';
+
+  @override
+  String get hardeningSyncNoticeTitle =>
+      'Las escrituras de enmascaramiento quizá no estén en disco';
+
+  @override
+  String get hardeningSyncNoticeBody =>
+      'Tus datos están guardados. Las escrituras adicionales que ocultan QUÉ cambió aún no habían llegado al disco. Si el dispositivo pierde energía antes, una instantánea posterior mostrará más de lo debido.';
 }

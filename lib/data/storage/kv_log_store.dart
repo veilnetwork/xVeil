@@ -263,6 +263,10 @@ abstract interface class KvLogStore {
   /// losing it; the caller's durable copy is the second.
   String? hardeningWarning();
 
+  /// Clear the container's sticky hardening record. See
+  /// [hardeningWarning] for what it is and why it is sticky.
+  void acknowledgeHardeningWarning();
+
   void close();
 }
 
