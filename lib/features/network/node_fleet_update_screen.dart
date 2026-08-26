@@ -146,7 +146,14 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
       final result = await _run(
         step.node,
         title,
-        buildNodeSoftwareUpdateScript([artifact]),
+        // What the plan expected and what it offers, so the node itself can
+        // refuse if somebody moved it in between. The plan was built by an
+        // earlier Check, and the timer does not wait for anybody's screen.
+        buildNodeSoftwareUpdateScript(
+          [artifact],
+          expectedVeilVersion: step.from,
+          targetVeilVersion: step.to.replaceFirst('v', ''),
+        ),
       );
       // Only what the run reported: a node whose update failed keeps the
       // version it had, so the next check still offers it.
