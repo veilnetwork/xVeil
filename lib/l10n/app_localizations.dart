@@ -7790,6 +7790,30 @@ abstract class AppL10n {
   /// **'Inspect installation and status'**
   String get nodeInventory;
 
+  /// No description provided for @nodeShareEntry.
+  ///
+  /// In en, this message translates to:
+  /// **'Share a way into the network'**
+  String get nodeShareEntry;
+
+  /// No description provided for @nodeShareEntryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Asks the node how it can be reached, then hands that over. The link adds this node as an ENTRY POINT: no contact, no chat, and nothing about who shared it.'**
+  String get nodeShareEntryHint;
+
+  /// No description provided for @nodeShareEntryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Entry point: {name}'**
+  String nodeShareEntryTitle(Object name);
+
+  /// No description provided for @nodeShareEntryNone.
+  ///
+  /// In en, this message translates to:
+  /// **'This node did not give an address anybody could dial'**
+  String get nodeShareEntryNone;
+
   /// No description provided for @fleetUpdateTitle.
   ///
   /// In en, this message translates to:
