@@ -364,4 +364,90 @@ void main() {
     },
     skip: Platform.isWindows ? 'POSIX shell only' : null,
   );
+
+  // The script runs AS ROOT on the operator's server and interpolates values
+  // they typed into single-quoted shell words. Every one of those values is
+  // validated — but by `isValid`, which the deploy SCREEN consulted and this
+  // generator did not. The guarantee therefore held only while that one caller
+  // kept asking; a second caller got a root shell script built out of whatever
+  // it passed.
+  //
+  // Demonstrated before it was closed: an advertise host of
+  // `x'; touch /tmp/pwned; echo '` produced
+  //   --advertise 'obfs4-tcp://x'; touch /tmp/pwned; echo ':5556'
+  // — the apostrophe closing the word and `touch` becoming its own command.
+  group('the generator refuses what the validator rejects', () {
+    NodeProvisionConfig withHost(String host) => NodeProvisionConfig(
+      releaseUrl: 'https://example.com/veil-cli',
+      expectedSha256:
+          '0000000000000000000000000000000000000000000000000000000000000000',
+      obfs4PskB64: 'dGVzdA==',
+      advertiseHost: host,
+    );
+
+    test('a shell metacharacter in a host never reaches a root script', () {
+      final evil = withHost("x'; touch /tmp/pwned; echo '");
+      // Premise: the validator does its job. If this ever passes, the refusal
+      // below is not what is keeping the quote out.
+      expect(evil.isValid, isFalse);
+      expect(
+        () => buildProvisionScript(evil),
+        throwsArgumentError,
+        reason:
+            'the boundary that runs as root is where the refusal belongs, not '
+            'the screen in front of it',
+      );
+    });
+
+    test('a legitimate host still builds and is advertised', () {
+      // The negative above is worthless if the guard refuses everything.
+      final ok = withHost('relay.example.com');
+      expect(ok.isValid, isTrue);
+      final s = buildProvisionScript(ok);
+      expect(s, contains("--advertise 'obfs4-tcp://relay.example.com:5556'"));
+    });
+
+    test('every field the script quotes is covered by the same refusal', () {
+      // Each of these is interpolated into a single-quoted shell word further
+      // down the generated script.
+      final cases = <String, NodeProvisionConfig>{
+        'tls cert path': NodeProvisionConfig(
+          releaseUrl: 'https://example.com/veil-cli',
+          expectedSha256:
+              '0000000000000000000000000000000000000000000000000000000000000000',
+          obfs4PskB64: 'dGVzdA==',
+          transports: const {NodeListenTransport.tls},
+          tlsCertPath: "/etc/x'; id; echo '.pem",
+          tlsKeyPath: '/etc/ok.pem',
+        ),
+        'acme e-mail': NodeProvisionConfig(
+          releaseUrl: 'https://example.com/veil-cli',
+          expectedSha256:
+              '0000000000000000000000000000000000000000000000000000000000000000',
+          obfs4PskB64: 'dGVzdA==',
+          transports: const {NodeListenTransport.tls},
+          tlsCertificateMode: NodeTlsCertificateMode.automatic,
+          tlsDomain: 'relay.example.com',
+          tlsEmail: "a'; id; echo '@example.com",
+          tlsAgreeToTerms: true,
+        ),
+        'self-signed name': NodeProvisionConfig(
+          releaseUrl: 'https://example.com/veil-cli',
+          expectedSha256:
+              '0000000000000000000000000000000000000000000000000000000000000000',
+          obfs4PskB64: 'dGVzdA==',
+          transports: const {NodeListenTransport.tls},
+          tlsCertificateMode: NodeTlsCertificateMode.selfSigned,
+          selfSignedName: "x'; id; echo '",
+        ),
+      };
+      for (final entry in cases.entries) {
+        expect(
+          () => buildProvisionScript(entry.value),
+          throwsArgumentError,
+          reason: '${entry.key}: quoted into a root script',
+        );
+      }
+    });
+  });
 }
