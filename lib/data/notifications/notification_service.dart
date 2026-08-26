@@ -70,11 +70,14 @@ class NotificationService {
       _initializing = null;
       if (!gate.isCompleted) gate.complete();
     }
-    // Asked for while there was nothing to ask. Now there is.
-    if (_clearWanted) {
-      _clearWanted = false;
-      await cancelAll();
-    }
+    // Asked for while there was nothing to ask. Now there is — or this
+    // attempt failed, in which case `cancelAll` records the intent again and
+    // returns, and whichever retry succeeds performs it (report16 XV-12).
+    //
+    // No `_ready &&` in front: it guarded nothing, and breaking it changed no
+    // outcome. An untested branch that decides nothing is a place for a
+    // mistake to hide.
+    if (_clearWanted) await cancelAll();
   }
 
   Future<void> _init({
@@ -251,22 +254,35 @@ class NotificationService {
   /// previous session stayed on the screen.
   Future<void> cancelAll() async {
     if (!_ready) {
+      // Recorded BEFORE the wait, not after it. A startup can FAIL, and the
+      // first version set this only on the branch where none was running — so
+      // a clear that arrived during a failed init was dropped, and the retry
+      // that succeeded later did not know it had been asked. Stale alerts
+      // then survived a lock (report16 XV-12).
+      if (_supported) _clearWanted = true;
       final running = _initializing;
       if (running != null) {
         // Startup is in flight. Wait for it rather than giving up: this is
         // the window the lock lands in.
         await running;
-      } else if (_supported) {
-        // Nothing has started yet. Remember, and `init` will do it — leaving
-        // it undone is what put a notification on the wrong side of a lock.
-        _clearWanted = true;
-        return;
+        // And it may have performed the clear on the way out — `init` does
+        // that as its last step. Doing it twice is harmless and confusing;
+        // the flag being down says it is done.
+        if (!_clearWanted) return;
       }
+      // Still nothing to clear with. The intent stands.
       if (!_ready) return;
     }
     try {
+      // Down BEFORE the call, not after it. The plugin call suspends, and a
+      // second caller waiting on startup resumes in that gap — with the flag
+      // still up it clears a second time.
+      _clearWanted = false;
       await _plugin.cancelAll();
-    } catch (_) {}
+    } catch (_) {
+      // It did not happen, so it is still wanted.
+      _clearWanted = true;
+    }
   }
 
   @visibleForTesting
