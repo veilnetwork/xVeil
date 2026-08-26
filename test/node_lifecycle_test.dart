@@ -57,7 +57,7 @@ void main() {
     expect(parseReadNodeConfig(framed), isNull);
     final encoded =
         'XVEIL_CONFIG_BEGIN\n${base64Encode(utf8.encode(config))}\nXVEIL_CONFIG_END\n';
-    expect(parseReadNodeConfig(encoded), config);
+    expect(parseReadNodeConfig(encoded)?.contents, config);
   });
 
   test('config apply validates and rolls back on activation failure', () {
