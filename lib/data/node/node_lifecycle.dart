@@ -179,18 +179,69 @@ echo '${a.expectedSha256.trim().toLowerCase()}  '"$t" | sudo sha256sum -c -''';
         return "sudo install -o root -g root -m 0755 ${temp(a)} '/usr/local/bin/$binary'";
       })
       .join('\n');
+  // The digest proves the bytes are the ones the release published. It says
+  // NOTHING about whether they are for this machine — and the app offers an
+  // arm64 target as readily as an x86_64 one, so the wrong choice reaches here
+  // as a perfectly genuine file. A real x86_64 build installed over a working
+  // aarch64 binary leaves a node that cannot start, so the machine itself
+  // refuses before anything is overwritten.
+  final checks = artifacts.map((a) => 'check_machine ${temp(a)}').join('\n');
+  // Keep what was there. A node that updated itself into silence with nothing
+  // to go back to is worse than one a version behind: whoever runs it is not
+  // watching at the moment it happens, and the way back is a console.
+  final backups = artifacts
+      .map((a) {
+        final binary = '/usr/local/bin/${a.component.binaryName}';
+        return "sudo test -e '$binary' && sudo cp -a '$binary' '$binary.previous' || true";
+      })
+      .join('\n');
   final restarts = artifacts
       .map((a) {
         final key = a.component.binaryName.replaceAll('-', '_');
-        return "if [ \"\$active_$key\" = 1 ]; then sudo systemctl restart '${unit(a)}'; fi";
+        final binary = '/usr/local/bin/${a.component.binaryName}';
+        return '''if [ "\$active_$key" = 1 ]; then
+  sudo systemctl restart '${unit(a)}'
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    sudo systemctl is-active --quiet '${unit(a)}' && break
+    sleep 2
+  done
+  if ! sudo systemctl is-active --quiet '${unit(a)}'; then
+    echo "${a.component.binaryName} did not come back - restoring" >&2
+    sudo test -e '$binary.previous' && \\
+      sudo install -o root -g root -m 0755 '$binary.previous' '$binary'
+    sudo systemctl restart '${unit(a)}' || true
+    exit 1
+  fi
+fi''';
       })
       .join('\n');
   return '''#!/usr/bin/env bash
 set -euo pipefail
 stage="\$(sudo mktemp -d)"
 trap 'sudo rm -rf "\$stage"' EXIT
+
+# ELF says what it was built for, in one byte at offset 18: 62 is x86-64, 183
+# is AArch64. Reading the header beats running the file — it needs no working
+# loader, and it answers before anything is installed.
+case "\$(uname -m)" in
+  x86_64)  want_machine=62 ;;
+  aarch64) want_machine=183 ;;
+  *) want_machine= ;;
+esac
+check_machine() {
+  # An architecture nobody taught this script about is not a reason to block an
+  # update it may well be able to run.
+  [ -n "\$want_machine" ] || return 0
+  got="\$(sudo od -An -t u1 -j 18 -N 1 "\$1" | tr -d ' ')"
+  [ "\$got" = "\$want_machine" ] || {
+    echo "refusing \$1: built for another architecture (ELF machine \$got, this host needs \$want_machine)" >&2
+    exit 1
+  }
+}
 $downloads
+$checks
 $snapshots
+$backups
 $installs
 $restarts
 echo "UPDATED: ${artifacts.map((a) => a.component.binaryName).join(',')}"
