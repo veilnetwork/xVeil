@@ -65,6 +65,7 @@ import 'custom_emoji_controller.dart';
 import 'reactors_sheet.dart';
 import 'vnote_preview.dart';
 import 'video_player_screen.dart';
+import '../../domain/file_export.dart';
 import '../../domain/file_names.dart';
 import '../../domain/media_object.dart' show kInlineImageMaxBytes;
 
@@ -89,22 +90,10 @@ bool _sameCustomEmoji(
   return true;
 }
 
-/// `<dir>/<name>`, or `<dir>/<stem> (n)<ext>` when that is taken.
-///
-/// Bounded: past a small number of collisions something is wrong with the
-/// caller, and returning the plain name lets the existing overwrite happen
-/// rather than looping.
-String _uncontestedPath(String dir, String name) {
-  if (!File('$dir/$name').existsSync()) return '$dir/$name';
-  final dot = name.lastIndexOf('.');
-  final stem = dot > 0 ? name.substring(0, dot) : name;
-  final ext = dot > 0 ? name.substring(dot) : '';
-  for (var n = 1; n <= 999; n++) {
-    final candidate = '$dir/$stem ($n)$ext';
-    if (!File(candidate).existsSync()) return candidate;
-  }
-  return '$dir/$name';
-}
+/// See [uncontestedPath]. Kept as a name here only because three call sites
+/// read better with it; the rule itself lives in one place now — there were
+/// two copies of it and a third path that needed it and did not have one.
+String _uncontestedPath(String dir, String name) => uncontestedPath(dir, name);
 
 /// The name offered when the person saves a received file.
 ///
@@ -1241,36 +1230,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       }
       if (dest == null) return; // cancelled
-      final path = dest;
       final storage = ref.read(storageProvider);
-      // Straight to the chosen path, no `.part-` sibling: on a sandboxed macOS
-      // build the save panel grants access to the SELECTED path only, and a
-      // sibling temp file cannot be opened at all. See _downloadUnencrypted.
-      final sink = File(path).openWrite();
-      var off = 0;
-      var complete = false;
-      try {
-        const chunk = 4 * 1024 * 1024;
-        while (off < size) {
-          final want = (size - off) < chunk ? (size - off) : chunk;
-          final part = await storage.readFileRange(key, off, want);
-          if (part == null || part.isEmpty) break;
-          sink.add(part);
-          off += part.length;
-        }
-        complete = off >= size;
-      } finally {
-        await sink.close();
-        // A save that did not finish leaves no file. What it used to leave was
-        // a plausible-looking partial OUTSIDE the encrypted volume — the exact
-        // thing the volume exists to prevent — under a name that says it is
-        // the whole document.
-        if (!complete) {
-          try {
-            await File(path).delete();
-          } catch (_) {}
-        }
-      }
+      final complete = await writeStreamedFile(
+        file: File(dest),
+        size: size,
+        read: (offset, want) => storage.readFileRange(key, offset, want),
+      );
       if (mounted) {
         _snack(complete ? l.chatFileSaved : l.chatFileSaveFailed);
       }
