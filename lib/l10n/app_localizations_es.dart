@@ -4126,6 +4126,26 @@ class AppL10nEs extends AppL10n {
   String get oproxyEditTitle => 'Editar el oproxy';
 
   @override
+  String oproxyShareTitle(Object name) {
+    return 'Compartir $name';
+  }
+
+  @override
+  String get oproxyShareAdmissionHint =>
+      'El enlace dice por qué nodo salir. Si le dejan pasar se decide en el servidor: añade su node id a la lista de la salida, o el enlace le dará un rechazo.';
+
+  @override
+  String get oproxyShareSend => 'Enviar a un contacto';
+
+  @override
+  String oproxyShareSent(Object name) {
+    return 'Enviado a $name';
+  }
+
+  @override
+  String get oproxyShareNoContacts => 'Aún no hay contactos a quien enviarlo';
+
+  @override
   String get oproxyName => 'Nombre';
 
   @override

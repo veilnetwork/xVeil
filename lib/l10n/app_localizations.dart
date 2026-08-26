@@ -7202,6 +7202,36 @@ abstract class AppL10n {
   /// **'Edit oproxy'**
   String get oproxyEditTitle;
 
+  /// No description provided for @oproxyShareTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Share {name}'**
+  String oproxyShareTitle(Object name);
+
+  /// No description provided for @oproxyShareAdmissionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The link says which node to route through. Whether they may is decided on the server: add their node id to the exit\'s allowlist, or the link will get them refused.'**
+  String get oproxyShareAdmissionHint;
+
+  /// No description provided for @oproxyShareSend.
+  ///
+  /// In en, this message translates to:
+  /// **'Send to a contact'**
+  String get oproxyShareSend;
+
+  /// No description provided for @oproxyShareSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent to {name}'**
+  String oproxyShareSent(Object name);
+
+  /// No description provided for @oproxyShareNoContacts.
+  ///
+  /// In en, this message translates to:
+  /// **'No contacts to send it to yet'**
+  String get oproxyShareNoContacts;
+
   /// No description provided for @oproxyName.
   ///
   /// In en, this message translates to:
