@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/node_lifecycle.dart';
+import 'package:xveil/data/node/arch_guard.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 
 import 'support/expect_before.dart';
@@ -131,6 +132,50 @@ void main() {
     test('a service that was NOT running is not started by an update', () {
       expect(script, contains('active_veil_cli=0'));
       expect(script, contains(r'if [ "$active_veil_cli" = 1 ]'));
+    });
+  });
+
+  group('the same refusal covers a first deployment', () {
+    // Deployment is the worse of the two paths: the operator picks the
+    // architecture from a dropdown, often for a machine they have not looked
+    // at, and there is no previous binary to fall back to. The old script
+    // downloaded, verified the digest, installed as root and moved on.
+    String provision() => buildProvisionScript(
+      const NodeProvisionConfig(
+        releaseUrl: 'https://example.invalid/veil-cli-x86_64-linux-musl',
+        expectedSha256:
+            '0000000000000000000000000000000000000000000000000000000000000000',
+        obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
+      ),
+    );
+
+    test('the machine is checked before the binary is installed', () {
+      expectBefore(provision(), 'check_machine "\$XVEIL_TMP/veil-cli"',
+          'install -o root -g root -m 0755 "\$XVEIL_TMP/veil-cli"');
+    });
+
+    test('and after the digest, so a truncated download fails as a digest', () {
+      // Order between the two checks decides which message the operator reads.
+      // A half-finished download is a broken file, not a wrong architecture.
+      expectBefore(provision(), 'sha256sum -c -', 'check_machine "\$XVEIL_TMP/veil-cli"');
+    });
+
+    test('both scripts carry the SAME refusal, not two that drifted', () {
+      // The bug this closes appeared twice for the same reason. Two copies
+      // would let one of them be fixed alone again.
+      expect(provision(), contains(kArchGuardShell.trim()));
+      expect(
+        buildNodeSoftwareUpdateScript([artifact]),
+        contains(kArchGuardShell.trim()),
+      );
+    });
+
+    test('the deployment script is valid bash', () {
+      final dir = Directory.systemTemp.createTempSync('xveil-prov');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final file = File('${dir.path}/s.sh')..writeAsStringSync(provision());
+      final result = Process.runSync('bash', ['-n', file.path]);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
     });
   });
 
