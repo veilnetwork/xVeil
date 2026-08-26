@@ -507,6 +507,13 @@ void main() {
             sshHost: 'srv.example',
             sshUser: 'u',
             sshHostFingerprint: 'SHA256:PINNEDKEY',
+            // Two things the form does not ask about. `autoUpdate` says a
+            // root timer is running on that server; rebuilding the record
+            // from the form alone set it back to false, so renaming a node
+            // told the operator unattended updates were off while they went
+            // on happening.
+            autoUpdate: true,
+            veilVersion: '0.8.0',
           ),
         );
     await tester.pumpAndSettle();
@@ -533,6 +540,12 @@ void main() {
       'SHA256:PINNEDKEY',
       reason: 'a benign edit must NOT silently drop the pin',
     );
+    expect(
+      saved.autoUpdate,
+      isTrue,
+      reason: 'a rename turned off a switch that runs root updates remotely',
+    );
+    expect(saved.veilVersion, '0.8.0');
   });
 
   testWidgets('changing the SSH endpoint drops the stale pin (SSH-MITM)', (
