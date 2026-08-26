@@ -421,17 +421,25 @@ void main() {
     });
   });
 
-  /// A composed veil config ALREADY carries `[proxy.socks5]` and
-  /// `[proxy.exit]` — `veil-cli config init` writes them, and so does compose;
-  /// verified on a live node.toml. `withProxy` used to step aside whenever it
-  /// saw one, as a guard against appending a second copy, which meant the
-  /// app's routing never reached the node AT ALL: the node kept the base
-  /// config's answer and every change made in the routing screen was inert.
+  /// `withProxy` used to step aside whenever the document already carried a
+  /// `[proxy.…]` table, as a guard against appending a second copy. It replaces
+  /// now: for the embedded node this app AUTHORS the config, so a table it
+  /// finds is last boot's answer to a question the user has since answered
+  /// differently — and replacing makes composition idempotent, which stepping
+  /// aside was not.
   ///
-  /// Measured on a phone with two exits configured: the SOCKS5 service ran
-  /// with ONE candidate, so `connect_failed candidate_index=0` went straight
-  /// to `all_exits_failed` and the second exit was never tried. 25 refusals in
-  /// one log and not a single `candidate_index=1`.
+  /// ⚠️ An earlier version of this comment claimed a composed config always
+  /// carries those tables and that the routing screen was therefore inert.
+  /// That was wrong: it generalised from a DEPLOYED node.toml (where the
+  /// deployment explicitly enables the exit) to a COMPOSED one. Measured
+  /// since — a default `veil-cli config init` renders `[global] [transport]
+  /// [transport.rotation] [transport.tls_fingerprint] [Identity] [mobile]` and
+  /// no `[proxy.…]`, because `ProxyConfig` is skipped when default. The guard
+  /// did not fire. The single exit candidate seen on a phone came from the
+  /// VPN's own pinned chain, which is a different field.
+  ///
+  /// The tests below are unchanged and still worth having: they pin the
+  /// replacement behaviour itself.
   group('a config that already carries a proxy table', () {
     const withTable =
         '[identity]\nx = 1\n\n'
