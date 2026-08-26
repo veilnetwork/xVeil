@@ -10,6 +10,50 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.1] — 2026-08-26
+
+Found by installing a node on a real server from the phone and pointing the
+phone's VPN at it. Everything here is a defect that run-through hit; each is
+fixed and re-proven on the same server.
+
+Built on veil `b6e49906` — [v0.8.0](https://github.com/veilnetwork/veil/releases/tag/v0.8.0)
+plus one fix (an IPC config the daemon cannot read is reported as such instead
+of as "no reflector") — and hidden-volume `3f07ac8f`, which is v2.0.3 plus a
+test and a doc note: the shipped library is v2.0.3.
+
+### Fixed
+
+- **Deploying a node over SSH always failed, after installing the binaries.**
+  The staging hardening left the scratch directory 0700 root:root, and the
+  config steps below it run as the unprivileged `veil` account, which then
+  could not enter the directory at all. `veil-cli` cannot tell "not there" from
+  "not allowed to look", so it reported the staged config as MISSING — a
+  message that sends you looking for a file that is sitting right there. The
+  run aborted with the binaries installed and no node running. The directory
+  is now opened to the `veil` group and to nothing else: the obfs4 PSK and the
+  TLS key staged beside it stay unreadable to `veil` and to every other account
+  on the machine.
+
+- **Re-deploying a server added listeners instead of replacing them.** The step
+  that exists to reconcile them selected listener ids with a decimal pattern,
+  and `listen list` prints them in hex — so it matched nothing and deleted
+  nothing. A second deployment left two obfs4 listeners on the same port, and a
+  `tcp://0.0.0.0:9000` inherited from an older install survived every run since.
+
+- **The node id the inventory reports is kept.** "Проверить установку и
+  состояние" prints it and the app already had the parser; the screen showed it
+  and dropped it, leaving the record at `—` and the operator to hand-copy 64 hex
+  characters into the field that decides what their traffic routes through. It
+  fills a blank only — a host that was rebuilt or re-pointed cannot take over an
+  entry you chose.
+
+- **"Работать в фоне" could lose the switch you just set.** The setting was
+  written after the call that starts the foreground service and outside its
+  error handling, so a platform refusal — from Android 12 the ordinary answer
+  for an app the system does not consider eligible — skipped the write. The
+  switch read ON from memory and reverted to OFF later, silently, with the node
+  no longer surviving the screen going off.
+
 ## [0.13.0] — 2026-08-25
 
 A report audit, and then the first runs of the test suites on Windows and on
