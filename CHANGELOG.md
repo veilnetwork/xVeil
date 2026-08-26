@@ -10,6 +10,89 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.3] — 2026-08-26
+
+Failover, proven on the phone: the VPN left through one server, that server was
+stopped, and the next request left through the other. Everything below is what
+stood between those two facts.
+
+Built on veil [v0.8.1](https://github.com/veilnetwork/veil/releases/tag/v0.8.1)
+and hidden-volume `3f07ac8f`, which is v2.0.3 plus a test and a doc note: the
+shipped library is v2.0.3.
+
+veil v0.8.1 exists because of this release: the exit allowlist landed after
+v0.8.0 was cut, so two servers both answering `veil-cli 0.8.0` could differ on
+whether their exit checks who it carries. **Upgrading a server that runs an
+exit is a compatibility step**: admission is now enforced, and an exit
+configured before allowlists existed names nobody, which reads as "refuse
+everyone". Give every enabled exit its `allowed_node_ids` first. Nodes that do
+not enable the exit are unaffected — checked on the production seeds, which
+carry no `[proxy.exit]` section at all.
+
+### The exit chain never reached the node
+
+`EmbeddedNode.withProxy` returned the config untouched whenever it already
+carried a `[proxy.` table — a guard against appending a second copy. A composed
+veil config always carries one, so the guard fired every time and **the routing
+screen was inert**: the exit chain, the listen address and the exit switch were
+saved by the app and never applied to the node. Measured with two exits
+configured: the SOCKS5 service ran with one candidate, so every failure went
+`candidate_index=0 → all_exits_failed` and the second exit was never tried.
+Stale `[proxy.*]` tables are now replaced rather than stepped aside for.
+
+### The row that says which exit you leave through said nothing
+
+It rendered `0 + запасных: exit-host`. The generated localization signature
+sorts placeholders alphabetically — `(fallbacks, primary)` — while the sentence
+reads `{primary} + запасных: {fallbacks}`, and both call sites passed them the
+other way round. Two positional arguments of the same type swap without a word
+from the analyzer. It is the only message in the app with more than one
+placeholder, and both of its uses were wrong.
+
+The same row was silent about a second thing: with **Автосмена oproxy** off the
+plan cuts the chain to its first exit, so a two-exit chain ran on one while the
+row promised a spare. It now says the spares are off.
+
+### The VPN could not start again after being stopped
+
+The packet engine keeps one tunnel slot. A start that finds it occupied answers
+`VEIL_ERR_REENTRANT`, which the app showed as "the previous run's tunnel is
+still closing, try again in a moment" — advice that assumes the slot is
+draining. It was not: on a phone, every start for five minutes was refused with
+that sentence, and only killing the app cleared it. `stop()` had asked the
+engine to stop, kept the refusal in a local, and then returned the platform's
+state bare — so a stuck engine was recorded nowhere. An occupied slot is now
+cleared and the start tried once more.
+
+### The app's own links were not links
+
+A chat body turned only `https?://` into something tappable, so every `veil:`
+URI the app itself mints — a contact invite, a share of working entry nodes, a
+device link — arrived as flat text. Tapping was not offered; had it been, the
+handler hands URLs to the system, and nothing installed answers `veil:`.
+
+Now they are links, and a tap redeems them **in the app**: an invite adds the
+contact and opens the chat, an entry-node share adds the nodes and says how
+many actually landed. A device link is recognised and deliberately NOT applied
+— it joins a device to an identity, one that arrives in a message is somebody
+else's, and a tap is not consent; the dialog says so and offers the Devices
+screen. `veil-cloud:` references and space-recommendation cards are untouched.
+
+### Re-attaching a server whose records you lost
+
+Restore an identity from a phrase with no second device to replicate from, and
+the app has no record of your servers. The read-only inventory could read a
+node id back but never asked whether the machine was an exit, so a re-attached
+server never joined the routing catalog — the only way in was a full deployment
+over a working machine, rewriting its listeners and config.
+
+The inventory now also reports the exit and its allowlist, read from the config
+file (`veil-cli config get proxy.exit.enabled` answers `unknown config key`),
+and an inventoried exit joins the catalog through the deployment's own
+decision. It also warns when the exit admits nobody — the shape of every server
+deployed before allowlists existed, which carries traffic today and will refuse
+every stream once its node is updated.
+
 ## [0.13.2] — 2026-08-26
 
 Everything here came out of running the thing: a node installed on a second
