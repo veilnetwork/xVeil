@@ -130,8 +130,11 @@ void main() {
       expect(script, contains(r'trap ' "'" r'sudo rm -rf "$stage"' "'" r' EXIT'));
       // Staging is traversable-but-not-writable for the validator, and the
       // file stays root-owned until `install` sets the real owner.
-      expect(script, contains(r'sudo chmod 711 "$stage"'));
-      expect(script, contains(r'sudo chmod 0644 "$temp"'));
+      expect(script, contains(r'sudo chmod 0710 "$stage"'));
+      // 0640 root:veil, not 0644: the staged file is the CONTENTS of the
+      // target, and for the veil target that carries `[identity] private_key`
+      // (report16 X16-H3). See node_config_cas_test for the rest.
+      expect(script, contains(r'sudo chmod 0640 "$temp"'));
       expect(
         script,
         isNot(contains(r'sudo chown veil:veil "$temp"')),
