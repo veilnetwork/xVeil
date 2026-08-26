@@ -58,7 +58,18 @@ void main() {
       // outside it lands on the wrong side of that line.
       'set -euo pipefail\n'
           'DIR="${cfg.path}"\n'
-          'sudo() { chmod u+w "\$DIR"; "\$@"; local rc=\$?; chmod 0500 "\$DIR"; return \$rc; }\n'
+          // Raised only for the commands that WRITE. The helper's fixed form
+          // is `sudo awk … | sudo tee …`, and a stub that raises and restores
+          // on both sides of that pipeline has the two halves overlapping —
+          // awk's restore landing between tee's raise and its open, which
+          // failed under load and nowhere else.
+          'sudo() {\n'
+          '  case "\$1" in\n'
+          '    tee|install|cp|rm|mv|mkdir)\n'
+          '      chmod u+w "\$DIR"; "\$@"; local rc=\$?; chmod 0500 "\$DIR"; return \$rc ;;\n'
+          '    *) "\$@" ;;\n'
+          '  esac\n'
+          '}\n'
           // The helper runs on a Linux server and speaks GNU coreutils. This
           // bridges `stat -c` for a BSD one so the suite can run the real
           // thing rather than a rewrite of it.
