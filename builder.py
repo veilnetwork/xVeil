@@ -18,6 +18,7 @@ commands are spelled out here, mirroring BUILDING.md.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import sys
 
@@ -171,11 +172,21 @@ def _pubspec_version() -> str:
     to anything a tester actually has, and a literal in the source goes stale
     the first time someone forgets to bump it.
     """
+    from xveil_build_support import Abort
+
     with open(os.path.join(ROOT, "pubspec.yaml"), encoding="utf-8") as handle:
         for line in handle:
-            if line.startswith("version:"):
-                return line.split(":", 1)[1].strip()
-    from xveil_build_support import Abort
+            if not line.startswith("version:"):
+                continue
+            # `version: "1.2.3+4"  # bump` is valid YAML, and taking the rest
+            # of the line verbatim produced a string nothing can compare. What
+            # lands in --dart-define decides whether the app can name itself
+            # at all: an unparseable version reports as "dev".
+            value = line.split(":", 1)[1].split("#", 1)[0].strip()
+            value = value.strip("\"'")
+            if not re.fullmatch(r"\d+\.\d+\.\d+(\+[0-9A-Za-z.-]+)?", value):
+                raise Abort(f"pubspec.yaml version is not a version: {value!r}")
+            return value
 
     raise Abort("cannot read 'version:' from pubspec.yaml")
 
