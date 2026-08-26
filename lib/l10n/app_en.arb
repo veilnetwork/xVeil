@@ -1961,6 +1961,7 @@
   "sshUsePassword": "Password",
   "sshUseKey": "Private key",
   "sshPasswordLabel": "Password",
+  "sshRemoteConfigEmpty": "The server returned no readable config.",
   "sshKeyLabel": "Private key (PEM)",
   "sshKeyPassphraseLabel": "Key passphrase (optional)",
   "sshCredsNotSaved": "Credentials entered here are used once. Manage saved credentials in the node card.",

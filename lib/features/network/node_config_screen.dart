@@ -7,6 +7,7 @@ import '../../data/node/managed_node.dart';
 import '../../data/node/node_lifecycle.dart';
 import '../../data/node/ssh_client.dart';
 import '../../l10n/app_localizations.dart';
+import 'ssh_private_key_field.dart';
 import '../../state/managed_nodes_controller.dart';
 
 /// Full-text advanced editor for the real remote TOML. Reads and writes through
@@ -99,10 +100,11 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
     if (result == null || !mounted) return;
     final parsed = parseReadNodeConfig(result.stdout);
     if (parsed == null) {
+      final l = AppL10n.of(context);
       setState(
         () => _error = result.stderr.isNotEmpty
             ? result.stderr
-            : 'remote config was not returned',
+            : l.sshRemoteConfigEmpty,
       );
       return;
     }
@@ -173,19 +175,10 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
                   children: [
                     Expanded(
                       flex: 2,
-                      child: TextField(
+                      child: SshPrivateKeyField(
                         controller: _key,
-                        minLines: 2,
                         maxLines: 4,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 11,
-                        ),
-                        decoration: InputDecoration(
-                          labelText: l.sshKeyLabel,
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                        ),
+                        labelText: l.sshKeyLabel,
                       ),
                     ),
                     const SizedBox(width: 8),

@@ -8108,6 +8108,12 @@ abstract class AppL10n {
   /// **'Password'**
   String get sshPasswordLabel;
 
+  /// No description provided for @sshRemoteConfigEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'The server returned no readable config.'**
+  String get sshRemoteConfigEmpty;
+
   /// No description provided for @sshKeyLabel.
   ///
   /// In en, this message translates to:
