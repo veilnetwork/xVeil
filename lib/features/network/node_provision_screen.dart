@@ -388,7 +388,12 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       changed = true;
     }
     if (changed) {
-      await ref.read(managedNodesProvider.notifier).upsert(node);
+      // The server exists by now. A record that did not save leaves a
+      // deployed node the app does not know about at the next launch.
+      final failed = await ref.read(managedNodesProvider.notifier).upsert(node);
+      if (failed != null && mounted) {
+        setState(() => _error = failed);
+      }
     }
 
     final done = <String>[];

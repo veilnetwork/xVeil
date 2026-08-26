@@ -4940,6 +4940,16 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String nodeHostKeyNotRemembered(String error) {
+    return 'No se pudo guardar la clave del host: $error. La próxima conexión volverá a pedir que la confirmes.';
+  }
+
+  @override
+  String nodeRemoteChangedLocalNot(String error) {
+    return 'El servidor cambió, pero la app no pudo registrarlo: $error';
+  }
+
+  @override
   String sshKeyGenerationFailed(String error) {
     return 'No se pudo generar la clave: $error';
   }

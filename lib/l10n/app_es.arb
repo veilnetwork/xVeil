@@ -2021,6 +2021,8 @@
     }
   },
   "nodeRegistrySaveFailed": "No se pudo guardar la lista de nodos: {error}",
+  "nodeHostKeyNotRemembered": "No se pudo guardar la clave del host: {error}. La próxima conexión volverá a pedir que la confirmes.",
+  "nodeRemoteChangedLocalNot": "El servidor cambió, pero la app no pudo registrarlo: {error}",
   "sshKeyGenerationFailed": "No se pudo generar la clave: {error}",
   "@sshKeyGenerationFailed": {
     "placeholders": {

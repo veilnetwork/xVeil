@@ -70,13 +70,20 @@ class NodeManagementScreen extends ConsumerWidget {
     // was handed: the dialog pins a host key just before calling it, and
     // writing back the earlier object wiped the pin.
     ManagedNode? written;
-    await ref.read(managedNodesProvider.notifier).updateById(node.id, (cur) {
+    final failed = await ref
+        .read(managedNodesProvider.notifier)
+        .updateById(node.id, (cur) {
       var next = nodeWithAdoptedId(cur, result.stdout) ?? cur;
       if (report.veilVersion != null) {
         next = next.copyWith(veilVersion: report.veilVersion);
       }
       return written = next;
     });
+    if (failed != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppL10n.of(context).nodeRegistrySaveFailed(failed))),
+      );
+    }
     // What was actually stored, so the routing below reads the same record —
     // and `node` when the entry was deleted while the command ran.
     final updated = written ?? node;
@@ -127,9 +134,21 @@ class NodeManagementScreen extends ConsumerWidget {
     command: buildNodeAutoUpdateScript(enabled: value),
     onSuccess: (result) async {
       if (!result.ok) return;
-      await ref
+      // The remote change has ALREADY happened by the time this runs: the
+      // timer is installed or removed on the server. If the local record
+      // cannot be written, the screen and the machine disagree — and the
+      // dangerous direction is silent, because the switch shows "off" while a
+      // root timer keeps updating that server on a schedule.
+      final failed = await ref
           .read(managedNodesProvider.notifier)
           .updateById(node.id, (cur) => cur.copyWith(autoUpdate: value));
+      if (failed != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(AppL10n.of(context).nodeRemoteChangedLocalNot(failed)),
+          ),
+        );
+      }
     },
   );
 

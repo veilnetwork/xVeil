@@ -458,9 +458,18 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
         ex.sshUser != (_user.text.trim().isEmpty ? null : _user.text.trim())) {
       return; // endpoint edited since save — don't pin onto a mismatched node
     }
-    await ref
+    final failed = await ref
         .read(managedNodesProvider.notifier)
         .upsert(ex.copyWith(sshHostFingerprint: fingerprint));
+    if (failed != null && mounted) {
+      // Same reason as the two dialogs: a pin nobody saved is a first contact
+      // nobody expects.
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppL10n.of(context).nodeHostKeyNotRemembered(failed)),
+        ),
+      );
+    }
   }
 
   Future<void> _remove() async {
