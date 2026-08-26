@@ -334,15 +334,41 @@ class LinuxManagedVpnBackend implements VpnBackend {
       _state = const VpnBackendState(VpnBackendPhase.stopped);
     } on Object catch (error) {
       helper.kill(ProcessSignal.sigterm);
+      var exited = false;
       final exit = _exitCode;
       if (exit != null) {
-        await exit.timeout(_stopTimeout, onTimeout: () => -1);
+        try {
+          await exit.timeout(_stopTimeout);
+          exited = true;
+        } on Object {
+          // Not seen to exit. Not the same as gone.
+        }
       }
-      await _releaseHelper();
-      _state = VpnBackendState(
-        VpnBackendPhase.error,
-        detail: _failureDetail('Linux VPN helper did not stop cleanly: $error'),
-      );
+      if (exited) {
+        await _releaseHelper();
+        _state = VpnBackendState(
+          VpnBackendPhase.error,
+          detail: _failureDetail(
+            'Linux VPN helper did not stop cleanly: $error',
+          ),
+        );
+      } else {
+        // The handle is KEPT. A helper nobody has seen exit still holds the
+        // tun device and the routes it installed, and releasing the PID here
+        // meant the next `stop` had nothing to signal and answered "stopped"
+        // at once — while the tunnel was, for all anybody knew, still
+        // carrying traffic (report16 XV-07).
+        //
+        // Reported as an error rather than as stopped, for the same reason:
+        // "it is down" is a claim, and nothing here has established it.
+        _state = VpnBackendState(
+          VpnBackendPhase.error,
+          detail: _failureDetail(
+            'Linux VPN helper was signalled but has not been seen to exit; '
+            'the tunnel and its routes may still be up ($error)',
+          ),
+        );
+      }
     }
     return _state;
   }
@@ -392,16 +418,28 @@ class LinuxManagedVpnBackend implements VpnBackend {
     return detail.isEmpty ? fallback : '$fallback: $detail';
   }
 
-  Future<void> _terminateHelper() async {
+  /// Signal the helper and, if it is seen to go, let it go.
+  ///
+  /// Returns whether the exit was OBSERVED. A caller that releases regardless
+  /// throws away the only way to reach the process again.
+  Future<bool> _terminateHelper() async {
     final helper = _helper;
+    var exited = true;
     if (helper != null) {
       helper.kill(ProcessSignal.sigterm);
+      exited = false;
       final exit = _exitCode;
       if (exit != null) {
-        await exit.timeout(_stopTimeout, onTimeout: () => -1);
+        try {
+          await exit.timeout(_stopTimeout);
+          exited = true;
+        } on Object {
+          // Signalled, not seen to go.
+        }
       }
     }
-    await _releaseHelper();
+    if (exited) await _releaseHelper();
+    return exited;
   }
 
   Future<void> _releaseHelper() async {
