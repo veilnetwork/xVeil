@@ -8,11 +8,16 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/ids.dart';
+import '../../data/transport/bootstrap_invite.dart';
+import '../../data/transport/peers_invite.dart';
 import '../../l10n/app_localizations.dart';
 import '../../domain/cloud.dart';
 import '../../domain/inline_custom_emoji.dart';
+import '../../state/app_controller.dart';
 import '../../state/mention_identity.dart';
+import '../../state/providers.dart';
 import '../storage/cloud_attachment.dart';
+import 'chat_link.dart';
 import 'message_mentions.dart';
 
 /// Inline formatting a message run can carry. Non-nested in v1: the content of
@@ -35,9 +40,18 @@ enum FmtKind {
   cloudAttachment,
 }
 
-/// http/https URLs, terminated at whitespace. Trailing sentence punctuation is
-/// trimmed by [_splitLinks] so "see https://x.org." doesn't swallow the dot.
-final _urlPattern = RegExp(r'https?://[^\s]+', caseSensitive: false);
+/// Links, terminated at whitespace. Trailing sentence punctuation is trimmed by
+/// [_splitLinks] so "see https://x.org." doesn't swallow the dot.
+///
+/// http/https AND the app's own `veil:` schemes. Only http/https used to match,
+/// so every link this app mints — a contact invite, a share of entry nodes, a
+/// device link — reached a chat as flat text that could not be tapped at all.
+/// The schemes come from [chatLinkSchemePattern], which is built from the same
+/// constants the tap handler classifies with.
+final _urlPattern = RegExp(
+  '(?:https?://|$chatLinkSchemePattern)[^\\s]+',
+  caseSensitive: false,
+);
 
 /// One parsed run of a message body.
 class FmtToken {
@@ -112,8 +126,9 @@ List<FmtToken> parseFormatted(String body) {
     i++;
   }
   flushPlain();
-  // Split http(s) URLs out of plain runs into tappable link tokens. Done as a
-  // post-pass so a URL inside `code` (already a non-plain run) stays literal.
+  // Split links out of plain runs into tappable link tokens — http(s) AND the
+  // app's own `veil:` schemes. Done as a post-pass so a URL inside `code`
+  // (already a non-plain run) stays literal.
   final withLinks = <FmtToken>[];
   for (final t in out) {
     if (t.kind != FmtKind.plain) {
@@ -725,13 +740,43 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
   /// Tapping a link never navigates on its own (privacy): it opens a dialog
   /// showing the full URL with Open / Copy / Cancel, so handing the URL to the
   /// system browser is always a conscious choice.
+  ///
+  /// The app's OWN links get the same confirmation and a different verb. They
+  /// are not the browser's to open — nothing installed answers `veil:` — so
+  /// sending them to `launchUrl` only ever produced "could not open link" for
+  /// a link this very app had minted.
   Future<void> _onTapLink(String url) async {
     final l = AppL10n.of(context);
+    final kind = chatLinkKind(url);
+    final title = switch (kind) {
+      ChatLinkKind.web => l.linkDialogTitle,
+      ChatLinkKind.contactInvite => l.chatLinkInviteTitle,
+      ChatLinkKind.entryNodes => l.chatLinkPeersTitle,
+      ChatLinkKind.deviceLink => l.chatLinkDeviceTitle,
+    };
+    final confirmLabel = switch (kind) {
+      ChatLinkKind.web => l.linkOpen,
+      ChatLinkKind.contactInvite => l.chatLinkInviteAction,
+      ChatLinkKind.entryNodes => l.chatLinkPeersAction,
+      ChatLinkKind.deviceLink => l.chatLinkDeviceAction,
+    };
     final action = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(l.linkDialogTitle),
-        content: SelectableText(url),
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // WHY it is not applied here, said before the button that leads
+            // somewhere else — not after the person has pressed it.
+            if (kind == ChatLinkKind.deviceLink) ...[
+              Text(l.chatLinkDeviceBody),
+              const SizedBox(height: 12),
+            ],
+            SelectableText(url),
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -742,8 +787,8 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
             child: Text(l.linkCopy),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(ctx, 'open'),
-            child: Text(l.linkOpen),
+            onPressed: () => Navigator.pop(ctx, 'confirm'),
+            child: Text(confirmLabel),
           ),
         ],
       ),
@@ -751,9 +796,78 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
     if (!mounted) return;
     if (action == 'copy') {
       _copyLink(url);
-    } else if (action == 'open') {
-      await _openLink(url);
+    } else if (action == 'confirm') {
+      switch (kind) {
+        case ChatLinkKind.web:
+          await _openLink(url);
+        case ChatLinkKind.contactInvite:
+          await _redeemContactInvite(url);
+        case ChatLinkKind.entryNodes:
+          await _redeemEntryNodes(url);
+        case ChatLinkKind.deviceLink:
+          // Handed to the screen that owns it, still unapplied: the person
+          // pastes it there deliberately. A device link in a message is
+          // somebody else's, and a tap is not consent to join a device to
+          // this identity.
+          context.push('/settings/devices?link=1');
+      }
     }
+  }
+
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 3)),
+    );
+  }
+
+  Future<void> _redeemContactInvite(String url) async {
+    final l = AppL10n.of(context);
+    final BootstrapInvite invite;
+    try {
+      invite = BootstrapInvite.parse(url);
+    } catch (_) {
+      _toast(l.inviteInvalid);
+      return;
+    }
+    // Own invite: adding it would make a chat with yourself. Say so rather
+    // than pretending it worked (the same answer the add-contact sheet gives).
+    final me = ref.read(appControllerProvider).identity?.nodeId;
+    if (me != null && invite.nodeId == me) {
+      _toast(l.inviteIsSelf);
+      return;
+    }
+    // A redeem failure (already known, for one) must not block opening the
+    // chat: the invite is still who they are.
+    try {
+      await ref.read(realStackProvider)?.addContact(invite);
+    } catch (_) {}
+    if (!mounted) return;
+    context.push('/chat/${invite.nodeId.hex}');
+  }
+
+  Future<void> _redeemEntryNodes(String url) async {
+    final l = AppL10n.of(context);
+    final SharedPeers shared;
+    try {
+      shared = SharedPeers.parse(url);
+    } catch (_) {
+      _toast(l.inviteInvalid);
+      return;
+    }
+    // Counted only where the call actually happened: with no running stack the
+    // loop is skipped entirely and the honest "0 imported" is what is shown.
+    final stack = ref.read(realStackProvider);
+    var added = 0;
+    if (stack != null) {
+      for (final peer in shared.peers) {
+        try {
+          await stack.addContact(peer);
+          added++;
+        } catch (_) {}
+      }
+    }
+    _toast(l.peersImported(added));
   }
 
   Future<void> _openLink(String url) async {
