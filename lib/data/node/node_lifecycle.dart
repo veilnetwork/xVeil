@@ -414,6 +414,14 @@ String buildWriteNodeConfigScript(
     exit 4
   fi
 fi''';
+  // Whose group reaches the staging area. The validators for veil and ogate
+  // run as `veil` and must READ what was staged; oproxy is validated by
+  // starting its service, so nothing but root ever opens the staged file and
+  // the group is root's own.
+  final stageGroup = switch (target) {
+    NodeConfigTarget.veil || NodeConfigTarget.ogate => 'veil',
+    NodeConfigTarget.oproxyClient || NodeConfigTarget.oproxyServer => 'root',
+  };
   final validate = switch (target) {
     NodeConfigTarget.veil =>
       'sudo -u veil /usr/local/bin/veil-cli -c "\$temp" config validate',
@@ -437,11 +445,23 @@ set -euo pipefail
 # pre-place and nobody but root can reach it.
 stage="\$(sudo mktemp -d)"
 trap 'sudo rm -rf "\$stage"' EXIT
-# Traversable, not listable: the validators below run as `veil` and must be
-# able to READ the staged file. They must not be able to WRITE it — the file
-# stays root-owned until `install` sets the final owner, so `veil` cannot
-# rewrite validated bytes before root copies them into place.
-sudo chmod 711 "\$stage"
+# Reachable by root and by the validator, and by NOBODY else.
+#
+# It used to be `0711` on the directory and `0644` on the file, so that the
+# validators — which run as `veil` — could read what was staged. That made the
+# staged file world-readable under a fixed name in a world-traversable
+# directory, and for the veil target the staged file is the contents of
+# `/var/lib/veil/node.toml`, which carries `[identity] private_key`. The real
+# file is `0600` for exactly that reason; the copy this script made was not,
+# and `/tmp` is observable, so any local account could poll for the directory
+# and read the key without sudo (report16 X16-H3).
+#
+# Group, not world: the validator gets in through `root:$stageGroup 0710`, and
+# the file through `0640`. Still not writable by it — the bytes stay root-owned
+# until `install` puts them in place, so the validated content cannot be
+# rewritten underneath.
+sudo chown root:$stageGroup "\$stage"
+sudo chmod 0710 "\$stage"
 temp="\$stage/config.toml"
 backup="\$stage/config.backup"
 path='$path'
@@ -452,10 +472,11 @@ sudo systemctl is-active --quiet '$unit' && was_active=1 || true
 # Written THROUGH sudo: the staging dir is root-only, so the unprivileged
 # shell cannot create the file itself.
 printf '%s' '$payload' | base64 -d | sudo tee "\$temp" >/dev/null
-# 0644 root-owned: readable by the validator, writable by nobody but root.
-# `install` below sets the real owner and mode on the destination, so staging
-# never has to hand the file to the service user.
-sudo chmod 0644 "\$temp"
+# Readable by the validator's group and by nobody else; writable by root
+# alone. `install` below sets the real owner and mode on the destination, so
+# staging never has to widen this.
+sudo chown root:$stageGroup "\$temp"
+sudo chmod 0640 "\$temp"
 $validate
 had_config=0
 if sudo test -f "\$path"; then

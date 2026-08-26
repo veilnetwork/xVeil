@@ -136,4 +136,53 @@ void main() {
       );
     }
   });
+
+  test('nothing in the staging area is written by the login shell', () {
+    // The staging directory belongs to root and holds, in turn: a release
+    // binary between its digest check and the `sudo install` that trusts it,
+    // the deployment PSK, a TLS private key, and systemd unit files that
+    // `enable --now` starts as root.
+    //
+    // It used to be a plain `mktemp -d`, so it belonged to the LOGIN account —
+    // while a comment inside it said `root:root`. Any process of that UID
+    // could replace a verified artifact in the window before root installed
+    // it (report16 X16-H1). Which is not only about a hostile account: a
+    // shared deploy user is enough.
+    //
+    // A shell redirect is performed by the shell, so `cat > "$XVEIL_TMP/x"`
+    // and `cmd > "$XVEIL_TMP/x"` are writes by the login account however many
+    // `sudo`s appear elsewhere on the line.
+    final script = buildProvisionScript(
+      const NodeProvisionConfig(
+        releaseUrl: 'https://example.invalid/veil-cli',
+        expectedSha256:
+            '0000000000000000000000000000000000000000000000000000000000000000',
+        obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
+      ),
+    );
+
+    expect(
+      script,
+      contains(r'XVEIL_TMP="$(sudo mktemp -d)"'),
+      reason: 'the staging directory belongs to the login account',
+    );
+
+    for (final line in script.split('\n')) {
+      final trimmed = line.trimLeft();
+      if (trimmed.startsWith('#')) continue;
+      if (!line.contains(r'$XVEIL_TMP')) continue;
+      // A redirect INTO the staging area, done by the shell rather than by a
+      // privileged writer.
+      final redirect = RegExp(r'(^|\s)>\s*"?\$XVEIL_TMP').hasMatch(line) ||
+          RegExp(r'(^|\s)-o\s+"?\$XVEIL_TMP').hasMatch(line) ||
+          RegExp(r'(^|\s)-out\s+"?\$XVEIL_TMP').hasMatch(line) ||
+          RegExp(r'(^|\s)-keyout\s+"?\$XVEIL_TMP').hasMatch(line);
+      if (!redirect) continue;
+      expect(
+        line.contains('sudo tee') || line.trimLeft().startsWith('sudo '),
+        isTrue,
+        reason: 'the login shell writes into root\'s staging area here: $line',
+      );
+    }
+  });
 }
