@@ -718,6 +718,7 @@ def _linux(release: bool) -> list[Step]:
                 "build",
                 "linux",
                 "--release" if release else "--debug",
+                f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                 # See _debug_hook_define. This was called "the third host and
                 # the last one that was missing it" — it was not: the SIGNED
                 # macOS branch had never had it, and the ad-hoc script that
@@ -947,7 +948,11 @@ def _ios(release: bool) -> list[Step]:
         steps.append(
             Step(
                 "flutter build ios",
-                argv=["flutter", "build", "ios", "--release" if release else "--debug"],
+                argv=[
+                    "flutter", "build", "ios",
+                    "--release" if release else "--debug",
+                    f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                ],
                 env=_build_env(),
             )
         )
@@ -958,6 +963,7 @@ def _ios(release: bool) -> list[Step]:
                 argv=[
                     "flutter", "build", "ios",
                     "--release" if release else "--debug", "--no-codesign",
+                    f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                 ],
                 env=_build_env(),
             )
@@ -1066,7 +1072,11 @@ def _windows(release: bool) -> list[Step]:
         ),
         Step(
             "flutter bundle",
-            argv=["flutter", "build", "windows", "--release" if release else "--debug"],
+            argv=[
+                "flutter", "build", "windows",
+                "--release" if release else "--debug",
+                f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+            ],
             env=_build_env(**_engine_policy_env(release)),
         ),
         # Staged after the Flutter build, which creates the runner directory.
