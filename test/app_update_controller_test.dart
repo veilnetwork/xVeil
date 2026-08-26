@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/update/install_prefs.dart';
+
+import 'support/expect_before.dart';
 import 'package:xveil/data/update/app_update.dart';
 import 'package:xveil/state/app_update_controller.dart';
 
@@ -426,6 +428,104 @@ void main() {
       await container.read(updateCheckEnabledProvider.notifier).resolved();
 
       expect(installPrefs.lastCheck, newer);
+    });
+  });
+
+  group('a store that cannot be read', () {
+    // The one setting here stops a packet. A file that is THERE and does not
+    // parse may be somebody's opt-out that this process cannot read, and
+    // reading it as "no opt-out" is how a choice is lost by accident
+    // (report16 XV-14).
+    test('is treated as an opt-out, not as a fresh install', () async {
+      File(InstallUpdatePrefs.pathIn(support.path))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{"enabled": fal');
+
+      expect(installPrefs.enabled, isFalse);
+
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+      final asked = <Uri>[];
+      await container
+          .read(appUpdateProvider.notifier)
+          .checkIfDue(checker: answering(body, asked: asked));
+
+      expect(asked, isEmpty, reason: 'a corrupt store asked github.com');
+    });
+
+    test('and a MISSING file is a fresh install, which does ask', () async {
+      // Vacuity guard: failing closed on everything would turn every first
+      // launch into a permanent opt-out.
+      expect(installPrefs.enabled, isNull);
+
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+      final asked = <Uri>[];
+      await container
+          .read(appUpdateProvider.notifier)
+          .checkIfDue(checker: answering(body, asked: asked));
+
+      expect(asked, hasLength(1));
+    });
+
+    test('a store deleted after being corrupt is a fresh install again', () {
+      // The flag must come DOWN when the file is gone, or one bad read makes
+      // this instance answer "opted out" for the rest of its life.
+      final file = File(InstallUpdatePrefs.pathIn(support.path))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('not json at all');
+      expect(installPrefs.enabled, isFalse);
+
+      file.deleteSync();
+
+      expect(installPrefs.enabled, isNull);
+    });
+
+    test('the write goes through a temp and a rename', () {
+      // Structural, and this is why: what it buys is that a crash IN THE
+      // MIDDLE of a write leaves the old file rather than half a new one, and
+      // a crash is not something a test can stage here. `writeAsStringSync`
+      // truncates first, so writing in place is the version where an
+      // interrupted save becomes an unreadable store — which now reads as an
+      // opt-out nobody chose.
+      final source = File(
+        'lib/data/update/install_prefs.dart',
+      ).readAsStringSync();
+      final body = source.substring(source.indexOf('void _write('));
+
+      expect(body, contains('.tmp'));
+      expectBefore(body, 'writeAsStringSync', 'renameSync(path)');
+    });
+
+    test('a write leaves no half-written file behind', () async {
+      // `writeAsStringSync` truncates first, so a crash in the middle leaves
+      // something unparseable — which is now read as an opt-out, and would be
+      // one nobody chose.
+      installPrefs.enabled = true;
+      installPrefs.lastCheck = DateTime(2026, 8, 26);
+
+      final left = Directory(support.path)
+          .listSync()
+          .map((e) => e.path.split('/').last)
+          .toList();
+
+      expect(left, ['xveil.install.json'], reason: 'a temp was left behind');
+      expect(installPrefs.enabled, isTrue);
+    });
+
+    test('and a write repairs a store that was unreadable', () async {
+      File(InstallUpdatePrefs.pathIn(support.path))
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('not json at all');
+      expect(installPrefs.enabled, isFalse);
+
+      installPrefs.enabled = true;
+
+      expect(
+        installPrefs.enabled,
+        isTrue,
+        reason: 'the store stayed unreadable after being rewritten',
+      );
     });
   });
 }
