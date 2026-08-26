@@ -1851,6 +1851,7 @@
   "exitAdmissionAdd": "Admitir",
   "exitAdmissionInvalid": "Un node id son 64 caracteres hexadecimales",
   "exitAdmissionUnsaved": "Editado aquí. Pulsa Aplicar para enviarlo al servidor.",
+  "exitAdmissionUnreadable": "No se pudo leer la configuración: la lista de salida ocupa varias líneas o la tabla aparece dos veces. Edítala en el texto de abajo.",
   "nodeConfigNotLoaded": "Carga la configuración actual del servidor antes de editarla.",
   "nodeUninstallSoftware": "Desinstalar el software (conservar los datos)",
   "nodeDebootstrap": "Desinstalar por completo el nodo (borrarlo todo)",

@@ -9,6 +9,25 @@ import 'package:xveil/data/node/exit_allowlist.dart';
 /// other tables, keys in this table nobody asked about, and the difference
 /// between "no exit here" and "an exit that admits nobody".
 void main() {
+  /// The editor's answer, asserted to BE an answer.
+  ///
+  /// It returns null for a document whose shape it cannot rewrite safely, and
+  /// every document below is one it understands — so a null here would mean
+  /// the refusal fired on something it should have edited.
+  String edit(
+    String toml, {
+    required List<String> allowedNodeIds,
+    required bool allowAll,
+  }) {
+    final out = withExitAllowlist(
+      toml,
+      allowedNodeIds: allowedNodeIds,
+      allowAll: allowAll,
+    );
+    expect(out, isNotNull, reason: 'refused a document it understands');
+    return out!;
+  }
+
   final a = 'aa' * 32;
   final b = 'bb' * 32;
   final c = 'cc' * 32;
@@ -77,7 +96,7 @@ listen = "tcp://0.0.0.0:19999"
 
   group('writing', () {
     test('the list is replaced and nothing else moves', () {
-      final out = withExitAllowlist(full, allowedNodeIds: [a, b],
+      final out = edit(full, allowedNodeIds: [a, b],
           allowAll: false);
 
       expect(readExitAllowlist(out)!.allowedNodeIds, [a, b]);
@@ -95,12 +114,12 @@ listen = "tcp://0.0.0.0:19999"
     test('the exit switch itself is never flipped by an admission change', () {
       // Adding someone to a list is not a decision to start serving traffic.
       expect(readExitAllowlist(
-        withExitAllowlist(full, allowedNodeIds: [a], allowAll: false),
+        edit(full, allowedNodeIds: [a], allowAll: false),
       )!.enabled, isTrue);
     });
 
     test('an absent exit table is created, and created OFF', () {
-      final out = withExitAllowlist(
+      final out = edit(
         '[global]\nlog_level = "info"\n',
         allowedNodeIds: [a],
         allowAll: false,
@@ -115,7 +134,7 @@ listen = "tcp://0.0.0.0:19999"
     test('an id that is not 64 hex is dropped, not written', () {
       // veil drops it too when it parses the list, so writing it would put a
       // line in the operator's file that looks like an admission and is not.
-      final out = withExitAllowlist(
+      final out = edit(
         full,
         allowedNodeIds: ['nonsense', a, 'AA' * 31, ''],
         allowAll: false,
@@ -126,7 +145,7 @@ listen = "tcp://0.0.0.0:19999"
     });
 
     test('ids are lowercased and de-duplicated, order kept', () {
-      final out = withExitAllowlist(
+      final out = edit(
         full,
         allowedNodeIds: [b, ('AA' * 32), a, b],
         allowAll: false,
@@ -136,14 +155,14 @@ listen = "tcp://0.0.0.0:19999"
     });
 
     test('emptying the list is allowed and means nobody', () {
-      final out = withExitAllowlist(full, allowedNodeIds: [], allowAll: false);
+      final out = edit(full, allowedNodeIds: [], allowAll: false);
 
       expect(readExitAllowlist(out)!.allowedNodeIds, isEmpty);
       expect(readExitAllowlist(out)!.admitsNobody, isTrue);
     });
 
     test('opening the exit is written where a reader will find it', () {
-      final out = withExitAllowlist(full, allowedNodeIds: [], allowAll: true);
+      final out = edit(full, allowedNodeIds: [], allowAll: true);
 
       expect(readExitAllowlist(out)!.allowAll, isTrue);
       expect(readExitAllowlist(out)!.admitsNobody, isFalse);
@@ -159,7 +178,7 @@ enabled = true
 [metrics]
 listen = "tcp://0.0.0.0:19999"
 ''';
-      final out = withExitAllowlist(noAllowAll, allowedNodeIds: [a],
+      final out = edit(noAllowAll, allowedNodeIds: [a],
           allowAll: true);
 
       final exitBlock = out.substring(
@@ -171,9 +190,9 @@ listen = "tcp://0.0.0.0:19999"
     });
 
     test('writing twice changes nothing the second time', () {
-      final once = withExitAllowlist(full, allowedNodeIds: [a, b],
+      final once = edit(full, allowedNodeIds: [a, b],
           allowAll: false);
-      final twice = withExitAllowlist(once, allowedNodeIds: [a, b],
+      final twice = edit(once, allowedNodeIds: [a, b],
           allowAll: false);
 
       expect(twice, once);
@@ -181,11 +200,92 @@ listen = "tcp://0.0.0.0:19999"
 
     test('the exit table stays the LAST thing when it already is', () {
       const trailing = '[global]\nx = 1\n\n[proxy.exit]\nenabled = true\n';
-      final out = withExitAllowlist(trailing, allowedNodeIds: [a],
+      final out = edit(trailing, allowedNodeIds: [a],
           allowAll: false);
 
       expect(readExitAllowlist(out)!.allowedNodeIds, [a]);
       expect(readExitAllowlist(out)!.enabled, isTrue);
+    });
+  });
+
+  group('documents this editor must not guess at', () {
+    test('a header with a trailing comment ends the exit table', () {
+      // `[transport] # notes` is valid TOML and did not match the header
+      // pattern, so the reader stayed inside [proxy.exit] and read the NEXT
+      // table's keys as the exit's own — an `allow_all = true` belonging to
+      // something else read as an exit open to everybody.
+      final read = readExitAllowlist('''
+[proxy.exit]
+enabled = true
+allow_all = false
+
+[transport] # notes
+allow_all = true
+''');
+
+      expect(read!.allowAll, isFalse, reason: 'read another table as the exit');
+      expect(read.unreadable, isFalse);
+    });
+
+    test('an array broken across lines is reported unread, not as empty', () {
+      // The value on the key line is just `[`, which parses as an empty list —
+      // and veil reads an empty list as ADMITS NOBODY. Saying that about a
+      // server which admits people is a lie in the direction that locks users
+      // out.
+      final read = readExitAllowlist('''
+[proxy.exit]
+enabled = true
+allowed_node_ids = [
+  "$a",
+]
+''');
+
+      expect(read!.unreadable, isTrue);
+      expect(read.admitsNobody, isFalse, reason: 'claimed nobody may exit');
+    });
+
+    test('and rewriting it is REFUSED rather than attempted', () {
+      // It used to write the new single-line array and leave the old
+      // continuation lines under it. That is not valid TOML, so the node would
+      // not have come back after the operator applied an admission change.
+      final out = withExitAllowlist('''
+[proxy.exit]
+enabled = true
+allowed_node_ids = [
+  "$a",
+]
+''', allowedNodeIds: [b], allowAll: false);
+
+      expect(out, isNull);
+    });
+
+    test('the table twice is unread: two answers is not one', () {
+      final read = readExitAllowlist('''
+[proxy.exit]
+allow_all = true
+
+[transport]
+kind = "obfs4"
+
+[proxy.exit]
+allow_all = false
+''');
+
+      expect(read!.unreadable, isTrue);
+      expect(
+        withExitAllowlist(
+          '''
+[proxy.exit]
+allow_all = true
+
+[proxy.exit]
+allow_all = false
+''',
+          allowedNodeIds: const [],
+          allowAll: true,
+        ),
+        isNull,
+      );
     });
   });
 }
