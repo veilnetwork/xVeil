@@ -1704,6 +1704,7 @@
   "oproxyUseDefault": "Использовать дефолтную цепочку",
   "oproxyVpnRouteTitle": "Цепочка oproxy основного VPN",
   "oproxyRouteSummary": "{primary} + запасных: {fallbacks}",
+  "oproxyRouteSummaryNoFailover": "{primary} — запасные отключены",
   "oproxyAutoFailover": "Автосмена oproxy",
   "oproxyAutoFailoverHint": "Новые соединения пробуют следующий выход, если основной не может открыть маршрут. Работающие соединения остаются на текущем выходе.",
   "oproxyApplicationRoutesTitle": "Маршруты приложений через oproxy",

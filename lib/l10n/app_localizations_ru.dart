@@ -4110,6 +4110,11 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String oproxyRouteSummaryNoFailover(Object primary) {
+    return '$primary — запасные отключены';
+  }
+
+  @override
   String get oproxyAutoFailover => 'Автосмена oproxy';
 
   @override

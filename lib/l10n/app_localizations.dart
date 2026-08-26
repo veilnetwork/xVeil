@@ -7190,6 +7190,12 @@ abstract class AppL10n {
   /// **'{primary} + {fallbacks} fallbacks'**
   String oproxyRouteSummary(Object fallbacks, Object primary);
 
+  /// No description provided for @oproxyRouteSummaryNoFailover.
+  ///
+  /// In en, this message translates to:
+  /// **'{primary} — fallbacks off'**
+  String oproxyRouteSummaryNoFailover(Object primary);
+
   /// No description provided for @oproxyAutoFailover.
   ///
   /// In en, this message translates to:
