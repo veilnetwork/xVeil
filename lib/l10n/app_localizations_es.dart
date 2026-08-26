@@ -4205,6 +4205,21 @@ class AppL10nEs extends AppL10n {
       'La dirección SOCKS5 local debe ser un host:puerto de loopback, por ejemplo 127.0.0.1:1080. La VPN escucha ahí ella misma.';
 
   @override
+  String get vpnStartAlreadyRunning =>
+      'Un túnel de la sesión anterior aún se está cerrando. Inténtalo de nuevo en un momento.';
+
+  @override
+  String get vpnStartInvalidArgument =>
+      'El motor de paquetes rechazó uno de los ajustes: revisa la dirección SOCKS5 local, los servidores DNS y la MTU.';
+
+  @override
+  String get vpnStartClosed =>
+      'El motor de paquetes está detenido. Reinicia la aplicación e inténtalo de nuevo.';
+
+  @override
+  String get vpnStartRefused => 'El motor de paquetes se negó a iniciarse.';
+
+  @override
   String get vpnNeedsProxy =>
       'Elige antes un nodo de salida válido. La VPN arranca sola su transporte SOCKS5.';
 

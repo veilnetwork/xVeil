@@ -6,6 +6,7 @@ import 'package:ffi/ffi.dart';
 import '../../core/secret_wipe.dart' show wipeNativeSecret;
 
 import '../node/veil_library.dart' show verifiedVeilLibrary;
+import 'vpn_backend.dart';
 
 typedef _StartNative =
     Int32 Function(
@@ -85,6 +86,27 @@ class PacketTunnelFfi {
   static const starting = 1;
   static const running = 2;
   static const error = 3;
+
+  // Return codes from `veil_packet_tunnel_start*`. They are the ONLY account
+  // of a refusal that happens before the tunnel object exists, because
+  // `veil_packet_tunnel_last_error` reads a slot that object owns.
+  static const errGeneric = -1;
+  static const errInvalidArgument = -2;
+  static const errClosed = -3;
+  static const errReentrant = -4;
+
+  /// The engine's own answer, named. Null for success.
+  ///
+  /// An unknown non-zero code maps to [VpnStartFailure.refused] rather than to
+  /// nothing: a code this build has not heard of is still a refusal, and
+  /// saying "it refused" beats saying nothing.
+  static VpnStartFailure? failureFor(int code) => switch (code) {
+    0 => null,
+    errReentrant => VpnStartFailure.alreadyRunning,
+    errInvalidArgument => VpnStartFailure.invalidArgument,
+    errClosed => VpnStartFailure.closed,
+    _ => VpnStartFailure.refused,
+  };
 
   final _StartDart _start;
   final _StartRoutedDart? _startRouted;

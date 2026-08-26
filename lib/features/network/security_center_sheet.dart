@@ -8,6 +8,7 @@ import '../../data/vpn/vpn_backend.dart';
 import '../../data/vpn/vpn_proxy_plan.dart';
 import '../../data/vpn/vpn_routing_policy.dart';
 import '../../l10n/app_localizations.dart';
+import 'vpn_failure_text.dart';
 import '../../state/app_controller.dart';
 import '../../state/providers.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -223,7 +224,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
               VpnBackendPhase.running => l.vpnStatusRunning,
               VpnBackendPhase.starting => l.vpnStatusStarting,
               VpnBackendPhase.stopping => l.vpnStatusStopping,
-              VpnBackendPhase.error => vpn.backend.detail ?? l.vpnStatusError,
+              VpnBackendPhase.error => vpnStartFailureText(l, vpn.backend),
               VpnBackendPhase.unsupported => l.vpnStatusUnsupported,
               VpnBackendPhase.stopped => switch (vpnTransportGap) {
                 null => l.vpnStatusStopped,

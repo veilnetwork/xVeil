@@ -4153,6 +4153,21 @@ class AppL10nEn extends AppL10n {
       'The local SOCKS5 address must be a loopback host:port, for example 127.0.0.1:1080. The VPN listens there itself.';
 
   @override
+  String get vpnStartAlreadyRunning =>
+      'A tunnel from a previous session is still shutting down. Try again in a moment.';
+
+  @override
+  String get vpnStartInvalidArgument =>
+      'The packet engine rejected one of the settings — check the local SOCKS5 address, the DNS servers and the MTU.';
+
+  @override
+  String get vpnStartClosed =>
+      'The packet engine is shut down. Restart the app and try again.';
+
+  @override
+  String get vpnStartRefused => 'The packet engine refused to start.';
+
+  @override
   String get vpnNeedsProxy =>
       'Select a valid exit node first. VPN starts its SOCKS5 transport automatically.';
 

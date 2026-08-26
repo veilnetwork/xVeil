@@ -4194,6 +4194,21 @@ class AppL10nRu extends AppL10n {
       'Локальный адрес SOCKS5 должен быть loopback host:port, например 127.0.0.1:1080. VPN слушает на нём сам.';
 
   @override
+  String get vpnStartAlreadyRunning =>
+      'Туннель прошлого запуска ещё закрывается. Повторите через мгновение.';
+
+  @override
+  String get vpnStartInvalidArgument =>
+      'Пакетный движок отверг одну из настроек — проверьте локальный адрес SOCKS5, DNS-серверы и MTU.';
+
+  @override
+  String get vpnStartClosed =>
+      'Пакетный движок остановлен. Перезапустите приложение и повторите.';
+
+  @override
+  String get vpnStartRefused => 'Пакетный движок отказался запускаться.';
+
+  @override
   String get vpnNeedsProxy =>
       'Сначала выберите корректный выходной узел. VPN запустит SOCKS5-транспорт автоматически.';
 
