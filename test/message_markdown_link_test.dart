@@ -34,6 +34,46 @@ void main() {
     expect(find.widgetWithText(TextButton, 'Cancel'), findsOneWidget);
   });
 
+  // The app's OWN links, tapped in a chat. They were not tappable at all: the
+  // scanner matched only `https?://`, so a contact invite sat in the bubble as
+  // prose. These pin that they are links now, and that the dialog offers the
+  // IN-APP verb — launchUrl has nothing to hand a `veil:` URI to.
+  const invite = 'veil:bootstrap?pk=AAAA&t=x&nc=BBBB&a=ed25519';
+  const device = 'veil:device?pk=CCCC&nc=DDDD';
+
+  testWidgets('a contact invite is a link, and offers to add the contact', (
+    tester,
+  ) async {
+    await tester.pumpWidget(host('лови $invite'));
+    await tester.pumpAndSettle();
+
+    await tester.tapOnText(find.textRange.ofSubstring(invite));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Contact invite'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Add contact'), findsOneWidget);
+    // The browser verb must NOT be what a veil: link offers.
+    expect(find.widgetWithText(TextButton, 'Open'), findsNothing);
+  });
+
+  testWidgets('a device link says why it is not applied from a chat', (
+    tester,
+  ) async {
+    await tester.pumpWidget(host('смотри $device'));
+    await tester.pumpAndSettle();
+
+    await tester.tapOnText(find.textRange.ofSubstring(device));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Device link'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Open Devices'), findsOneWidget);
+    expect(
+      find.textContaining('not applied from a chat'),
+      findsOneWidget,
+      reason: 'the reason belongs before the button, not after it',
+    );
+  });
+
   testWidgets('Cancel dismisses the dialog without opening anything', (
     tester,
   ) async {
