@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'app_controller.dart';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -249,6 +250,11 @@ final opaqueNotificationPayloadsProvider = Provider<OpaqueNotificationPayloads>(
   (ref) => OpaqueNotificationPayloads(),
 );
 
+/// Which identity each shown notification belongs to. See [NotificationOwners].
+final notificationOwnersProvider = Provider<NotificationOwners>(
+  (ref) => NotificationOwners(),
+);
+
 /// Turn whatever the OS handed back into the payload the router understands.
 ///
 /// An opaque token that no longer resolves — minted before a lock, or evicted —
@@ -288,9 +294,28 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
       // A notification reply (showsUserInterface:true) foregrounds the app and
       // lands here on the MAIN isolate, where the unlocked container + the node
       // live, so the send actually works. Open the chat too, so the user sees
-      // their just-sent message. Sends from the ACTIVE identity (the common
-      // single-identity case; a reply from a since-switched identity would go
-      // from the wrong one).
+      // their just-sent message.
+      //
+      // Sent only from the identity the notification BELONGS to. A
+      // notification outlives the session that posted it, and the identity can
+      // change underneath — through the local API, in the background. Sending
+      // from whichever identity is active then tells the person on the other
+      // end that the two are the same device, which is the one thing a
+      // deniable app must not say (report16 X16-H2).
+      //
+      // A payload nobody recorded is refused too: unattributable is exactly
+      // the case this is for. The chat still opens, which costs nothing and
+      // says nothing.
+      final active = ref.read(appControllerProvider).identity?.nodeId.hex;
+      if (!ref.read(notificationOwnersProvider).mayReplyAs(payload, active)) {
+        final route = notificationRouteForPayload(payload);
+        if (route != null) {
+          ref.read(routerProvider)
+            ..go('/home')
+            ..push(route);
+        }
+        return;
+      }
       try {
         if (!notificationPayloadSupportsReply(payload)) {
           final route = notificationRouteForPayload(payload);

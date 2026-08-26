@@ -873,6 +873,12 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // Hidden: no sender, no text — just that something arrived.
       hiddenBody: isMention ? l.notificationMention : l.notificationNewMessage,
     );
+    // Whose notification this is, so a reply can only go out from that
+    // identity. Recorded against the RESOLVED payload — the reply callback
+    // resolves an opaque token back to this before it looks.
+    ref
+        .read(notificationOwnersProvider)
+        .remember(convHex, ref.read(appControllerProvider).identity?.nodeId.hex);
     await ref
         .read(notificationServiceProvider)
         .show(
