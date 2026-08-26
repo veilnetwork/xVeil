@@ -100,7 +100,7 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
       if (said != null) {
         await ref
             .read(managedNodesProvider.notifier)
-            .upsert(node.copyWith(veilVersion: said));
+            .updateById(node.id, (cur) => cur.copyWith(veilVersion: said));
       }
     }
     if (mounted) {
@@ -155,7 +155,7 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
         );
         await ref
             .read(managedNodesProvider.notifier)
-            .upsert(step.node.copyWith(veilVersion: now));
+            .updateById(step.node.id, (cur) => cur.copyWith(veilVersion: now));
       }
     }
     if (mounted) setState(() => _busy = false);
