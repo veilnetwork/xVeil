@@ -273,6 +273,13 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   @visibleForTesting
   static Duration closeTimeout = const Duration(seconds: 5);
 
+  /// The background wait a timed-out close leaves behind, so a test can see it
+  /// finish. Null until a close times out; production never reads it.
+  Future<void>? _lateClose;
+
+  @visibleForTesting
+  Future<void>? get debugLateClose => _lateClose;
+
   /// Ask the worker to close the container, and report honestly what happened.
   ///
   /// Shared by [close] and by the closed-during-spawn rollback in [_spawn], on
@@ -347,26 +354,29 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
           '(>${closeTimeout.inMilliseconds}ms) — waiting in background for the '
           'container to finish closing (flock still held)',
     );
-    unawaited(
-      done
-          .then(
-            (_) => devLog(
-              () =>
-                  'xVeil[storage]: late multi-space close completed — '
-                  'container handle released',
-            ),
-          )
-          .catchError((Object e) {
-            devLog(() => 'xVeil[storage]: late multi-space close failed: $e');
-          })
-          .whenComplete(() {
-            reply.close();
-            // The worker is finally gone, on its own terms. Stop watching now
-            // rather than at the timeout: until this lands the isolate is still
-            // live and a real crash in the meantime is still worth reporting.
-            watch?.dispose();
-                }),
-    );
+    // First of {late reply, death}, for the reason spelled out in
+    // `WorkerKvLogStore.close`: bound to the reply alone, a worker that died
+    // without answering left this port and the watcher's two open forever
+    // (report16 XV-18).
+    _lateClose = (watch == null ? done : watch.race(done))
+        .then(
+          (_) => devLog(
+            () =>
+                'xVeil[storage]: late multi-space close completed — '
+                'container handle released',
+          ),
+        )
+        .catchError((Object e) {
+          devLog(() => 'xVeil[storage]: late multi-space close failed: $e');
+        })
+        .whenComplete(() {
+          reply.close();
+          // The worker is finally gone, on its own terms. Stop watching now
+          // rather than at the timeout: until this lands the isolate is still
+          // live and a real crash in the meantime is still worth reporting.
+          watch?.dispose();
+        });
+    unawaited(_lateClose!);
     throw hv.HvException(
       'Busy',
       'multi-space worker did not close within '
