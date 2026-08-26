@@ -28,10 +28,18 @@ void main() {
     int deadChecks = 0,
     int aliveChecks = 0,
     bool backupFails = false,
+    bool binaryInstalled = true,
   }) {
     final dir = Directory.systemTemp.createTempSync('xveil-rb');
     addTearDown(() => dir.deleteSync(recursive: true));
     final log = '${dir.path}/log';
+    // Real paths, not a stubbed `test` that says a file exists while `cp`
+    // finds it does not. Two fictions that disagree is how a harness starts
+    // deciding outcomes on its own.
+    final bin = Directory('${dir.path}/bin')..createSync();
+    if (binaryInstalled) {
+      File('${bin.path}/veil-cli').writeAsStringSync('#!/bin/sh\nexit 0\n');
+    }
     final harness =
         '''
 LOG='$log'
@@ -64,9 +72,27 @@ sha256sum() {
   if [ "\$1" = "-c" ]; then cat > /dev/null; note "sha256sum -c"; return 0; fi
   note "sha256sum \$*"; echo "deadbeef  \$1"
 }
-test() { note "test \$*"; return 0; }
-cp() { note "cp \$*"; return ${backupFails ? 1 : 0}; }
-install() { note "install \$*"; return 0; }
+cp() {
+  note "cp \$*"
+  # Faithful in two ways that decide tests: the real one FAILS when the source
+  # is not there (which is the clean-install case), and it leaves a file
+  # behind when it works — the script asks `[ -f ]` about that afterwards, and
+  # `[` is a builtin, so it sees the filesystem and not these stubs.
+  local args=("\$@")
+  local src="\${args[\${#args[@]}-2]}"
+  local dst="\${args[\${#args[@]}-1]}"
+  [ -e "\$src" ] || return 1
+  if [ ${backupFails ? 1 : 0} -eq 0 ]; then : > "\$dst"; fi
+  return ${backupFails ? 1 : 0}
+}
+install() {
+  note "install \$*"
+  local args=("\$@")
+  local src="\${args[\${#args[@]}-2]}"
+  local dst="\${args[\${#args[@]}-1]}"
+  [ -e "\$src" ] || return 1
+  : > "\$dst"
+}
 mv() { note "mv \$*"; return 0; }
 DEAD=$deadChecks
 ALIVE=$aliveChecks
@@ -122,8 +148,9 @@ flock() {
   if [ -n "\$script" ]; then source "\$script" "\${@: -1}"; fi
 }
 ''';
-    final file = File('${dir.path}/s.sh')
-      ..writeAsStringSync('$harness\n$script');
+    final file = File('${dir.path}/s.sh')..writeAsStringSync(
+      '$harness\n${script.replaceAll('/usr/local/bin', bin.path)}',
+    );
     Process.runSync('bash', [file.path]);
     final f = File(log);
     return f.existsSync()
@@ -209,7 +236,7 @@ flock() {
 
     /// The updater is written to a file by the outer script; the harness runs
     /// the outer one, so the inner never executes. Pull it out and run that.
-    String inner() {
+    String inner({bool withBinary = true}) {
       final lines = script.split('\n');
       final from = lines.indexWhere((l) => l.contains("<<'XVEIL_UPDATER'"));
       final to = lines.indexWhere((l) => l == 'XVEIL_UPDATER', from);
@@ -217,9 +244,11 @@ flock() {
       expect(to, isNot(-1));
       final dir = Directory.systemTemp.createTempSync('xveil-bin');
       addTearDown(() => dir.deleteSync(recursive: true));
-      final bin = File('${dir.path}/veil-cli')
-        ..writeAsStringSync('#!/usr/bin/env bash\necho "veil-cli 0.1.0"\n');
-      Process.runSync('chmod', ['+x', bin.path]);
+      final bin = File('${dir.path}/veil-cli');
+      if (withBinary) {
+        bin.writeAsStringSync('#!/usr/bin/env bash\necho "veil-cli 0.1.0"\n');
+        Process.runSync('chmod', ['+x', bin.path]);
+      }
       // The only substitution: the updater names an absolute path, and a
       // shell function cannot stand in for one. Everything else runs as
       // written.
@@ -250,6 +279,38 @@ flock() {
       final log = runStubbed(inner());
 
       expect(restored(log), isFalse);
+    });
+
+    test('a clean install that does not come back restores nothing', () {
+      // There is no previous binary on a repair, so there is nothing to go
+      // back to. Attempting it anyway ends the run on a missing source and
+      // reports the wrong thing — a failed rollback instead of a failed
+      // install.
+      final log = runStubbed(inner(withBinary: false), restartFails: true);
+
+      expect(
+        restored(log),
+        isFalse,
+        reason: 'tried to restore a binary that never existed',
+      );
+    });
+
+    test('a node whose binary is missing REPAIRS itself', () {
+      // report15 X15-M9. The updater promises to repair a broken install, and
+      // `node_auto_update_test` asserts that an unknown running version does
+      // not block an update — against the comparator function, not against the
+      // script. In the script, `have="v$("$BIN" --version | awk …)"` under
+      // `pipefail` and `errexit` ends the run before anything is downloaded,
+      // and the unconditional `cp -a "$BIN" "$BIN.previous"` ends it again.
+      //
+      // So a node that most needs the updater is the one it cannot help.
+      final log = runStubbed(inner(withBinary: false));
+
+      expect(
+        log.any((l) => l.startsWith('install ') && !l.contains('.previous')),
+        isTrue,
+        reason: 'the repair never reached the install',
+      );
     });
   });
 
