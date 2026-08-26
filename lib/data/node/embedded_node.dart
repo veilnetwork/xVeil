@@ -1593,9 +1593,53 @@ class EmbeddedNode {
   /// re-applied config carrying (or omitting) these sections. Pure helper (no
   /// FFI), so it is unit-testable. A SOCKS5 client role is only emitted with a
   /// valid exit ([ProxyRouting.socks5Active]); veil skips an exit-less SOCKS5.
+  /// Drop every `[proxy.…]` / `[[proxy.…]]` table, keeping everything else.
+  ///
+  /// A TOML table runs until the next table header, so each match is removed
+  /// together with the lines under it. Anything that is not a proxy table —
+  /// `[dht]`, `[transport]`, the identity — is untouched, including a table
+  /// that merely comes AFTER one.
+  static String _withoutProxyTables(String toml) {
+    final out = <String>[];
+    var dropping = false;
+    for (final line in toml.split('\n')) {
+      final trimmed = line.trimLeft();
+      if (trimmed.startsWith('[')) {
+        dropping = RegExp(r'^\[\[?proxy\.').hasMatch(trimmed);
+      }
+      if (!dropping) out.add(line);
+    }
+    // Collapse the blank run a removed table leaves behind, so repeated
+    // composition does not grow the file a line at a time.
+    final joined = out
+        .join('\n')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        .trimRight();
+    return '$joined\n';
+  }
+
   static String withProxy(String toml, ProxyRouting proxy) {
-    if (!proxy.isActive || toml.contains('[proxy.')) return toml;
-    final buf = StringBuffer(toml);
+    // REPLACE what is there, never step aside for it.
+    //
+    // This used to return the config untouched whenever it already carried a
+    // `[proxy.` table — a guard against appending a second copy. A composed
+    // veil config CARRIES ONE (`veil-cli config init` writes `[proxy.socks5]`
+    // and `[proxy.exit]`; so does compose), so the guard fired every time and
+    // the app's routing never reached the node at all. The node kept whatever
+    // the base config said, and every change made in "Маршрутизация трафика"
+    // — the exit chain, the listen address, the exit switch — was inert.
+    //
+    // Measured on a phone with two exits configured: the SOCKS5 service ran
+    // with ONE candidate, so `proxy.socks5.connect_failed candidate_index=0`
+    // was followed straight by `all_exits_failed` and the second exit was
+    // never tried. 25 refusals in one log, not a single `candidate_index=1`.
+    //
+    // For the EMBEDDED node this file is the author of the config, so a stale
+    // table is not someone else's work to preserve — it is last boot's answer
+    // to a question the user has since answered differently.
+    final base = _withoutProxyTables(toml);
+    if (!proxy.isActive) return base;
+    final buf = StringBuffer(base);
     final emittedListens = <String>{};
     if (proxy.socks5Active) {
       final exits = proxy.effectiveDefaultOproxyNodeIds;
