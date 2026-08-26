@@ -1711,6 +1711,7 @@
   "oproxyUseDefault": "Usar la cadena predeterminada",
   "oproxyVpnRouteTitle": "Cadena oproxy principal de la VPN",
   "oproxyRouteSummary": "{primary} + {fallbacks} alternativas",
+  "oproxyRouteSummaryNoFailover": "{primary} — alternativas desactivadas",
   "oproxyAutoFailover": "Conmutación automática de oproxy",
   "oproxyAutoFailoverHint": "Las conexiones nuevas prueban la siguiente salida cuando la principal no consigue abrir ruta. Las conexiones existentes se quedan en su salida actual.",
   "oproxyApplicationRoutesTitle": "Rutas oproxy por aplicación",

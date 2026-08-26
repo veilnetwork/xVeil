@@ -4072,6 +4072,11 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String oproxyRouteSummaryNoFailover(Object primary) {
+    return '$primary — fallbacks off';
+  }
+
+  @override
   String get oproxyAutoFailover => 'Automatic oproxy failover';
 
   @override
