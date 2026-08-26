@@ -4653,6 +4653,10 @@ class AppL10nEs extends AppL10n {
   String get sshPasswordLabel => 'Contraseña';
 
   @override
+  String get sshRemoteConfigEmpty =>
+      'El servidor no devolvió una configuración legible.';
+
+  @override
   String get sshKeyLabel => 'Clave privada (PEM)';
 
   @override

@@ -4636,6 +4636,9 @@ class AppL10nRu extends AppL10n {
   String get sshPasswordLabel => 'Пароль';
 
   @override
+  String get sshRemoteConfigEmpty => 'Сервер не вернул читаемый конфиг.';
+
+  @override
   String get sshKeyLabel => 'Приватный ключ (PEM)';
 
   @override

@@ -103,5 +103,4 @@ void main() {
 /// layer belongs in the ARB.
 const _knownInternal = <String>{
   'lib/features/chat/video_player_screen.dart:42',
-  'lib/features/network/node_config_screen.dart:105',
 };
