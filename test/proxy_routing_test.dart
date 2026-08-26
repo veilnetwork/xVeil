@@ -370,4 +370,54 @@ void main() {
       expect(updated!.oProxies.map((e) => e.nodeId), [_backup, _exit]);
     });
   });
+
+  /// `vpnTransportReady` is a conjunction of two unrelated requirements — an
+  /// exit to route through, and a loopback address to listen on — and both
+  /// screens answered a false with ONE sentence: "choose a valid exit node".
+  ///
+  /// Someone whose exit chain was already correct and whose listen field held
+  /// `127.0.0.1: by1080` was therefore sent to fix the exit, with the VPN
+  /// button greyed out and nothing else to read. Measured on myself: several
+  /// minutes hunting a chain that was right.
+  group('which half of the VPN transport is missing', () {
+    test('an empty catalog names the exit', () {
+      expect(const ProxyRouting().vpnTransportGap, VpnTransportGap.noExit);
+    });
+
+    test('a bad listen address names the listen address', () {
+      const routing = ProxyRouting(
+        defaultOproxyNodeIds: [_exit],
+        socks5Listen: '127.0.0.1: by1080',
+      );
+      expect(routing.vpnTransportGap, VpnTransportGap.badListen);
+      expect(routing.vpnTransportReady, isFalse);
+    });
+
+    test('a non-loopback listen is named the same way', () {
+      const routing = ProxyRouting(
+        defaultOproxyNodeIds: [_exit],
+        socks5Listen: '0.0.0.0:1080',
+      );
+      expect(routing.vpnTransportGap, VpnTransportGap.badListen);
+    });
+
+    test('both present is no gap at all', () {
+      // Vacuity guard: the same shape with both halves right reports nothing
+      // missing, so the answers above are about the missing half and not about
+      // the getter always finding something.
+      const routing = ProxyRouting(
+        defaultOproxyNodeIds: [_exit],
+        socks5Listen: '127.0.0.1:1080',
+      );
+      expect(routing.vpnTransportGap, isNull);
+      expect(routing.vpnTransportReady, isTrue);
+    });
+
+    test('the exit is named before the listen when both are missing', () {
+      // An arbitrary order, but a fixed one: a reader fixing the first thing
+      // named should not be told the same sentence twice.
+      const routing = ProxyRouting(socks5Listen: 'nonsense');
+      expect(routing.vpnTransportGap, VpnTransportGap.noExit);
+    });
+  });
 }

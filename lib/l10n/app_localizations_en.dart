@@ -4149,6 +4149,10 @@ class AppL10nEn extends AppL10n {
   String get vpnMtuInvalid => 'MTU must be between 1280 and 9000';
 
   @override
+  String get vpnNeedsListen =>
+      'The local SOCKS5 address must be a loopback host:port, for example 127.0.0.1:1080. The VPN listens there itself.';
+
+  @override
   String get vpnNeedsProxy =>
       'Select a valid exit node first. VPN starts its SOCKS5 transport automatically.';
 

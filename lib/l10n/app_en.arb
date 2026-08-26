@@ -1761,6 +1761,7 @@
   "vpnMtu": "Tunnel MTU",
   "vpnMtuHint": "1280–9000; 1280 is safe across IPv4 and IPv6 paths",
   "vpnMtuInvalid": "MTU must be between 1280 and 9000",
+  "vpnNeedsListen": "The local SOCKS5 address must be a loopback host:port, for example 127.0.0.1:1080. The VPN listens there itself.",
   "vpnNeedsProxy": "Select a valid exit node first. VPN starts its SOCKS5 transport automatically.",
   "vpnStart": "Start VPN",
   "vpnStop": "Stop VPN",

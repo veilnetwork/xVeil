@@ -7328,6 +7328,12 @@ abstract class AppL10n {
   /// **'MTU must be between 1280 and 9000'**
   String get vpnMtuInvalid;
 
+  /// No description provided for @vpnNeedsListen.
+  ///
+  /// In en, this message translates to:
+  /// **'The local SOCKS5 address must be a loopback host:port, for example 127.0.0.1:1080. The VPN listens there itself.'**
+  String get vpnNeedsListen;
+
   /// No description provided for @vpnNeedsProxy.
   ///
   /// In en, this message translates to:

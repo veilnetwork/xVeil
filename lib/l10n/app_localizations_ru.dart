@@ -4190,6 +4190,10 @@ class AppL10nRu extends AppL10n {
   String get vpnMtuInvalid => 'MTU должен быть от 1280 до 9000';
 
   @override
+  String get vpnNeedsListen =>
+      'Локальный адрес SOCKS5 должен быть loopback host:port, например 127.0.0.1:1080. VPN слушает на нём сам.';
+
+  @override
   String get vpnNeedsProxy =>
       'Сначала выберите корректный выходной узел. VPN запустит SOCKS5-транспорт автоматически.';
 
