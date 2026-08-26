@@ -1,3 +1,5 @@
+import '../../domain/display_text.dart';
+
 /// A share of ONE exit node — `veil:oproxy?id=<64 hex>&n=<label>`.
 ///
 /// What it carries is deliberately small: which node to route through, and a
@@ -10,7 +12,25 @@
 /// It is NOT a bootstrap invite. Redeeming it adds an entry to the exit
 /// catalog; it creates no contact, exchanges no keys, and adds no peer.
 class OproxyInvite {
-  const OproxyInvite({required this.nodeId, required this.label});
+  /// The ONE place the two invariants are established: a 64-hex id, and a
+  /// label that has been through the display rule and its bound. Every way of
+  /// getting an instance comes through here, so nothing downstream repeats the
+  /// checks — `toUri` used to carry a copy of both, and a copy no caller can
+  /// reach is not a guard, it is a line no test can redden.
+  OproxyInvite._(String nodeId, String label)
+    : nodeId = _requireHex64(nodeId),
+      label = safeDisplayLabel(label, maxChars: maxLabelChars);
+
+  /// One to share, with the id checked and the label put through the SAME rule
+  /// the parser applies.
+  ///
+  /// The constructor used to take anything, and `toUri` neither checked the id
+  /// nor bounded the result — so this app could mint a link it could not read
+  /// back, and hand it to a QR renderer regardless (report16 XV-20). A share
+  /// nobody can redeem is worse than a refusal, because the person believes
+  /// they have shared something.
+  factory OproxyInvite.share({required String nodeId, required String label}) =>
+      OproxyInvite._(nodeId, label);
 
   /// 64 hex characters, lowercased.
   final String nodeId;
@@ -21,8 +41,9 @@ class OproxyInvite {
 
   static const scheme = 'veil:oproxy?';
 
-  /// A hostile link is attacker-controlled text that ends up in a list the
-  /// person reads. Bound it well above any real name.
+  /// A label is attacker-controlled text that ends up in a list a person
+  /// reads before deciding what to route their traffic through. Bounded well
+  /// above any real name.
   static const maxLabelChars = 64;
 
   /// Bound the whole token too: everything after the scheme is either a 64-char
@@ -63,19 +84,31 @@ class OproxyInvite {
     if (id == null || !_isHex64(id)) {
       throw const FormatException('oproxy share has no usable node id');
     }
-    if (label.length > maxLabelChars) {
-      label = label.substring(0, maxLabelChars);
-    }
-    // Control characters in a name that is rendered in a list, and newlines
-    // that would break the single line it is rendered on.
-    label = label.replaceAll(RegExp(r'[\x00-\x1f\x7f]'), '').trim();
-    return OproxyInvite(nodeId: id, label: label);
+    // One rule, shared with the producer: controls, reordering marks and
+    // invisible formatting out, and a bound on the length. A name in this
+    // catalog is attacker-controlled text a person reads before deciding what
+    // to route through.
+    return OproxyInvite._(id, label);
   }
 
+  /// The link to share. Always one this app can read back.
+  ///
+  /// The label is dropped rather than the whole share refused if the encoded
+  /// form would not fit: the id is what makes a share useful, and the catalog
+  /// names it by its prefix when there is no label.
   String toUri() {
-    final name = label.trim();
-    final suffix = name.isEmpty ? '' : '&n=${Uri.encodeComponent(name)}';
-    return '${scheme}id=$nodeId$suffix';
+    final suffix = label.isEmpty ? '' : '&n=${Uri.encodeComponent(label)}';
+    final uri = '${scheme}id=$nodeId$suffix';
+    return uri.length <= maxUriChars ? uri : '${scheme}id=$nodeId';
+  }
+
+  /// Normalised, or refused. Case and surrounding space are not part of an id.
+  static String _requireHex64(String value) {
+    final id = value.trim().toLowerCase();
+    if (!_isHex64(id)) {
+      throw ArgumentError('an oproxy share needs a 64-hex node id: $value');
+    }
+    return id;
   }
 
   static bool _isHex64(String value) =>

@@ -15,7 +15,7 @@ void main() {
 
   group('minting and reading back', () {
     test('a share survives the round trip', () {
-      final made = OproxyInvite(nodeId: id, label: 'vdsina2').toUri();
+      final made = OproxyInvite.share(nodeId: id, label: 'vdsina2').toUri();
       final read = OproxyInvite.parse(made);
 
       expect(read.nodeId, id);
@@ -23,7 +23,7 @@ void main() {
     });
 
     test('a label with spaces and punctuation survives', () {
-      final made = OproxyInvite(nodeId: id, label: 'Кирилл — выход №2').toUri();
+      final made = OproxyInvite.share(nodeId: id, label: 'Кирилл — выход №2').toUri();
 
       expect(OproxyInvite.parse(made).label, 'Кирилл — выход №2');
       // The `&` separator must not appear unencoded inside the value, or the
@@ -32,7 +32,7 @@ void main() {
     });
 
     test('an empty label is left out rather than sent empty', () {
-      final made = OproxyInvite(nodeId: id, label: '').toUri();
+      final made = OproxyInvite.share(nodeId: id, label: '').toUri();
 
       expect(made, isNot(contains('&n=')));
       expect(OproxyInvite.parse(made).label, isEmpty);
@@ -111,7 +111,7 @@ void main() {
     test('a catalog entry survives share → link → redeem', () {
       // What the share sheet mints, from a real catalog entry.
       final shared = OproxyEndpoint(nodeId: id, label: 'vdsina2');
-      final uri = OproxyInvite(
+      final uri = OproxyInvite.share(
         nodeId: shared.nodeId,
         label: shared.label,
       ).toUri();
@@ -132,7 +132,7 @@ void main() {
     });
 
     test('an entry with no label still lands, named by its prefix', () {
-      final uri = OproxyInvite(nodeId: id, label: '').toUri();
+      final uri = OproxyInvite.share(nodeId: id, label: '').toUri();
       final invite = OproxyInvite.parse(uri);
       final routing = routingWithDeployedExit(
         ProxyRouting.disabled,
@@ -147,7 +147,7 @@ void main() {
 
   group('in a chat', () {
     test('a proxy share is classified as its own kind', () {
-      final uri = OproxyInvite(nodeId: id, label: 'vdsina2').toUri();
+      final uri = OproxyInvite.share(nodeId: id, label: 'vdsina2').toUri();
 
       expect(chatLinkKind(uri), ChatLinkKind.proxyShare);
       expect(isInAppChatLink(uri), isTrue);
@@ -161,13 +161,95 @@ void main() {
     });
 
     test('a message carrying one makes it tappable', () {
-      final uri = OproxyInvite(nodeId: id, label: 'vdsina2').toUri();
+      final uri = OproxyInvite.share(nodeId: id, label: 'vdsina2').toUri();
       final links = parseFormatted('вот мой прокси $uri, пользуйся')
           .where((t) => t.kind == FmtKind.link)
           .map((t) => t.text)
           .toList();
 
       expect(links, [uri]);
+    });
+  });
+
+  group('what this app mints, it can read back', () {
+    // The constructor took anything and `toUri` checked nothing, so the app
+    // could produce a link it could not parse — and hand it to a QR renderer
+    // regardless. A share nobody can redeem is worse than a refusal, because
+    // the person believes they have shared something (report16 XV-20).
+    const id =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    void roundTrips(String label, {String? expect_}) {
+      final minted = OproxyInvite.share(nodeId: id, label: label).toUri();
+      expect(
+        minted.length,
+        lessThanOrEqualTo(OproxyInvite.maxUriChars),
+        reason: 'the parser refuses anything longer',
+      );
+
+      final back = OproxyInvite.parse(minted);
+      expect(back.nodeId, id);
+      expect(back.label, expect_ ?? OproxyInvite.share(nodeId: id, label: label).label);
+    }
+
+    test('the object the app holds is already safe, before any parse', () {
+      // The producer half stands on its own. This object is what the screen
+      // shows and what the QR encodes; sanitising only on the way back in
+      // would leave the SENDER looking at the unsanitised name while telling
+      // themselves it is what they shared.
+      expect(
+        OproxyInvite.share(nodeId: id, label: 'exit\u202Etixe').label,
+        'exit_tixe',
+      );
+      expect(
+        OproxyInvite.share(nodeId: id, label: 'n' * 300).label.length,
+        OproxyInvite.maxLabelChars,
+        reason: 'the bound is the parser\u2019s; the producer must keep it too',
+      );
+      expect(OproxyInvite.share(nodeId: id, label: '  x  ').label, 'x');
+    });
+
+    test('an ordinary name', () => roundTrips('exit-host'));
+    test('one with an ampersand and an equals', () => roundTrips('a&b=c'));
+    test('one in another script', () => roundTrips('выход'));
+    test('an emoji sequence keeps its joiner', () => roundTrips('a‍b'));
+
+    test('a label longer than the bound', () {
+      // Bounded at BOTH ends now: it used to be cut only on the way in, so a
+      // 300-character name came back different from what was sent.
+      roundTrips('n' * 300, expect_: 'n' * OproxyInvite.maxLabelChars);
+    });
+
+    test('a label that would push the URI over the limit loses the label', () {
+      // Every character encodes to nine bytes here, so the label cannot fit.
+      // The id is what makes a share useful; dropping the name keeps the share
+      // redeemable instead of making it unparseable.
+      final minted =
+          OproxyInvite.share(nodeId: id, label: '☃' * 60).toUri();
+
+      expect(minted.length, lessThanOrEqualTo(OproxyInvite.maxUriChars));
+      expect(OproxyInvite.parse(minted).nodeId, id);
+    });
+
+    test('a reordering mark never survives to the catalog', () {
+      // The name is read by a person deciding what to route their traffic
+      // through.
+      final back = OproxyInvite.parse(
+        OproxyInvite.share(nodeId: id, label: 'exit\u202Etixe').toUri(),
+      );
+
+      expect(back.label, isNot(contains('\u202E')));
+      expect(back.label, 'exit_tixe');
+    });
+
+    test('and an id that is not one is refused, not minted', () {
+      for (final bad in ['', 'nope', 'A' * 63, '${'a' * 64}b']) {
+        expect(
+          () => OproxyInvite.share(nodeId: bad, label: 'x'),
+          throwsArgumentError,
+          reason: bad,
+        );
+      }
     });
   });
 }

@@ -316,7 +316,7 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
                               builder: (_) => ShareLinkSheet(
                                 title: l.oproxyShareTitle(endpoint.label),
                                 hint: l.oproxyShareAdmissionHint,
-                                uri: OproxyInvite(
+                                uri: OproxyInvite.share(
                                   nodeId: endpoint.nodeId,
                                   label: endpoint.label,
                                 ).toUri(),
