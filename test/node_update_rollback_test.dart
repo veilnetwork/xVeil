@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/node_auto_update.dart';
 import 'package:xveil/data/node/node_lifecycle.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
+import 'package:xveil/data/node/version_compare_shell.dart';
 
 import 'support/expect_before.dart';
 
@@ -429,6 +430,28 @@ flock() {
         installed(run(planned(expected: '0.8.0', target: '0.8.1'), '0.9.0')),
         isFalse,
         reason: '0.9.0 was overwritten with the plan\'s cached 0.8.1',
+      );
+    });
+
+    test('a node on a release candidate is offered the stable release', () {
+      // The fleet path shares the comparator with the unattended one now:
+      // `sort -V` read `0.8.1-rc1` as newer than `0.8.1`, so a node somebody
+      // put an RC on refused the release that followed it (report16 XV-11).
+      expect(
+        installed(run(planned(expected: '0.8.1-rc1', target: '0.8.1'), '0.8.1-rc1')),
+        isTrue,
+        reason: 'the stable release was refused as "not newer"',
+      );
+    });
+
+    test('and both scripts carry the SAME comparator', () {
+      // Two copies is how they came to disagree with each other and with the
+      // app in the first place.
+      final fleet = planned(expected: '0.8.0', target: '0.8.1');
+      expect(fleet, contains(kNewerThanShell.trim()));
+      expect(
+        buildNodeAutoUpdateScript(enabled: true),
+        contains(kNewerThanShell.trim()),
       );
     });
 
