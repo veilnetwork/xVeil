@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'managed_node.dart';
+import 'proxy_routing.dart';
 
 /// Components that can be installed on a managed server. `veilCli` is always
 /// required; the others are optional applications that attach to its local IPC
@@ -37,6 +38,10 @@ class ProvisionReport {
     this.nodeId,
     this.invite,
     this.components = const <NodeComponent>{},
+    this.exitEnabled,
+    this.exitAllowAll,
+    this.exitAllowedNodeIds = const <String>[],
+    this.exitAllowlistUnread = false,
   });
 
   /// 64 hex chars, lowercased. Null when the node could not report one.
@@ -48,6 +53,29 @@ class ProvisionReport {
   final String? invite;
 
   final Set<NodeComponent> components;
+
+  /// Whether the server runs veil's built-in exit — i.e. whether this node is
+  /// something traffic can be routed THROUGH.
+  ///
+  /// Null, never false, when the run said nothing about it: a server
+  /// inventoried by an older build has an exit state nobody looked at, and
+  /// calling that "not an exit" would quietly drop it out of the routing
+  /// catalog on a re-attach.
+  final bool? exitEnabled;
+
+  /// Whether the exit carries anyone who asks. Same null-vs-false rule.
+  final bool? exitAllowAll;
+
+  /// Who the exit admits. Empty means the run reported an empty list — which
+  /// veil reads as NOBODY — or reported nothing at all; [exitAllowlistUnread]
+  /// separates that from a list the script could not read.
+  final List<String> exitAllowedNodeIds;
+
+  /// The allowlist was there and could not be read (a list broken across
+  /// lines). Kept apart from "empty" because empty means nobody may exit, and
+  /// showing that about a server which admits people would be a lie in the
+  /// direction that locks users out.
+  final bool exitAllowlistUnread;
 
   bool get isEmpty => nodeId == null && invite == null && components.isEmpty;
 }
@@ -86,12 +114,45 @@ ProvisionReport parseProvisionReport(String output, {String? reachableHost}) {
   if (uri != null) {
     invite = _withReachableHost(uri.group(1)!.trim(), reachableHost);
   }
+  final exitEnabled = _reportedBool(output, 'EXIT_ENABLED');
+  final exitAllowAll = _reportedBool(output, 'EXIT_ALLOW_ALL');
+  final allowed = RegExp(r'EXIT_ALLOWED:[ \t]*(.*)').firstMatch(output);
+  final allowedRaw = allowed?.group(1)?.trim() ?? '';
+  final unread = allowedRaw == '(unread)';
+
   return ProvisionReport(
     nodeId: nodeId,
     invite: invite,
     components: components,
+    exitEnabled: exitEnabled,
+    exitAllowAll: exitAllowAll,
+    exitAllowlistUnread: unread,
+    exitAllowedNodeIds: unread
+        ? const <String>[]
+        : allowedRaw
+              .split(',')
+              .map((id) => id.trim().toLowerCase())
+              .where(_isHex64Id)
+              .toList(growable: false),
   );
 }
+
+bool? _reportedBool(String output, String key) {
+  final m = RegExp('$key:[ \\t]*(\\S+)').firstMatch(output);
+  if (m == null) return null;
+  final value = m.group(1)!.trim().toLowerCase();
+  // Only the two words veil itself writes. Anything else is a line this build
+  // does not understand, and guessing `false` about an exit is how a working
+  // server stops being routable.
+  return switch (value) {
+    'true' => true,
+    'false' => false,
+    _ => null,
+  };
+}
+
+bool _isHex64Id(String value) =>
+    value.length == 64 && RegExp(r'^[0-9a-f]{64}$').hasMatch(value);
 
 /// The node record to save after a read-only inventory run, or null to leave
 /// the catalog untouched.
@@ -114,6 +175,59 @@ ManagedNode? nodeWithAdoptedId(ManagedNode node, String inventoryOutput) {
   final id = parseProvisionReport(inventoryOutput).nodeId;
   if (id == null) return null;
   return node.copyWith(nodeId: id);
+}
+
+/// The routing catalog to save after a read-only INVENTORY run, or null to
+/// leave it alone.
+///
+/// Deployment puts an exit it just installed into the catalog; the inventory
+/// did not, because it never asked whether the server was an exit. That gap is
+/// the whole of "re-adding a node is invasive": an operator who restored an
+/// identity from a phrase — no records, no second device to replicate from —
+/// could re-attach the server, watch the inventory read its node id back, and
+/// still have nothing to route through. The only way to appear in the catalog
+/// was to run a deployment over a working machine, rewriting its listeners and
+/// its config to whatever this fresh app happened to hold.
+///
+/// The decision is [routingWithDeployedExit]'s, unchanged and called rather
+/// than copied: same de-duplication against the effective catalog, same label
+/// fallback. Only the SOURCE of "is it an exit" differs — the server's own
+/// config, read, instead of a checkbox the operator ticked.
+ProxyRouting? routingWithInventoriedExit(
+  ProxyRouting routing, {
+  required ManagedNode node,
+  required String inventoryOutput,
+}) {
+  final report = parseProvisionReport(inventoryOutput);
+  // A run that said nothing about the exit leaves the catalog alone: an older
+  // script's silence is not evidence that the server stopped being an exit.
+  if (report.exitEnabled != true) return null;
+  return routingWithDeployedExit(
+    routing,
+    isExit: true,
+    nodeId: report.nodeId ?? node.nodeId,
+    label: node.label,
+  );
+}
+
+/// Whether [selfNodeId] may actually leave through the exit this inventory
+/// describes — null when the run does not say enough to tell.
+///
+/// After a restore the app is a DIFFERENT device on the same identity, and the
+/// server's allowlist names the device that is gone. The node then appears in
+/// the catalog, is chosen as an exit, and every stream is refused — with
+/// nothing anywhere connecting the refusal to a list on a machine the operator
+/// still owns. Answering it here means the inventory can say so at the moment
+/// the server is re-attached.
+bool? exitAdmitsSelf(String inventoryOutput, String? selfNodeId) {
+  final report = parseProvisionReport(inventoryOutput);
+  if (report.exitEnabled != true) return null;
+  if (report.exitAllowAll == true) return true;
+  // Unread is not "no": a half-read list must not accuse a working server.
+  if (report.exitAllowlistUnread) return null;
+  final self = selfNodeId?.trim().toLowerCase();
+  if (self == null || !_isHex64Id(self)) return null;
+  return report.exitAllowedNodeIds.contains(self);
 }
 
 /// Rewrite the `t=` transport of an invite when it names an address that only

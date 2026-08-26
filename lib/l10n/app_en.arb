@@ -1826,6 +1826,7 @@
   "nodeProvision": "Provision veil node over SSH",
   "nodeManage": "Manage node",
   "nodeInventory": "Inspect installation and status",
+  "nodeExitRefusesThisDevice": "This exit admits nobody yet: add this device's node id to proxy.exit.allowed_node_ids on the server, or it will refuse every stream once the node is updated.",
   "nodeInstallUpdate": "Install or update software",
   "nodeServices": "Services",
   "nodeAdvancedConfig": "Advanced configuration",

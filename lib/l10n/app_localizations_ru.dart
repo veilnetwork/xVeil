@@ -4385,6 +4385,10 @@ class AppL10nRu extends AppL10n {
   String get nodeInventory => 'Проверить установку и состояние';
 
   @override
+  String get nodeExitRefusesThisDevice =>
+      'Этот выход пока не пускает никого: добавьте node_id этого устройства в proxy.exit.allowed_node_ids на сервере, иначе после обновления узла он будет отказывать всем.';
+
+  @override
   String get nodeInstallUpdate => 'Установить или обновить ПО';
 
   @override
