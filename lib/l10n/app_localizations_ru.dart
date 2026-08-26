@@ -4116,6 +4116,26 @@ class AppL10nRu extends AppL10n {
   String get oproxyEditTitle => 'Изменить oproxy';
 
   @override
+  String oproxyShareTitle(Object name) {
+    return 'Поделиться: $name';
+  }
+
+  @override
+  String get oproxyShareAdmissionHint =>
+      'Ссылка говорит, через какой узел идти. Пустят ли — решается на сервере: добавьте node_id получателя в список разрешённых выхода, иначе по ссылке ему откажут.';
+
+  @override
+  String get oproxyShareSend => 'Отправить контакту';
+
+  @override
+  String oproxyShareSent(Object name) {
+    return 'Отправлено: $name';
+  }
+
+  @override
+  String get oproxyShareNoContacts => 'Пока некому отправить — нет контактов';
+
+  @override
   String get oproxyName => 'Название';
 
   @override

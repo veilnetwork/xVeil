@@ -8,6 +8,7 @@ import '../../data/vpn/vpn_application_catalog.dart';
 import '../../data/vpn/vpn_routing_policy.dart';
 import '../../l10n/app_localizations.dart';
 import 'oproxy_chain_summary.dart';
+import 'share_oproxy_sheet.dart';
 import 'vpn_failure_text.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -306,6 +307,16 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
                           : const Icon(Icons.dns_outlined),
                       trailing: Wrap(
                         children: [
+                          IconButton(
+                            tooltip: l.oproxyShareSend,
+                            onPressed: () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              builder: (_) =>
+                                  ShareOproxySheet(endpoint: endpoint),
+                            ),
+                            icon: const Icon(Icons.ios_share),
+                          ),
                           IconButton(
                             tooltip: l.oproxyEditTitle,
                             onPressed: () => _editOproxy(cfg, endpoint),
