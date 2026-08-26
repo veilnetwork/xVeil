@@ -41,7 +41,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get preparingFirstRunBody =>
-      'Una configuración única que puede tardar hasta un minuto (una prueba de trabajo que hace difícil falsificar la identidad). Solo ocurre la primera vez: cambiar a ella más adelante es instantáneo.';
+      'Una configuración única: una prueba de trabajo que hace difícil falsificar la identidad. Segundos en un ordenador; en un teléfono, varios minutos o más. Solo ocurre la primera vez: cambiar a ella más adelante es instantáneo.';
 
   @override
   String get preparingUnlockTitle => 'Abriendo tu contenedor';

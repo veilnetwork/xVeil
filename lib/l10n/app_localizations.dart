@@ -162,7 +162,7 @@ abstract class AppL10n {
   /// No description provided for @preparingFirstRunBody.
   ///
   /// In en, this message translates to:
-  /// **'A one-time setup that can take up to a minute (a proof-of-work that makes the identity hard to forge). It only runs the first time — switching to it later is instant.'**
+  /// **'A one-time setup — a proof-of-work that makes the identity hard to forge. Seconds on a computer; on a phone, several minutes or more. It only runs the first time — switching to it later is instant.'**
   String get preparingFirstRunBody;
 
   /// No description provided for @preparingUnlockTitle.
