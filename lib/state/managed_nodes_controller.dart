@@ -72,6 +72,36 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
     return _persist(next);
   }
 
+  /// Change the node with [id] by applying [change] to the record as it stands
+  /// NOW. Null on success, the failure text otherwise — and null when there is
+  /// no such node any more, because a record somebody deleted is not a failure
+  /// to write one.
+  ///
+  /// This exists because [upsert] takes a whole record, and every caller had
+  /// one it captured earlier. The SSH dialog pins a host key on first contact
+  /// and saves it; the callback that runs straight afterwards then wrote back
+  /// the object it had been handed BEFORE that, wiping the pin. The next
+  /// connection was first-contact again, so a key that had been confirmed once
+  /// could be replaced by somebody else's and confirmed again — over a
+  /// connection that carries a root-capable credential and a command.
+  ///
+  /// The same shape lost `autoUpdate` and `veilVersion`: an editor that
+  /// rebuilt a record from a form silently turned off a switch that had
+  /// started a root timer on a server, and the screen then said it was off.
+  ///
+  /// Take the current record, change what you mean to change, leave the rest.
+  Future<String?> updateById(
+    String id,
+    ManagedNode Function(ManagedNode current) change,
+  ) async {
+    final cur = state.value ?? const [];
+    final idx = cur.indexWhere((n) => n.id == id);
+    if (idx < 0) return null;
+    final next = [...cur];
+    next[idx] = change(cur[idx]);
+    return _persist(next);
+  }
+
   /// Drop the node with [id]. Null on success, the failure text otherwise.
   Future<String?> remove(String id) async {
     final cur = state.value ?? const [];
