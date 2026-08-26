@@ -1622,21 +1622,26 @@ class EmbeddedNode {
     // REPLACE what is there, never step aside for it.
     //
     // This used to return the config untouched whenever it already carried a
-    // `[proxy.` table — a guard against appending a second copy. A composed
-    // veil config CARRIES ONE (`veil-cli config init` writes `[proxy.socks5]`
-    // and `[proxy.exit]`; so does compose), so the guard fired every time and
-    // the app's routing never reached the node at all. The node kept whatever
-    // the base config said, and every change made in "Маршрутизация трафика"
-    // — the exit chain, the listen address, the exit switch — was inert.
+    // `[proxy.` table. That guard was written to prevent a second copy being
+    // appended, and it is NOT the reason a phone once ran with one exit
+    // candidate — the cause there was the VPN's own pinned chain, which is a
+    // different field entirely (see [VpnProxyPlan]).
     //
-    // Measured on a phone with two exits configured: the SOCKS5 service ran
-    // with ONE candidate, so `proxy.socks5.connect_failed candidate_index=0`
-    // was followed straight by `all_exits_failed` and the second exit was
-    // never tried. 25 refusals in one log, not a single `candidate_index=1`.
+    // MEASURED, because the same shape did bite once for real: a default
+    // `veil-cli config init` serializes `[global] [transport]
+    // [transport.rotation] [transport.tls_fingerprint] [Identity] [mobile]`
+    // and NO `[proxy.…]` — `ProxyConfig` carries `skip_serializing_if =
+    // "ProxyConfig::is_default"`. So the old guard did not fire on a fresh
+    // compose, and routing did reach the node. Compare [withTransportRotation],
+    // whose section IS always serialized: that helper really was inert for
+    // months, which is what made this one look guilty.
     //
-    // For the EMBEDDED node this file is the author of the config, so a stale
-    // table is not someone else's work to preserve — it is last boot's answer
-    // to a question the user has since answered differently.
+    // Replacing is still the right shape, for a reason that does not need a
+    // defect: for the EMBEDDED node this file is the AUTHOR of the config, so
+    // a `[proxy.…]` table it finds is last boot's answer to a question the
+    // user has since answered differently — not someone else's work to
+    // preserve. It also makes the composition idempotent, which the guard
+    // version was not.
     final base = _withoutProxyTables(toml);
     if (!proxy.isActive) return base;
     final buf = StringBuffer(base);

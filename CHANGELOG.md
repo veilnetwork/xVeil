@@ -29,16 +29,21 @@ everyone". Give every enabled exit its `allowed_node_ids` first. Nodes that do
 not enable the exit are unaffected — checked on the production seeds, which
 carry no `[proxy.exit]` section at all.
 
-### The exit chain never reached the node
+### Composing the node config is idempotent again
 
 `EmbeddedNode.withProxy` returned the config untouched whenever it already
-carried a `[proxy.` table — a guard against appending a second copy. A composed
-veil config always carries one, so the guard fired every time and **the routing
-screen was inert**: the exit chain, the listen address and the exit switch were
-saved by the app and never applied to the node. Measured with two exits
-configured: the SOCKS5 service ran with one candidate, so every failure went
-`candidate_index=0 → all_exits_failed` and the second exit was never tried.
-Stale `[proxy.*]` tables are now replaced rather than stepped aside for.
+carried a `[proxy.` table. Stale tables are now replaced instead: for the
+embedded node this app is the AUTHOR of the config, so a `[proxy.…]` table it
+finds is last boot's answer to a question the user has since answered
+differently.
+
+**Correction to an earlier claim.** This entry first said the guard fired on
+every compose and left the routing screen inert. That was wrong, and measuring
+settled it: a default config serializes to `[global] [transport]
+[transport.rotation] [transport.tls_fingerprint] [Identity] [mobile]` and no
+`[proxy.…]` at all, because `ProxyConfig` is skipped when default. The guard did
+not fire, and routing did reach the node. The one exit candidate that prompted
+the change came from the VPN's own pinned chain — the section below.
 
 ### The row that says which exit you leave through said nothing
 
