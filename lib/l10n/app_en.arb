@@ -1738,6 +1738,7 @@
   "oproxyUseDefault": "Use default chain",
   "oproxyVpnRouteTitle": "Main VPN oproxy chain",
   "oproxyRouteSummary": "{primary} + {fallbacks} fallbacks",
+  "oproxyRouteSummaryNoFailover": "{primary} — fallbacks off",
   "oproxyAutoFailover": "Automatic oproxy failover",
   "oproxyAutoFailoverHint": "New connections try the next exit when the primary cannot open a route. Existing connections stay on their current exit.",
   "oproxyApplicationRoutesTitle": "Application oproxy routes",
