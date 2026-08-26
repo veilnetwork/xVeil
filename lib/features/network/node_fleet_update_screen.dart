@@ -98,9 +98,12 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
             );
       final said = report?.veilVersion;
       if (said != null) {
-        await ref
+        final failed = await ref
             .read(managedNodesProvider.notifier)
             .updateById(node.id, (cur) => cur.copyWith(veilVersion: said));
+        if (failed != null && mounted) {
+          setState(() => _notice = failed);
+        }
       }
     }
     if (mounted) {
@@ -153,9 +156,14 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
           version: now,
           target: step.target,
         );
-        await ref
+        // The server was updated. A record that did not save means the next
+        // check offers this node the version it already runs.
+        final failed = await ref
             .read(managedNodesProvider.notifier)
             .updateById(step.node.id, (cur) => cur.copyWith(veilVersion: now));
+        if (failed != null && mounted) {
+          setState(() => _notice = failed);
+        }
       }
     }
     if (mounted) setState(() => _busy = false);
