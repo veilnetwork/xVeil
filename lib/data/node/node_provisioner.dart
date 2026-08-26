@@ -216,6 +216,7 @@ class NodeProvisionConfig {
     required this.obfs4PskB64,
     this.listenPort = 5556,
     this.runExit = true,
+    this.exitAllowedNodeIds = const [],
     this.extraArtifacts = const [],
     this.transports = const {NodeListenTransport.obfs4Tcp},
     this.transportPorts = const {},
@@ -240,6 +241,19 @@ class NodeProvisionConfig {
   /// transport (including obfs4) in the expanded deployment UI.
   final int listenPort;
   final bool runExit;
+
+  /// Who may use the deployed node as an exit, by 64-hex source node id.
+  ///
+  /// An exit spends the operator's bandwidth and answers for the traffic with
+  /// their server's address, so veil asks it to name who it carries — an empty
+  /// list there means NOBODY, not everybody. The deploying device belongs in
+  /// here or the operator has just installed an exit that refuses them.
+  ///
+  /// Left empty the keys are not written at all, which is the honest thing for
+  /// a caller that could not say: an older node keeps behaving as it did, and
+  /// a newer one stays closed and says so at startup rather than silently
+  /// serving the network.
+  final List<String> exitAllowedNodeIds;
 
   final List<NodeReleaseArtifact> extraArtifacts;
   final Set<NodeListenTransport> transports;
@@ -357,6 +371,12 @@ class NodeProvisionConfig {
       final port = portFor(t);
       return port < 1 || port > 65535;
     })) {
+      return false;
+    }
+    if (exitAllowedNodeIds.any((id) => !_sha256Re.hasMatch(id.trim()))) {
+      // Same shape as a node id. A malformed entry is refused rather than
+      // dropped here, because this list is written into a file that decides
+      // who may spend the operator's bandwidth.
       return false;
     }
     final host = advertiseHost?.trim();
@@ -782,6 +802,24 @@ String buildProvisionScript(NodeProvisionConfig c) {
   final installs = artifacts.map(_installArtifact).join('\n');
   final listeners = c.transports.map((t) => _listenerCommand(c, t)).join('\n');
   final exitValue = c.runExit ? 'true' : 'false';
+  // WHO the exit carries, written beside the switch that turns it on. veil
+  // reads an empty allowlist as "nobody" — deliberately, so that an operator
+  // who has not finished configuring is not running an open proxy — so a
+  // deployment that enables the exit and names no one installs an exit that
+  // refuses its own owner. Nothing is written when the caller named no one:
+  // an older node then behaves exactly as it did, and a newer one stays closed
+  // and says so at startup, which is better than this file guessing.
+  final exitIds = c.exitAllowedNodeIds
+      .map((id) => id.trim().toLowerCase())
+      .where((id) => id.isNotEmpty)
+      .toList(growable: false);
+  final exitAdmission = !c.runExit || exitIds.isEmpty
+      ? '# exit admission left as configured on the server'
+      : "set_toml_scalar proxy.exit allowed_node_ids "
+            "'[${exitIds.map((id) => '"$id"').join(', ')}]' "
+            "\$XVEIL_TMP/cfg/xveil-node.toml\n"
+            "set_toml_scalar proxy.exit allow_all 'false' "
+            "\$XVEIL_TMP/cfg/xveil-node.toml";
   final exitComment = c.runExit
       ? '# built-in exit proxy enabled'
       : '# exit proxy disabled';
@@ -897,6 +935,7 @@ sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config s
 sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config set ipc.socket_uri unix:///run/veil/app.sock
 $exitComment
 set_toml_scalar proxy.exit enabled '$exitValue' \$XVEIL_TMP/cfg/xveil-node.toml
+$exitAdmission
 sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config validate
 sudo install -o veil -g veil -m 0600 \$XVEIL_TMP/cfg/xveil-node.toml /var/lib/veil/node.toml
 

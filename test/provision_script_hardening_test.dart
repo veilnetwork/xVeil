@@ -450,4 +450,74 @@ void main() {
       }
     });
   });
+
+  // veil reads an empty exit allowlist as NOBODY — deliberately, so that an
+  // operator who enabled the exit and stopped there is not running an open
+  // proxy under their own address. A deployment that turns the exit on and
+  // names no one therefore installs an exit that refuses its own owner, which
+  // is why the deploying device's node id travels with the request.
+  //
+  // Proven against a real server: the generated `set_toml_scalar` lines put
+  // the array into `[proxy.exit]` and `veil-cli config validate` accepts it,
+  // and a veil 0.8.0 that predates these keys ignores them rather than
+  // refusing the file.
+  group('the deployed exit is told who it carries', () {
+    const owner =
+        '50621577d8ee476c78c7c5d9039c20e24643627557fd33173044a9a1117d59b2';
+    NodeProvisionConfig cfg({
+      bool runExit = true,
+      List<String> ids = const [owner],
+    }) => NodeProvisionConfig(
+      releaseUrl: 'https://example.com/veil-cli',
+      expectedSha256:
+          '0000000000000000000000000000000000000000000000000000000000000000',
+      obfs4PskB64: 'dGVzdA==',
+      runExit: runExit,
+      exitAllowedNodeIds: ids,
+    );
+
+    test('the allowlist and the explicit allow_all reach the config', () {
+      final s = buildProvisionScript(cfg());
+      expect(s, contains('set_toml_scalar proxy.exit enabled \'true\''));
+      expect(
+        s,
+        contains('set_toml_scalar proxy.exit allowed_node_ids \'["$owner"]\''),
+      );
+      expect(
+        s,
+        contains('set_toml_scalar proxy.exit allow_all \'false\''),
+        reason:
+            'writing the list without this leaves the meaning of "empty" to '
+            'whatever the server already had',
+      );
+    });
+
+    test('an exit that is not being enabled is left alone', () {
+      final s = buildProvisionScript(cfg(runExit: false));
+      expect(s, contains('set_toml_scalar proxy.exit enabled \'false\''));
+      expect(s, isNot(contains('allowed_node_ids')));
+    });
+
+    test('a caller that named nobody writes nothing rather than guessing', () {
+      // Not the same as writing an empty list: an older node then behaves as
+      // it did, and a newer one stays closed and says so at startup. Writing
+      // `[]` here would look like a decision nobody made.
+      final s = buildProvisionScript(cfg(ids: const []));
+      expect(s, isNot(contains('allowed_node_ids')));
+      expect(s, isNot(contains('allow_all')));
+      // Premise: the same config WITH an id does write them, so this is a
+      // statement about the empty list and not about the group being inert.
+      expect(buildProvisionScript(cfg()), contains('allowed_node_ids'));
+    });
+
+    test('a malformed id is refused, never written', () {
+      expect(
+        () => buildProvisionScript(cfg(ids: const ['not-a-node-id'])),
+        throwsArgumentError,
+        reason:
+            'this list decides who may spend the operator bandwidth; a typo '
+            'that reaches the file is a typo that decides it',
+      );
+    });
+  });
 }

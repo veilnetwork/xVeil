@@ -15,6 +15,7 @@ import '../../data/node/ssh_credentials.dart';
 import '../../data/node/veil_github_release.dart';
 import '../../data/transport/bootstrap_invite.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/providers.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -246,6 +247,14 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
             releaseUrl: _componentUrls[component]!.text.trim(),
             expectedSha256: _componentShas[component]!.text.trim(),
           ),
+      ],
+      // WHO the deployed exit will carry. veil reads an empty allowlist as
+      // "nobody" — on purpose, so an operator who has not finished configuring
+      // is not running an open proxy — so a deployment that turns the exit on
+      // and names no one installs an exit that refuses its own owner. This
+      // device is that owner.
+      exitAllowedNodeIds: [
+        ?ref.read(appControllerProvider).identity?.nodeId.hex,
       ],
       transports: Set.unmodifiable(_transports),
       transportPorts: {
