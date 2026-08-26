@@ -115,13 +115,17 @@ class HvKvLogStore implements KvLogStore {
 
   @override
   void acknowledgeHardeningWarning() {
-    // Best-effort like its reader: a container that will not take the
-    // acknowledgement is not a reason to fail the screen that asked.
-    try {
-      _space.acknowledgeHardeningError();
-    } catch (e) {
-      devLog(() => 'xVeil[storage]: hardening acknowledge failed: $e');
-    }
+    // NOT best-effort, unlike its reader. The reader feeds a readout and may
+    // degrade to "unknown"; this one CHANGES the container, and the layer
+    // above deletes the app's kept copy of the warning as soon as it returns.
+    //
+    // Swallowing here made that deletion unconditional: the container's record
+    // stayed — correctly, nobody acknowledged it — while the app's copy was
+    // wiped, so the warning was invisible from then on. The comment above this
+    // layer already promised the opposite, that a refused acknowledgement
+    // leaves it unacknowledged on BOTH sides; that promise was this call's to
+    // keep (report15 X15-M4).
+    _space.acknowledgeHardeningError();
   }
 
   @override

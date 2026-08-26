@@ -845,11 +845,19 @@ class AppController extends Notifier<AppState> {
     }
   }
 
-  /// "I have shown this to the person" — clears both copies.
-  Future<void> acknowledgeHardeningWarning() async {
+  /// "I have shown this to the person" — clears both copies, or neither.
+  ///
+  /// Returns null on success and the failure text otherwise. It used to
+  /// swallow everything, which turned a refused acknowledgement into a silent
+  /// one: the caller believed the warning was dismissed and hid it, while the
+  /// container still held the record nobody had accepted.
+  Future<String?> acknowledgeHardeningWarning() async {
     try {
       await ref.read(storageProvider).acknowledgeHardeningWarning();
-    } catch (_) {}
+      return null;
+    } catch (e) {
+      return '$e';
+    }
   }
 
   /// Turn a size + slot occupancy into the maintenance readout, and decide

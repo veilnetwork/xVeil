@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -164,5 +165,87 @@ void main() {
     );
     await storage.open(password: 'pw', createIfMissing: true);
     expect(await storage.retainHardeningWarning(), isNull);
+  });
+
+  test('a container that REFUSES the acknowledgement keeps both copies', () async {
+    // "I have shown this to the person" clears the app's copy and the
+    // container's record. It must clear both or neither: the container's
+    // record is the one that survives a restart, and the app's copy is the one
+    // the screen reads, so a half-done acknowledgement leaves the warning
+    // filed as dismissed and still true.
+    //
+    // The adapter under this used to log the refusal and return, so the
+    // deletion below it ran every time.
+    final backing = FakeKvLogStore()
+      ..stagedHardeningWarning = 'sync: masking writes not on disk'
+      ..hardeningAcknowledgeThrows = true;
+    final storage = HiddenVolumeStorage(
+      ({required password, required bool create}) => backing,
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+    expect(await storage.retainHardeningWarning(), isNotNull);
+
+    await expectLater(
+      storage.acknowledgeHardeningWarning(),
+      throwsA(anything),
+      reason: 'a refusal that reads as success is the defect',
+    );
+
+    // Still there, on the side the person reads it from.
+    backing.stagedHardeningWarning = null;
+    expect(
+      await storage.retainHardeningWarning(),
+      'sync: masking writes not on disk',
+      reason: 'the kept copy was erased for an acknowledgement that failed',
+    );
+  });
+
+  test('and one that ACCEPTS it clears them', () async {
+    // Vacuity guard: an acknowledgement that never clears anything satisfies
+    // the test above and makes the warning permanent.
+    final backing = FakeKvLogStore()
+      ..stagedHardeningWarning = 'sync: masking writes not on disk';
+    final storage = HiddenVolumeStorage(
+      ({required password, required bool create}) => backing,
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+    expect(await storage.retainHardeningWarning(), isNotNull);
+
+    await storage.acknowledgeHardeningWarning();
+    expect(backing.hardeningAcknowledgements, 1);
+
+    backing.stagedHardeningWarning = null;
+    expect(await storage.retainHardeningWarning(), isNull);
+  });
+
+  test('the native adapter does not swallow the refusal either', () {
+    // Structural, and this is why: the layer that talks to the container is
+    // `HvKvLogStore`, whose `_space` is a live FFI handle. A unit test cannot
+    // reach it, so the test above exercises the ORDERING in the layer over it
+    // with a fake — and the ordering is exactly what a swallow below defeats.
+    // With the refusal caught and logged, `store.acknowledgeHardeningWarning()`
+    // returns normally and the delete under it runs every time.
+    //
+    // The reader beside it stays best-effort on purpose: it feeds a readout
+    // and may degrade to "unknown". This one changes the container.
+    final source = File(
+      'lib/data/storage/hv_kv_log_store.dart',
+    ).readAsStringSync();
+    final at = source.indexOf('void acknowledgeHardeningWarning() {');
+    expect(at, isNot(-1), reason: 'the adapter moved');
+    final body = source.substring(at, source.indexOf('\n  }', at));
+
+    expect(
+      body,
+      isNot(contains('catch')),
+      reason:
+          'a refusal caught here reads as success one layer up, which erases '
+          'the copy the person would have seen',
+    );
+    expect(
+      body,
+      contains('acknowledgeHardeningError()'),
+      reason: 'it stopped acknowledging anything at all',
+    );
   });
 }
