@@ -4399,6 +4399,29 @@ class AppL10nEn extends AppL10n {
   String get nodeConfigApply => 'Validate, apply and restart';
 
   @override
+  String get exitAdmissionTitle => 'Who may exit through this node';
+
+  @override
+  String get exitAdmissionNobody =>
+      'Nobody. The exit is on and the list is empty, so it refuses every stream.';
+
+  @override
+  String get exitAdmissionOpen => 'Open exit — any node may use it';
+
+  @override
+  String get exitAdmissionAddHint => 'node id (64 hex)';
+
+  @override
+  String get exitAdmissionAdd => 'Admit';
+
+  @override
+  String get exitAdmissionInvalid => 'A node id is 64 hexadecimal characters';
+
+  @override
+  String get exitAdmissionUnsaved =>
+      'Edited here. Press Apply to send it to the server.';
+
+  @override
   String get nodeConfigNotLoaded =>
       'Load the current server config before editing it.';
 
