@@ -288,4 +288,65 @@ allow_all = false
       );
     });
   });
+
+  group('a comment on the value line', () {
+    // `allow_all = true # everybody, deliberately` is valid TOML. Comparing
+    // the whole tail against 'true' read it as FALSE, so an exit that is on
+    // and open to everybody was displayed as off and admitting nobody — and
+    // the next write from that screen would have closed it (report16 XV-16).
+    test('does not turn the policy upside down', () {
+      final read = readExitAllowlist(
+        '[proxy.exit]\n'
+        'enabled = true  # on since August\n'
+        'allow_all = true # everybody, deliberately\n',
+      );
+
+      expect(read!.enabled, isTrue);
+      expect(read.allowAll, isTrue);
+      expect(read.admitsNobody, isFalse);
+      expect(read.unreadable, isFalse);
+    });
+
+    test('and a list keeps its members', () {
+      final read = readExitAllowlist(
+        '[proxy.exit]\n'
+        'enabled = true\n'
+        'allowed_node_ids = ["$a"]  # just this one\n',
+      );
+
+      expect(read!.allowedNodeIds, [a]);
+      expect(read.admits(a), isTrue);
+    });
+
+    test('a # inside a string is not a comment', () {
+      // The one that discriminates: cutting at the first `#` regardless leaves
+      // `["<a>", "b` — no closing bracket — and the table is then reported
+      // UNREAD, which is a claim about a document that is perfectly readable.
+      //
+      // A `#` cannot appear in a node id, so this is about TOML rather than
+      // about what this table happens to hold. The next key added here would
+      // inherit whatever this got wrong.
+      final read = readExitAllowlist(
+        '[proxy.exit]\n'
+        'enabled = true\n'
+        'allowed_node_ids = ["$a", "b#c"]\n',
+      );
+
+      expect(read!.unreadable, isFalse, reason: 'a readable table read as unread');
+      expect(read.allowedNodeIds, [a]);
+    });
+
+    test('a value with no comment is untouched', () {
+      // Vacuity guard for the stripper: it must not turn everything into an
+      // empty string that happens to compare false.
+      final read = readExitAllowlist(
+        '[proxy.exit]\n'
+        'enabled = true\n'
+        'allow_all = false\n',
+      );
+
+      expect(read!.enabled, isTrue, reason: 'the stripper ate a real value');
+      expect(read.allowAll, isFalse);
+    });
+  });
 }
