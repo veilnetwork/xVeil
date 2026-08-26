@@ -398,32 +398,26 @@ class _NodeProvisionScreenState extends ConsumerState<NodeProvisionScreen> {
       }
     }
 
-    // An oproxy exit is only useful once it is in the catalog the routing UI
-    // reads. The catalog keys on node id, so a node that failed to report one
-    // cannot be registered — say so rather than adding a blank entry.
-    if (report.components.contains(NodeComponent.oproxyServer) && l != null) {
+    // An exit is only useful once it is in the catalog the routing UI reads.
+    // Keyed on the EXIT switch, not on the oproxy-server component: what this
+    // app dials is veil's `[proxy.exit]` (see [routingWithDeployedExit]). The
+    // catalog keys on node id, so a node that failed to report one cannot be
+    // registered — say so rather than adding a blank entry.
+    if (_runExit && l != null) {
       final id = report.nodeId;
       if (id == null) {
         done.add(l.provisionProxyNeedsNodeId);
       } else {
-        final routing = ref.read(proxyRoutingProvider);
-        final already = routing.oProxies.any((e) => e.nodeId == id);
-        if (!already) {
-          await ref
-              .read(proxyRoutingProvider.notifier)
-              .set(
-                routing.copyWith(
-                  oProxies: [
-                    ...routing.oProxies,
-                    OproxyEndpoint(
-                      nodeId: id,
-                      label: node.label.isNotEmpty
-                          ? node.label
-                          : (node.sshHost ?? id.substring(0, 8)),
-                    ),
-                  ],
-                ),
-              );
+        final updated = routingWithDeployedExit(
+          ref.read(proxyRoutingProvider),
+          isExit: _runExit,
+          nodeId: id,
+          label: node.label.isNotEmpty
+              ? node.label
+              : (node.sshHost ?? id.substring(0, 8)),
+        );
+        if (updated != null) {
+          await ref.read(proxyRoutingProvider.notifier).set(updated);
         }
         done.add(l.provisionAddedProxy);
       }
