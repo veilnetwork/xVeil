@@ -581,7 +581,7 @@ String _listenerCommand(NodeProvisionConfig c, NodeListenTransport t) {
       t.needsTls && (c.effectiveTlsCaCertPath?.trim().isNotEmpty ?? false)
       ? " --tls-ca-cert '${c.effectiveTlsCaCertPath}'"
       : '';
-  return "sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen add '$uri'$advertise$tls$ca";
+  return "sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml listen add '$uri'$advertise$tls$ca";
 }
 
 String _ensureServerCommand(String command, String package) =>
@@ -707,8 +707,8 @@ String _optionalComponentSetup(Set<NodeComponent> components) {
     out.writeln("sudo mkdir -p /etc/ogate");
     out.writeln(
       '''if ! sudo test -f /etc/ogate/ogate.toml; then
-  sudo -u veil /usr/local/bin/ogate gen-config -o \$XVEIL_TMP/xveil-ogate.toml
-  sudo install -o veil -g veil -m 0640 \$XVEIL_TMP/xveil-ogate.toml /etc/ogate/ogate.toml
+  sudo -u veil /usr/local/bin/ogate gen-config -o \$XVEIL_TMP/cfg/xveil-ogate.toml
+  sudo install -o veil -g veil -m 0640 \$XVEIL_TMP/cfg/xveil-ogate.toml /etc/ogate/ogate.toml
 fi
 cat > \$XVEIL_TMP/xveil-ogate.service <<'UNIT_EOF'
 $_ogateService
@@ -791,22 +791,30 @@ id veil >/dev/null 2>&1 || sudo useradd -r -s /usr/sbin/nologin -d /var/lib/veil
 sudo mkdir -p /var/lib/veil /var/log/veil
 sudo chown veil:veil /var/lib/veil /var/log/veil
 
-# 0b. let `veil` into the scratch directory — and no one else.
+# 0b. one writable corner for `veil`, and nothing more.
 #
-# `mktemp -d` above makes it 0700 root:root, which is right for the secrets
-# staged in it but wrong for the config steps below: those run the config
-# through `sudo -u veil`, which has to enter this directory and create its own
-# file there. Without this the unprivileged user cannot traverse the
-# directory at all, and every `veil-cli -c "\$XVEIL_TMP/..."` reports the
-# config as MISSING rather than as forbidden — so a deployment fails after
-# installing the binaries, leaving a server with no running node.
+# `mktemp -d` above makes the staging directory 0700 root:root, which is right
+# for the secrets in it and wrong for the config steps below: those run through
+# `sudo -u veil`, and that account has to reach its config AND create files
+# beside it (`config get/set` rewrites atomically — a temp file plus a rename,
+# which needs the DIRECTORY). Locked out entirely, `veil-cli` cannot tell "not
+# there" from "not allowed to look" and reports the staged config as MISSING,
+# so a deployment failed after installing the binaries and left the server
+# with no running node.
 #
-# Group access, not world: the files root staged here stay 0600 root-owned
-# under `umask 077`, so the obfs4 PSK and the TLS key remain unreadable to
-# `veil` and to every other account on the machine. It must come after the
-# account exists, which is why it is here and not beside the `mktemp`.
-sudo chown root:veil "\$XVEIL_TMP"
-sudo chmod 0770 "\$XVEIL_TMP"
+# Split rather than opened: the staging root becomes traversable-but-not-
+# listable and stays unwritable, and one sub-directory is handed to the `veil`
+# GROUP. The deployment PSK, the TLS private key and the unit files stay in
+# the root-only part, where a compromised `veil` cannot read them and — the
+# reason for the split rather than a 0770 on the whole thing — cannot unlink
+# and REPLACE them in the window before root installs them. Same posture, and
+# the same reasoning, as the remote config editor in `node_lifecycle.dart`.
+#
+# After the account exists, which is why this is here and not beside `mktemp`.
+sudo chmod 711 "\$XVEIL_TMP"
+sudo mkdir -p "\$XVEIL_TMP/cfg"
+sudo chown root:veil "\$XVEIL_TMP/cfg"
+sudo chmod 0770 "\$XVEIL_TMP/cfg"
 
 # 1. download and authenticate EVERY selected release asset first
 $downloads
@@ -843,9 +851,9 @@ $tlsSetup
 # Erring toward "identity present" is the safe direction: a file that has none
 # then fails loudly on the next veil-cli call instead of being overwritten.
 if ! sudo test -f /var/lib/veil/node.toml || ! sudo grep -qE '^[[:space:]]*\\[[[:space:]]*[Ii]dentity[[:space:]]*\\]' /var/lib/veil/node.toml; then
-  sudo -u veil /usr/local/bin/veil-cli config init -d 24 -f \$XVEIL_TMP/xveil-node.toml
+  sudo -u veil /usr/local/bin/veil-cli config init -d 24 -f \$XVEIL_TMP/cfg/xveil-node.toml
 else
-  sudo install -o veil -g veil -m 0600 /var/lib/veil/node.toml \$XVEIL_TMP/xveil-node.toml
+  sudo install -o veil -g veil -m 0600 /var/lib/veil/node.toml \$XVEIL_TMP/cfg/xveil-node.toml
 fi
 # `listen list` prints ids in hex — `0x00000001`, not `1` — so a decimal-only
 # filter matches nothing and this loop deletes nothing. Redeploying a server
@@ -854,16 +862,16 @@ fi
 # deployment (a plain `tcp://0.0.0.0:9000` from the old default) survives
 # every subsequent run despite this step existing to remove exactly that.
 while read -r listen_id; do
-  sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen del "\$listen_id"
-done < <(sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen list | awk 'NR > 1 && \$1 ~ /^0x[0-9a-fA-F]+\$/ {print \$1}')
+  sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml listen del "\$listen_id"
+done < <(sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml listen list | awk 'NR > 1 && \$1 ~ /^0x[0-9a-fA-F]+\$/ {print \$1}')
 $listeners
-set_toml_scalar transport obfs4_psk_file '"/var/lib/veil/obfs4_psk.b64"' \$XVEIL_TMP/xveil-node.toml
-sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml config set ipc.enabled true
-sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml config set ipc.socket_uri unix:///run/veil/app.sock
+set_toml_scalar transport obfs4_psk_file '"/var/lib/veil/obfs4_psk.b64"' \$XVEIL_TMP/cfg/xveil-node.toml
+sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config set ipc.enabled true
+sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config set ipc.socket_uri unix:///run/veil/app.sock
 $exitComment
-set_toml_scalar proxy.exit enabled '$exitValue' \$XVEIL_TMP/xveil-node.toml
-sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml config validate
-sudo install -o veil -g veil -m 0600 \$XVEIL_TMP/xveil-node.toml /var/lib/veil/node.toml
+set_toml_scalar proxy.exit enabled '$exitValue' \$XVEIL_TMP/cfg/xveil-node.toml
+sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config validate
+sudo install -o veil -g veil -m 0600 \$XVEIL_TMP/cfg/xveil-node.toml /var/lib/veil/node.toml
 
 # 7. optional applications: install complete templates + units, but do not
 # enable them until the operator replaces their fail-closed placeholders.
@@ -902,9 +910,9 @@ sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml bootstrap 
 
 rm -f $cleanup \$XVEIL_TMP/xveil-obfs4-psk.b64 \$XVEIL_TMP/xveil-veil.service \\
   \$XVEIL_TMP/xveil-ogate.service \$XVEIL_TMP/xveil-oproxy-client.service \\
-  \$XVEIL_TMP/xveil-oproxy-server.service \$XVEIL_TMP/xveil-ogate.toml \\
+  \$XVEIL_TMP/xveil-oproxy-server.service \$XVEIL_TMP/cfg/xveil-ogate.toml \\
   \$XVEIL_TMP/xveil-oproxy-client.toml \$XVEIL_TMP/xveil-oproxy-server.toml \\
-  \$XVEIL_TMP/xveil-node.toml \$XVEIL_TMP/xveil-certbot-deploy-hook \\
+  \$XVEIL_TMP/cfg/xveil-node.toml \$XVEIL_TMP/xveil-certbot-deploy-hook \\
   \$XVEIL_TMP/xveil-openssl.cnf \$XVEIL_TMP/xveil-selfsigned-cert.pem \\
   \$XVEIL_TMP/xveil-selfsigned-key.pem \$XVEIL_TMP/xveil-selfsigned-spec
 ''';
