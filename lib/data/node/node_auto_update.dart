@@ -4,6 +4,13 @@ import 'veil_github_release.dart'
 /// How often the node looks for a new veil release.
 const String kNodeAutoUpdateSchedule = 'daily';
 
+/// The lock both update paths take before they touch the binary.
+///
+/// The unattended timer and the fleet screen install the same file and keep the
+/// same `.previous` copy beside it. Without a shared lock they interleave, and
+/// the loser's rollback undoes the winner's install.
+const String kVeilUpdateLockPath = '/run/lock/xveil-veil-update.lock';
+
 /// Where the self-updater and its units live on the server.
 const String kAutoUpdateScriptPath = '/usr/local/sbin/xveil-node-autoupdate';
 const String kAutoUpdateUnit = 'xveil-node-autoupdate';
@@ -75,6 +82,23 @@ FLOOR='$floor'
 API='https://api.github.com/repos/veilnetwork/veil/releases/latest'
 BIN=/usr/local/bin/veil-cli
 UNIT=veil.service
+LOCK=$kVeilUpdateLockPath
+
+# One updater at a time on this machine.
+#
+# The timer and a person driving the fleet screen touch the same binary and the
+# same `.previous` copy. Interleaved, the timer can decide ITS install failed
+# and restore a binary over the one the other install just put there and
+# started — a rollback of somebody else's success (report15 X15-M13). Waiting
+# is right for this side: the timer has nowhere to be.
+mkdir -p "\$(dirname "\$LOCK")"
+exec 9>"\$LOCK"
+if ! flock -w 600 9; then
+  # Not a failure. A unit that reports one every time another update is
+  # running teaches whoever runs the box to ignore it.
+  echo 'another update holds the lock' >&2
+  exit 0
+fi
 
 case "\$(uname -m)" in
   x86_64)  TRIPLE=x86_64-unknown-linux-musl ;;
