@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../state/app_update_controller.dart';
 import '../../state/whisper_model_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/folder_panel_controller.dart';
@@ -71,7 +73,56 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       // not in front of you. Asked once, dismissible for good, and the body
       // says where the switch lives afterwards.
       unawaited(maybeOfferBackgroundPermission(context));
+      // Once a day at most, and silent unless there is something to say. The
+      // check itself decides whether to ask at all — see [checkIfDue] — so
+      // calling it on every launch costs nothing on the days it declines.
+      unawaited(_offerUpdateIfAny());
     });
+  }
+
+  /// Say that a newer release exists, where a person will actually see it.
+  ///
+  /// A banner rather than a dialog: an update is not urgent, and this is a
+  /// messenger somebody opened to read something. It stays until dismissed
+  /// instead of sliding away like a snackbar, because "there is a new version"
+  /// is worth a decision rather than a glimpse.
+  ///
+  /// The app installs nothing itself. What it can honestly offer is the
+  /// release page.
+  Future<void> _offerUpdateIfAny() async {
+    await ref.read(appUpdateProvider.notifier).checkIfDue();
+    if (!mounted) return;
+    final update = ref.read(appUpdateProvider);
+    if (update == null) return;
+    final l = AppL10n.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        content: Text(l.updateAvailable(update.tag)),
+        leading: const Icon(Icons.system_update_outlined),
+        actions: [
+          TextButton(
+            onPressed: () {
+              messenger.hideCurrentMaterialBanner();
+              // Dismissing is "not now", not "never": the next check finds it
+              // again, and the settings screen shows it in the meantime.
+              ref.read(appUpdateProvider.notifier).dismiss();
+            },
+            child: Text(l.actionCancel),
+          ),
+          TextButton(
+            onPressed: () {
+              messenger.hideCurrentMaterialBanner();
+              final uri = Uri.tryParse(update.url);
+              if (uri != null) {
+                unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+              }
+            },
+            child: Text(l.updateOpenRelease),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openNavigation(bool atEnd) {

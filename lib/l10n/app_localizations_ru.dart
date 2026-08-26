@@ -3607,6 +3607,36 @@ class AppL10nRu extends AppL10n {
   String get settingsAbout => 'О приложении';
 
   @override
+  String get updateSectionTitle => 'Обновления';
+
+  @override
+  String get updateCheckSwitch => 'Проверять обновления';
+
+  @override
+  String get updateCheckHint =>
+      'Раз в сутки спрашивает у github.com, есть ли версия новее. Запрос сообщает GitHub, что на этом устройстве стоит xVeil, и с какого адреса.';
+
+  @override
+  String get updateCheckNow => 'Проверить сейчас';
+
+  @override
+  String get updateChecking => 'Проверяю…';
+
+  @override
+  String get updateUpToDate => 'Установлена последняя версия';
+
+  @override
+  String updateAvailable(Object version) {
+    return 'Доступна версия $version';
+  }
+
+  @override
+  String get updateOpenRelease => 'Открыть страницу релиза';
+
+  @override
+  String get updateNotChecked => 'Ещё не проверялось';
+
+  @override
   String get settingsLanguage => 'Язык';
 
   @override
