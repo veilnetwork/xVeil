@@ -8588,6 +8588,18 @@ abstract class AppL10n {
   /// **'The node list could not be saved: {error}'**
   String nodeRegistrySaveFailed(String error);
 
+  /// No description provided for @nodeHostKeyNotRemembered.
+  ///
+  /// In en, this message translates to:
+  /// **'The host key could not be saved: {error}. The next connection will ask you to confirm it again.'**
+  String nodeHostKeyNotRemembered(String error);
+
+  /// No description provided for @nodeRemoteChangedLocalNot.
+  ///
+  /// In en, this message translates to:
+  /// **'The server was changed, but this app could not record it: {error}'**
+  String nodeRemoteChangedLocalNot(String error);
+
   /// No description provided for @sshKeyGenerationFailed.
   ///
   /// In en, this message translates to:

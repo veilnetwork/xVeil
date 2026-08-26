@@ -4921,6 +4921,16 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String nodeHostKeyNotRemembered(String error) {
+    return 'Ключ узла не удалось сохранить: $error. При следующем подключении его снова спросят подтвердить.';
+  }
+
+  @override
+  String nodeRemoteChangedLocalNot(String error) {
+    return 'Сервер изменён, но приложение не смогло это записать: $error';
+  }
+
+  @override
   String sshKeyGenerationFailed(String error) {
     return 'Не удалось сгенерировать ключ: $error';
   }

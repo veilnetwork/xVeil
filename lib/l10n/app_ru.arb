@@ -2014,6 +2014,8 @@
     }
   },
   "nodeRegistrySaveFailed": "Не удалось сохранить список узлов: {error}",
+  "nodeHostKeyNotRemembered": "Ключ узла не удалось сохранить: {error}. При следующем подключении его снова спросят подтвердить.",
+  "nodeRemoteChangedLocalNot": "Сервер изменён, но приложение не смогло это записать: {error}",
   "sshKeyGenerationFailed": "Не удалось сгенерировать ключ: {error}",
   "@sshKeyGenerationFailed": {
     "placeholders": {
