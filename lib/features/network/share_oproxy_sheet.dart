@@ -19,14 +19,28 @@ import '../../state/messaging_providers.dart';
 ///
 /// The link carries the node id and a name and nothing else: no identity of the
 /// sharer, no credentials, nothing dialable.
-class ShareOproxySheet extends ConsumerWidget {
+class ShareOproxySheet extends ConsumerStatefulWidget {
   const ShareOproxySheet({super.key, required this.endpoint});
 
   final OproxyEndpoint endpoint;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ShareOproxySheet> createState() => _ShareOproxySheetState();
+}
+
+class _ShareOproxySheetState extends ConsumerState<ShareOproxySheet> {
+  /// Anything this sheet has to SAY, said inside the sheet.
+  ///
+  /// A snackbar from here is posted to the ScaffoldMessenger under the modal
+  /// route, so the sheet covers it: measured on a phone, pressing "send to a
+  /// contact" with no contacts produced nothing visible at all. A button that
+  /// answers in a place the person cannot see has not answered.
+  String? _notice;
+
+  @override
+  Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    final endpoint = widget.endpoint;
     final uri = OproxyInvite(
       nodeId: endpoint.nodeId,
       label: endpoint.label,
@@ -63,6 +77,13 @@ class ShareOproxySheet extends ConsumerWidget {
               style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
             ),
             const SizedBox(height: 12),
+            if (_notice != null) ...[
+              Text(
+                _notice!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              const SizedBox(height: 8),
+            ],
             Row(
               children: [
                 Expanded(
@@ -81,7 +102,7 @@ class ShareOproxySheet extends ConsumerWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: () => _sendToContact(context, ref, uri),
+                    onPressed: () => _sendToContact(uri),
                     icon: const Icon(Icons.send),
                     label: Text(l.oproxyShareSend),
                   ),
@@ -94,12 +115,9 @@ class ShareOproxySheet extends ConsumerWidget {
     );
   }
 
-  Future<void> _sendToContact(
-    BuildContext context,
-    WidgetRef ref,
-    String uri,
-  ) async {
+  Future<void> _sendToContact(String uri) async {
     final l = AppL10n.of(context);
+    setState(() => _notice = null);
     final conversations =
         ref.read(conversationsProvider).value ?? const <Conversation>[];
     // Blocked contacts are not offered: handing an exit to someone who has been
@@ -109,9 +127,7 @@ class ShareOproxySheet extends ConsumerWidget {
         .where((c) => c.status != ContactStatus.blocked)
         .toList();
     if (contacts.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(l.oproxyShareNoContacts)));
+      setState(() => _notice = l.oproxyShareNoContacts);
       return;
     }
     final chosen = await showModalBottomSheet<Contact>(
@@ -143,25 +159,25 @@ class ShareOproxySheet extends ConsumerWidget {
         ),
       ),
     );
-    if (chosen == null || !context.mounted) return;
+    if (chosen == null || !mounted) return;
     try {
       await ref
           .read(messagingServiceProvider)
           .sendText(chosen.nodeId, uri);
     } catch (error) {
-      if (!context.mounted) return;
+      if (!mounted) return;
       // Through shownCause, never raw: a send failure quotes node ids, and a
-      // snackbar carrying one goes into whatever screenshot the person sends
-      // while asking for help.
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(shownCause(error, kind: 'oproxy-share'))),
-      );
+      // message carrying one goes into whatever screenshot the person sends
+      // while asking for help. In the sheet, not a snackbar — see [_notice].
+      setState(() => _notice = shownCause(error, kind: 'oproxy-share'));
       return;
     }
-    if (!context.mounted) return;
-    // The messenger is taken BEFORE the sheet closes. Looking it up through a
-    // context that `pop` has just removed is how a confirmation ends up thrown
-    // away — or throwing — at the one moment the person needs to see it.
+    if (!mounted) return;
+    // The messenger is taken BEFORE the sheet closes, and this ONE message is a
+    // snackbar rather than a [_notice]: the sheet is about to go away, so there
+    // is nowhere in it left to read. Looking the messenger up through a context
+    // that `pop` has just removed is how a confirmation ends up thrown away — or
+    // throwing — at the one moment the person needs to see it.
     final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
     messenger.showSnackBar(
