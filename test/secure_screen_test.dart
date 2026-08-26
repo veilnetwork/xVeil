@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'support/expect_before.dart';
 import 'package:xveil/core/secure_screen.dart';
 import 'package:xveil/state/android_screen_capture.dart';
 
@@ -501,11 +502,10 @@ void main() {
       reason: 'the sheet that shows the adoption token, as a QR and as text, '
           'can be screenshotted and screen-recorded',
     );
-    final qr = body.indexOf('_linkCodeQr(context, _token!');
-    expect(qr, isNonNegative, reason: 'the adoption QR moved');
-    expect(
-      qr,
-      greaterThan(body.indexOf('SecureScreenGuard(')),
+    expectBefore(
+      body,
+      'SecureScreenGuard(',
+      '_linkCodeQr(context, _token!',
       reason: 'the QR is rendered outside the guard',
     );
   });

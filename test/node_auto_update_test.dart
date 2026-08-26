@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/expect_before.dart';
 import 'package:xveil/data/node/node_auto_update.dart';
 
 /// A node that updates itself fetches a binary over the network and installs it
@@ -64,16 +66,8 @@ void main() {
 
     test('it verifies the digest before installing', () {
       expect(script, contains('sha256sum'));
-      // The comparison must guard the install, not merely be computed. Spelled
-      // out rather than compared with `indexOf`, because `indexOf` answers -1
-      // for a line that is not there and -1 is less than every real index: the
-      // ordering passes most convincingly when the check was deleted outright.
-      expect(script, contains('digest mismatch'), reason: 'no digest check');
-      expect(script, contains('install -o root'), reason: 'nothing installed');
-      expect(
-        script.indexOf('digest mismatch'),
-        lessThan(script.indexOf('install -o root')),
-      );
+      // The comparison must guard the install, not merely be computed.
+      expectBefore(script, 'digest mismatch', 'install -o root');
     });
 
     test('it will not go below the floor', () {
