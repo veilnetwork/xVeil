@@ -22,7 +22,11 @@
 // where bytes land. Where the destination is ours to choose, choose it.
 library;
 
+import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+
+import 'package:characters/characters.dart';
 
 /// Longest name we accept or produce, in UTF-16 code units.
 ///
@@ -146,8 +150,47 @@ String uncontestedPath(
   final stem = dot > 0 ? name.substring(0, dot) : name;
   final ext = dot > 0 ? name.substring(dot) : '';
   for (var n = 1; n <= 999; n++) {
-    final candidate = '$dir/$stem ($n)$ext';
+    final candidate = _fitSuffixed(dir, stem, ' ($n)', ext);
     if (!taken(candidate)) return candidate;
   }
-  return '$dir/$name';
+  // A thousand collisions on one name. Returning the plain one — which this
+  // has just established is TAKEN — handed the caller a path it would
+  // overwrite, which is the one thing this exists to prevent (report16 XV-04).
+  //
+  // A random tail instead. It is ugly, and it is a name nobody chose, but it
+  // is not somebody's file.
+  for (var attempt = 0; attempt < 8; attempt++) {
+    final tag = _random.nextInt(0x100000000).toRadixString(16).padLeft(8, '0');
+    final candidate = _fitSuffixed(dir, stem, ' ($tag)', ext);
+    if (!taken(candidate)) return candidate;
+  }
+  // Eight random 32-bit tails all taken is not a filesystem anybody has. The
+  // last one stands rather than a name known to be somebody else's.
+  return _fitSuffixed(
+    dir,
+    stem,
+    ' (${_random.nextInt(0x100000000).toRadixString(16)})',
+    ext,
+  );
+}
+
+final _random = Random.secure();
+
+/// `<dir>/<stem><suffix><ext>`, with the STEM trimmed so the whole leaf still
+/// fits a filesystem component.
+///
+/// The suffix and the extension are what must survive: a name cut to the byte
+/// bound before the suffix is added comes back over it, and the disambiguating
+/// part is the first thing an over-long name loses — which turns two different
+/// files back into one.
+String _fitSuffixed(String dir, String stem, String suffix, String ext) {
+  final tail = utf8.encode(suffix + ext).length;
+  var head = stem;
+  while (utf8.encode(head).length + tail > maxFileNameBytes) {
+    if (head.isEmpty) break;
+    head = head.substring(0, head.characters.length - 1 < head.length
+        ? head.length - head.characters.last.length
+        : 0);
+  }
+  return '$dir/${_trimTrailing(head)}$suffix$ext';
 }
