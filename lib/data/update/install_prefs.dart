@@ -32,34 +32,61 @@ class InstallUpdatePrefs {
 
   final String path;
 
+  /// True when the file is THERE and could not be understood.
+  ///
+  /// Kept apart from "not there", because the two mean opposite things for the
+  /// one setting that stops a packet. A missing file is a fresh install and
+  /// the defaults apply; a corrupt one may be somebody's opt-out that this
+  /// process cannot read, and reading it as "no opt-out" is how a choice is
+  /// lost by accident (report16 XV-14).
+  bool _unreadable = false;
+
   Map<String, Object?> _read() {
+    final file = File(path);
     try {
-      final file = File(path);
-      if (!file.existsSync()) return {};
+      if (!file.existsSync()) {
+        _unreadable = false;
+        return {};
+      }
       final decoded = jsonDecode(file.readAsStringSync());
-      return decoded is Map<String, Object?> ? decoded : {};
+      if (decoded is Map<String, Object?>) {
+        _unreadable = false;
+        return decoded;
+      }
     } catch (_) {
-      // Unreadable is the same as unset: the defaults are the safe ones — the
-      // check is on, and it has never run.
-      return {};
+      // Fall through: there is a file and it did not parse.
     }
+    _unreadable = true;
+    return {};
   }
 
   void _write(Map<String, Object?> values) {
     try {
       final file = File(path);
       file.parent.createSync(recursive: true);
-      file.writeAsStringSync(jsonEncode(values), flush: true);
+      // Written beside and renamed over. `writeAsStringSync` truncates first,
+      // so a crash or a full disk in the middle leaves a half-written file —
+      // which the reader cannot parse, and which is exactly the state that
+      // must not be read as "nobody opted out".
+      final temp = File('$path.tmp');
+      temp.writeAsStringSync(jsonEncode(values), flush: true);
+      temp.renameSync(path);
+      _unreadable = false;
     } catch (_) {
-      // Best effort. A stamp that did not save means the next launch asks
-      // again, which is the direction that costs a request rather than the one
-      // that ignores somebody's choice.
+      // Best effort for the stamp. For `enabled` the getter below fails
+      // closed, so a write that did not land costs a request rather than
+      // somebody's choice.
     }
   }
 
   /// Whether to look for a newer release at all. Null when nobody has said.
   bool? get enabled {
-    final value = _read()['enabled'];
+    final values = _read();
+    // A file that is there and unreadable answers NO, not "nobody said".
+    // Whatever it held, the direction that sends no packet is the one to take
+    // when the answer cannot be read.
+    if (_unreadable) return false;
+    final value = values['enabled'];
     return value is bool ? value : null;
   }
 
