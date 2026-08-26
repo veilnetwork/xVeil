@@ -1792,6 +1792,7 @@
   "nodeProvision": "Развернуть узел veil по SSH",
   "nodeManage": "Управление узлом",
   "nodeInventory": "Проверить установку и состояние",
+  "nodeExitRefusesThisDevice": "Этот выход пока не пускает никого: добавьте node_id этого устройства в proxy.exit.allowed_node_ids на сервере, иначе после обновления узла он будет отказывать всем.",
   "nodeInstallUpdate": "Установить или обновить ПО",
   "nodeServices": "Сервисы",
   "nodeAdvancedConfig": "Расширенная конфигурация",

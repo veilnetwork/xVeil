@@ -4398,6 +4398,10 @@ class AppL10nEs extends AppL10n {
   String get nodeInventory => 'Inspeccionar la instalación y el estado';
 
   @override
+  String get nodeExitRefusesThisDevice =>
+      'Esta salida aún no admite a nadie: añade el node id de este dispositivo a proxy.exit.allowed_node_ids en el servidor, o rechazará todo flujo tras actualizar el nodo.';
+
+  @override
   String get nodeInstallUpdate => 'Instalar o actualizar el software';
 
   @override
