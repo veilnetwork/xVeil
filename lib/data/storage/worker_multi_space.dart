@@ -155,6 +155,22 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   Future<T> _call<T>(_MReq Function(SendPort reply) build) async {
     if (_closed) throw StateError('WorkerMultiSpaceBacking is closed');
     final port = await _ensure();
+    // Asked AGAIN, after the await. `_ensure` suspends, and `close` can run to
+    // completion in that gap: it sets `_closed`, sends `_MClose`, and disposes
+    // the death watcher. The resumed call then sent its request to a worker
+    // that had shut its receive path, and waited on a race nothing could win —
+    // no reply, and no death to report either, because the watcher was gone.
+    // The future never completed, and it was holding the caller's payload and
+    // the screen that asked (report15 X15-M5).
+    //
+    // Nothing runs between this check and the `send` below: within one isolate
+    // there is no gap for `close` to slip into.
+    //
+    // Note what this alone does NOT buy: `WorkerDeath.dispose` now releases
+    // such a call anyway, so no test can tell the two apart. This is here to
+    // avoid sending to a worker already on its way out and waiting for an
+    // answer that was never coming — a clearer error, sooner.
+    if (_closed) throw StateError('WorkerMultiSpaceBacking is closed');
     final reply = ReceivePort();
     port.send(build(reply.sendPort));
     // Raced against the worker's death, not awaited alone. `errorsAreFatal`
@@ -163,6 +179,13 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
     // would end, and every later call joined it (audit XV-07).
     final Object? r;
     try {
+      // The other half of the same window — a close landing while this is
+      // already in flight — is handled by `WorkerDeath.dispose`, which
+      // releases whatever is still registered. NOT with another
+      // `Future.any` here: that attaches a listener per call to a shared
+      // future and cancels none of them, and each listener holds the completer
+      // carrying the reply, which here is a KV value. That is report14
+      // HV14-H1, and the guard that watches for it caught this on the way in.
       r = await _watch!.race(reply.first);
     } finally {
       reply.close();
@@ -342,7 +365,7 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
             // rather than at the timeout: until this lands the isolate is still
             // live and a real crash in the meantime is still worth reporting.
             watch?.dispose();
-          }),
+                }),
     );
     throw hv.HvException(
       'Busy',

@@ -194,6 +194,70 @@ void main() {
     await store.close(); // must NOT throw
     expect(seen, contains('close-requested'));
   });
+
+  test('a request still in flight when the worker goes is TOLD, not left '
+      'pending', () async {
+    // report15 X15-M5. `close` sets the flag, sends `_MClose` and disposes the
+    // death watcher. A request already sent then waited on a race nothing
+    // could win: no reply, because the worker shut its receive path, and no
+    // death either, because the watcher was gone. The future never completed,
+    // and it was holding the caller\'s payload and the screen that asked.
+    //
+    // The defect HANGS rather than fails, so this carries its own deadline.
+    final events = ReceivePort();
+    final seen = <String>[];
+    events.listen((dynamic m) => seen.add('$m'));
+    addTearDown(events.close);
+
+    WorkerMultiSpaceBacking.debugBringUpWorker = (path, tag) =>
+        _spawnStubWorker(
+          events.sendPort,
+          answerClose: true,
+          answerCalls: false,
+        );
+
+    final backing = WorkerMultiSpaceBacking('/unused');
+    final call = backing.openSpace(_keys(1));
+    await _pumpUntil(() => seen.contains('call'), 'the worker receiving it');
+
+    await backing.close();
+
+    await expectLater(
+      call.timeout(const Duration(seconds: 5)),
+      throwsA(isA<StateError>()),
+      reason: 'the request was left pending for the life of the process',
+    );
+  });
+
+  test('CONTROL: a request the worker DID answer still succeeds', () async {
+    // Vacuity guard. Failing every in-flight request at close would satisfy
+    // the test above and break every ordinary call that finishes while the
+    // app is shutting down.
+    final events = ReceivePort();
+    final seen = <String>[];
+    events.listen((dynamic m) => seen.add('$m'));
+    addTearDown(events.close);
+
+    WorkerMultiSpaceBacking.debugBringUpWorker = (path, tag) =>
+        _spawnStubWorker(events.sendPort, answerClose: true);
+
+    final backing = WorkerMultiSpaceBacking('/unused');
+    // Whatever it settles as — the stub answers with a bare `true`, which the
+    // decoder rejects — the point is that it SETTLES, from the worker's reply
+    // rather than from the close signal.
+    final settled = await backing
+        .openSpace(_keys(1))
+        .then<Object>((v) => v, onError: (Object e) => e)
+        .timeout(const Duration(seconds: 5));
+
+    expect(
+      settled,
+      isNot(isA<StateError>()),
+      reason: 'a request the worker answered was failed by the close instead',
+    );
+    await backing.close();
+  });
+
 }
 
 class _Ping {
@@ -205,12 +269,13 @@ Future<LiveMultiSpaceWorker> _spawnStubWorker(
   SendPort events, {
   required bool answerClose,
   bool dieOnClose = false,
+  bool answerCalls = true,
 }) async {
   final boot = ReceivePort();
   final death = WorkerDeath();
   final isolate = await Isolate.spawn<List<Object>>(
     _stubWorkerEntry,
-    [boot.sendPort, events, answerClose, dieOnClose],
+    [boot.sendPort, events, answerClose, dieOnClose, answerCalls],
     errorsAreFatal: true,
     onExit: death.exitPort.sendPort,
     onError: death.errorPort.sendPort,
@@ -226,6 +291,7 @@ void _stubWorkerEntry(List<Object> args) {
   final events = args[1] as SendPort;
   final answerClose = args[2] as bool;
   final dieOnClose = args[3] as bool;
+  final answerCalls = args[4] as bool;
   final rx = ReceivePort();
   boot.send(rx.sendPort);
   rx.listen((dynamic msg) {
@@ -247,6 +313,9 @@ void _stubWorkerEntry(List<Object> args) {
       return;
     }
     events.send('call');
+    // A worker that received the request and will never answer it — the shape
+    // a close leaves behind when it tears the worker down mid-request.
+    if (!answerCalls) return;
     reply.send(true);
   });
 }
