@@ -113,18 +113,33 @@ got="\$(sha256sum "\$stage/veil-cli" | cut -d' ' -f1)"
 was_active=0
 systemctl is-active --quiet "\$UNIT" && was_active=1 || true
 
-cp -a "\$BIN" "\$BIN.previous"
+# NOT `cp || true`: a copy that failed leaves nothing to go back to, and the
+# install below would still overwrite the working binary.
+cp -a "\$BIN" "\$BIN.previous" || {
+  echo "cannot keep a copy of \$BIN — refusing to install over it" >&2; exit 1; }
 install -o root -g root -m 0755 "\$stage/veil-cli" "\$BIN"
 
 if [ "\$was_active" = 1 ]; then
-  systemctl restart "\$UNIT"
   # A node that updated itself into silence is worse than one a version
-  # behind: nobody is watching at the moment it happens.
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    systemctl is-active --quiet "\$UNIT" && break
-    sleep 2
-  done
-  if ! systemctl is-active --quiet "\$UNIT"; then
+  # behind: nobody is watching at the moment it happens. Which is exactly why
+  # `restart` must not be bare — under `set -e` a non-zero return ended this
+  # script above the restore, on the unattended path, for the whole fleet.
+  ok=1
+  systemctl restart "\$UNIT" || ok=0
+  if [ "\$ok" = 1 ]; then
+    ok=0
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      if systemctl is-active --quiet "\$UNIT"; then ok=1; break; fi
+      sleep 2
+    done
+  fi
+  # Active is reported the moment it starts; a binary that exits straight
+  # after still passes an immediate check.
+  if [ "\$ok" = 1 ]; then
+    sleep 3
+    systemctl is-active --quiet "\$UNIT" || ok=0
+  fi
+  if [ "\$ok" = 0 ]; then
     echo "\$tag did not come back — restoring" >&2
     install -o root -g root -m 0755 "\$BIN.previous" "\$BIN"
     systemctl restart "\$UNIT" || true
