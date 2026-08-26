@@ -4440,6 +4440,30 @@ class AppL10nRu extends AppL10n {
   String get nodeConfigApply => 'Проверить, применить и перезапустить';
 
   @override
+  String get exitAdmissionTitle => 'Кто может выходить через этот узел';
+
+  @override
+  String get exitAdmissionNobody =>
+      'Никто. Выход включён, а список пуст — он откажет каждому.';
+
+  @override
+  String get exitAdmissionOpen =>
+      'Открытый выход — им может пользоваться любой узел';
+
+  @override
+  String get exitAdmissionAddHint => 'node id (64 шестнадцатеричных знака)';
+
+  @override
+  String get exitAdmissionAdd => 'Допустить';
+
+  @override
+  String get exitAdmissionInvalid => 'node id — это 64 шестнадцатеричных знака';
+
+  @override
+  String get exitAdmissionUnsaved =>
+      'Изменено здесь. Нажмите «Применить», чтобы отправить на сервер.';
+
+  @override
   String get nodeConfigNotLoaded =>
       'Перед редактированием загрузите текущий конфиг с сервера.';
 
