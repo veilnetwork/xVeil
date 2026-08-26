@@ -317,39 +317,45 @@ class VeilGithubReleaseResolver {
   static bool _isSha256(String value) =>
       RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(value);
 
-  static Future<String> _httpGet(Uri uri) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
-    try {
-      final request = await client
-          .getUrl(uri)
-          .timeout(const Duration(seconds: 15));
-      request.headers
-        ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
-        ..set(HttpHeaders.userAgentHeader, 'xVeil-release-resolver');
-      final response = await request.close().timeout(
-        const Duration(seconds: 20),
+  static Future<String> _httpGet(Uri uri) => fetchGithubText(uri);
+}
+
+/// One hardened GET against the GitHub API, shared by everything here that
+/// asks it anything.
+///
+/// Public because the app's own update check needs exactly this and nothing
+/// else: a second copy would be a second set of timeouts and a second size cap
+/// to keep in step, and the caps are the point — a response with no ceiling is
+/// a memory bomb from a host nobody here controls.
+Future<String> fetchGithubText(Uri uri) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  try {
+    final request = await client
+        .getUrl(uri)
+        .timeout(const Duration(seconds: 15));
+    request.headers
+      ..set(HttpHeaders.acceptHeader, 'application/vnd.github+json')
+      ..set(HttpHeaders.userAgentHeader, 'xVeil-release-resolver');
+    final response = await request.close().timeout(const Duration(seconds: 20));
+    if (response.statusCode != HttpStatus.ok) {
+      throw VeilReleaseException(
+        'GitHub request failed with HTTP ${response.statusCode}',
       );
-      if (response.statusCode != HttpStatus.ok) {
-        throw VeilReleaseException(
-          'GitHub request failed with HTTP ${response.statusCode}',
-        );
-      }
-      const maxBytes = 2 * 1024 * 1024;
-      final bytes = <int>[];
-      await for (final chunk in response.timeout(const Duration(seconds: 20))) {
-        bytes.addAll(chunk);
-        if (bytes.length > maxBytes) {
-          throw const VeilReleaseException('GitHub response is too large');
-        }
-      }
-      return utf8.decode(bytes);
-    } on VeilReleaseException {
-      rethrow;
-    } on Object catch (error) {
-      throw VeilReleaseException('Could not load GitHub release: $error');
-    } finally {
-      client.close(force: true);
     }
+    const maxBytes = 2 * 1024 * 1024;
+    final bytes = <int>[];
+    await for (final chunk in response.timeout(const Duration(seconds: 20))) {
+      bytes.addAll(chunk);
+      if (bytes.length > maxBytes) {
+        throw const VeilReleaseException('GitHub response is too large');
+      }
+    }
+    return utf8.decode(bytes);
+  } on VeilReleaseException {
+    rethrow;
+  } on Object catch (error) {
+    throw VeilReleaseException('Could not load GitHub release: $error');
+  } finally {
+    client.close(force: true);
   }
 }
