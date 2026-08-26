@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -220,6 +221,63 @@ void main() {
       expect(uncontestedPath(dir.path, 'a.tar.gz'), '${dir.path}/a.tar (1).gz');
     });
   });
+  group('when every reasonable name is taken', () {
+    // Returning the plain name after 999 collisions handed the caller a path
+    // this had just established is TAKEN — which is the one thing the helper
+    // exists to prevent (report16 XV-04).
+    test('the answer is never a path known to be somebody else\'s', () {
+      var asked = 0;
+      final path = uncontestedPath(
+        '/d',
+        'notes.txt',
+        exists: (p) {
+          asked++;
+          // Everything the numbering can produce is taken.
+          return !p.contains(RegExp(r'\([0-9a-f]{8}\)'));
+        },
+      );
+      expect(asked, greaterThan(999), reason: 'it gave up before trying');
+      expect(path, isNot('/d/notes.txt'));
+      expect(path, matches(RegExp(r'^/d/notes \([0-9a-f]{8}\)\.txt$')));
+    });
+    test('and two calls do not agree on it', () {
+      // A fixed fallback would be the same collision one step along.
+      String pick() => uncontestedPath(
+        '/d',
+        'notes.txt',
+        exists: (p) => !p.contains(RegExp(r'\([0-9a-f]{8}\)')),
+      );
+      expect(pick(), isNot(pick()));
+    });
+  });
+  group('a name that is already at the limit', () {
+    // The suffix is the disambiguating part, so it is the last thing to lose.
+    // Trimming to the byte bound and THEN adding ` (1)` comes back over it,
+    // and a filesystem that truncates turns two different files into one.
+    test('keeps its suffix and extension, and still fits', () {
+      final long = 'ф' * 200; // 400 bytes in UTF-8.
+      final path = uncontestedPath(
+        '/d',
+        '$long.txt',
+        exists: (p) => p == '/d/$long.txt',
+      );
+      final leaf = path.substring('/d/'.length);
+      expect(utf8.encode(leaf).length, lessThanOrEqualTo(maxFileNameBytes));
+      expect(leaf, endsWith(' (1).txt'));
+    });
+    test('and never cuts a character in half', () {
+      final long = '🙂' * 100; // 400 bytes, 4 per rune.
+      final path = uncontestedPath(
+        '/d',
+        '$long.bin',
+        exists: (p) => p == '/d/$long.bin',
+      );
+      final leaf = path.substring('/d/'.length);
+      expect(utf8.encode(leaf).length, lessThanOrEqualTo(maxFileNameBytes));
+      // Decodes cleanly: a half-cut rune would not.
+      expect(utf8.decode(utf8.encode(leaf)), leaf);
+    });
+  });
 }
 
 /// An [IOSink] that writes normally and fails to close.
@@ -240,4 +298,5 @@ class _FailingCloseSink implements IOSink {
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       super.noSuchMethod(invocation);
+
 }
