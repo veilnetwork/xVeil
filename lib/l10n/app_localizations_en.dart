@@ -4412,6 +4412,22 @@ class AppL10nEn extends AppL10n {
   String get nodeInventory => 'Inspect installation and status';
 
   @override
+  String get nodeShareEntry => 'Share a way into the network';
+
+  @override
+  String get nodeShareEntryHint =>
+      'Asks the node how it can be reached, then hands that over. The link adds this node as an ENTRY POINT: no contact, no chat, and nothing about who shared it.';
+
+  @override
+  String nodeShareEntryTitle(Object name) {
+    return 'Entry point: $name';
+  }
+
+  @override
+  String get nodeShareEntryNone =>
+      'This node did not give an address anybody could dial';
+
+  @override
   String get fleetUpdateTitle => 'Node updates';
 
   @override

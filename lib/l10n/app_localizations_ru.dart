@@ -4453,6 +4453,22 @@ class AppL10nRu extends AppL10n {
   String get nodeInventory => 'Проверить установку и состояние';
 
   @override
+  String get nodeShareEntry => 'Поделиться входом в сеть';
+
+  @override
+  String get nodeShareEntryHint =>
+      'Спрашивает узел, как до него достучаться, и отдаёт это. По ссылке узел добавится как ТОЧКА ВХОДА: без контакта, без чата и без сведений о том, кто поделился.';
+
+  @override
+  String nodeShareEntryTitle(Object name) {
+    return 'Точка входа: $name';
+  }
+
+  @override
+  String get nodeShareEntryNone =>
+      'Узел не назвал адреса, до которого можно дозвониться';
+
+  @override
   String get fleetUpdateTitle => 'Обновление узлов';
 
   @override

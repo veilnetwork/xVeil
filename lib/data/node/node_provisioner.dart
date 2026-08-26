@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../transport/bootstrap_invite.dart';
+import '../transport/peers_invite.dart';
 import 'managed_node.dart';
 import 'proxy_routing.dart';
 
@@ -262,6 +264,55 @@ String _withReachableHost(String invite, String? reachableHost) {
   }
   final fixed = parsed.replace(host: host).toString();
   return invite.replaceRange(m.start, m.end, '${m.group(1)}t=$fixed');
+}
+
+/// A link that hands somebody a way INTO the network through this node, or
+/// null when there is nothing safe to hand over.
+///
+/// A `veil:peers?` share and deliberately not a `veil:bootstrap?` one, even
+/// though the invite underneath is a bootstrap invite: redeeming the bootstrap
+/// form creates a CONTACT and opens a chat, and nobody wants a conversation
+/// with a server. The peers form adds an entry point and nothing else — no
+/// contact, no keys, no identity of whoever shared it.
+///
+/// [inventoryOutput] must be from a run that just succeeded. The transport a
+/// node advertises can change, and a link built from a remembered one sends
+/// somebody at an address that may now belong to nobody.
+///
+/// Null when:
+///
+/// * the node reported no invite (an older veil-cli, or no listener);
+/// * the invite is malformed;
+/// * the transport still names an address nobody can dial. A node that
+///   advertises `0.0.0.0` and was reached over an address this app does not
+///   know is a node whose link would not work, and handing one over is worse
+///   than saying there is nothing to hand.
+String? nodeEntryPointShareUri({
+  required String inventoryOutput,
+  String? reachableHost,
+}) {
+  final invite = parseProvisionReport(
+    inventoryOutput,
+    reachableHost: reachableHost,
+  ).invite;
+  if (invite == null) return null;
+  final BootstrapInvite parsed;
+  try {
+    parsed = BootstrapInvite.parse(invite);
+  } catch (_) {
+    return null;
+  }
+  // A peers share carries dialable descriptors only; an invite with no
+  // transport at all names a node nobody can reach.
+  final advertised = parsed.transport;
+  if (advertised == null || advertised.isEmpty) return null;
+  final transport = Uri.tryParse(advertised);
+  if (transport == null ||
+      !transport.hasAuthority ||
+      _unroutableHosts.contains(transport.host.toLowerCase())) {
+    return null;
+  }
+  return SharedPeers([parsed]).toUri();
 }
 
 /// Listener presets exposed by the basic UI. Operators can still edit the full

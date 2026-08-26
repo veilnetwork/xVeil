@@ -12,6 +12,7 @@ import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
 import 'node_config_screen.dart';
 import 'node_provision_screen.dart';
+import 'share_link_sheet.dart';
 import 'ssh_command_dialog.dart';
 
 class NodeManagementScreen extends ConsumerWidget {
@@ -125,6 +126,47 @@ class NodeManagementScreen extends ConsumerWidget {
     },
   );
 
+  /// Ask the node how it can be reached, then hand that over.
+  ///
+  /// The invite is read fresh rather than remembered: a node's advertised
+  /// transport can change, and a link built from an old one sends somebody at
+  /// an address that may now belong to nobody. `reachableHost` is the address
+  /// SSH just used, which is what repairs the common case of a node
+  /// advertising the wildcard bind.
+  Future<void> _shareEntryPoint(
+    BuildContext context,
+    WidgetRef ref,
+    ManagedNode node,
+  ) => _run(
+    context,
+    node,
+    title: AppL10n.of(context).nodeShareEntry,
+    command: buildNodeInventoryScript(),
+    onSuccess: (result) async {
+      if (!context.mounted) return;
+      final l = AppL10n.of(context);
+      final uri = nodeEntryPointShareUri(
+        inventoryOutput: result.stdout,
+        reachableHost: node.sshHost,
+      );
+      if (uri == null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.nodeShareEntryNone)));
+        return;
+      }
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (_) => ShareLinkSheet(
+          title: l.nodeShareEntryTitle(node.label),
+          hint: l.nodeShareEntryHint,
+          uri: uri,
+        ),
+      );
+    },
+  );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppL10n.of(context);
@@ -176,6 +218,15 @@ class NodeManagementScreen extends ConsumerWidget {
             onChanged: node.hasSsh && node.sshUser != null
                 ? (value) => _setAutoUpdate(context, ref, node, value)
                 : null,
+          ),
+          ListTile(
+            enabled: node.hasSsh && node.sshUser != null,
+            leading: const Icon(Icons.share_outlined),
+            title: Text(l.nodeShareEntry),
+            subtitle: Text(l.nodeShareEntryHint),
+            isThreeLine: true,
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => _shareEntryPoint(context, ref, node),
           ),
           ListTile(
             enabled: node.hasSsh && node.sshUser != null,

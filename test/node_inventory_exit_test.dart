@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/managed_node.dart';
 import 'package:xveil/data/node/node_lifecycle.dart';
 import 'package:xveil/data/node/proxy_routing.dart';
+import 'package:xveil/data/transport/peers_invite.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 
 /// The inventory is the ONLY read-only way to re-attach a server whose records
@@ -153,6 +154,54 @@ allowed_node_ids = [
       // Guessing is worse than handing back what the node said: an operator
       // who set an nginx-fronted name meant it.
       expect(parseProvisionReport(live).invite, contains('0.0.0.0'));
+    });
+  });
+
+  group('handing somebody a way into the network', () {
+    // Verbatim from a live node on 2026-08-26: it advertises the wildcard bind,
+    // which is what the operator gets for leaving the advertise host empty.
+    const live =
+        'BOOTSTRAP_URI: veil:bootstrap?pk=uVxwnZaxN/OtkGP8drOqvNxW30qEv05y'
+        '+c3BKZcPooI=&t=obfs4-tcp://0.0.0.0:5556&a=ed25519&nc=AkZVnw==\n';
+
+    test('the link is a PEERS share, not a contact invite', () {
+      // Redeeming the bootstrap form creates a contact and opens a chat, and
+      // nobody wants a conversation with a server.
+      final uri = nodeEntryPointShareUri(
+        inventoryOutput: live,
+        reachableHost: '203.0.113.7',
+      );
+
+      expect(uri, isNotNull);
+      expect(uri, startsWith(SharedPeers.scheme));
+      expect(SharedPeers.parse(uri!).peers, hasLength(1));
+      expect(
+        SharedPeers.parse(uri).peers.single.transport,
+        contains('203.0.113.7'),
+      );
+    });
+
+    test('an address nobody can dial is not handed over', () {
+      // Without a reachable host the invite still says 0.0.0.0. Giving somebody
+      // a link that cannot work is worse than saying there is nothing to give.
+      expect(nodeEntryPointShareUri(inventoryOutput: live), isNull);
+    });
+
+    test('a run that reported no invite gives nothing', () {
+      expect(
+        nodeEntryPointShareUri(inventoryOutput: 'NODE_ID: ${'ab' * 32}\n'),
+        isNull,
+      );
+    });
+
+    test('a malformed invite gives nothing', () {
+      expect(
+        nodeEntryPointShareUri(
+          inventoryOutput: 'BOOTSTRAP_URI: veil:bootstrap?pk=notbase64!!\n',
+          reachableHost: '10.0.0.1',
+        ),
+        isNull,
+      );
     });
   });
 
