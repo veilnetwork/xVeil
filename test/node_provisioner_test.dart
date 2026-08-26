@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/managed_node.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
+import 'package:xveil/data/node/veil_github_release.dart';
 
 void main() {
   // A well-known 64-hex digest used purely as a fixture.
@@ -550,6 +551,49 @@ COMPONENTS: veil-cli,ogate,oproxy-server
 
     test('an inventory without a NODE_ID line changes nothing', () {
       expect(nodeWithAdoptedId(blank, 'BINARY_veil-cli: missing\n'), isNull);
+    });
+  });
+
+  group('which machine the node is', () {
+    test('the architecture comes from the line the inventory already prints', () {
+      // `HOST_OS: $(uname -srm)` has been in the inventory since the first
+      // version. Nobody read it, and the fleet update sent every node an
+      // x86_64 build as a result.
+      final report = parseProvisionReport(
+        'HOST_OS: Linux 6.8.0-31-generic x86_64\nNODE_ID: ${'a' * 64}\n',
+      );
+
+      expect(report.hostArch, 'x86_64');
+      expect(report.releaseTarget, VeilLinuxReleaseTarget.x86_64Musl);
+    });
+
+    test('an arm64 server resolves to the arm64 build', () {
+      final report = parseProvisionReport('HOST_OS: Linux 6.8.0 aarch64\n');
+
+      expect(report.releaseTarget, VeilLinuxReleaseTarget.aarch64Musl);
+    });
+
+    test('a machine nobody maps resolves to nothing, never to a default', () {
+      // Null is a refusal. Guessing x86_64 is how a genuine release lands on a
+      // server as a file it cannot execute: the digest matches, the install
+      // succeeds as root, and the service never comes back.
+      for (final line in [
+        'HOST_OS: Linux 6.8.0 riscv64',
+        'HOST_OS: ',
+        'NODE_ID: ${'b' * 64}',
+      ]) {
+        final report = parseProvisionReport('$line\n');
+        expect(report.releaseTarget, isNull, reason: line);
+      }
+    });
+
+    test('the two it does map are not the only answer it gives', () {
+      // Vacuity guard: a getter returning null for everything satisfies the
+      // refusal above.
+      expect(
+        parseProvisionReport('HOST_OS: Linux 1 x86_64').releaseTarget,
+        isNotNull,
+      );
     });
   });
 }

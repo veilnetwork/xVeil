@@ -35,7 +35,7 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
 
   /// What each node said THIS session, keyed by node id. Absent means it was
   /// not asked; null means it was asked and did not answer.
-  final Map<String, String?> _reported = {};
+  final Map<String, NodeReading?> _reported = {};
   String? _latestTag;
   bool _busy = false;
   bool _asked = false;
@@ -86,10 +86,17 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
       final result = await _run(node, inventoryTitle, buildNodeInventoryScript());
       // Asked and heard nothing is recorded as null, not left absent: the plan
       // treats both the same, and this way the screen can say so.
-      _reported[node.id] = result == null || !result.ok
+      final report = result == null || !result.ok
           ? null
-          : parseProvisionReport(result.stdout).veilVersion;
-      final said = _reported[node.id];
+          : parseProvisionReport(result.stdout);
+      // Both halves from the same run: what it runs, and what it can run.
+      _reported[node.id] = report == null
+          ? null
+          : NodeReading(
+              version: report.veilVersion,
+              target: report.releaseTarget,
+            );
+      final said = report?.veilVersion;
       if (said != null) {
         await ref
             .read(managedNodesProvider.notifier)
@@ -114,8 +121,12 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
       if (!mounted) break;
       final NodeReleaseArtifact artifact;
       try {
+        // The step's own target, never a fleet-wide default: a person can run
+        // an arm64 box beside an x86_64 one, and the wrong build passes every
+        // check downstream — the digest matches, the install succeeds as root,
+        // and the service does not come back.
         final release = await _resolver.resolveArtifact(
-          target: VeilLinuxReleaseTarget.x86_64Musl,
+          target: step.target,
           binaryName: 'veil-cli',
         );
         artifact = NodeReleaseArtifact(
@@ -137,10 +148,14 @@ class _NodeFleetUpdateScreenState extends ConsumerState<NodeFleetUpdateScreen> {
       // Only what the run reported: a node whose update failed keeps the
       // version it had, so the next check still offers it.
       if (result != null && result.ok) {
-        _reported[step.node.id] = step.to.replaceFirst('v', '');
+        final now = step.to.replaceFirst('v', '');
+        _reported[step.node.id] = NodeReading(
+          version: now,
+          target: step.target,
+        );
         await ref
             .read(managedNodesProvider.notifier)
-            .upsert(step.node.copyWith(veilVersion: _reported[step.node.id]));
+            .upsert(step.node.copyWith(veilVersion: now));
       }
     }
     if (mounted) setState(() => _busy = false);

@@ -4,6 +4,7 @@ import '../transport/bootstrap_invite.dart';
 import '../transport/peers_invite.dart';
 import 'managed_node.dart';
 import 'proxy_routing.dart';
+import 'veil_github_release.dart' show VeilLinuxReleaseTarget;
 
 /// Components that can be installed on a managed server. `veilCli` is always
 /// required; the others are optional applications that attach to its local IPC
@@ -41,6 +42,7 @@ class ProvisionReport {
     this.invite,
     this.components = const <NodeComponent>{},
     this.veilVersion,
+    this.hostArch,
     this.exitEnabled,
     this.exitAllowAll,
     this.exitAllowedNodeIds = const <String>[],
@@ -54,6 +56,22 @@ class ProvisionReport {
   /// (`node show` prints `version: 0.8.1`). Null when the run did not say —
   /// an older script, or a node that could not answer.
   final String? veilVersion;
+
+  /// What `uname -m` said: `x86_64`, `aarch64`, or something nobody here maps.
+  /// Null when the run did not report it.
+  final String? hostArch;
+
+  /// Which release build this machine can actually run, or null when the node
+  /// said nothing or said something unrecognised.
+  ///
+  /// Null is a refusal, never a default. Guessing x86_64 is how a genuine
+  /// release lands on an arm64 server as an unrunnable file — the digest
+  /// matches, the install succeeds, and the service never comes back.
+  VeilLinuxReleaseTarget? get releaseTarget => switch (hostArch) {
+    'x86_64' || 'amd64' => VeilLinuxReleaseTarget.x86_64Musl,
+    'aarch64' || 'arm64' => VeilLinuxReleaseTarget.aarch64Musl,
+    _ => null,
+  };
 
   /// The node's own bootstrap entry, already made routable where possible.
   /// Null when the script could not produce one — an older veil-cli, or a node
@@ -130,6 +148,12 @@ ProvisionReport parseProvisionReport(String output, {String? reachableHost}) {
   if (uri != null) {
     invite = _withReachableHost(uri.group(1)!.trim(), reachableHost);
   }
+  // `uname -srm` puts the machine last: `Linux 6.8.0-generic x86_64`. The
+  // inventory has printed it since the first version; nobody read it, and an
+  // update built for the wrong machine went out as a result.
+  final host = RegExp(r'HOST_OS:[ \t]*(.*)').firstMatch(output);
+  final hostArch = host?.group(1)?.trim().split(RegExp(r'\s+')).lastOrNull;
+
   final exitEnabled = _reportedBool(output, 'EXIT_ENABLED');
   final exitAllowAll = _reportedBool(output, 'EXIT_ALLOW_ALL');
   final allowed = RegExp(r'EXIT_ALLOWED:[ \t]*(.*)').firstMatch(output);
@@ -141,6 +165,7 @@ ProvisionReport parseProvisionReport(String output, {String? reachableHost}) {
     invite: invite,
     components: components,
     veilVersion: version?.group(1),
+    hostArch: hostArch == null || hostArch.isEmpty ? null : hostArch,
     exitEnabled: exitEnabled,
     exitAllowAll: exitAllowAll,
     exitAllowlistUnread: unread,
