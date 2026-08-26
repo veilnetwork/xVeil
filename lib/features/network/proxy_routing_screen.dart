@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../common/shown_cause.dart';
 import '../../data/node/proxy_routing.dart';
+import '../../data/transport/oproxy_invite.dart';
 import '../../data/vpn/vpn_backend.dart';
 import '../../data/vpn/vpn_application_catalog.dart';
 import '../../data/vpn/vpn_routing_policy.dart';
 import '../../l10n/app_localizations.dart';
 import 'oproxy_chain_summary.dart';
-import 'share_oproxy_sheet.dart';
+import 'share_link_sheet.dart';
 import 'vpn_failure_text.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -312,8 +313,14 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
                             onPressed: () => showModalBottomSheet<void>(
                               context: context,
                               isScrollControlled: true,
-                              builder: (_) =>
-                                  ShareOproxySheet(endpoint: endpoint),
+                              builder: (_) => ShareLinkSheet(
+                                title: l.oproxyShareTitle(endpoint.label),
+                                hint: l.oproxyShareAdmissionHint,
+                                uri: OproxyInvite(
+                                  nodeId: endpoint.nodeId,
+                                  label: endpoint.label,
+                                ).toUri(),
+                              ),
                             ),
                             icon: const Icon(Icons.ios_share),
                           ),

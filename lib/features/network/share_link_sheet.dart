@@ -3,14 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../data/node/proxy_routing.dart';
 import '../../domain/chat.dart';
-import '../../data/transport/oproxy_invite.dart';
 import '../../l10n/app_localizations.dart';
 import '../common/shown_cause.dart';
 import '../../state/messaging_providers.dart';
 
-/// Hand ONE exit to somebody: the link, a QR of it, and the contact list.
+/// Hand a link to somebody: the link, a QR of it, and the contact list.
 ///
 /// The server half of sharing a proxy is the allowlist — the operator admits a
 /// node id and that node may route through the exit. This is the other half,
@@ -19,16 +17,31 @@ import '../../state/messaging_providers.dart';
 ///
 /// The link carries the node id and a name and nothing else: no identity of the
 /// sharer, no credentials, nothing dialable.
-class ShareOproxySheet extends ConsumerStatefulWidget {
-  const ShareOproxySheet({super.key, required this.endpoint});
+class ShareLinkSheet extends ConsumerStatefulWidget {
+  const ShareLinkSheet({
+    super.key,
+    required this.title,
+    required this.hint,
+    required this.uri,
+  });
 
-  final OproxyEndpoint endpoint;
+  /// What is being handed over, named.
+  final String title;
+
+  /// What the recipient should know before they act on it. Different per link:
+  /// an exit says admission is decided on the server, an entry point says what
+  /// it does and does not carry.
+  final String hint;
+
+  /// The link itself. Built by the caller so this widget never has to know
+  /// which kind it is showing.
+  final String uri;
 
   @override
-  ConsumerState<ShareOproxySheet> createState() => _ShareOproxySheetState();
+  ConsumerState<ShareLinkSheet> createState() => _ShareLinkSheetState();
 }
 
-class _ShareOproxySheetState extends ConsumerState<ShareOproxySheet> {
+class _ShareLinkSheetState extends ConsumerState<ShareLinkSheet> {
   /// Anything this sheet has to SAY, said inside the sheet.
   ///
   /// A snackbar from here is posted to the ScaffoldMessenger under the modal
@@ -40,11 +53,7 @@ class _ShareOproxySheetState extends ConsumerState<ShareOproxySheet> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
-    final endpoint = widget.endpoint;
-    final uri = OproxyInvite(
-      nodeId: endpoint.nodeId,
-      label: endpoint.label,
-    ).toUri();
+    final uri = widget.uri;
 
     return SafeArea(
       child: Padding(
@@ -54,14 +63,14 @@ class _ShareOproxySheetState extends ConsumerState<ShareOproxySheet> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              l.oproxyShareTitle(endpoint.label),
+              widget.title,
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 4),
             // Admission is a SEPARATE decision on the server. Sending the link
             // to someone who is not on the allowlist gives them something that
             // will refuse them, so say so where the link is handed over.
-            Text(l.oproxyShareAdmissionHint),
+            Text(widget.hint),
             const SizedBox(height: 12),
             Center(
               child: Container(

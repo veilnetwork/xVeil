@@ -4466,6 +4466,22 @@ class AppL10nEs extends AppL10n {
   String get nodeInventory => 'Inspeccionar la instalación y el estado';
 
   @override
+  String get nodeShareEntry => 'Compartir una entrada a la red';
+
+  @override
+  String get nodeShareEntryHint =>
+      'Pregunta al nodo cómo se le puede alcanzar y entrega eso. El enlace añade este nodo como PUNTO DE ENTRADA: sin contacto, sin chat y sin nada sobre quién lo compartió.';
+
+  @override
+  String nodeShareEntryTitle(Object name) {
+    return 'Punto de entrada: $name';
+  }
+
+  @override
+  String get nodeShareEntryNone =>
+      'El nodo no dio una dirección a la que se pueda llamar';
+
+  @override
   String get fleetUpdateTitle => 'Actualización de nodos';
 
   @override
