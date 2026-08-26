@@ -748,7 +748,34 @@ sudo install -m 0644 \$XVEIL_TMP/xveil-oproxy-server.service /etc/systemd/system
 /// Build an idempotent Linux/systemd deployment. Existing node identity is
 /// preserved while listeners and operational settings are reconciled to the
 /// selected plan on every run.
+/// Refuses a config [NodeProvisionConfig.isValid] rejects.
+///
+/// This function's output is executed AS ROOT on the operator's server, and it
+/// interpolates operator-supplied values — the advertise host, TLS paths, an
+/// ACME e-mail, a certificate name — into single-quoted shell words. A value
+/// carrying an apostrophe closes that word and everything after it is a new
+/// command: `--advertise 'obfs4-tcp://x'; touch /tmp/pwned; echo ':5556'` is
+/// what the generator produced for such a host.
+///
+/// Every one of those fields IS validated — `isValid` checks the host against
+/// a host pattern, the paths against a path pattern, the e-mail, the domain,
+/// the ports and each artifact's URL and digest. The check simply lived one
+/// layer away: the deploy screen consulted it and this function did not, so
+/// the guarantee held only for as long as the single existing caller kept
+/// asking. A second caller — another screen, a headless path, a helper that
+/// graduates into production — got a root shell script built out of whatever
+/// it passed.
+///
+/// So the refusal belongs at the boundary that runs as root rather than at the
+/// screen in front of it, which is also what `buildWriteNodeConfigScript` does
+/// with its size limit.
 String buildProvisionScript(NodeProvisionConfig c) {
+  if (!c.isValid) {
+    throw ArgumentError(
+      'refusing to build a root-privileged script from a config that '
+      'NodeProvisionConfig.isValid rejects',
+    );
+  }
   final artifacts = c.artifacts;
   final components = artifacts.map((a) => a.component).toSet();
   final downloads = artifacts.map(_downloadAndVerify).join('\n');
