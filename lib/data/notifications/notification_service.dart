@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -17,6 +18,19 @@ class NotificationService {
 
   final FlutterLocalNotificationsPlugin _plugin;
   bool _ready = false;
+
+  /// The init in flight, so a caller that arrives during startup can wait for
+  /// it instead of being answered "not ready" and going away.
+  Future<void>? _initializing;
+
+  /// A clear that arrived before there was anything to clear it with.
+  ///
+  /// The lock asks for this, and it used to be dropped: `init` is started
+  /// fire-and-forget by the provider, and a lock during startup found
+  /// `_ready` false, returned at once, and never came back. An OS notification
+  /// from the previous session then outlived the lock — on a screen, after the
+  /// person asked for the volume to be shut (report15 X15-M6).
+  bool _clearWanted = false;
 
   /// Whether the running platform has a notification backend the plugin
   /// supports. Web is intentionally out of scope while xVeil remains a native
@@ -46,6 +60,27 @@ class NotificationService {
     void Function(String payload, String text)? onReply,
   }) async {
     if (_ready || !_supported) return;
+    final running = _initializing;
+    if (running != null) return running;
+    final gate = Completer<void>();
+    _initializing = gate.future;
+    try {
+      await _init(onTap: onTap, onReply: onReply);
+    } finally {
+      _initializing = null;
+      if (!gate.isCompleted) gate.complete();
+    }
+    // Asked for while there was nothing to ask. Now there is.
+    if (_clearWanted) {
+      _clearWanted = false;
+      await cancelAll();
+    }
+  }
+
+  Future<void> _init({
+    required void Function(String? payload) onTap,
+    void Function(String payload, String text)? onReply,
+  }) async {
     void handleResponse(NotificationResponse response) {
       // An inline reply (RemoteInput) carries the typed text in `input` under
       // our reply action id; anything else is a plain tap → open the chat.
@@ -207,9 +242,28 @@ class NotificationService {
     }
   }
 
-  /// Clear all posted notifications (e.g. when the user opens the app).
+  /// Clear all posted notifications (e.g. when the user opens the app, or
+  /// when a deniable volume is locked).
+  ///
+  /// Never a silent no-op. It used to return the moment `_ready` was false,
+  /// which is exactly the state a lock during startup finds — so the clear the
+  /// lock asked for simply did not happen, and a notification from the
+  /// previous session stayed on the screen.
   Future<void> cancelAll() async {
-    if (!_ready) return;
+    if (!_ready) {
+      final running = _initializing;
+      if (running != null) {
+        // Startup is in flight. Wait for it rather than giving up: this is
+        // the window the lock lands in.
+        await running;
+      } else if (_supported) {
+        // Nothing has started yet. Remember, and `init` will do it — leaving
+        // it undone is what put a notification on the wrong side of a lock.
+        _clearWanted = true;
+        return;
+      }
+      if (!_ready) return;
+    }
     try {
       await _plugin.cancelAll();
     } catch (_) {}
