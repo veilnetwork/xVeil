@@ -86,9 +86,16 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
       );
       if (result.hostFingerprint.isNotEmpty &&
           node.sshHostFingerprint == null) {
-        await ref
+        final failed = await ref
             .read(managedNodesProvider.notifier)
             .upsert(node.copyWith(sshHostFingerprint: result.hostFingerprint));
+        // See ssh_command_dialog: an unsaved pin makes the next connection
+        // first contact again, and nothing else would say so.
+        if (failed != null && mounted) {
+          setState(
+            () => _error = AppL10n.of(context).nodeHostKeyNotRemembered(failed),
+          );
+        }
       }
       return result;
     } on SshException catch (e) {

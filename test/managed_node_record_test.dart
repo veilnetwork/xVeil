@@ -148,4 +148,53 @@ void main() {
       );
     }
   });
+
+  test('nobody drops the answer the registry gives them', () {
+    // The controller REPORTS a failed write instead of throwing, deliberately:
+    // these writes happen inside SSH flows that catch SshException and nothing
+    // else, so throwing would turn a settings write into an unhandled error in
+    // three places that have nothing to do with settings.
+    //
+    // The cost of that choice is that `await notifier.upsert(...)` with the
+    // result discarded compiles, reads fine, and says nothing when the write
+    // fails. The dangerous shape is the one where the SERVER has already been
+    // changed: the timer is installed, the pin was offered, the config was
+    // written — and the app quietly does not record it. The switch then shows
+    // "off" while a root timer keeps updating that machine.
+    //
+    // Structural, because the alternative is a widget test per call site
+    // against a storage that fails, and this catches a new call site too.
+    for (final path in const [
+      'lib/features/network/ssh_command_dialog.dart',
+      'lib/features/network/node_config_screen.dart',
+      'lib/features/network/managed_nodes_screen.dart',
+      'lib/features/network/node_management_screen.dart',
+      'lib/features/network/node_fleet_update_screen.dart',
+      'lib/features/network/node_provision_screen.dart',
+    ]) {
+      final source = File(path).readAsStringSync();
+      for (final call in const ['.upsert(', '.updateById(']) {
+        var at = source.indexOf(call);
+        while (at >= 0) {
+          // Back to whatever introduced the statement: the previous `;`, or
+          // the brace that opened the block.
+          var start = source.lastIndexOf(';', at);
+          for (final mark in const ['{', '}']) {
+            final m = source.lastIndexOf(mark, at);
+            if (m > start) start = m;
+          }
+          final head = source.substring(start + 1, at);
+          expect(
+            head,
+            anyOf(contains('='), contains('return')),
+            reason:
+                '$path calls $call and throws the result away; a write that '
+                'failed then says nothing, while the server has already been '
+                'changed',
+          );
+          at = source.indexOf(call, at + 1);
+        }
+      }
+    }
+  });
 }

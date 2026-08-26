@@ -2048,6 +2048,10 @@
     }
   },
   "nodeRegistrySaveFailed": "The node list could not be saved: {error}",
+  "nodeHostKeyNotRemembered": "The host key could not be saved: {error}. The next connection will ask you to confirm it again.",
+  "@nodeHostKeyNotRemembered": {"placeholders": {"error": {"type": "String"}}},
+  "nodeRemoteChangedLocalNot": "The server was changed, but this app could not record it: {error}",
+  "@nodeRemoteChangedLocalNot": {"placeholders": {"error": {"type": "String"}}},
   "@nodeRegistrySaveFailed": {
     "description": "Shown when the node registry could not be committed to encrypted storage; the change is not saved.",
     "placeholders": {

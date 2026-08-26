@@ -125,9 +125,19 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
       );
       if (result.hostFingerprint.isNotEmpty &&
           node.sshHostFingerprint == null) {
-        await ref
+        // The controller REPORTS a failed write rather than throwing, so a
+        // caller that drops the answer has been told nothing. A pin that was
+        // not saved means the next connection is first contact again — over a
+        // link that carries a root-capable credential — and the person has no
+        // way to know unless this says so.
+        final failed = await ref
             .read(managedNodesProvider.notifier)
             .upsert(node.copyWith(sshHostFingerprint: result.hostFingerprint));
+        if (failed != null && mounted) {
+          setState(
+            () => _error = AppL10n.of(context).nodeHostKeyNotRemembered(failed),
+          );
+        }
       }
       if (result.ok) await widget.onSuccess?.call(result);
       if (!mounted) return;

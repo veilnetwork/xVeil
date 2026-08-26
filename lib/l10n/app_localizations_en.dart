@@ -4877,6 +4877,16 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String nodeHostKeyNotRemembered(String error) {
+    return 'The host key could not be saved: $error. The next connection will ask you to confirm it again.';
+  }
+
+  @override
+  String nodeRemoteChangedLocalNot(String error) {
+    return 'The server was changed, but this app could not record it: $error';
+  }
+
+  @override
   String sshKeyGenerationFailed(String error) {
     return 'Could not generate the key: $error';
   }
