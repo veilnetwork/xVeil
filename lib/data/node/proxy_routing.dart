@@ -36,6 +36,49 @@ class ProxySocksProfile {
   final List<String> exitNodeIds;
 }
 
+/// The catalog to save after a deployment finishes, or null to leave it alone.
+///
+/// What makes a node routable by THIS app is veil's `[proxy.exit]`: the node
+/// runtime registers the well-known exit app id only when that is enabled
+/// (`spawn_exit_proxy` returns `None` otherwise), and the app's connector dials
+/// nothing else. So the catalog entry follows the exit, and the deployment
+/// screen's exit switch is the thing that decides it.
+///
+/// It used to follow the `oproxy-server` COMPONENT instead. That is a separate
+/// program answering a separate, derived `app_id(node_id, "oproxy", app_name)`
+/// which this app never speaks -- so the old rule was wrong in both directions:
+/// deploying oproxy-server with the exit switch off registered an entry nothing
+/// could dial, and deploying an exit WITHOUT oproxy-server -- the default --
+/// registered nothing, leaving a 64-hex node id to be typed in by hand. The
+/// first live run of this flow hit the second half.
+///
+/// Pure, and it takes the decision rather than reading it, so both the "add"
+/// and the "leave alone" branches are reachable from a plain unit test.
+ProxyRouting? routingWithDeployedExit(
+  ProxyRouting routing, {
+  required bool isExit,
+  required String? nodeId,
+  required String label,
+}) {
+  if (!isExit) return null;
+  final id = nodeId?.trim().toLowerCase();
+  if (id == null || !ProxyRouting.isValidNodeId(id)) return null;
+  // Against the EFFECTIVE catalog: a node already named by the default chain is
+  // routable and must not be added a second time under a different label.
+  if (routing.effectiveOproxies.any((e) => e.nodeId == id)) return null;
+  return routing.copyWith(
+    oProxies: [
+      ...routing.oProxies,
+      OproxyEndpoint(
+        nodeId: id,
+        label: label.trim().isEmpty
+            ? 'oproxy ${id.substring(0, 8)}'
+            : label.trim(),
+      ),
+    ],
+  );
+}
+
 class ProxyRouting {
   const ProxyRouting({
     this.socks5Enabled = false,

@@ -273,4 +273,101 @@ void main() {
       expect(EmbeddedNode.withOutboundCoalescing(once), once);
     });
   });
+
+  /// The catalog is "nodes this app can route through", and what makes a node
+  /// that is veil's `[proxy.exit]` — the node runtime registers the well-known
+  /// exit app id only when it is enabled, and the connector dials nothing else.
+  ///
+  /// The rule used to follow the `oproxy-server` COMPONENT, a separate program
+  /// answering a separate derived app id this app never speaks. Wrong in both
+  /// directions, and the second half is the one the first live run hit: an exit
+  /// was deployed, no catalog entry appeared, and the 64-hex node id had to be
+  /// typed in by hand.
+  group('what a finished deployment puts in the exit catalog', () {
+    const empty = ProxyRouting();
+
+    test('an exit is registered', () {
+      final updated = routingWithDeployedExit(
+        empty,
+        isExit: true,
+        nodeId: _exit,
+        label: 'exit-host',
+      );
+      expect(updated, isNotNull);
+      expect(updated!.oProxies.single.nodeId, _exit);
+      expect(updated.oProxies.single.label, 'exit-host');
+    });
+
+    test('a node deployed WITHOUT the exit is not registered', () {
+      expect(
+        routingWithDeployedExit(
+          empty,
+          isExit: false,
+          nodeId: _exit,
+          label: 'relay only',
+        ),
+        isNull,
+        reason:
+            'without [proxy.exit] the node registers no exit endpoint, so a '
+            'catalog entry for it is one nothing can dial',
+      );
+      // Premise: the same call DOES register when the exit is on, so this null
+      // is a decision about the exit and not a rejected node id.
+      expect(
+        routingWithDeployedExit(
+          empty,
+          isExit: true,
+          nodeId: _exit,
+          label: 'relay only',
+        ),
+        isNotNull,
+      );
+    });
+
+    test('a node that reported no usable id is not registered', () {
+      expect(
+        routingWithDeployedExit(empty, isExit: true, nodeId: null, label: 'x'),
+        isNull,
+      );
+      expect(
+        routingWithDeployedExit(
+          empty,
+          isExit: true,
+          nodeId: 'not-hex',
+          label: 'x',
+        ),
+        isNull,
+        reason: 'a blank or malformed entry is worse than none',
+      );
+    });
+
+    test('a node already routable is not added twice', () {
+      // Present only through the default chain, not in oProxies: the dedup has
+      // to look at the EFFECTIVE catalog or it duplicates under a new label.
+      const viaDefaultChain = ProxyRouting(defaultOproxyNodeIds: [_exit]);
+      expect(viaDefaultChain.effectiveOproxies.single.nodeId, _exit);
+      expect(
+        routingWithDeployedExit(
+          viaDefaultChain,
+          isExit: true,
+          nodeId: _exit,
+          label: 'same node, new label',
+        ),
+        isNull,
+      );
+    });
+
+    test('an unrelated entry already in the catalog is kept', () {
+      const withOther = ProxyRouting(
+        oProxies: [OproxyEndpoint(nodeId: _backup, label: 'other')],
+      );
+      final updated = routingWithDeployedExit(
+        withOther,
+        isExit: true,
+        nodeId: _exit,
+        label: 'new',
+      );
+      expect(updated!.oProxies.map((e) => e.nodeId), [_backup, _exit]);
+    });
+  });
 }
