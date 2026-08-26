@@ -107,7 +107,11 @@ void main() {
     test('removes the timer, the unit and the script', () {
       final off = buildNodeAutoUpdateScript(enabled: false);
 
-      expect(off, contains('disable --now'));
+      // The timer is stopped and disabled as two steps now, so nothing new
+      // can start while a run already going is waited out — `disable --now`
+      // would stop the timer and say nothing about that run (report16 XV-10).
+      expect(off, contains('systemctl stop $kAutoUpdateUnit.timer'));
+      expect(off, contains('systemctl disable $kAutoUpdateUnit.timer'));
       expect(off, contains(kAutoUpdateScriptPath));
       expect(off, contains('rm -f'));
       // Removing rather than masking: a disabled timer left on disk is a thing

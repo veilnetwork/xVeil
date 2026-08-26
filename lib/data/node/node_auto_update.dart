@@ -170,6 +170,11 @@ systemctl is-active --quiet "\$UNIT" && was_active=1 || true
 if [ -f "\$BIN" ]; then
   cp -a "\$BIN" "\$BIN.previous" || {
     echo "cannot keep a copy of \$BIN — refusing to install over it" >&2; exit 1; }
+  # From here until the install is confirmed, being killed must not leave half
+  # an install. `systemctl stop` on a running oneshot sends TERM, and the
+  # operator turning this off is exactly when that happens.
+  trap 'install -o root -g root -m 0755 "\$BIN.previous" "\$BIN" 2>/dev/null || true; \\
+        systemctl restart "\$UNIT" >/dev/null 2>&1 || true; exit 1' TERM INT
 else
   # Nothing to go back to. Drop any copy an older run left: restoring a binary
   # that was never the one running is not a rollback.
@@ -209,6 +214,7 @@ if [ "\$was_active" = 1 ]; then
     exit 1
   fi
 fi
+trap - TERM INT
 echo "updated to \$tag"
 XVEIL_UPDATER
 sudo chown root:root $kAutoUpdateScriptPath
@@ -259,27 +265,33 @@ String _stripPreamble(String script) => script
 const String _disableScript =
     '''#!/usr/bin/env bash
 set -euo pipefail
-# The SERVICE first, and waited for.
+# The TIMER first, so nothing new can start; then WAIT for a run already going.
 #
-# `disable --now` on the timer stops the timer. It says nothing about a run the
-# timer has already triggered, and that run is a root process partway through a
-# curl and an install. Disabling around it removed the units and the script
-# while it kept going, so a root mutation landed AFTER the operator asked for
-# it to stop, and the record they were given said it had (report15 X15-M10).
-sudo systemctl stop $kAutoUpdateUnit.service 2>/dev/null || true
+# Two orderings were wrong before this one. Disabling the timer around a
+# running update let a root mutation land after the operator asked for it to
+# stop (report15 X15-M10). Stopping the SERVICE first stopped that particular
+# run — with a TERM, in the middle of a copy-install-health transaction — and
+# left the timer free to start another one while the check was going on
+# (report16 XV-10).
+#
+# So: close the door, then wait for whoever is inside to finish on their own.
+# The run holds the shared update lock and ends by itself; interrupting it is
+# what leaves a half-installed binary.
+sudo systemctl stop $kAutoUpdateUnit.timer 2>/dev/null || true
+sudo systemctl disable $kAutoUpdateUnit.timer 2>/dev/null || true
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   sudo systemctl is-active --quiet $kAutoUpdateUnit.service || break
   sleep 2
 done
 if sudo systemctl is-active --quiet $kAutoUpdateUnit.service; then
   # Still installing. Saying "disabled" here would be the lie this exists to
-  # avoid: the timer is off, and the run in flight is not.
+  # avoid: the timer is off, and the run in flight is not. NOT killed — a TERM
+  # here is the half-installed binary this whole ordering avoids.
   echo "an update started by the timer is still running; it was not stopped" >&2
   exit 1
 fi
 # Removing rather than masking: a disabled timer that stays on disk is a thing
 # somebody re-enables by accident later, and this one installs binaries as root.
-sudo systemctl disable --now $kAutoUpdateUnit.timer 2>/dev/null || true
 sudo rm -f /etc/systemd/system/$kAutoUpdateUnit.timer \\
   /etc/systemd/system/$kAutoUpdateUnit.service $kAutoUpdateScriptPath
 sudo systemctl daemon-reload

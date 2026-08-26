@@ -451,16 +451,47 @@ flock() {
   group('turning the unattended updater off', () {
     final off = buildNodeAutoUpdateScript(enabled: false);
 
-    test('the run in flight is stopped before the units go', () {
-      // `disable --now` on the timer says nothing about a run the timer has
-      // already triggered, and that run is a root process partway through a
-      // curl and an install. Disabling around it let a root mutation land
-      // AFTER the operator asked for it to stop.
-      // Against the COMMANDS, not the words: the comment above the stop
-      // explains what `disable --now` does, and matching that compared the
+    test('the door is closed before anyone waits for the run inside', () {
+      // Two orderings were wrong before this one. Disabling the timer AROUND a
+      // running update let a root mutation land after the operator asked for
+      // it to stop (report15 X15-M10). Stopping the SERVICE first stopped that
+      // run — with a TERM, mid-install — and left the timer free to start
+      // another one while the check was going on (report16 XV-10).
+      //
+      // Against the COMMANDS, not the words: the comment above these lines
+      // explains what the old ordering did, and matching that compared the
       // check against its own explanation.
-      expectBefore(off, 'sudo systemctl stop', 'sudo systemctl disable --now');
-      expectBefore(off, 'sudo systemctl stop', 'sudo rm -f');
+      expectBefore(
+        off,
+        'sudo systemctl stop $kAutoUpdateUnit.timer',
+        'systemctl is-active --quiet $kAutoUpdateUnit.service',
+      );
+      expectBefore(off, 'sudo systemctl stop $kAutoUpdateUnit.timer', 'sudo rm -f');
+    });
+
+    test('and the run in flight is waited out, never killed', () {
+      // A TERM to a running oneshot lands in the middle of a
+      // copy-install-health transaction. Waiting is what keeps the binary
+      // whole; refusing to say "disabled" is what keeps the record true.
+      expect(
+        off,
+        isNot(contains('systemctl stop $kAutoUpdateUnit.service')),
+        reason: 'the update in flight is killed mid-install',
+      );
+      expect(off, contains('was not stopped'));
+    });
+
+    test('and being killed anyway puts the old binary back', () {
+      // Defence in depth for the TERM that arrives from somewhere else. The
+      // trap is armed only after there IS a copy to go back to, and taken down
+      // once the install is confirmed.
+      final on = buildNodeAutoUpdateScript(enabled: true);
+
+      // The restore trap by its own text: `trap ` alone matches the staging
+      // cleanup several lines above and compared the wrong pair.
+      const armed = "trap 'install -o root";
+      expectBefore(on, r'cp -a "$BIN" "$BIN.previous"', armed);
+      expectBefore(on, armed, 'trap - TERM INT');
     });
 
     test('and a run that will not stop is reported, not papered over', () {
