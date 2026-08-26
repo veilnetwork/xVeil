@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../transport/bootstrap_invite.dart';
 import '../transport/peers_invite.dart';
+import 'arch_guard.dart';
 import 'managed_node.dart';
 import 'proxy_routing.dart';
 import 'veil_github_release.dart' show VeilLinuxReleaseTarget;
@@ -775,8 +776,15 @@ String _downloadAndVerify(NodeReleaseArtifact a) {
   //
   // `printf` rather than `echo` for the digest line, so the two fields are
   // joined without a quoting seam.
+  // The digest says the bytes are the ones the release published. It does not
+  // say they are for this machine — and the operator picked the architecture
+  // from a dropdown, often for a server they have not looked at. Here the
+  // mistake is worse than on the update path: there is no working binary to
+  // fall back to, so the deployment must stop before the install rather than
+  // leave a server with an unrunnable node on it.
   return '''curl -fsSL '${a.releaseUrl.trim()}' -o "$temp"
-printf '%s  %s\\n' '${a.expectedSha256.trim().toLowerCase()}' "$temp" | sha256sum -c -''';
+printf '%s  %s\\n' '${a.expectedSha256.trim().toLowerCase()}' "$temp" | sha256sum -c -
+check_machine "$temp"''';
 }
 
 String _installArtifact(NodeReleaseArtifact a) {
@@ -1053,7 +1061,7 @@ set -euo pipefail
 umask 077
 XVEIL_TMP="\$(mktemp -d)" || { echo 'cannot create a private temp dir' >&2; exit 1; }
 trap 'rm -rf -- "\$XVEIL_TMP"' EXIT INT TERM
-
+$kArchGuardShell
 $_tomlScalarHelper
 
 # 0. dedicated account + state directories
