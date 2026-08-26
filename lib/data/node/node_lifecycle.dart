@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'arch_guard.dart';
+import 'node_auto_update.dart' show kVeilUpdateLockPath;
 import 'node_provisioner.dart';
 
 enum NodeManagedService { veil, ogate, oproxyClient, oproxyServer }
@@ -248,14 +249,41 @@ fi''';
 set -euo pipefail
 stage="\$(sudo mktemp -d)"
 trap 'sudo rm -rf "\$stage"' EXIT
-$kArchGuardShell$downloads
+$downloads
+# Everything that TOUCHES the binary runs under one lock, shared with the
+# unattended timer.
+#
+# Both paths install the same file and keep the same `.previous` copy beside
+# it. Interleaved, one can decide its install failed and restore a binary over
+# the one the other just started - a rollback of somebody else's success
+# (report15 X15-M13). Downloading stays outside: network work has no business
+# holding a lock.
+#
+# Staged as a file rather than quoted into `flock -c`, because this section
+# carries its own quoting and a second layer of it is how a rollback becomes a
+# syntax error.
+critical="\$stage/critical.sh"
+sudo tee "\$critical" >/dev/null <<'XVEIL_CRITICAL'
+#!/usr/bin/env bash
+set -euo pipefail
+stage="\$1"
+XVEIL_ARCH_GUARD
 $checks
 $snapshots
 $backups
 $installs
 $restarts
 echo "UPDATED: ${artifacts.map((a) => a.component.binaryName).join(',')}"
-''';
+XVEIL_CRITICAL
+sudo chmod 0755 "\$critical"
+sudo mkdir -p "\$(dirname '$kVeilUpdateLockPath')"
+# Waiting, not skipping: a person is looking at this screen and pressed Apply.
+sudo flock -w 600 '$kVeilUpdateLockPath' "\$critical" "\$stage"
+'''
+      // Substituted after the template is built: the heredoc above is quoted,
+      // so the shell expands nothing inside it, and the guard stays ONE shared
+      // text rather than a copy that can drift from the deployment script's.
+      .replaceFirst('XVEIL_ARCH_GUARD', kArchGuardShell.trim());
 }
 
 /// Fetch one exact remote config as base64 between markers. Base64 keeps
