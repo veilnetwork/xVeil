@@ -2852,6 +2852,24 @@ class AppL10nEs extends AppL10n {
   String get chatLinkDeviceAction => 'Abrir Dispositivos';
 
   @override
+  String get chatLinkProxyTitle => 'Salida compartida';
+
+  @override
+  String get chatLinkProxyAction => 'Añadir salida';
+
+  @override
+  String get chatLinkProxyBody =>
+      'El tráfico que enrutes por esta salida le es visible: sabe adónde vas, aunque no quién eres. Añádela solo si confías en quien la opera.';
+
+  @override
+  String chatLinkProxyAdded(Object name) {
+    return 'Salida añadida: $name';
+  }
+
+  @override
+  String get chatLinkProxyKnown => 'Esa salida ya está en tu lista';
+
+  @override
   String get linkOpenFailed => 'No se pudo abrir el enlace';
 
   @override

@@ -4940,6 +4940,36 @@ abstract class AppL10n {
   /// **'Open Devices'**
   String get chatLinkDeviceAction;
 
+  /// No description provided for @chatLinkProxyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Shared exit'**
+  String get chatLinkProxyTitle;
+
+  /// No description provided for @chatLinkProxyAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Add exit'**
+  String get chatLinkProxyAction;
+
+  /// No description provided for @chatLinkProxyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Traffic you route through this exit is visible to it: it sees where you are going, though not who you are. Add it only if you trust whoever runs it.'**
+  String get chatLinkProxyBody;
+
+  /// No description provided for @chatLinkProxyAdded.
+  ///
+  /// In en, this message translates to:
+  /// **'Exit added: {name}'**
+  String chatLinkProxyAdded(Object name);
+
+  /// No description provided for @chatLinkProxyKnown.
+  ///
+  /// In en, this message translates to:
+  /// **'That exit is already in your list'**
+  String get chatLinkProxyKnown;
+
   /// No description provided for @linkOpenFailed.
   ///
   /// In en, this message translates to:

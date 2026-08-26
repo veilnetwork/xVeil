@@ -2819,6 +2819,24 @@ class AppL10nEn extends AppL10n {
   String get chatLinkDeviceAction => 'Open Devices';
 
   @override
+  String get chatLinkProxyTitle => 'Shared exit';
+
+  @override
+  String get chatLinkProxyAction => 'Add exit';
+
+  @override
+  String get chatLinkProxyBody =>
+      'Traffic you route through this exit is visible to it: it sees where you are going, though not who you are. Add it only if you trust whoever runs it.';
+
+  @override
+  String chatLinkProxyAdded(Object name) {
+    return 'Exit added: $name';
+  }
+
+  @override
+  String get chatLinkProxyKnown => 'That exit is already in your list';
+
+  @override
   String get linkOpenFailed => 'Couldn\'t open the link';
 
   @override
