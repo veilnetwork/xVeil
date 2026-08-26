@@ -1109,10 +1109,16 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
           },
         ),
         const SizedBox(height: 12),
-        if (!proxy.vpnTransportReady)
+        // Name the half that is missing. One sentence for both used to send a
+        // reader to fix an exit chain that was already correct while the
+        // listen address above it was the problem.
+        if (proxy.vpnTransportGap != null)
           Align(
             alignment: Alignment.centerLeft,
-            child: Text(l.vpnNeedsProxy, style: TextStyle(color: scheme.error)),
+            child: Text(switch (proxy.vpnTransportGap!) {
+              VpnTransportGap.noExit => l.vpnNeedsProxy,
+              VpnTransportGap.badListen => l.vpnNeedsListen,
+            }, style: TextStyle(color: scheme.error)),
           ),
         if (!supported)
           Align(

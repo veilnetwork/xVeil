@@ -79,6 +79,16 @@ ProxyRouting? routingWithDeployedExit(
   );
 }
 
+/// What the VPN is still missing before it can bring its transport up.
+enum VpnTransportGap {
+  /// No exit to route through: the catalog names none, and the legacy single
+  /// exit is unset too.
+  noExit,
+
+  /// The local SOCKS5 listen address is not a loopback `host:port`.
+  badListen,
+}
+
 class ProxyRouting {
   const ProxyRouting({
     this.socks5Enabled = false,
@@ -161,8 +171,22 @@ class ProxyRouting {
   /// this deliberately does not depend on the manual SOCKS5 toggle: that
   /// toggle controls whether the listener remains available for applications
   /// when the system VPN is off.
-  bool get vpnTransportReady =>
-      effectiveDefaultOproxyNodeIds.isNotEmpty && isValidListen(socks5Listen);
+  bool get vpnTransportReady => vpnTransportGap == null;
+
+  /// WHICH of the two requirements is missing, or null when neither is.
+  ///
+  /// [vpnTransportReady] is a conjunction of two unrelated things — an exit to
+  /// route through, and a local address to listen on — and the screen used to
+  /// answer both with one sentence: "choose a valid exit node". Someone whose
+  /// exit chain was fine and whose listen address was not was sent to fix the
+  /// wrong thing, with the VPN button greyed out and no way to tell why. It
+  /// costs a reader minutes; measured on myself, hunting an exit chain that
+  /// was correct while `127.0.0.1: by1080` sat in the field above it.
+  VpnTransportGap? get vpnTransportGap {
+    if (effectiveDefaultOproxyNodeIds.isEmpty) return VpnTransportGap.noExit;
+    if (!isValidListen(socks5Listen)) return VpnTransportGap.badListen;
+    return null;
+  }
 
   /// Whether anything routing-related is on (drives the config injection + the
   /// network-screen "active" badge).
