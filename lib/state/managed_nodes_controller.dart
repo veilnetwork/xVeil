@@ -57,10 +57,31 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
   /// its own padded log commit, so redundant writes are pure container bloat.
   String? _lastPersisted;
 
+  /// Mutations run one at a time.
+  ///
+  /// Each one reads the list, changes it and writes the whole thing back. Two
+  /// of them started together both read the list BEFORE either write lands,
+  /// and the second write puts back a list that never saw the first change —
+  /// on a different node, even. What is lost is whatever the other one was
+  /// doing, and one of the things these writes carry is a TOFU host-key pin
+  /// (report16 XV-09).
+  ///
+  /// A queue rather than a lock: the operations are short, ordering between
+  /// them does not matter, and every caller already awaits its own answer.
+  Future<void> _tail = Future<void>.value();
+
+  Future<String?> _serialized(Future<String?> Function() mutate) {
+    final next = _tail.then((_) => mutate());
+    // The chain must not break on a failure, or one failed write stops every
+    // later one. Errors reach the caller through `next`.
+    _tail = next.then((_) {}, onError: (Object _) {});
+    return next;
+  }
+
   /// Add a new node, or replace the existing one with the same id. Null on
   /// success, the failure text otherwise — see [_persist] for why this is
   /// returned and not thrown.
-  Future<String?> upsert(ManagedNode node) async {
+  Future<String?> upsert(ManagedNode node) => _serialized(() async {
     final cur = state.value ?? const [];
     final idx = cur.indexWhere((n) => n.id == node.id);
     final next = [...cur];
@@ -70,7 +91,7 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
       next.add(node);
     }
     return _persist(next);
-  }
+  });
 
   /// Change the node with [id] by applying [change] to the record as it stands
   /// NOW. Null on success, the failure text otherwise — and null when there is
@@ -93,20 +114,20 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
   Future<String?> updateById(
     String id,
     ManagedNode Function(ManagedNode current) change,
-  ) async {
+  ) => _serialized(() async {
     final cur = state.value ?? const [];
     final idx = cur.indexWhere((n) => n.id == id);
     if (idx < 0) return null;
     final next = [...cur];
     next[idx] = change(cur[idx]);
     return _persist(next);
-  }
+  });
 
   /// Drop the node with [id]. Null on success, the failure text otherwise.
-  Future<String?> remove(String id) async {
+  Future<String?> remove(String id) => _serialized(() async {
     final cur = state.value ?? const [];
     return _persist(cur.where((n) => n.id != id).toList());
-  }
+  });
 }
 
 final managedNodesProvider =

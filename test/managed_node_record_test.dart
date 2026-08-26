@@ -197,4 +197,83 @@ void main() {
       }
     }
   });
+
+  group('two changes started together', () {
+    // Each mutation reads the list, changes it and writes the whole thing
+    // back. Two started at once both read it BEFORE either write lands, and
+    // the second write puts back a list that never saw the first change — on a
+    // different node, even. One of the things these writes carry is a TOFU
+    // host-key pin, and losing that makes the next SSH first contact again
+    // (report16 XV-09).
+    test('neither is lost', () async {
+      await controller.upsert(pinned());
+      await controller.upsert(
+        const ManagedNode(id: 'n2', label: 'vdsina', sshHost: 'b', sshUser: 'r'),
+      );
+
+      // Started together, deliberately not awaited in turn.
+      await Future.wait([
+        controller.updateById('n1', (cur) => cur.copyWith(veilVersion: '0.9.0')),
+        controller.updateById('n2', (cur) => cur.copyWith(veilVersion: '0.8.1')),
+      ]);
+
+      expect((await stored('n1'))!.veilVersion, '0.9.0');
+      expect(
+        (await stored('n2'))!.veilVersion,
+        '0.8.1',
+        reason: 'the other change was written over',
+      );
+    });
+
+    test('and a pin is not lost to a version write beside it', () async {
+      // The shape that costs something: the dialog pins a host key while a
+      // callback records a version, on the same node.
+      await controller.upsert(unpinned());
+
+      await Future.wait([
+        controller.updateById(
+          'n1',
+          (cur) => cur.copyWith(sshHostFingerprint: 'SHA256:bbbb'),
+        ),
+        controller.updateById('n1', (cur) => cur.copyWith(veilVersion: '0.8.1')),
+      ]);
+
+      final now = await stored('n1');
+      expect(now!.sshHostFingerprint, 'SHA256:bbbb');
+      expect(now.veilVersion, '0.8.1');
+    });
+
+    test('a change that THROWS does not stop the ones behind it', () async {
+      // The queue must not break on an error, or one bad transform stops every
+      // later change for the life of the session — including a host-key pin.
+      await controller.upsert(pinned());
+
+      final failed = controller.updateById(
+        'n1',
+        (cur) => throw StateError('a transform went wrong'),
+      );
+      final after = controller.updateById(
+        'n1',
+        (cur) => cur.copyWith(label: 'renamed'),
+      );
+
+      await expectLater(failed, throwsA(isA<StateError>()));
+      expect(await after, isNull);
+      expect((await stored('n1'))!.label, 'renamed');
+    });
+
+    test('a failed write does not stop the ones behind it', () async {
+      // The queue must not break on an error, or one bad commit stops every
+      // later change for the life of the session.
+      await controller.upsert(pinned());
+
+      final results = await Future.wait([
+        controller.updateById('nobody', (cur) => cur),
+        controller.updateById('n1', (cur) => cur.copyWith(label: 'renamed')),
+      ]);
+
+      expect(results, [null, null]);
+      expect((await stored('n1'))!.label, 'renamed');
+    });
+  });
 }
