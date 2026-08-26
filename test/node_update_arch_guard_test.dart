@@ -85,10 +85,46 @@ void main() {
     expect(check('x86_64', html).exitCode, isNot(0));
   });
 
-  test('an architecture nobody mapped does not block the update', () {
-    // A machine this build says nothing about is not a reason to refuse an
-    // update it may well run. The refusal is for a KNOWN mismatch.
-    expect(check('riscv64', elf(243)).exitCode, 0);
+  group('a machine name this script does not know', () {
+    /// Like [check], but with a readable `/proc/self/exe` standing in: the
+    /// host's real ELF machine, whatever `uname` chose to call it.
+    ProcessResult checkVia(String machine, File reference, File file) {
+      final stub = <String>[
+        'uname() { echo "$machine"; }',
+        'od() {',
+        '  local a args=()',
+        '  for a in "\$@"; do',
+        '    [ "\$a" = "/proc/self/exe" ] && a="${reference.path}"',
+        '    args+=("\$a")',
+        '  done',
+        '  command od "\${args[@]}"',
+        '}',
+      ].join('\n');
+      return Process.runSync('bash', [
+        '-c',
+        '$stub\n${guard()}\ncheck_machine "${file.path}"',
+      ]);
+    }
+
+    test('falls back to the machine of the running shell', () {
+      // `uname -m` can answer anything - a stripped container, an alias
+      // nobody listed, an architecture that did not exist when this shipped.
+      // Waving the binary through there is how a genuine release lands on a
+      // host that cannot execute it, and at first deployment there is nothing
+      // to roll back to.
+      expect(checkVia('sparc64', elf(62), elf(62)).exitCode, 0);
+
+      final wrong = checkVia('sparc64', elf(62), elf(183));
+      expect(wrong.exitCode, isNot(0));
+      expect(wrong.stderr, contains('another architecture'));
+    });
+
+    test('and only a host that cannot answer at all is let through', () {
+      // Last resort, and stated rather than accidental: a machine where
+      // neither the name nor /proc says anything is one veil publishes no
+      // build for.
+      expect(check('riscv64', elf(243)).exitCode, 0);
+    });
   });
 
   test('the refusal happens before anything is installed', () {

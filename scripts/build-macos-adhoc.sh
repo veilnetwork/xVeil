@@ -41,7 +41,7 @@ APP="build/macos/Build/Products/$XC_CONFIG/xveil.app"
 # Read the version from pubspec rather than defaulting to a placeholder: the
 # error report names the build it came from, and a report that says "dev"
 # cannot be tied to anything a tester actually has.
-VERSION="${XVEIL_VERSION:-$(sed -n 's/^version: *//p' pubspec.yaml | head -1)}"
+VERSION="${XVEIL_VERSION:-$(bash "$(dirname "${BASH_SOURCE[0]}")/pubspec-version.sh")}"
 if [[ -z "$VERSION" ]]; then
   echo "cannot read 'version:' from pubspec.yaml" >&2
   exit 1
