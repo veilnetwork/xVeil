@@ -71,6 +71,22 @@ String buildNodeAutoUpdateScript({
   final script = '''#!/usr/bin/env bash
 set -euo pipefail
 
+# Refuse HERE, not at the first tick.
+#
+# The updater installs one of two Linux builds. On any other machine the inner
+# script printed "unsupported architecture" and exited 0 every time it ran, so
+# systemd reported a healthy timer, the switch showed ON, and no update was
+# ever applied — a promise of security updates that was never going to be kept
+# (report15 X15-M11). A machine veil publishes no build for is told so while
+# somebody is looking at the screen.
+case "\$(uname -m)" in
+  x86_64|amd64|aarch64|arm64) ;;
+  *)
+    echo "no veil build for \$(uname -m); automatic updates were NOT enabled" >&2
+    exit 1
+    ;;
+esac
+
 # The updater itself. Written to a root-owned file and never sourced from
 # anywhere else: everything it acts on comes from the release API and is
 # checked before use.
@@ -243,6 +259,24 @@ String _stripPreamble(String script) => script
 const String _disableScript =
     '''#!/usr/bin/env bash
 set -euo pipefail
+# The SERVICE first, and waited for.
+#
+# `disable --now` on the timer stops the timer. It says nothing about a run the
+# timer has already triggered, and that run is a root process partway through a
+# curl and an install. Disabling around it removed the units and the script
+# while it kept going, so a root mutation landed AFTER the operator asked for
+# it to stop, and the record they were given said it had (report15 X15-M10).
+sudo systemctl stop $kAutoUpdateUnit.service 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+  sudo systemctl is-active --quiet $kAutoUpdateUnit.service || break
+  sleep 2
+done
+if sudo systemctl is-active --quiet $kAutoUpdateUnit.service; then
+  # Still installing. Saying "disabled" here would be the lie this exists to
+  # avoid: the timer is off, and the run in flight is not.
+  echo "an update started by the timer is still running; it was not stopped" >&2
+  exit 1
+fi
 # Removing rather than masking: a disabled timer that stays on disk is a thing
 # somebody re-enables by accident later, and this one installs binaries as root.
 sudo systemctl disable --now $kAutoUpdateUnit.timer 2>/dev/null || true
