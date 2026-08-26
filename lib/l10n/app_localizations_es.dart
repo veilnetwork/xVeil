@@ -4466,6 +4466,13 @@ class AppL10nEs extends AppL10n {
   String get nodeInventory => 'Inspeccionar la instalación y el estado';
 
   @override
+  String get nodeAutoUpdate => 'Mantener este nodo actualizado';
+
+  @override
+  String get nodeAutoUpdateHint =>
+      'El servidor busca a diario una nueva versión de veil y la instala como root, sin supervisión. Recomendamos actualizar de forma consciente: esto confía en quien pueda publicar una versión, porque el resumen que verifica se publica junto al binario. Guarda el binario anterior y lo restaura si el nodo no vuelve.';
+
+  @override
   String get nodeExitRefusesThisDevice =>
       'Esta salida aún no admite a nadie: añade el node id de este dispositivo a proxy.exit.allowed_node_ids en el servidor, o rechazará todo flujo tras actualizar el nodo.';
 

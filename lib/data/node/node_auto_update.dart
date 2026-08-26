@@ -1,4 +1,5 @@
-import 'veil_github_release.dart' show kMinimumVeilReleaseTag;
+import 'veil_github_release.dart'
+    show kMinimumVeilReleaseTag, VeilReleaseVersion;
 
 /// How often the node looks for a new veil release.
 const String kNodeAutoUpdateSchedule = 'daily';
@@ -39,12 +40,19 @@ const String kAutoUpdateUnit = 'xveil-node-autoupdate';
 /// service does not come back the old one is restored and restarted. A node
 /// that updated itself into silence is worse than one that is a version behind,
 /// because nobody is watching at the moment it happens.
+/// [asFragment] drops the shebang and `set` line so the result can be pasted
+/// into the deployment script, which already has both. Deployment installs the
+/// updater by default — a node nobody ever revisits is exactly the one that
+/// most needs to stay current — and the switch on the node screen removes it.
 String buildNodeAutoUpdateScript({
   required bool enabled,
   String minimumTag = kMinimumVeilReleaseTag,
   String schedule = kNodeAutoUpdateSchedule,
+  bool asFragment = false,
 }) {
-  if (!enabled) return _disableScript;
+  if (!enabled) {
+    return asFragment ? _stripPreamble(_disableScript) : _disableScript;
+  }
   final floor = minimumTag.trim();
   if (!RegExp(r'^v\d{1,6}\.\d{1,6}\.\d{1,6}$').hasMatch(floor)) {
     throw ArgumentError('minimum tag must look like v1.2.3: $minimumTag');
@@ -53,7 +61,7 @@ String buildNodeAutoUpdateScript({
     throw ArgumentError('schedule must be a systemd calendar word: $schedule');
   }
 
-  return '''#!/usr/bin/env bash
+  final script = '''#!/usr/bin/env bash
 set -euo pipefail
 
 # The updater itself. Written to a root-owned file and never sourced from
@@ -158,7 +166,17 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now $kAutoUpdateUnit.timer
 echo "AUTOUPDATE: enabled schedule=$schedule floor=$floor"
 ''';
+  return asFragment ? _stripPreamble(script) : script;
 }
+
+/// Drop the shebang and the `set` line: a fragment inherits both from the
+/// script it is pasted into, and a second `set -euo pipefail` mid-file is noise
+/// that hides which one is in force.
+String _stripPreamble(String script) => script
+    .split('\n')
+    .skipWhile((line) => line.startsWith('#!') || line.startsWith('set -'))
+    .join('\n')
+    .trimLeft();
 
 const String _disableScript =
     '''#!/usr/bin/env bash
@@ -171,3 +189,34 @@ sudo rm -f /etc/systemd/system/$kAutoUpdateUnit.timer \\
 sudo systemctl daemon-reload
 echo "AUTOUPDATE: disabled"
 ''';
+
+/// Whether to offer an update for a node, and to what.
+///
+/// [reportedVersion] must come from a reading the node JUST gave — the version
+/// field of an inventory that succeeded — and not from the record's cached
+/// [ManagedNode.veilVersion]. The difference is the whole point: a node that
+/// cannot be reached says nothing, and an offer built on a remembered number
+/// would appear for a machine nobody can talk to, name a version it may no
+/// longer run, and fail the moment somebody accepted it. Null in, null out; the
+/// offer comes back when the node does.
+///
+/// Returns the tag to offer, or null when there is nothing to offer:
+///
+/// * the node was not reached (null or unreadable version);
+/// * the release feed said nothing, or said something unorderable;
+/// * the node is already at that release or ahead of it.
+String? nodeUpdateOffer({
+  required String? reportedVersion,
+  required String? latestTag,
+}) {
+  final have = reportedVersion == null
+      ? null
+      : VeilReleaseVersion.tryParse(reportedVersion);
+  if (have == null) return null;
+  final tag = latestTag?.trim();
+  if (tag == null || tag.isEmpty) return null;
+  final theirs = VeilReleaseVersion.tryParse(tag);
+  if (theirs == null) return null;
+  if (theirs.compareTo(have) <= 0) return null;
+  return tag;
+}

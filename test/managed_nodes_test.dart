@@ -481,7 +481,12 @@ void main() {
 
     expect(find.text(l.nodeInventory), findsOneWidget);
     expect(find.text(l.nodeInstallUpdate), findsOneWidget);
+    // Below the fold in the test viewport, and a ListView only builds what it
+    // shows: scrolled to rather than asserted blind, so the check keeps
+    // meaning "the screen offers this" instead of "it fits on one screen".
+    await tester.scrollUntilVisible(find.text(l.nodeServices), 200);
     expect(find.text(l.nodeServices), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('oproxy-server'), 200);
     expect(find.text('oproxy-server'), findsWidgets);
   });
 

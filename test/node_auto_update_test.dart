@@ -117,6 +117,67 @@ void main() {
     });
   });
 
+  group('offering an update for a node', () {
+    test('a node that answered with an older version is offered the new one', () {
+      expect(
+        nodeUpdateOffer(reportedVersion: '0.8.0', latestTag: 'v0.8.1'),
+        'v0.8.1',
+      );
+    });
+
+    test('a node that could NOT be reached is offered nothing', () {
+      // The reading is null when the inventory failed. An offer built on a
+      // remembered number would appear for a machine nobody can talk to, name
+      // a version it may no longer run, and fail the moment somebody accepted
+      // it. The offer comes back when the node does.
+      expect(nodeUpdateOffer(reportedVersion: null, latestTag: 'v9.9.9'), isNull);
+    });
+
+    test('a version the node reports but nobody can order is refused', () {
+      for (final said in ['(unavailable)', 'unknown', '', '0.8']) {
+        expect(
+          nodeUpdateOffer(reportedVersion: said, latestTag: 'v9.9.9'),
+          isNull,
+          reason: said,
+        );
+      }
+    });
+
+    test('a node already at the release is left alone', () {
+      expect(
+        nodeUpdateOffer(reportedVersion: '0.8.1', latestTag: 'v0.8.1'),
+        isNull,
+      );
+    });
+
+    test('a node AHEAD of the release is left alone', () {
+      // Happens on a machine updated by hand, and offering it a downgrade is
+      // the one thing worse than saying nothing.
+      expect(
+        nodeUpdateOffer(reportedVersion: '0.9.0', latestTag: 'v0.8.1'),
+        isNull,
+      );
+    });
+
+    test('no release feed means no offer', () {
+      expect(nodeUpdateOffer(reportedVersion: '0.8.0', latestTag: null), isNull);
+      expect(nodeUpdateOffer(reportedVersion: '0.8.0', latestTag: ''), isNull);
+      expect(
+        nodeUpdateOffer(reportedVersion: '0.8.0', latestTag: 'latest'),
+        isNull,
+      );
+    });
+
+    test('the refusals are not the only answer it can give', () {
+      // Vacuity guard: a function returning null for everything satisfies
+      // every test above but the first.
+      expect(
+        nodeUpdateOffer(reportedVersion: '0.6.0', latestTag: 'v0.8.1'),
+        isNotNull,
+      );
+    });
+  });
+
   group('refusing bad arguments', () {
     test('a floor that is not a version', () {
       for (final bad in ['latest', 'v1.2', '0.4.2; rm -rf /', '']) {
