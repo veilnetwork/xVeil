@@ -4523,6 +4523,10 @@ class AppL10nEn extends AppL10n {
       'Edited here. Press Apply to send it to the server.';
 
   @override
+  String get exitAdmissionUnreadable =>
+      'The config could not be read here: the exit list is spread over several lines, or the table appears twice. Edit it in the text below.';
+
+  @override
   String get nodeConfigNotLoaded =>
       'Load the current server config before editing it.';
 

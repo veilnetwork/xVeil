@@ -145,15 +145,52 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
       allowedNodeIds: ids ?? current?.allowedNodeIds ?? const [],
       allowAll: allowAll ?? current?.allowAll ?? false,
     );
+    final l = AppL10n.of(context);
     setState(() {
+      if (next == null) {
+        // The document has a shape this editor does not understand — an array
+        // broken across lines, or the table twice. It used to rewrite it
+        // anyway and leave TOML that does not parse, so the node would not
+        // have come back after Apply.
+        _output = l.exitAdmissionUnreadable;
+        return;
+      }
       _config.text = next;
-      _output = AppL10n.of(context).exitAdmissionUnsaved;
+      _output = l.exitAdmissionUnsaved;
     });
   }
 
   Widget _admissionCard(AppL10n l, ColorScheme scheme) {
     final admission = readExitAllowlist(_config.text);
     if (admission == null) return const SizedBox.shrink();
+    if (admission.unreadable) {
+      // Say so instead of showing a list. The controls below would offer to
+      // change a policy this screen did not manage to read, and an empty list
+      // shown here reads as "admits nobody" — a claim about who may use the
+      // exit that nothing supports.
+      return Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                l.exitAdmissionTitle,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  l.exitAdmissionUnreadable,
+                  style: TextStyle(color: scheme.error),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final id = _admit.text.trim().toLowerCase();
     // The catalog's own validator, not a fourth copy of the hex check: this is
     // the same 64-hex node id the routing screen accepts.

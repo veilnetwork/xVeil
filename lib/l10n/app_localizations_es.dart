@@ -4578,6 +4578,10 @@ class AppL10nEs extends AppL10n {
       'Editado aquí. Pulsa Aplicar para enviarlo al servidor.';
 
   @override
+  String get exitAdmissionUnreadable =>
+      'No se pudo leer la configuración: la lista de salida ocupa varias líneas o la tabla aparece dos veces. Edítala en el texto de abajo.';
+
+  @override
   String get nodeConfigNotLoaded =>
       'Carga la configuración actual del servidor antes de editarla.';
 
