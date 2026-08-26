@@ -7778,6 +7778,48 @@ abstract class AppL10n {
   /// **'Validate, apply and restart'**
   String get nodeConfigApply;
 
+  /// No description provided for @exitAdmissionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Who may exit through this node'**
+  String get exitAdmissionTitle;
+
+  /// No description provided for @exitAdmissionNobody.
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody. The exit is on and the list is empty, so it refuses every stream.'**
+  String get exitAdmissionNobody;
+
+  /// No description provided for @exitAdmissionOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open exit — any node may use it'**
+  String get exitAdmissionOpen;
+
+  /// No description provided for @exitAdmissionAddHint.
+  ///
+  /// In en, this message translates to:
+  /// **'node id (64 hex)'**
+  String get exitAdmissionAddHint;
+
+  /// No description provided for @exitAdmissionAdd.
+  ///
+  /// In en, this message translates to:
+  /// **'Admit'**
+  String get exitAdmissionAdd;
+
+  /// No description provided for @exitAdmissionInvalid.
+  ///
+  /// In en, this message translates to:
+  /// **'A node id is 64 hexadecimal characters'**
+  String get exitAdmissionInvalid;
+
+  /// No description provided for @exitAdmissionUnsaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Edited here. Press Apply to send it to the server.'**
+  String get exitAdmissionUnsaved;
+
   /// No description provided for @nodeConfigNotLoaded.
   ///
   /// In en, this message translates to:

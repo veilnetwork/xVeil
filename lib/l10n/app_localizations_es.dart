@@ -4453,6 +4453,30 @@ class AppL10nEs extends AppL10n {
   String get nodeConfigApply => 'Validar, aplicar y reiniciar';
 
   @override
+  String get exitAdmissionTitle => 'Quién puede salir por este nodo';
+
+  @override
+  String get exitAdmissionNobody =>
+      'Nadie. La salida está activa y la lista vacía, así que rechaza todo flujo.';
+
+  @override
+  String get exitAdmissionOpen => 'Salida abierta: cualquier nodo puede usarla';
+
+  @override
+  String get exitAdmissionAddHint => 'node id (64 hex)';
+
+  @override
+  String get exitAdmissionAdd => 'Admitir';
+
+  @override
+  String get exitAdmissionInvalid =>
+      'Un node id son 64 caracteres hexadecimales';
+
+  @override
+  String get exitAdmissionUnsaved =>
+      'Editado aquí. Pulsa Aplicar para enviarlo al servidor.';
+
+  @override
   String get nodeConfigNotLoaded =>
       'Carga la configuración actual del servidor antes de editarla.';
 
