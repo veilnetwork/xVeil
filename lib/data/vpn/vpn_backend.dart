@@ -14,11 +14,44 @@ enum VpnBackendPhase {
   error,
 }
 
+/// Why the packet engine refused to start, when it said so in a way the app
+/// can name.
+///
+/// The engine answers with distinct codes — already running, bad argument,
+/// closed — and the app used to test only `!= 0` and then ask
+/// `veil_packet_tunnel_last_error()`, which is null for every failure that
+/// happens BEFORE the tunnel object exists. So a specific reason, already in
+/// hand as the return value, was thrown away and replaced with "could not
+/// start packet tunnel".
+///
+/// That mattered: a tunnel whose previous instance had not finished tearing
+/// down answers "already running", and the person is told the engine failed
+/// with no way to know that waiting is the fix.
+enum VpnStartFailure {
+  /// A tunnel is still up, or its worker has not finished. Starting again is
+  /// the whole of the fix.
+  alreadyRunning,
+
+  /// The engine rejected one of the values it was handed — the tun descriptor,
+  /// the SOCKS5 address, the DNS server or the MTU.
+  invalidArgument,
+
+  /// The engine was already shut down.
+  closed,
+
+  /// It refused without saying which of the above.
+  refused,
+}
+
 class VpnBackendState {
-  const VpnBackendState(this.phase, {this.detail});
+  const VpnBackendState(this.phase, {this.detail, this.failure});
 
   final VpnBackendPhase phase;
   final String? detail;
+
+  /// Set when the packet engine named a reason. [detail] stays whatever the
+  /// engine or the platform said, for a log; this is what a person is shown.
+  final VpnStartFailure? failure;
 
   bool get isRunning => phase == VpnBackendPhase.running;
 
@@ -170,9 +203,15 @@ class MethodChannelVpnBackend implements VpnBackend {
     );
     if (result != 0) {
       await _invokeRaw('abort');
+      // The CODE is the reason. `lastError()` reads a slot that only exists
+      // once the tunnel object does, so every pre-construction refusal reads
+      // back null — which is exactly when the code is all there is.
       return VpnBackendState(
         VpnBackendPhase.error,
-        detail: packetTunnel.lastError() ?? 'could not start packet tunnel',
+        detail:
+            packetTunnel.lastError() ??
+            'packet engine refused to start (code $result)',
+        failure: PacketTunnelFfi.failureFor(result),
       );
     }
 

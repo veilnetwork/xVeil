@@ -7,6 +7,7 @@ import '../../data/vpn/vpn_backend.dart';
 import '../../data/vpn/vpn_application_catalog.dart';
 import '../../data/vpn/vpn_routing_policy.dart';
 import '../../l10n/app_localizations.dart';
+import 'vpn_failure_text.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/proxy_routing_controller.dart';
 import '../../state/vpn_controller.dart';
@@ -815,7 +816,7 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
         VpnBackendPhase.running => l.vpnStatusRunning,
         VpnBackendPhase.starting => l.vpnStatusStarting,
         VpnBackendPhase.stopping => l.vpnStatusStopping,
-        VpnBackendPhase.error => vpn.backend.detail ?? l.vpnStatusError,
+        VpnBackendPhase.error => vpnStartFailureText(l, vpn.backend),
         VpnBackendPhase.unsupported => l.vpnStatusUnsupported,
         VpnBackendPhase.stopped => l.vpnStatusStopped,
       }),
