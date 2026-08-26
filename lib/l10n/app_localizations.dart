@@ -7790,6 +7790,54 @@ abstract class AppL10n {
   /// **'Inspect installation and status'**
   String get nodeInventory;
 
+  /// No description provided for @fleetUpdateTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Node updates'**
+  String get fleetUpdateTitle;
+
+  /// No description provided for @fleetUpdateCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Check the nodes'**
+  String get fleetUpdateCheck;
+
+  /// No description provided for @fleetUpdateApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Update {count} node(s)'**
+  String fleetUpdateApply(Object count);
+
+  /// No description provided for @fleetUpdateCurrent.
+  ///
+  /// In en, this message translates to:
+  /// **'Up to date'**
+  String get fleetUpdateCurrent;
+
+  /// No description provided for @fleetUpdateUnreachable.
+  ///
+  /// In en, this message translates to:
+  /// **'Did not answer'**
+  String get fleetUpdateUnreachable;
+
+  /// No description provided for @fleetUpdateNothing.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing to update'**
+  String get fleetUpdateNothing;
+
+  /// No description provided for @fleetUpdateNotChecked.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask the nodes what they are running, then decide'**
+  String get fleetUpdateNotChecked;
+
+  /// No description provided for @fleetUpdateUnreachableNote.
+  ///
+  /// In en, this message translates to:
+  /// **'These were not reached, so they are not part of the update:'**
+  String get fleetUpdateUnreachableNote;
+
   /// No description provided for @nodeAutoUpdate.
   ///
   /// In en, this message translates to:

@@ -4412,6 +4412,34 @@ class AppL10nEn extends AppL10n {
   String get nodeInventory => 'Inspect installation and status';
 
   @override
+  String get fleetUpdateTitle => 'Node updates';
+
+  @override
+  String get fleetUpdateCheck => 'Check the nodes';
+
+  @override
+  String fleetUpdateApply(Object count) {
+    return 'Update $count node(s)';
+  }
+
+  @override
+  String get fleetUpdateCurrent => 'Up to date';
+
+  @override
+  String get fleetUpdateUnreachable => 'Did not answer';
+
+  @override
+  String get fleetUpdateNothing => 'Nothing to update';
+
+  @override
+  String get fleetUpdateNotChecked =>
+      'Ask the nodes what they are running, then decide';
+
+  @override
+  String get fleetUpdateUnreachableNote =>
+      'These were not reached, so they are not part of the update:';
+
+  @override
   String get nodeAutoUpdate => 'Keep this node updated';
 
   @override
