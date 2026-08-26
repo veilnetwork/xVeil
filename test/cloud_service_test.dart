@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'support/expect_before.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/file_store.dart' show kMaxStoredFileBytes;
 import 'package:xveil/data/storage/materialized_view.dart';
@@ -2622,9 +2623,10 @@ void main() {
         hasFile: (_) async => false,
       ).then((_) {
         expect(calls.last, 'set:v.active');
-        expect(
-          calls.indexOf('set:v.a.pages'),
-          greaterThan(calls.indexOf('file:v.a.p2')),
+        expectBeforeIn(
+          calls,
+          'file:v.a.p2',
+          'set:v.a.pages',
           reason: 'the page count must not appear before its last page',
         );
         expect(calls.where((c) => c.startsWith('file:')).toList(), [

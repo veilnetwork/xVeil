@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/managed_node.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 import 'package:xveil/data/node/veil_github_release.dart';
+import 'support/expect_before.dart';
 
 void main() {
   // A well-known 64-hex digest used purely as a fixture.
@@ -265,10 +266,7 @@ void main() {
       script,
       contains("--tls-cert '/etc/veil/tls/letsencrypt-fullchain.pem'"),
     );
-    expect(
-      script.indexOf('certbot certonly'),
-      lessThan(script.indexOf('listen add')),
-    );
+    expectBefore(script, 'certbot certonly', 'listen add');
     final result = await Process.run('bash', ['-n', '-c', script]);
     expect(result.exitCode, 0, reason: '${result.stderr}\n$script');
   });
@@ -294,10 +292,7 @@ void main() {
     expect(script, contains("203.0.113.10|730"));
     expect(script, contains("-m 0640 \$XVEIL_TMP/xveil-selfsigned-key.pem"));
     expect(script, contains("--tls-cert '/etc/veil/tls/selfsigned-cert.pem'"));
-    expect(
-      script.indexOf('openssl req'),
-      lessThan(script.indexOf('listen add')),
-    );
+    expectBefore(script, 'openssl req', 'listen add');
     final result = await Process.run('bash', ['-n', '-c', script]);
     expect(result.exitCode, 0, reason: '${result.stderr}\n$script');
   });
