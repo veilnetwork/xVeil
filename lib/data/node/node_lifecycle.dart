@@ -140,7 +140,21 @@ echo "ENABLED: \$(sudo systemctl is-enabled '$unit' 2>/dev/null || true)"
 /// Upgrade any selected set of release assets. Authentication is all-or-none:
 /// every download passes its expected digest before the first installed binary
 /// is replaced. Only services that were active before the upgrade are restarted.
-String buildNodeSoftwareUpdateScript(List<NodeReleaseArtifact> artifacts) {
+/// [expectedVeilVersion] is what the node said it was running when the plan
+/// was built, and [targetVeilVersion] is the tag the plan offers. Given both,
+/// the install refuses unless the machine STILL runs the expected version and
+/// the target is genuinely newer.
+///
+/// Which closes the window between Check and Apply: the timer, or another
+/// administrator, can update the node in between, and a plan built before that
+/// would put its older cached version back — undoing fixes and restarting the
+/// service to do it (report15 X15-M12). Null skips the check, for callers that
+/// have no plan to compare against.
+String buildNodeSoftwareUpdateScript(
+  List<NodeReleaseArtifact> artifacts, {
+  String? expectedVeilVersion,
+  String? targetVeilVersion,
+}) {
   if (artifacts.isEmpty ||
       !artifacts.every((a) => a.isValid) ||
       artifacts.map((a) => a.component).toSet().length != artifacts.length) {
@@ -188,6 +202,26 @@ echo '${a.expectedSha256.trim().toLowerCase()}  '"$t" | sudo sha256sum -c -''';
   // aarch64 binary leaves a node that cannot start, so the machine itself
   // refuses before anything is overwritten.
   final checks = artifacts.map((a) => 'check_machine ${temp(a)}').join('\n');
+  // Read on the HOST, under the lock, immediately before the install — not
+  // from the plan. A version the app remembers is a statement about the past.
+  final versionGuard =
+      (expectedVeilVersion == null ||
+          targetVeilVersion == null ||
+          !artifacts.any((a) => a.component == NodeComponent.veilCli))
+      ? '# no plan to compare against'
+      : '''actual="\$(/usr/local/bin/veil-cli --version 2>/dev/null | awk '{print \$2}' || true)"
+if [ "\$actual" != '${expectedVeilVersion.trim()}' ]; then
+  echo 'XVEIL_VERSION_MOVED' >&2
+  echo "the node runs \$actual, not ${expectedVeilVersion.trim()} as checked" >&2
+  exit 4
+fi
+# And never sideways or backwards. `sort -V` puts the newer one last.
+if [ "\$(printf '%s\\n%s\\n' "\$actual" '${targetVeilVersion.trim()}' | sort -V | tail -1)" \\
+     != '${targetVeilVersion.trim()}' ] \\
+   || [ "\$actual" = '${targetVeilVersion.trim()}' ]; then
+  echo 'XVEIL_VERSION_NOT_NEWER' >&2
+  exit 4
+fi''';
   // Keep what was there. A node that updated itself into silence with nothing
   // to go back to is worse than one a version behind: whoever runs it is not
   // watching at the moment it happens, and the way back is a console.
@@ -269,6 +303,7 @@ set -euo pipefail
 stage="\$1"
 XVEIL_ARCH_GUARD
 $checks
+$versionGuard
 $snapshots
 $backups
 $installs

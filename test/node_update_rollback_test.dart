@@ -5,6 +5,8 @@ import 'package:xveil/data/node/node_auto_update.dart';
 import 'package:xveil/data/node/node_lifecycle.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 
+import 'support/expect_before.dart';
+
 /// What the update scripts do when the new binary does not come back.
 ///
 /// The existing tests assert that the rollback lines are PRESENT and in the
@@ -374,6 +376,146 @@ flock() {
       expect(auto, contains('another update holds the lock'));
       final at = auto.indexOf('another update holds the lock');
       expect(auto.substring(at, at + 200), contains('exit 0'));
+    });
+  });
+
+  group('a plan that went stale', () {
+    // Check records what each node runs; Apply happens later. In between, the
+    // timer or another administrator can update the same machine — and a plan
+    // built before that would put its older cached version back, undoing fixes
+    // and restarting the service to do it (report15 X15-M12).
+    String planned({required String expected, required String target}) =>
+        buildNodeSoftwareUpdateScript(
+          [
+            NodeReleaseArtifact(
+              component: NodeComponent.veilCli,
+              releaseUrl: 'https://example.invalid/veil-cli',
+              expectedSha256: 'a' * 64,
+            ),
+          ],
+          expectedVeilVersion: expected,
+          targetVeilVersion: target,
+        );
+
+    /// The script with a `veil-cli` that reports [running].
+    List<String> run(String script, String running) {
+      final dir = Directory.systemTemp.createTempSync('xveil-ver');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final bin = Directory('${dir.path}/bin')..createSync();
+      File('${bin.path}/veil-cli')
+        ..writeAsStringSync('#!/bin/sh\necho "veil-cli $running"\n')
+        ..parent.path;
+      Process.runSync('chmod', ['+x', '${bin.path}/veil-cli']);
+      return runStubbed(
+        script.replaceAll('/usr/local/bin', bin.path),
+        binaryInstalled: false,
+      );
+    }
+
+    bool installed(List<String> log) => log.any(
+      (l) => l.startsWith('install ') && !l.contains('.previous'),
+    );
+
+    test('a node that still runs what was checked is updated', () {
+      expect(
+        installed(run(planned(expected: '0.8.0', target: '0.8.1'), '0.8.0')),
+        isTrue,
+        reason: 'the ordinary case was refused',
+      );
+    });
+
+    test('a node somebody already moved is REFUSED', () {
+      expect(
+        installed(run(planned(expected: '0.8.0', target: '0.8.1'), '0.9.0')),
+        isFalse,
+        reason: '0.9.0 was overwritten with the plan\'s cached 0.8.1',
+      );
+    });
+
+    test('and so is a target that is not newer than what runs', () {
+      // Belt and braces for the case where the expected version happens to
+      // match but the tag does not move forward — a resolver answering with an
+      // older release, which is the reason the floor exists elsewhere.
+      expect(
+        installed(run(planned(expected: '0.9.0', target: '0.8.1'), '0.9.0')),
+        isFalse,
+      );
+      expect(
+        installed(run(planned(expected: '0.9.0', target: '0.9.0'), '0.9.0')),
+        isFalse,
+        reason: 'reinstalling the same version restarts the service for nothing',
+      );
+    });
+  });
+
+  group('turning the unattended updater off', () {
+    final off = buildNodeAutoUpdateScript(enabled: false);
+
+    test('the run in flight is stopped before the units go', () {
+      // `disable --now` on the timer says nothing about a run the timer has
+      // already triggered, and that run is a root process partway through a
+      // curl and an install. Disabling around it let a root mutation land
+      // AFTER the operator asked for it to stop.
+      // Against the COMMANDS, not the words: the comment above the stop
+      // explains what `disable --now` does, and matching that compared the
+      // check against its own explanation.
+      expectBefore(off, 'sudo systemctl stop', 'sudo systemctl disable --now');
+      expectBefore(off, 'sudo systemctl stop', 'sudo rm -f');
+    });
+
+    test('and a run that will not stop is reported, not papered over', () {
+      expect(off, contains('was not stopped'));
+      final at = off.indexOf('was not stopped');
+      expect(off.substring(at, at + 120), contains('exit 1'));
+    });
+  });
+
+  group('a machine veil publishes no build for', () {
+    test('is refused when the switch is turned on, not at the first tick', () {
+      // The inner updater prints "unsupported architecture" and exits 0 every
+      // tick, so systemd reported a healthy timer and the switch showed ON
+      // while no update was ever applied.
+      final on = buildNodeAutoUpdateScript(enabled: true);
+      // The OUTER script's check, which is the first of the two: the inner
+      // updater has one of its own for choosing a triple, and that one is the
+      // late answer this replaces.
+      expect(on, contains('were NOT enabled'));
+      expectBefore(
+        on,
+        r'case "$(uname -m)"',
+        'sudo systemctl enable --now',
+      );
+      expectBefore(on, 'were NOT enabled', 'sudo tee $kAutoUpdateScriptPath');
+    });
+
+    /// The outer script's architecture check, run as shell.
+    ({int code, String stderr}) decide(String machine) {
+      final lines = buildNodeAutoUpdateScript(enabled: true).split('\n');
+      final from = lines.indexWhere((l) => l.startsWith(r'case "$(uname -m)"'));
+      expect(from, isNot(-1), reason: 'the check moved');
+      final to = lines.indexOf('esac', from);
+      final result = Process.runSync('bash', [
+        '-c',
+        'set -euo pipefail\n'
+            'uname() { echo "$machine"; }\n'
+            '${lines.sublist(from, to + 1).join('\n')}\n'
+            'echo ENABLED',
+      ]);
+      return (code: result.exitCode, stderr: result.stderr.toString());
+    }
+
+    test('and the refusal is a refusal, not a line of text', () {
+      // Asserting that the check EXISTS is not asserting that it refuses:
+      // replacing its arms with a catch-all left the first version of this
+      // green.
+      final refused = decide('armv7l');
+      expect(refused.code, isNot(0));
+      expect(refused.stderr, contains('were NOT enabled'));
+
+      // Vacuity guard: the machines it does publish for still go through.
+      for (final ok in ['x86_64', 'amd64', 'aarch64', 'arm64']) {
+        expect(decide(ok).code, 0, reason: ok);
+      }
     });
   });
 }
