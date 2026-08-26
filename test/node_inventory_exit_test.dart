@@ -108,6 +108,54 @@ allowed_node_ids = [
     expect(out, contains('EXIT_ALLOW_ALL: true'));
   });
 
+  group('how to reach this node', () {
+    // A node id cannot be dialled. Reaching a peer needs transport +
+    // public_key + nonce, which is what the invite carries. Deployment printed
+    // it, spent it on adding the node as this device's own entry point, and
+    // forgot it — so there was no way to hand somebody a connection to a
+    // server you run. The inventory reports it now, read-only and current.
+    //
+    // The output below is verbatim from a live node on 2026-08-26, wildcard
+    // bind and all.
+    const live =
+        'NODE_ID: ${'59dc503e' 'aa'}\n'
+        'BOOTSTRAP_URI: veil:bootstrap?pk=uVxwnZaxN/OtkGP8drOqvNxW30qEv05y'
+        '+c3BKZcPooI=&t=obfs4-tcp://0.0.0.0:5556&a=ed25519&nc=AkZVnw==\n'
+        'EXIT_ENABLED: true\n';
+
+    test('the inventory script actually asks for it', () {
+      // Without this the tests below pass against a hardcoded string and say
+      // nothing about the script — which is exactly what happened: deleting
+      // the emission left them all green.
+      final script = buildNodeInventoryScript();
+      expect(script, contains('BOOTSTRAP_URI'));
+      expect(script, contains('bootstrap invite'));
+    });
+
+    test('the invite comes back from a read-only run', () {
+      expect(parseProvisionReport(live).invite, isNotNull);
+    });
+
+    test('a wildcard bind is repaired with the address we reached', () {
+      // `0.0.0.0` is what the node advertises for itself when the operator
+      // left the advertise host empty, and nobody can dial it. The address
+      // this machine answered SSH on demonstrably works.
+      final repaired = parseProvisionReport(
+        live,
+        reachableHost: '203.0.113.7',
+      ).invite!;
+
+      expect(repaired, contains('203.0.113.7'));
+      expect(repaired, isNot(contains('0.0.0.0')));
+    });
+
+    test('without a reachable host the invite is left exactly as it came', () {
+      // Guessing is worse than handing back what the node said: an operator
+      // who set an nginx-fronted name meant it.
+      expect(parseProvisionReport(live).invite, contains('0.0.0.0'));
+    });
+  });
+
   group('re-attaching a server whose records were lost', () {
     // Deployment registered an exit in the routing catalog; the read-only
     // inventory did not. An operator who restored an identity from a phrase
