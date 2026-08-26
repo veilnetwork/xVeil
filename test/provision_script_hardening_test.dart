@@ -276,4 +276,68 @@ void main() {
     },
     skip: Platform.isWindows ? 'POSIX shell only' : null,
   );
+
+  // Step 6 decides between PRESERVING the node's identity and minting a new
+  // one, on whether the existing node.toml has an identity section. veil
+  // renames that section to `Identity`, but it also accepts and deliberately
+  // preserves a lowercase `[identity]` — veil-cfg carries a test called
+  // `updates_existing_lowercase_identity_without_creating_uppercase_duplicate`
+  // promising such a document never gains an uppercase one. A guard that knew
+  // only the uppercase spelling read a perfectly good config as "no identity"
+  // and took the mint branch: an UPDATE would have replaced the node's id and
+  // every relationship hanging off it, on a server the operator asked to
+  // update, with no error to show for it.
+  //
+  // Run the pattern rather than read it, and run it against the shapes veil
+  // actually writes.
+  test(
+    'the identity guard sees every section spelling veil accepts',
+    () {
+      final pattern = RegExp(
+        r"grep -qE '([^']+)'",
+      ).firstMatch(script())?.group(1);
+      expect(
+        pattern,
+        isNotNull,
+        reason: 'premise: the branch is chosen by a grep over node.toml',
+      );
+
+      bool matches(String document) {
+        final run = Process.runSync(
+          'bash',
+          ['-c', 'printf %s "\$DOC" | grep -qE "\$PAT"'],
+          environment: {'DOC': document, 'PAT': pattern!},
+        );
+        return run.exitCode == 0;
+      }
+
+      const global = '[global]\nruntime_flavor = "multi_thread"\n\n';
+      // What a node deployed by this script actually carries.
+      expect(
+        matches('$global[Identity]\npublic_key = "pub"\n'),
+        isTrue,
+        reason: 'the canonical spelling veil renames to',
+      );
+      // What veil-cfg promises to preserve rather than rewrite.
+      expect(
+        matches('$global[identity]\npublic_key = "pub"\n'),
+        isTrue,
+        reason:
+            'reading this as "no identity" mints a new one over a live node',
+      );
+      // Hand-edited, still valid TOML.
+      expect(matches('$global[ identity ]\npublic_key = "pub"\n'), isTrue);
+
+      // And the negative the branch exists for — otherwise a guard that always
+      // says yes would pass every assertion above.
+      expect(
+        matches('$global[transport]\nobfs4_psk_file = "x"\n'),
+        isFalse,
+        reason:
+            'a config with no identity must still reach the branch that '
+            'creates one',
+      );
+    },
+    skip: Platform.isWindows ? 'POSIX shell only' : null,
+  );
 }

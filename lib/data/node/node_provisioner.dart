@@ -830,7 +830,19 @@ sudo install -m 0644 \$XVEIL_TMP/xveil-veil.service /etc/systemd/system/veil.ser
 $tlsSetup
 
 # 6. preserve identity, but reconcile listeners and service configuration
-if ! sudo test -f /var/lib/veil/node.toml || ! sudo grep -qE '^\\[Identity\\]' /var/lib/veil/node.toml; then
+#
+# BOTH spellings, and whitespace-tolerant. veil renames the section to
+# `Identity`, but it also ACCEPTS and deliberately preserves a lowercase
+# `[identity]` — `veil-cfg` has a test named for exactly that, promising such a
+# document never gains an uppercase duplicate. A guard that only knew the
+# uppercase form read a perfectly good config as "no identity here" and took
+# the branch below, which MINTS A NEW ONE: an update would have replaced the
+# node's id and every relationship hanging off it, silently, on a server the
+# operator asked to update.
+#
+# Erring toward "identity present" is the safe direction: a file that has none
+# then fails loudly on the next veil-cli call instead of being overwritten.
+if ! sudo test -f /var/lib/veil/node.toml || ! sudo grep -qE '^[[:space:]]*\\[[[:space:]]*[Ii]dentity[[:space:]]*\\]' /var/lib/veil/node.toml; then
   sudo -u veil /usr/local/bin/veil-cli config init -d 24 -f \$XVEIL_TMP/xveil-node.toml
 else
   sudo install -o veil -g veil -m 0600 /var/lib/veil/node.toml \$XVEIL_TMP/xveil-node.toml
