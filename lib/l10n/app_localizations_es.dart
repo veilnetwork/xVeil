@@ -4180,6 +4180,10 @@ class AppL10nEs extends AppL10n {
   String get oproxyShareNoContacts => 'Aún no hay contactos a quien enviarlo';
 
   @override
+  String get oproxyShareNotAccepted =>
+      'Ese contacto aún no ha aceptado, así que no se envió nada';
+
+  @override
   String get oproxyName => 'Nombre';
 
   @override
