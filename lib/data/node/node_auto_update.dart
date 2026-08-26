@@ -1,3 +1,4 @@
+import 'version_compare_shell.dart';
 import 'veil_github_release.dart'
     show kMinimumVeilReleaseTag, VeilReleaseVersion;
 
@@ -122,10 +123,7 @@ case "\$(uname -m)" in
   *) echo "unsupported architecture: \$(uname -m)" >&2; exit 0 ;;
 esac
 
-# `sort -V` decides "is A older than B" the way a person would read it, and is
-# in coreutils everywhere this runs. The comparison is deliberately one-way:
-# equal is NOT newer, so a re-run installs nothing.
-newer_than() { [ "\$1" != "\$2" ] && [ "\$(printf '%s\\n%s\\n' "\$1" "\$2" | sort -V | tail -1)" = "\$1" ]; }
+XVEIL_NEWER_THAN
 
 json="\$(curl -fsSL --max-time 30 "\$API")" || { echo "release API unreachable" >&2; exit 0; }
 tag="\$(printf '%s' "\$json" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)"
@@ -250,7 +248,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now $kAutoUpdateUnit.timer
 echo "AUTOUPDATE: enabled schedule=$schedule floor=$floor"
 ''';
-  return asFragment ? _stripPreamble(script) : script;
+  final withComparator = script.replaceFirst(
+    'XVEIL_NEWER_THAN',
+    kNewerThanShell.trim(),
+  );
+  return asFragment ? _stripPreamble(withComparator) : withComparator;
 }
 
 /// Drop the shebang and the `set` line: a fragment inherits both from the
