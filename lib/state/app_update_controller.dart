@@ -116,6 +116,25 @@ class AppUpdateController extends Notifier<AppUpdate?> {
   void dismiss() => state = null;
 }
 
+/// When anything last looked, or null when nothing ever has.
+///
+/// The tile needs this to tell "there is nothing newer" apart from "nobody has
+/// asked". Reading the stamp rather than a per-widget flag is what makes the
+/// answer true after an automatic check as well: the launch check leaves no
+/// trace in the widget, and the tile said "not checked yet" minutes after one
+/// had run.
+final updateLastCheckProvider = FutureProvider<DateTime?>((ref) async {
+  // Rebuilds when the offer changes, which is the moment a check finished.
+  ref.watch(appUpdateProvider);
+  try {
+    final prefs = await ref.read(prefsProvider.future);
+    final ms = prefs.getInt(kUpdateLastCheckPrefKey);
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  } catch (_) {
+    return null;
+  }
+});
+
 final appUpdateProvider = NotifierProvider<AppUpdateController, AppUpdate?>(
   AppUpdateController.new,
 );

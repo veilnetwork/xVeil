@@ -3572,6 +3572,36 @@ class AppL10nEn extends AppL10n {
   String get settingsAbout => 'About';
 
   @override
+  String get updateSectionTitle => 'Updates';
+
+  @override
+  String get updateCheckSwitch => 'Check for updates';
+
+  @override
+  String get updateCheckHint =>
+      'Asks github.com once a day whether a newer xVeil exists. The request tells GitHub that this device runs xVeil, and from what address.';
+
+  @override
+  String get updateCheckNow => 'Check now';
+
+  @override
+  String get updateChecking => 'Checking…';
+
+  @override
+  String get updateUpToDate => 'You have the latest release';
+
+  @override
+  String updateAvailable(Object version) {
+    return 'Version $version is available';
+  }
+
+  @override
+  String get updateOpenRelease => 'Open the release page';
+
+  @override
+  String get updateNotChecked => 'Not checked yet';
+
+  @override
   String get settingsLanguage => 'Language';
 
   @override

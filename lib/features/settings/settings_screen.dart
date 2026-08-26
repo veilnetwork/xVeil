@@ -9,6 +9,7 @@ import '../../data/storage/app_profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import 'app_update_tile.dart';
 import 'error_report.dart';
 
 /// Settings root: the identity card + one tile per category (each a pushed
@@ -155,6 +156,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/settings/profiles'),
             ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              l.updateSectionTitle,
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          const AppUpdateTile(),
           const Divider(),
           ListTile(
             leading: const Icon(Icons.info_outline),

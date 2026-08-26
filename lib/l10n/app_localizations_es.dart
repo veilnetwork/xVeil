@@ -3610,6 +3610,36 @@ class AppL10nEs extends AppL10n {
   String get settingsAbout => 'Acerca de';
 
   @override
+  String get updateSectionTitle => 'Actualizaciones';
+
+  @override
+  String get updateCheckSwitch => 'Buscar actualizaciones';
+
+  @override
+  String get updateCheckHint =>
+      'Pregunta a github.com una vez al día si existe una versión más reciente. La petición le dice a GitHub que este dispositivo usa xVeil, y desde qué dirección.';
+
+  @override
+  String get updateCheckNow => 'Buscar ahora';
+
+  @override
+  String get updateChecking => 'Buscando…';
+
+  @override
+  String get updateUpToDate => 'Tienes la última versión';
+
+  @override
+  String updateAvailable(Object version) {
+    return 'Versión $version disponible';
+  }
+
+  @override
+  String get updateOpenRelease => 'Abrir la página de la versión';
+
+  @override
+  String get updateNotChecked => 'Aún no se ha comprobado';
+
+  @override
   String get settingsLanguage => 'Idioma';
 
   @override

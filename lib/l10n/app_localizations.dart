@@ -6284,6 +6284,60 @@ abstract class AppL10n {
   /// **'About'**
   String get settingsAbout;
 
+  /// No description provided for @updateSectionTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Updates'**
+  String get updateSectionTitle;
+
+  /// No description provided for @updateCheckSwitch.
+  ///
+  /// In en, this message translates to:
+  /// **'Check for updates'**
+  String get updateCheckSwitch;
+
+  /// No description provided for @updateCheckHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Asks github.com once a day whether a newer xVeil exists. The request tells GitHub that this device runs xVeil, and from what address.'**
+  String get updateCheckHint;
+
+  /// No description provided for @updateCheckNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Check now'**
+  String get updateCheckNow;
+
+  /// No description provided for @updateChecking.
+  ///
+  /// In en, this message translates to:
+  /// **'Checking…'**
+  String get updateChecking;
+
+  /// No description provided for @updateUpToDate.
+  ///
+  /// In en, this message translates to:
+  /// **'You have the latest release'**
+  String get updateUpToDate;
+
+  /// No description provided for @updateAvailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Version {version} is available'**
+  String updateAvailable(Object version);
+
+  /// No description provided for @updateOpenRelease.
+  ///
+  /// In en, this message translates to:
+  /// **'Open the release page'**
+  String get updateOpenRelease;
+
+  /// No description provided for @updateNotChecked.
+  ///
+  /// In en, this message translates to:
+  /// **'Not checked yet'**
+  String get updateNotChecked;
+
   /// No description provided for @settingsLanguage.
   ///
   /// In en, this message translates to:
