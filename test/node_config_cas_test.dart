@@ -202,4 +202,77 @@ void main() {
       expect(script(NodeConfigTarget.veil), isNot(contains('chmod 0770')));
     });
   });
+
+  group('a target that moved out from under the plan', () {
+    // The guard only ran when the file was still there, so the ONE change it
+    // could not see was the file being removed — and the copy this screen is
+    // holding would have put a deleted config back without anybody deciding
+    // to (report16 XV-19).
+    ({int code, String stderr}) apply({required bool present}) {
+      final dir = Directory.systemTemp.createTempSync('xveil-gone');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final backup = File('${dir.path}/config.backup');
+      if (present) backup.writeAsStringSync('');
+
+      final script = buildWriteNodeConfigScript(
+        NodeConfigTarget.veil,
+        'a = 1\n',
+        expectedSha256: digestOfEmpty,
+      );
+      final lines = script.split('\n');
+      final from = lines.indexWhere((l) => l.startsWith('if [ "\$had_config" = 1 ]; then'));
+      expect(from, isNot(-1), reason: 'the guard moved');
+      final guard = lines.sublist(from, lines.indexOf('fi', from) + 1).join('\n');
+
+      final result = Process.runSync('bash', [
+        '-c',
+        'set -euo pipefail\n'
+            'sudo() { "\$@"; }\n'
+            'had_config=${present ? 1 : 0}\n'
+            'backup="${backup.path}"\n'
+            '$guard\n'
+            'echo INSTALLED',
+      ]);
+      return (code: result.exitCode, stderr: result.stderr.toString());
+    }
+
+    test('a file that is still there is compared, as before', () {
+      expect(apply(present: true).code, 0);
+    });
+
+    test('a file that was REMOVED is a conflict, not a recreate', () {
+      final gone = apply(present: false);
+
+      expect(gone.code, isNot(0));
+      expect(gone.stderr, contains('XVEIL_CONFIG_CHANGED'));
+      expect(gone.stderr, contains('removed'));
+    });
+  });
+
+  group('two applies at once', () {
+    test('existence, copy, compare and install happen under one lock', () {
+      // Two administrators can otherwise both read the same digest, both copy
+      // the same bytes, both find their own backup unchanged and both install
+      // — last one wins, and the other's change is gone with nothing having
+      // said so. The window between the copy and the install is enough alone.
+      final script = buildWriteNodeConfigScript(
+        NodeConfigTarget.veil,
+        'a = 1\n',
+        expectedSha256: digestOfEmpty,
+      );
+
+      expect(script, contains('sudo flock -w'));
+      expect(script, contains(kVeilConfigLockPath));
+      // The whole sequence is INSIDE the section the lock runs, not merely
+      // preceded by it.
+      final critical = script.substring(
+        script.indexOf("<<'XVEIL_APPLY'"),
+        script.indexOf('XVEIL_APPLY\n', script.indexOf("<<'XVEIL_APPLY'") + 1),
+      );
+      expect(critical, contains('test -f'));
+      expect(critical, contains('cp --preserve'));
+      expect(critical, contains('sha256sum'));
+      expect(critical, contains('install -o'));
+    });
+  });
 }
