@@ -41,7 +41,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get preparingFirstRunBody =>
-      'A one-time setup that can take up to a minute (a proof-of-work that makes the identity hard to forge). It only runs the first time — switching to it later is instant.';
+      'A one-time setup — a proof-of-work that makes the identity hard to forge. Seconds on a computer; on a phone, several minutes or more. It only runs the first time — switching to it later is instant.';
 
   @override
   String get preparingUnlockTitle => 'Opening your container';

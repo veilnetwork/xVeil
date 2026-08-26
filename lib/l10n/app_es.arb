@@ -10,7 +10,7 @@
   "preparingTitle": "Configurando tu nodo",
   "preparingBody": "Preparando tu identidad en este dispositivo. Puede tardar un poco: espera, por favor.",
   "preparingFirstRunTitle": "Creando esta identidad",
-  "preparingFirstRunBody": "Una configuración única que puede tardar hasta un minuto (una prueba de trabajo que hace difícil falsificar la identidad). Solo ocurre la primera vez: cambiar a ella más adelante es instantáneo.",
+  "preparingFirstRunBody": "Una configuración única: una prueba de trabajo que hace difícil falsificar la identidad. Segundos en un ordenador; en un teléfono, varios minutos o más. Solo ocurre la primera vez: cambiar a ella más adelante es instantáneo.",
   "preparingUnlockTitle": "Abriendo tu contenedor",
   "preparingUnlockBody": "Derivando tu clave y descifrando en este dispositivo. Es lento a propósito, para resistir los intentos de adivinar la contraseña. Espera un momento.",
   "onboardWelcomeTitle": "Te damos la bienvenida a xVeil",
