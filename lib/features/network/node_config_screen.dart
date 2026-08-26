@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'ssh_host_confirm.dart';
 
 import '../../data/node/managed_node.dart';
+import '../../data/node/exit_allowlist.dart';
+import '../../data/node/proxy_routing.dart';
 import '../../data/node/node_lifecycle.dart';
 import '../../data/node/ssh_client.dart';
 import '../../l10n/app_localizations.dart';
@@ -28,6 +30,7 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
   final _key = TextEditingController();
   final _passphrase = TextEditingController();
   final _config = TextEditingController();
+  final _admit = TextEditingController();
   bool _useKey = false;
   bool _busy = false;
   bool _loaded = false;
@@ -40,6 +43,7 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
     _key.dispose();
     _passphrase.dispose();
     _config.dispose();
+    _admit.dispose();
     super.dispose();
   }
 
@@ -128,6 +132,121 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
       ].where((part) => part.isNotEmpty).join('\n');
       if (!result.ok) _error = 'exit ${result.exitCode}';
     });
+  }
+
+  /// Rewrite the loaded document's `[proxy.exit]` admission and keep the raw
+  /// editor in step. Nothing leaves the device until Apply — which is the same
+  /// transactional write, with the same validation and the same rollback, that
+  /// the raw editor uses.
+  void _setAdmission({List<String>? ids, bool? allowAll}) {
+    final current = readExitAllowlist(_config.text);
+    final next = withExitAllowlist(
+      _config.text,
+      allowedNodeIds: ids ?? current?.allowedNodeIds ?? const [],
+      allowAll: allowAll ?? current?.allowAll ?? false,
+    );
+    setState(() {
+      _config.text = next;
+      _output = AppL10n.of(context).exitAdmissionUnsaved;
+    });
+  }
+
+  Widget _admissionCard(AppL10n l, ColorScheme scheme) {
+    final admission = readExitAllowlist(_config.text);
+    if (admission == null) return const SizedBox.shrink();
+    final id = _admit.text.trim().toLowerCase();
+    // The catalog's own validator, not a fourth copy of the hex check: this is
+    // the same 64-hex node id the routing screen accepts.
+    final canAdd =
+        ProxyRouting.isValidNodeId(id) &&
+        !admission.allowedNodeIds.contains(id);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(l.exitAdmissionTitle, style: Theme.of(context).textTheme.titleSmall),
+            // The state that costs people their traffic, said plainly rather
+            // than left to be inferred from an empty list.
+            if (admission.admitsNobody)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  l.exitAdmissionNobody,
+                  style: TextStyle(color: scheme.error),
+                ),
+              ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(l.exitAdmissionOpen),
+              value: admission.allowAll,
+              onChanged: _busy
+                  ? null
+                  : (value) => _setAdmission(allowAll: value),
+            ),
+            for (final entry in admission.allowedNodeIds)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(
+                  entry,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                ),
+                trailing: IconButton(
+                  tooltip: MaterialLocalizations.of(context).deleteButtonTooltip,
+                  onPressed: _busy
+                      ? null
+                      : () => _setAdmission(
+                          ids: admission.allowedNodeIds
+                              .where((value) => value != entry)
+                              .toList(),
+                        ),
+                  icon: const Icon(Icons.person_remove_outlined),
+                ),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _admit,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      hintText: l.exitAdmissionAddHint,
+                      errorText: id.isEmpty || canAdd
+                          ? null
+                          : l.exitAdmissionInvalid,
+                      border: const OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: _busy || !canAdd
+                      ? null
+                      : () {
+                          _setAdmission(
+                            ids: [...admission.allowedNodeIds, id],
+                          );
+                          _admit.clear();
+                        },
+                  child: Text(l.exitAdmissionAdd),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -236,6 +355,8 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
                   style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
                 ),
               const SizedBox(height: 8),
+              if (_loaded && widget.target == NodeConfigTarget.veil)
+                _admissionCard(l, scheme),
               Expanded(
                 child: TextField(
                   controller: _config,
