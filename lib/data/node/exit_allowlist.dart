@@ -24,21 +24,42 @@ class ExitAllowlist {
     required this.enabled,
     required this.allowAll,
     required this.allowedNodeIds,
+    this.unreadable = false,
   });
 
   final bool enabled;
   final bool allowAll;
   final List<String> allowedNodeIds;
 
+  /// The table is there and this reader could not make sense of it — an array
+  /// broken across lines, or a second `[proxy.exit]` further down.
+  ///
+  /// Kept apart from "admits nobody", because that is a claim about who may
+  /// use the exit and this is the absence of one. Showing an admission list
+  /// read from a document nobody parsed is how a screen ends up stating a
+  /// security policy that is not the one in force.
+  final bool unreadable;
+
   /// The exit is on and nothing can use it. veil says so at startup; this is
   /// the same fact, available before anyone restarts anything.
-  bool get admitsNobody => enabled && !allowAll && allowedNodeIds.isEmpty;
+  /// Never true for a document this reader could not parse: "nobody may use
+  /// this exit" is a claim about the policy in force, and an unread table
+  /// supports no claim at all. [unreadable] is what to show there.
+  bool get admitsNobody =>
+      !unreadable && enabled && !allowAll && allowedNodeIds.isEmpty;
 
   bool admits(String nodeId) =>
       allowAll || allowedNodeIds.contains(nodeId.trim().toLowerCase());
 }
 
-final _sectionHeader = RegExp(r'^\s*\[\s*([^\]]+?)\s*\]\s*$');
+/// A section header, with a trailing comment allowed.
+///
+/// `[transport] # notes` is valid TOML and used not to match, so the reader
+/// stayed inside `[proxy.exit]` and read the NEXT table's keys as the exit's
+/// own — an `allow_all = true` belonging to something else read as an open
+/// exit. The writer had the same blindness and could put the admission list
+/// into the wrong table.
+final _sectionHeader = RegExp(r'^\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?$');
 final _hex64 = RegExp(r'^[0-9a-f]{64}$');
 
 bool _isExitHeader(String line) {
@@ -52,10 +73,15 @@ ExitAllowlist? readExitAllowlist(String toml) {
   var seen = false;
   var enabled = false;
   var allowAll = false;
+  var unreadable = false;
   var ids = <String>[];
   for (final line in toml.split('\n')) {
     if (_sectionHeader.hasMatch(line)) {
-      inExit = _isExitHeader(line);
+      final isExit = _isExitHeader(line);
+      // A document with the table twice has two answers, and picking one is a
+      // guess about which is in force.
+      if (isExit && seen) unreadable = true;
+      inExit = isExit;
       if (inExit) seen = true;
       continue;
     }
@@ -70,7 +96,15 @@ ExitAllowlist? readExitAllowlist(String toml) {
       case 'allow_all':
         allowAll = value == 'true';
       case 'allowed_node_ids':
-        ids = _parseIdList(value);
+        // Broken across lines. The value here is just `[`, which parses as an
+        // empty list — and an empty list is what veil reads as "admits
+        // NOBODY". Reporting that about a server which admits people is a lie
+        // in the direction that locks users out, so it is reported as unread.
+        if (!value.contains(']')) {
+          unreadable = true;
+        } else {
+          ids = _parseIdList(value);
+        }
     }
   }
   if (!seen) return null;
@@ -78,6 +112,7 @@ ExitAllowlist? readExitAllowlist(String toml) {
     enabled: enabled,
     allowAll: allowAll,
     allowedNodeIds: ids,
+    unreadable: unreadable,
   );
 }
 
@@ -87,11 +122,20 @@ ExitAllowlist? readExitAllowlist(String toml) {
 /// Ids that are not 64 hex characters are DROPPED rather than written: veil
 /// drops them too when it parses the list, so writing one would put a line in
 /// the operator's file that looks like an admission and is not one.
-String withExitAllowlist(
+String? withExitAllowlist(
   String toml, {
   required List<String> allowedNodeIds,
   required bool allowAll,
 }) {
+  // Null rather than a best effort. This editor understands one shape of
+  // document, and rewriting a shape it does not understand produced TOML that
+  // does not parse: the array's continuation lines were left behind under the
+  // new single-line one, so the node would not have come back after the
+  // operator applied an admission change. Refusing is the only honest answer
+  // an editor of a security control can give about a file it cannot read.
+  final current = readExitAllowlist(toml);
+  if (current != null && current.unreadable) return null;
+
   final ids = <String>[];
   for (final raw in allowedNodeIds) {
     final id = raw.trim().toLowerCase();
