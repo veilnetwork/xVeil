@@ -4453,6 +4453,34 @@ class AppL10nRu extends AppL10n {
   String get nodeInventory => 'Проверить установку и состояние';
 
   @override
+  String get fleetUpdateTitle => 'Обновление узлов';
+
+  @override
+  String get fleetUpdateCheck => 'Проверить узлы';
+
+  @override
+  String fleetUpdateApply(Object count) {
+    return 'Обновить узлов: $count';
+  }
+
+  @override
+  String get fleetUpdateCurrent => 'Актуален';
+
+  @override
+  String get fleetUpdateUnreachable => 'Не ответил';
+
+  @override
+  String get fleetUpdateNothing => 'Обновлять нечего';
+
+  @override
+  String get fleetUpdateNotChecked =>
+      'Спросите узлы, что на них стоит, и решайте';
+
+  @override
+  String get fleetUpdateUnreachableNote =>
+      'До них не достучались, поэтому в обновление они не входят:';
+
+  @override
   String get nodeAutoUpdate => 'Обновлять этот узел автоматически';
 
   @override

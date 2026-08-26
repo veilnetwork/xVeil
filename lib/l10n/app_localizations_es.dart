@@ -4466,6 +4466,34 @@ class AppL10nEs extends AppL10n {
   String get nodeInventory => 'Inspeccionar la instalación y el estado';
 
   @override
+  String get fleetUpdateTitle => 'Actualización de nodos';
+
+  @override
+  String get fleetUpdateCheck => 'Consultar los nodos';
+
+  @override
+  String fleetUpdateApply(Object count) {
+    return 'Actualizar $count nodo(s)';
+  }
+
+  @override
+  String get fleetUpdateCurrent => 'Al día';
+
+  @override
+  String get fleetUpdateUnreachable => 'No respondió';
+
+  @override
+  String get fleetUpdateNothing => 'Nada que actualizar';
+
+  @override
+  String get fleetUpdateNotChecked =>
+      'Pregunta a los nodos qué ejecutan y luego decide';
+
+  @override
+  String get fleetUpdateUnreachableNote =>
+      'No se pudo llegar a estos, así que no entran en la actualización:';
+
+  @override
   String get nodeAutoUpdate => 'Mantener este nodo actualizado';
 
   @override

@@ -15,6 +15,7 @@ import '../../routing/back_affordance.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
 import '../../state/ssh_credentials.dart';
+import 'node_fleet_update_screen.dart';
 import 'node_management_screen.dart';
 import 'node_provision_screen.dart';
 import 'ssh_check_dialog.dart';
@@ -49,8 +50,31 @@ class ManagedNodesScreen extends ConsumerWidget {
           if (nodes.isEmpty) {
             return _Empty(message: l.nodesEmpty, hint: l.nodesEmptyHint);
           }
+          final withSsh = nodes.where(
+            (n) => n.hasSsh && n.sshUser != null,
+          );
           return ListView(
-            children: [for (final n in nodes) _NodeTile(node: n)],
+            children: [
+              for (final n in nodes) _NodeTile(node: n),
+              // One place to update the fleet, rather than one screen per
+              // machine: updating them one at a time is how versions drift
+              // apart. Offered whenever anything is reachable by SSH at all —
+              // the screen itself asks the nodes before it offers anything.
+              if (withSsh.isNotEmpty) ...[
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.system_update_alt),
+                  title: Text(l.fleetUpdateTitle),
+                  subtitle: Text(l.fleetUpdateNotChecked),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const NodeFleetUpdateScreen(),
+                    ),
+                  ),
+                ),
+              ],
+            ],
           );
         },
       ),
