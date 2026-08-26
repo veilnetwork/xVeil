@@ -1552,6 +1552,7 @@
   "updateCheckNow": "Проверить сейчас",
   "updateChecking": "Проверяю…",
   "updateUpToDate": "Установлена последняя версия",
+  "updateCouldNotCheck": "Не удалось проверить обновления",
   "updateAvailable": "Доступна версия {version}",
   "updateOpenRelease": "Открыть страницу релиза",
   "updateNotChecked": "Ещё не проверялось",
