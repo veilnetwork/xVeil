@@ -87,13 +87,21 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
         else
           ListTile(
             leading: const Icon(Icons.check_circle_outline),
-            // "Up to date" is a claim about a check that happened. The stamp
-            // is what knows, and it knows about the automatic check too — a
-            // per-widget flag said "not checked yet" minutes after one ran.
+            // Three states, not two. "Up to date" is a claim about the
+            // RELEASE FEED, and the stamp cannot support it: the stamp is
+            // written BEFORE the request — deliberately, so a device that
+            // cannot reach github.com does not ask on every launch — so its
+            // presence says an attempt was made and nothing about how it went.
+            // A failed check used to read as up to date (report16 XV-15).
             title: Text(
-              ref.watch(updateLastCheckProvider).value == null
-                  ? l.updateNotChecked
-                  : l.updateUpToDate,
+              switch ((
+                ref.watch(updateLastCheckProvider).value,
+                ref.watch(appUpdateProvider.notifier).lastReached,
+              )) {
+                (null, _) => l.updateNotChecked,
+                (_, false) => l.updateCouldNotCheck,
+                _ => l.updateUpToDate,
+              },
             ),
           ),
         if (_notice != null)

@@ -3626,6 +3626,9 @@ class AppL10nRu extends AppL10n {
   String get updateUpToDate => 'Установлена последняя версия';
 
   @override
+  String get updateCouldNotCheck => 'Не удалось проверить обновления';
+
+  @override
   String updateAvailable(Object version) {
     return 'Доступна версия $version';
   }
