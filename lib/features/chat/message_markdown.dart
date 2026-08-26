@@ -9,6 +9,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/ids.dart';
 import '../../data/transport/bootstrap_invite.dart';
+import '../../data/node/proxy_routing.dart';
+import '../../data/transport/oproxy_invite.dart';
 import '../../data/transport/peers_invite.dart';
 import '../../l10n/app_localizations.dart';
 import '../../domain/cloud.dart';
@@ -16,6 +18,7 @@ import '../../domain/inline_custom_emoji.dart';
 import '../../state/app_controller.dart';
 import '../../state/mention_identity.dart';
 import '../../state/providers.dart';
+import '../../state/proxy_routing_controller.dart';
 import '../storage/cloud_attachment.dart';
 import 'chat_link.dart';
 import 'message_mentions.dart';
@@ -752,12 +755,14 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
       ChatLinkKind.web => l.linkDialogTitle,
       ChatLinkKind.contactInvite => l.chatLinkInviteTitle,
       ChatLinkKind.entryNodes => l.chatLinkPeersTitle,
+      ChatLinkKind.proxyShare => l.chatLinkProxyTitle,
       ChatLinkKind.deviceLink => l.chatLinkDeviceTitle,
     };
     final confirmLabel = switch (kind) {
       ChatLinkKind.web => l.linkOpen,
       ChatLinkKind.contactInvite => l.chatLinkInviteAction,
       ChatLinkKind.entryNodes => l.chatLinkPeersAction,
+      ChatLinkKind.proxyShare => l.chatLinkProxyAction,
       ChatLinkKind.deviceLink => l.chatLinkDeviceAction,
     };
     final action = await showDialog<String>(
@@ -770,6 +775,13 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
           children: [
             // WHY it is not applied here, said before the button that leads
             // somewhere else — not after the person has pressed it.
+            // A shared exit SEES where the traffic goes. Said before the
+            // button, not after: adding one is a trust decision about whoever
+            // runs that node, and the link itself looks like any other.
+            if (kind == ChatLinkKind.proxyShare) ...[
+              Text(l.chatLinkProxyBody),
+              const SizedBox(height: 12),
+            ],
             if (kind == ChatLinkKind.deviceLink) ...[
               Text(l.chatLinkDeviceBody),
               const SizedBox(height: 12),
@@ -804,6 +816,8 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
           await _redeemContactInvite(url);
         case ChatLinkKind.entryNodes:
           await _redeemEntryNodes(url);
+        case ChatLinkKind.proxyShare:
+          await _redeemProxyShare(url);
         case ChatLinkKind.deviceLink:
           // Handed to the screen that owns it, still unapplied: the person
           // pastes it there deliberately. A device link in a message is
@@ -844,6 +858,36 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
     } catch (_) {}
     if (!mounted) return;
     context.push('/chat/${invite.nodeId.hex}');
+  }
+
+  Future<void> _redeemProxyShare(String url) async {
+    final l = AppL10n.of(context);
+    final OproxyInvite invite;
+    try {
+      invite = OproxyInvite.parse(url);
+    } catch (_) {
+      _toast(l.inviteInvalid);
+      return;
+    }
+    // The deployment's own decision, called rather than copied: same
+    // de-duplication against the effective catalog, same label fallback. A null
+    // means the node is already there — worth saying, because the list is long
+    // enough that "nothing happened" reads as a failure.
+    final updated = routingWithDeployedExit(
+      ref.read(proxyRoutingProvider),
+      isExit: true,
+      nodeId: invite.nodeId,
+      label: invite.label,
+    );
+    if (updated == null) {
+      _toast(l.chatLinkProxyKnown);
+      return;
+    }
+    await ref.read(proxyRoutingProvider.notifier).set(updated);
+    if (!mounted) return;
+    final added = updated.effectiveOproxies
+        .firstWhere((e) => e.nodeId == invite.nodeId);
+    _toast(l.chatLinkProxyAdded(added.label));
   }
 
   Future<void> _redeemEntryNodes(String url) async {

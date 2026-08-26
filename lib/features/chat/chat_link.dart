@@ -1,5 +1,6 @@
 import '../../data/transport/bootstrap_invite.dart';
 import '../../data/transport/device_link_invite.dart';
+import '../../data/transport/oproxy_invite.dart';
 import '../../data/transport/peers_invite.dart';
 
 /// What a tapped link in a chat IS, so the app can act on its own links instead
@@ -24,6 +25,11 @@ enum ChatLinkKind {
   /// way into the network when the built-in seeds are blocked.
   entryNodes,
 
+  /// `veil:oproxy?…` — one exit node someone is sharing, so the recipient can
+  /// route through it. Redeemable, and a trust decision: the node named here
+  /// is the one that will see where the traffic goes.
+  proxyShare,
+
   /// `veil:device?…` — an invite that joins a device TO AN IDENTITY.
   ///
   /// Recognised so it can be named, never redeemed from a chat. A device link
@@ -45,6 +51,7 @@ ChatLinkKind chatLinkKind(String url) {
     return ChatLinkKind.deviceLink;
   }
   if (SharedPeers.looksLikeSharedPeers(trimmed)) return ChatLinkKind.entryNodes;
+  if (OproxyInvite.looksLikeOproxyInvite(trimmed)) return ChatLinkKind.proxyShare;
   return ChatLinkKind.web;
 }
 
@@ -60,6 +67,7 @@ final chatLinkSchemePattern = [
   BootstrapInvite.scheme,
   DeviceLinkInvite.scheme,
   SharedPeers.scheme,
+  OproxyInvite.scheme,
 ].map(RegExp.escape).join('|');
 
 bool _startsWithIgnoringCase(String value, String prefix) =>

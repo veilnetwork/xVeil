@@ -2855,6 +2855,24 @@ class AppL10nRu extends AppL10n {
   String get chatLinkDeviceAction => 'Открыть «Устройства»';
 
   @override
+  String get chatLinkProxyTitle => 'Общий выход';
+
+  @override
+  String get chatLinkProxyAction => 'Добавить выход';
+
+  @override
+  String get chatLinkProxyBody =>
+      'Трафик, пущенный через этот выход, ему виден: он знает, куда вы идёте, хотя и не знает, кто вы. Добавляйте, только если доверяете тому, кто его держит.';
+
+  @override
+  String chatLinkProxyAdded(Object name) {
+    return 'Выход добавлен: $name';
+  }
+
+  @override
+  String get chatLinkProxyKnown => 'Этот выход уже есть в вашем списке';
+
+  @override
   String get linkOpenFailed => 'Не удалось открыть ссылку';
 
   @override
