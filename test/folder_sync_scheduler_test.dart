@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/domain/folder_sync.dart';
 import 'package:xveil/state/folder_sync_scheduler.dart';
@@ -31,32 +32,49 @@ void main() {
     if (held != null) await held.future;
   }, quiet, sweep);
 
-  test('a burst of folder events becomes exactly one pass', () async {
+  test('a burst of folder events becomes exactly one pass', () {
     // A save, an unpack, and our OWN downloads all arrive as a stream of
     // events. Reacting to each would have the mirror chase its own tail.
-    build().watch(_pair, events.stream);
+    //
+    // Fake time again: twenty real 1 ms sleeps against a 40 ms window is a
+    // race with the machine's load, and what is being asserted has nothing to
+    // do with wall clocks.
+    fakeAsync((async) {
+      build().watch(_pair, events.stream);
 
-    for (var i = 0; i < 20; i++) {
-      events.add(null);
-      await Future<void>.delayed(const Duration(milliseconds: 1));
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 120));
+      for (var i = 0; i < 20; i++) {
+        events.add(null);
+        async.elapse(const Duration(milliseconds: 1));
+      }
+      expect(ran, isEmpty, reason: 'the burst is still arriving');
 
-    expect(ran, ['p1']);
+      async.elapse(const Duration(milliseconds: 60));
+      expect(ran, ['p1']);
+    });
   });
 
-  test('quiet is measured from the LAST event, not the first', () async {
-    build().watch(_pair, events.stream);
+  test('quiet is measured from the LAST event, not the first', () {
+    // Driven with `fakeAsync` rather than real sleeps. Written with them, this
+    // test failed under the full suite and passed alone: a 30 ms
+    // `Future.delayed` can take longer than the 40 ms quiet period when the
+    // machine is busy, the pass fires early, and the gate reddens over nothing.
+    // A debounce is about ORDER, and a fake clock is how you assert order.
+    fakeAsync((async) {
+      build().watch(_pair, events.stream);
 
-    events.add(null);
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    expect(ran, isEmpty, reason: 'the folder is still busy');
-    events.add(null);
-    await Future<void>.delayed(const Duration(milliseconds: 30));
-    expect(ran, isEmpty);
+      events.add(null);
+      async.elapse(const Duration(milliseconds: 30));
+      expect(ran, isEmpty, reason: 'the folder is still busy');
 
-    await Future<void>.delayed(const Duration(milliseconds: 60));
-    expect(ran, ['p1']);
+      // The second event restarts the window: 30 ms after it, the first
+      // event is 60 ms old and STILL must not have triggered a pass.
+      events.add(null);
+      async.elapse(const Duration(milliseconds: 30));
+      expect(ran, isEmpty, reason: 'the window restarts from the last event');
+
+      async.elapse(const Duration(milliseconds: 20));
+      expect(ran, ['p1']);
+    });
   });
 
   test('events during a pass cause ONE follow-up, not one per event', () async {
