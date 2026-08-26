@@ -4168,6 +4168,18 @@ class AppL10nEn extends AppL10n {
   String get vpnStartRefused => 'The packet engine refused to start.';
 
   @override
+  String get vpnStartStoppedDuringStartup =>
+      'The tunnel started and stopped again before it carried anything.';
+
+  @override
+  String get vpnStartSelectorMissing =>
+      'Android did not provide what per-application routing needs. Route all traffic instead, or try again.';
+
+  @override
+  String get vpnStartEngineMissing =>
+      'This build has no packet engine, so the system VPN cannot run.';
+
+  @override
   String get vpnNeedsProxy =>
       'Select a valid exit node first. VPN starts its SOCKS5 transport automatically.';
 

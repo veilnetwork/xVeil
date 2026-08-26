@@ -41,6 +41,17 @@ enum VpnStartFailure {
 
   /// It refused without saying which of the above.
   refused,
+
+  /// The engine started and then died before the app could confirm it. Its own
+  /// account of why is in [VpnBackendState.detail].
+  stoppedDuringStartup,
+
+  /// Per-application routing was asked for and Android did not hand back the
+  /// flow selector it needs.
+  selectorMissing,
+
+  /// The packet engine is not in this build at all.
+  engineMissing,
 }
 
 class VpnBackendState {
@@ -108,6 +119,7 @@ class MethodChannelVpnBackend implements VpnBackend {
         const VpnBackendState(
           VpnBackendPhase.unsupported,
           detail: 'native packet engine is not installed',
+          failure: VpnStartFailure.engineMissing,
         ),
       );
     }
@@ -186,6 +198,7 @@ class MethodChannelVpnBackend implements VpnBackend {
       return const VpnBackendState(
         VpnBackendPhase.error,
         detail: 'Android did not create the per-application flow selector',
+        failure: VpnStartFailure.selectorMissing,
       );
     }
 
@@ -218,11 +231,17 @@ class MethodChannelVpnBackend implements VpnBackend {
     // Catch startup failures before allowing Android to advertise a live VPN.
     await Future<void>.delayed(const Duration(milliseconds: 300));
     if (packetTunnel.status() != PacketTunnelFfi.running) {
-      final detail =
-          packetTunnel.lastError() ?? 'packet tunnel stopped during startup';
+      // Its own words when it left any: the worker records why it failed and
+      // the slot is still readable here, before `stop()` takes the object
+      // away. The named reason is a floor, not a replacement.
+      final detail = packetTunnel.lastError();
       packetTunnel.stop();
       await _invokeRaw('abort');
-      return VpnBackendState(VpnBackendPhase.error, detail: detail);
+      return VpnBackendState(
+        VpnBackendPhase.error,
+        detail: detail,
+        failure: VpnStartFailure.stoppedDuringStartup,
+      );
     }
     return VpnBackendState.fromMap(await _invokeRaw('confirmRunning'));
   }
