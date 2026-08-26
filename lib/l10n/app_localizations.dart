@@ -7988,6 +7988,12 @@ abstract class AppL10n {
   /// **'Edited here. Press Apply to send it to the server.'**
   String get exitAdmissionUnsaved;
 
+  /// No description provided for @exitAdmissionUnreadable.
+  ///
+  /// In en, this message translates to:
+  /// **'The config could not be read here: the exit list is spread over several lines, or the table appears twice. Edit it in the text below.'**
+  String get exitAdmissionUnreadable;
+
   /// No description provided for @nodeConfigNotLoaded.
   ///
   /// In en, this message translates to:
