@@ -22,6 +22,8 @@
 // where bytes land. Where the destination is ours to choose, choose it.
 library;
 
+import 'dart:io';
+
 /// Longest name we accept or produce, in UTF-16 code units.
 ///
 /// The common filesystem limit is 255 BYTES per component, which for non-Latin
@@ -121,3 +123,31 @@ int _runeBytes(int rune) => rune <= 0x7f
     : rune <= 0xffff
     ? 3
     : 4;
+
+/// `<dir>/<name>`, or `<dir>/<stem> (n)<ext>` when that is taken.
+///
+/// One copy, because there were two and a third place that needed it and did
+/// not have it. A destination taken straight from a name means the file
+/// already there is destroyed — silently, by a write that truncates, or by a
+/// rename that replaces — and the name is usually not the person's own: it
+/// came off a message, or out of a shared volume.
+///
+/// Bounded: past a small number of collisions something is wrong with the
+/// caller, and returning the plain name lets the existing overwrite happen
+/// rather than looping.
+String uncontestedPath(
+  String dir,
+  String name, {
+  bool Function(String path)? exists,
+}) {
+  final taken = exists ?? (path) => File(path).existsSync();
+  if (!taken('$dir/$name')) return '$dir/$name';
+  final dot = name.lastIndexOf('.');
+  final stem = dot > 0 ? name.substring(0, dot) : name;
+  final ext = dot > 0 ? name.substring(dot) : '';
+  for (var n = 1; n <= 999; n++) {
+    final candidate = '$dir/$stem ($n)$ext';
+    if (!taken(candidate)) return candidate;
+  }
+  return '$dir/$name';
+}

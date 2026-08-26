@@ -1,4 +1,6 @@
 import 'dart:io';
+import '../../domain/file_export.dart';
+import '../../domain/file_names.dart';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -66,52 +68,53 @@ Future<CloudExportResult> exportCloudItem(
     if (Platform.isAndroid || Platform.isIOS) {
       // saveFile wants every byte up front on mobile, which an item of any
       // size cannot promise, so there the destination is app documents.
-      destination =
-          '${(await getApplicationDocumentsDirectory()).path}/'
-          '${safeCloudExportName(item.name)}';
+      //
+      // A FREE name, not the item's. The destination was taken straight from
+      // the name and the rename below REPLACES, so exporting an item called
+      // `notes.txt` destroyed whatever was already called that - and the name
+      // belongs to a shared volume, not necessarily to the person exporting.
+      destination = uncontestedPath(
+        (await getApplicationDocumentsDirectory()).path,
+        safeCloudExportName(item.name),
+      );
     } else {
       destination = await FilePicker.saveFile(
         fileName: safeCloudExportName(item.name),
       );
     }
     if (destination == null) return CloudExportResult.cancelled;
-    // Written beside the target and renamed only once whole: picking an
-    // existing file must not destroy it because the copy failed halfway, and a
-    // truncated file that looks complete is worse than none.
-    final partial = File('$destination.part');
-    var written = 0;
-    final sink = partial.openWrite();
-    try {
-      const chunk = 4 * 1024 * 1024;
-      while (written < item.size) {
-        final want = (item.size - written) < chunk
-            ? item.size - written
-            : chunk;
-        final part = await service.readContentRange(item, written, want);
-        if (part == null || part.isEmpty) break;
-        sink.add(part);
-        written += part.length;
-      }
-    } finally {
-      await sink.close();
-    }
-    if (written >= item.size) {
-      await partial.rename(destination);
-      return CloudExportResult.done;
-    }
-    await partial.delete();
-    return CloudExportResult.failed;
+    // Straight to the chosen path, no `.part` sibling.
+    //
+    // The sibling was there to protect an existing file from a copy that
+    // failed halfway, and on a sandboxed macOS build it could not be opened at
+    // all: the save panel grants a read-write exception for the SELECTED path
+    // only, so `open()` on `<dest>.part` returns "Operation not permitted" and
+    // every export failed. The same discovery is written up in the chat
+    // download path, which is why it writes direct too.
+    //
+    // What replaces the sibling is cleanup that always runs: a copy that did
+    // not finish leaves no file at all, so there is never a truncated one that
+    // looks complete.
+    final complete = await writeStreamedFile(
+      file: File(destination),
+      size: item.size,
+      read: (offset, want) => service.readContentRange(item, offset, want),
+    );
+    return complete ? CloudExportResult.done : CloudExportResult.failed;
   } catch (_) {
     return CloudExportResult.failed;
   }
 }
 
-/// A cloud item's name is whatever the user typed, so it may carry separators
+/// A cloud item's name is whatever somebody typed, so it may carry separators
 /// that would place the export somewhere else entirely.
-String safeCloudExportName(String value) {
-  final sanitized = value.trim().replaceAll(RegExp(r'[/\\\x00]'), '_');
-  return sanitized.isEmpty ? 'file' : sanitized;
-}
+///
+/// Delegates. This was a third copy of the rule and the weakest of them: it
+/// handled `/`, `\` and NUL, and let through `.` and `..` (which as a leaf
+/// name the directory itself), every other control character, a bidi override
+/// that reorders the extension a person reads, and a name of any length at
+/// all.
+String safeCloudExportName(String value) => safeFileLeaf(value);
 
 String formatCloudBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';
