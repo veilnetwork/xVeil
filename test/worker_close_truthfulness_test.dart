@@ -258,10 +258,142 @@ void main() {
     await backing.close();
   });
 
+  // ── The residual: a worker that settles AFTER the close gave up ──────────
+
+  test('single-space: a worker that DIES after the close gave up still gets '
+      'its ports closed', () async {
+    // The close timed out and the caller was told. The cleanup that releases
+    // the reply port and stops the death watch was hung on the reply ALONE —
+    // and a dead isolate sends nothing, so it never ran: three ReceivePorts
+    // stayed open for the life of the process, one set per failed attempt
+    // (report16 XV-18).
+    //
+    // The defect HANGS rather than fails, so the wait below carries its own
+    // deadline.
+    WorkerKvLogStore.closeTimeout = const Duration(milliseconds: 150);
+    addTearDown(
+      () => WorkerKvLogStore.closeTimeout = const Duration(seconds: 5),
+    );
+    final events = ReceivePort();
+    final seen = <String>[];
+    events.listen((dynamic m) => seen.add('$m'));
+    addTearDown(events.close);
+
+    final live = await _spawnStubWorker(events.sendPort, answerClose: false);
+    final store = WorkerKvLogStore.overWorker(
+      isolate: live.isolate,
+      toWorker: live.port,
+      watch: live.watch,
+    );
+
+    await expectLater(store.close(), throwsA(isA<hv.HvException>()));
+    await _pumpUntil(() => seen.contains('close-requested'), 'the close');
+    expect(
+      live.watch.debugWatching,
+      isTrue,
+      reason:
+          'premise: the watch is deliberately left armed at the timeout, '
+          'because the worker is still alive and a crash is still worth '
+          'reporting — there is nothing for the fix to release otherwise',
+    );
+
+    live.port.send(_Later('die', events.sendPort));
+
+    await store.debugLateClose!.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () =>
+          fail('the late cleanup waited on a reply a dead worker cannot send'),
+    );
+    expect(
+      live.watch.debugWatching,
+      isFalse,
+      reason: 'still watching a corpse',
+    );
+    expect(live.watch.debugWaitingCount, 0);
+  });
+
+  test('single-space CONTROL: a worker that answers LATE is cleaned up the '
+      'same way', () async {
+    // Vacuity guard for the case above: releasing on death alone would leave
+    // the ordinary late ending — the worker finishing its FFI op and replying
+    // — holding everything it used to hold.
+    WorkerKvLogStore.closeTimeout = const Duration(milliseconds: 150);
+    addTearDown(
+      () => WorkerKvLogStore.closeTimeout = const Duration(seconds: 5),
+    );
+    final events = ReceivePort();
+    final seen = <String>[];
+    events.listen((dynamic m) => seen.add('$m'));
+    addTearDown(events.close);
+
+    final live = await _spawnStubWorker(events.sendPort, answerClose: false);
+    final store = WorkerKvLogStore.overWorker(
+      isolate: live.isolate,
+      toWorker: live.port,
+      watch: live.watch,
+    );
+
+    await expectLater(store.close(), throwsA(isA<hv.HvException>()));
+    await _pumpUntil(() => seen.contains('close-requested'), 'the close');
+
+    live.port.send(_Later('answer-close', events.sendPort));
+
+    await store.debugLateClose!.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => fail('the late reply did not release anything'),
+    );
+    expect(live.watch.debugWatching, isFalse);
+  });
+
+  test(
+    'multi-space: the same late death releases the same three ports',
+    () async {
+      WorkerMultiSpaceBacking.closeTimeout = const Duration(milliseconds: 150);
+      final events = ReceivePort();
+      final seen = <String>[];
+      events.listen((dynamic m) => seen.add('$m'));
+      addTearDown(events.close);
+
+      WorkerMultiSpaceBacking.debugBringUpWorker = (path, tag) =>
+          _spawnStubWorker(events.sendPort, answerClose: false);
+
+      final backing = WorkerMultiSpaceBacking('/unused');
+      final call = backing
+          .openSpace(_keys(1))
+          .then<Object>((_) => 'ok', onError: (Object e) => e);
+      await _pumpUntil(
+        () => seen.contains('call'),
+        'the worker being reachable',
+      );
+
+      await expectLater(backing.close(), throwsA(isA<hv.HvException>()));
+      final watch = _lastStub!.watch;
+      expect(watch.debugWatching, isTrue, reason: 'premise');
+
+      _lastStub!.port.send(_Later('die', events.sendPort));
+
+      await backing.debugLateClose!.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => fail(
+          'the late cleanup waited on a reply a dead worker cannot send',
+        ),
+      );
+      expect(watch.debugWatching, isFalse);
+      await call;
+    },
+  );
 }
 
 class _Ping {
   const _Ping(this.reply);
+  final SendPort reply;
+}
+
+/// Told to the stub after the close has already timed out, so a test can
+/// choose WHICH of the two late endings happens.
+class _Later {
+  const _Later(this.what, this.reply);
+  final String what;
   final SendPort reply;
 }
 
@@ -294,12 +426,29 @@ void _stubWorkerEntry(List<Object> args) {
   final answerCalls = args[4] as bool;
   final rx = ReceivePort();
   boot.send(rx.sendPort);
+  // The close's reply port, kept for the tests that make the worker settle
+  // AFTER the caller has already been told the close timed out.
+  SendPort? pendingClose;
   rx.listen((dynamic msg) {
     // `reply` is a public field on the (library-private) request classes, so it
     // is reachable dynamically without importing them.
     final reply = (msg as dynamic).reply as SendPort;
+    if (msg is _Later) {
+      switch (msg.what) {
+        case 'die':
+          // A worker that faults long after the close gave up. No reply ever.
+          rx.close();
+          Isolate.current.kill(priority: Isolate.immediate);
+        case 'answer-close':
+          pendingClose?.send(true);
+          rx.close();
+          Isolate.current.kill(priority: Isolate.immediate);
+      }
+      return;
+    }
     if (msg.runtimeType.toString().contains('Close')) {
       events.send('close-requested');
+      pendingClose = reply;
       if (dieOnClose) {
         // A worker that faults on the way out: quietly gone, no reply ever.
         rx.close();

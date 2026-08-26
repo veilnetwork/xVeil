@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:isolate';
 import 'dart:typed_data';
 
+// `meta`, not `flutter/foundation`: this file sits on the headless daemon's
+// import graph, which a gate test keeps Flutter-free.
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'hv_kv_log_store.dart';
@@ -395,6 +398,13 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   /// Flutter-free reason as [overWorker].
   static Duration closeTimeout = const Duration(seconds: 5);
 
+  /// The background wait a timed-out close leaves behind, so a test can see it
+  /// finish. Null until a close times out; production never reads it.
+  Future<void>? _lateClose;
+
+  @visibleForTesting
+  Future<void>? get debugLateClose => _lateClose;
+
   final Isolate _isolate;
   final SendPort _toWorker;
 
@@ -523,6 +533,7 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     StorageWriteCensus.record(ops);
     return _call<int>((reply) => _CommitReq(ops, reply));
   }
+
   @override
   Future<Uint8List?> get(int namespace, Uint8List key) =>
       _call<Uint8List?>((reply) => _GetReq(namespace, key, reply));
@@ -583,9 +594,7 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     try {
       // The worker never replies a bare null (`_Ok`/`_Err` are objects), so null
       // unambiguously means the timeout fired.
-      r = await _watch
-          .race(done)
-          .timeout(closeTimeout, onTimeout: () => null);
+      r = await _watch.race(done).timeout(closeTimeout, onTimeout: () => null);
     } catch (e) {
       // The worker died mid-close. Nothing is left to wait for, and whether the
       // container handle was released with it is not something this can claim.
@@ -623,26 +632,32 @@ class WorkerKvLogStore implements AsyncKvLogStore {
           '(>${closeTimeout.inMilliseconds}ms) — waiting in background for the '
           'store to finish closing (flock still held)',
     );
-    unawaited(
-      done
-          .then(
-            (_) => devLog(
-              () =>
-                  'xVeil[storage]: late worker close completed — container '
-                  'handle released',
-            ),
-          )
-          .catchError((Object e) {
-            devLog(() => 'xVeil[storage]: late worker close failed: $e');
-          })
-          .whenComplete(() {
-            reply.close();
-            // The worker is finally gone, on its own terms. Stop watching now
-            // rather than at the timeout: until this lands the isolate is still
-            // live and a real crash in the meantime is still worth reporting.
-            _watch.dispose();
-          }),
-    );
+    // Whichever comes FIRST — the late reply or the worker's death — releases
+    // the ports. Hung on the reply alone this cleanup never ran at all when the
+    // worker died without answering: a dead isolate sends nothing, so the
+    // future it waited on could not complete, and the reply port together with
+    // the watcher's two ports stayed open for the life of the process. Repeated
+    // failed unlocks pile one set up per attempt (report16 XV-18).
+    _lateClose = _watch
+        .race(done)
+        .then(
+          (_) => devLog(
+            () =>
+                'xVeil[storage]: late worker close completed — container '
+                'handle released',
+          ),
+        )
+        .catchError((Object e) {
+          devLog(() => 'xVeil[storage]: late worker close failed: $e');
+        })
+        .whenComplete(() {
+          reply.close();
+          // The worker is finally gone, on its own terms. Stop watching now
+          // rather than at the timeout: until this lands the isolate is still
+          // live and a real crash in the meantime is still worth reporting.
+          _watch.dispose();
+        });
+    unawaited(_lateClose!);
     throw hv.HvException(
       'Busy',
       'storage worker did not close within ${closeTimeout.inMilliseconds}ms; '
