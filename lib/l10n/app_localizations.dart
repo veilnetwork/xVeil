@@ -7790,6 +7790,18 @@ abstract class AppL10n {
   /// **'Inspect installation and status'**
   String get nodeInventory;
 
+  /// No description provided for @nodeAutoUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep this node updated'**
+  String get nodeAutoUpdate;
+
+  /// No description provided for @nodeAutoUpdateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The server checks daily for a new veil release and installs it as root, unattended. Updating deliberately is recommended: this trusts whoever can publish a release, because the digest it verifies is published alongside the binary. It keeps the previous binary and restores it if the node does not come back.'**
+  String get nodeAutoUpdateHint;
+
   /// No description provided for @nodeExitRefusesThisDevice.
   ///
   /// In en, this message translates to:

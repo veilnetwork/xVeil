@@ -38,6 +38,7 @@ class ProvisionReport {
     this.nodeId,
     this.invite,
     this.components = const <NodeComponent>{},
+    this.veilVersion,
     this.exitEnabled,
     this.exitAllowAll,
     this.exitAllowedNodeIds = const <String>[],
@@ -46,6 +47,11 @@ class ProvisionReport {
 
   /// 64 hex chars, lowercased. Null when the node could not report one.
   final String? nodeId;
+
+  /// The veil-cli version the node reports, without a leading `v`
+  /// (`node show` prints `version: 0.8.1`). Null when the run did not say —
+  /// an older script, or a node that could not answer.
+  final String? veilVersion;
 
   /// The node's own bootstrap entry, already made routable where possible.
   /// Null when the script could not produce one — an older veil-cli, or a node
@@ -95,6 +101,14 @@ ProvisionReport parseProvisionReport(String output, {String? reachableHost}) {
   String? invite;
   var components = <NodeComponent>{};
 
+  // `node show` prints it on its own line. Anchored, because "version" turns
+  // up in plenty of other output and a loose match would report whatever
+  // happened to be nearby.
+  final version = RegExp(
+    r'^[ \t]*version:[ \t]*v?([0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)',
+    multiLine: true,
+  ).firstMatch(output);
+
   final id = RegExp(r'NODE_ID:\s*([0-9a-fA-F]{64})').firstMatch(output);
   if (id != null) nodeId = id.group(1)!.toLowerCase();
 
@@ -124,6 +138,7 @@ ProvisionReport parseProvisionReport(String output, {String? reachableHost}) {
     nodeId: nodeId,
     invite: invite,
     components: components,
+    veilVersion: version?.group(1),
     exitEnabled: exitEnabled,
     exitAllowAll: exitAllowAll,
     exitAllowlistUnread: unread,
@@ -1087,6 +1102,7 @@ echo "COMPONENTS: ${components.map((c) => c.binaryName).join(',')}"
 echo -n "BOOTSTRAP_URI: "
 sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml bootstrap invite 2>/dev/null \\
   | head -1 || echo "(unavailable)"
+
 
 rm -f $cleanup \$XVEIL_TMP/xveil-obfs4-psk.b64 \$XVEIL_TMP/xveil-veil.service \\
   \$XVEIL_TMP/xveil-ogate.service \$XVEIL_TMP/xveil-oproxy-client.service \\

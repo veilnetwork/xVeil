@@ -4412,6 +4412,13 @@ class AppL10nEn extends AppL10n {
   String get nodeInventory => 'Inspect installation and status';
 
   @override
+  String get nodeAutoUpdate => 'Keep this node updated';
+
+  @override
+  String get nodeAutoUpdateHint =>
+      'The server checks daily for a new veil release and installs it as root, unattended. Updating deliberately is recommended: this trusts whoever can publish a release, because the digest it verifies is published alongside the binary. It keeps the previous binary and restores it if the node does not come back.';
+
+  @override
   String get nodeExitRefusesThisDevice =>
       'This exit admits nobody yet: add this device\'s node id to proxy.exit.allowed_node_ids on the server, or it will refuse every stream once the node is updated.';
 
