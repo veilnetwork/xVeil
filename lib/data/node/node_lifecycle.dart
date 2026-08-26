@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'arch_guard.dart';
 import 'node_provisioner.dart';
 
 enum NodeManagedService { veil, ogate, oproxyClient, oproxyServer }
@@ -219,26 +220,7 @@ fi''';
 set -euo pipefail
 stage="\$(sudo mktemp -d)"
 trap 'sudo rm -rf "\$stage"' EXIT
-
-# ELF says what it was built for, in one byte at offset 18: 62 is x86-64, 183
-# is AArch64. Reading the header beats running the file — it needs no working
-# loader, and it answers before anything is installed.
-case "\$(uname -m)" in
-  x86_64)  want_machine=62 ;;
-  aarch64) want_machine=183 ;;
-  *) want_machine= ;;
-esac
-check_machine() {
-  # An architecture nobody taught this script about is not a reason to block an
-  # update it may well be able to run.
-  [ -n "\$want_machine" ] || return 0
-  got="\$(sudo od -An -t u1 -j 18 -N 1 "\$1" | tr -d ' ')"
-  [ "\$got" = "\$want_machine" ] || {
-    echo "refusing \$1: built for another architecture (ELF machine \$got, this host needs \$want_machine)" >&2
-    exit 1
-  }
-}
-$downloads
+$kArchGuardShell$downloads
 $checks
 $snapshots
 $backups
