@@ -25,6 +25,60 @@ void main() {
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('a stored opt-out is honoured on the very first launch', () async {
+    // The setting exists to stop an outbound connection to github.com that
+    // says this device runs xVeil. It is loaded asynchronously, and the
+    // automatic check runs when the app becomes usable — which can be first.
+    // Reading the provider optimistically answered "on" for somebody who had
+    // turned it off, and the request went out before their choice arrived.
+    SharedPreferences.setMockInitialValues({
+      kUpdateCheckEnabledPrefKey: false,
+    });
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final asked = <Uri>[];
+
+    // Deliberately WITHOUT reading updateCheckEnabledProvider first: that read
+    // is what would have given the stored value time to arrive, and a launch
+    // does not necessarily do it.
+    await container
+        .read(appUpdateProvider.notifier)
+        .checkIfDue(checker: answering(body, asked: asked));
+
+    expect(asked, isEmpty, reason: 'asked github.com after an opt-out');
+    expect(container.read(appUpdateProvider), isNull);
+  });
+
+  test('and a stored opt-IN still asks', () async {
+    // Vacuity guard: a check that never asks satisfies the test above.
+    SharedPreferences.setMockInitialValues({kUpdateCheckEnabledPrefKey: true});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final asked = <Uri>[];
+
+    await container
+        .read(appUpdateProvider.notifier)
+        .checkIfDue(checker: answering(body, asked: asked));
+
+    expect(asked, hasLength(1));
+  });
+
+  test('a choice made in this session wins over the stored one', () async {
+    // The switch was just moved. The stored value may still be being written,
+    // and it must not be the one that decides.
+    SharedPreferences.setMockInitialValues({kUpdateCheckEnabledPrefKey: true});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final asked = <Uri>[];
+
+    await container.read(updateCheckEnabledProvider.notifier).set(false);
+    await container
+        .read(appUpdateProvider.notifier)
+        .checkIfDue(checker: answering(body, asked: asked));
+
+    expect(asked, isEmpty);
+  });
+
   test('the first run asks and remembers that it did', () async {
     final container = ProviderContainer();
     addTearDown(container.dispose);

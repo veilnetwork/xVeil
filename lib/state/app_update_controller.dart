@@ -39,6 +39,30 @@ class UpdateCheckEnabledController extends Notifier<bool> {
     }
   }
 
+  /// The answer to act on before touching the network.
+  ///
+  /// [state] starts at the default and the stored value arrives later, so a
+  /// launch that asks the plain provider sees "on" for a person who turned it
+  /// off — and the request goes out before their choice has finished loading.
+  /// A setting whose whole purpose is to stop an outbound connection cannot be
+  /// read optimistically.
+  ///
+  /// A choice made in THIS session wins over the stored one, which may still
+  /// be being written.
+  Future<bool> resolved() async {
+    if (_userSet) return state;
+    try {
+      final prefs = await ref.read(prefsProvider.future);
+      final stored = prefs.getBool(kUpdateCheckEnabledPrefKey);
+      if (!_userSet && stored != null) state = stored;
+      return _userSet ? state : (stored ?? true);
+    } catch (_) {
+      // No prefs to consult (tests, a broken store). The default stands, and
+      // it is the one the switch shows.
+      return state;
+    }
+  }
+
   Future<void> set(bool value) async {
     _userSet = true;
     state = value;
@@ -72,7 +96,9 @@ class AppUpdateController extends Notifier<AppUpdate?> {
   ///
   /// [now] and [checker] are seams for tests; production passes neither.
   Future<void> checkIfDue({DateTime? now, AppUpdateChecker? checker}) async {
-    if (!ref.read(updateCheckEnabledProvider)) return;
+    // Resolved, not read: the stored opt-out arrives asynchronously, and the
+    // plain provider answers with the default until it does.
+    if (!await ref.read(updateCheckEnabledProvider.notifier).resolved()) return;
     final at = now ?? DateTime.now();
     try {
       final prefs = await ref.read(prefsProvider.future);
