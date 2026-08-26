@@ -1226,17 +1226,29 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (size > kMaxIncomingFileBytes) {
       final String? dest;
       if (Platform.isAndroid || Platform.isIOS) {
-        dest =
-            '${(await getApplicationDocumentsDirectory()).path}/${_safeDownloadName(m.fileName)}';
+        // A free name, not the message's. `openWrite` TRUNCATES, and the name
+        // comes straight off a received message: two files called `photo.jpg`
+        // meant the first one was destroyed without anybody being asked. The
+        // neighbouring download path already picks a free name; this one did
+        // not, and they save into the same directory.
+        dest = _uncontestedPath(
+          (await getApplicationDocumentsDirectory()).path,
+          _safeDownloadName(m.fileName),
+        );
       } else {
         dest = await FilePicker.saveFile(
           fileName: _safeDownloadName(m.fileName),
         );
       }
       if (dest == null) return; // cancelled
+      final path = dest;
       final storage = ref.read(storageProvider);
-      final sink = File(dest).openWrite();
+      // Straight to the chosen path, no `.part-` sibling: on a sandboxed macOS
+      // build the save panel grants access to the SELECTED path only, and a
+      // sibling temp file cannot be opened at all. See _downloadUnencrypted.
+      final sink = File(path).openWrite();
       var off = 0;
+      var complete = false;
       try {
         const chunk = 4 * 1024 * 1024;
         while (off < size) {
@@ -1246,11 +1258,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           sink.add(part);
           off += part.length;
         }
+        complete = off >= size;
       } finally {
         await sink.close();
+        // A save that did not finish leaves no file. What it used to leave was
+        // a plausible-looking partial OUTSIDE the encrypted volume — the exact
+        // thing the volume exists to prevent — under a name that says it is
+        // the whole document.
+        if (!complete) {
+          try {
+            await File(path).delete();
+          } catch (_) {}
+        }
       }
       if (mounted) {
-        _snack(off >= size ? l.chatFileSaved : l.chatFileSaveFailed);
+        _snack(complete ? l.chatFileSaved : l.chatFileSaveFailed);
       }
       return;
     }
