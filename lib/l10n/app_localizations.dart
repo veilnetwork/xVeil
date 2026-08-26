@@ -7676,6 +7676,12 @@ abstract class AppL10n {
   /// **'Inspect installation and status'**
   String get nodeInventory;
 
+  /// No description provided for @nodeExitRefusesThisDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'This exit admits nobody yet: add this device\'s node id to proxy.exit.allowed_node_ids on the server, or it will refuse every stream once the node is updated.'**
+  String get nodeExitRefusesThisDevice;
+
   /// No description provided for @nodeInstallUpdate.
   ///
   /// In en, this message translates to:

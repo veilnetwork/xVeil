@@ -6,7 +6,9 @@ import '../../data/node/node_lifecycle.dart';
 import '../../data/node/node_provisioner.dart';
 import '../../data/node/ssh_client.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/app_controller.dart';
 import '../../state/managed_nodes_controller.dart';
+import '../../state/proxy_routing_controller.dart';
 import 'node_config_screen.dart';
 import 'node_provision_screen.dart';
 import 'ssh_command_dialog.dart';
@@ -44,16 +46,51 @@ class NodeManagementScreen extends ConsumerWidget {
     ),
   );
 
-  /// Keep the node id the inventory just reported. The decision itself lives
-  /// in [nodeWithAdoptedId] so both of its branches are unit-testable.
-  Future<void> _adoptReportedNodeId(
+  /// Keep what the inventory just reported: the node id, AND the exit, if the
+  /// server turns out to be one.
+  ///
+  /// Both decisions live in pure functions ([nodeWithAdoptedId],
+  /// [routingWithInventoriedExit]) so every branch is reachable from a unit
+  /// test. The second one is why re-adding a lost server no longer means
+  /// deploying over a working one: the read-only inventory is enough to make it
+  /// routable again, and it rewrites nothing on the machine.
+  Future<void> _adoptInventory(
+    BuildContext context,
     WidgetRef ref,
     ManagedNode node,
     SshResult result,
   ) async {
     final updated = nodeWithAdoptedId(node, result.stdout);
-    if (updated == null) return;
-    await ref.read(managedNodesProvider.notifier).upsert(updated);
+    if (updated != null) {
+      await ref.read(managedNodesProvider.notifier).upsert(updated);
+    }
+    final routing = routingWithInventoriedExit(
+      ref.read(proxyRoutingProvider),
+      // The record as it stands AFTER the id was adopted, so a blank entry that
+      // just learned its id is registered on the same run rather than on the
+      // next one.
+      node: updated ?? node,
+      inventoryOutput: result.stdout,
+    );
+    if (routing != null) {
+      await ref.read(proxyRoutingProvider.notifier).set(routing);
+    }
+    // An exit that admits NOBODY is the shape a server deployed before the
+    // allowlist existed has: no `allowed_node_ids`, no `allow_all`. Today's
+    // node ignores both and carries the traffic; the moment it is updated it
+    // refuses every stream, and the only trace is one line in the node's log.
+    // Said here, where the operator is looking at that server and has its
+    // config in front of them.
+    final self = ref.read(appControllerProvider).identity?.nodeId.hex;
+    if (exitAdmitsSelf(result.stdout, self) == false && context.mounted) {
+      final l = AppL10n.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(l.nodeExitRefusesThisDevice),
+          duration: const Duration(seconds: 8),
+        ),
+      );
+    }
   }
 
   @override
@@ -91,7 +128,8 @@ class NodeManagementScreen extends ConsumerWidget {
               node,
               title: l.nodeInventory,
               command: buildNodeInventoryScript(),
-              onSuccess: (result) => _adoptReportedNodeId(ref, node, result),
+              onSuccess: (result) =>
+                  _adoptInventory(context, ref, node, result),
             ),
           ),
           ListTile(
