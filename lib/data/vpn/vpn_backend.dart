@@ -202,17 +202,23 @@ class MethodChannelVpnBackend implements VpnBackend {
       );
     }
 
-    final result = packetTunnel.start(
-      tunFd: tunFd,
-      socks5Listen: socks5Listen,
-      dnsIp: policy.dnsServers.firstOrNull ?? '1.1.1.1',
-      mtu: policy.mtu,
-      // Android's VpnService descriptors contain raw IP packets. Apple
-      // packet-flow adapters add their own family metadata when needed.
-      packetInformation: false,
-      routeDns: policy.routeDns,
-      selectorListen: selectorListen,
-      selectorToken: selectorToken,
+    // Through the recovery, not straight at the engine: a slot left occupied by
+    // a previous run refuses every start until the process dies, and the person
+    // is told to wait for a teardown that already finished.
+    final result = startEngineRecoveringStaleSlot(
+      start: () => packetTunnel.start(
+        tunFd: tunFd,
+        socks5Listen: socks5Listen,
+        dnsIp: policy.dnsServers.firstOrNull ?? '1.1.1.1',
+        mtu: policy.mtu,
+        // Android's VpnService descriptors contain raw IP packets. Apple
+        // packet-flow adapters add their own family metadata when needed.
+        packetInformation: false,
+        routeDns: policy.routeDns,
+        selectorListen: selectorListen,
+        selectorToken: selectorToken,
+      ),
+      stop: packetTunnel.stop,
     );
     if (result != 0) {
       await _invokeRaw('abort');
@@ -258,7 +264,17 @@ class MethodChannelVpnBackend implements VpnBackend {
     // because the Rust forwarding loop has already failed. Otherwise Android
     // keeps the system default route pointed at a dead descriptor.
     final native = VpnBackendState.fromMap(await _invokeRaw('stop'));
-    if (native.phase == VpnBackendPhase.stopped) return native;
+    if (native.phase == VpnBackendPhase.stopped) {
+      // The platform tunnel is down, so `stopped` is the truth the person
+      // needs. But an engine that refused to stop is what makes the NEXT start
+      // impossible, and returning `native` bare threw that fact away — the app
+      // then believed it had stopped cleanly and met a reentrant slot on the
+      // way back up with nothing to explain it. Carried, not shown: a stopped
+      // phase renders as "stopped".
+      return engineError == null
+          ? native
+          : VpnBackendState(native.phase, detail: engineError);
+    }
     final details = [engineError, native.detail].whereType<String>().toList();
     return VpnBackendState(
       VpnBackendPhase.error,

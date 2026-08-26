@@ -215,3 +215,34 @@ class PacketTunnelFfi {
     }
   }
 }
+
+/// Start the packet engine, clearing a STALE slot rather than surrendering to
+/// it.
+///
+/// The engine keeps one tunnel at a time. A start that finds the slot occupied
+/// answers [PacketTunnelFfi.errReentrant], which the app rendered as "the
+/// previous run's tunnel is still closing, try again in a moment" — advice that
+/// assumes the slot is draining. It is not always draining. Measured on a
+/// phone: the VPN was stopped from the UI, and every start for the next five
+/// minutes was refused with that same sentence, because the stop had left a
+/// worker in the slot and nothing ever took it out. Only killing the app
+/// process cleared it. "Wait a moment" is then a message that can never come
+/// true, on the one screen where the person has nothing else to try.
+///
+/// Clearing the slot is safe HERE specifically: by the time this runs the
+/// platform has already handed over a fresh TUN descriptor for the tunnel we
+/// are starting, so whatever still sits in the slot is bound to a descriptor
+/// the OS has already replaced. It cannot be carrying anyone's traffic.
+///
+/// One retry, not a loop: if the slot is still occupied after an explicit stop,
+/// the engine is wedged in a way this layer cannot fix, and the caller should
+/// say so instead of spinning.
+int startEngineRecoveringStaleSlot({
+  required int Function() start,
+  required int Function() stop,
+}) {
+  final first = start();
+  if (first != PacketTunnelFfi.errReentrant) return first;
+  stop();
+  return start();
+}
