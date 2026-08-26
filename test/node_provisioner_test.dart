@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/node/managed_node.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 
 void main() {
@@ -432,7 +433,10 @@ COMPONENTS: veil-cli,ogate,oproxy-server
 
     test('the rest of the invite survives the rewrite', () {
       final r = parseProvisionReport(output, reachableHost: '203.0.113.7');
-      expect(r.invite, contains('pk=VVxxLVptuXZ%2FqFV94aPP1daiz6ZYg2yf1JLbc1VHXhQ='));
+      expect(
+        r.invite,
+        contains('pk=VVxxLVptuXZ%2FqFV94aPP1daiz6ZYg2yf1JLbc1VHXhQ='),
+      );
       expect(r.invite, contains('nc=AdW8kw=='));
       expect(r.invite, contains('a=ed25519'));
     });
@@ -463,10 +467,14 @@ COMPONENTS: veil-cli,ogate,oproxy-server
         expect(t.scheme, isNotEmpty, reason: '$t');
         expect(t.defaultPort, greaterThan(0), reason: '$t');
       }
-      expect(
-        NodeListenTransport.values.map((t) => t.scheme).toSet(),
-        {'obfs4-tcp', 'tcp', 'tls', 'quic', 'ws', 'wss'},
-      );
+      expect(NodeListenTransport.values.map((t) => t.scheme).toSet(), {
+        'obfs4-tcp',
+        'tcp',
+        'tls',
+        'quic',
+        'ws',
+        'wss',
+      });
     });
 
     test('plain ws needs no certificate, wss does', () {
@@ -488,6 +496,54 @@ COMPONENTS: veil-cli,ogate,oproxy-server
       expect(script, contains("--advertise 'ws://node.example.org:8080'"));
       // No certificate flags: ws has nothing to present.
       expect(script, isNot(contains('--tls-cert')));
+    });
+  });
+
+  group('adopting the node id an inventory reports', () {
+    // Verbatim tail of a real `buildNodeInventoryScript()` run against a
+    // deployed server — the format the parser has to survive.
+    const inventory =
+        'UNIT_oproxy-server.service_ACTIVE: inactive\n'
+        'UNIT_oproxy-server.service_ENABLED: disabled\n'
+        'NODE_ID: b95b118da10123c27bb7c964bbe7691be9050f4ec9f17744e9ad53ad99f3d81e\n';
+
+    const blank = ManagedNode(id: 'local-1', label: 'exit-host');
+
+    test('fills a record that has no id yet', () {
+      final updated = nodeWithAdoptedId(blank, inventory);
+      expect(
+        updated?.nodeId,
+        'b95b118da10123c27bb7c964bbe7691be9050f4ec9f17744e9ad53ad99f3d81e',
+        reason:
+            'the inventory already knows the id the routing UI needs; making '
+            'the operator retype 64 hex characters is how it gets mistyped',
+      );
+      // Premise: nothing else about the record is disturbed.
+      expect(updated?.label, 'exit-host');
+      expect(updated?.id, 'local-1');
+    });
+
+    test('never overwrites an id the operator already has', () {
+      const chosen = ManagedNode(
+        id: 'local-1',
+        label: 'exit-host',
+        nodeId:
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      );
+      expect(
+        nodeWithAdoptedId(chosen, inventory),
+        isNull,
+        reason:
+            'a rebuilt or re-pointed host would otherwise take over an entry '
+            'that decides where traffic goes',
+      );
+      // Premise: the same output DOES adopt when the field is blank, so this
+      // null is a decision about the record and not an unparsed inventory.
+      expect(nodeWithAdoptedId(blank, inventory), isNotNull);
+    });
+
+    test('an inventory without a NODE_ID line changes nothing', () {
+      expect(nodeWithAdoptedId(blank, 'BINARY_veil-cli: missing\n'), isNull);
     });
   });
 }
