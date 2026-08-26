@@ -2797,6 +2797,28 @@ class AppL10nEn extends AppL10n {
   String get linkCopy => 'Copy';
 
   @override
+  String get chatLinkInviteTitle => 'Contact invite';
+
+  @override
+  String get chatLinkInviteAction => 'Add contact';
+
+  @override
+  String get chatLinkPeersTitle => 'Network entry nodes';
+
+  @override
+  String get chatLinkPeersAction => 'Add nodes';
+
+  @override
+  String get chatLinkDeviceTitle => 'Device link';
+
+  @override
+  String get chatLinkDeviceBody =>
+      'This link joins a device to an identity. It is not applied from a chat: open Devices and paste it there yourself.';
+
+  @override
+  String get chatLinkDeviceAction => 'Open Devices';
+
+  @override
   String get linkOpenFailed => 'Couldn\'t open the link';
 
   @override

@@ -2833,6 +2833,28 @@ class AppL10nRu extends AppL10n {
   String get linkCopy => 'Копировать';
 
   @override
+  String get chatLinkInviteTitle => 'Приглашение в контакты';
+
+  @override
+  String get chatLinkInviteAction => 'Добавить контакт';
+
+  @override
+  String get chatLinkPeersTitle => 'Входные узлы сети';
+
+  @override
+  String get chatLinkPeersAction => 'Добавить узлы';
+
+  @override
+  String get chatLinkDeviceTitle => 'Привязка устройства';
+
+  @override
+  String get chatLinkDeviceBody =>
+      'Эта ссылка привязывает устройство к личности. Из чата её не применяют: откройте «Устройства» и вставьте её там сами.';
+
+  @override
+  String get chatLinkDeviceAction => 'Открыть «Устройства»';
+
+  @override
   String get linkOpenFailed => 'Не удалось открыть ссылку';
 
   @override

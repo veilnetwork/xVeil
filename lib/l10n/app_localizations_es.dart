@@ -2830,6 +2830,28 @@ class AppL10nEs extends AppL10n {
   String get linkCopy => 'Copiar';
 
   @override
+  String get chatLinkInviteTitle => 'Invitación de contacto';
+
+  @override
+  String get chatLinkInviteAction => 'Añadir contacto';
+
+  @override
+  String get chatLinkPeersTitle => 'Nodos de entrada a la red';
+
+  @override
+  String get chatLinkPeersAction => 'Añadir nodos';
+
+  @override
+  String get chatLinkDeviceTitle => 'Vinculación de dispositivo';
+
+  @override
+  String get chatLinkDeviceBody =>
+      'Este enlace vincula un dispositivo a una identidad. No se aplica desde un chat: abre Dispositivos y pégalo allí tú mismo.';
+
+  @override
+  String get chatLinkDeviceAction => 'Abrir Dispositivos';
+
+  @override
   String get linkOpenFailed => 'No se pudo abrir el enlace';
 
   @override

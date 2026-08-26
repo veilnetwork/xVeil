@@ -16,7 +16,11 @@ class SharedPeers {
   /// Each entry is a full, dialable descriptor (transport is always present).
   final List<BootstrapInvite> peers;
 
-  static const _scheme = 'veil:peers?';
+  /// Public like [BootstrapInvite.scheme] and [DeviceLinkInvite.scheme]: the
+  /// chat body's link scanner builds its pattern from these three, so a
+  /// scheme spelled twice cannot drift into a link that highlights but is
+  /// not recognised.
+  static const scheme = 'veil:peers?';
 
   /// Bound a scanned/pasted share: QR capacity is a few KB and a legitimate
   /// share is a short list, so cap the raw token well above that. Stops a
@@ -28,17 +32,17 @@ class SharedPeers {
   static const _maxPeers = 64;
 
   static bool looksLikeSharedPeers(String uri) =>
-      uri.trim().startsWith(_scheme);
+      uri.trim().startsWith(scheme);
 
   static SharedPeers parse(String uri) {
     final trimmed = uri.trim();
-    if (!trimmed.startsWith(_scheme)) {
+    if (!trimmed.startsWith(scheme)) {
       throw const FormatException('not a veil peers share');
     }
     if (trimmed.length > _maxUriChars) {
       throw const FormatException('peers share too large');
     }
-    final body = trimmed.substring(_scheme.length);
+    final body = trimmed.substring(scheme.length);
     final i = body.indexOf('='); // the `p=` separator (first '=')
     if (i <= 0 || body.substring(0, i) != 'p') {
       throw const FormatException('peers share missing p=');
@@ -88,7 +92,7 @@ class SharedPeers {
         }
     ];
     final b64 = base64Url.encode(utf8.encode(jsonEncode(arr)));
-    return '${_scheme}p=$b64';
+    return '${scheme}p=$b64';
   }
 
   static String _pad(String s) {

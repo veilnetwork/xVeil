@@ -4898,6 +4898,48 @@ abstract class AppL10n {
   /// **'Copy'**
   String get linkCopy;
 
+  /// No description provided for @chatLinkInviteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Contact invite'**
+  String get chatLinkInviteTitle;
+
+  /// No description provided for @chatLinkInviteAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Add contact'**
+  String get chatLinkInviteAction;
+
+  /// No description provided for @chatLinkPeersTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Network entry nodes'**
+  String get chatLinkPeersTitle;
+
+  /// No description provided for @chatLinkPeersAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Add nodes'**
+  String get chatLinkPeersAction;
+
+  /// No description provided for @chatLinkDeviceTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Device link'**
+  String get chatLinkDeviceTitle;
+
+  /// No description provided for @chatLinkDeviceBody.
+  ///
+  /// In en, this message translates to:
+  /// **'This link joins a device to an identity. It is not applied from a chat: open Devices and paste it there yourself.'**
+  String get chatLinkDeviceBody;
+
+  /// No description provided for @chatLinkDeviceAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Open Devices'**
+  String get chatLinkDeviceAction;
+
   /// No description provided for @linkOpenFailed.
   ///
   /// In en, this message translates to:
