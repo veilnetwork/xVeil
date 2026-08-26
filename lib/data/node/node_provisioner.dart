@@ -722,13 +722,22 @@ WantedBy=multi-user.target''';
 // doing that with a section-aware helper avoids brittle line-number/sed edits
 // and remains compatible with newer CLI releases.
 const _tomlScalarHelper = r'''
+# Every write here goes through `sudo`, INCLUDING the redirection.
+#
+# A shell redirect is performed by the shell, before the command it decorates
+# runs — so `sudo awk … > "$temp"` creates the file as the login user. The
+# staged config lives in a directory that is `root:veil 0770`, and an ordinary
+# sudoer is not in group `veil`, so that create was refused and `set -e` ended
+# the deployment: after the binaries were installed and before anything was
+# validated or started. `sudo tee` does the writing on the privileged side,
+# where the rest of this function already is.
 set_toml_scalar() {
   local section="$1" key="$2" value="$3" file="$4"
   local temp="${file}.xveil.$$" owner group mode
   owner="$(sudo stat -c %u "$file")"
   group="$(sudo stat -c %g "$file")"
   mode="$(sudo stat -c %a "$file")"
-  rm -f "$temp"
+  sudo rm -f "$temp"
   sudo awk -v section="$section" -v key="$key" -v value="$value" '
     BEGIN { in_section = 0; section_seen = 0; key_written = 0 }
     $0 == "[" section "]" {
@@ -758,9 +767,9 @@ set_toml_scalar() {
         print key " = " value
       }
     }
-  ' "$file" > "$temp"
+  ' "$file" | sudo tee "$temp" >/dev/null
   sudo install -o "$owner" -g "$group" -m "$mode" "$temp" "$file"
-  rm -f "$temp"
+  sudo rm -f "$temp"
 }
 ''';
 
