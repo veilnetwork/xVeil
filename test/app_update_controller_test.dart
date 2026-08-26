@@ -310,4 +310,122 @@ void main() {
       expect(raw, isNot(contains('profile')));
     });
   });
+
+  group('a choice made before this store existed', () {
+    // The pair moved from `SharedPreferences` to a file beside the profile
+    // directories. What the move left behind was the choice: nothing read the
+    // old key, so an upgrade found an empty store, took the default, and asked
+    // github.com on behalf of somebody who had turned checks off
+    // (report16 XV-13).
+    test('an opt-out from the old store is honoured after the upgrade', () async {
+      SharedPreferences.setMockInitialValues({
+        kUpdateCheckEnabledPrefKey: false,
+      });
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+      final asked = <Uri>[];
+
+      await container
+          .read(appUpdateProvider.notifier)
+          .checkIfDue(checker: answering(body, asked: asked));
+
+      expect(
+        asked,
+        isEmpty,
+        reason: 'the upgrade asked github.com despite a stored opt-out',
+      );
+      expect(installPrefs.enabled, isFalse, reason: 'it was not carried over');
+    });
+
+    test('an opt-IN from the old store is NOT carried across profiles', () async {
+      // The old keys are per profile, so a `true` in one says nothing about
+      // another — while an opt-out anywhere is a choice to respect
+      // everywhere. Only the direction that sends no packet travels.
+      SharedPreferences.setMockInitialValues({
+        kUpdateCheckEnabledPrefKey: true,
+      });
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+
+      await container.read(updateCheckEnabledProvider.notifier).resolved();
+
+      expect(installPrefs.enabled, isNull, reason: 'a true was written in');
+    });
+
+    test('the old stamp is carried, so the throttle is not reset', () async {
+      final earlier = DateTime(2026, 8, 26, 9);
+      SharedPreferences.setMockInitialValues({
+        kUpdateLastCheckPrefKey: earlier.millisecondsSinceEpoch,
+      });
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+      final asked = <Uri>[];
+
+      await container.read(appUpdateProvider.notifier).checkIfDue(
+            now: earlier.add(const Duration(hours: 1)),
+            checker: answering(body, asked: asked),
+          );
+
+      expect(
+        asked,
+        isEmpty,
+        reason: 'the upgrade reset the daily throttle and let a check out',
+      );
+    });
+
+    test('and a later stamp already here is not moved backwards', () async {
+      final earlier = DateTime(2026, 8, 26, 9);
+      final later = DateTime(2026, 8, 26, 20);
+      installPrefs.lastCheck = later;
+      SharedPreferences.setMockInitialValues({
+        kUpdateLastCheckPrefKey: earlier.millisecondsSinceEpoch,
+      });
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+
+      await container.read(updateCheckEnabledProvider.notifier).resolved();
+
+      expect(installPrefs.lastCheck, later);
+    });
+
+    test('running it again takes nothing away', () async {
+      // There is no "already migrated" marker: the carry is idempotent by
+      // construction, and a marker that guards nothing is persisted state that
+      // can be wrong. What must hold is this — somebody who turns checks back
+      // ON keeps them on, however many times the carry runs.
+      SharedPreferences.setMockInitialValues({
+        kUpdateCheckEnabledPrefKey: false,
+      });
+      final first = withInstallPrefs();
+      await first.read(updateCheckEnabledProvider.notifier).resolved();
+      first.dispose();
+      expect(installPrefs.enabled, isFalse);
+
+      installPrefs.enabled = true;
+      final second = withInstallPrefs();
+      addTearDown(second.dispose);
+
+      await second.read(updateCheckEnabledProvider.notifier).resolved();
+
+      expect(installPrefs.enabled, isTrue);
+    });
+
+    test('a stamp that is NEWER than the one here moves it forward', () async {
+      // The other direction of the same rule. Without it an upgrade could
+      // leave the throttle believing the last check was older than it was, and
+      // let one out early.
+      final older = DateTime(2026, 8, 26, 9);
+      final newer = DateTime(2026, 8, 26, 20);
+      installPrefs.lastCheck = older;
+      SharedPreferences.setMockInitialValues({
+        kUpdateLastCheckPrefKey: newer.millisecondsSinceEpoch,
+      });
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+
+      await container.read(updateCheckEnabledProvider.notifier).resolved();
+
+      expect(installPrefs.lastCheck, newer);
+    });
+  });
 }
