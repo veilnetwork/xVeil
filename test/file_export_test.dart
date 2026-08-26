@@ -128,18 +128,76 @@ void main() {
     expect(file.lengthSync(), 0);
   });
 
-  test('it writes to the path it was given, not a sibling', () async {
-    // A sandboxed macOS save panel grants access to the SELECTED path only, so
-    // a `<name>.part` sibling cannot be opened at all and every export failed
-    // on a release build.
+  test('it leaves the target and nothing beside it', () async {
+    // Whichever way it wrote, what remains is the document under its name. A
+    // leftover `.xveil-part` is litter the person did not ask for, in a
+    // directory they chose.
     final file = target();
     await writeStreamedFile(file: file, size: 64, read: source(64));
 
-    final siblings = dir
-        .listSync()
-        .map((e) => e.path.split('/').last)
-        .toList();
-    expect(siblings, ['out.bin']);
+    final left = dir.listSync().map((e) => e.path.split('/').last).toList();
+    expect(left, ['out.bin']);
+  });
+
+  group('an existing document the person chose', () {
+    // `openWrite` truncates on open. Writing straight to the chosen path — the
+    // sandbox fallback — therefore destroys the document at the moment the
+    // copy begins, so a transfer that fails halfway leaves nothing
+    // (report16 XV-03). A sibling is written instead wherever one can be
+    // opened, and the target is replaced in one step at the end.
+    test('survives a copy that fails', () async {
+      final file = target('notes.txt')..writeAsStringSync('the original');
+
+      final ok = await writeStreamedFile(
+        file: file,
+        size: 5000,
+        read: source(5000, stopAt: 1024),
+        chunk: 1024,
+      );
+
+      expect(ok, isFalse);
+      expect(
+        file.readAsStringSync(),
+        'the original',
+        reason: 'the document was destroyed by a copy that never finished',
+      );
+    });
+
+    test('and is replaced whole by one that succeeds', () async {
+      final file = target('notes.txt')..writeAsStringSync('the original');
+
+      expect(
+        await writeStreamedFile(file: file, size: 4096, read: source(4096)),
+        isTrue,
+      );
+      expect(file.lengthSync(), 4096);
+      expect(dir.listSync(), hasLength(1), reason: 'a temp was left behind');
+    });
+
+    test('and a filesystem that refuses a sibling still writes direct', () async {
+      // The sandbox case: the save panel grants the SELECTED path and nothing
+      // else, so opening `<name>.part` fails. Falling back is what makes an
+      // export possible there at all.
+      final file = target('notes.txt');
+      var refusedSibling = false;
+
+      final ok = await writeStreamedFile(
+        file: file,
+        size: 128,
+        read: source(128),
+        openSink: (f) {
+          if (f.path.endsWith('.xveil-part')) {
+            refusedSibling = true;
+            throw const FileSystemException('Operation not permitted');
+          }
+          return f.openWrite();
+        },
+      );
+
+      expect(refusedSibling, isTrue, reason: 'no sibling was even tried');
+      expect(ok, isTrue);
+      expect(file.lengthSync(), 128);
+    });
   });
 
   group('choosing where it goes', () {

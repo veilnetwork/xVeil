@@ -15,11 +15,21 @@ import 'dart:io';
 /// opens it, sees the first half of their document, and has no way to know the
 /// rest was never written.
 ///
-/// Written STRAIGHT to [file], never to a `<name>.part` sibling. On a
-/// sandboxed macOS build the save panel grants a read-write exception for the
-/// selected path only, so opening a sibling fails with "Operation not
-/// permitted" and every export silently failed — found on a release build
-/// after it worked in every debug one.
+/// Through a sibling temp WHERE ONE CAN BE OPENED, and straight to [file]
+/// where one cannot.
+///
+/// Both halves are the result of something going wrong. On a sandboxed macOS
+/// build the save panel grants a read-write exception for the selected path
+/// ONLY, so opening `<name>.part` fails with "Operation not permitted" and
+/// every export silently failed — found on a release build after it worked in
+/// every debug one. Writing direct fixed that and cost something else:
+/// `openWrite` truncates on open, so choosing an existing document and having
+/// the copy fail destroyed the document (report16 XV-03).
+///
+/// So the sibling is tried first and the direct write is the fallback, which
+/// is exactly the case the sandbox leaves. In the fallback an existing target
+/// cannot be protected — it is gone at open — and the person did confirm
+/// replacing it in the panel that granted the path.
 ///
 /// [openSink] exists so a test can make `close` fail. That branch matters —
 /// `close` is what flushes, so it is a plausible place for the write to go
@@ -34,9 +44,25 @@ Future<bool> writeStreamedFile({
   int chunk = 4 * 1024 * 1024,
   IOSink Function(File file)? openSink,
 }) async {
+  final open = openSink ?? (f) => f.openWrite();
+  // The sibling, when the filesystem allows one. Named beside the target so it
+  // lands on the same device and the rename below is atomic rather than a copy.
+  final sibling = File('${file.path}.xveil-part');
+  IOSink sink;
+  File writing;
+  var replacing = false;
+  try {
+    sink = open(sibling);
+    writing = sibling;
+    replacing = true;
+  } on FileSystemException {
+    // A sandbox that granted one path, or a directory that is not ours to add
+    // to. Direct is all that is left.
+    sink = open(file);
+    writing = file;
+  }
   var written = 0;
   var complete = false;
-  final sink = (openSink ?? (f) => f.openWrite())(file);
   try {
     while (written < size) {
       final want = (size - written) < chunk ? size - written : chunk;
@@ -56,9 +82,24 @@ Future<bool> writeStreamedFile({
       complete = false;
     }
     if (!complete) {
+      // Only what THIS call opened. In the sibling case that leaves the
+      // person's existing document exactly as it was.
       try {
-        await file.delete();
+        await writing.delete();
       } catch (_) {}
+    }
+  }
+  if (complete && replacing) {
+    // The target appears whole or not at all: a rename over an existing file
+    // replaces it in one step, so there is no moment where it is half a
+    // document.
+    try {
+      await sibling.rename(file.path);
+    } catch (_) {
+      try {
+        await sibling.delete();
+      } catch (_) {}
+      return false;
     }
   }
   return complete;

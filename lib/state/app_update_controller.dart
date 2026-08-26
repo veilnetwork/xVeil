@@ -28,6 +28,46 @@ final installUpdatePrefsProvider = FutureProvider<InstallUpdatePrefs>((
   return InstallUpdatePrefs(InstallUpdatePrefs.pathIn(dir.path));
 });
 
+/// Carry a choice made before this store existed into it, once.
+///
+/// The pair moved from `SharedPreferences` — which is per-profile in
+/// production, however install-wide it looks — to a file beside the profile
+/// directories. What that move left behind was the choice itself: nothing read
+/// the old key, so an upgrade found an empty store, took the default, and
+/// asked github.com on behalf of somebody who had turned checks off
+/// (report16 XV-13). The comment on the constants said "kept for the
+/// migration" while there was none.
+///
+/// Only a stored FALSE is carried over. The keys are per profile, so a `true`
+/// in one says nothing about another, while an opt-out anywhere is a choice to
+/// respect everywhere: the safe direction is the one that sends no packet.
+///
+/// The stamp is carried as the LATER of the two, so an upgrade cannot reset
+/// the daily throttle and let a check out early.
+///
+/// Safe to run again, and it does — there is no "already migrated" marker.
+/// One was written first and turned out to hold nothing: the conditions below
+/// are each idempotent on their own, and a marker that guards nothing is a
+/// piece of persisted state that can be wrong. Measured, by breaking it and
+/// watching every test stay green.
+Future<void> migrateUpdatePrefs(Ref ref) async {
+  final install = await ref.read(installUpdatePrefsProvider.future);
+  try {
+    final legacy = await ref.read(prefsProvider.future);
+    if (install.enabled == null && legacy.getBool(kUpdateCheckEnabledPrefKey) == false) {
+      install.enabled = false;
+    }
+    final legacyMs = legacy.getInt(kUpdateLastCheckPrefKey);
+    if (legacyMs != null) {
+      final was = install.lastCheck;
+      final carried = DateTime.fromMillisecondsSinceEpoch(legacyMs);
+      if (was == null || carried.isAfter(was)) install.lastCheck = carried;
+    }
+  } catch (_) {
+    // No legacy store to read (tests, a fresh install). Nothing to carry.
+  }
+}
+
 /// Whether the app looks for a newer release. On by default; the switch exists
 /// because the request is an outbound connection to github.com that says this
 /// device runs xVeil, and in this app that is a choice worth leaving open.
@@ -46,6 +86,7 @@ class UpdateCheckEnabledController extends Notifier<bool> {
 
   Future<void> _load() async {
     try {
+      await migrateUpdatePrefs(ref);
       final prefs = await ref.read(installUpdatePrefsProvider.future);
       if (!_userSet) state = prefs.enabled ?? true;
     } catch (_) {
@@ -66,6 +107,9 @@ class UpdateCheckEnabledController extends Notifier<bool> {
   Future<bool> resolved() async {
     if (_userSet) return state;
     try {
+      // Before anything decides: an opt-out made in the old store is the
+      // answer here, and this is the last moment before a request.
+      await migrateUpdatePrefs(ref);
       final prefs = await ref.read(installUpdatePrefsProvider.future);
       final stored = prefs.enabled;
       if (!_userSet && stored != null) state = stored;
@@ -160,9 +204,11 @@ final updateLastCheckProvider = FutureProvider<DateTime?>((ref) async {
   // Rebuilds when the offer changes, which is the moment a check finished.
   ref.watch(appUpdateProvider);
   try {
-    final prefs = await ref.read(prefsProvider.future);
-    final ms = prefs.getInt(kUpdateLastCheckPrefKey);
-    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+    // The SAME store the throttle uses. This read the per-profile one and the
+    // throttle read the install-wide one, so the tile could say "not checked
+    // yet" minutes after a check that the throttle counted.
+    await migrateUpdatePrefs(ref);
+    return (await ref.read(installUpdatePrefsProvider.future)).lastCheck;
   } catch (_) {
     return null;
   }
