@@ -193,7 +193,20 @@ echo '${a.expectedSha256.trim().toLowerCase()}  '"$t" | sudo sha256sum -c -''';
   final backups = artifacts
       .map((a) {
         final binary = '/usr/local/bin/${a.component.binaryName}';
-        return "sudo test -e '$binary' && sudo cp -a '$binary' '$binary.previous' || true";
+        // NOT `cp || true`. A copy that failed - a full disk, a read-only
+        // mount - used to be swallowed, and the install then overwrote the
+        // working binary with nothing to go back to. The whole point of
+        // keeping a copy is that it is there.
+        return '''if sudo test -e '$binary'; then
+  sudo cp -a '$binary' '$binary.previous' || {
+    echo 'cannot keep a copy of ${a.component.binaryName} - refusing to install over it' >&2
+    exit 1
+  }
+else
+  # Nothing to keep. Drop any copy an earlier run left, so a rollback cannot
+  # restore a binary that was never the one running.
+  sudo rm -f '$binary.previous'
+fi''';
       })
       .join('\n');
   final restarts = artifacts
@@ -201,16 +214,31 @@ echo '${a.expectedSha256.trim().toLowerCase()}  '"$t" | sudo sha256sum -c -''';
         final key = a.component.binaryName.replaceAll('-', '_');
         final binary = '/usr/local/bin/${a.component.binaryName}';
         return '''if [ "\$active_$key" = 1 ]; then
-  sudo systemctl restart '${unit(a)}'
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    sudo systemctl is-active --quiet '${unit(a)}' && break
-    sleep 2
-  done
-  if ! sudo systemctl is-active --quiet '${unit(a)}'; then
+  # `restart` is NOT bare. Under `set -e` a non-zero return ended the shell
+  # here, several lines above the restore it was supposed to reach - so the
+  # rollback read correctly and had never once run.
+  ok=1
+  sudo systemctl restart '${unit(a)}' || ok=0
+  if [ "\$ok" = 1 ]; then
+    ok=0
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      if sudo systemctl is-active --quiet '${unit(a)}'; then ok=1; break; fi
+      sleep 2
+    done
+  fi
+  # A unit reports active the moment it is started, and a binary built for the
+  # wrong machine exits just after. Look again after a dwell rather than
+  # believing the first yes.
+  if [ "\$ok" = 1 ]; then
+    sleep 3
+    sudo systemctl is-active --quiet '${unit(a)}' || ok=0
+  fi
+  if [ "\$ok" = 0 ]; then
     echo "${a.component.binaryName} did not come back - restoring" >&2
-    sudo test -e '$binary.previous' && \\
+    if sudo test -e '$binary.previous'; then
       sudo install -o root -g root -m 0755 '$binary.previous' '$binary'
-    sudo systemctl restart '${unit(a)}' || true
+      sudo systemctl restart '${unit(a)}' || true
+    fi
     exit 1
   fi
 fi''';
