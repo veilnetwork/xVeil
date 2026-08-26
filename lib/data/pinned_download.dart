@@ -151,10 +151,22 @@ Future<PinnedDownload> fetchPinned({
     );
     var received = have;
     var cancelled = false;
+    var overrun = false;
     try {
       await for (final chunk in response.timeout(stallTimeout)) {
         if (isCancelled != null && isCancelled()) {
           cancelled = true;
+          break;
+        }
+        // Checked BEFORE the write, against the size the pin names.
+        //
+        // The comparison used to happen only after the stream ended, so an
+        // origin that kept sending fast never tripped the stall timeout and
+        // grew the `.part` file until the disk was full — on a download whose
+        // exact length is known in advance, because that is what a pinned
+        // artifact is (report16 XV-05).
+        if (received + chunk.length > artifact.bytes) {
+          overrun = true;
           break;
         }
         sink.add(chunk);
@@ -172,6 +184,16 @@ Future<PinnedDownload> fetchPinned({
       // The partial file stays: this is a pause, not a discard.
       devLog(() => 'xVeil[$logTag]: download cancelled at $received bytes');
       return const PinnedDownload.cancelled();
+    }
+    if (overrun) {
+      // Not a pause. The origin is sending more than the pin says exists, so
+      // there is nothing here to resume TOWARDS — keeping the file would leave
+      // a partial that the next attempt would try to continue.
+      part.deleteSync();
+      return PinnedDownload.failed(
+        'origin sent more than the expected ${artifact.bytes} bytes '
+        '(stopped at $received)',
+      );
     }
 
     // Size first: it is the cheap half of the same question, and a short body
