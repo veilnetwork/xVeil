@@ -375,20 +375,28 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     // points at a different server, so the old pin must NOT carry over.
     final existingId = widget.existing?.id;
     String? pin;
+    ManagedNode? current;
     if (existingId != null) {
       final nodes =
           ref.read(managedNodesProvider).value ?? const <ManagedNode>[];
       for (final n in nodes) {
         if (n.id == existingId) {
-          if (n.sshHost == sshHost &&
-              n.sshPort == port &&
-              n.sshUser == sshUser) {
-            pin = n.sshHostFingerprint;
-          }
+          current = n;
           break;
         }
       }
     }
+    // Everything this form does NOT ask about belongs to the machine at the
+    // other end, and survives an edit of the label. It used to be rebuilt from
+    // the form alone, so renaming a server silently set `autoUpdate` back to
+    // false while a root timer kept updating it on a schedule — and the screen
+    // then said unattended updates were off.
+    final sameEndpoint =
+        current != null &&
+        current.sshHost == sshHost &&
+        current.sshPort == port &&
+        current.sshUser == sshUser;
+    if (sameEndpoint) pin = current.sshHostFingerprint;
 
     final node = ManagedNode(
       id: existingId ?? const Uuid().v4(),
@@ -398,6 +406,12 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
       sshPort: port,
       sshUser: sshUser,
       sshHostFingerprint: pin,
+      // Pointed at a different machine, these describe the previous one: the
+      // host key, the version it reported, the timer somebody enabled there.
+      // Carrying them over would claim things about a server nobody has asked
+      // anything yet.
+      autoUpdate: sameEndpoint && current.autoUpdate,
+      veilVersion: sameEndpoint ? current.veilVersion : null,
     );
     setState(() => _saving = true);
     try {

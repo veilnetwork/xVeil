@@ -66,13 +66,20 @@ class NodeManagementScreen extends ConsumerWidget {
     // The id is adopted only into a BLANK record (see nodeWithAdoptedId); the
     // version is refreshed every time, because that is the whole point of
     // running an inventory.
-    var updated = nodeWithAdoptedId(node, result.stdout) ?? node;
-    if (report.veilVersion != null) {
-      updated = updated.copyWith(veilVersion: report.veilVersion);
-    }
-    if (updated != node) {
-      await ref.read(managedNodesProvider.notifier).upsert(updated);
-    }
+    // Applied to the record as it stands NOW, not to the copy this callback
+    // was handed: the dialog pins a host key just before calling it, and
+    // writing back the earlier object wiped the pin.
+    ManagedNode? written;
+    await ref.read(managedNodesProvider.notifier).updateById(node.id, (cur) {
+      var next = nodeWithAdoptedId(cur, result.stdout) ?? cur;
+      if (report.veilVersion != null) {
+        next = next.copyWith(veilVersion: report.veilVersion);
+      }
+      return written = next;
+    });
+    // What was actually stored, so the routing below reads the same record —
+    // and `node` when the entry was deleted while the command ran.
+    final updated = written ?? node;
     final routing = routingWithInventoriedExit(
       ref.read(proxyRoutingProvider),
       // The record as it stands AFTER the id was adopted, so a blank entry that
@@ -122,7 +129,7 @@ class NodeManagementScreen extends ConsumerWidget {
       if (!result.ok) return;
       await ref
           .read(managedNodesProvider.notifier)
-          .upsert(node.copyWith(autoUpdate: value));
+          .updateById(node.id, (cur) => cur.copyWith(autoUpdate: value));
     },
   );
 
