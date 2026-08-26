@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/node/managed_node.dart';
 import '../../data/node/node_lifecycle.dart';
+import '../../data/node/node_provisioner.dart';
+import '../../data/node/ssh_client.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
 import 'node_config_screen.dart';
@@ -29,6 +31,7 @@ class NodeManagementScreen extends ConsumerWidget {
     required String command,
     bool preview = false,
     Duration timeout = const Duration(minutes: 2),
+    Future<void> Function(SshResult result)? onSuccess,
   }) => showDialog<void>(
     context: context,
     builder: (_) => SshCommandDialog(
@@ -37,8 +40,21 @@ class NodeManagementScreen extends ConsumerWidget {
       command: command,
       timeout: timeout,
       showCommandPreview: preview,
+      onSuccess: onSuccess,
     ),
   );
+
+  /// Keep the node id the inventory just reported. The decision itself lives
+  /// in [nodeWithAdoptedId] so both of its branches are unit-testable.
+  Future<void> _adoptReportedNodeId(
+    WidgetRef ref,
+    ManagedNode node,
+    SshResult result,
+  ) async {
+    final updated = nodeWithAdoptedId(node, result.stdout);
+    if (updated == null) return;
+    await ref.read(managedNodesProvider.notifier).upsert(updated);
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -75,6 +91,7 @@ class NodeManagementScreen extends ConsumerWidget {
               node,
               title: l.nodeInventory,
               command: buildNodeInventoryScript(),
+              onSuccess: (result) => _adoptReportedNodeId(ref, node, result),
             ),
           ),
           ListTile(
