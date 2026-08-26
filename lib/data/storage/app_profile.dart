@@ -241,7 +241,7 @@ String activeProfileDir(
 final Set<String> _noted = <String>{};
 
 void _noteLeftBehind(String supportDir, String dir, List<String> names) {
-  if (names.isEmpty || !_noted.add('$dir ${names.join(",")}')) return;
+  if (names.isEmpty || !_noted.add('$dir\x00${names.join(",")}')) return;
   devLog(() {
     final present = [
       for (final name in names)

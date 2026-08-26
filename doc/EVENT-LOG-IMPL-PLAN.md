@@ -41,7 +41,7 @@ NEW Dart types:
 
 THE FOLD (rewrite of `_foldCritical` at hidden_volume_storage.dart:724-813) becomes a (conv,author,seq) VALUE-FOLD, two layers per §15.1 R-ORDER. It is ts-FREE for apply; ts is used only at display.
 
-State maps re-keyed from composite `convid` (_msgKey) to a `(conv,au,seq)` apply-key, but the user-visible identity stays the message `id` (display + dedup). Maintain:
+State maps re-keyed from composite `conv\x1fid` (_msgKey) to a `(conv,au,seq)` apply-key, but the user-visible identity stays the message `id` (display + dedup). Maintain:
 - `_evById: Map<(conv,id), Message>` — current folded message (carries author+seq).
 - `_evHeld: Map<(conv,targetId), List<HeldOp>>` — edit/delete whose target hasn't arrived; each HeldOp binds its AUTHORIZING author at hold time (R16): `({EventKind k, String author, int seq, String? body})`.
 - `_winningEditSeq: Map<(conv,id), int>` — last applied edit seq, for the R5 strictly-greater gate.
