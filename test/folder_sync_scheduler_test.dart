@@ -135,26 +135,32 @@ void main() {
     expect(ran.length, greaterThanOrEqualTo(2));
   });
 
-  test('a dead watcher does not stop the pair from syncing', () async {
-    build(sweep: const Duration(milliseconds: 60)).watch(_pair, events.stream);
+  test('a dead watcher does not stop the pair from syncing', () {
+    fakeAsync((async) {
+      build(sweep: const Duration(milliseconds: 60)).watch(_pair, events.stream);
 
-    events.addError(StateError('watcher died'));
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+      events.addError(StateError('watcher died'));
+      async.elapse(const Duration(milliseconds: 200));
 
-    expect(
-      ran,
-      isNotEmpty,
-      reason: 'the sweep is what keeps a pair alive after its watcher fails',
-    );
+      expect(
+        ran,
+        isNotEmpty,
+        reason: 'the sweep is what keeps a pair alive after its watcher fails',
+      );
+    });
   });
 
-  test('unwatching stops everything for that pair', () async {
-    build(sweep: const Duration(milliseconds: 40)).watch(_pair, events.stream);
-    scheduler.unwatch(_pair.id);
+  test('unwatching stops everything for that pair', () {
+    fakeAsync((async) {
+      build(sweep: const Duration(milliseconds: 40)).watch(_pair, events.stream);
+      scheduler.unwatch(_pair.id);
 
-    events.add(null);
-    await Future<void>.delayed(const Duration(milliseconds: 150));
+      events.add(null);
+      // Well past both the quiet period and the sweep: after unwatch, no
+      // amount of elapsed time may produce a pass.
+      async.elapse(const Duration(milliseconds: 150));
 
-    expect(ran, isEmpty);
+      expect(ran, isEmpty);
+    });
   });
 }
