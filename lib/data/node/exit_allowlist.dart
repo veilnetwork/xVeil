@@ -67,6 +67,34 @@ bool _isExitHeader(String line) {
   return m != null && m.group(1) == 'proxy.exit';
 }
 
+/// The value with a trailing comment removed.
+///
+/// `allow_all = true # everybody, deliberately` is valid TOML, and comparing
+/// the whole tail against `'true'` read it as FALSE — so an exit that is on
+/// and open to everybody was displayed as off and admitting nobody, and the
+/// next write from that screen would have closed it (report16 XV-16).
+///
+/// Quote-aware, because `#` inside a string is not a comment. Both quote
+/// characters, because TOML has both, and neither escapes inside a literal
+/// (single-quoted) string.
+String _beforeComment(String value) {
+  var inDouble = false;
+  var inSingle = false;
+  for (var i = 0; i < value.length; i++) {
+    final c = value[i];
+    if (c == '"' && !inSingle) {
+      // A `\"` inside a basic string does not end it.
+      final escaped = i > 0 && value[i - 1] == r'\';
+      if (!escaped) inDouble = !inDouble;
+    } else if (c == "'" && !inDouble) {
+      inSingle = !inSingle;
+    } else if (c == '#' && !inDouble && !inSingle) {
+      return value.substring(0, i).trimRight();
+    }
+  }
+  return value.trimRight();
+}
+
 /// Read `[proxy.exit]` out of a whole node config.
 ExitAllowlist? readExitAllowlist(String toml) {
   var inExit = false;
@@ -89,7 +117,7 @@ ExitAllowlist? readExitAllowlist(String toml) {
     final at = line.indexOf('=');
     if (at < 0) continue;
     final key = line.substring(0, at).trim();
-    final value = line.substring(at + 1).trim();
+    final value = _beforeComment(line.substring(at + 1).trim());
     switch (key) {
       case 'enabled':
         enabled = value == 'true';

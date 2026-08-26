@@ -1,5 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/expect_before.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:xveil/data/notifications/notification_service.dart';
 
@@ -132,6 +136,28 @@ void main() {
         reason: 'it gave up because startup had not finished',
       );
       await starting;
+    });
+
+    test('the intent is recorded BEFORE the wait, not after it', () {
+      // The half the first fix missed: `cancelAll` set the flag only on the
+      // branch where no startup was running. A clear arriving during an init
+      // that then FAILED was dropped, and the retry which succeeded later did
+      // not know it had been asked — so alerts from the previous session
+      // survived a lock (report16 XV-12).
+      //
+      // Structural, and this is why: with this plugin surface a failing
+      // startup is not reachable. `initialize` is a no-op on the test target
+      // and readiness is set before the only call a fake can throw from, so a
+      // fixture cannot produce the state this is about. What can be checked is
+      // the order that makes it safe.
+      final source = File(
+        'lib/data/notifications/notification_service.dart',
+      ).readAsStringSync();
+      final body = source.substring(source.indexOf('Future<void> cancelAll()'));
+
+      expectBefore(body, '_clearWanted = true', 'await running');
+      // And it comes down only where the clear actually happened.
+      expectBefore(body, '_clearWanted = false', '_plugin.cancelAll()');
     });
 
     test('and one asked for after startup happens at once', () async {
