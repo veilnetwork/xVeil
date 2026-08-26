@@ -10,6 +10,69 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.2] — 2026-08-26
+
+Everything here came out of running the thing: a node installed on a second
+server from the phone, a VPN pointed at it, and the failures met on the way.
+
+Built on veil `0ce0acd2` — [v0.8.0](https://github.com/veilnetwork/veil/releases/tag/v0.8.0)
+plus three commits, two of them below — and hidden-volume `3f07ac8f`, which is
+v2.0.3 plus a test and a doc note: the shipped library is v2.0.3.
+
+### An exit now knows whose traffic it carries
+
+A node with the exit switch on served **every peer that could reach it**. There
+was no allowlist and no way to add one, so anyone who turned it on was running
+an open proxy under their own address without having agreed to it.
+
+`[proxy.exit]` gains `allowed_node_ids` and `allow_all`, and **an empty list
+means nobody**. An exit that is enabled and names neither stays closed and says
+so at startup. **If you run an exit today, it will carry nobody after this
+update until you say who** — the deployment screen now writes your device in
+automatically, and the startup line tells an operator who upgrades by hand.
+
+### Fixed
+
+- **Deploying over SSH always failed, after installing the binaries.** The
+  staging hardening left the scratch directory unreachable to the unprivileged
+  account the config steps run as, and `veil-cli` cannot tell "not there" from
+  "not allowed to look" — so it reported a file that was sitting right there as
+  MISSING, and the run ended with the binaries installed and no node running.
+
+- **An update could replace the node's identity, silently.** The step that
+  chooses between keeping the identity and minting a new one looked for one
+  spelling of the config's identity section; veil accepts and deliberately
+  preserves the other. A node whose config used it read as "no identity here",
+  and an update took the node's id and every relationship hanging off it.
+
+- **Re-deploying added listeners instead of replacing them**, because the
+  filter that selects them to remove was written for decimal ids and they are
+  printed in hex, so the loop deleted nothing and each run appended.
+
+- **The SSH private key was the one secret left in plain sight.** Every other
+  secret on those screens is masked; a PEM cannot be, so all four SSH screens
+  drew it in a monospace box on routes with no screenshot protection. It is now
+  one field that carries the guard with it.
+
+- **The VPN said "choose a valid exit node" when the local address was wrong**,
+  which is a different thing to fix, and greyed the button out meanwhile.
+
+- **A refusal from the packet engine said only that it refused.** The engine
+  answers with distinct codes — including "a tunnel is still shutting down, try
+  again" — and the app discarded them for one English sentence on every screen,
+  in every language.
+
+- **An exit registered in the routing catalogue followed the wrong signal**, so
+  deploying one without the exit switch added an entry nothing could dial, and
+  deploying an exit the ordinary way registered nothing at all.
+
+- **The first-run wait no longer promises a minute.** Measured on a mid-range
+  phone: about ten, with every core busy.
+
+- A generated root-privileged script now refuses a configuration its own
+  validator rejects, rather than trusting the screen in front of it to have
+  asked.
+
 ## [0.13.1] — 2026-08-26
 
 Found by installing a node on a real server from the phone and pointing the
