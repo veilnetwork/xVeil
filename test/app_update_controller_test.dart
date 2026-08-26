@@ -1,6 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:io';
+
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:xveil/data/update/install_prefs.dart';
 import 'package:xveil/data/update/app_update.dart';
 import 'package:xveil/state/app_update_controller.dart';
 
@@ -23,7 +26,22 @@ void main() {
         },
       );
 
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  late Directory support;
+  late InstallUpdatePrefs installPrefs;
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    support = Directory.systemTemp.createTempSync('xveil-install');
+    installPrefs = InstallUpdatePrefs(InstallUpdatePrefs.pathIn(support.path));
+  });
+  tearDown(() => support.deleteSync(recursive: true));
+
+  /// A container reading the install-wide pair from this test's own file.
+  ProviderContainer withInstallPrefs() => ProviderContainer(
+    overrides: [
+      installUpdatePrefsProvider.overrideWith((ref) async => installPrefs),
+    ],
+  );
 
   test('a stored opt-out is honoured on the very first launch', () async {
     // The setting exists to stop an outbound connection to github.com that
@@ -31,10 +49,8 @@ void main() {
     // automatic check runs when the app becomes usable — which can be first.
     // Reading the provider optimistically answered "on" for somebody who had
     // turned it off, and the request went out before their choice arrived.
-    SharedPreferences.setMockInitialValues({
-      kUpdateCheckEnabledPrefKey: false,
-    });
-    final container = ProviderContainer();
+    installPrefs.enabled = false;
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final asked = <Uri>[];
 
@@ -51,8 +67,8 @@ void main() {
 
   test('and a stored opt-IN still asks', () async {
     // Vacuity guard: a check that never asks satisfies the test above.
-    SharedPreferences.setMockInitialValues({kUpdateCheckEnabledPrefKey: true});
-    final container = ProviderContainer();
+    installPrefs.enabled = true;
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final asked = <Uri>[];
 
@@ -66,8 +82,8 @@ void main() {
   test('a choice made in this session wins over the stored one', () async {
     // The switch was just moved. The stored value may still be being written,
     // and it must not be the one that decides.
-    SharedPreferences.setMockInitialValues({kUpdateCheckEnabledPrefKey: true});
-    final container = ProviderContainer();
+    installPrefs.enabled = true;
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final asked = <Uri>[];
 
@@ -80,7 +96,7 @@ void main() {
   });
 
   test('the first run asks and remembers that it did', () async {
-    final container = ProviderContainer();
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final asked = <Uri>[];
 
@@ -90,12 +106,11 @@ void main() {
 
     expect(asked, hasLength(1));
     expect(container.read(appUpdateProvider)?.tag, 'v9.9.9');
-    final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getInt(kUpdateLastCheckPrefKey), isNotNull);
+    expect(installPrefs.lastCheck, isNotNull);
   });
 
   test('a second launch the same day does not ask again', () async {
-    final container = ProviderContainer();
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final controller = container.read(appUpdateProvider.notifier);
     final now = DateTime.utc(2026, 8, 26, 12);
@@ -111,7 +126,7 @@ void main() {
   });
 
   test('a day later it asks again', () async {
-    final container = ProviderContainer();
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final controller = container.read(appUpdateProvider.notifier);
     final now = DateTime.utc(2026, 8, 26, 12);
@@ -129,7 +144,7 @@ void main() {
   test('a check that FAILS still counts as asked today', () async {
     // Otherwise a device that cannot reach github.com asks on every launch —
     // exactly the traffic pattern the interval exists to prevent.
-    final container = ProviderContainer();
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final controller = container.read(appUpdateProvider.notifier);
     final now = DateTime.utc(2026, 8, 26, 12);
@@ -152,7 +167,7 @@ void main() {
   });
 
   test('with the switch off it never asks', () async {
-    final container = ProviderContainer();
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     await container.read(updateCheckEnabledProvider.notifier).set(false);
 
@@ -166,11 +181,11 @@ void main() {
   });
 
   test('the switch survives a rebuild', () async {
-    final first = ProviderContainer();
+    final first = withInstallPrefs();
     await first.read(updateCheckEnabledProvider.notifier).set(false);
     first.dispose();
 
-    final second = ProviderContainer();
+    final second = withInstallPrefs();
     addTearDown(second.dispose);
     // The notifier loads asynchronously; read once to build it, then settle.
     second.read(updateCheckEnabledProvider);
@@ -180,7 +195,7 @@ void main() {
   });
 
   test('pressing check now ignores the interval', () async {
-    final container = ProviderContainer();
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final controller = container.read(appUpdateProvider.notifier);
 
@@ -195,7 +210,7 @@ void main() {
   });
 
   test('dismissing puts the offer away without forgetting the release', () async {
-    final container = ProviderContainer();
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
     final controller = container.read(appUpdateProvider.notifier);
 
@@ -212,7 +227,7 @@ void main() {
   test('nothing newer means nothing to show', () async {
     // Premise for the tests above: they pass because v9.9.9 IS newer, not
     // because the controller shows whatever it is handed.
-    final container = ProviderContainer();
+    final container = withInstallPrefs();
     addTearDown(container.dispose);
 
     await container.read(appUpdateProvider.notifier).checkIfDue(
@@ -224,5 +239,75 @@ void main() {
     );
 
     expect(container.read(appUpdateProvider), isNull);
+  });
+
+  group('the choice belongs to the install, not to a profile', () {
+    // `SharedPreferences` looks install-wide and is not: production swaps the
+    // platform backend for a file inside the ACTIVE PROFILE's directory. So a
+    // person who turned checks off in one profile got a request to github.com
+    // from the next one, and the daily throttle restarted per profile — one
+    // beacon each, timed to that profile being opened.
+    //
+    // Modelled the way it happens: the same install file, two containers, as
+    // two profiles would be.
+    test('an opt-out made in one profile holds in another', () async {
+      final a = withInstallPrefs();
+      await a.read(updateCheckEnabledProvider.notifier).set(false);
+      a.dispose();
+
+      final b = withInstallPrefs();
+      addTearDown(b.dispose);
+      final asked = <Uri>[];
+      await b
+          .read(appUpdateProvider.notifier)
+          .checkIfDue(checker: answering(body, asked: asked));
+
+      expect(
+        asked,
+        isEmpty,
+        reason: 'the second profile asked github.com anyway',
+      );
+    });
+
+    test('and the daily throttle is not restarted by switching profile',
+        () async {
+      final now = DateTime(2026, 8, 26, 9);
+      final a = withInstallPrefs();
+      final askedA = <Uri>[];
+      await a
+          .read(appUpdateProvider.notifier)
+          .checkIfDue(now: now, checker: answering(body, asked: askedA));
+      expect(askedA, hasLength(1));
+      a.dispose();
+
+      final b = withInstallPrefs();
+      addTearDown(b.dispose);
+      final askedB = <Uri>[];
+      await b.read(appUpdateProvider.notifier).checkIfDue(
+            now: now.add(const Duration(hours: 1)),
+            checker: answering(body, asked: askedB),
+          );
+
+      expect(
+        askedB,
+        isEmpty,
+        reason: 'each profile got its own beacon, one per day each',
+      );
+    });
+
+    test('the stamp names no profile', () {
+      // What is shared has to be worth sharing: a stamp that said WHICH
+      // profile checked would make a hidden one announce itself, which is the
+      // opposite of the point.
+      installPrefs.lastCheck = DateTime(2026, 8, 26);
+      installPrefs.enabled = false;
+
+      final raw = File(InstallUpdatePrefs.pathIn(support.path))
+          .readAsStringSync();
+
+      expect(raw, contains('lastCheckMs'));
+      expect(raw, contains('enabled'));
+      expect(raw, isNot(contains('profile')));
+    });
   });
 }
