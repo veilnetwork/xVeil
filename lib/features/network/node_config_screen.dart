@@ -99,6 +99,9 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
     }
   }
 
+  /// The digest the last load reported, or null when it reported none.
+  String? _loadedSha256;
+
   Future<void> _load() async {
     final result = await _run(buildReadNodeConfigScript(widget.target));
     if (result == null || !mounted) return;
@@ -113,7 +116,11 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
       return;
     }
     setState(() {
-      _config.text = parsed;
+      _config.text = parsed.contents;
+      // What the file hashed to when it was read. Apply refuses if it no
+      // longer does: this writes the WHOLE file, so a change made by somebody
+      // else in between would be rolled back without either of them seeing it.
+      _loadedSha256 = parsed.sha256;
       _loaded = true;
       _output = 'loaded ${widget.target.path}';
     });
@@ -122,7 +129,11 @@ class _NodeConfigScreenState extends ConsumerState<NodeConfigScreen> {
   Future<void> _apply() async {
     if (!_loaded) return;
     final result = await _run(
-      buildWriteNodeConfigScript(widget.target, _config.text),
+      buildWriteNodeConfigScript(
+        widget.target,
+        _config.text,
+        expectedSha256: _loadedSha256,
+      ),
     );
     if (result == null || !mounted) return;
     setState(() {
