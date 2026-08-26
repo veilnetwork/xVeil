@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/node_lifecycle.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 
+import 'support/expect_before.dart';
+
 /// The update script installs a binary as root, over a working one, and
 /// restarts the service. The digest it checks proves the bytes are the ones the
 /// release published — and says nothing at all about whether they are for THIS
@@ -15,21 +17,6 @@ import 'package:xveil/data/node/node_provisioner.dart';
 /// So the machine refuses it, and the refusal is a shell function. It is
 /// exercised by a real shell rather than read.
 void main() {
-  /// [first] must appear in [script], and appear before [then].
-  ///
-  /// Written out because `indexOf` answers -1 for a string that is not there,
-  /// and -1 is less than every real index: a plain `lessThan` comparison passes
-  /// most convincingly when the thing it is ordering was deleted outright.
-  void expectBefore(String script, String first, String then) {
-    expect(script, contains(first), reason: 'missing: $first');
-    expect(script, contains(then), reason: 'missing: $then');
-    expect(
-      script.indexOf(first),
-      lessThan(script.indexOf(then)),
-      reason: '$first must come before $then',
-    );
-  }
-
   final artifact = NodeReleaseArtifact(
     component: NodeComponent.veilCli,
     releaseUrl: 'https://example.invalid/veil-cli',

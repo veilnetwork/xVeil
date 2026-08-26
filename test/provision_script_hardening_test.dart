@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'support/expect_before.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 
 /// The provisioning script stages a deployment obfs4 PSK, a TLS private key,
@@ -53,14 +54,16 @@ void main() {
 
   test('the umask is set before anything is written', () {
     final s = script();
-    expect(
-      s.indexOf('umask 077'),
-      lessThan(s.indexOf('mktemp -d')),
+    expectBefore(
+      s,
+      'umask 077',
+      'mktemp -d',
       reason: 'a directory created before the umask keeps the login mode',
     );
-    expect(
-      s.indexOf('mktemp -d'),
-      lessThan(s.indexOf('PSK_EOF')),
+    expectBefore(
+      s,
+      'mktemp -d',
+      'PSK_EOF',
       reason: 'the PSK must not be written before the private dir exists',
     );
   });

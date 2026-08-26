@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/expect_before.dart';
 import 'package:xveil/debug/soak_hook.dart';
 
 /// The soak hook answers commands that drive the whole app — unlock, send, and
@@ -185,9 +187,10 @@ void main() {
       // Against the CALL, not the word — the comment above the check names
       // `_mergedParams` too, and matching that made this assertion compare the
       // check against its own explanation.
-      expect(
-        body.indexOf("queryParameters.containsKey('password')"),
-        lessThan(body.indexOf('await _mergedParams(req)')),
+      expectBefore(
+        body,
+        "queryParameters.containsKey('password')",
+        'await _mergedParams(req)',
         reason: 'the refusal must come before the body is read, or a caller '
             'that sends it both ways is served rather than corrected',
       );
