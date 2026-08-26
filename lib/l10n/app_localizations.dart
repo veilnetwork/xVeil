@@ -7292,6 +7292,12 @@ abstract class AppL10n {
   /// **'No contacts to send it to yet'**
   String get oproxyShareNoContacts;
 
+  /// No description provided for @oproxyShareNotAccepted.
+  ///
+  /// In en, this message translates to:
+  /// **'That contact has not accepted yet, so nothing was sent'**
+  String get oproxyShareNotAccepted;
+
   /// No description provided for @oproxyName.
   ///
   /// In en, this message translates to:
