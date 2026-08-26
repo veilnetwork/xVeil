@@ -67,6 +67,37 @@ if sudo test -x /usr/local/bin/veil-cli && sudo test -f /var/lib/veil/node.toml;
   sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml config get identity.node_id 2>/dev/null || \\
     sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml node id 2>/dev/null || true
   sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml node show 2>/dev/null || true
+  # Is this server an EXIT, and who does it admit? Read from the file, because
+  # `veil-cli config get proxy.exit.enabled` answers `unknown config key` —
+  # measured on a live node, which is also why deployment writes these through
+  # its own `set_toml_scalar` rather than `config set`.
+  #
+  # An app that lost its records (identity restored from a phrase, no device to
+  # replicate from) learns from this whether the server it just re-attached is
+  # routable at all, and whether THIS device is still on its list. Without it
+  # the only way to find out was to deploy again over a working server.
+  sudo awk '
+    /^[[:space:]]*\\[/ {
+      inexit = (\$0 ~ /^[[:space:]]*\\[[[:space:]]*proxy\\.exit[[:space:]]*\\]/); next
+    }
+    inexit && \$0 ~ /^[[:space:]]*enabled[[:space:]]*=/ {
+      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v); en = v
+    }
+    inexit && \$0 ~ /^[[:space:]]*allow_all[[:space:]]*=/ {
+      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v); aa = v
+    }
+    inexit && \$0 ~ /^[[:space:]]*allowed_node_ids[[:space:]]*=/ {
+      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v)
+      # A list broken across lines would read as a SHORTER list, and "admits
+      # nobody" is not something to report from a half-read line.
+      if (v !~ /]/) { ids = "(unread)" } else { gsub(/[][" ]/, "", v); ids = v }
+    }
+    END {
+      printf "EXIT_ENABLED: %s\\n", (en == "" ? "false" : en)
+      printf "EXIT_ALLOW_ALL: %s\\n", (aa == "" ? "false" : aa)
+      printf "EXIT_ALLOWED: %s\\n", ids
+    }
+  ' /var/lib/veil/node.toml 2>/dev/null || true
 fi
 ''';
 
