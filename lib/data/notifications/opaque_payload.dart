@@ -1,6 +1,8 @@
 import 'dart:collection';
 import 'dart:math';
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 /// RAM-only indirection between a notification and what it is about.
 ///
 /// ## Why this exists
@@ -76,3 +78,53 @@ class OpaqueNotificationPayloads {
 
 /// Whether [payload] is one of our opaque tokens.
 bool isOpaqueNotificationToken(String payload) => payload.startsWith('op:');
+
+/// Which identity a shown notification belongs to.
+///
+/// A notification outlives the session that posted it: Android keeps it until
+/// somebody dismisses it, and the app can switch identity underneath — through
+/// the local API, in the background, with nobody looking. The inline reply
+/// callback then took the CURRENT services and sent from whichever identity
+/// happened to be active.
+///
+/// That is not a wrong-window mistake. It is a message going out from an
+/// identity that never had that conversation, which tells the person on the
+/// other end that the two identities are the same device — the one thing a
+/// deniable app must not say (report16 X16-H2).
+///
+/// So a reply is attributable or it is not sent. Kept in memory only, and by
+/// design: a restart leaves every earlier notification unattributable, and
+/// refusing there is the safe direction. Opening the chat still works — that
+/// costs nothing and says nothing.
+class NotificationOwners {
+  NotificationOwners({this.capacity = 256});
+
+  /// Bounded like the token store beside it, and for the same reason: a long
+  /// session with a mailbox replay must not grow without limit. The oldest
+  /// entry falling out means a reply is refused, not misattributed.
+  final int capacity;
+
+  final _owners = <String, String>{};
+
+  /// Remember that [payload] was shown while [identity] was active.
+  void remember(String payload, String? identity) {
+    if (identity == null || identity.isEmpty) return;
+    _owners.remove(payload);
+    _owners[payload] = identity;
+    while (_owners.length > capacity) {
+      _owners.remove(_owners.keys.first);
+    }
+  }
+
+  /// Whether [payload] may be replied to from [identity].
+  ///
+  /// False for a payload nobody recorded: an unattributable reply is the case
+  /// this exists to refuse, not a case to wave through.
+  bool mayReplyAs(String payload, String? identity) =>
+      identity != null && identity.isNotEmpty && _owners[payload] == identity;
+
+  void clear() => _owners.clear();
+
+  @visibleForTesting
+  int get debugLength => _owners.length;
+}
