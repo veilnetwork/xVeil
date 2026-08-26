@@ -1559,6 +1559,7 @@
   "updateCheckNow": "Buscar ahora",
   "updateChecking": "Buscando…",
   "updateUpToDate": "Tienes la última versión",
+  "updateCouldNotCheck": "No se pudo comprobar si hay actualizaciones",
   "updateAvailable": "Versión {version} disponible",
   "updateOpenRelease": "Abrir la página de la versión",
   "updateNotChecked": "Aún no se ha comprobado",

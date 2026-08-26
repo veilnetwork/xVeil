@@ -6320,6 +6320,12 @@ abstract class AppL10n {
   /// **'You have the latest release'**
   String get updateUpToDate;
 
+  /// No description provided for @updateCouldNotCheck.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not check for updates'**
+  String get updateCouldNotCheck;
+
   /// No description provided for @updateAvailable.
   ///
   /// In en, this message translates to:

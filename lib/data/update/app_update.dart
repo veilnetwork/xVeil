@@ -13,6 +13,24 @@ class AppUpdate {
   final String url;
 }
 
+/// What a look at the release feed found.
+///
+/// Three answers, not two. The feed said there is something newer; the feed
+/// answered and there is not; or the feed could not be asked. The last is not
+/// evidence about the release at all, and a screen that shows it as "up to
+/// date" is making a claim on nothing.
+class AppUpdateCheck {
+  const AppUpdateCheck.found(AppUpdate this.update) : reached = true;
+  const AppUpdateCheck.upToDate() : update = null, reached = true;
+  const AppUpdateCheck.unreachable() : update = null, reached = false;
+
+  /// The release to offer, or null when there is none to offer.
+  final AppUpdate? update;
+
+  /// Whether the feed answered at all.
+  final bool reached;
+}
+
 /// How often to ask. First run asks immediately; after that, once a day.
 const Duration kUpdateCheckInterval = Duration(hours: 24);
 
@@ -94,20 +112,41 @@ class AppUpdateChecker {
 
   final ReleaseTextFetcher _fetch;
 
-  /// The release to offer, or null. Never throws: a check nobody asked for
-  /// must not turn a launch into an error, and "could not ask" is the same
-  /// outcome for the person as "nothing new".
-  Future<AppUpdate?> check() async {
+  /// What the last look found. Never throws: a check nobody asked for must not
+  /// turn a launch into an error.
+  ///
+  /// "Could not ask" and "nothing new" used to be the same answer — both null
+  /// — and they are not the same thing to say. The screen reads this to decide
+  /// between "up to date" and "could not check", and calling a failed request
+  /// up to date is a statement about the release feed that nothing supports
+  /// (report16 XV-15).
+  Future<AppUpdateCheck> check() async {
+    final Object? decoded;
     try {
-      final decoded = jsonDecode(await _fetch(latestReleaseUri));
-      if (decoded is! Map<String, dynamic>) return null;
-      if (decoded['draft'] == true || decoded['prerelease'] == true) return null;
-      final tag = decoded['tag_name'];
-      final url = decoded['html_url'];
-      if (tag is! String || url is! String) return null;
-      return newerRelease(running: running, latestTag: tag, releaseUrl: url);
+      decoded = jsonDecode(await _fetch(latestReleaseUri));
     } on Object {
-      return null;
+      return const AppUpdateCheck.unreachable();
     }
+    if (decoded is! Map<String, dynamic>) {
+      return const AppUpdateCheck.unreachable();
+    }
+    // Answered, and the answer is "nothing for you": a draft, a pre-release,
+    // or a tag that is not newer. The feed was reached either way.
+    if (decoded['draft'] == true || decoded['prerelease'] == true) {
+      return const AppUpdateCheck.upToDate();
+    }
+    final tag = decoded['tag_name'];
+    final url = decoded['html_url'];
+    if (tag is! String || url is! String) {
+      return const AppUpdateCheck.unreachable();
+    }
+    final update = newerRelease(
+      running: running,
+      latestTag: tag,
+      releaseUrl: url,
+    );
+    return update == null
+        ? const AppUpdateCheck.upToDate()
+        : AppUpdateCheck.found(update);
   }
 }
