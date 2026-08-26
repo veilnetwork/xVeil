@@ -33,6 +33,8 @@ class WorkerDeath {
   /// ever ran.
   final _waiting = <Completer<Object?>>{};
 
+  bool _disposed = false;
+
   Future<Never> get future => _completer.future;
 
   /// Wait for [operation], but give up if this worker dies first.
@@ -86,6 +88,14 @@ class WorkerDeath {
   @visibleForTesting
   int get debugWaitingCount => _waiting.length;
 
+  /// Whether the two ports that report a death are still open.
+  ///
+  /// The one thing an outside observer cannot otherwise see: a [ReceivePort]
+  /// has no "is it closed", so a watcher nobody stopped is indistinguishable
+  /// from one that was — until the process ends holding both (report16 XV-18).
+  @visibleForTesting
+  bool get debugWatching => !_disposed;
+
   void _die(String why) {
     if (_completer.isCompleted) return;
     final error = hv.HvException('Internal', why);
@@ -119,6 +129,7 @@ class WorkerDeath {
   /// (report15 X15-M5). Nothing is invented: the request genuinely will not be
   /// answered, and that is what they are told.
   void dispose() {
+    _disposed = true;
     exitPort.close();
     errorPort.close();
     // An uncompleted error future with no listener is an unhandled-error
