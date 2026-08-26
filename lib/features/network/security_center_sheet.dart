@@ -133,7 +133,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
     final peers = ref.watch(sessionCountProvider).asData?.value ?? 0;
     final routing = ref.watch(proxyRoutingProvider);
     final vpn = ref.watch(vpnControllerProvider);
-    final vpnTransportReady = vpnTransportReadyForPolicy(routing, vpn.policy);
+    final vpnTransportGap = vpnTransportGapForPolicy(routing, vpn.policy);
     // The flags live on the NOTIFIER, not in AppState, and the toggle reboots
     // the node without changing any watched field — so without this the sheet
     // would keep drawing the pre-toggle value and nothing here could ever be
@@ -225,8 +225,11 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
               VpnBackendPhase.stopping => l.vpnStatusStopping,
               VpnBackendPhase.error => vpn.backend.detail ?? l.vpnStatusError,
               VpnBackendPhase.unsupported => l.vpnStatusUnsupported,
-              VpnBackendPhase.stopped =>
-                vpnTransportReady ? l.vpnStatusStopped : l.vpnNeedsProxy,
+              VpnBackendPhase.stopped => switch (vpnTransportGap) {
+                null => l.vpnStatusStopped,
+                VpnTransportGap.noExit => l.vpnNeedsProxy,
+                VpnTransportGap.badListen => l.vpnNeedsListen,
+              },
             }),
             value: vpn.isRunning,
             onChanged:
@@ -286,11 +289,30 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
 /// The VPN may have an explicit main oproxy chain even when the manual SOCKS
 /// default is intentionally unset, so readiness must be evaluated against the
 /// complete routing policy rather than [ProxyRouting.vpnTransportReady].
-bool vpnTransportReadyForPolicy(ProxyRouting routing, VpnRoutingPolicy policy) {
+bool vpnTransportReadyForPolicy(
+  ProxyRouting routing,
+  VpnRoutingPolicy policy,
+) => vpnTransportGapForPolicy(routing, policy) == null;
+
+/// WHICH half is missing, judged by the same authority as readiness itself.
+///
+/// One sentence for both halves — "choose a valid exit node" — sends a reader
+/// to the exit chain when the listen address is what is wrong, and the VPN
+/// button is greyed out meanwhile with nothing else to go on.
+///
+/// The plan builder stays the authority on WHETHER the transport can come up;
+/// this only decides which of the two to name, and it asks about the listen
+/// address first because that is the half the generic sentence never mentions.
+VpnTransportGap? vpnTransportGapForPolicy(
+  ProxyRouting routing,
+  VpnRoutingPolicy policy,
+) {
   try {
     VpnProxyPlan.build(routing: routing, policy: policy);
-    return true;
+    return null;
   } on VpnProxyPlanException {
-    return false;
+    return ProxyRouting.isValidListen(routing.socks5Listen)
+        ? VpnTransportGap.noExit
+        : VpnTransportGap.badListen;
   }
 }
