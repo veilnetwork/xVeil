@@ -109,11 +109,33 @@ class WorkerDeath {
 
   /// Stop watching. The future is left as it is: a caller already holding it
   /// must still see the death, and completing it here would invent one.
+  ///
+  /// What is NOT left as it is: anything still registered. After this the
+  /// ports that would report a death are closed, so [_die] can never run and
+  /// those gates can never be answered from here — and the operations behind
+  /// them are gone too, because the only caller that disposes is one that has
+  /// just torn the worker down. Leaving them open is a future that never
+  /// completes, holding the caller's payload and the screen that asked
+  /// (report15 X15-M5). Nothing is invented: the request genuinely will not be
+  /// answered, and that is what they are told.
   void dispose() {
     exitPort.close();
     errorPort.close();
     // An uncompleted error future with no listener is an unhandled-error
     // report at GC time; give it a handler that does nothing.
     _completer.future.ignore();
+    // Out of the set first, like `_die` does, so a listener downstream cannot
+    // reach back in while this is iterating. `race` re-checks membership
+    // before completing, so an operation that answers after this cannot
+    // complete a gate twice.
+    final waiting = _waiting.toList();
+    _waiting.clear();
+    final error = StateError(
+      'storage worker was shut down while a request was in flight',
+    );
+    final stack = StackTrace.current;
+    for (final gate in waiting) {
+      gate.completeError(error, stack);
+    }
   }
 }
