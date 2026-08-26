@@ -78,69 +78,93 @@ void main() {
   // and left the server with no node running. Proven on a real host: with the
   // directory at 0700 the command reports the file as missing; `chmod` the
   // directory and the identical command lists the listeners.
-  test(
-    'the scratch directory is opened to the veil account, and only to it',
-    () {
-      // Comments must go first. The fix's own explanation names `sudo -u veil`
-      // and `$XVEIL_TMP`, so an ordering assertion over the raw text would be
-      // satisfied by that prose and would pass with the fix deleted.
-      final commands = script()
-          .split('\n')
-          .where((line) => !line.trimLeft().startsWith('#'))
-          .join('\n');
+  test('the veil account gets one writable corner and no more', () {
+    // Comments must go first. The fix's own explanation names `sudo -u veil`
+    // and `$XVEIL_TMP`, so an ordering assertion over the raw text would be
+    // satisfied by that prose and would pass with the fix deleted.
+    final commands = script()
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('#'))
+        .join('\n');
+    final lines = commands.split('\n');
 
-      final grant = commands.indexOf(r'chown root:veil "$XVEIL_TMP"');
-      expect(
-        grant,
-        isNot(-1),
-        reason:
-            'without this the veil account cannot enter the directory and the '
-            'config step reports the staged config as missing',
-      );
+    // 1. There IS a corner handed to the veil group, and it is a SUB-directory.
+    final grantAt = lines.indexWhere(
+      (l) => l.contains(r'chown root:veil "$XVEIL_TMP/'),
+    );
+    expect(
+      grantAt,
+      isNot(-1),
+      reason:
+          'without it the veil account cannot create or atomically rewrite its '
+          'config, and veil-cli reports the staged file as missing',
+    );
+    expect(
+      commands,
+      isNot(contains(r'chown root:veil "$XVEIL_TMP"')),
+      reason:
+          'handing over the whole staging directory lets a compromised veil '
+          'unlink and replace the PSK and the TLS key before root installs '
+          'them — the split is the point',
+    );
 
-      expect(
-        commands.indexOf(
-          'useradd -r -s /usr/sbin/nologin -d /var/lib/veil veil',
-        ),
-        lessThan(grant),
-        reason: 'chown to a group that does not exist yet fails',
-      );
+    // 2. Group, not world.
+    final mode = RegExp(r'chmod (\d+) "\$XVEIL_TMP/cfg"').firstMatch(commands);
+    expect(mode, isNotNull, reason: 'the corner needs an explicit mode');
+    final bits = int.parse(mode!.group(1)!, radix: 8);
+    expect(
+      bits & 0x7,
+      0,
+      reason: 'world bits expose it to every local account',
+    );
+    expect(bits & 0x38, isNot(0), reason: 'the veil group needs access');
 
-      final firstVeilUse = commands
-          .split('\n')
-          .indexWhere(
-            (l) => l.contains('sudo -u veil') && l.contains(r'$XVEIL_TMP'),
-          );
-      expect(
-        firstVeilUse,
-        isNot(-1),
-        reason: 'premise: the script does run as veil',
-      );
-      expect(
-        commands
-            .split('\n')
-            .indexWhere((l) => l.contains(r'chown root:veil "$XVEIL_TMP"')),
-        lessThan(firstVeilUse),
-        reason: 'granted after the first use is granted too late',
-      );
+    // 3. The staging root itself is never made writable by anyone but root.
+    final rootMode = RegExp(r'chmod (\d+) "\$XVEIL_TMP"').firstMatch(commands);
+    expect(rootMode, isNotNull);
+    final rootBits = int.parse(rootMode!.group(1)!, radix: 8);
+    expect(
+      rootBits & 0x12,
+      0,
+      reason:
+          'group or other WRITE on the staging root is the exposure the '
+          'corner exists to avoid',
+    );
 
-      // Group, not world: the PSK and the TLS key are staged in this directory
-      // and stay unreadable to every other account on the machine.
-      final mode = RegExp(r'chmod (\d+) "\$XVEIL_TMP"').firstMatch(commands);
-      expect(mode, isNotNull, reason: 'the mode must be set explicitly');
-      final bits = int.parse(mode!.group(1)!, radix: 8);
-      expect(
-        bits & 0x7,
-        0,
-        reason: 'world bits would expose the staged PSK to every local account',
-      );
-      expect(
-        bits & 0x38,
-        isNot(0),
-        reason: 'the veil group needs access, which is the whole point',
-      );
-    },
-  );
+    // 4. Granted after the account exists, and before the first use as veil.
+    expect(
+      lines.indexWhere(
+        (l) =>
+            l.contains('useradd -r -s /usr/sbin/nologin -d /var/lib/veil veil'),
+      ),
+      lessThan(grantAt),
+      reason: 'chown to a group that does not exist yet fails',
+    );
+    final firstVeilUse = lines.indexWhere(
+      (l) => l.contains('sudo -u veil') && l.contains(r'$XVEIL_TMP'),
+    );
+    expect(
+      firstVeilUse,
+      isNot(-1),
+      reason: 'premise: the script does run as veil',
+    );
+    expect(
+      grantAt,
+      lessThan(firstVeilUse),
+      reason: 'granted too late is not granted',
+    );
+
+    // 5. The secrets are staged OUTSIDE the corner veil can write.
+    final pskLine = lines.firstWhere((l) => l.contains('xveil-obfs4-psk.b64'));
+    expect(
+      pskLine,
+      isNot(contains(r'$XVEIL_TMP/cfg/')),
+      reason: 'the deployment PSK must not sit where veil can replace it',
+    );
+    // Premise: the config DOES live in the corner, so the check above is a
+    // statement about where things are and not about an empty directory.
+    expect(commands, contains(r'$XVEIL_TMP/cfg/xveil-node.toml'));
+  });
 
   // Step 6 claims to "reconcile listeners": delete what is configured, then
   // add what this deployment asked for. The delete half selected ids with
