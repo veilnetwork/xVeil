@@ -1721,6 +1721,7 @@
   "oproxyShareSend": "Отправить контакту",
   "oproxyShareSent": "Отправлено: {name}",
   "oproxyShareNoContacts": "Пока некому отправить — нет контактов",
+  "oproxyShareNotAccepted": "Контакт ещё не подтвердил, поэтому ничего не отправлено",
   "oproxyName": "Название",
   "oproxyEmpty": "Сначала добавьте хотя бы один выход oproxy.",
   "oproxyNoDefault": "Дефолтный oproxy не настроен",

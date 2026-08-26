@@ -4169,6 +4169,10 @@ class AppL10nRu extends AppL10n {
   String get oproxyShareNoContacts => 'Пока некому отправить — нет контактов';
 
   @override
+  String get oproxyShareNotAccepted =>
+      'Контакт ещё не подтвердил, поэтому ничего не отправлено';
+
+  @override
   String get oproxyName => 'Название';
 
   @override

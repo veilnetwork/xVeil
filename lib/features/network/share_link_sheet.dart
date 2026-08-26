@@ -129,11 +129,16 @@ class _ShareLinkSheetState extends ConsumerState<ShareLinkSheet> {
     setState(() => _notice = null);
     final conversations =
         ref.read(conversationsProvider).value ?? const <Conversation>[];
-    // Blocked contacts are not offered: handing an exit to someone who has been
-    // shut out is not a thing to do by accident.
+    // ACCEPTED only, not merely "not blocked".
+    //
+    // `sendText` has a consent gate and returns silently for anything else, so
+    // offering a pending contact meant choosing them, watching the sheet close,
+    // and being told it was sent — when nothing had been (report16 XV-17).
+    // Handing an exit to somebody who has been shut out is not a thing to do by
+    // accident either, and this covers that too.
     final contacts = conversations
         .map((c) => c.peer)
-        .where((c) => c.status != ContactStatus.blocked)
+        .where((c) => c.status == ContactStatus.accepted)
         .toList();
     if (contacts.isEmpty) {
       setState(() => _notice = l.oproxyShareNoContacts);
@@ -169,6 +174,17 @@ class _ShareLinkSheetState extends ConsumerState<ShareLinkSheet> {
       ),
     );
     if (chosen == null || !mounted) return;
+    // Asked again, from the list as it stands NOW. The picker was built before
+    // it was shown, and a contact can be un-accepted while it is open — after
+    // which the send is a silent no-op and this would still say it went.
+    final current = (ref.read(conversationsProvider).value ?? const <Conversation>[])
+        .map((c) => c.peer)
+        .where((c) => c.nodeId == chosen.nodeId)
+        .firstOrNull;
+    if (current == null || current.status != ContactStatus.accepted) {
+      setState(() => _notice = l.oproxyShareNotAccepted);
+      return;
+    }
     try {
       await ref
           .read(messagingServiceProvider)

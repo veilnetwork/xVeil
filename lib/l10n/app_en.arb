@@ -1755,6 +1755,7 @@
   "oproxyShareSend": "Send to a contact",
   "oproxyShareSent": "Sent to {name}",
   "oproxyShareNoContacts": "No contacts to send it to yet",
+  "oproxyShareNotAccepted": "That contact has not accepted yet, so nothing was sent",
   "oproxyName": "Name",
   "oproxyEmpty": "Add at least one oproxy exit first.",
   "oproxyNoDefault": "No default oproxy is configured",
