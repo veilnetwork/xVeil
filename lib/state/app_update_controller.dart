@@ -1,16 +1,32 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:path_provider/path_provider.dart';
+
 import '../data/update/app_update.dart';
+import '../data/update/install_prefs.dart';
 import '../features/settings/error_report.dart' show kAppVersion;
 import 'providers.dart';
 
 /// When the last check happened, so the next one is a day later and not a
 /// launch later. Device-wide rather than identity-scoped: it describes this
 /// INSTALL's traffic to github.com, not anything a profile did.
+///
+/// Kept in [InstallUpdatePrefs] and NOT in `SharedPreferences`, which is
+/// per-profile in production however install-wide it looks: the platform
+/// backend is swapped for a file inside the active profile's directory. The
+/// keys stay here for the migration and for tests.
 const String kUpdateLastCheckPrefKey = 'xveil.update.lastCheckMs';
 
 /// Whether to ask at all.
 const String kUpdateCheckEnabledPrefKey = 'xveil.update.enabled';
+
+/// Where the install-wide pair lives. Overridden in tests.
+final installUpdatePrefsProvider = FutureProvider<InstallUpdatePrefs>((
+  ref,
+) async {
+  final dir = await getApplicationSupportDirectory();
+  return InstallUpdatePrefs(InstallUpdatePrefs.pathIn(dir.path));
+});
 
 /// Whether the app looks for a newer release. On by default; the switch exists
 /// because the request is an outbound connection to github.com that says this
@@ -30,12 +46,10 @@ class UpdateCheckEnabledController extends Notifier<bool> {
 
   Future<void> _load() async {
     try {
-      final prefs = await ref.read(prefsProvider.future);
-      if (!_userSet) {
-        state = prefs.getBool(kUpdateCheckEnabledPrefKey) ?? true;
-      }
+      final prefs = await ref.read(installUpdatePrefsProvider.future);
+      if (!_userSet) state = prefs.enabled ?? true;
     } catch (_) {
-      // No prefs (tests) — keep the default.
+      // No store to read (tests) — keep the default.
     }
   }
 
@@ -52,8 +66,8 @@ class UpdateCheckEnabledController extends Notifier<bool> {
   Future<bool> resolved() async {
     if (_userSet) return state;
     try {
-      final prefs = await ref.read(prefsProvider.future);
-      final stored = prefs.getBool(kUpdateCheckEnabledPrefKey);
+      final prefs = await ref.read(installUpdatePrefsProvider.future);
+      final stored = prefs.enabled;
       if (!_userSet && stored != null) state = stored;
       return _userSet ? state : (stored ?? true);
     } catch (_) {
@@ -67,8 +81,7 @@ class UpdateCheckEnabledController extends Notifier<bool> {
     _userSet = true;
     state = value;
     try {
-      final prefs = await ref.read(prefsProvider.future);
-      await prefs.setBool(kUpdateCheckEnabledPrefKey, value);
+      (await ref.read(installUpdatePrefsProvider.future)).enabled = value;
     } catch (_) {
       // Persist best-effort: the switch still holds for this session.
     }
@@ -101,17 +114,14 @@ class AppUpdateController extends Notifier<AppUpdate?> {
     if (!await ref.read(updateCheckEnabledProvider.notifier).resolved()) return;
     final at = now ?? DateTime.now();
     try {
-      final prefs = await ref.read(prefsProvider.future);
-      final storedMs = prefs.getInt(kUpdateLastCheckPrefKey);
-      final last = storedMs == null
-          ? null
-          : DateTime.fromMillisecondsSinceEpoch(storedMs);
+      final prefs = await ref.read(installUpdatePrefsProvider.future);
+      final last = prefs.lastCheck;
       if (!shouldCheckForUpdate(lastCheck: last, now: at)) return;
       // Stamped BEFORE the request, not after. A check that hangs or dies must
       // still count as "asked today", or a device that cannot reach github.com
       // asks again on every single launch — the exact traffic pattern the
       // interval exists to prevent.
-      await prefs.setInt(kUpdateLastCheckPrefKey, at.millisecondsSinceEpoch);
+      prefs.lastCheck = at;
     } catch (_) {
       // No prefs: check once for this session rather than not at all.
     }
@@ -126,11 +136,8 @@ class AppUpdateController extends Notifier<AppUpdate?> {
         .check();
     state = found;
     try {
-      final prefs = await ref.read(prefsProvider.future);
-      await prefs.setInt(
-        kUpdateLastCheckPrefKey,
-        DateTime.now().millisecondsSinceEpoch,
-      );
+      (await ref.read(installUpdatePrefsProvider.future)).lastCheck =
+          DateTime.now();
     } catch (_) {
       // Best effort.
     }
