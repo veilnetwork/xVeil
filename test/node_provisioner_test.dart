@@ -147,8 +147,14 @@ void main() {
     expect(s, contains(r'if [ "$veil_status" != active ]'));
     expect(s, contains('NODE_ID:'));
     expect(s, contains('config get identity.node_id'));
-    // Idempotent identity: only mines when node.toml lacks [Identity].
-    expect(s, contains(r"grep -qE '^\[Identity\]'"));
+    // Idempotent identity: only mines when node.toml has no identity section.
+    // BOTH spellings — veil renames it to `Identity` but accepts and preserves
+    // a lowercase `[identity]`, and a guard that knew only the uppercase form
+    // read such a config as "no identity" and minted a new one over a live
+    // node. What the pattern actually MATCHES is asserted by running it, in
+    // provision_script_hardening_test.dart; this only pins that the branch is
+    // still chosen by a grep and still knows both cases.
+    expect(s, contains(r"[Ii]dentity"));
   });
 
   test('exit can be disabled', () {
