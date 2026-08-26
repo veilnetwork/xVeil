@@ -120,7 +120,15 @@ tag="\$(printf '%s' "\$json" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | head -
 newer_than "\$tag" "\$FLOOR" || [ "\$tag" = "\$FLOOR" ] || {
   echo "refusing \$tag: below the floor \$FLOOR" >&2; exit 0; }
 
-have="v\$("\$BIN" --version 2>/dev/null | awk '{print \$2}')"
+# A version read that CANNOT end the run.
+#
+# Under `pipefail` and `errexit`, a missing or unrunnable binary made this line
+# the last one: the script died before it downloaded anything. Which turned the
+# repair this updater promises into something it could do for every node except
+# the ones that needed it (report15 X15-M9). An empty answer means "nothing
+# usable is installed", and `newer_than` already treats that as older than
+# everything.
+have="v\$("\$BIN" --version 2>/dev/null | awk '{print \$2}' || true)"
 newer_than "\$tag" "\$have" || { echo "already at \$have"; exit 0; }
 
 stage="\$(mktemp -d)"
@@ -137,10 +145,20 @@ got="\$(sha256sum "\$stage/veil-cli" | cut -d' ' -f1)"
 was_active=0
 systemctl is-active --quiet "\$UNIT" && was_active=1 || true
 
-# NOT `cp || true`: a copy that failed leaves nothing to go back to, and the
-# install below would still overwrite the working binary.
-cp -a "\$BIN" "\$BIN.previous" || {
-  echo "cannot keep a copy of \$BIN — refusing to install over it" >&2; exit 1; }
+# Keep what is there, when there IS something there.
+#
+# NOT `cp || true`: a copy that failed leaves nothing to go back to and the
+# install below would still overwrite a working binary. But an unconditional
+# copy ends the run on a node with no binary at all — the clean-install case,
+# which is the repair.
+if [ -f "\$BIN" ]; then
+  cp -a "\$BIN" "\$BIN.previous" || {
+    echo "cannot keep a copy of \$BIN — refusing to install over it" >&2; exit 1; }
+else
+  # Nothing to go back to. Drop any copy an older run left: restoring a binary
+  # that was never the one running is not a rollback.
+  rm -f "\$BIN.previous"
+fi
 install -o root -g root -m 0755 "\$stage/veil-cli" "\$BIN"
 
 if [ "\$was_active" = 1 ]; then
@@ -165,8 +183,13 @@ if [ "\$was_active" = 1 ]; then
   fi
   if [ "\$ok" = 0 ]; then
     echo "\$tag did not come back — restoring" >&2
-    install -o root -g root -m 0755 "\$BIN.previous" "\$BIN"
-    systemctl restart "\$UNIT" || true
+    # Only if there is something to restore. A clean install has no previous
+    # binary, and `install` from a file that does not exist would end the run
+    # here rather than reporting the failure.
+    if [ -f "\$BIN.previous" ]; then
+      install -o root -g root -m 0755 "\$BIN.previous" "\$BIN"
+      systemctl restart "\$UNIT" || true
+    fi
     exit 1
   fi
 fi

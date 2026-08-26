@@ -57,6 +57,12 @@ void main() {
     test('an unknown running version does not block an update', () {
       // `veil-cli --version` on a broken install yields an empty string; the
       // node should still be able to repair itself.
+      //
+      // This is the COMPARATOR only, and on its own it proved nothing about
+      // the promise: the script never reached it, because reading the version
+      // from a missing binary ended the run several lines earlier
+      // (report15 X15-M9). The repair is exercised end to end in
+      // `node_update_rollback_test`, which runs the script.
       expect(newerThan('v0.8.1', 'v'), isTrue);
     });
   });
