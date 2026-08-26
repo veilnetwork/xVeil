@@ -7,6 +7,7 @@ import '../../data/vpn/vpn_backend.dart';
 import '../../data/vpn/vpn_application_catalog.dart';
 import '../../data/vpn/vpn_routing_policy.dart';
 import '../../l10n/app_localizations.dart';
+import 'oproxy_chain_summary.dart';
 import 'vpn_failure_text.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/proxy_routing_controller.dart';
@@ -712,17 +713,12 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
               searchHint: l.searchHint,
               itemBuilder: (context, application) {
                 final chain = routes[application.id] ?? const <String>[];
-                final endpoint = chain.isEmpty
-                    ? null
-                    : routing.effectiveOproxies
-                          .where((item) => item.nodeId == chain.first)
-                          .firstOrNull;
                 return ListTile(
                   leading: const Icon(Icons.apps),
                   title: Text(application.label),
                   subtitle: Text(
                     '${application.id}\n'
-                    '${chain.isEmpty ? l.oproxyUseDefault : l.oproxyRouteSummary(endpoint?.label ?? chain.first.substring(0, 8), chain.length - 1)}',
+                    '${chain.isEmpty ? l.oproxyUseDefault : oproxyChainSummary(l, routing, chain, autoFailover: policy.oproxyAutoFailover)}',
                   ),
                   onTap: () async {
                     final selected = await _chooseOproxyChain(
@@ -799,11 +795,6 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
     final vpnOproxyChain = policy.vpnOproxyNodeIds.isEmpty
         ? proxy.effectiveDefaultOproxyNodeIds
         : policy.vpnOproxyNodeIds;
-    final primaryOproxy = vpnOproxyChain.isEmpty
-        ? null
-        : proxy.effectiveOproxies
-              .where((item) => item.nodeId == vpnOproxyChain.first)
-              .firstOrNull;
     final canStart = supported && policy.isValid && proxy.vpnTransportReady;
 
     return ExpansionTile(
@@ -860,10 +851,11 @@ class _VpnSectionState extends ConsumerState<_VpnSection> {
           subtitle: Text(
             vpnOproxyChain.isEmpty
                 ? l.oproxyNoDefault
-                : l.oproxyRouteSummary(
-                    primaryOproxy?.label ??
-                        vpnOproxyChain.first.substring(0, 8),
-                    vpnOproxyChain.length - 1,
+                : oproxyChainSummary(
+                    l,
+                    proxy,
+                    vpnOproxyChain,
+                    autoFailover: policy.oproxyAutoFailover,
                   ),
           ),
           trailing: const Icon(Icons.chevron_right),

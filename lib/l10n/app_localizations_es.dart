@@ -4122,6 +4122,11 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String oproxyRouteSummaryNoFailover(Object primary) {
+    return '$primary — alternativas desactivadas';
+  }
+
+  @override
   String get oproxyAutoFailover => 'Conmutación automática de oproxy';
 
   @override
