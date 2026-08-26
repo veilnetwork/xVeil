@@ -114,7 +114,7 @@ void main() {
     expect(
       s,
       contains(
-        "printf '%s  %s\\n' '$sha' \"\$XVEIL_TMP/veil-cli\" | sha256sum -c -",
+        "printf '%s  %s\\n' '$sha' \"\$XVEIL_TMP/veil-cli\" | sudo sha256sum -c -",
       ),
     );
     expect(

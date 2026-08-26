@@ -139,4 +139,67 @@ void main() {
       );
     }
   });
+
+  group('the staged copy is not readable by the machine', () {
+    // The staged file is the CONTENTS of the target. For the veil target that
+    // is `/var/lib/veil/node.toml`, which carries `[identity] private_key` —
+    // and the real file is `0600` for exactly that reason.
+    //
+    // The staging area used to be `0711` with the file at `0644`, under a
+    // fixed name, in `/tmp`. Any local account could poll for the directory
+    // and read the key without sudo (report16 X16-H3).
+    String script(NodeConfigTarget target) =>
+        buildWriteNodeConfigScript(target, 'a = 1\n');
+
+    test('no world bit is handed out anywhere', () {
+      for (final target in NodeConfigTarget.values) {
+        final text = script(target);
+        expect(
+          text,
+          isNot(contains('chmod 711')),
+          reason: '${target.name}: the staging directory is world-traversable',
+        );
+        expect(
+          text,
+          isNot(contains('chmod 0644')),
+          reason: '${target.name}: the staged secret is world-readable',
+        );
+      }
+    });
+
+    test('the validator gets in by group, and only the validator', () {
+      // veil and ogate are validated by a command running as `veil`, so that
+      // account has to READ the staged file — through the group, never
+      // through the world.
+      for (final target in [NodeConfigTarget.veil, NodeConfigTarget.ogate]) {
+        final text = script(target);
+        expect(text, contains('chown root:veil "\$stage"'));
+        expect(text, contains('chmod 0710 "\$stage"'));
+        expect(text, contains('chown root:veil "\$temp"'));
+        expect(text, contains('chmod 0640 "\$temp"'));
+      }
+    });
+
+    test('and a target nothing reads is root-only', () {
+      // oproxy is validated by starting its service, so nobody but root opens
+      // the staged file. Handing `veil` a group it does not need is a wider
+      // door for no reason.
+      for (final target in [
+        NodeConfigTarget.oproxyClient,
+        NodeConfigTarget.oproxyServer,
+      ]) {
+        expect(script(target), contains('chown root:root'));
+        expect(script(target), isNot(contains('root:veil')));
+      }
+    });
+
+    test('and the staged file is still not writable by the validator', () {
+      // The property the old comment was protecting, and it must survive:
+      // `veil` reads the bytes, and cannot rewrite them between the validation
+      // and the install.
+      expect(script(NodeConfigTarget.veil), contains('chmod 0640'));
+      expect(script(NodeConfigTarget.veil), isNot(contains('chmod 0660')));
+      expect(script(NodeConfigTarget.veil), isNot(contains('chmod 0770')));
+    });
+  });
 }

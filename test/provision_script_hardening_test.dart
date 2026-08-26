@@ -42,10 +42,12 @@ void main() {
   test('the scratch directory is private, unguessable and always removed', () {
     final s = script();
     expect(s, contains('umask 077'));
-    expect(s, contains(r'XVEIL_TMP="$(mktemp -d)"'));
+    // Through SUDO: the directory has to belong to root, or the login
+    // account can rewrite what root is about to install (report16 X16-H1).
+    expect(s, contains(r'XVEIL_TMP="$(sudo mktemp -d)"'));
     expect(
       s,
-      contains(r'''trap 'rm -rf -- "$XVEIL_TMP"' EXIT INT TERM'''),
+      contains(r'''trap 'sudo rm -rf -- "$XVEIL_TMP"' EXIT INT TERM'''),
       reason:
           'cleanup on success only leaves the PSK and the TLS key on disk '
           'exactly when the run went wrong',
@@ -270,6 +272,10 @@ void main() {
         [
           '-c',
           'set -e\n'
+              // Transparent: the lines under test now go through `sudo`
+              // because the staging directory belongs to root, and what is
+              // being checked is where the bytes land, not who wrote them.
+              'sudo() { "\$@"; }\n'
               'umask 077\n'
               'XVEIL_TMP="\$(mktemp -d)"\n'
               'trap \'rm -rf -- "\$XVEIL_TMP"\' EXIT\n'
