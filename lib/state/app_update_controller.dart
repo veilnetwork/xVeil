@@ -169,15 +169,30 @@ class AppUpdateController extends Notifier<AppUpdate?> {
     } catch (_) {
       // No prefs: check once for this session rather than not at all.
     }
-    state = await (checker ?? AppUpdateChecker(running: kAppVersion)).check();
+    final result = await (checker ?? AppUpdateChecker(running: kAppVersion))
+        .check();
+    _lastReached = result.reached;
+    state = result.update;
   }
+
+  /// Whether the last look actually reached the release feed.
+  ///
+  /// Null before anything has looked. The screen needs this to tell "up to
+  /// date" apart from "could not check": the stamp is written BEFORE the
+  /// request — deliberately, so a device that cannot reach github.com does not
+  /// ask on every launch — so its presence says an attempt was made and
+  /// nothing about how it went.
+  bool? get lastReached => _lastReached;
+  bool? _lastReached;
 
   /// Ask right now because a person pressed a button. Ignores the interval —
   /// they are looking at the screen, so the traffic is theirs to spend — but
   /// still records the stamp so the automatic one does not repeat it.
   Future<AppUpdate?> checkNow({AppUpdateChecker? checker}) async {
-    final found = await (checker ?? AppUpdateChecker(running: kAppVersion))
+    final result = await (checker ?? AppUpdateChecker(running: kAppVersion))
         .check();
+    _lastReached = result.reached;
+    final found = result.update;
     state = found;
     try {
       (await ref.read(installUpdatePrefsProvider.future)).lastCheck =

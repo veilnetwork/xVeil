@@ -62,8 +62,12 @@ void main() {
   group('reading GitHub’s answer', () {
     const page = 'https://github.com/veilnetwork/xVeil/releases/tag/v0.14.0';
 
-    Future<AppUpdate?> ask(String body, {String running = '0.13.3+11'}) =>
+    Future<AppUpdateCheck> look(String body, {String running = '0.13.3+11'}) =>
         AppUpdateChecker(running: running, fetcher: (_) async => body).check();
+
+    /// The release to offer, for the cases that are only about that.
+    Future<AppUpdate?> ask(String body, {String running = '0.13.3+11'}) async =>
+        (await look(body, running: running)).update;
 
     test('a newer published release is offered', () async {
       final update = await ask(
@@ -111,7 +115,11 @@ void main() {
         fetcher: (_) async => throw const SocketException('offline'),
       );
 
-      expect(await checker.check(), isNull);
+      // Silence, not a thrown error — and now silence with a REASON attached:
+      // nothing to offer, and the feed was never reached.
+      final result = await checker.check();
+      expect(result.update, isNull);
+      expect(result.reached, isFalse);
     });
 
     test('the endpoint is the app’s own repository', () async {
@@ -195,6 +203,65 @@ void main() {
       // everything would satisfy all of them.
       expect(offer('0.13.3+11', 'v0.14.0'), isNotNull);
       expect(offer('0.13.3+11', 'v1.0.0'), isNotNull);
+    });
+  });
+
+  group('answered, versus not answered at all', () {
+    // "Could not ask" and "nothing new" used to be the same answer — both null
+    // — and they are not the same thing to say. A screen that shows a failed
+    // request as "up to date" is making a claim about the release feed that
+    // nothing supports (report16 XV-15).
+    const page = 'https://github.com/veilnetwork/xVeil/releases/tag/v0.14.0';
+
+    test('a feed that answered "nothing newer" was REACHED', () async {
+      final result = await AppUpdateChecker(
+        running: '0.13.3+11',
+        fetcher: (_) async =>
+            '{"tag_name":"v0.13.3","html_url":"$page",'
+            '"draft":false,"prerelease":false}',
+      ).check();
+
+      expect(result.update, isNull);
+      expect(result.reached, isTrue);
+    });
+
+    test('a request that failed was not', () async {
+      final result = await AppUpdateChecker(
+        running: '0.13.3+11',
+        fetcher: (_) async => throw const SocketException('no route to host'),
+      ).check();
+
+      expect(result.update, isNull);
+      expect(
+        result.reached,
+        isFalse,
+        reason: 'a failed request reads as "up to date" on the screen',
+      );
+    });
+
+    test('and neither is an answer that made no sense', () async {
+      for (final body in ['not json', '[]', '{"tag_name":42}']) {
+        final result = await AppUpdateChecker(
+          running: '0.13.3+11',
+          fetcher: (_) async => body,
+        ).check();
+
+        expect(result.reached, isFalse, reason: body);
+      }
+    });
+
+    test('a draft or a pre-release IS an answer', () async {
+      // The feed was reached and said there is nothing for this channel. That
+      // is up to date, not a failure to ask.
+      final result = await AppUpdateChecker(
+        running: '0.13.3+11',
+        fetcher: (_) async =>
+            '{"tag_name":"v9.9.9","html_url":"$page",'
+            '"draft":true,"prerelease":false}',
+      ).check();
+
+      expect(result.update, isNull);
+      expect(result.reached, isTrue);
     });
   });
 }

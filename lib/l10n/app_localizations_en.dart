@@ -3591,6 +3591,9 @@ class AppL10nEn extends AppL10n {
   String get updateUpToDate => 'You have the latest release';
 
   @override
+  String get updateCouldNotCheck => 'Could not check for updates';
+
+  @override
   String updateAvailable(Object version) {
     return 'Version $version is available';
   }
