@@ -33,6 +33,24 @@ const int maxFileNameChars = 255;
 /// Bytes a single path component may occupy on the filesystems we target.
 const int maxFileNameBytes = 255;
 
+/// Characters that reorder or hide text without being visible themselves.
+///
+/// A name is read by a person before they decide to open it, and these change
+/// what they read without changing what it is. `photo\u202Egnp.exe` renders as
+/// `photoexe.png` — the extension a person sees is not the one the system
+/// uses, and the name arrives from whoever sent the file.
+///
+/// The invisible ones are here for a second reason: two names that differ only
+/// by a zero-width space look like one name, and a person choosing between
+/// them cannot.
+///
+/// U+200C and U+200D are deliberately NOT here. They join and separate letters
+/// in Persian, Hindi and emoji sequences, they reorder nothing, and stripping
+/// them breaks names that are simply written in another script.
+final RegExp _invisibleOrReordering = RegExp(
+  r'[\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u00AD\uFEFF]',
+);
+
 final RegExp _separatorOrControl = RegExp(r'[/\\]|[\x00-\x1f\x7f]');
 
 /// True when [name] is a plain filename: no path in it, nothing a shell or a
@@ -45,6 +63,7 @@ bool isSafeFileLabel(String name) {
   if (name.isEmpty || name.length > maxFileNameChars) return false;
   if (name != name.trim()) return false;
   if (name == '.' || name == '..') return false;
+  if (_invisibleOrReordering.hasMatch(name)) return false;
   return !_separatorOrControl.hasMatch(name);
 }
 
@@ -56,7 +75,13 @@ bool isSafeFileLabel(String name) {
 /// which is the traversal this exists to stop, and there is nothing of the
 /// original to preserve.
 String safeFileLeaf(String? name, {String fallback = 'file'}) {
-  var out = (name ?? '').replaceAll(_separatorOrControl, '_').trim();
+  var out = (name ?? '')
+      .replaceAll(_separatorOrControl, '_')
+      // Replaced rather than removed, for the same reason separators are: two
+      // names that differ only by something invisible must not collapse into
+      // one.
+      .replaceAll(_invisibleOrReordering, '_')
+      .trim();
   if (out.length > maxFileNameChars) out = out.substring(0, maxFileNameChars);
   out = _trimTrailing(_fitBytes(out));
   return out.isEmpty ? fallback : out;

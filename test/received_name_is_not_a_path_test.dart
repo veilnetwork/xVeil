@@ -164,4 +164,60 @@ void main() {
       reason: 'a name from the wire must not decide where bytes land',
     );
   });
+
+  group('a name is read by a person before they open it', () {
+    // U+202E RIGHT-TO-LEFT OVERRIDE reverses what follows it, so
+    // `photo<RLO>gnp.exe` is displayed as `photoexe.png`. The extension the
+    // person reads is not the one the system uses, and the name arrives from
+    // whoever sent the file.
+    // Escaped, not literal: a raw bidi character in source reorders the
+    // source too, and the analyzer says so. The same reason a raw NUL made a
+    // test file undiffable.
+    const rlo = '\u202E';
+    const lri = '\u2066';
+    const zwsp = '\u200B';
+
+    test('a bidi override is not a safe label', () {
+      expect(isSafeFileLabel('photo${rlo}gnp.exe'), isFalse);
+      expect(isSafeFileLabel('a${lri}b.png'), isFalse);
+      expect(isSafeFileLabel('a${zwsp}b.png'), isFalse);
+      // Vacuity guard: ordinary names, including non-Latin ones, still pass.
+      expect(isSafeFileLabel('фото.png'), isTrue);
+      expect(isSafeFileLabel('photo.png'), isTrue);
+    });
+
+    test('and it does not survive the sanitiser', () {
+      final leaf = safeFileLeaf('photo${rlo}gnp.exe');
+
+      expect(leaf.contains(rlo), isFalse);
+      // Replaced, not removed: two names differing only by something
+      // invisible must not collapse into one file.
+      expect(leaf, 'photo_gnp.exe');
+    });
+
+    test('joiners that real scripts need are left alone', () {
+      // U+200C and U+200D separate and join letters in Persian, Hindi and
+      // emoji sequences. They reorder nothing, and stripping them breaks
+      // names that are simply written in another script.
+      const zwnj = '\u200C';
+      const zwj = '\u200D';
+
+      expect(safeFileLeaf('nam${zwnj}ha.png'), 'nam${zwnj}ha.png');
+      expect(safeFileLeaf('a${zwj}b.png'), 'a${zwj}b.png');
+    });
+
+    test('the result still fits a filesystem leaf', () {
+      // Premise, because the replacement above adds characters: whatever the
+      // input, what comes out is one component and within the byte bound.
+      for (final name in [
+        'a' * 300,
+        rlo * 100 + 'b' * 200,
+        'фото${'ю' * 200}.png',
+      ]) {
+        final leaf = safeFileLeaf(name);
+        expect(utf8.encode(leaf).length, lessThanOrEqualTo(maxFileNameBytes));
+        expect(leaf, isNot(contains('/')));
+      }
+    });
+  });
 }
