@@ -282,10 +282,19 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                     // read counts as shown to a person.
                     trailing: TextButton(
                       onPressed: () async {
-                        await ref
+                        final failed = await ref
                             .read(appControllerProvider.notifier)
                             .acknowledgeHardeningWarning();
                         if (!context.mounted) return;
+                        if (failed != null) {
+                          // The container did not take it, so the warning is
+                          // still there. Hiding it here would be this screen
+                          // deciding on its own that a thing was dismissed.
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(failed)),
+                          );
+                          return;
+                        }
                         setState(() => _hardening = null);
                       },
                       child: Text(l.settingsStorageHardeningDismiss),
