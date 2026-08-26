@@ -7334,6 +7334,30 @@ abstract class AppL10n {
   /// **'The local SOCKS5 address must be a loopback host:port, for example 127.0.0.1:1080. The VPN listens there itself.'**
   String get vpnNeedsListen;
 
+  /// No description provided for @vpnStartAlreadyRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'A tunnel from a previous session is still shutting down. Try again in a moment.'**
+  String get vpnStartAlreadyRunning;
+
+  /// No description provided for @vpnStartInvalidArgument.
+  ///
+  /// In en, this message translates to:
+  /// **'The packet engine rejected one of the settings — check the local SOCKS5 address, the DNS servers and the MTU.'**
+  String get vpnStartInvalidArgument;
+
+  /// No description provided for @vpnStartClosed.
+  ///
+  /// In en, this message translates to:
+  /// **'The packet engine is shut down. Restart the app and try again.'**
+  String get vpnStartClosed;
+
+  /// No description provided for @vpnStartRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'The packet engine refused to start.'**
+  String get vpnStartRefused;
+
   /// No description provided for @vpnNeedsProxy.
   ///
   /// In en, this message translates to:
