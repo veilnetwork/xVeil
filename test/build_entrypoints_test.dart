@@ -23,6 +23,68 @@ void main() {
       workingDirectory: Directory.current.path,
     );
 
+    test('EVERY platform names the version it was built as', () {
+      // Written as one sweep over the targets rather than a line per platform,
+      // because the per-platform version was exactly how three of them drifted:
+      // android and macos were each asserted individually, and linux, ios and
+      // windows shipped `dev` for as long as anyone had been looking.
+      //
+      // A build that cannot say what it is has two consequences, and the
+      // second is the one that goes unnoticed: an error report ties to no
+      // build, and the update check refuses to offer anything at all, because
+      // a version it cannot order is not evidence that anybody is out of date.
+      // The feature simply does nothing, quietly, on those hosts.
+      for (final target in ['android', 'linux', 'ios', 'windows', 'macos']) {
+        final plan = run(['builder.py', target, '--release', '--dry-run']);
+        expect(plan.exitCode, 0, reason: '$target: ${plan.stderr}');
+        final text = plan.stdout.toString();
+        if (text.contains('build-macos-adhoc.sh')) {
+          // A target may hand the build to a script. Then the script is what
+          // has to name the version — excusing the branch because it delegates
+          // is how a gap gets a comment written over it instead of a check.
+          expect(
+            File('scripts/build-macos-adhoc.sh').readAsStringSync(),
+            contains('--dart-define=XVEIL_VERSION='),
+            reason: 'the script the macOS plan delegates to drops the version',
+          );
+          continue;
+        }
+        expect(
+          text,
+          contains('XVEIL_VERSION=${_pubspecVersion()}'),
+          reason: '$target builds an app that reports its version as "dev"',
+        );
+      }
+    });
+
+    test('and so does every branch this host cannot reach', () {
+      // The sweep above only sees the branch the host takes. A signed iOS
+      // build, a signed macOS bundle and the Windows plan pick different arms
+      // on different machines, and a plan that is never printed here is a plan
+      // nothing checks — which is the state the three broken platforms were
+      // in.
+      //
+      // So this counts instead: every `flutter build` in the file against
+      // every version define. Crude on purpose. It cannot say WHICH build lost
+      // its version, but it cannot be satisfied by the branches that happen to
+      // run on the machine running the suite.
+      final source = File('builder.py').readAsStringSync();
+      final builds = RegExp(r'"flutter",\s*\n?\s*"build"').allMatches(source);
+      final defines = RegExp(
+        '--dart-define=XVEIL_VERSION=',
+      ).allMatches(source);
+
+      expect(builds, isNotEmpty, reason: 'the build steps moved');
+      expect(
+        defines.length,
+        builds.length,
+        reason:
+            'a flutter build with no XVEIL_VERSION ships an app that reports '
+            'its version as "dev": the error report ties to no build, and the '
+            'update check silently refuses to offer anything',
+      );
+    });
+
     test('an unknown target is refused, not guessed at', () {
       final result = run(['builder.py', 'nonsense', '--dry-run']);
       expect(result.exitCode, 2);
