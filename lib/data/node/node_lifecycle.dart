@@ -375,6 +375,13 @@ NodeConfigRead? parseReadNodeConfig(String stdout) {
   }
 }
 
+/// The lock a config apply takes on the machine.
+///
+/// One per node rather than per file: the four configs this edits belong to
+/// services that start each other, and two applies landing at once is the case
+/// this is about however different their targets.
+const String kVeilConfigLockPath = '/run/lock/xveil-veil-config.lock';
+
 /// Transactionally replace a remote TOML file. veil and ogate have explicit
 /// offline validators; oproxy is validated by starting/restarting its service.
 /// A failed activation restores the exact previous file and prior enabled state.
@@ -413,6 +420,15 @@ String buildWriteNodeConfigScript(
     echo "the file changed since it was read (\$now)" >&2
     exit 4
   fi
+else
+  # There WAS a file when this was read — that is what having a digest means —
+  # and there is not one now. Somebody removed it, and writing the copy this
+  # screen is holding would put a deleted config back without anybody
+  # deciding to (report16 XV-19). A guard that only runs when the file is
+  # still there is skipped by exactly the change it exists to catch.
+  echo 'XVEIL_CONFIG_CHANGED' >&2
+  echo 'the file was removed since it was read' >&2
+  exit 4
 fi''';
   // Whose group reaches the staging area. The validators for veil and ogate
   // run as `veil` and must READ what was staged; oproxy is validated by
@@ -431,7 +447,7 @@ fi''';
       '# oproxy validates its complete config during service activation',
   };
 
-  return '''#!/usr/bin/env bash
+  final body = '''#!/usr/bin/env bash
 set -euo pipefail
 # Staging lives in a ROOT-OWNED, 0700, unpredictably-named directory.
 #
@@ -478,13 +494,36 @@ printf '%s' '$payload' | base64 -d | sudo tee "\$temp" >/dev/null
 sudo chown root:$stageGroup "\$temp"
 sudo chmod 0640 "\$temp"
 $validate
+# Existence, copy, compare and install under ONE lock on this config.
+#
+# Without it two administrators can both read the same digest, both copy the
+# same bytes, both find their own backup unchanged and both install — last one
+# wins, and the other's change is gone with nothing having said so. The window
+# between the copy and the install is enough on its own.
+#
+# Staged as a file rather than quoted into `flock -c`, for the same reason the
+# update path does it: this section carries its own quoting.
+sudo mkdir -p "\$(dirname '$kVeilConfigLockPath')"
+critical="\$stage/apply.sh"
+sudo tee "\$critical" >/dev/null <<'XVEIL_APPLY'
+#!/usr/bin/env bash
+set -euo pipefail
+stage="\$1"
+path="\$2"
+temp="\$stage/config.toml"
+backup="\$stage/config.backup"
 had_config=0
 if sudo test -f "\$path"; then
   had_config=1
   sudo cp --preserve=mode,ownership,timestamps "\$path" "\$backup"
 fi
-$guard
+XVEIL_GUARD
 sudo install -o ${target.owner} -g ${target.group} -m ${target.mode} "\$temp" "\$path"
+echo "\$had_config" > "\$stage/had_config"
+XVEIL_APPLY
+sudo chmod 0700 "\$critical"
+sudo flock -w 300 '$kVeilConfigLockPath' "\$critical" "\$stage" "\$path"
+had_config="\$(sudo cat "\$stage/had_config")"
 activation_ok=1
 sudo systemctl enable --now '$unit' || activation_ok=0
 sleep 1
@@ -502,7 +541,12 @@ if [ "\$activation_ok" = 0 ]; then
 fi
 echo "CONFIG_APPLIED: $path"
 echo "ACTIVE: \$(sudo systemctl is-active '$unit' 2>/dev/null || true)"
-''';
+'''
+      // Substituted after the template is built: the heredoc above is quoted,
+      // so the shell expands nothing inside it, and the guard is the same text
+      // whether or not the apply runs under the lock.
+      .replaceFirst('XVEIL_GUARD', guard);
+  return body;
 }
 
 /// Remove selected programs/units while preserving identity and configs. This
