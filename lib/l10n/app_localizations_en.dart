@@ -4594,6 +4594,9 @@ class AppL10nEn extends AppL10n {
   String get sshPasswordLabel => 'Password';
 
   @override
+  String get sshRemoteConfigEmpty => 'The server returned no readable config.';
+
+  @override
   String get sshKeyLabel => 'Private key (PEM)';
 
   @override

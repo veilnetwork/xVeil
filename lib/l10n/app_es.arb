@@ -1934,6 +1934,7 @@
   "sshUsePassword": "Contraseña",
   "sshUseKey": "Clave privada",
   "sshPasswordLabel": "Contraseña",
+  "sshRemoteConfigEmpty": "El servidor no devolvió una configuración legible.",
   "sshKeyLabel": "Clave privada (PEM)",
   "sshKeyPassphraseLabel": "Frase de la clave (opcional)",
   "sshCredsNotSaved": "Las credenciales que escribas aquí se usan una sola vez. Gestiona las credenciales guardadas en la ficha del nodo.",

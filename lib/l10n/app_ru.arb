@@ -1927,6 +1927,7 @@
   "sshUsePassword": "Пароль",
   "sshUseKey": "Приватный ключ",
   "sshPasswordLabel": "Пароль",
+  "sshRemoteConfigEmpty": "Сервер не вернул читаемый конфиг.",
   "sshKeyLabel": "Приватный ключ (PEM)",
   "sshKeyPassphraseLabel": "Пароль ключа (необязательно)",
   "sshCredsNotSaved": "Введённые здесь данные используются один раз. Сохранённые реквизиты меняются в карточке узла.",
