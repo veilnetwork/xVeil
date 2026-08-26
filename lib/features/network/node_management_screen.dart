@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/node/managed_node.dart';
+import '../../data/node/node_auto_update.dart';
 import '../../data/node/node_lifecycle.dart';
 import '../../data/node/node_provisioner.dart';
 import '../../data/node/ssh_client.dart';
@@ -60,8 +61,15 @@ class NodeManagementScreen extends ConsumerWidget {
     ManagedNode node,
     SshResult result,
   ) async {
-    final updated = nodeWithAdoptedId(node, result.stdout);
-    if (updated != null) {
+    final report = parseProvisionReport(result.stdout);
+    // The id is adopted only into a BLANK record (see nodeWithAdoptedId); the
+    // version is refreshed every time, because that is the whole point of
+    // running an inventory.
+    var updated = nodeWithAdoptedId(node, result.stdout) ?? node;
+    if (report.veilVersion != null) {
+      updated = updated.copyWith(veilVersion: report.veilVersion);
+    }
+    if (updated != node) {
       await ref.read(managedNodesProvider.notifier).upsert(updated);
     }
     final routing = routingWithInventoriedExit(
@@ -69,7 +77,7 @@ class NodeManagementScreen extends ConsumerWidget {
       // The record as it stands AFTER the id was adopted, so a blank entry that
       // just learned its id is registered on the same run rather than on the
       // next one.
-      node: updated ?? node,
+      node: updated,
       inventoryOutput: result.stdout,
     );
     if (routing != null) {
@@ -92,6 +100,30 @@ class NodeManagementScreen extends ConsumerWidget {
       );
     }
   }
+
+  /// Install or remove the server's self-updater, and record what the server
+  /// actually did.
+  ///
+  /// The flag is not flipped optimistically. It describes a timer on a machine,
+  /// and a switch that moves when the SSH run failed would show a node keeping
+  /// itself current when nothing on it does.
+  Future<void> _setAutoUpdate(
+    BuildContext context,
+    WidgetRef ref,
+    ManagedNode node,
+    bool value,
+  ) => _run(
+    context,
+    node,
+    title: AppL10n.of(context).nodeAutoUpdate,
+    command: buildNodeAutoUpdateScript(enabled: value),
+    onSuccess: (result) async {
+      if (!result.ok) return;
+      await ref
+          .read(managedNodesProvider.notifier)
+          .upsert(node.copyWith(autoUpdate: value));
+    },
+  );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -131,6 +163,19 @@ class NodeManagementScreen extends ConsumerWidget {
               onSuccess: (result) =>
                   _adoptInventory(context, ref, node, result),
             ),
+          ),
+          // A switch that RUNS something over SSH, so it reads as an action and
+          // not as a stored preference: the record only changes after the
+          // server said it did.
+          SwitchListTile(
+            secondary: const Icon(Icons.update),
+            title: Text(l.nodeAutoUpdate),
+            subtitle: Text(l.nodeAutoUpdateHint),
+            isThreeLine: true,
+            value: node.autoUpdate,
+            onChanged: node.hasSsh && node.sshUser != null
+                ? (value) => _setAutoUpdate(context, ref, node, value)
+                : null,
           ),
           ListTile(
             enabled: node.hasSsh && node.sshUser != null,

@@ -1818,6 +1818,8 @@
   "nodeProvision": "Instalar el nodo veil por SSH",
   "nodeManage": "Gestionar el nodo",
   "nodeInventory": "Inspeccionar la instalación y el estado",
+  "nodeAutoUpdate": "Mantener este nodo actualizado",
+  "nodeAutoUpdateHint": "El servidor busca a diario una nueva versión de veil y la instala como root, sin supervisión. Recomendamos actualizar de forma consciente: esto confía en quien pueda publicar una versión, porque el resumen que verifica se publica junto al binario. Guarda el binario anterior y lo restaura si el nodo no vuelve.",
   "nodeExitRefusesThisDevice": "Esta salida aún no admite a nadie: añade el node id de este dispositivo a proxy.exit.allowed_node_ids en el servidor, o rechazará todo flujo tras actualizar el nodo.",
   "nodeInstallUpdate": "Instalar o actualizar el software",
   "nodeServices": "Servicios",
