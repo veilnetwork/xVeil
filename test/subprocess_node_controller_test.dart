@@ -23,6 +23,7 @@ class _FakeProcess implements NodeProcess {
   final stdout = StreamController<String>.broadcast();
   final stderr = StreamController<String>.broadcast();
   bool killed = false;
+  int kills = 0;
 
   void exitWith(int code) {
     if (!_exit.isCompleted) _exit.complete(code);
@@ -37,6 +38,7 @@ class _FakeProcess implements NodeProcess {
   @override
   bool kill() {
     killed = true;
+    kills++;
     if (!dieOnKill) return true;
     if (exitDelay == Duration.zero) {
       exitWith(-15);
@@ -220,8 +222,8 @@ void main() {
     });
 
     test('a child that ignores the kill does not hang stop() forever', () async {
-      // The grace exists so a wedged child cannot freeze the UI: the handle is
-      // released either way, and waiting longer would not change the outcome.
+      // The grace exists so a wedged child cannot freeze the UI. That part is
+      // unchanged; what is not is what happens afterwards.
       final proc = _FakeProcess(dieOnKill: false);
       final launcher = _FakeLauncher(proc);
       final controller = _make(launcher, _falseThenTrue());
@@ -232,7 +234,49 @@ void main() {
             onTimeout: () => fail('stop() hung on a child that will not die'),
           );
       expect(proc.killed, isTrue);
+    });
+
+    test('and it is NOT reported as stopped', () async {
+      // It used to be. The handle was released whether or not the child was
+      // seen to go, and `stopped` was announced regardless — while a process
+      // still holding the admin socket and the listen port was running
+      // (report16 XV-06). The next `start()` then spawned beside it.
+      final proc = _FakeProcess(dieOnKill: false);
+      final controller = _make(_FakeLauncher(proc), _falseThenTrue());
+      await controller.start();
+
+      await controller.stop();
+
+      expect(controller.current.phase, isNot(NodePhase.stopped));
+      expect(controller.current.message, contains('has not been seen to exit'));
+    });
+
+    test('and a second stop can still signal it', () async {
+      // The point of keeping the handle: releasing the PID meant nobody could
+      // reach the process again, and the only cure was killing the app.
+      final proc = _FakeProcess(dieOnKill: false);
+      final controller = _make(_FakeLauncher(proc), _falseThenTrue());
+      await controller.start();
+      await controller.stop();
+      expect(proc.kills, 1);
+
+      await controller.stop();
+
+      expect(proc.kills, 2, reason: 'the second stop had nothing to signal');
+    });
+
+    test('CONTROL: a child that DOES go is stopped, and let go of', () async {
+      // Vacuity guard: keeping the handle always would leave every clean stop
+      // reporting an error and signalling a corpse on the next one.
+      final proc = _FakeProcess();
+      final controller = _make(_FakeLauncher(proc), _falseThenTrue());
+      await controller.start();
+
+      await controller.stop();
       expect(controller.current.phase, NodePhase.stopped);
+
+      await controller.stop();
+      expect(proc.kills, 1, reason: 'it signalled a process already gone');
     });
   });
 }
