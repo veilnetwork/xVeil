@@ -159,8 +159,12 @@ class ShareOproxySheet extends ConsumerWidget {
       return;
     }
     if (!context.mounted) return;
+    // The messenger is taken BEFORE the sheet closes. Looking it up through a
+    // context that `pop` has just removed is how a confirmation ends up thrown
+    // away — or throwing — at the one moment the person needs to see it.
+    final messenger = ScaffoldMessenger.of(context);
     Navigator.of(context).pop();
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger.showSnackBar(
       SnackBar(
         content: Text(
           l.oproxyShareSent(chosen.name ?? chosen.nodeId.hex.substring(0, 8)),
