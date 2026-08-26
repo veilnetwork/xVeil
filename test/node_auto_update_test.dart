@@ -11,12 +11,17 @@ import 'package:xveil/data/node/node_auto_update.dart';
 /// shell function. So it is exercised by a real shell rather than read.
 void main() {
   /// The `newer_than` helper exactly as the generated script carries it.
+  ///
+  /// The whole function, not one line: it stopped being a one-liner when
+  /// `sort -V` was replaced, and reading a single line silently produced a
+  /// shell syntax error rather than a wrong answer.
   String comparator() {
-    final script = buildNodeAutoUpdateScript(enabled: true);
-    final line = script
-        .split('\n')
-        .firstWhere((l) => l.startsWith('newer_than()'));
-    return line;
+    final lines = buildNodeAutoUpdateScript(enabled: true).split('\n');
+    final from = lines.indexWhere((l) => l.startsWith('newer_than()'));
+    expect(from, isNot(-1), reason: 'the comparator moved');
+    final to = lines.indexOf('}', from);
+    expect(to, isNot(-1));
+    return lines.sublist(from, to + 1).join('\n');
   }
 
   /// True when the script would treat [candidate] as newer than [have].
@@ -52,6 +57,31 @@ void main() {
       // compare, which would hold a fleet a release behind forever.
       expect(newerThan('v0.10.0', 'v0.9.0'), isTrue);
       expect(newerThan('v0.9.0', 'v0.10.0'), isFalse);
+    });
+
+    test('a release candidate is not offered over the stable release', () {
+      // `sort -V` orders `0.8.1` BEFORE `0.8.1-rc1`, so an RC reads as newer
+      // than the stable release of the same number (report16 XV-11). These
+      // scripts install published releases; an RC is not one.
+      expect(newerThan('v0.8.1-rc1', 'v0.8.1'), isFalse);
+      expect(newerThan('v0.9.0-beta', 'v0.8.1'), isFalse);
+    });
+
+    test('and a node left on a candidate DOES get the stable release', () {
+      // The dangerous half of the same ordering: with `sort -V` a node
+      // somebody put an RC on refused the release that followed it, which is
+      // how a security update sits unapplied.
+      expect(newerThan('v0.8.1', 'v0.8.1-rc1'), isTrue);
+      expect(newerThan('v0.8.1', '0.8.1-rc1'), isTrue);
+    });
+
+    test('a zero-padded field is decimal, not octal', () {
+      // `$((08))` is an error in a shell, and an error here would end the run
+      // rather than answer.
+      // Both sides, because each is parsed separately and a break on one is
+      // invisible to a case that only pads the other.
+      expect(newerThan('v0.8.9', 'v0.08.8'), isTrue);
+      expect(newerThan('v0.08.9', 'v0.8.8'), isTrue);
     });
 
     test('an unknown running version does not block an update', () {

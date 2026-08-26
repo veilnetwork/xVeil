@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'arch_guard.dart';
 import 'node_auto_update.dart' show kVeilUpdateLockPath;
+import 'version_compare_shell.dart';
 import 'node_provisioner.dart';
 
 enum NodeManagedService { veil, ogate, oproxyClient, oproxyServer }
@@ -215,10 +216,10 @@ if [ "\$actual" != '${expectedVeilVersion.trim()}' ]; then
   echo "the node runs \$actual, not ${expectedVeilVersion.trim()} as checked" >&2
   exit 4
 fi
-# And never sideways or backwards. `sort -V` puts the newer one last.
-if [ "\$(printf '%s\\n%s\\n' "\$actual" '${targetVeilVersion.trim()}' | sort -V | tail -1)" \\
-     != '${targetVeilVersion.trim()}' ] \\
-   || [ "\$actual" = '${targetVeilVersion.trim()}' ]; then
+# And never sideways or backwards. The same comparator the unattended updater
+# uses — `sort -V` reads a release candidate as newer than the stable release
+# of the same number, in both directions (report16 XV-11).
+if ! newer_than '${targetVeilVersion.trim()}' "\$actual"; then
   echo 'XVEIL_VERSION_NOT_NEWER' >&2
   exit 4
 fi''';
@@ -302,6 +303,7 @@ sudo tee "\$critical" >/dev/null <<'XVEIL_CRITICAL'
 set -euo pipefail
 stage="\$1"
 XVEIL_ARCH_GUARD
+XVEIL_NEWER_THAN
 $checks
 $versionGuard
 $snapshots
@@ -318,7 +320,8 @@ sudo flock -w 600 '$kVeilUpdateLockPath' "\$critical" "\$stage"
       // Substituted after the template is built: the heredoc above is quoted,
       // so the shell expands nothing inside it, and the guard stays ONE shared
       // text rather than a copy that can drift from the deployment script's.
-      .replaceFirst('XVEIL_ARCH_GUARD', kArchGuardShell.trim());
+      .replaceFirst('XVEIL_ARCH_GUARD', kArchGuardShell.trim())
+      .replaceFirst('XVEIL_NEWER_THAN', kNewerThanShell.trim());
 }
 
 /// Fetch one exact remote config as base64 between markers. Base64 keeps
