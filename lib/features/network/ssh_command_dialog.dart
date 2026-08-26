@@ -11,6 +11,7 @@ import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/ssh_credentials.dart';
+import 'ssh_private_key_field.dart';
 import 'ssh_public_key_card.dart';
 
 /// Generic SSH operation runner. It can use the node's encrypted saved
@@ -196,22 +197,14 @@ class _SshCommandDialogState extends ConsumerState<SshCommandDialog> {
                   SshPublicKeyCard(publicKey: _credentials.publicKeyOpenSsh!),
                   const SizedBox(height: 8),
                 ],
-                TextField(
+                SshPrivateKeyField(
                   controller: _key,
-                  minLines: 2,
                   maxLines: 5,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-                  decoration: InputDecoration(
-                    labelText: _credentials.hasKey
-                        ? l.sshOtherKeyLabel
-                        : l.sshKeyLabel,
-                    helperText: _credentials.hasKey
-                        ? l.sshUseSavedKeyHint
-                        : null,
-                    helperMaxLines: 2,
-                    border: const OutlineInputBorder(),
-                    isDense: true,
-                  ),
+                  labelText: _credentials.hasKey
+                      ? l.sshOtherKeyLabel
+                      : l.sshKeyLabel,
+                  helperText: _credentials.hasKey ? l.sshUseSavedKeyHint : null,
+                  helperMaxLines: 2,
                 ),
                 const SizedBox(height: 8),
                 TextField(

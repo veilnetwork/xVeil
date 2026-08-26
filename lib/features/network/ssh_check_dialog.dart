@@ -4,6 +4,7 @@ import 'ssh_host_confirm.dart';
 import '../../data/node/ssh_client.dart';
 import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
+import 'ssh_private_key_field.dart';
 import 'ssh_public_key_card.dart';
 
 /// A one-shot SSH connect-and-check dialog for a managed node. Prompts for auth
@@ -176,22 +177,16 @@ class _SshCheckDialogState extends State<SshCheckDialog> {
                 ),
                 const SizedBox(height: 8),
               ],
-              TextField(
+              SshPrivateKeyField(
                 controller: _key,
-                minLines: 2,
                 maxLines: 4,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-                decoration: InputDecoration(
-                  labelText: widget.initialCredentials.hasKey
-                      ? l.sshOtherKeyLabel
-                      : l.sshKeyLabel,
-                  helperText: widget.initialCredentials.hasKey
-                      ? l.sshUseSavedKeyHint
-                      : null,
-                  helperMaxLines: 2,
-                  border: const OutlineInputBorder(),
-                  isDense: true,
-                ),
+                labelText: widget.initialCredentials.hasKey
+                    ? l.sshOtherKeyLabel
+                    : l.sshKeyLabel,
+                helperText: widget.initialCredentials.hasKey
+                    ? l.sshUseSavedKeyHint
+                    : null,
+                helperMaxLines: 2,
               ),
               const SizedBox(height: 8),
               TextField(
