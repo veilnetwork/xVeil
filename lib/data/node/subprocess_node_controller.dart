@@ -134,24 +134,36 @@ class SubprocessNodeController implements NodeController {
 
   /// Stop the child and WAIT for it, so the caller's next `start()` cannot race
   /// a process that still holds the port.
-  Future<void> _terminate() async {
+  /// Signal the child and wait for it. Returns whether the exit was OBSERVED.
+  ///
+  /// The handle is dropped only when it was. It used to be cleared FIRST, so a
+  /// child that did not die within the grace left nothing to signal again —
+  /// and `stop()` announced `stopped` regardless, while a process still
+  /// holding the admin socket and the listen port was running
+  /// (report16 XV-06). The next `start()` then spawned beside it.
+  Future<bool> _terminate() async {
     final process = _process;
-    _process = null;
     for (final d in _drains) {
       unawaited(d.cancel());
     }
     _drains = const [];
     await _exitWatch?.cancel();
     _exitWatch = null;
-    if (process == null) return;
+    if (process == null) {
+      _process = null;
+      return true;
+    }
     process.kill();
+    var exited = false;
     try {
       await process.exitCode.timeout(_exitGrace);
+      exited = true;
     } catch (_) {
-      // Did not die in time (or already reaped). Nothing further to do from
-      // here — the handle is released either way, and holding the caller
-      // longer would not change the outcome.
+      // Did not die in time, or was already reaped by somebody else. Either
+      // way this side has not seen it go.
     }
+    if (exited) _process = null;
+    return exited;
   }
 
   /// Bounded tail of the child's output, newest last.
@@ -183,8 +195,22 @@ class SubprocessNodeController implements NodeController {
     // immediately, so a `start()` right after could spawn while the old process
     // still held the admin socket and the listen port — and the old handle was
     // already dropped, so nobody could stop it either.
-    await _terminate();
-    _emit(NodeStatus.stopped);
+    final exited = await _terminate();
+    if (exited) {
+      _emit(NodeStatus.stopped);
+      return;
+    }
+    // Signalled and not seen to go. Saying `stopped` here is the claim that
+    // made the next `start()` spawn beside a process still holding the admin
+    // socket and the listen port.
+    _emit(
+      const NodeStatus(
+        phase: NodePhase.error,
+        message:
+            'the node was signalled but has not been seen to exit; it may '
+            'still hold its socket and port',
+      ),
+    );
   }
 
   Future<void> dispose() async {
