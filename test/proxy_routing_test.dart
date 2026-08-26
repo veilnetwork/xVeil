@@ -420,4 +420,82 @@ void main() {
       expect(routing.vpnTransportGap, VpnTransportGap.noExit);
     });
   });
+
+  /// A composed veil config ALREADY carries `[proxy.socks5]` and
+  /// `[proxy.exit]` — `veil-cli config init` writes them, and so does compose;
+  /// verified on a live node.toml. `withProxy` used to step aside whenever it
+  /// saw one, as a guard against appending a second copy, which meant the
+  /// app's routing never reached the node AT ALL: the node kept the base
+  /// config's answer and every change made in the routing screen was inert.
+  ///
+  /// Measured on a phone with two exits configured: the SOCKS5 service ran
+  /// with ONE candidate, so `connect_failed candidate_index=0` went straight
+  /// to `all_exits_failed` and the second exit was never tried. 25 refusals in
+  /// one log and not a single `candidate_index=1`.
+  group('a config that already carries a proxy table', () {
+    const withTable =
+        '[identity]\nx = 1\n\n'
+        '[proxy.socks5]\nenabled = false\nlisten = "127.0.0.1:9999"\n'
+        'exit_node_id = "$_backup"\n\n'
+        '[dht]\nbucket = 8\n';
+
+    test('the app replaces it instead of standing down', () {
+      const cfg = ProxyRouting(
+        socks5Enabled: true,
+        socks5Listen: '127.0.0.1:1080',
+        defaultOproxyNodeIds: [_exit, _backup],
+        oProxies: [
+          OproxyEndpoint(nodeId: _exit, label: 'one'),
+          OproxyEndpoint(nodeId: _backup, label: 'two'),
+        ],
+      );
+      final out = EmbeddedNode.withProxy(withTable, cfg);
+      expect(
+        out,
+        contains('exit_node_ids = ["$_exit", "$_backup"]'),
+        reason: 'the chain the person configured has to reach the node',
+      );
+      expect(
+        out,
+        isNot(contains('127.0.0.1:9999')),
+        reason: 'the stale listen is last boot\'s answer, not a setting',
+      );
+      expect(
+        '[proxy.socks5]'.allMatches(out).length,
+        1,
+        reason: 'replacing must not leave two tables for veil to choose from',
+      );
+    });
+
+    test('tables that are not ours survive', () {
+      const cfg = ProxyRouting(
+        socks5Enabled: true,
+        socks5Listen: '127.0.0.1:1080',
+        exitNodeId: _exit,
+      );
+      final out = EmbeddedNode.withProxy(withTable, cfg);
+      expect(out, contains('[identity]'));
+      expect(out, contains('[dht]'));
+      expect(out, contains('bucket = 8'), reason: 'a table AFTER ours too');
+    });
+
+    test('turning routing off takes the stale table with it', () {
+      // Otherwise "off" would mean "keep whatever the node was last told",
+      // which is the same silence in the other direction.
+      final out = EmbeddedNode.withProxy(withTable, ProxyRouting.disabled);
+      expect(out, isNot(contains('[proxy.')));
+      expect(out, contains('[dht]'));
+    });
+
+    test('repeated composition does not grow the file', () {
+      const cfg = ProxyRouting(
+        socks5Enabled: true,
+        socks5Listen: '127.0.0.1:1080',
+        exitNodeId: _exit,
+      );
+      final once = EmbeddedNode.withProxy(withTable, cfg);
+      final twice = EmbeddedNode.withProxy(once, cfg);
+      expect(twice, once, reason: 'composing the same routing is idempotent');
+    });
+  });
 }
