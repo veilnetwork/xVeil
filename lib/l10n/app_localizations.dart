@@ -7358,6 +7358,24 @@ abstract class AppL10n {
   /// **'The packet engine refused to start.'**
   String get vpnStartRefused;
 
+  /// No description provided for @vpnStartStoppedDuringStartup.
+  ///
+  /// In en, this message translates to:
+  /// **'The tunnel started and stopped again before it carried anything.'**
+  String get vpnStartStoppedDuringStartup;
+
+  /// No description provided for @vpnStartSelectorMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'Android did not provide what per-application routing needs. Route all traffic instead, or try again.'**
+  String get vpnStartSelectorMissing;
+
+  /// No description provided for @vpnStartEngineMissing.
+  ///
+  /// In en, this message translates to:
+  /// **'This build has no packet engine, so the system VPN cannot run.'**
+  String get vpnStartEngineMissing;
+
   /// No description provided for @vpnNeedsProxy.
   ///
   /// In en, this message translates to:

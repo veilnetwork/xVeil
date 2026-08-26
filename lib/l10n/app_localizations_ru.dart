@@ -4209,6 +4209,18 @@ class AppL10nRu extends AppL10n {
   String get vpnStartRefused => 'Пакетный движок отказался запускаться.';
 
   @override
+  String get vpnStartStoppedDuringStartup =>
+      'Туннель поднялся и сразу остановился, не пропустив ни байта.';
+
+  @override
+  String get vpnStartSelectorMissing =>
+      'Android не выдал то, что нужно для маршрутизации по приложениям. Пустите весь трафик или повторите.';
+
+  @override
+  String get vpnStartEngineMissing =>
+      'В этой сборке нет пакетного движка — системный VPN работать не сможет.';
+
+  @override
   String get vpnNeedsProxy =>
       'Сначала выберите корректный выходной узел. VPN запустит SOCKS5-транспорт автоматически.';
 
