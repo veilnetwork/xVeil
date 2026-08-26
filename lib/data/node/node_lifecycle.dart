@@ -67,6 +67,17 @@ if sudo test -x /usr/local/bin/veil-cli && sudo test -f /var/lib/veil/node.toml;
   sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml config get identity.node_id 2>/dev/null || \\
     sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml node id 2>/dev/null || true
   sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml node show 2>/dev/null || true
+  # HOW to reach this node, so it can be handed to somebody.
+  #
+  # A node id cannot be dialled: reaching a peer needs transport + public_key +
+  # nonce, which is exactly what this URI carries. Deployment prints it and the
+  # app spends it immediately — adding the node as its own entry point — and
+  # then forgets it, so there was no way to share a connection to a server you
+  # run. Read-only, and current: the transport can change, and a stored copy
+  # would go stale without anyone noticing.
+  echo -n "BOOTSTRAP_URI: "
+  sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml bootstrap invite 2>/dev/null \\
+    | head -1 || echo "(unavailable)"
   # Is this server an EXIT, and who does it admit? Read from the file, because
   # `veil-cli config get proxy.exit.enabled` answers `unknown config key` —
   # measured on a live node, which is also why deployment writes these through
