@@ -1,5 +1,22 @@
 import 'managed_node.dart';
 import 'node_auto_update.dart' show nodeUpdateOffer;
+import 'veil_github_release.dart' show VeilLinuxReleaseTarget;
+
+/// What one node said about itself, just now.
+///
+/// Both halves come from the same inventory run. They are kept together
+/// because an offer needs both and neither may be guessed: the version decides
+/// WHETHER to offer, the target decides WHICH file, and a wrong answer to the
+/// second installs a genuine release the machine cannot execute.
+class NodeReading {
+  const NodeReading({this.version, this.target});
+
+  /// Null when the node was asked and did not answer.
+  final String? version;
+
+  /// Which release build this machine can run, or null when it did not say.
+  final VeilLinuxReleaseTarget? target;
+}
 
 /// One node that can move, and where from and to.
 class NodeUpdateStep {
@@ -7,9 +24,15 @@ class NodeUpdateStep {
     required this.node,
     required this.from,
     required this.to,
+    required this.target,
   });
 
   final ManagedNode node;
+
+  /// The build to fetch for THIS machine. Carried per step rather than chosen
+  /// once for the fleet: a person can run an arm64 box beside an x86_64 one,
+  /// and the deployment wizard offers both.
+  final VeilLinuxReleaseTarget target;
 
   /// What the node said it was running, just now.
   final String from;
@@ -49,14 +72,20 @@ class NodeUpdatePlan {
 
 /// Work out what to offer for a whole fleet at once.
 ///
-/// [reported] maps a node's id to the version it JUST gave — from an inventory
-/// that succeeded — or null when it was asked and did not answer. A node
-/// missing from the map was not asked at all and is treated the same as one
-/// that did not answer: in both cases nobody knows what it runs, and an offer
-/// built on a guess names a version the machine may not have.
+/// [reported] maps a node's id to what it JUST said — from an inventory that
+/// succeeded — or null when it was asked and did not answer. A node missing
+/// from the map was not asked at all and is treated the same as one that did
+/// not answer: in both cases nobody knows what it runs, and an offer built on a
+/// guess names a version the machine may not have.
+///
+/// A node that answered but whose architecture is unrecognised is NOT offered
+/// anything either. The alternative is to guess a build, and the guess is not
+/// caught by anything downstream: the digest of an x86_64 release matches
+/// perfectly on an arm64 server, installs as root over the working binary, and
+/// the service never comes back.
 NodeUpdatePlan planNodeUpdates({
   required List<ManagedNode> nodes,
-  required Map<String, String?> reported,
+  required Map<String, NodeReading?> reported,
   required String? latestTag,
 }) {
   final upgradable = <NodeUpdateStep>[];
@@ -75,7 +104,8 @@ NodeUpdatePlan planNodeUpdates({
   }
 
   for (final node in nodes) {
-    final said = reported[node.id];
+    final reading = reported[node.id];
+    final said = reading?.version;
     if (said == null || said.trim().isEmpty) {
       unreachable.add(node);
       continue;
@@ -93,7 +123,18 @@ NodeUpdatePlan planNodeUpdates({
       }
       continue;
     }
-    upgradable.add(NodeUpdateStep(node: node, from: said, to: to));
+    final target = reading?.target;
+    if (target == null) {
+      // It answered, and it is behind — but nobody knows which build it runs.
+      // Listed rather than offered: "we could not work out what to send you" is
+      // the same practical state as "we could not reach you", and offering a
+      // guess is the one outcome that breaks a working server.
+      unreachable.add(node);
+      continue;
+    }
+    upgradable.add(
+      NodeUpdateStep(node: node, from: said, to: to, target: target),
+    );
   }
 
   return NodeUpdatePlan(
