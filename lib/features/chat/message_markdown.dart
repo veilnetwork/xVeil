@@ -773,8 +773,6 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // WHY it is not applied here, said before the button that leads
-            // somewhere else — not after the person has pressed it.
             // A shared exit SEES where the traffic goes. Said before the
             // button, not after: adding one is a trust decision about whoever
             // runs that node, and the link itself looks like any other.
@@ -782,6 +780,8 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
               Text(l.chatLinkProxyBody),
               const SizedBox(height: 12),
             ],
+            // WHY it is not applied here, said before the button that leads
+            // somewhere else — not after the person has pressed it.
             if (kind == ChatLinkKind.deviceLink) ...[
               Text(l.chatLinkDeviceBody),
               const SizedBox(height: 12),
@@ -885,9 +885,13 @@ class _FormattedTextState extends ConsumerState<FormattedText> {
     }
     await ref.read(proxyRoutingProvider.notifier).set(updated);
     if (!mounted) return;
+    // firstOrNull, not firstWhere: the entry is there by construction, and a
+    // throwing lookup inside a tap handler is a poor way to find out that
+    // construction changed.
     final added = updated.effectiveOproxies
-        .firstWhere((e) => e.nodeId == invite.nodeId);
-    _toast(l.chatLinkProxyAdded(added.label));
+        .where((e) => e.nodeId == invite.nodeId)
+        .firstOrNull;
+    _toast(l.chatLinkProxyAdded(added?.label ?? invite.nodeId.substring(0, 8)));
   }
 
   Future<void> _redeemEntryNodes(String url) async {
