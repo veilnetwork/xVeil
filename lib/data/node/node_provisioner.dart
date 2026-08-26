@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'managed_node.dart';
+
 /// Components that can be installed on a managed server. `veilCli` is always
 /// required; the others are optional applications that attach to its local IPC
 /// socket.
@@ -89,6 +91,29 @@ ProvisionReport parseProvisionReport(String output, {String? reachableHost}) {
     invite: invite,
     components: components,
   );
+}
+
+/// The node record to save after a read-only inventory run, or null to leave
+/// the catalog untouched.
+///
+/// The inventory prints `NODE_ID: <64 hex>`, the app showed it and forgot it,
+/// and the record kept displaying `—` — so the operator had to copy 64 hex
+/// characters by hand into the field that decides what their traffic routes
+/// through. Deployment persists the same value from the same line through the
+/// same parser; only this path was missing.
+///
+/// Fills a blank and nothing else. An entry that already carries an id is
+/// returned as null: adopting whatever a server currently answers would let a
+/// host that was re-pointed, rebuilt or swapped silently take over an entry the
+/// operator chose deliberately.
+///
+/// Pure, and it takes the output rather than running anything, so both the
+/// "adopt" and the "leave alone" branches are reachable from a plain unit test.
+ManagedNode? nodeWithAdoptedId(ManagedNode node, String inventoryOutput) {
+  if (node.hasNodeId) return null;
+  final id = parseProvisionReport(inventoryOutput).nodeId;
+  if (id == null) return null;
+  return node.copyWith(nodeId: id);
 }
 
 /// Rewrite the `t=` transport of an invite when it names an address that only
@@ -766,6 +791,23 @@ id veil >/dev/null 2>&1 || sudo useradd -r -s /usr/sbin/nologin -d /var/lib/veil
 sudo mkdir -p /var/lib/veil /var/log/veil
 sudo chown veil:veil /var/lib/veil /var/log/veil
 
+# 0b. let `veil` into the scratch directory — and no one else.
+#
+# `mktemp -d` above makes it 0700 root:root, which is right for the secrets
+# staged in it but wrong for the config steps below: those run the config
+# through `sudo -u veil`, which has to enter this directory and create its own
+# file there. Without this the unprivileged user cannot traverse the
+# directory at all, and every `veil-cli -c "\$XVEIL_TMP/..."` reports the
+# config as MISSING rather than as forbidden — so a deployment fails after
+# installing the binaries, leaving a server with no running node.
+#
+# Group access, not world: the files root staged here stay 0600 root-owned
+# under `umask 077`, so the obfs4 PSK and the TLS key remain unreadable to
+# `veil` and to every other account on the machine. It must come after the
+# account exists, which is why it is here and not beside the `mktemp`.
+sudo chown root:veil "\$XVEIL_TMP"
+sudo chmod 0770 "\$XVEIL_TMP"
+
 # 1. download and authenticate EVERY selected release asset first
 $downloads
 
@@ -793,9 +835,15 @@ if ! sudo test -f /var/lib/veil/node.toml || ! sudo grep -qE '^\\[Identity\\]' /
 else
   sudo install -o veil -g veil -m 0600 /var/lib/veil/node.toml \$XVEIL_TMP/xveil-node.toml
 fi
+# `listen list` prints ids in hex — `0x00000001`, not `1` — so a decimal-only
+# filter matches nothing and this loop deletes nothing. Redeploying a server
+# then APPENDS listeners instead of reconciling them: a second run leaves two
+# obfs4 listeners on the same port, and any listener from an earlier
+# deployment (a plain `tcp://0.0.0.0:9000` from the old default) survives
+# every subsequent run despite this step existing to remove exactly that.
 while read -r listen_id; do
   sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen del "\$listen_id"
-done < <(sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen list | awk 'NR > 1 && \$1 ~ /^[0-9]+\$/ {print \$1}')
+done < <(sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml listen list | awk 'NR > 1 && \$1 ~ /^0x[0-9a-fA-F]+\$/ {print \$1}')
 $listeners
 set_toml_scalar transport obfs4_psk_file '"/var/lib/veil/obfs4_psk.b64"' \$XVEIL_TMP/xveil-node.toml
 sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/xveil-node.toml config set ipc.enabled true
