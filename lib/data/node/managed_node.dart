@@ -19,6 +19,8 @@ class ManagedNode {
     this.sshPort = 22,
     this.sshUser,
     this.sshHostFingerprint,
+    this.autoUpdate = false,
+    this.veilVersion,
   });
 
   /// Local stable id (uuid) — identifies the entry across edits.
@@ -41,6 +43,28 @@ class ManagedNode {
   /// (which would otherwise capture the SSH password / run as root).
   final String? sshHostFingerprint;
 
+  /// Whether this server keeps its own veil-cli current on a timer.
+  ///
+  /// Default FALSE, and false for records written before the field existed.
+  /// Deployment installs no timer: unattended root-level updates are opt-in,
+  /// because what they trust is whoever can publish a release, and the ordinary
+  /// path is the app noticing a new version and offering to install it while a
+  /// person is present.
+  ///
+  /// A local record of what was asked for, not a reading of the server. What
+  /// the node actually runs is only ever changed by running the script, and
+  /// this is set from that run's result.
+  final bool autoUpdate;
+
+  /// The veil-cli version this node last REPORTED, without a leading `v`.
+  ///
+  /// Remembered so the app can say "there is a newer release than what you are
+  /// running" without an SSH round trip every time the screen opens. Stale by
+  /// construction — it is what the node said at the last inventory, not what it
+  /// runs now — which is exactly why the offer runs an inventory before it
+  /// installs anything.
+  final String? veilVersion;
+
   bool get hasNodeId => nodeId != null && _isHex64(nodeId!);
   bool get hasSsh => sshHost != null && sshHost!.isNotEmpty;
 
@@ -55,6 +79,8 @@ class ManagedNode {
     int? sshPort,
     String? sshUser,
     String? sshHostFingerprint,
+    bool? autoUpdate,
+    String? veilVersion,
   }) =>
       ManagedNode(
         id: id,
@@ -64,6 +90,8 @@ class ManagedNode {
         sshPort: sshPort ?? this.sshPort,
         sshUser: sshUser ?? this.sshUser,
         sshHostFingerprint: sshHostFingerprint ?? this.sshHostFingerprint,
+        autoUpdate: autoUpdate ?? this.autoUpdate,
+        veilVersion: veilVersion ?? this.veilVersion,
       );
 
   Map<String, dynamic> toJson() => {
@@ -75,6 +103,8 @@ class ManagedNode {
         if (sshUser != null) 'sshUser': sshUser,
         if (sshHostFingerprint != null)
           'sshHostFingerprint': sshHostFingerprint,
+        'autoUpdate': autoUpdate,
+        if (veilVersion != null) 'veilVersion': veilVersion,
       };
 
   factory ManagedNode.fromJson(Map<String, dynamic> j) => ManagedNode(
@@ -85,6 +115,8 @@ class ManagedNode {
         sshPort: (j['sshPort'] as num?)?.toInt() ?? 22,
         sshUser: j['sshUser'] as String?,
         sshHostFingerprint: j['sshHostFingerprint'] as String?,
+        autoUpdate: j['autoUpdate'] as bool? ?? false,
+        veilVersion: j['veilVersion'] as String?,
       );
 
   /// Encode/decode a whole registry to/from the single JSON string persisted
