@@ -64,25 +64,96 @@ void main() {
       // nothing checks — which is the state the three broken platforms were
       // in.
       //
-      // So this counts instead: every `flutter build` in the file against
-      // every version define. Crude on purpose. It cannot say WHICH build lost
-      // its version, but it cannot be satisfied by the branches that happen to
-      // run on the machine running the suite.
+      // Counting builds against defines was the first attempt and it admits a
+      // false negative: add a build with no version and a stray define
+      // somewhere else and the totals still agree. So each build command is
+      // checked on its own.
       final source = File('builder.py').readAsStringSync();
-      final builds = RegExp(r'"flutter",\s*\n?\s*"build"').allMatches(source);
-      final defines = RegExp(
-        '--dart-define=XVEIL_VERSION=',
-      ).allMatches(source);
+      final argvs = RegExp(
+        r'argv=\[(.*?)\]',
+        dotAll: true,
+      ).allMatches(source).map((m) => m.group(1)!).toList();
+      final builds = argvs
+          .where((a) => a.contains('"flutter"') && a.contains('"build"'))
+          .toList();
 
       expect(builds, isNotEmpty, reason: 'the build steps moved');
-      expect(
-        defines.length,
-        builds.length,
-        reason:
-            'a flutter build with no XVEIL_VERSION ships an app that reports '
-            'its version as "dev": the error report ties to no build, and the '
-            'update check silently refuses to offer anything',
-      );
+      for (final argv in builds) {
+        expect(
+          argv,
+          contains('--dart-define=XVEIL_VERSION='),
+          reason:
+              'a flutter build with no XVEIL_VERSION ships an app that reports '
+              'its version as "dev": the error report ties to no build, and '
+              'the update check silently refuses to offer anything\n$argv',
+        );
+      }
+    });
+
+    test('...and so does every build script in the repository', () {
+      // `EVERY platform` in the name above was not true: it read builder.py
+      // and nothing else, while `scripts/build-ios-simulator.sh` ran its own
+      // `flutter build` with no define at all. A Simulator build is where a
+      // tester reproduces things, so it is exactly the build whose reports
+      // need to name themselves.
+      //
+      // Invocations only. Half the scripts MENTION `flutter build` in a help
+      // string telling somebody what to run, and a check that cannot tell an
+      // instruction from a command fails on the wrong lines.
+      var checked = 0;
+      for (final script in Directory('scripts')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.sh'))) {
+        // Continuations first: an invocation split across lines carries its
+        // arguments — the define among them — on the lines below.
+        final joined = script
+            .readAsStringSync()
+            .replaceAll(RegExp(r'\\\n\s*'), ' ');
+        for (final line in joined.split('\n')) {
+          final command = line.trimLeft().replaceFirst(RegExp(r'^if\s+!\s+'), '');
+          if (!command.startsWith('flutter build')) continue;
+          checked++;
+          expect(
+            command,
+            contains('XVEIL_VERSION'),
+            reason: '${script.path} builds an app that cannot name itself',
+          );
+        }
+      }
+      expect(checked, greaterThan(0), reason: 'no invocation was examined');
+    });
+
+    test('the version is read the same way everywhere, and validated', () {
+      // Three readers produced this string independently: builder.py, the
+      // ad-hoc macOS script, and nothing at all in the Simulator script. What
+      // they produce lands in --dart-define, and `version: "1.2.3+4"  # bump`
+      // is valid YAML that used to come through with the quotes and the
+      // comment attached — a version nothing can compare, which reports as
+      // "dev" and silences the update check.
+      String read(String versionLine) {
+        final dir = Directory.systemTemp.createTempSync('xveil-ps');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        File('${dir.path}/pubspec.yaml').writeAsStringSync(
+          'name: xveil\n$versionLine\nenvironment:\n  sdk: ^3.0.0\n',
+        );
+        final r = Process.runSync('bash', [
+          'scripts/pubspec-version.sh',
+          dir.path,
+        ]);
+        return r.exitCode == 0 ? r.stdout.toString() : 'REFUSED';
+      }
+
+      expect(read('version: 1.2.3+4'), '1.2.3+4');
+      expect(read('version: "1.2.3+4"'), '1.2.3+4');
+      expect(read("version: '1.2.3+4'  # bump me"), '1.2.3+4');
+      expect(read('version: 1.2.3   '), '1.2.3');
+      // And what it must NOT do: hand a build something unusable rather than
+      // stopping. A build that names itself wrongly is worse than one that
+      // does not start, because nobody finds out until a report arrives.
+      expect(read('version: latest'), 'REFUSED');
+      expect(read('version:'), 'REFUSED');
+      expect(read('name: xveil'), 'REFUSED');
     });
 
     test('an unknown target is refused, not guessed at', () {
