@@ -4220,6 +4220,18 @@ class AppL10nEs extends AppL10n {
   String get vpnStartRefused => 'El motor de paquetes se negó a iniciarse.';
 
   @override
+  String get vpnStartStoppedDuringStartup =>
+      'El túnel se inició y se detuvo antes de transportar nada.';
+
+  @override
+  String get vpnStartSelectorMissing =>
+      'Android no proporcionó lo que necesita el enrutamiento por aplicación. Enruta todo el tráfico o inténtalo de nuevo.';
+
+  @override
+  String get vpnStartEngineMissing =>
+      'Esta compilación no tiene motor de paquetes, así que la VPN del sistema no puede funcionar.';
+
+  @override
   String get vpnNeedsProxy =>
       'Elige antes un nodo de salida válido. La VPN arranca sola su transporte SOCKS5.';
 

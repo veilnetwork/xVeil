@@ -14,6 +14,12 @@ String vpnStartFailureText(AppL10n l, VpnBackendState backend) =>
       VpnStartFailure.invalidArgument => l.vpnStartInvalidArgument,
       VpnStartFailure.closed => l.vpnStartClosed,
       VpnStartFailure.refused => l.vpnStartRefused,
+      // The engine's own account of a death after start is the most specific
+      // thing there is, so it wins over the named floor when it left one.
+      VpnStartFailure.stoppedDuringStartup =>
+        backend.detail ?? l.vpnStartStoppedDuringStartup,
+      VpnStartFailure.selectorMissing => l.vpnStartSelectorMissing,
+      VpnStartFailure.engineMissing => l.vpnStartEngineMissing,
       // No named reason. There still may be words from the engine or the
       // platform — the tunnel that DIED after starting records why, and that
       // slot is readable because its object still exists. Naming the reason

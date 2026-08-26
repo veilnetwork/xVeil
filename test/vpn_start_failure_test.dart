@@ -108,4 +108,46 @@ void main() {
       expect(vpnStartFailureText(l, state), l.vpnStatusError);
     });
   });
+
+  /// The unkeyed-string invariant scans `lib/features` only, and these came
+  /// from `lib/data` — where a `detail` string is written in English for a log
+  /// and then rendered verbatim on the screen. "could not start packet tunnel"
+  /// reached a Russian UI exactly that way.
+  group('every start failure a person can meet has a sentence', () {
+    final l = AppL10nRu();
+
+    test('none of them falls through to the generic error', () {
+      for (final failure in VpnStartFailure.values) {
+        final text = vpnStartFailureText(
+          l,
+          VpnBackendState(VpnBackendPhase.error, failure: failure),
+        );
+        expect(
+          text,
+          isNot(l.vpnStatusError),
+          reason: '$failure has no sentence of its own',
+        );
+        expect(
+          text,
+          isNot(contains('packet tunnel')),
+          reason: '$failure leaks an English internal into the UI',
+        );
+      }
+    });
+
+    test('a death after start prefers the engine words over the floor', () {
+      const withWords = VpnBackendState(
+        VpnBackendPhase.error,
+        detail: 'packet tunnel failed: no route to exit node',
+        failure: VpnStartFailure.stoppedDuringStartup,
+      );
+      expect(vpnStartFailureText(l, withWords), contains('no route to exit'));
+      // And a floor when it left none, rather than nothing.
+      const silent = VpnBackendState(
+        VpnBackendPhase.error,
+        failure: VpnStartFailure.stoppedDuringStartup,
+      );
+      expect(vpnStartFailureText(l, silent), l.vpnStartStoppedDuringStartup);
+    });
+  });
 }
