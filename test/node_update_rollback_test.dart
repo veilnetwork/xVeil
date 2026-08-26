@@ -90,6 +90,37 @@ systemctl() {
   return 0
 }
 sleep() { :; }
+mkdir() { :; }
+tee() {
+  # The real one writes to its FILE arguments; the script uses `tee FILE
+  # >/dev/null`, so the destination is the first non-flag argument. Getting
+  # this wrong wrote the critical section to /dev/null and the tests failed
+  # on an empty script rather than on the code.
+  local out=""
+  for a in "\$@"; do
+    case "\$a" in -*) : ;; *) out="\$a"; break ;; esac
+  done
+  if [ -n "\$out" ]; then cat > "\$out"; else cat > /dev/null; fi
+}
+chmod() { note "chmod \$*"; }
+# `flock` is not on every machine that runs this suite, and the lock is not
+# what these tests are about: run the critical section directly and record
+# that the script asked for the lock at all.
+flock() {
+  local script=""
+  local prev=""
+  for a in "\$@"; do
+    case "\$a" in
+      -w) : ;;
+      *.sh) script="\$a" ;;
+    esac
+    prev="\$a"
+  done
+  note "flock \$*"
+  # Sourced, not run: a child process would not see the stubs above, so the
+  # critical section would call the real systemctl and install.
+  if [ -n "\$script" ]; then source "\$script" "\${@: -1}"; fi
+}
 ''';
     final file = File('${dir.path}/s.sh')
       ..writeAsStringSync('$harness\n$script');
@@ -195,7 +226,13 @@ sleep() { :; }
       return lines
           .sublist(from + 1, to)
           .join('\n')
-          .replaceFirst('BIN=/usr/local/bin/veil-cli', 'BIN=${bin.path}');
+          .replaceFirst('BIN=/usr/local/bin/veil-cli', 'BIN=${bin.path}')
+          // /run/lock is not writable here, and the lock is not what this
+          // test is about.
+          .replaceFirst(
+            RegExp(r'LOCK=\S+'),
+            'LOCK=${dir.path}/lock',
+          );
     }
 
     test('a restart that FAILS still rolls back', () {
@@ -213,6 +250,69 @@ sleep() { :; }
       final log = runStubbed(inner());
 
       expect(restored(log), isFalse);
+    });
+  });
+
+  group('two updaters must not interleave', () {
+    // The timer and the fleet screen install the SAME binary and keep the same
+    // `.previous` copy beside it. Without a shared lock they interleave, and
+    // the loser's rollback restores a binary over the one the winner just
+    // started - a rollback of somebody else's success (report15 X15-M13).
+    final fleet = buildNodeSoftwareUpdateScript([
+      NodeReleaseArtifact(
+        component: NodeComponent.veilCli,
+        releaseUrl: 'https://example.invalid/veil-cli',
+        expectedSha256: 'a' * 64,
+      ),
+    ]);
+    final auto = buildNodeAutoUpdateScript(enabled: true);
+
+    test('both paths take the same lock', () {
+      expect(fleet, contains(kVeilUpdateLockPath));
+      expect(auto, contains(kVeilUpdateLockPath));
+      // Naming the path is not taking the lock. The first version of this
+      // asserted only the former, and replacing the timer's `flock` with
+      // `false` left it green.
+      expect(fleet, contains('flock -w'));
+      expect(auto, contains('flock -w'));
+      expect(auto, contains(r'exec 9>'));
+    });
+
+    test('the fleet script holds it across install AND rollback', () {
+      // Not merely mentioned: the install has to happen INSIDE the section the
+      // lock covers, or the lock is decoration.
+      final log = runStubbed(fleet, restartFails: true);
+
+      final locked = log.indexWhere((l) => l.startsWith('flock'));
+      final installed = log.indexWhere(
+        (l) => l.startsWith('install ') && !l.contains('.previous'),
+      );
+      final restored = log.indexWhere(
+        (l) => l.startsWith('install ') && l.contains('.previous'),
+      );
+      expect(locked, isNot(-1), reason: 'nothing took the lock');
+      expect(installed, greaterThan(locked), reason: 'installed unlocked');
+      expect(restored, greaterThan(locked), reason: 'rolled back unlocked');
+    });
+
+    test('the download happens OUTSIDE it', () {
+      // A lock held across a network fetch blocks the other path for as long
+      // as the release server feels like taking.
+      final log = runStubbed(fleet);
+      final fetched = log.indexWhere((l) => l.startsWith('curl'));
+      final locked = log.indexWhere((l) => l.startsWith('flock'));
+
+      expect(fetched, isNot(-1));
+      expect(locked, isNot(-1));
+      expect(fetched, lessThan(locked));
+    });
+
+    test('a timer that cannot get the lock is not a failed unit', () {
+      // Reporting failure every time somebody else is updating teaches whoever
+      // runs the box to ignore the unit.
+      expect(auto, contains('another update holds the lock'));
+      final at = auto.indexOf('another update holds the lock');
+      expect(auto.substring(at, at + 200), contains('exit 0'));
     });
   });
 }
