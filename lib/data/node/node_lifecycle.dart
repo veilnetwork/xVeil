@@ -267,20 +267,45 @@ if ! sudo test -f '${target.path}'; then
   echo 'XVEIL_CONFIG_MISSING'
   exit 3
 fi
+# The digest of the bytes being handed over, so a save can tell whether the
+# file it is about to replace is still the one that was read. Without it a
+# second administrator's change - a revoked allowlist id, a listener, a
+# hardening setting - is silently rolled back by whoever loaded first.
+echo -n 'XVEIL_CONFIG_SHA256: '
+sudo sha256sum '${target.path}' | cut -d' ' -f1
 echo 'XVEIL_CONFIG_BEGIN'
 sudo base64 -w 0 '${target.path}' 2>/dev/null || sudo base64 '${target.path}' | tr -d '\\n'
 echo
 echo 'XVEIL_CONFIG_END'
 ''';
 
-String? parseReadNodeConfig(String stdout) {
+/// A config as it stood on the server, with the digest of exactly those bytes.
+class NodeConfigRead {
+  const NodeConfigRead({required this.contents, required this.sha256});
+
+  final String contents;
+
+  /// What the file hashed to when it was read, or null for a node running a
+  /// script too old to report one. Null means a save cannot check, and that is
+  /// a fact to carry rather than a value to invent.
+  final String? sha256;
+}
+
+/// Read the config a run reported. Null when there is none to read.
+NodeConfigRead? parseReadNodeConfig(String stdout) {
   final match = RegExp(
     r'XVEIL_CONFIG_BEGIN\s*([A-Za-z0-9+/=\r\n]+?)\s*XVEIL_CONFIG_END',
   ).firstMatch(stdout);
   if (match == null) return null;
+  final digest = RegExp(
+    r'XVEIL_CONFIG_SHA256:\s*([0-9a-f]{64})',
+  ).firstMatch(stdout);
   try {
-    return utf8.decode(
-      base64Decode(match.group(1)!.replaceAll(RegExp(r'\s'), '')),
+    return NodeConfigRead(
+      contents: utf8.decode(
+        base64Decode(match.group(1)!.replaceAll(RegExp(r'\s'), '')),
+      ),
+      sha256: digest?.group(1),
     );
   } catch (_) {
     return null;
@@ -290,13 +315,42 @@ String? parseReadNodeConfig(String stdout) {
 /// Transactionally replace a remote TOML file. veil and ogate have explicit
 /// offline validators; oproxy is validated by starting/restarting its service.
 /// A failed activation restores the exact previous file and prior enabled state.
-String buildWriteNodeConfigScript(NodeConfigTarget target, String contents) {
+/// [expectedSha256] is what the file hashed to when it was READ. The install
+/// refuses if the file has changed since — a second administrator, an
+/// automation, the node's own writer — because this replaces the whole file and
+/// has no way to keep what it never saw. Null skips the check, which is what a
+/// node running an older read script leaves us with; it is a narrower promise,
+/// not a different one.
+String buildWriteNodeConfigScript(
+  NodeConfigTarget target,
+  String contents, {
+  String? expectedSha256,
+}) {
   if (utf8.encode(contents).length > 1024 * 1024) {
     throw ArgumentError('config is larger than 1 MiB');
+  }
+  if (expectedSha256 != null &&
+      !RegExp(r'^[0-9a-f]{64}$').hasMatch(expectedSha256)) {
+    throw ArgumentError('expected digest is not a sha256: $expectedSha256');
   }
   final payload = base64Encode(utf8.encode(contents));
   final path = target.path;
   final unit = target.service.unit;
+  // Checked HERE, against the file about to be replaced, and as late as it can
+  // be: between Load and Apply somebody else can change this file, and a
+  // full-file write has no way to keep a change it never saw. The comparison
+  // is on the backup copy, which is the exact bytes `install` is about to
+  // overwrite.
+  final guard = expectedSha256 == null
+      ? '# no digest was reported by the read, so nothing can be compared'
+      : '''if [ "\$had_config" = 1 ]; then
+  now="\$(sudo sha256sum "\$backup" | cut -d' ' -f1)"
+  if [ "\$now" != '$expectedSha256' ]; then
+    echo 'XVEIL_CONFIG_CHANGED' >&2
+    echo "the file changed since it was read (\$now)" >&2
+    exit 4
+  fi
+fi''';
   final validate = switch (target) {
     NodeConfigTarget.veil =>
       'sudo -u veil /usr/local/bin/veil-cli -c "\$temp" config validate',
@@ -345,6 +399,7 @@ if sudo test -f "\$path"; then
   had_config=1
   sudo cp --preserve=mode,ownership,timestamps "\$path" "\$backup"
 fi
+$guard
 sudo install -o ${target.owner} -g ${target.group} -m ${target.mode} "\$temp" "\$path"
 activation_ok=1
 sudo systemctl enable --now '$unit' || activation_ok=0
