@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -6,6 +9,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/folder_sync.dart';
 import 'package:xveil/state/folder_sync_controller.dart';
 import 'package:xveil/data/storage/folder_sync_store.dart';
+import 'package:xveil/state/folder_sync_engine.dart';
 import 'package:xveil/state/providers.dart';
 
 /// The folder sync belongs to ONE identity, and to no other.
@@ -105,4 +109,88 @@ void main() {
       reason: 'the controller must hold the pairs of the identity now shown',
     );
   });
+
+  test(
+    'a pass already running does not finish against the new identity',
+    () async {
+      // The rebuild stops NEW passes. This is the one already inside `runOnce`
+      // when the switch lands: its engine is A's cloud, its folder is A's, and
+      // finishing it after the switch is the upload this whole file is about.
+      final a = await opened('a');
+      final b = await opened('b');
+      var active = a;
+      final engine = _CountingEngine();
+      final gate = Completer<void>();
+
+      final container = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => active),
+          folderSyncEngineProvider.overrideWith((ref) => engine),
+          // Holds the pass open exactly where `runOnce` awaits its reload.
+          folderSyncStoreProvider.overrideWith(
+            (ref) => _GatedStore(ref.watch(storageProvider), gate.future),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      final dir = Directory.systemTemp.createTempSync('xveil-sync-identity');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      Process.runSync('chmod', ['0700', dir.path]);
+      final pair = FolderSyncPair(id: 'p1', localPath: dir.path);
+      await FolderSyncStore(a).savePairs([pair]);
+
+      final controller = container.read(folderSyncControllerProvider.notifier);
+      final pass = controller.runOnce(pair);
+
+      // The identity moves while the pass is held at its reload.
+      active = b;
+      container.invalidate(storageProvider);
+      container.read(folderSyncControllerProvider);
+      gate.complete();
+      await pass;
+
+      expect(
+        engine.runs,
+        0,
+        reason: "a pass that started under A ran against B's cloud",
+      );
+    },
+  );
+}
+
+/// Counts passes and does nothing else.
+class _CountingEngine implements FolderSyncEngine {
+  int runs = 0;
+
+  @override
+  Future<FolderSyncReport> runOnce(FolderSyncPair pair) async {
+    runs++;
+    return const FolderSyncReport(
+      applied: [],
+      failed: [],
+      conflicts: <String>{},
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+/// A store whose first `pairs()` finishes when the test says so — the await
+/// inside `runOnce` that the switch has to land in. Everything else is the
+/// real store over the real container.
+class _GatedStore extends FolderSyncStore {
+  _GatedStore(super.storage, this._gate);
+  final Future<void> _gate;
+  var _gated = false;
+
+  @override
+  Future<List<FolderSyncPair>> pairs() async {
+    if (!_gated) {
+      _gated = true;
+      await _gate;
+    }
+    return super.pairs();
+  }
 }
