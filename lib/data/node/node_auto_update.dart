@@ -1,3 +1,4 @@
+import 'arch_guard.dart';
 import 'version_compare_shell.dart';
 import 'veil_github_release.dart'
     show kMinimumVeilReleaseTag, VeilReleaseVersion;
@@ -69,7 +70,8 @@ String buildNodeAutoUpdateScript({
     throw ArgumentError('schedule must be a systemd calendar word: $schedule');
   }
 
-  final script = '''#!/usr/bin/env bash
+  final script =
+      '''#!/usr/bin/env bash
 set -euo pipefail
 
 # Refuse HERE, not at the first tick.
@@ -80,8 +82,9 @@ set -euo pipefail
 # ever applied — a promise of security updates that was never going to be kept
 # (report15 X15-M11). A machine veil publishes no build for is told so while
 # somebody is looking at the screen.
-case "\$(uname -m)" in
-  x86_64|amd64|aarch64|arm64) ;;
+$kArchGuardShell
+case "\$want_machine" in
+  62|183) ;;
   *)
     echo "no veil build for \$(uname -m); automatic updates were NOT enabled" >&2
     exit 1
@@ -117,9 +120,16 @@ if ! flock -w 600 9; then
   exit 0
 fi
 
-case "\$(uname -m)" in
-  x86_64)  TRIPLE=x86_64-unknown-linux-musl ;;
-  aarch64) TRIPLE=aarch64-unknown-linux-musl ;;
+$kArchGuardShell
+# ONE mapping, from the machine the guard settled on rather than from a second
+# copy of the name table. Two copies of `case \$(uname -m)` lived here — one to
+# refuse at enable time, one to pick the build — and neither had the ELF
+# fallback the shared guard exists for, so a host whose `uname -m` this script
+# does not know was refused outright at enable and, had it got past, silently
+# did nothing on every tick (report15 X15-M18, X15-M11).
+case "\$want_machine" in
+  62)  TRIPLE=x86_64-unknown-linux-musl ;;
+  183) TRIPLE=aarch64-unknown-linux-musl ;;
   *) echo "unsupported architecture: \$(uname -m)" >&2; exit 0 ;;
 esac
 
@@ -155,6 +165,14 @@ want="\$(awk '\$2 == "veil-cli" {print \$1}' "\$stage/sums" | head -1)"
 [ -n "\$want" ] || { echo "no digest for veil-cli in \$tag" >&2; exit 1; }
 got="\$(sha256sum "\$stage/veil-cli" | cut -d' ' -f1)"
 [ "\$want" = "\$got" ] || { echo "digest mismatch for \$tag" >&2; exit 1; }
+
+# And that it can RUN here. A digest proves the bytes are the ones the release
+# published; it says nothing about what they were built for, so a release
+# whose asset for this triple is mis-built is a perfectly genuine file that
+# installs as root over a working binary and then cannot start. The fleet
+# updater has checked this since the architecture fix; this path — the
+# unattended one, where nobody is watching at the moment it happens — did not.
+check_machine "\$stage/veil-cli"
 
 was_active=0
 systemctl is-active --quiet "\$UNIT" && was_active=1 || true
