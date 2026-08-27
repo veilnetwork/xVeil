@@ -1,5 +1,4 @@
 temp
-the index tool-out
 scratchpad/
 # Local planning notes, deliberately untracked.
 ROADMAP.md
@@ -84,4 +83,8 @@ TranslateLink.xcconfig
 /ROADMAP.md
 /TASKS.md
 /TASKS_ARCHIVE.md
-/the index tool-out/
+
+# Generated indexes and their caches — directory names deliberately generic.
+.*graph*
+*graph*/
+__pycache__/
