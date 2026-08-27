@@ -49,17 +49,31 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
 
   FolderSyncScheduler? _scheduler;
 
-  FolderSyncStore get _store => ref.read(folderSyncStoreProvider);
-  FolderSyncEngine? get _engine => ref.read(folderSyncEngineProvider);
+  /// The store and engine THIS build belongs to.
+  ///
+  /// Read through `ref.read` before, which resolves at the moment of the call
+  /// — so after an all-online identity switch the pairs in `state` still
+  /// belonged to A while these answered with B's store and B's cloud. A
+  /// watcher event or the five-minute sweep then uploaded A's local files into
+  /// B's cloud, where they are new: a confidentiality and deniability break
+  /// with nobody attacking anything (report17 XV17-H2).
+  ///
+  /// `ref.watch` in `build` is what ties them together: the switch rebuilds
+  /// this notifier, `ref.onDispose` takes the scheduler and the watchers with
+  /// it, and `state` starts empty and reloads from the store it now has.
+  late FolderSyncStore _store;
+  late FolderSyncEngine? _engine;
 
   @override
   List<FolderSyncPairView> build() {
+    // WATCHED, so a switch rebuilds instead of carrying A's pairs into B.
+    _store = ref.watch(folderSyncStoreProvider);
+    _engine = ref.watch(folderSyncEngineProvider);
     // Automatic passes are DESKTOP only, for the same reason pairs are: a
     // phone has no folder another app writes to, and Directory.watch is not
     // dependable there. Tests get no scheduler either — a background timer
     // outliving a test is how a suite becomes flaky.
-    final desktop =
-        Platform.isMacOS || Platform.isLinux || Platform.isWindows;
+    final desktop = Platform.isMacOS || Platform.isLinux || Platform.isWindows;
     if (desktop && !Platform.environment.containsKey('FLUTTER_TEST')) {
       final scheduler = FolderSyncScheduler(
         (pair) => runOnce(pair).then((_) {}),
@@ -90,10 +104,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
       final directory = Directory(pair.localPath);
       if (!directory.existsSync()) continue;
       try {
-        scheduler.watch(
-          pair,
-          directory.watch(recursive: true).map((_) {}),
-        );
+        scheduler.watch(pair, directory.watch(recursive: true).map((_) {}));
       } catch (_) {
         // Watching can fail outright (no inotify handles left, an unsupported
         // file system). The sweep still covers the pair, so this costs
@@ -134,12 +145,18 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     // lost, but one file quietly becomes two objects and deleting it locally
     // deletes both, which is impossible to explain to whoever it happens to.
     if (pairs.any((p) => folderPairsOverlap(p.localPath, localPath))) {
-      return const FolderSyncRefusal(FolderSyncRefusalCode.overlapsExistingPair);
+      return const FolderSyncRefusal(
+        FolderSyncRefusalCode.overlapsExistingPair,
+      );
     }
     final unsafe = folderSyncRootRefusal(localPath);
     if (unsafe != null) return unsafe;
     pairs.add(
-      FolderSyncPair(id: id, localPath: localPath, cloudFolderId: cloudFolderId),
+      FolderSyncPair(
+        id: id,
+        localPath: localPath,
+        cloudFolderId: cloudFolderId,
+      ),
     );
     await _store.savePairs(pairs);
     await reload();
@@ -159,6 +176,11 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
   Future<FolderSyncReport?> runOnce(FolderSyncPair pair) async {
     final engine = _engine;
     if (engine == null || !_running.add(pair.id)) return null;
+    // The store this pass belongs to, taken before the first await. A pass in
+    // flight when the identity changes must not finish against the next
+    // identity's store — the rebuild above stops NEW passes, not one already
+    // running.
+    final store = _store;
     try {
       // EVERY PASS, not only at setup.
       //
@@ -174,10 +196,11 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
       // partial one.
       final unsafe = folderSyncRootRefusal(pair.localPath);
       if (unsafe != null) {
-        final reason = 'the sync root is no longer safe to use '
+        final reason =
+            'the sync root is no longer safe to use '
             '(${unsafe.code.name}${unsafe.path == null ? '' : ': ${unsafe.path}'})';
-        final saved = await _store.state(pair.id);
-        await _store.saveState(
+        final saved = await store.state(pair.id);
+        await store.saveState(
           pair.id,
           FolderSyncState(
             base: saved.base,
@@ -200,6 +223,12 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
       // the controller, and the only way to sync that folder again was a
       // restart.
       await reload();
+      if (!identical(_store, store)) {
+        // The identity changed under this pass. Its own store is gone from
+        // this notifier, and running the engine now would put A's folder into
+        // B's cloud.
+        return null;
+      }
       return await engine.runOnce(pair);
     } finally {
       _running.remove(pair.id);
