@@ -3,6 +3,7 @@ import 'dart:io';
 import '../transport/bootstrap_invite.dart';
 import '../transport/peers_invite.dart';
 import 'arch_guard.dart';
+import 'node_auto_update.dart' show kVeilUpdateLockPath;
 import 'managed_node.dart';
 import 'proxy_routing.dart';
 import 'veil_github_release.dart' show VeilLinuxReleaseTarget;
@@ -1172,6 +1173,31 @@ set -euo pipefail
 umask 077
 XVEIL_TMP="\$(sudo mktemp -d)" || { echo 'cannot create a private temp dir' >&2; exit 1; }
 trap 'sudo rm -rf -- "\$XVEIL_TMP"' EXIT INT TERM
+
+# ONE OPERATION AT A TIME ON THIS SERVER (report17 XV17-M11).
+#
+# Everything below installs binaries into /usr/local/bin, writes the node's
+# config and restarts the service — the same objects the update path in
+# `node_lifecycle.dart` guards with `$kVeilUpdateLockPath`, and this path took
+# no lock at all. A deployment running while a fleet or auto update is in
+# flight could therefore have its freshly installed binary replaced by the
+# other operation's ROLLBACK, or replace one mid-rollback: two authorized
+# operations, one server, and a node left on a mixture of the two.
+#
+# Staged and run through `flock`, exactly as the update does, so the two
+# serialise instead of interleaving. Waiting rather than skipping: a person is
+# looking at this screen and pressed Deploy.
+#
+# The scratch directory and its trap stay OUT here. They must survive a lock
+# that times out, or a deployment that never got its turn would leave the
+# deployment PSK and the TLS private key on disk.
+critical="\$XVEIL_TMP/provision.sh"
+sudo tee "\$critical" >/dev/null <<'XVEIL_PROVISION_CRITICAL'
+#!/usr/bin/env bash
+set -euo pipefail
+# Passed in rather than inherited: this script runs under `sudo flock`, which
+# does not carry the caller's environment.
+XVEIL_TMP="\$1"
 $kArchGuardShell
 $_tomlScalarHelper
 
@@ -1317,5 +1343,13 @@ sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml bootstrap 
 # the service up ACTIVE reported failure, after changing the system. The app
 # then showed a failed provisioning for a server that was running (report17
 # XV17-M10).
+XVEIL_PROVISION_CRITICAL
+sudo chmod 0755 "\$critical"
+# Named rather than met as a bare "command not found": every mutating step is
+# behind this, so a server without util-linux must say so instead of failing
+# somewhere in the middle of a deployment.
+command -v flock >/dev/null 2>&1 || { echo 'flock (util-linux) is required to deploy safely' >&2; exit 1; }
+sudo mkdir -p "\$(dirname '$kVeilUpdateLockPath')"
+sudo flock -w 600 '$kVeilUpdateLockPath' "\$critical" "\$XVEIL_TMP"
 ''';
 }
