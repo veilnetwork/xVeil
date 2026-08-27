@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/features/network/vpn_failure_text.dart';
+import 'package:xveil/l10n/app_localizations_en.dart';
+import 'package:xveil/l10n/app_localizations_es.dart';
 import 'package:xveil/l10n/app_localizations_ru.dart';
 import 'package:xveil/data/vpn/packet_tunnel_ffi.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
@@ -39,6 +41,13 @@ void main() {
       PacketTunnelFfi.failureFor(PacketTunnelFfi.errGeneric),
       VpnStartFailure.refused,
     );
+    expect(
+      PacketTunnelFfi.failureFor(PacketTunnelFfi.errWorkersStranded),
+      VpnStartFailure.workersStranded,
+      reason:
+          'the one where only restarting the app helps must be '
+          'distinguishable — otherwise the person keeps pressing the switch',
+    );
   });
 
   test('a code this build has not heard of is still a refusal', () {
@@ -56,8 +65,27 @@ void main() {
       PacketTunnelFfi.failureFor(PacketTunnelFfi.errInvalidArgument),
       PacketTunnelFfi.failureFor(PacketTunnelFfi.errClosed),
       PacketTunnelFfi.failureFor(PacketTunnelFfi.errGeneric),
+      PacketTunnelFfi.failureFor(PacketTunnelFfi.errWorkersStranded),
     };
-    expect(named.length, 4);
+    expect(named.length, 5);
+  });
+
+  test('and every named reason has something to say in every language', () {
+    // A new reason with no string reads as an empty screen, which is the
+    // failure mode the whole file exists to prevent.
+    for (final failure in VpnStartFailure.values) {
+      for (final l in [AppL10nRu(), AppL10nEn(), AppL10nEs()]) {
+        final text = vpnStartFailureText(
+          l,
+          VpnBackendState(VpnBackendPhase.error, failure: failure),
+        );
+        expect(
+          text.trim(),
+          isNotEmpty,
+          reason: '\$failure has nothing to say in \${l.localeName}',
+        );
+      }
+    }
   });
 
   test('the state carries the reason alongside the log line', () {

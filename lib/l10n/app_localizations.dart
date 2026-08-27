@@ -7532,6 +7532,12 @@ abstract class AppL10n {
   /// **'The packet engine refused to start.'**
   String get vpnStartRefused;
 
+  /// No description provided for @vpnStartWorkersStranded.
+  ///
+  /// In en, this message translates to:
+  /// **'Too many engine threads from earlier sessions are stuck, so starting another would make it worse. Restart the app.'**
+  String get vpnStartWorkersStranded;
+
   /// No description provided for @vpnStartStoppedDuringStartup.
   ///
   /// In en, this message translates to:

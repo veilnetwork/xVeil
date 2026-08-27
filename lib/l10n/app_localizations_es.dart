@@ -4323,6 +4323,10 @@ class AppL10nEs extends AppL10n {
   String get vpnStartRefused => 'El motor de paquetes se negó a iniciarse.';
 
   @override
+  String get vpnStartWorkersStranded =>
+      'Demasiados hilos del motor de sesiones anteriores están bloqueados; iniciar otro empeoraría la situación. Reinicia la aplicación.';
+
+  @override
   String get vpnStartStoppedDuringStartup =>
       'El túnel se inició y se detuvo antes de transportar nada.';
 
