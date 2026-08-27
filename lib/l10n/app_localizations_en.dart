@@ -245,6 +245,10 @@ class AppL10nEn extends AppL10n {
       'The translation models could not be checked — this device did not answer where they are stored.';
 
   @override
+  String get lockWipeLeftNetwork =>
+      'The network side did not confirm it stopped — the tunnel or the node may still be running until this app is closed.';
+
+  @override
   String get lockWipeLeftTranslations =>
       'The downloaded translation languages could not be deleted, and their names are still on this device.';
 

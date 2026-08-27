@@ -479,6 +479,15 @@ class MultiIdentitySession {
   List<String> get abandonedTeardowns => List.unmodifiable(_abandoned);
   final List<String> _abandoned = [];
 
+  /// Whether the container's lock was RELEASED, as opposed to attempted.
+  ///
+  /// The close is best-effort by design; what it must not be is invisible. A
+  /// close that failed or ran out of time leaves the lock held, and every
+  /// caller that goes on to declare the session gone — lock, wipe, start over
+  /// — is making a claim about exactly this (report17 XV17-M14).
+  bool get containerLockReleased => _containerLockReleased;
+  bool _containerLockReleased = true;
+
   Future<bool> _bounded(String what, Future<void> Function() step) async {
     try {
       await step().timeout(_disposeBudget);
@@ -492,14 +501,21 @@ class MultiIdentitySession {
             'teardown can still release the container lock',
       );
       return false;
-    } catch (_) {
-      /* keep tearing down */
+    } catch (e) {
+      // Recorded, not merely survived. A dispose that THREW left the same
+      // thing running as one that timed out — a node with its sockets and its
+      // network identity, with its handle already dropped from the maps here
+      // — and only the timeout was carried out of this class
+      // (report17 XV17-M14).
+      _abandoned.add('$what failed: $e');
+      devLog(() => 'xVeil[all-online]: $what failed: $e');
       return false;
     }
   }
 
   Future<void> disposeAll() async {
     _abandoned.clear();
+    _containerLockReleased = true;
     for (final entry in _messaging.entries) {
       await _bounded('messaging dispose (${entry.key})', entry.value.dispose);
     }
@@ -518,6 +534,7 @@ class MultiIdentitySession {
       // container's lock is still held (a worker that would not close in time,
       // or that died mid-close), and that is the fact behind every later
       // "correct password but won't unlock".
+      _containerLockReleased = false;
       devLog(() => 'xVeil[all-online]: container lock release failed: $e');
     }
   }

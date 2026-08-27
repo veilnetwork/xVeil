@@ -501,6 +501,12 @@ abstract class AppL10n {
   /// **'The translation models could not be checked — this device did not answer where they are stored.'**
   String get lockWipeLeftTranslationsUnknown;
 
+  /// No description provided for @lockWipeLeftNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'The network side did not confirm it stopped — the tunnel or the node may still be running until this app is closed.'**
+  String get lockWipeLeftNetwork;
+
   /// No description provided for @lockWipeLeftTranslations.
   ///
   /// In en, this message translates to:
