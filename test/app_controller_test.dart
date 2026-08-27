@@ -14,8 +14,11 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/on_disk_blob_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
+import 'package:xveil/data/vpn/vpn_backend.dart';
+import 'package:xveil/data/vpn/vpn_routing_policy.dart';
+import 'package:xveil/data/transport/bootstrap_invite.dart';
+import 'package:xveil/data/node/fake_node_controller.dart';
 import 'package:xveil/data/veil_stack.dart';
-import 'package:xveil/data/vpn/vpn_backend.dart' show VpnBackendPhase;
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/p2p_policy.dart';
@@ -1834,6 +1837,16 @@ void _onboardingOpenFailureTests() {
 
 void _runtimeBaseTeardownTests() {
   /// Drive a real `lock()` with `runtimeDir` pointed at [dir].
+  ///
+  /// The deniable boot below reaches `_ensureRealStack`, and with the native
+  /// library present that starts a REAL in-process node: `node.start`, a UDP
+  /// reflector on 0.0.0.0, and a thirty-second timeout this test then hits.
+  /// It passed only because CI runs `flutter test` with no `VEIL_FFI_DYLIB` —
+  /// green for the absence of the one thing production always has.
+  ///
+  /// `debugDeniableStackStarter` exists for exactly this and was not used
+  /// here. What is under test is what `lock()` does to a directory, and a
+  /// node is no part of that.
   Future<void> lockWithRuntimeDir(String dir) async {
     SharedPreferences.setMockInitialValues({});
     final c = ProviderContainer(
@@ -1849,6 +1862,11 @@ void _runtimeBaseTeardownTests() {
     );
     addTearDown(c.dispose);
     final ctrl = c.read(appControllerProvider.notifier);
+    ctrl.debugDeniableStackStarter = (plan) async => RealVeilStack.overParts(
+      controller: FakeNodeController(),
+      transport: LoopbackTransport(localNodeId: NodeId(Uint8List(32))),
+      myInvite: BootstrapInvite(publicKey: Uint8List(32), nonce: Uint8List(8)),
+    );
     await _settle(c);
     await ctrl.completeOnboarding(
       displayName: 'Me',
@@ -1993,6 +2011,15 @@ void _lockAlwaysCompletesTests() {
     );
     addTearDown(c.dispose);
     final ctrl = c.read(appControllerProvider.notifier);
+    // The deniable boot below reaches `_ensureRealStack`, which with the
+    // native library present starts a REAL in-process node and runs this test
+    // into its thirty-second bound. What is under test is what `lock()` does
+    // when one cleanup leg fails; a node is no part of that.
+    ctrl.debugDeniableStackStarter = (plan) async => RealVeilStack.overParts(
+      controller: FakeNodeController(),
+      transport: LoopbackTransport(localNodeId: NodeId(Uint8List(32))),
+      myInvite: BootstrapInvite(publicKey: Uint8List(32), nonce: Uint8List(8)),
+    );
     await _settle(c);
     await ctrl.completeOnboarding(
       displayName: 'Me',
@@ -2152,6 +2179,7 @@ void _wipeClearsPostureTests() {
           WhisperModelStore(supportDirectory: () async => modelDir),
         ),
         vpnControllerProvider.overrideWith(() => vpn),
+        vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
         deniableBootProvider.overrideWithValue(
           DeniableBootConfig(
             runtimeDir: '${dir.path}/rt',
@@ -2268,6 +2296,42 @@ void _wipeClearsPostureTests() {
   );
 }
 
+/// A VPN backend that answers without a platform channel.
+///
+/// Three teardown tests overrode `vpnControllerProvider` and left
+/// `vpnBackendProvider` alone. With the native library present the teardown
+/// reaches the NATIVE backend directly — a `MethodChannel` in a unit test with
+/// no binding behind it — and the tests failed with "Binding has not yet been
+/// initialized". Without the library that path is never taken, so they were
+/// green for the absence of the one thing production always has.
+class _SilentVpnBackend implements VpnBackend {
+  int stops = 0;
+
+  @override
+  Future<VpnBackendState> probe() async =>
+      const VpnBackendState(VpnBackendPhase.stopped);
+
+  @override
+  Future<VpnBackendState> status() async =>
+      const VpnBackendState(VpnBackendPhase.stopped);
+
+  @override
+  Future<VpnBackendState> start({
+    required VpnRoutingPolicy policy,
+    required String socks5Listen,
+    required String exitNodeId,
+    List<String> exitNodeIds = const [],
+    Map<String, String> applicationProxyListens = const {},
+    String? obfs4Psk,
+  }) async => const VpnBackendState(VpnBackendPhase.stopped);
+
+  @override
+  Future<VpnBackendState> stop() async {
+    stops++;
+    return const VpnBackendState(VpnBackendPhase.stopped);
+  }
+}
+
 /// An OS tunnel that outlived the teardown leaves a trace in a RELEASE build.
 void _vpnTeardownIsJournalledTests() {
   // `_stopVpnTunnel` handled both of its failure paths — a phase that is not
@@ -2295,7 +2359,12 @@ void _vpnTeardownIsJournalledTests() {
   test('a backend that reports it did not stop is journalled', () async {
     final vpn = _RecordingVpn(phase: VpnBackendPhase.error);
     final c = ProviderContainer(
-      overrides: [vpnControllerProvider.overrideWith(() => vpn)],
+      overrides: [
+        vpnControllerProvider.overrideWith(() => vpn),
+        // The native backend is reached directly by the teardown; a unit test
+        // has no platform channel behind it.
+        vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
+      ],
     );
     addTearDown(c.dispose);
     final ctrl = c.read(appControllerProvider.notifier);
@@ -2332,7 +2401,12 @@ void _vpnTeardownIsJournalledTests() {
   test('a stop that throws is journalled the same way', () async {
     final vpn = _RecordingVpn(fails: StateError('the VPN plugin is not there'));
     final c = ProviderContainer(
-      overrides: [vpnControllerProvider.overrideWith(() => vpn)],
+      overrides: [
+        vpnControllerProvider.overrideWith(() => vpn),
+        // The native backend is reached directly by the teardown; a unit test
+        // has no platform channel behind it.
+        vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
+      ],
     );
     addTearDown(c.dispose);
     final ctrl = c.read(appControllerProvider.notifier);
@@ -2357,7 +2431,12 @@ void _vpnTeardownIsJournalledTests() {
     // waiting three real seconds.
     final vpn = _RecordingVpn(neverAnswers: true, inertBuild: true);
     final c = ProviderContainer(
-      overrides: [vpnControllerProvider.overrideWith(() => vpn)],
+      overrides: [
+        vpnControllerProvider.overrideWith(() => vpn),
+        // The native backend is reached directly by the teardown; a unit test
+        // has no platform channel behind it.
+        vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
+      ],
     );
     addTearDown(c.dispose);
     final ctrl = c.read(appControllerProvider.notifier);
