@@ -110,13 +110,25 @@ Future<void> main(List<String> arguments) async {
       buildReadNodeConfigScript(NodeConfigTarget.veil),
       reportOutput: false,
     );
+    // The read answers WHAT was there and WHAT IT HASHED TO, so the write can
+    // refuse a file that changed since. This tool still passed the read
+    // straight into the writer as if it were the text, which stopped compiling
+    // when the read grew its digest — and nothing noticed, because
+    // `flutter analyze lib/ test/` does not look at `tool/` while the release
+    // gate's bare `flutter analyze` does.
     final veilConfig = parseReadNodeConfig(read.stdout);
-    if (veilConfig == null || veilConfig.isEmpty) {
+    if (veilConfig == null || veilConfig.contents.isEmpty) {
       throw StateError('could not parse downloaded veil config');
     }
     await run(
       'transactional veil config write',
-      buildWriteNodeConfigScript(NodeConfigTarget.veil, veilConfig),
+      buildWriteNodeConfigScript(
+        NodeConfigTarget.veil,
+        veilConfig.contents,
+        // Carried through: a smoke run that skipped it would exercise a write
+        // this app never makes.
+        expectedSha256: veilConfig.sha256,
+      ),
     );
 
     await run(
