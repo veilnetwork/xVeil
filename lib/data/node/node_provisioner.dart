@@ -139,8 +139,21 @@ bool _isUnroutableHost(String host) {
   // An IPv4-mapped IPv6 address carries an IPv4 one inside it, and
   // `isLoopback` answers about the outer form: `::ffff:127.0.0.1` is not a
   // loopback IPv6 address and IS this machine. Ask about what it wraps.
-  final mapped = RegExp(r'^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$').firstMatch(bare);
-  if (mapped != null) return _isUnroutableHost(mapped.group(1)!);
+  //
+  // Asked of the BYTES, not of the spelling (report17 XV17-L1). The same
+  // address has two written forms — `::ffff:127.0.0.1` and `::ffff:7f00:1` —
+  // and a pattern matching the dotted one let the hex one through: an invite
+  // carrying `::ffff:7f00:1` told its recipient to dial their OWN loopback,
+  // and `::ffff:a9fe:1` to dial a link-local address of their own segment.
+  // The raw form has neither spelling nor ambiguity.
+  final raw = address.rawAddress;
+  if (raw.length == 16) {
+    final mappedPrefix =
+        raw.take(10).every((b) => b == 0) && raw[10] == 0xff && raw[11] == 0xff;
+    if (mappedPrefix) {
+      return _isUnroutableHost('${raw[12]}.${raw[13]}.${raw[14]}.${raw[15]}');
+    }
+  }
   // The unspecified address — what a node binds when the operator left the
   // advertise host empty, and the case this repair exists for.
   return bare == '0.0.0.0' || address.address == '::';

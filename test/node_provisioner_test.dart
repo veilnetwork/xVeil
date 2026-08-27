@@ -433,6 +433,46 @@ COMPONENTS: veil-cli,ogate,oproxy-server
       }
     });
 
+    test('every spelling of an undialable address counts (XV17-L1)', () {
+      // One address, two written forms: `::ffff:127.0.0.1` and `::ffff:7f00:1`
+      // are the same sixteen bytes. A check that matched the dotted spelling
+      // let the hex one through, and the invite then told its recipient to
+      // dial their OWN loopback — or, with `::ffff:a9fe:1`, a link-local
+      // address on their own segment.
+      // Bracketed, because that is how an IPv6 literal appears in a URI —
+      // and `Uri` hands the brackets back off before this check sees it.
+      for (final host in [
+        '[::ffff:127.0.0.1]',
+        '[::ffff:7f00:1]',
+        '[::ffff:7f00:0001]',
+        '[::ffff:a9fe:1]',
+        '[::1]',
+        '[::]',
+      ]) {
+        final r = parseProvisionReport(
+          output.replaceAll('0.0.0.0', host),
+          reachableHost: '203.0.113.7',
+        );
+        expect(
+          r.invite,
+          contains('203.0.113.7'),
+          reason: '$host was advertised as if a peer could reach it',
+        );
+      }
+    });
+
+    test('CONTROL: a mapped address that IS routable is left alone', () {
+      // Vacuity guard: refusing every `::ffff:` address would throw away a
+      // perfectly dialable host, and this repair is only for the ones nobody
+      // outside the machine can reach.
+      final r = parseProvisionReport(
+        output.replaceAll('0.0.0.0', '[::ffff:198.51.100.7]'),
+        reachableHost: '203.0.113.7',
+      );
+      expect(r.invite, contains('198.51.100.7'));
+      expect(r.invite, isNot(contains('203.0.113.7')));
+    });
+
     test('the rest of the invite survives the rewrite', () {
       final r = parseProvisionReport(output, reachableHost: '203.0.113.7');
       expect(

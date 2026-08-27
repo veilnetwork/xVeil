@@ -41,6 +41,57 @@ void main() {
     return result.stdout as String;
   }
 
+  group('a value with a trailing comment (report17 XV17-L2)', () {
+    // TOML lets a comment follow a value, and this used to read it as part of
+    // the value: `allowed_node_ids = ["ab"] # keep` came back as `ab#keep`,
+    // and the screen compared THAT against the real id — reporting an exit
+    // that admits the operator as one that does not.
+
+    test('is not read as part of the allowlist', () {
+      final out = run('''
+[proxy.exit]
+enabled = true   # turned on after the audit
+allow_all = false  # never
+allowed_node_ids = ["${'a' * 64}"]  # the phone
+''');
+
+      expect(out, contains('EXIT_ENABLED: true'));
+      expect(out, contains('EXIT_ALLOW_ALL: false'));
+      expect(
+        out,
+        contains('EXIT_ALLOWED: ${'a' * 64}\n'),
+        reason: 'the comment was carried into the id',
+      );
+    });
+
+    test('but a # INSIDE a quoted value is data, not a comment', () {
+      // The quote-awareness is the reason this is not a `sub(/#.*/, "")`.
+      final out = run('''
+[proxy.exit]
+enabled = true
+allowed_node_ids = ["aa#bb"]
+''');
+
+      expect(out, contains('EXIT_ALLOWED: aa#bb'));
+    });
+
+    test('CONTROL: a value with no comment is unchanged', () {
+      // Vacuity guard: a strip that ate the whole value would satisfy the
+      // first assertion by reporting an empty allowlist, which reads as
+      // "admits nobody".
+      final out = run('''
+[proxy.exit]
+enabled = false
+allow_all = true
+allowed_node_ids = ["${'c' * 64}"]
+''');
+
+      expect(out, contains('EXIT_ENABLED: false'));
+      expect(out, contains('EXIT_ALLOW_ALL: true'));
+      expect(out, contains('EXIT_ALLOWED: ${'c' * 64}'));
+    });
+  });
+
   test('an exit with an allowlist is reported in full', () {
     final out = run('''
 [global]
@@ -224,11 +275,7 @@ allowed_node_ids = [
       // the host, and a name does not parse as one — answering "unroutable" to
       // that would refuse every nginx-fronted node an operator set up on
       // purpose, which is the direction this test exists to hold.
-      for (final host in [
-        '203.0.113.7',
-        'node.example.com',
-        '[2001:db8::1]',
-      ]) {
+      for (final host in ['203.0.113.7', 'node.example.com', '[2001:db8::1]']) {
         final inventory =
             'BOOTSTRAP_URI: veil:bootstrap?pk=uVxwnZaxN/OtkGP8drOqvNxW30qEv05y'
             '+c3BKZcPooI=&t=obfs4-tcp://$host:5556&a=ed25519&nc=AkZVnw==\n';
