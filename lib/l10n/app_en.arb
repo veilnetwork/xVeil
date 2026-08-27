@@ -1583,6 +1583,7 @@
   "updateSectionTitle": "Updates",
   "updateCheckSwitch": "Check for updates",
   "updateCheckHint": "Asks github.com once a day whether a newer xVeil exists. The request tells GitHub that this device runs xVeil, and from what address.",
+  "updateCheckChoiceNotSaved": "This choice could not be saved and will be back after a restart.",
   "updateCheckNow": "Check now",
   "updateChecking": "Checking…",
   "updateUpToDate": "You have the latest release",
