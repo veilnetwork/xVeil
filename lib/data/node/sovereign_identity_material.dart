@@ -92,6 +92,35 @@ const kMasterConfigSetting = 'node.master_config.v1';
 /// corrupt copy of this one.
 const kSovereignIdentitySetting = 'node.sovereign_identity.v1';
 
+/// Whether [files] belong to the identity whose material is ALREADY laid out
+/// in [dir].
+///
+/// The instance id is what tells one identity's device from another's: it is
+/// this device's id WITHIN one identity, stable across document merges and
+/// different for every identity the device holds. A running node's directory
+/// already has its own copy, put there by the boot that materialised it.
+///
+/// True when nothing is laid out yet — a fresh runtime directory is what the
+/// boot materialises into, and it has no identity to contradict.
+///
+/// This exists because a re-read takes a Storage and writes into a directory,
+/// and the two arguments used to come from different places: an all-online
+/// switch between them meant one identity's document — secret device key
+/// included — was written into another identity's private runtime directory
+/// (report17 XV17-M13).
+bool sovereignMaterialBelongsHere(String dir, Map<String, Uint8List> files) {
+  final here = File('$dir/$kInstanceIdFile');
+  if (!here.existsSync()) return true;
+  final mine = here.readAsBytesSync();
+  final incoming = files[kInstanceIdFile];
+  if (incoming == null || incoming.isEmpty) return false;
+  if (mine.length != incoming.length) return false;
+  for (var i = 0; i < mine.length; i++) {
+    if (mine[i] != incoming[i]) return false;
+  }
+  return true;
+}
+
 /// The names required but not present in [files].
 ///
 /// Pure, so the "is this material usable" decision is testable without a
