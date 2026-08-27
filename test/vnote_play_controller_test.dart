@@ -72,77 +72,94 @@ class _FakeAudio implements VoicePlayer {
 }
 
 Future<ProviderContainer> _container(
-    _FakeFrames frames, _FakeAudio? audio) async {
+  _FakeFrames frames,
+  _FakeAudio? audio,
+) async {
   final storage = FakeHvContainer().storage();
   await storage.open(password: 'pw', createIfMissing: true);
-  await storage.storeFile('nkey', Uint8List.fromList([1, 2, 3]),
-      name: 'n.vnote');
-  return ProviderContainer(overrides: [
-    singleSpaceStorageProvider.overrideWithValue(storage),
-    vnoteFramePlayerFactoryProvider.overrideWithValue((_) => frames),
-    voicePlayerFactoryProvider.overrideWithValue((_) async => audio),
-  ]);
+  await storage.storeFile(
+    'nkey',
+    Uint8List.fromList([1, 2, 3]),
+    name: 'n.vnote',
+  );
+  return ProviderContainer(
+    overrides: [
+      singleSpaceStorageProvider.overrideWithValue(storage),
+      vnoteFramePlayerFactoryProvider.overrideWithValue((_) => frames),
+      voicePlayerFactoryProvider.overrideWithValue((_) async => audio),
+    ],
+  );
 }
 
 void main() {
-  test('toggle starts audio-backed playback; frames follow the audio clock',
-      () async {
-    final frames = _FakeFrames();
-    final audio = _FakeAudio();
-    final c = await _container(frames, audio);
-    addTearDown(c.dispose);
-    final ctrl = c.read(vnotePlayControllerProvider.notifier);
+  test(
+    'toggle starts audio-backed playback; frames follow the audio clock',
+    () async {
+      final frames = _FakeFrames();
+      final audio = _FakeAudio();
+      final c = await _container(frames, audio);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnotePlayControllerProvider.notifier);
 
-    await ctrl.toggle('m1', 'nkey');
-    expect(audio.started, isTrue);
-    expect(c.read(vnotePlayControllerProvider).isPlaying('m1'), isTrue);
-    expect(ctrl.frame.value, isNotNull, reason: 'frame 0 primes the circle');
+      await ctrl.toggle('m1', 'nkey');
+      expect(audio.started, isTrue);
+      expect(c.read(vnotePlayControllerProvider).isPlaying('m1'), isTrue);
+      expect(ctrl.frame.value, isNotNull, reason: 'frame 0 primes the circle');
 
-    audio.pos = 640;
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    expect(c.read(vnotePlayControllerProvider).positionMs, 640);
-    expect(frames.lastAskedMs, 640, reason: 'frames pulled at audio position');
-  });
+      audio.pos = 640;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(c.read(vnotePlayControllerProvider).positionMs, 640);
+      expect(
+        frames.lastAskedMs,
+        640,
+        reason: 'frames pulled at audio position',
+      );
+    },
+  );
 
-  test('toggle again pauses; end-of-audio resets to idle and disposes',
-      () async {
-    final frames = _FakeFrames();
-    final audio = _FakeAudio();
-    final c = await _container(frames, audio);
-    addTearDown(c.dispose);
-    final ctrl = c.read(vnotePlayControllerProvider.notifier);
-    await ctrl.toggle('m1', 'nkey');
+  test(
+    'toggle again pauses; end-of-audio resets to idle and disposes',
+    () async {
+      final frames = _FakeFrames();
+      final audio = _FakeAudio();
+      final c = await _container(frames, audio);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnotePlayControllerProvider.notifier);
+      await ctrl.toggle('m1', 'nkey');
 
-    await ctrl.toggle('m1', 'nkey');
-    expect(audio.paused, isTrue);
-    expect(c.read(vnotePlayControllerProvider).isPlaying('m1'), isFalse);
-    await ctrl.toggle('m1', 'nkey');
-    expect(audio.paused, isFalse);
+      await ctrl.toggle('m1', 'nkey');
+      expect(audio.paused, isTrue);
+      expect(c.read(vnotePlayControllerProvider).isPlaying('m1'), isFalse);
+      await ctrl.toggle('m1', 'nkey');
+      expect(audio.paused, isFalse);
 
-    audio.playing = false; // end of clip
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    expect(c.read(vnotePlayControllerProvider).playingId, isNull);
-    expect(audio.disposed, isTrue);
-    expect(frames.disposed, isTrue);
-    expect(ctrl.frame.value, isNull);
-  });
+      audio.playing = false; // end of clip
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(c.read(vnotePlayControllerProvider).playingId, isNull);
+      expect(audio.disposed, isTrue);
+      expect(frames.disposed, isTrue);
+      expect(ctrl.frame.value, isNull);
+    },
+  );
 
-  test('a silent note plays on the stopwatch clock and ends at duration',
-      () async {
-    final frames = _FakeFrames(withAudio: false);
-    final c = await _container(frames, null);
-    addTearDown(c.dispose);
-    final ctrl = c.read(vnotePlayControllerProvider.notifier);
+  test(
+    'a silent note plays on the stopwatch clock and ends at duration',
+    () async {
+      final frames = _FakeFrames(withAudio: false);
+      final c = await _container(frames, null);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnotePlayControllerProvider.notifier);
 
-    await ctrl.toggle('m1', 'nkey');
-    expect(c.read(vnotePlayControllerProvider).isPlaying('m1'), isTrue);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    expect(c.read(vnotePlayControllerProvider).positionMs, greaterThan(0));
-    // Well past the 2000 ms duration → resets to idle.
-    await Future<void>.delayed(const Duration(milliseconds: 2100));
-    expect(c.read(vnotePlayControllerProvider).playingId, isNull);
-    expect(frames.disposed, isTrue);
-  });
+      await ctrl.toggle('m1', 'nkey');
+      expect(c.read(vnotePlayControllerProvider).isPlaying('m1'), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(c.read(vnotePlayControllerProvider).positionMs, greaterThan(0));
+      // Well past the 2000 ms duration → resets to idle.
+      await Future<void>.delayed(const Duration(milliseconds: 2100));
+      expect(c.read(vnotePlayControllerProvider).playingId, isNull);
+      expect(frames.disposed, isTrue);
+    },
+  );
 
   test('switching notes disposes the first pair', () async {
     final frames = _FakeFrames();
@@ -156,4 +173,32 @@ void main() {
     expect(audio.disposed, isTrue);
     expect(c.read(vnotePlayControllerProvider).isActive('m2'), isTrue);
   });
+
+  test(
+    'a lock stops the note and drops its frame (report17 XV17-M5)',
+    () async {
+      // The video half of the same defect: this is a global provider, so a lock
+      // does not dispose it and a switch does not rebuild it. A round message
+      // went on playing — picture and sound — over the lock screen.
+      final frames = _FakeFrames();
+      final audio = _FakeAudio();
+      final c = await _container(frames, audio);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnotePlayControllerProvider.notifier);
+      await ctrl.toggle('m1', 'nkey');
+      expect(c.read(vnotePlayControllerProvider).isPlaying('m1'), isTrue);
+
+      ctrl.stopForPrivacy();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(audio.disposed, isTrue, reason: 'the note is still audible');
+      expect(frames.disposed, isTrue, reason: 'the note is still on screen');
+      expect(
+        ctrl.frame.value,
+        isNull,
+        reason: 'the last frame of the note stayed in the circle',
+      );
+      expect(c.read(vnotePlayControllerProvider).playingId, isNull);
+    },
+  );
 }

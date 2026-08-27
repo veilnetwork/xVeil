@@ -38,8 +38,7 @@ class _FakeRecorder implements VnoteRecorder {
   @override
   VeilVideoFrame? frame() {
     framesServed++;
-    return VeilVideoFrame(
-        rgba: Uint8List(4 * 4 * 4), width: 4, height: 4);
+    return VeilVideoFrame(rgba: Uint8List(4 * 4 * 4), width: 4, height: 4);
   }
 
   @override
@@ -60,11 +59,28 @@ ProviderContainer _container({
   bool micGranted = true,
   bool camGranted = true,
 }) {
-  return ProviderContainer(overrides: [
-    vnoteRecorderFactoryProvider.overrideWithValue(() => recorder),
-    micPermissionProvider.overrideWithValue(() async => micGranted),
-    cameraPermissionProvider.overrideWithValue(() async => camGranted),
-  ]);
+  return ProviderContainer(
+    overrides: [
+      vnoteRecorderFactoryProvider.overrideWithValue(() => recorder),
+      micPermissionProvider.overrideWithValue(() async => micGranted),
+      cameraPermissionProvider.overrideWithValue(() async => camGranted),
+    ],
+  );
+}
+
+/// Two prompts, and both are awaits: the window a lock lands in is twice as
+/// wide here as it is for a voice message.
+ProviderContainer _promptParkedContainer({
+  required VnoteRecorder recorder,
+  required Completer<bool> camPrompt,
+}) {
+  return ProviderContainer(
+    overrides: [
+      vnoteRecorderFactoryProvider.overrideWithValue(() => recorder),
+      micPermissionProvider.overrideWithValue(() async => true),
+      cameraPermissionProvider.overrideWithValue(() => camPrompt.future),
+    ],
+  );
 }
 
 void main() {
@@ -89,18 +105,22 @@ void main() {
 
   test('denied camera -> denied phase even with the mic granted', () async {
     var built = false;
-    final c = ProviderContainer(overrides: [
-      vnoteRecorderFactoryProvider.overrideWithValue(() {
-        built = true;
-        return _FakeRecorder();
-      }),
-      micPermissionProvider.overrideWithValue(() async => true),
-      cameraPermissionProvider.overrideWithValue(() async => false),
-    ]);
+    final c = ProviderContainer(
+      overrides: [
+        vnoteRecorderFactoryProvider.overrideWithValue(() {
+          built = true;
+          return _FakeRecorder();
+        }),
+        micPermissionProvider.overrideWithValue(() async => true),
+        cameraPermissionProvider.overrideWithValue(() async => false),
+      ],
+    );
     addTearDown(c.dispose);
     await c.read(vnoteRecordControllerProvider.notifier).start();
     expect(
-        c.read(vnoteRecordControllerProvider).phase, VnoteRecordPhase.denied);
+      c.read(vnoteRecordControllerProvider).phase,
+      VnoteRecordPhase.denied,
+    );
     expect(built, isFalse, reason: 'no recorder must be built when denied');
   });
 
@@ -109,8 +129,7 @@ void main() {
     final c = _container(recorder: rec);
     addTearDown(c.dispose);
     await c.read(vnoteRecordControllerProvider.notifier).start();
-    expect(
-        c.read(vnoteRecordControllerProvider).phase, VnoteRecordPhase.error);
+    expect(c.read(vnoteRecordControllerProvider).phase, VnoteRecordPhase.error);
     expect(rec.disposed, isTrue);
   });
 
@@ -143,20 +162,25 @@ void main() {
     expect(ctrl.preview.value, isNull, reason: 'preview clears on stop');
   });
 
-  test('auto-stop at the 60 s cap parks the clip for takeAutoStopped',
-      () async {
-    final rec = _FakeRecorder();
-    final c = _container(recorder: rec);
-    addTearDown(c.dispose);
-    final ctrl = c.read(vnoteRecordControllerProvider.notifier);
-    await ctrl.start();
-    rec.elapsed = VnoteRecordController.maxDuration.inMilliseconds + 100;
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    expect(c.read(vnoteRecordControllerProvider).phase, VnoteRecordPhase.idle);
-    final clip = ctrl.takeAutoStopped();
-    expect(clip, isNotNull);
-    expect(ctrl.takeAutoStopped(), isNull, reason: 'consumed once');
-  });
+  test(
+    'auto-stop at the 60 s cap parks the clip for takeAutoStopped',
+    () async {
+      final rec = _FakeRecorder();
+      final c = _container(recorder: rec);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnoteRecordControllerProvider.notifier);
+      await ctrl.start();
+      rec.elapsed = VnoteRecordController.maxDuration.inMilliseconds + 100;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(
+        c.read(vnoteRecordControllerProvider).phase,
+        VnoteRecordPhase.idle,
+      );
+      final clip = ctrl.takeAutoStopped();
+      expect(clip, isNotNull);
+      expect(ctrl.takeAutoStopped(), isNull, reason: 'consumed once');
+    },
+  );
 
   test('empty clip -> stop returns null', () async {
     final rec = _FakeRecorder(emptyClip: true);
@@ -217,28 +241,93 @@ void main() {
       expect(rec.disposed, isFalse);
     });
 
-    test('letting go while preparing cancels instead of yielding a clip',
-        () async {
-      // Nothing has been recorded, so there is no note to hand back — but the
-      // camera and recorder must not be left running either.
-      final rec = _FakeRecorder()..gate = Completer<void>();
+    test(
+      'letting go while preparing cancels instead of yielding a clip',
+      () async {
+        // Nothing has been recorded, so there is no note to hand back — but the
+        // camera and recorder must not be left running either.
+        final rec = _FakeRecorder()..gate = Completer<void>();
+        final c = _container(recorder: rec);
+        addTearDown(c.dispose);
+        final ctrl = c.read(vnoteRecordControllerProvider.notifier);
+
+        final starting = ctrl.start();
+        await pumpEventQueue();
+        expect(ctrl.stop(), isNull);
+        expect(rec.disposed, isTrue, reason: 'the recorder must be torn down');
+        expect(
+          c.read(vnoteRecordControllerProvider).phase,
+          VnoteRecordPhase.idle,
+        );
+
+        rec.gate!.complete();
+        await starting;
+        expect(
+          c.read(vnoteRecordControllerProvider).phase,
+          VnoteRecordPhase.idle,
+          reason: 'a cancelled start must not resurrect into recording',
+        );
+      },
+    );
+  });
+
+  group('a lock or a switch stops capture (report17 XV17-M5)', () {
+    // The camera half of the same defect. This controller is a GLOBAL
+    // provider, so a lock does not dispose it and a switch does not rebuild
+    // it: the camera and the microphone stayed open across both.
+
+    test('capture in progress is stopped and discarded', () async {
+      final rec = _FakeRecorder();
       final c = _container(recorder: rec);
       addTearDown(c.dispose);
       final ctrl = c.read(vnoteRecordControllerProvider.notifier);
+      await ctrl.start();
+      expect(c.read(vnoteRecordControllerProvider).isRecording, isTrue);
 
-      final starting = ctrl.start();
-      await pumpEventQueue();
-      expect(ctrl.stop(), isNull);
-      expect(rec.disposed, isTrue, reason: 'the recorder must be torn down');
-      expect(c.read(vnoteRecordControllerProvider).phase, VnoteRecordPhase.idle);
+      ctrl.stopForPrivacy();
 
-      rec.gate!.complete();
-      await starting;
+      expect(rec.disposed, isTrue, reason: 'the camera is still open');
+      expect(c.read(vnoteRecordControllerProvider).isCapturing, isFalse);
       expect(
-        c.read(vnoteRecordControllerProvider).phase,
-        VnoteRecordPhase.idle,
-        reason: 'a cancelled start must not resurrect into recording',
+        ctrl.preview.value,
+        isNull,
+        reason: 'the last self-preview frame outlived the lock',
       );
+    });
+
+    test('and a start waiting on the prompts never opens the camera', () async {
+      final rec = _FakeRecorder();
+      final camPrompt = Completer<bool>();
+      final c = _promptParkedContainer(recorder: rec, camPrompt: camPrompt);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnoteRecordControllerProvider.notifier);
+
+      final pending = ctrl.start();
+      ctrl.stopForPrivacy();
+      camPrompt.complete(true);
+      await pending;
+
+      expect(
+        rec.started,
+        isFalse,
+        reason: 'the camera opened after the person locked the app',
+      );
+      expect(c.read(vnoteRecordControllerProvider).isCapturing, isFalse);
+    });
+
+    test('CONTROL: without the lock the same start captures', () async {
+      final rec = _FakeRecorder();
+      final camPrompt = Completer<bool>();
+      final c = _promptParkedContainer(recorder: rec, camPrompt: camPrompt);
+      addTearDown(c.dispose);
+      final ctrl = c.read(vnoteRecordControllerProvider.notifier);
+
+      final pending = ctrl.start();
+      camPrompt.complete(true);
+      await pending;
+
+      expect(rec.started, isTrue);
+      expect(c.read(vnoteRecordControllerProvider).isRecording, isTrue);
     });
   });
 }

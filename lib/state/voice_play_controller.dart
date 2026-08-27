@@ -339,6 +339,22 @@ class VoicePlayController extends Notifier<VoicePlayState> {
     if (p != null) unawaited(p.dispose());
   }
 
+  /// Stop what is playing and refuse a clip still being loaded.
+  ///
+  /// Called synchronously before a lock or an identity switch. The provider is
+  /// not disposed by either — it is global — so without this the clip went on
+  /// playing over the lock screen, and a load that was in flight started
+  /// playing UNDER THE NEXT IDENTITY: a voice from a conversation that
+  /// identity never had (report17 XV17-M5).
+  ///
+  /// Not [_teardown]: that one belongs to provider disposal and disposes
+  /// notifiers that have to outlive any one session.
+  void stopForPrivacy() {
+    _gen++;
+    _stopPlayer();
+    state = const VoicePlayState();
+  }
+
   void _teardown() {
     _gen++;
     _stopPlayer();
