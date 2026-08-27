@@ -14,6 +14,7 @@ String vpnStartFailureText(AppL10n l, VpnBackendState backend) =>
       VpnStartFailure.invalidArgument => l.vpnStartInvalidArgument,
       VpnStartFailure.closed => l.vpnStartClosed,
       VpnStartFailure.refused => l.vpnStartRefused,
+      VpnStartFailure.workersStranded => l.vpnStartWorkersStranded,
       // The engine's own account of a death after start is the most specific
       // thing there is, so it wins over the named floor when it left one.
       VpnStartFailure.stoppedDuringStartup =>

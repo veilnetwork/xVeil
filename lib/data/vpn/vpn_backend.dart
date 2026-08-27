@@ -42,6 +42,10 @@ enum VpnStartFailure {
   /// It refused without saying which of the above.
   refused,
 
+  /// Too many engine threads from earlier tunnels are stuck, so the engine
+  /// refuses to start another. Only restarting the app clears it.
+  workersStranded,
+
   /// The engine started and then died before the app could confirm it. Its own
   /// account of why is in [VpnBackendState.detail].
   stoppedDuringStartup,
