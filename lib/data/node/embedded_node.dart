@@ -10,6 +10,7 @@ import '../../core/log.dart';
 import '../../core/secret_wipe.dart';
 import '../native_libs.dart' show processLibFor;
 import 'node_controller.dart';
+import 'toml_string.dart';
 import 'veil_library.dart' show verifiedVeilLibrary;
 import 'proxy_routing.dart';
 import 'veil_node.dart' show veilSocketProbe;
@@ -1111,7 +1112,7 @@ class EmbeddedNode {
   static String withObfs4PskFile(String toml, String? pskFilePath) {
     if (pskFilePath == null || pskFilePath.isEmpty) return toml;
     if (toml.contains('obfs4_psk_file')) return toml; // already set
-    final line = 'obfs4_psk_file = "$pskFilePath"';
+    final line = 'obfs4_psk_file = ${tomlBasicString(pskFilePath)}';
     // veil_config_compose serializes a full Config, so a `[transport]` table
     // may already exist; insert the key right under its header (a key-value
     // before any sub-table is valid TOML). Otherwise append a new table.
@@ -1185,7 +1186,10 @@ class EmbeddedNode {
   /// `[global]` may already carry the key.
   static String withIdentityDir(String toml, String? dir) {
     if (dir == null || dir.isEmpty) return toml;
-    final line = 'identity_dir = "$dir"';
+    // Escaped, not interpolated: on Windows this is a path full of
+    // backslashes, and inside a TOML basic string a backslash begins an
+    // escape. See [tomlBasicString].
+    final line = 'identity_dir = ${tomlBasicString(dir)}';
     final rendered = RegExp(r'^[ \t]*identity_dir[ \t]*=.*$', multiLine: true);
     if (rendered.hasMatch(toml)) return toml.replaceAll(rendered, line);
     const marker = '[global]\n';
@@ -1237,10 +1241,10 @@ class EmbeddedNode {
       }
       buf
         ..write('\n[[bootstrap_peers]]\n')
-        ..write('transport = "${p.transport}"\n')
-        ..write('public_key = "${p.publicKey}"\n')
-        ..write('nonce = "${p.nonce}"\n')
-        ..write('algo = "${p.algo}"\n');
+        ..write('transport = ${tomlBasicString(p.transport)}\n')
+        ..write('public_key = ${tomlBasicString(p.publicKey)}\n')
+        ..write('nonce = ${tomlBasicString(p.nonce)}\n')
+        ..write('algo = ${tomlBasicString(p.algo)}\n');
     }
     return buf.toString();
   }
@@ -1254,7 +1258,7 @@ class EmbeddedNode {
     final normalized = normalizeUdpReflectors(reflectors);
     if (normalized.isEmpty) return toml;
 
-    final rendered = normalized.map((e) => '"$e"').join(', ');
+    final rendered = normalized.map(tomlBasicString).join(', ');
     final line = 'udp_reflectors = [$rendered]';
     final existing = RegExp(
       r'^\s*udp_reflectors\s*=\s*\[[^\n\r]*\]\s*$',
@@ -1651,8 +1655,8 @@ class EmbeddedNode {
       buf
         ..write('\n[proxy.socks5]\n')
         ..write('enabled = true\n')
-        ..write('listen = "${proxy.socks5Listen}"\n')
-        ..write('exit_node_id = "${exits.first}"\n')
+        ..write('listen = ${tomlBasicString(proxy.socks5Listen)}\n')
+        ..write('exit_node_id = ${tomlBasicString(exits.first)}\n')
         ..write('exit_node_ids = [${exits.map((id) => '"$id"').join(', ')}]\n');
       emittedListens.add(proxy.socks5Listen);
     }
@@ -1669,8 +1673,8 @@ class EmbeddedNode {
       buf
         ..write('\n[[proxy.socks5_profiles]]\n')
         ..write('enabled = true\n')
-        ..write('listen = "${profile.listen}"\n')
-        ..write('exit_node_id = "${exits.first}"\n')
+        ..write('listen = ${tomlBasicString(profile.listen)}\n')
+        ..write('exit_node_id = ${tomlBasicString(exits.first)}\n')
         ..write('exit_node_ids = [${exits.map((id) => '"$id"').join(', ')}]\n');
     }
     if (proxy.exitEnabled) {
