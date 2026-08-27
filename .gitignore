@@ -75,3 +75,13 @@ ios/Runner.xcworkspace/xcshareddata/swiftpm/
 # Local leak guard — deliberately not tracked (see the header in the script).
 check-leaks.sh
 TranslateLink.xcconfig
+
+# Local working notes: tasks, progress and agent tooling. Deliberately
+# untracked — they carried live-test notes, device ids and infrastructure
+# detail into public history.
+/the local release checklist
+/.agent/
+/ROADMAP.md
+/TASKS.md
+/TASKS_ARCHIVE.md
+/the index tool-out/
