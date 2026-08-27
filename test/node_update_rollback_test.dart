@@ -151,9 +151,10 @@ flock() {
   if [ -n "\$script" ]; then source "\$script" "\${@: -1}"; fi
 }
 ''';
-    final file = File('${dir.path}/s.sh')..writeAsStringSync(
-      '$harness\n${script.replaceAll('/usr/local/bin', bin.path)}',
-    );
+    final file = File('${dir.path}/s.sh')
+      ..writeAsStringSync(
+        '$harness\n${script.replaceAll('/usr/local/bin', bin.path)}',
+      );
     Process.runSync('bash', [file.path]);
     final f = File(log);
     return f.existsSync()
@@ -206,7 +207,11 @@ flock() {
       // dwell a binary that dies immediately is reported as a good update.
       final log = runStubbed(script, aliveChecks: 1, deadChecks: 99);
 
-      expect(restored(log), isTrue, reason: 'a dead service was called healthy');
+      expect(
+        restored(log),
+        isTrue,
+        reason: 'a dead service was called healthy',
+      );
     });
 
     test('a healthy restart does NOT roll back', () {
@@ -261,10 +266,7 @@ flock() {
           .replaceFirst('BIN=/usr/local/bin/veil-cli', 'BIN=${bin.path}')
           // /run/lock is not writable here, and the lock is not what this
           // test is about.
-          .replaceFirst(
-            RegExp(r'LOCK=\S+'),
-            'LOCK=${dir.path}/lock',
-          );
+          .replaceFirst(RegExp(r'LOCK=\S+'), 'LOCK=${dir.path}/lock');
     }
 
     test('a restart that FAILS still rolls back', () {
@@ -413,9 +415,8 @@ flock() {
       );
     }
 
-    bool installed(List<String> log) => log.any(
-      (l) => l.startsWith('install ') && !l.contains('.previous'),
-    );
+    bool installed(List<String> log) =>
+        log.any((l) => l.startsWith('install ') && !l.contains('.previous'));
 
     test('a node that still runs what was checked is updated', () {
       expect(
@@ -438,7 +439,9 @@ flock() {
       // `sort -V` read `0.8.1-rc1` as newer than `0.8.1`, so a node somebody
       // put an RC on refused the release that followed it (report16 XV-11).
       expect(
-        installed(run(planned(expected: '0.8.1-rc1', target: '0.8.1'), '0.8.1-rc1')),
+        installed(
+          run(planned(expected: '0.8.1-rc1', target: '0.8.1'), '0.8.1-rc1'),
+        ),
         isTrue,
         reason: 'the stable release was refused as "not newer"',
       );
@@ -466,7 +469,8 @@ flock() {
       expect(
         installed(run(planned(expected: '0.9.0', target: '0.9.0'), '0.9.0')),
         isFalse,
-        reason: 'reinstalling the same version restarts the service for nothing',
+        reason:
+            'reinstalling the same version restarts the service for nothing',
       );
     });
   });
@@ -489,7 +493,11 @@ flock() {
         'sudo systemctl stop $kAutoUpdateUnit.timer',
         'systemctl is-active --quiet $kAutoUpdateUnit.service',
       );
-      expectBefore(off, 'sudo systemctl stop $kAutoUpdateUnit.timer', 'sudo rm -f');
+      expectBefore(
+        off,
+        'sudo systemctl stop $kAutoUpdateUnit.timer',
+        'sudo rm -f',
+      );
     });
 
     test('and the run in flight is waited out, never killed', () {
@@ -534,24 +542,39 @@ flock() {
       // updater has one of its own for choosing a triple, and that one is the
       // late answer this replaces.
       expect(on, contains('were NOT enabled'));
-      expectBefore(
-        on,
-        r'case "$(uname -m)"',
-        'sudo systemctl enable --now',
-      );
+      expectBefore(on, r'case "$(uname -m)"', 'sudo systemctl enable --now');
       expectBefore(on, 'were NOT enabled', 'sudo tee $kAutoUpdateScriptPath');
     });
 
-    /// The outer script's architecture check, run as shell.
-    ({int code, String stderr}) decide(String machine) {
+    /// The outer script's architecture decision, run as shell.
+    ///
+    /// TWO blocks now, not one: the shared guard settles on a machine number
+    /// and the refusal reads it. Taking the first `case` and its `esac` used
+    /// to be the whole decision; after the guard moved in, that range covers
+    /// only the guard, so the block under test set a variable and refused
+    /// nothing — and the test passed a machine it should have turned away.
+    ///
+    /// [elf] stands in for the fallback: what the host answers when its
+    /// `uname -m` is a name this script does not know. Stubbed, because the
+    /// real answer is the ELF machine of the running shell, and that would
+    /// make the result depend on which machine the SUITE runs on.
+    ({int code, String stderr}) decide(String machine, {String elf = ''}) {
       final lines = buildNodeAutoUpdateScript(enabled: true).split('\n');
       final from = lines.indexWhere((l) => l.startsWith(r'case "$(uname -m)"'));
-      expect(from, isNot(-1), reason: 'the check moved');
-      final to = lines.indexOf('esac', from);
+      expect(from, isNot(-1), reason: 'the guard moved');
+      final refusal = lines.indexWhere(
+        (l) => l.startsWith(r'case "$want_machine"'),
+        from,
+      );
+      expect(refusal, isNot(-1), reason: 'the refusal moved');
+      final to = lines.indexOf('esac', refusal);
+      expect(to, isNot(-1), reason: 'the refusal has no end');
+
       final result = Process.runSync('bash', [
         '-c',
         'set -euo pipefail\n'
             'uname() { echo "$machine"; }\n'
+            'od() { printf "%s" "$elf"; }\n'
             '${lines.sublist(from, to + 1).join('\n')}\n'
             'echo ENABLED',
       ]);
@@ -562,6 +585,8 @@ flock() {
       // Asserting that the check EXISTS is not asserting that it refuses:
       // replacing its arms with a catch-all left the first version of this
       // green.
+      //
+      // A name nobody taught it about AND a host that cannot answer either.
       final refused = decide('armv7l');
       expect(refused.code, isNot(0));
       expect(refused.stderr, contains('were NOT enabled'));
@@ -570,6 +595,18 @@ flock() {
       for (final ok in ['x86_64', 'amd64', 'aarch64', 'arm64']) {
         expect(decide(ok).code, 0, reason: ok);
       }
+    });
+
+    test('and an unknown NAME on a machine that can answer is allowed', () {
+      // The whole reason the guard has a fallback: a host reporting an
+      // unusual `uname -m` while genuinely running one of the two published
+      // architectures must not be refused automatic updates. Refusing on the
+      // name alone is what this replaced.
+      expect(decide('armv7l', elf: '62').code, 0, reason: 'x86-64 host');
+      expect(decide('unknown', elf: '183').code, 0, reason: 'aarch64 host');
+
+      // And a machine that answers something else is still turned away.
+      expect(decide('armv7l', elf: '40').code, isNot(0), reason: 'ARM32');
     });
   });
 }
