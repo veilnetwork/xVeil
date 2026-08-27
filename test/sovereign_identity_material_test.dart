@@ -87,7 +87,10 @@ void main() {
       expect(decodeSovereignIdentity('[1,2,3]'), isNull);
       expect(decodeSovereignIdentity('"a string"'), isNull);
       expect(decodeSovereignIdentity(jsonEncode({'a': 5})), isNull);
-      expect(decodeSovereignIdentity(jsonEncode({'a': '!!not base64!!'})), isNull);
+      expect(
+        decodeSovereignIdentity(jsonEncode({'a': '!!not base64!!'})),
+        isNull,
+      );
     });
 
     test('an empty map decodes to nothing, not to null', () {
@@ -115,7 +118,10 @@ void main() {
         reason: 'material without device_sig_key_idx.bin is complete',
       );
       expect(kSovereignIdentityFiles, contains(kDeviceSigKeyIdxFile));
-      expect(kRequiredSovereignIdentityFiles, isNot(contains(kDeviceSigKeyIdxFile)));
+      expect(
+        kRequiredSovereignIdentityFiles,
+        isNot(contains(kDeviceSigKeyIdxFile)),
+      );
     });
 
     test('names each required file that is absent', () {
@@ -184,10 +190,15 @@ void main() {
       expect(await File('$nested/$kIdentityDocumentFile').exists(), isTrue);
     });
 
-    test('an absent directory collects to nothing rather than throwing',
-        () async {
-      expect(await collectSovereignIdentity('${tmp.path}/never-made'), isEmpty);
-    });
+    test(
+      'an absent directory collects to nothing rather than throwing',
+      () async {
+        expect(
+          await collectSovereignIdentity('${tmp.path}/never-made'),
+          isEmpty,
+        );
+      },
+    );
 
     // The device key is a secret sitting in a directory the node also fills
     // with sockets. It gets 0600 rather than whatever the umask hands out.
@@ -201,15 +212,97 @@ void main() {
       // spelling: on Linux `-f` asks about the FILE SYSTEM and prints
       // `File: "…"`, so this assertion compared a path against '600' and
       // failed on CI while passing on every developer's Mac.
-      final mode = File(
-        '${tmp.path}/$kDeviceIdentitySkFile',
-      ).statSync().mode & 0x1FF;
+      final mode =
+          File('${tmp.path}/$kDeviceIdentitySkFile').statSync().mode & 0x1FF;
       expect(
         mode.toRadixString(8).padLeft(3, '0'),
         '600',
-        reason: 'the device secret key shares a directory with sockets the '
+        reason:
+            'the device secret key shares a directory with sockets the '
             'node creates; the umask is not allowed to decide who reads it',
       );
+    });
+  });
+
+  group('material that belongs to another identity of this device', () {
+    // A re-read takes a Storage and writes what it finds into a runtime
+    // directory, and the two arguments come from different places: the storage
+    // from the group service of the identity that received a document, the
+    // directory from a provider an all-online switch re-points. Between them,
+    // one identity's document — secret device key included — was written into
+    // ANOTHER identity's private runtime directory (report17 XV17-M13).
+    //
+    // The instance id is what tells them apart: this device's id WITHIN one
+    // identity, stable across document merges, different for every identity
+    // the device holds.
+
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('xveil_belongs_'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    void layOut(List<int> instanceId) =>
+        File('${dir.path}/$kInstanceIdFile').writeAsBytesSync(instanceId);
+
+    test('is refused', () {
+      layOut([9, 9, 9, 9]);
+
+      expect(
+        sovereignMaterialBelongsHere(
+          dir.path,
+          _material(instanceId: Uint8List.fromList([1, 1, 1, 1])),
+        ),
+        isFalse,
+        reason:
+            'the device key of one identity would be written into the private '
+            'runtime directory of another',
+      );
+    });
+
+    test('and so is a truncated prefix of ours', () {
+      // Length first: a shorter file that matches as far as it goes is not the
+      // same id.
+      layOut([1, 1, 1, 1]);
+
+      expect(
+        sovereignMaterialBelongsHere(
+          dir.path,
+          _material(instanceId: Uint8List.fromList([1, 1, 1])),
+        ),
+        isFalse,
+      );
+    });
+
+    test('and material with no instance id at all', () {
+      layOut([1, 1, 1, 1]);
+      final files = _material();
+      files.remove(kInstanceIdFile);
+
+      expect(
+        sovereignMaterialBelongsHere(dir.path, files),
+        isFalse,
+        reason: 'unattributable material must not be written over ours',
+      );
+    });
+
+    test('CONTROL: our own material is accepted', () {
+      // Vacuity guard: a check that refused everything would stop the running
+      // node ever re-reading a merged document, and this device would announce
+      // merges its own registry does not reflect.
+      layOut([1, 1, 1, 1]);
+
+      expect(
+        sovereignMaterialBelongsHere(
+          dir.path,
+          _material(instanceId: Uint8List.fromList([1, 1, 1, 1])),
+        ),
+        isTrue,
+      );
+    });
+
+    test('CONTROL: a directory with nothing laid out yet is accepted', () {
+      // What the boot materialises into. A fresh runtime directory has no
+      // identity to contradict, and refusing here would break every start.
+      expect(sovereignMaterialBelongsHere(dir.path, _material()), isTrue);
     });
   });
 
