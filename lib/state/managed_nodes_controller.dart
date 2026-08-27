@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/storage/storage.dart';
 import '../data/node/managed_node.dart';
 import 'providers.dart';
 
@@ -10,10 +11,27 @@ const _kManagedNodesKey = 'managed_nodes';
 /// [Storage.putSetting]/[Storage.getSetting]). Loaded lazily once the container
 /// is open; mutations write through immediately.
 class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
+  /// The storage THIS build belongs to.
+  ///
+  /// Read at the moment of use before, and the notifier watched nothing — so
+  /// after an all-online switch, which `AppController._activateOnline`
+  /// performs with no teardown, the screen went on showing A's hosts, users
+  /// and host-key fingerprints while a mutation wrote the whole registry into
+  /// B's storage. A's server list is not something B is meant to know
+  /// (report17 XV17-H3).
+  late Storage _storage;
+
   @override
   Future<List<ManagedNode>> build() async {
+    // WATCHED: a switch rebuilds this notifier against the identity now shown.
+    _storage = ref.watch(storageProvider);
+    // The instance survives a rebuild, so this cache must not. It records what
+    // was last written to the PREVIOUS identity's storage, and B's disk holds
+    // something else entirely: left standing, it would suppress a real write
+    // to B as "unchanged on disk".
+    _lastPersisted = null;
     try {
-      final raw = await ref.read(storageProvider).getSetting(_kManagedNodesKey);
+      final raw = await _storage.getSetting(_kManagedNodesKey);
       return ManagedNode.decodeList(raw);
     } catch (_) {
       // Storage not open (tests / pre-unlock) — empty registry.
@@ -41,8 +59,11 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
       state = AsyncData(nodes); // unchanged on disk; still the current list
       return null; // skip a redundant commit
     }
+    // The storage this build belongs to, not whichever is active by the time
+    // a queued mutation reaches the front.
+    final storage = _storage;
     try {
-      await ref.read(storageProvider).putSetting(_kManagedNodesKey, json);
+      await storage.putSetting(_kManagedNodesKey, json);
     } catch (e) {
       _lastPersisted = null; // write failed — don't suppress the next attempt
       return '$e';
@@ -71,7 +92,13 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
   Future<void> _tail = Future<void>.value();
 
   Future<String?> _serialized(Future<String?> Function() mutate) {
-    final next = _tail.then((_) => mutate());
+    // The storage this mutation was ASKED for. A queued one can reach the
+    // front after a switch, and a list read from A must not be written to B.
+    final asked = _storage;
+    final next = _tail.then((_) {
+      if (!identical(_storage, asked)) return null;
+      return mutate();
+    });
     // The chain must not break on a failure, or one failed write stops every
     // later one. Errors reach the caller through `next`.
     _tail = next.then((_) {}, onError: (Object _) {});
@@ -132,4 +159,5 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
 
 final managedNodesProvider =
     AsyncNotifierProvider<ManagedNodesController, List<ManagedNode>>(
-        ManagedNodesController.new);
+      ManagedNodesController.new,
+    );
