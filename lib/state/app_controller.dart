@@ -2412,6 +2412,22 @@ class AppController extends Notifier<AppState> {
   /// keeps routing the person's traffic while the app says it is locked. The
   /// journal is in RAM and never exports the message, so recording it costs
   /// nothing a deniable app cares about.
+  /// Legs of the CURRENT teardown that did not confirm they finished. Each
+  /// teardown entry point clears it first; [lastTeardown] is what it became.
+  final List<String> _incomplete = [];
+
+  /// The verdict of the last [lock], [startOver] or [wipeContainers].
+  ///
+  /// Read by the API's lock handler, which otherwise answers `locked: true`
+  /// for a boundary that is not closed (report17 XV17-M14).
+  TeardownOutcome get lastTeardown => _lastTeardown;
+  TeardownOutcome _lastTeardown = TeardownOutcome.clean;
+
+  /// Stop the tunnel and RECORD it when it would not stop.
+  Future<void> _stopVpnTunnelRecorded() async {
+    if (!await _stopVpnTunnel()) _incomplete.add('vpn');
+  }
+
   Future<bool> _stopVpnTunnel() async {
     // What went wrong, phrased for the journal. Null means the OS confirmed it.
     String? incomplete;
@@ -2473,7 +2489,8 @@ class AppController extends Notifier<AppState> {
     // The decision is pinned by `a backend that reports it did not stop is
     // journalled`; audit report12 X-H2 asks for the opposite and is answered
     // here rather than followed.
-    await _stopVpnTunnel();
+    _incomplete.clear();
+    await _stopVpnTunnelRecorded();
     // A phrase that never reached a node boot (the user finished onboarding
     // and locked before the stack came up) must not outlive the session that
     // produced it — the next unlock may be a different identity entirely.
@@ -2511,6 +2528,7 @@ class AppController extends Notifier<AppState> {
         await run();
       } catch (e, st) {
         devLog(() => 'xVeil[lock]: $name FAILED: $e');
+        _incomplete.add('leg:$name');
         firstError ??= e;
         firstStack ??= st;
       }
@@ -2528,6 +2546,7 @@ class AppController extends Notifier<AppState> {
     // a partial lock are the worst outcome of all, and dropping them costs
     // nothing even when the container is somehow still open.
     _clearMasterSession();
+    _lastTeardown = TeardownOutcome(List.unmodifiable(_incomplete));
     state = const AppState(AppPhase.locked);
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStack ?? StackTrace.current);
@@ -2634,8 +2653,15 @@ class AppController extends Notifier<AppState> {
     // stopping keeps its sockets and its network identity, and its handle is
     // gone from the session, so nothing can ask it to stop again. That has to
     // be recorded rather than left to a debug log nobody reads.
+    if (!session.containerLockReleased) {
+      // The container is still locked by this process. Whoever is about to say
+      // "locked" or "wiped" has to carry that: it is the fact behind every
+      // later "correct password but won't unlock".
+      _incomplete.add('container-lock-unknown');
+    }
     final abandoned = session.abandonedTeardowns;
     if (abandoned.isNotEmpty) {
+      _incomplete.add('session');
       devLog(
         () =>
             'xVeil[lock]: ${abandoned.length} teardown step(s) abandoned; a '
@@ -2689,6 +2715,7 @@ class AppController extends Notifier<AppState> {
       final controller = stack.controller;
       if (controller is EmbeddedNodeController &&
           controller.lastStopWasAbandoned) {
+        _incomplete.add('node');
         devLog(
           () =>
               'xVeil[lock]: the node did not stop within its budget — it may '
@@ -2755,7 +2782,8 @@ class AppController extends Notifier<AppState> {
   /// can't and shouldn't prove it exists; the user simply sets up anew.
   Future<void> startOver() async {
     _endLifecycle(); // same window as [lock] — see [_lifecycle]
-    await _stopVpnTunnel();
+    _incomplete.clear();
+    await _stopVpnTunnelRecorded();
     await _teardownSession();
     await _teardownRealStack();
     await _stopBackgroundService();
@@ -2773,6 +2801,7 @@ class AppController extends Notifier<AppState> {
     for (final key in kIdentityPosturePrefKeys) {
       await prefs.remove(identityScopedPrefKey(key));
     }
+    _lastTeardown = TeardownOutcome(List.unmodifiable(_incomplete));
     state = const AppState(AppPhase.onboarding);
   }
 
@@ -2797,7 +2826,8 @@ class AppController extends Notifier<AppState> {
   /// than by trusting the delete call. Empty means empty.
   Future<List<String>> wipeContainers() async {
     _endLifecycle(); // same window as [lock] — see [_lifecycle]
-    await _stopVpnTunnel();
+    _incomplete.clear();
+    await _stopVpnTunnelRecorded();
     await _teardownSession();
     await _teardownRealStack();
     await _stopBackgroundService();
@@ -2956,6 +2986,13 @@ class AppController extends Notifier<AppState> {
     // nobody had looked at.
     if (speechUnknown) remaining.add('speech-model-unknown');
     if (translationsUnknown) remaining.add('translations-unknown');
+    // A survivor that is not on disk. The wipe reported only what it could
+    // re-stat, so a tunnel that would not stop, a node that outlived its
+    // budget or a container whose lock was never released showed the same
+    // screen as a clean wipe — while the network side of this person was
+    // still up (report17 XV17-M14).
+    _lastTeardown = TeardownOutcome(List.unmodifiable(_incomplete));
+    if (_incomplete.isNotEmpty) remaining.add('network');
     if (remaining.isNotEmpty) {
       errorJournal.record(
         kind: 'wipe-incomplete',
@@ -3097,6 +3134,33 @@ final class StorageReclaim {
 final appControllerProvider = NotifierProvider<AppController, AppState>(
   AppController.new,
 );
+
+/// What a teardown could not confirm it finished.
+///
+/// "Locked" is a claim about the network, not about the screen: the tunnel is
+/// down, the node has stopped, the session is disposed and the container's
+/// lock is released. Each leg already knew when it had failed — and each one
+/// wrote that into a journal nobody reads and then returned as if it had
+/// worked, so `lock`, `startOver` and the API's `/v1/account/lock` all
+/// reported a closed privacy boundary over a tunnel that might still be
+/// carrying traffic (report17 XV17-M14).
+///
+/// Codes, not sentences, for the same reason [WipeReport] uses them: the
+/// sentence has to be a translated one, and this list also crosses the API.
+@immutable
+class TeardownOutcome {
+  const TeardownOutcome(this.incomplete);
+
+  /// Empty means every critical leg was CONFIRMED finished. Anything in here
+  /// is a leg that failed, timed out, or was abandoned — `vpn`, `session`,
+  /// `node`, `container-lock-unknown`, or `leg:<name>` for a step of [lock]
+  /// that threw.
+  final List<String> incomplete;
+
+  bool get complete => incomplete.isEmpty;
+
+  static const clean = TeardownOutcome([]);
+}
 
 /// What a wipe could not delete, as a fact about the app rather than about a
 /// screen.
