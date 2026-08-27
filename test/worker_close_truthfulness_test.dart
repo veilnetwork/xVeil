@@ -34,6 +34,51 @@ Future<void> _pumpUntil(bool Function() ready, String what) async {
 }
 
 void main() {
+  test('a close the worker could not do is raised, not swallowed', () async {
+    // report17 XV17-M6. The worker answers a failed close with an error — a
+    // flush that did not land, a lock it could not release — and every
+    // non-null reply was read as success. The caller was told the container
+    // was shut while the native handle was still held, and the next open came
+    // back `Busy` with nothing to point at.
+    //
+    // Every OTHER call has always raised that error; close was the exception.
+    final events = ReceivePort();
+    addTearDown(events.close);
+
+    final live = await _spawnStubWorker(
+      events.sendPort,
+      answerClose: true,
+      failClose: true,
+    );
+    final store = WorkerKvLogStore.overWorker(
+      isolate: live.isolate,
+      toWorker: live.port,
+      watch: live.watch,
+    );
+
+    await expectLater(
+      store.close(),
+      throwsA(
+        isA<hv.HvException>().having(
+          (e) => e.message,
+          'message',
+          contains('refused to close'),
+        ),
+      ),
+      reason:
+          'a close that failed reported success, and the caller went on '
+          'believing the container was shut',
+    );
+
+    // And the cleanup happened anyway: the ports and the isolate go either
+    // way, because what is in doubt is the container, not this side.
+    expect(
+      () => store.get(0, Uint8List(1)),
+      throwsA(isA<StateError>()),
+      reason: 'the store did not mark itself closed',
+    );
+  });
+
   setUp(() {
     // The wait is what is under test; five real seconds per case is not.
     WorkerMultiSpaceBacking.closeTimeout = const Duration(milliseconds: 150);
@@ -402,12 +447,13 @@ Future<LiveMultiSpaceWorker> _spawnStubWorker(
   required bool answerClose,
   bool dieOnClose = false,
   bool answerCalls = true,
+  bool failClose = false,
 }) async {
   final boot = ReceivePort();
   final death = WorkerDeath();
   final isolate = await Isolate.spawn<List<Object>>(
     _stubWorkerEntry,
-    [boot.sendPort, events, answerClose, dieOnClose, answerCalls],
+    [boot.sendPort, events, answerClose, dieOnClose, answerCalls, failClose],
     errorsAreFatal: true,
     onExit: death.exitPort.sendPort,
     onError: death.errorPort.sendPort,
@@ -424,6 +470,7 @@ void _stubWorkerEntry(List<Object> args) {
   final answerClose = args[2] as bool;
   final dieOnClose = args[3] as bool;
   final answerCalls = args[4] as bool;
+  final failClose = args[5] as bool;
   final rx = ReceivePort();
   boot.send(rx.sendPort);
   // The close's reply port, kept for the tests that make the worker settle
@@ -456,7 +503,16 @@ void _stubWorkerEntry(List<Object> args) {
         return;
       }
       if (!answerClose) return; // still inside the FFI, like the real thing
-      reply.send(true);
+      // A close the worker COULD NOT DO: the container refused to shut. The
+      // real worker answers exactly this, and it used to be read as success.
+      reply.send(
+        failClose
+            ? WorkerKvLogStore.debugFailureReply(
+                'Internal',
+                'the container refused to close',
+              )
+            : true,
+      );
       rx.close();
       Isolate.current.kill(priority: Isolate.immediate);
       return;

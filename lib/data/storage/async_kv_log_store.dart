@@ -511,6 +511,18 @@ class WorkerKvLogStore implements AsyncKvLogStore {
     }
   }
 
+  /// The reply a worker sends when an operation failed.
+  ///
+  /// TESTS ONLY, and it exists because `close` is the one call whose FAILURE
+  /// could not be staged: every other path goes through [_call], which has
+  /// always raised `_Err`, while close read any reply as success. A real
+  /// worker answers this only when the container refuses to shut, which is not
+  /// a state a test can arrange — so the stub worker sends it instead.
+  ///
+  /// Unannotated for the same Flutter-free reason as [overWorker].
+  static Object debugFailureReply(String kind, String message) =>
+      _Err(kind, message);
+
   Future<T> _call<T>(_Req Function(SendPort reply) build) async {
     if (_closed) throw StateError('WorkerKvLogStore is closed');
     final reply = ReceivePort();
@@ -610,6 +622,19 @@ class WorkerKvLogStore implements AsyncKvLogStore {
       // error future with nobody listening (audit XV-07).
       _watch.dispose();
       _isolate.kill(priority: Isolate.immediate);
+      // A REPLY IS NOT AN OUTCOME. The worker answers `_Err` when the close
+      // itself failed — a flush that did not land, a lock it could not
+      // release — and every non-null reply was read here as success. The
+      // caller was told the container was shut while the native handle was
+      // still held, and the next open came back `Busy` with nothing to point
+      // at (report17 XV17-M6).
+      //
+      // Raised AFTER the cleanup above, deliberately: the ports and the
+      // isolate go either way, and what is in doubt is the container, not this
+      // side of the boundary.
+      if (r is _Err) {
+        throw hv.HvException(r.kind, r.message);
+      }
       return;
     }
     // Timed out — the worker is almost certainly blocked inside a long

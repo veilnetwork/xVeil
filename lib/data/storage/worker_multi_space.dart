@@ -259,6 +259,17 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
           // this await was for.
         }
       }
+      // ASKED AGAIN, because the answer has changed. The spawn we just waited
+      // for publishes its worker before it notices `_closed`, and its rollback
+      // shuts that worker down through the protocol — including the case where
+      // the shutdown TIMED OUT and deliberately left the worker alive to finish
+      // releasing the container in the background.
+      //
+      // Killing here undid exactly that: an isolate kill cannot unwind an FFI
+      // frame, so the container's exclusive flock stayed held by this process
+      // until it restarted — the "correct password but won't unlock" trap the
+      // timeout path exists to avoid (report17 XV17-M7).
+      if (_toWorker != null || _lateClose != null) return;
       _watch?.dispose();
       _isolate?.kill(priority: Isolate.immediate); // never finished spawning
       return;
