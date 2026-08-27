@@ -107,7 +107,43 @@ class ProvisionReport {
   bool get isEmpty => nodeId == null && invite == null && components.isEmpty;
 }
 
-const _unroutableHosts = {'0.0.0.0', '::', '127.0.0.1', 'localhost', '::1'};
+/// Names that mean "this machine" without being an address at all.
+const _unroutableNames = {'localhost'};
+
+/// Whether [host] names something no other machine can dial.
+///
+/// This was a set of five literals — `0.0.0.0`, `::`, `127.0.0.1`,
+/// `localhost`, `::1` — and loopback is a whole /8. `127.0.0.2` passed both
+/// the repair guard and the share guard, so a node advertising it was handed
+/// to somebody as a working entry point, and their client dialled their OWN
+/// loopback (report15 X15-L8). The same held for every spelling of the IPv6
+/// forms an operator or a script might produce.
+///
+/// Asked of the parsed address rather than of its spelling: `InternetAddress`
+/// answers for the whole range and for every way of writing it, including the
+/// IPv4-mapped `::ffff:127.0.0.1`. Link-local is refused for the same reason
+/// loopback is — it is reachable from one network segment and from nowhere
+/// else, so a share carrying it is a share that does not work.
+bool _isUnroutableHost(String host) {
+  final name = host.trim().toLowerCase();
+  if (name.isEmpty) return true;
+  if (_unroutableNames.contains(name)) return true;
+  // A URI's host has no brackets, but an operator-typed value might.
+  final bare = name.startsWith('[') && name.endsWith(']')
+      ? name.substring(1, name.length - 1)
+      : name;
+  final address = InternetAddress.tryParse(bare);
+  if (address == null) return false;
+  if (address.isLoopback || address.isLinkLocal) return true;
+  // An IPv4-mapped IPv6 address carries an IPv4 one inside it, and
+  // `isLoopback` answers about the outer form: `::ffff:127.0.0.1` is not a
+  // loopback IPv6 address and IS this machine. Ask about what it wraps.
+  final mapped = RegExp(r'^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$').firstMatch(bare);
+  if (mapped != null) return _isUnroutableHost(mapped.group(1)!);
+  // The unspecified address — what a node binds when the operator left the
+  // advertise host empty, and the case this repair exists for.
+  return bare == '0.0.0.0' || address.address == '::';
+}
 
 /// Read what the deployment script reported.
 ///
@@ -281,11 +317,29 @@ String _withReachableHost(String invite, String? reachableHost) {
   final marker = RegExp(r'(^|&)t=([^&]*)');
   final m = marker.firstMatch(invite);
   if (m == null) return invite;
-  final transport = Uri.decodeComponent(m.group(2)!);
+  // A transport this cannot decode is a transport it cannot repair.
+  //
+  // `decodeComponent` THROWS on a malformed escape — `t=tcp://0.0.0.0:9000/%ZZ`
+  // — and this runs inside `parseProvisionReport`, which callers reach before
+  // their own try/catch. So one malformed inventory line became an unhandled
+  // error in whatever was waiting, instead of the "nothing to share" answer
+  // the caller already knows how to render (report15 X15-L9).
+  final String transport;
+  try {
+    transport = Uri.decodeComponent(m.group(2)!);
+  } on ArgumentError {
+    // ArgumentError, not FormatException. `decodeComponent` answers a bad
+    // escape with `ArgumentError('Invalid URL encoding')` — the first version
+    // of this catch named the other one and never fired, which the test caught.
+    return invite;
+  } on FormatException {
+    // Kept for the other malformed shapes the same call reports that way.
+    return invite;
+  }
   final parsed = Uri.tryParse(transport);
   if (parsed == null ||
       !parsed.hasAuthority ||
-      !_unroutableHosts.contains(parsed.host.toLowerCase())) {
+      !_isUnroutableHost(parsed.host)) {
     return invite;
   }
   final fixed = parsed.replace(host: host).toString();
@@ -335,7 +389,7 @@ String? nodeEntryPointShareUri({
   final transport = Uri.tryParse(advertised);
   if (transport == null ||
       !transport.hasAuthority ||
-      _unroutableHosts.contains(transport.host.toLowerCase())) {
+      _isUnroutableHost(transport.host)) {
     return null;
   }
   return SharedPeers([parsed]).toUri();

@@ -119,7 +119,8 @@ allowed_node_ids = [
     // The output below is verbatim from a live node on 2026-08-26, wildcard
     // bind and all.
     const live =
-        'NODE_ID: ${'59dc503e' 'aa'}\n'
+        'NODE_ID: ${'59dc503e'
+            'aa'}\n'
         'BOOTSTRAP_URI: veil:bootstrap?pk=uVxwnZaxN/OtkGP8drOqvNxW30qEv05y'
         '+c3BKZcPooI=&t=obfs4-tcp://0.0.0.0:5556&a=ed25519&nc=AkZVnw==\n'
         'EXIT_ENABLED: true\n';
@@ -187,6 +188,92 @@ allowed_node_ids = [
       expect(nodeEntryPointShareUri(inventoryOutput: live), isNull);
     });
 
+    /// Loopback is a whole /8, and the guard listed one address of it.
+    ///
+    /// `127.0.0.2` passed both the repair guard and the share guard, so a node
+    /// advertising it was handed over as a working entry point and the
+    /// recipient's client dialled their OWN loopback (report15 X15-L8).
+    test('every spelling of "this machine" is refused, not just the five', () {
+      const unroutable = [
+        '127.0.0.1',
+        '127.0.0.2',
+        '127.255.255.254',
+        'localhost',
+        '0.0.0.0',
+        '[::1]',
+        '[::]',
+        '[fe80::1]',
+        '[::ffff:127.0.0.1]',
+      ];
+      for (final host in unroutable) {
+        final inventory =
+            'BOOTSTRAP_URI: veil:bootstrap?pk=uVxwnZaxN/OtkGP8drOqvNxW30qEv05y'
+            '+c3BKZcPooI=&t=obfs4-tcp://$host:5556&a=ed25519&nc=AkZVnw==\n';
+        expect(
+          nodeEntryPointShareUri(inventoryOutput: inventory),
+          isNull,
+          reason: '$host was handed over as a dialable entry point',
+        );
+      }
+    });
+
+    /// Vacuity guard: an ordinary public address must still be shareable, or
+    /// the assertion above is satisfied by a guard that refuses everything.
+    test('and an address somebody else can reach still is', () {
+      // A NAME as well as an address. The guard asks `InternetAddress` about
+      // the host, and a name does not parse as one — answering "unroutable" to
+      // that would refuse every nginx-fronted node an operator set up on
+      // purpose, which is the direction this test exists to hold.
+      for (final host in [
+        '203.0.113.7',
+        'node.example.com',
+        '[2001:db8::1]',
+      ]) {
+        final inventory =
+            'BOOTSTRAP_URI: veil:bootstrap?pk=uVxwnZaxN/OtkGP8drOqvNxW30qEv05y'
+            '+c3BKZcPooI=&t=obfs4-tcp://$host:5556&a=ed25519&nc=AkZVnw==\n';
+        expect(
+          nodeEntryPointShareUri(inventoryOutput: inventory),
+          isNotNull,
+          reason: '$host is dialable and was refused',
+        );
+      }
+    });
+
+    /// A malformed escape is an answer, not an exception.
+    ///
+    /// `Uri.decodeComponent` throws on `%ZZ`, and the repair that calls it runs
+    /// inside `parseProvisionReport` — which callers reach BEFORE their own
+    /// try/catch. One malformed inventory line became an unhandled error in
+    /// whatever was waiting, instead of the "nothing to share" the caller
+    /// already knows how to render (report15 X15-L9).
+    test('a malformed percent escape gives nothing rather than throwing', () {
+      const broken =
+          'BOOTSTRAP_URI: veil:bootstrap?pk=uVxwnZaxN/OtkGP8drOqvNxW30qEv05y'
+          '+c3BKZcPooI=&t=tcp://0.0.0.0:9000/%ZZ&a=ed25519&nc=AkZVnw==\n';
+
+      expect(
+        () => nodeEntryPointShareUri(
+          inventoryOutput: broken,
+          reachableHost: '203.0.113.7',
+        ),
+        returnsNormally,
+      );
+      expect(
+        nodeEntryPointShareUri(
+          inventoryOutput: broken,
+          reachableHost: '203.0.113.7',
+        ),
+        isNull,
+      );
+      // And the report itself parses — the repair declines, it does not throw
+      // out of the parse every other caller makes.
+      expect(
+        () => parseProvisionReport(broken, reachableHost: '203.0.113.7'),
+        returnsNormally,
+      );
+    });
+
     test('a run that reported no invite gives nothing', () {
       expect(
         nodeEntryPointShareUri(inventoryOutput: 'NODE_ID: ${'ab' * 32}\n'),
@@ -216,11 +303,7 @@ allowed_node_ids = [
     final node = ManagedNode(id: 'n1', label: 'vdsina2', sshHost: '10.0.0.1');
     final empty = ProxyRouting.disabled;
 
-    String report({
-      required bool exit,
-      String allowed = '',
-      String? id,
-    }) =>
+    String report({required bool exit, String allowed = '', String? id}) =>
         'NODE_ID: ${id ?? fullId}\n'
         'EXIT_ENABLED: $exit\n'
         'EXIT_ALLOW_ALL: false\n'
