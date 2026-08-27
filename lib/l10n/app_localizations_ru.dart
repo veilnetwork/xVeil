@@ -3617,6 +3617,10 @@ class AppL10nRu extends AppL10n {
       'Раз в сутки спрашивает у github.com, есть ли версия новее. Запрос сообщает GitHub, что на этом устройстве стоит xVeil, и с какого адреса.';
 
   @override
+  String get updateCheckChoiceNotSaved =>
+      'Выбор не удалось сохранить — после перезапуска он вернётся к прежнему.';
+
+  @override
   String get updateCheckNow => 'Проверить сейчас';
 
   @override

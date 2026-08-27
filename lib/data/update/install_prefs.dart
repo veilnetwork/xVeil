@@ -60,7 +60,14 @@ class InstallUpdatePrefs {
     return {};
   }
 
-  void _write(Map<String, Object?> values) {
+  /// Did the write reach the disk?
+  ///
+  /// Answered rather than swallowed. A read-only directory or a full disk
+  /// leaves this file exactly as it was, and the two things it holds both stop
+  /// meaning what the caller thinks: an opt-out that is not on disk is back to
+  /// "on" at the next launch, and a check stamp that is not on disk makes
+  /// every launch ask github.com again (report17 XV17-M2).
+  bool _write(Map<String, Object?> values) {
     try {
       final file = File(path);
       file.parent.createSync(recursive: true);
@@ -72,12 +79,20 @@ class InstallUpdatePrefs {
       temp.writeAsStringSync(jsonEncode(values), flush: true);
       temp.renameSync(path);
       _unreadable = false;
+      return true;
     } catch (_) {
-      // Best effort for the stamp. For `enabled` the getter below fails
-      // closed, so a write that did not land costs a request rather than
-      // somebody's choice.
+      return false;
     }
   }
+
+  /// The stamp this SESSION has set, whether or not it reached the disk.
+  ///
+  /// A stamp that could not be written used to be forgotten entirely, so a
+  /// device with a read-only support directory asked github.com on every
+  /// launch — and, within one long-running session, on every check. Held here
+  /// so the interval still holds for as long as this process lives; the disk
+  /// is what makes it hold across launches, and that part cannot be faked.
+  DateTime? _sessionLastCheck;
 
   /// Whether to look for a newer release at all. Null when nobody has said.
   bool? get enabled {
@@ -91,23 +106,42 @@ class InstallUpdatePrefs {
   }
 
   set enabled(bool? value) {
+    setEnabled(value);
+  }
+
+  /// [enabled], reporting whether the choice reached the disk.
+  ///
+  /// The setter above stays for callers that cannot act on the answer; this is
+  /// for the one that can. A choice that did not persist is honoured for this
+  /// session and gone at the next launch, and the person is entitled to know
+  /// which of the two they got.
+  bool setEnabled(bool? value) {
     final values = _read();
     if (value == null) {
       values.remove('enabled');
     } else {
       values['enabled'] = value;
     }
-    _write(values);
+    return _write(values);
   }
 
   /// When the last check happened, so the next is a day later and not a launch
   /// later. Null when none has.
   DateTime? get lastCheck {
     final value = _read()['lastCheckMs'];
-    return value is int ? DateTime.fromMillisecondsSinceEpoch(value) : null;
+    final stored = value is int
+        ? DateTime.fromMillisecondsSinceEpoch(value)
+        : null;
+    final session = _sessionLastCheck;
+    if (stored == null) return session;
+    if (session == null) return stored;
+    // The later of the two: a stamp this session set but could not write is
+    // still the last time this device asked.
+    return session.isAfter(stored) ? session : stored;
   }
 
   set lastCheck(DateTime? value) {
+    _sessionLastCheck = value;
     final values = _read();
     if (value == null) {
       values.remove('lastCheckMs');
