@@ -14,6 +14,7 @@ import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
+import '../data/storage/storage.dart';
 import 'providers.dart';
 import 'translation_engines.dart';
 
@@ -23,7 +24,11 @@ import 'translation_engines.dart';
 /// switch languages mid-thread, so an engine that detects for itself is free to
 /// ignore it.
 typedef TranslateText =
-    Future<String?> Function(String text, {required String from, required String to});
+    Future<String?> Function(
+      String text, {
+      required String from,
+      required String to,
+    });
 
 /// Resolving what is actually on this device: a native library, and at least
 /// one language pair. Null when either is missing.
@@ -75,8 +80,27 @@ class TranslationEntry {
 }
 
 class TranslationController extends Notifier<Map<String, TranslationEntry>> {
+  /// The storage THIS build belongs to.
+  ///
+  /// A translation runs for as long as the engine takes, and the store was
+  /// read again afterwards. An all-online switch in between — which
+  /// `AppController._activateOnline` performs with no teardown — put the
+  /// finished reading of A's message into B's storage, where it stays after
+  /// the lock. What is written is the message text itself, in another
+  /// language (report17 XV17-H4).
+  late Storage _storage;
+
   @override
-  Map<String, TranslationEntry> build() => const {};
+  Map<String, TranslationEntry> build() {
+    // WATCHED: a switch rebuilds this notifier, and everything below belongs
+    // to the identity it was built for.
+    _storage = ref.watch(storageProvider);
+    // Which keys have been looked for is a fact about ONE store. Carried into
+    // another, a remembered miss hides a translation that store does have.
+    _probed.clear();
+    // And the readings themselves go with it: they are A's messages.
+    return const {};
+  }
 
   /// Cached per (message, target language) — the same message read in two
   /// languages is two answers, and one must not overwrite the other.
@@ -116,14 +140,16 @@ class TranslationController extends Notifier<Map<String, TranslationEntry>> {
     if (_probed.contains(key)) return;
     final current = state[messageId];
     if (current != null && current.isDone && current.to == target) return;
+    final storage = _storage;
     try {
-      final cached = await ref.read(storageProvider).getSetting(key);
+      final cached = await storage.getSetting(key);
       // Marked only once the store ANSWERED. A read that threw means the store
       // is not open yet, and remembering that as "nothing there" would hide a
       // translation for the rest of the session.
       _probed.add(key);
       if (cached != null) {
         _set(
+          storage,
           messageId,
           TranslationEntry(
             phase: TranslationPhase.done,
@@ -155,11 +181,18 @@ class TranslationController extends Notifier<Map<String, TranslationEntry>> {
     final engine = ref.read(textTranslatorProvider);
     if (engine == null || body.trim().isEmpty) return;
 
-    _set(messageId, const TranslationEntry(phase: TranslationPhase.running));
+    // The storage this reading belongs to, captured before the engine runs.
+    final storage = _storage;
+    _set(
+      storage,
+      messageId,
+      const TranslationEntry(phase: TranslationPhase.running),
+    );
     try {
-      final cached = await _cached(messageId, target);
+      final cached = await _cached(storage, messageId, target);
       if (cached != null) {
         _set(
+          storage,
           messageId,
           TranslationEntry(
             phase: TranslationPhase.done,
@@ -171,7 +204,11 @@ class TranslationController extends Notifier<Map<String, TranslationEntry>> {
       }
       final out = await engine(body, from: from ?? '', to: target);
       if (out == null) {
-        _set(messageId, const TranslationEntry(phase: TranslationPhase.failed));
+        _set(
+          storage,
+          messageId,
+          const TranslationEntry(phase: TranslationPhase.failed),
+        );
         return;
       }
       // An empty result is NOT cached: it is either a failure the engine did
@@ -179,24 +216,23 @@ class TranslationController extends Notifier<Map<String, TranslationEntry>> {
       // stay retryable across sessions.
       if (out.isNotEmpty) {
         try {
-          await ref
-              .read(storageProvider)
-              .putSetting(_cacheKey(messageId, target), out);
+          await storage.putSetting(_cacheKey(messageId, target), out);
         } catch (e) {
           devLog(() => 'xVeil[translate]: cache write failed: $e');
         }
       }
       _set(
+        storage,
         messageId,
-        TranslationEntry(
-          phase: TranslationPhase.done,
-          text: out,
-          to: target,
-        ),
+        TranslationEntry(phase: TranslationPhase.done, text: out, to: target),
       );
     } catch (e) {
       devLog(() => 'xVeil[translate]: failed: $e');
-      _set(messageId, const TranslationEntry(phase: TranslationPhase.failed));
+      _set(
+        storage,
+        messageId,
+        const TranslationEntry(phase: TranslationPhase.failed),
+      );
     }
   }
 
@@ -209,15 +245,18 @@ class TranslationController extends Notifier<Map<String, TranslationEntry>> {
     state = next;
   }
 
-  Future<String?> _cached(String messageId, String to) async {
+  Future<String?> _cached(Storage storage, String messageId, String to) async {
     try {
-      return await ref.read(storageProvider).getSetting(_cacheKey(messageId, to));
+      return await storage.getSetting(_cacheKey(messageId, to));
     } catch (_) {
       return null;
     }
   }
 
-  void _set(String messageId, TranslationEntry e) {
+  /// Show [e], but only while the identity it was made for is still the one
+  /// being shown. A reading of A's message under B is the leak this guards.
+  void _set(Storage storage, String messageId, TranslationEntry e) {
+    if (!identical(_storage, storage)) return;
     state = {...state, messageId: e};
   }
 }
