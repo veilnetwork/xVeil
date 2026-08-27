@@ -3,32 +3,43 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../domain/chat.dart';
+import '../data/storage/storage.dart';
 import '../domain/p2p_policy.dart';
 import 'app_controller.dart';
 import 'group_service_providers.dart';
 import 'providers.dart';
 
 class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
+  /// Whether the person on THIS identity has chosen a policy.
+  ///
+  /// The notifier survives a rebuild, so this had to be reset with it: left
+  /// standing, A's choice made B's load return early and B ran under A's
+  /// policy. What that decides is whether a conversation may take the direct
+  /// ladder — so "allow" carried into an identity whose owner had said "never"
+  /// hands that identity's peer its real address (report17 XV17-M3).
   bool _userSet = false;
+
+  /// The storage THIS build belongs to.
+  late Storage _storage;
 
   @override
   P2PGlobalPolicy build() {
-    final storage = ref.watch(storageProvider);
-    _load();
-    ref.onDispose(() {
-      // Touching [storage] above intentionally makes this provider rebuild when
-      // all-online switches the active identity's deniable space.
-      storage.isOpen;
-    });
+    // WATCHED: an all-online switch rebuilds this notifier.
+    _storage = ref.watch(storageProvider);
+    // Both reset with it. The choice belongs to an identity, and so does the
+    // knowledge that one was made.
+    _userSet = false;
+    _load(_storage);
     return kDefaultP2PGlobalPolicy;
   }
 
-  Future<void> _load() async {
+  Future<void> _load(Storage storage) async {
     try {
-      final raw = await ref
-          .read(storageProvider)
-          .getSetting(kP2PGlobalPolicySettingKey);
-      if (_userSet) return;
+      final raw = await storage.getSetting(kP2PGlobalPolicySettingKey);
+      // The identity moved while this read was in flight. A policy read out of
+      // A's storage must not become B's — and the direction that matters is
+      // the permissive one.
+      if (!identical(_storage, storage) || _userSet) return;
       state = p2pGlobalPolicyFromName(raw);
     } catch (_) {
       // Storage may be closed in tests/lock screen; keep the default.
@@ -36,12 +47,16 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
   }
 
   Future<void> set(P2PGlobalPolicy value) async {
+    final storage = _storage;
     _userSet = true;
     state = value;
     try {
-      await ref
-          .read(storageProvider)
-          .putSetting(kP2PGlobalPolicySettingKey, value.name);
+      // Into the storage this choice was made under. Equivalent to reading the
+      // provider today — nothing awaits between the decision and this line, so
+      // the two resolve to the same handle — and it stays correct if anything
+      // ever does await in between, which is exactly how the load above came
+      // to land on the wrong identity.
+      await storage.putSetting(kP2PGlobalPolicySettingKey, value.name);
     } catch (_) {
       // Persist best-effort.
     }
@@ -92,8 +107,11 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
       }
       return allowed;
     } catch (e) {
-      devLog(() => 'xVeil[p2p]: messaging policy check failed for '
-          '${peer.short}: $e');
+      devLog(
+        () =>
+            'xVeil[p2p]: messaging policy check failed for '
+            '${peer.short}: $e',
+      );
       return false;
     }
   }
