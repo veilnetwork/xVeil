@@ -24,6 +24,44 @@ void main() {
     ),
   );
 
+  test('nothing writes into the scratch directory without sudo', () {
+    // report17 XV17-M10. The directory is created by `sudo mktemp -d`, so it
+    // is root-owned and an ordinary sudoer cannot delete from it. A final
+    // `rm -f` of the staged files, without sudo, therefore failed — and under
+    // `set -euo pipefail` its exit status became the SCRIPT's. A deployment
+    // that had installed the binaries, written the config and brought the
+    // service up ACTIVE reported failure, after changing the system.
+    //
+    // The trap at the top removes the directory whole, through sudo, on every
+    // exit path; a second cleanup had nothing to add and one way to go wrong.
+    final commands = script()
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('#'))
+        .toList();
+
+    for (final line in commands) {
+      final trimmed = line.trimLeft();
+      if (!trimmed.startsWith('rm ')) continue;
+      expect(
+        trimmed.contains(r'$XVEIL_TMP'),
+        isFalse,
+        reason:
+            'an un-sudoed rm reaches into the root-owned scratch '
+            'directory, and its failure becomes the deployment\'s: $line',
+      );
+    }
+
+    // And the trap that does the work is still there — otherwise the check
+    // above is satisfied by a script that never cleans up at all.
+    expect(
+      script(),
+      contains(r"""trap 'sudo rm -rf -- "$XVEIL_TMP"' EXIT INT TERM"""),
+      reason:
+          'nothing removes the scratch directory, so the staged PSK and '
+          'TLS key outlive the run',
+    );
+  });
+
   test('nothing is staged at a guessable path', () {
     // Comments are stripped first: the script's own preamble explains what it
     // replaced, and matching that prose would make this pass or fail on the

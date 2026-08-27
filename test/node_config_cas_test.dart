@@ -27,8 +27,7 @@ void main() {
   ProcessResult check({required String onDisk, required String? expected}) {
     final dir = Directory.systemTemp.createTempSync('xveil-cas');
     addTearDown(() => dir.deleteSync(recursive: true));
-    final backup = File('${dir.path}/config.backup')
-      ..writeAsStringSync(onDisk);
+    final backup = File('${dir.path}/config.backup')..writeAsStringSync(onDisk);
 
     final script = buildWriteNodeConfigScript(
       NodeConfigTarget.veil,
@@ -36,7 +35,9 @@ void main() {
       expectedSha256: expected,
     );
     final lines = script.split('\n');
-    final from = lines.indexWhere((l) => l.startsWith('if [ "\$had_config" = 1 ]; then'));
+    final from = lines.indexWhere(
+      (l) => l.startsWith('if [ "\$had_config" = 1 ]; then'),
+    );
     final guard = from < 0
         // No digest was given, so the script carries no guard at all.
         ? '# nothing'
@@ -63,7 +64,10 @@ void main() {
   test('a file somebody else changed is NOT overwritten', () {
     // The whole scenario: A loads, B saves, A applies. A's copy does not
     // contain B's change, and a full-file write would drop it.
-    final changed = check(onDisk: 'b_was_here = true\n', expected: digestOfEmpty);
+    final changed = check(
+      onDisk: 'b_was_here = true\n',
+      expected: digestOfEmpty,
+    );
 
     expect(changed.exitCode, isNot(0));
     expect(changed.stderr, contains('XVEIL_CONFIG_CHANGED'));
@@ -220,9 +224,13 @@ void main() {
         expectedSha256: digestOfEmpty,
       );
       final lines = script.split('\n');
-      final from = lines.indexWhere((l) => l.startsWith('if [ "\$had_config" = 1 ]; then'));
+      final from = lines.indexWhere(
+        (l) => l.startsWith('if [ "\$had_config" = 1 ]; then'),
+      );
       expect(from, isNot(-1), reason: 'the guard moved');
-      final guard = lines.sublist(from, lines.indexOf('fi', from) + 1).join('\n');
+      final guard = lines
+          .sublist(from, lines.indexOf('fi', from) + 1)
+          .join('\n');
 
       final result = Process.runSync('bash', [
         '-c',
@@ -273,6 +281,52 @@ void main() {
       expect(critical, contains('cp --preserve'));
       expect(critical, contains('sha256sum'));
       expect(critical, contains('install -o'));
+    });
+
+    test('activation and rollback are inside the same lock', () {
+      // report17 XV17-M8. The lock used to end at the install. That leaves the
+      // worse half outside it: A installs and starts the unit, B takes the
+      // lock and installs its own config, then A's health check fails and A
+      // restores its BACKUP — the config from before A, written over B's. B
+      // was told its change applied, the file says otherwise, and nothing
+      // reports it.
+      //
+      // A rollback is a WRITE of this file. Everything that can write it has
+      // to be under the same lock.
+      final script = buildWriteNodeConfigScript(
+        NodeConfigTarget.veil,
+        'a = 1\n',
+        expectedSha256: digestOfEmpty,
+      );
+      final open = script.indexOf("<<'XVEIL_APPLY'");
+      final critical = script.substring(
+        open,
+        script.indexOf('XVEIL_APPLY\n', open + 1),
+      );
+      final after = script.substring(script.indexOf('XVEIL_APPLY\n', open + 1));
+
+      expect(
+        critical,
+        contains('systemctl enable --now'),
+        reason: 'activation happens after the lock is released',
+      );
+      expect(
+        critical,
+        contains(r'sudo mv "$backup" "$path"'),
+        reason:
+            'the rollback writes this config from outside the lock, so it '
+            'can land on somebody else\'s install',
+      );
+      expect(
+        after.contains(r'sudo mv "$backup" "$path"'),
+        isFalse,
+        reason: 'a second, unlocked rollback survives outside the section',
+      );
+      // The outcome crosses the boundary as a FILE, because a non-zero status
+      // from the locked section would end the outer script through `set -e`
+      // before it could report anything.
+      expect(critical, contains(r'> "$stage/outcome"'));
+      expect(after, contains(r'$stage/outcome'));
     });
   });
 }
