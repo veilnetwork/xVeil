@@ -4270,6 +4270,10 @@ class AppL10nEn extends AppL10n {
   String get vpnStartRefused => 'The packet engine refused to start.';
 
   @override
+  String get vpnStartWorkersStranded =>
+      'Too many engine threads from earlier sessions are stuck, so starting another would make it worse. Restart the app.';
+
+  @override
   String get vpnStartStoppedDuringStartup =>
       'The tunnel started and stopped again before it carried anything.';
 

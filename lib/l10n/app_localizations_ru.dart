@@ -4311,6 +4311,10 @@ class AppL10nRu extends AppL10n {
   String get vpnStartRefused => 'Пакетный движок отказался запускаться.';
 
   @override
+  String get vpnStartWorkersStranded =>
+      'Слишком много зависших потоков движка от прежних запусков — новый запуск только добавит. Перезапустите приложение.';
+
+  @override
   String get vpnStartStoppedDuringStartup =>
       'Туннель поднялся и сразу остановился, не пропустив ни байта.';
 

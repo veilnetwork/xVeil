@@ -95,6 +95,15 @@ class PacketTunnelFfi {
   static const errClosed = -3;
   static const errReentrant = -4;
 
+  /// Too many engine threads from earlier tunnels never came back.
+  ///
+  /// The engine refuses rather than parking one more per attempt: a wedged
+  /// blocking read cannot be woken from the Rust side, so what is left is to
+  /// stop adding to the pile. Only a process restart clears it, which is why
+  /// this is worth telling apart from a generic refusal — the person would
+  /// otherwise keep pressing the switch (report17 V17-M5).
+  static const errWorkersStranded = -23;
+
   /// The engine's own answer, named. Null for success.
   ///
   /// An unknown non-zero code maps to [VpnStartFailure.refused] rather than to
@@ -103,6 +112,7 @@ class PacketTunnelFfi {
   static VpnStartFailure? failureFor(int code) => switch (code) {
     0 => null,
     errReentrant => VpnStartFailure.alreadyRunning,
+    errWorkersStranded => VpnStartFailure.workersStranded,
     errInvalidArgument => VpnStartFailure.invalidArgument,
     errClosed => VpnStartFailure.closed,
     _ => VpnStartFailure.refused,
