@@ -62,13 +62,24 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
   /// this notifier, `ref.onDispose` takes the scheduler and the watchers with
   /// it, and `state` starts empty and reloads from the store it now has.
   late FolderSyncStore _store;
-  late FolderSyncEngine? _engine;
+
+  /// The engine of the identity this build belongs to.
+  ///
+  /// READ where it is used, not watched here. It is built from the same
+  /// storage as `_store`, so a switch rebuilds this notifier through the watch
+  /// below and any read after that answers with the new identity's engine —
+  /// while `runOnce` compares the store it captured before its awaits, which
+  /// is what actually stops a pass started under A from finishing against B.
+  ///
+  /// Watching it here instead pulled the cloud service into `build`, and with
+  /// it a chain that wants a platform binding — which a notifier that only
+  /// lists folder pairs has no business needing.
+  FolderSyncEngine? get _engine => ref.read(folderSyncEngineProvider);
 
   @override
   List<FolderSyncPairView> build() {
     // WATCHED, so a switch rebuilds instead of carrying A's pairs into B.
     _store = ref.watch(folderSyncStoreProvider);
-    _engine = ref.watch(folderSyncEngineProvider);
     // Automatic passes are DESKTOP only, for the same reason pairs are: a
     // phone has no folder another app writes to, and Directory.watch is not
     // dependable there. Tests get no scheduler either — a background timer
