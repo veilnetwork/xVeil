@@ -477,12 +477,32 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             // it, and the exchange stops — otherwise two devices would trade
             // identical documents for as long as they are both running.
             if (changed == SovereignDocumentAdoption.adopted) {
+              // STILL OURS? The adoption above is native work behind an await,
+              // and an all-online switch can land inside it: this callback
+              // belongs to the group service of the identity that received the
+              // document, while `realStackProvider` is re-pointed by the
+              // switch. Reading the stack now could hand us the OTHER
+              // identity's node — and then its private runtime directory would
+              // be given this identity's document and device key
+              // (report17 XV17-M13). The stack refuses that on its own too;
+              // this is the cheaper half, and it also stops us announcing on
+              // behalf of an identity that is no longer the one running.
+              if (!identical(ref.read(groupServiceProvider), svc)) return;
               // The running node re-reads it, then we answer. Without the
               // re-read this device would announce a merge its own registry
               // does not reflect.
               final stack = ref.read(realStackProvider);
-              if (stack != null) {
-                await stack.refreshSovereignIdentity(svc.storage);
+              if (stack != null &&
+                  !await stack.refreshSovereignIdentity(svc.storage)) {
+                // The node did not take the document. Announcing here is the
+                // one thing the re-read exists to prevent: telling the other
+                // devices we hold a merge our own registry does not reflect.
+                devLog(
+                  () =>
+                      'xVeil[identity]: the running node did not re-read the '
+                      'merged document — not announcing it',
+                );
+                return;
               }
               await announceIdentityDocument();
             }

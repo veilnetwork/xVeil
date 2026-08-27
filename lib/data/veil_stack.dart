@@ -901,9 +901,17 @@ Future<bool> adoptCeremonyDocument(
   Storage storage, {
   required Uint8List document,
   required String stagingBase,
-  Future<void> Function(String identityToml, String veilDir, Uint8List document)?
+  Future<void> Function(
+    String identityToml,
+    String veilDir,
+    Uint8List document,
+  )?
   merge,
-  Future<void> Function(String identityToml, String veilDir, Uint8List document)?
+  Future<void> Function(
+    String identityToml,
+    String veilDir,
+    Uint8List document,
+  )?
   adoptNamed,
 }) async {
   final outcome = await RealVeilStack.adoptSovereignDocument(
@@ -1022,6 +1030,7 @@ class RealVeilStack {
     );
     return n;
   }
+
   final BootstrapInvite myInvite;
 
   /// The running node and the directory it reads its identity from — the two
@@ -1353,6 +1362,29 @@ class RealVeilStack {
     if (files == null || missingSovereignIdentityFiles(files).isNotEmpty) {
       return false;
     }
+    // THE STORAGE HAS TO BE THIS NODE'S (report17 XV17-M13).
+    //
+    // This method takes a Storage and writes what it finds into THIS stack's
+    // runtime directory. The one caller reads the stack from a provider after
+    // an await, and an all-online switch re-points that provider underneath —
+    // so a sibling's document arriving for identity A could be materialised
+    // into the private runtime directory of identity B, secret device key
+    // included. The native reload compares node ids and refuses, which is what
+    // keeps B from BECOMING A; it does not stop A's key from being written
+    // there first.
+    //
+    // The instance id is what tells the two apart. It is this device's id
+    // WITHIN one identity — stable across merges, different for every identity
+    // the device holds — and the running node's own copy is already in the
+    // directory, put there by the boot that materialised it.
+    if (!sovereignMaterialBelongsHere(dir, files)) {
+      devLog(
+        () =>
+            'xVeil[identity]: refusing to re-read — the material belongs to '
+            'another identity than the node running in this directory',
+      );
+      return false;
+    }
     await materialiseSovereignIdentity(dir, files);
     node.reloadIdentity();
     devLog(() => 'xVeil[identity]: document re-read by the running node');
@@ -1656,7 +1688,9 @@ class RealVeilStack {
     // key answers either way.
     final masterRaw = await storage.getSetting(kMasterKeySetting);
     final identityToml = await storage.loadNodeConfig();
-    if (masterRaw == null && identityToml == null) return SovereignDocumentAdoption.refused;
+    if (masterRaw == null && identityToml == null) {
+      return SovereignDocumentAdoption.refused;
+    }
 
     final staging =
         '$stagingBase/xveil-idmerge-${Random.secure().nextInt(1 << 32)}';
@@ -1726,7 +1760,9 @@ class RealVeilStack {
         }
       }
       final merged = await collectSovereignIdentity(staging);
-      if (missingSovereignIdentityFiles(merged).isNotEmpty) return SovereignDocumentAdoption.refused;
+      if (missingSovereignIdentityFiles(merged).isNotEmpty) {
+        return SovereignDocumentAdoption.refused;
+      }
       final encoded = encodeSovereignIdentity(merged);
       // Already what we hold: a device answering our announcement with the
       // document we sent it. Saying "nothing changed" is what ends the
