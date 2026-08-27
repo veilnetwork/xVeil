@@ -75,7 +75,10 @@ class NativeVoiceRecorder implements VoiceRecorder {
     final r = _rec.stop(waveformBars: waveformBars);
     if (r == null) return null;
     return VoiceClip(
-        bytes: r.bytes, durationMs: r.durationMs, waveform: r.waveform);
+      bytes: r.bytes,
+      durationMs: r.durationMs,
+      waveform: r.waveform,
+    );
   }
 
   @override
@@ -116,17 +119,24 @@ class VoiceRecordState {
     VoiceRecordPhase? phase,
     int? elapsedMs,
     double? level,
-  }) =>
-      VoiceRecordState(
-        phase: phase ?? this.phase,
-        elapsedMs: elapsedMs ?? this.elapsedMs,
-        level: level ?? this.level,
-      );
+  }) => VoiceRecordState(
+    phase: phase ?? this.phase,
+    elapsedMs: elapsedMs ?? this.elapsedMs,
+    level: level ?? this.level,
+  );
 }
 
 class VoiceRecordController extends Notifier<VoiceRecordState> {
   VoiceRecorder? _rec;
   Timer? _poll;
+
+  /// Invalidates a start still waiting on the microphone permission.
+  ///
+  /// The prompt is an await, and a lock or an identity switch can land inside
+  /// it: without this the capture began AFTERWARDS — a live microphone behind
+  /// a lock screen, or under an identity that never asked for it
+  /// (report17 XV17-M5).
+  int _gen = 0;
 
   /// Hard ceiling so a stuck press can't grow the RAM buffer unbounded (the
   /// native side also caps at 6 min; keep the UI cap a touch under it).
@@ -146,7 +156,9 @@ class VoiceRecordController extends Notifier<VoiceRecordState> {
   /// recording.
   Future<void> start() async {
     if (state.isRecording) return;
+    final gen = ++_gen;
     final granted = await ref.read(micPermissionProvider)();
+    if (gen != _gen) return; // locked or switched while the prompt was up
     if (!granted) {
       state = const VoiceRecordState(phase: VoiceRecordPhase.denied);
       return;
@@ -201,6 +213,16 @@ class VoiceRecordController extends Notifier<VoiceRecordState> {
   }
 
   /// Discard the in-progress recording without producing a clip.
+  /// Stop capturing and forget what was captured, now.
+  ///
+  /// Called synchronously before a lock or an identity switch. [cancel] does
+  /// the work; the generation is what stops a start still waiting on the
+  /// permission prompt from beginning capture afterwards.
+  void stopForPrivacy() {
+    _gen++;
+    cancel();
+  }
+
   void cancel() {
     _poll?.cancel();
     _poll = null;
@@ -236,5 +258,5 @@ class VoiceRecordController extends Notifier<VoiceRecordState> {
 
 final voiceRecordControllerProvider =
     NotifierProvider<VoiceRecordController, VoiceRecordState>(
-  VoiceRecordController.new,
-);
+      VoiceRecordController.new,
+    );
