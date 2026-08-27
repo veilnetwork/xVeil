@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/node_lifecycle.dart';
 import 'package:xveil/data/node/arch_guard.dart';
+import 'package:xveil/data/node/node_auto_update.dart';
 import 'package:xveil/data/node/node_provisioner.dart';
 
 import 'support/expect_before.dart';
@@ -33,10 +34,7 @@ void main() {
     expect(start, isNot(-1), reason: 'the script no longer carries the guard');
     final end = lines.indexWhere((l) => l == '}', start);
     expect(end, isNot(-1));
-    return lines
-        .sublist(start, end + 1)
-        .join('\n')
-        .replaceAll('sudo ', '');
+    return lines.sublist(start, end + 1).join('\n').replaceAll('sudo ', '');
   }
 
   /// A file whose ELF header says it was built for [machine].
@@ -142,10 +140,16 @@ void main() {
 
     test('the previous binary is kept and restored', () {
       expect(script, contains('did not come back'));
-      expectBefore(script, "cp -a '/usr/local/bin/veil-cli'", 'install -o root');
+      expectBefore(
+        script,
+        "cp -a '/usr/local/bin/veil-cli'",
+        'install -o root',
+      );
       expect(
         script,
-        contains("install -o root -g root -m 0755 '/usr/local/bin/veil-cli.previous'"),
+        contains(
+          "install -o root -g root -m 0755 '/usr/local/bin/veil-cli.previous'",
+        ),
       );
     });
 
@@ -186,24 +190,97 @@ void main() {
     );
 
     test('the machine is checked before the binary is installed', () {
-      expectBefore(provision(), 'check_machine "\$XVEIL_TMP/veil-cli"',
-          'install -o root -g root -m 0755 "\$XVEIL_TMP/veil-cli"');
+      expectBefore(
+        provision(),
+        'check_machine "\$XVEIL_TMP/veil-cli"',
+        'install -o root -g root -m 0755 "\$XVEIL_TMP/veil-cli"',
+      );
     });
 
     test('and after the digest, so a truncated download fails as a digest', () {
       // Order between the two checks decides which message the operator reads.
       // A half-finished download is a broken file, not a wrong architecture.
-      expectBefore(provision(), 'sha256sum -c -', 'check_machine "\$XVEIL_TMP/veil-cli"');
+      expectBefore(
+        provision(),
+        'sha256sum -c -',
+        'check_machine "\$XVEIL_TMP/veil-cli"',
+      );
     });
 
-    test('both scripts carry the SAME refusal, not two that drifted', () {
-      // The bug this closes appeared twice for the same reason. Two copies
-      // would let one of them be fixed alone again.
-      expect(provision(), contains(kArchGuardShell.trim()));
-      expect(
-        buildNodeSoftwareUpdateScript([artifact]),
-        contains(kArchGuardShell.trim()),
+    test(
+      'all THREE scripts carry the same refusal, not copies that drifted',
+      () {
+        // The bug this closes appeared twice for the same reason. Two copies
+        // would let one of them be fixed alone again.
+        //
+        // Three, not two. This test named the deployment and fleet-update
+        // scripts, and the SELF-UPDATER is the third script that installs a
+        // release binary as root — the unattended one, where nobody is watching
+        // at the moment it happens. It carried two inline copies of the
+        // `uname -m` table instead, neither with the ELF fallback, and checked
+        // nothing before installing. The test that exists to stop exactly that
+        // drift did not look at it (report15 X15-M18).
+        expect(provision(), contains(kArchGuardShell.trim()));
+        expect(
+          buildNodeSoftwareUpdateScript([artifact]),
+          contains(kArchGuardShell.trim()),
+        );
+        expect(
+          buildNodeAutoUpdateScript(enabled: true),
+          contains(kArchGuardShell.trim()),
+        );
+      },
+    );
+
+    test('and the self-updater checks the machine before it installs', () {
+      final script = buildNodeAutoUpdateScript(enabled: true);
+
+      expectBefore(
+        script,
+        r'check_machine "$stage/veil-cli"',
+        r'install -o root -g root -m 0755 "$stage/veil-cli"',
       );
+      // After the digest, so a truncated download reads as a broken file
+      // rather than as a wrong architecture.
+      expectBefore(
+        script,
+        r'digest mismatch',
+        r'check_machine "$stage/veil-cli"',
+      );
+    });
+
+    test('and the name table lives ONLY inside the shared guard', () {
+      // Both the enable-time refusal and the build selection come from the
+      // machine the guard settled on. A `case $(uname -m)` of its own is the
+      // shape that drifted, and it is what was here.
+      //
+      // Counted against the number of guard copies, not against one: this
+      // script writes a SECOND script to disk, and those are two shells that
+      // each need the guard. A first version of this assertion demanded one
+      // table and failed on the honest second copy.
+      final script = buildNodeAutoUpdateScript(enabled: true);
+      final tables = RegExp(
+        r'case "\$\(uname -m\)" in',
+      ).allMatches(script).length;
+      final guards = kArchGuardShell.trim().allMatches(script).length;
+
+      expect(guards, greaterThan(0), reason: 'premise: the guard is included');
+      expect(
+        tables,
+        guards,
+        reason:
+            'the self-updater reads the machine name in $tables places for '
+            '$guards copies of the guard, so at least one table is its own',
+      );
+    });
+
+    test('the self-updater is valid bash', () {
+      final dir = Directory.systemTemp.createTempSync('xveil-auto');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final file = File('${dir.path}/s.sh')
+        ..writeAsStringSync(buildNodeAutoUpdateScript(enabled: true));
+      final result = Process.runSync('bash', ['-n', file.path]);
+      expect(result.exitCode, 0, reason: '${result.stderr}');
     });
 
     test('the deployment script is valid bash', () {
