@@ -1578,15 +1578,24 @@ class RealVeilStack {
   /// phrase: the phrase is consumed at setup and never kept, and this runs when
   /// devices are linked, which may be days later.
   ///
-  /// Returns whether the stored material CHANGED — not whether the merge
-  /// succeeded, and the difference is what stops an announcement echoing
-  /// forever. Two devices answer each other's documents; the moment one
-  /// receives a document it already holds, nothing changes and it falls quiet.
+  /// The answer names WHICH of four things happened, and a caller has to tell
+  /// them apart (report17 XV17-L5). This used to be a bool and the prose still
+  /// promised true/false long after the type changed — which is how four
+  /// native tests came to match on a bool that no longer existed:
   ///
-  /// False — without touching anything — when this device has no sovereign
-  /// material of its own, or no config to authorise with. Those are the
-  /// mined-identity and legacy cases, where there is no master and so nothing
-  /// to delegate under.
+  ///   * [SovereignDocumentAdoption.adopted] — merged, and the material
+  ///     written. The only answer that should be announced onward: two devices
+  ///     answer each other's documents, and it is this distinction that stops
+  ///     the exchange echoing forever.
+  ///   * [SovereignDocumentAdoption.alreadyHeld] — the document is exactly
+  ///     what this device already has. Nothing to do, nothing wrong, and
+  ///     nothing to announce; this is where the echo stops.
+  ///   * [SovereignDocumentAdoption.nothingOffered] — no document was given.
+  ///   * [SovereignDocumentAdoption.refused] — NOT taken in: the document does
+  ///     not name this device, this device has no material to merge under (the
+  ///     mined-identity and legacy cases, where there is no master to delegate
+  ///     with), or the merge left the result incomplete. A ceremony must stop
+  ///     here rather than read it as "no change needed".
   static Future<SovereignDocumentAdoption> adoptSovereignDocument(
     Storage storage, {
     required Uint8List document,
@@ -1768,9 +1777,10 @@ class RealVeilStack {
       // document we sent it. Saying "nothing changed" is what ends the
       // exchange instead of trading identical documents forever.
       if (encoded == storedRaw) return SovereignDocumentAdoption.alreadyHeld;
-      // Already what we hold: a device answering our announcement with the
-      // document we sent it. Saying "nothing changed" is what ends the
-      // exchange instead of trading identical documents forever.
+      // Past that check the material is genuinely new, so it is stored and the
+      // answer is `adopted` — the one outcome a caller announces onward. The
+      // comment above used to be repeated here, over the opposite branch,
+      // which read as if this path were also the quiet one (report17 XV17-L5).
       await storage.putSetting(kSovereignIdentitySetting, encoded);
       devLog(
         () =>

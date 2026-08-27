@@ -268,7 +268,8 @@ void main() {
       expect(
         onward,
         isFalse,
-        reason: 'nothing changed, so the node has nothing to be handed — but '
+        reason:
+            'nothing changed, so the node has nothing to be handed — but '
             'the ceremony is not stopped either',
       );
     });
@@ -385,20 +386,23 @@ void main() {
       expect(storage.settings[kSovereignIdentitySetting], isNull);
     });
 
-    test('a named adopt that leaves incomplete material stores nothing', () async {
-      final storage = _ConfigStorage()..config = 'a device config';
-      final ok = await RealVeilStack.adoptSovereignDocument(
-        storage,
-        document: Uint8List.fromList([1, 2]),
-        stagingBase: tmp.path,
-        adoptNamed: (toml, dir, doc) async {
-          final partial = _material()..remove(kInstanceIdFile);
-          await materialiseSovereignIdentity(dir, partial);
-        },
-      );
-      expect(ok, SovereignDocumentAdoption.refused);
-      expect(storage.settings[kSovereignIdentitySetting], isNull);
-    });
+    test(
+      'a named adopt that leaves incomplete material stores nothing',
+      () async {
+        final storage = _ConfigStorage()..config = 'a device config';
+        final ok = await RealVeilStack.adoptSovereignDocument(
+          storage,
+          document: Uint8List.fromList([1, 2]),
+          stagingBase: tmp.path,
+          adoptNamed: (toml, dir, doc) async {
+            final partial = _material()..remove(kInstanceIdFile);
+            await materialiseSovereignIdentity(dir, partial);
+          },
+        );
+        expect(ok, SovereignDocumentAdoption.refused);
+        expect(storage.settings[kSovereignIdentitySetting], isNull);
+      },
+    );
 
     test('no config means no authority, and nothing is attempted', () async {
       final storage = _ConfigStorage();
@@ -457,7 +461,11 @@ void main() {
           merge: (toml, dir, doc) async =>
               materialiseSovereignIdentity(dir, _material()),
         );
-        expect(ok, SovereignDocumentAdoption.alreadyHeld, reason: 'nothing changed, so nothing to announce');
+        expect(
+          ok,
+          SovereignDocumentAdoption.alreadyHeld,
+          reason: 'nothing changed, so nothing to announce',
+        );
         expect(storage.settings[kSovereignIdentitySetting], before);
       },
     );
@@ -527,5 +535,30 @@ void main() {
       );
       expect(addr, isNull);
     });
+  });
+
+  test('every adoption outcome says whether it is announced (XV17-L5)', () {
+    // The contract this enum replaced was a bool, and the prose promised
+    // true/false long after the type changed — which is how four native tests
+    // came to match on a value that no longer existed. An exhaustive switch is
+    // what makes a FIFTH outcome a compile error here rather than a silent
+    // fall-through at the call site that decides what to tell the other
+    // devices.
+    bool announcedOnward(SovereignDocumentAdoption o) => switch (o) {
+      SovereignDocumentAdoption.adopted => true,
+      SovereignDocumentAdoption.alreadyHeld => false,
+      SovereignDocumentAdoption.nothingOffered => false,
+      SovereignDocumentAdoption.refused => false,
+    };
+
+    for (final outcome in SovereignDocumentAdoption.values) {
+      expect(
+        announcedOnward(outcome),
+        outcome == SovereignDocumentAdoption.adopted,
+        reason:
+            'only a document that CHANGED the stored material is announced; '
+            'anything else keeps two devices trading identical documents',
+      );
+    }
   });
 }

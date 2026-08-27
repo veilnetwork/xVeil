@@ -330,6 +330,7 @@ void main() {
     try {
       SharedPreferences.setMockInitialValues({'onboarded': true});
       final container = FakeHvContainer();
+      final vpnBackend = _SilentVpnBackend();
       final c = ProviderContainer(
         overrides: [
           storageProvider.overrideWith((ref) => container.storage()),
@@ -339,7 +340,7 @@ void main() {
           // for, the stop cannot return, and the wipe now says so — correctly.
           // Overriding it is what makes this a control for a complete wipe
           // rather than for an unreachable plugin (report17 XV17-M14).
-          vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
+          vpnBackendProvider.overrideWithValue(vpnBackend),
           // Both model roots have to be RESOLVABLE here, or this control is
           // asserting the wrong thing. Without them the real store reaches
           // `path_provider`, which a test binary has no answer for, and the
@@ -367,6 +368,13 @@ void main() {
       await _settle(c);
       expect(await ctrl.wipeContainers(), isEmpty);
       expect(file.existsSync(), isFalse);
+      // And the tunnel leg really ran. This is the one test that reaches the
+      // fake backend's `stop`, which is why that counter exists at all.
+      expect(
+        vpnBackend.stops,
+        1,
+        reason: 'the wipe reported a clean sweep without asking the tunnel',
+      );
     } finally {
       dir.deleteSync(recursive: true);
     }
@@ -2306,13 +2314,25 @@ void _wipeClearsPostureTests() {
 
 /// A VPN backend that answers without a platform channel.
 ///
-/// Three teardown tests overrode `vpnControllerProvider` and left
-/// `vpnBackendProvider` alone. With the native library present the teardown
-/// reaches the NATIVE backend directly — a `MethodChannel` in a unit test with
-/// no binding behind it — and the tests failed with "Binding has not yet been
-/// initialized". Without the library that path is never taken, so they were
-/// green for the absence of the one thing production always has.
+/// Teardown tests that override `vpnControllerProvider` and leave
+/// `vpnBackendProvider` alone reach the NATIVE backend — a `MethodChannel`
+/// with no binding behind it — and fail with "Binding has not yet been
+/// initialized". Without the native library that path is never taken, so they
+/// were green for the absence of the one thing production always has.
+///
+/// WHICH METHODS ACTUALLY RUN, measured by making each one throw rather than
+/// by reasoning about the call graph (report17 XV17-L4):
+///
+///   * `probe` — six tests. The controller's `build` schedules
+///     `_restoreAndProbe`, and that is what reaches the backend.
+///   * `stop` — one test, the complete-wipe control: the teardown calls
+///     `stopForTeardown`, which asks the backend directly.
+///   * `status` — none. It exists to satisfy the interface, and it now says
+///     so loudly instead of answering a plausible default: a test that starts
+///     reaching it is exercising a path nobody has described here.
 class _SilentVpnBackend implements VpnBackend {
+  /// Read by the complete-wipe control, which is also the test that proves
+  /// `stop` is reached at all.
   int stops = 0;
 
   @override
@@ -2320,8 +2340,10 @@ class _SilentVpnBackend implements VpnBackend {
       const VpnBackendState(VpnBackendPhase.stopped);
 
   @override
-  Future<VpnBackendState> status() async =>
-      const VpnBackendState(VpnBackendPhase.stopped);
+  Future<VpnBackendState> status() async => throw StateError(
+    'nothing reached this fake\'s status() when it was written; a test that '
+    'does is exercising a path this fake does not describe',
+  );
 
   @override
   Future<VpnBackendState> start({
@@ -2438,13 +2460,11 @@ void _vpnTeardownIsJournalledTests() {
     // Driven with `fakeAsync` so the bound is exercised without the suite
     // waiting three real seconds.
     final vpn = _RecordingVpn(neverAnswers: true, inertBuild: true);
+    // No `vpnBackendProvider` override, and measured rather than assumed:
+    // `inertBuild` skips the restore that would probe, and this controller's
+    // own `stopForTeardown` never answers, so nothing here reaches a backend.
     final c = ProviderContainer(
-      overrides: [
-        vpnControllerProvider.overrideWith(() => vpn),
-        // The native backend is reached directly by the teardown; a unit test
-        // has no platform channel behind it.
-        vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
-      ],
+      overrides: [vpnControllerProvider.overrideWith(() => vpn)],
     );
     addTearDown(c.dispose);
     final ctrl = c.read(appControllerProvider.notifier);
