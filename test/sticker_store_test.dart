@@ -44,8 +44,7 @@ class _FakeCrypto implements StickerPackCrypto {
   @override
   Future<({Uint8List signature, Uint8List publicKey})> sign(
     Uint8List message,
-  ) async =>
-      (signature: checksum(message), publicKey: pub);
+  ) async => (signature: checksum(message), publicKey: pub);
 
   @override
   Future<bool> verify(StickerPackBundle bundle) async =>
@@ -59,10 +58,14 @@ Future<(ProviderContainer, StickerController)> _library({
 }) async {
   final storage = FakeHvContainer().storage();
   await storage.open(password: 'pw', createIfMissing: true);
-  final c = ProviderContainer(overrides: [
-    singleSpaceStorageProvider.overrideWithValue(storage),
-    stickerPackCryptoProvider.overrideWithValue(_FakeCrypto(canSign: canSign)),
-  ]);
+  final c = ProviderContainer(
+    overrides: [
+      singleSpaceStorageProvider.overrideWithValue(storage),
+      stickerPackCryptoProvider.overrideWithValue(
+        _FakeCrypto(canSign: canSign),
+      ),
+    ],
+  );
   final ctrl = c.read(stickerControllerProvider.notifier);
   await c.read(stickerControllerProvider.future); // prime the AsyncNotifier
   return (c, ctrl);
@@ -86,13 +89,19 @@ void main() {
     expect(back.authorHex, 'aa');
     expect(back.signed, isTrue);
     // Legacy manifest entries (no provenance fields) still parse.
-    final legacy =
-        StickerPack.fromJson({'id': 'x', 'name': 'y', 'items': <String>[]})!;
+    final legacy = StickerPack.fromJson({
+      'id': 'x',
+      'name': 'y',
+      'items': <String>[],
+    })!;
     expect(legacy.authorHex, isNull);
     expect(legacy.signed, isFalse);
     expect(StickerPack.fromJson('nope'), isNull);
     expect(StickerPack.fromJson({'id': 1}), isNull);
-    expect(StickerPack.fromJson({'id': 'x', 'name': 'y', 'items': 'z'}), isNull);
+    expect(
+      StickerPack.fromJson({'id': 'x', 'name': 'y', 'items': 'z'}),
+      isNull,
+    );
   });
 
   test('import stores bytes + persists the manifest across a reload', () async {
@@ -113,7 +122,8 @@ void main() {
 
     // A fresh controller over the SAME storage reloads the same manifest.
     final c2 = ProviderContainer(
-        overrides: [singleSpaceStorageProvider.overrideWithValue(storage)]);
+      overrides: [singleSpaceStorageProvider.overrideWithValue(storage)],
+    );
     addTearDown(c2.dispose);
     final reloaded = await c2.read(stickerControllerProvider.future);
     expect(reloaded.single.items, packs.single.items);
@@ -140,8 +150,9 @@ void main() {
     expect(installed.items.length, 2);
     expect(installed.signed, isTrue);
     expect(installed.authorHex, 'aa' * 32);
-    final kept =
-        await c2.read(storageProvider).loadFile(stickerPackBlobKey(installed.id));
+    final kept = await c2
+        .read(storageProvider)
+        .loadFile(stickerPackBlobKey(installed.id));
     expect(kept, blob);
 
     // Re-export returns the original blob VERBATIM (author's signature and
@@ -258,5 +269,55 @@ void main() {
     final pack = c.read(stickerControllerProvider).value!.single;
     await ctrl.removeSticker(pack.id, pack.items.first);
     expect(c.read(stickerControllerProvider).value!.single.items, isEmpty);
+  });
+
+  test('and takes the bytes with it (report17 XV17-L3)', () async {
+    // The bytes used to stay on purpose. Nothing could reach them again — an
+    // item id is a pack-private uuid, and the manifest had stopped naming it —
+    // so every removal added one more unreferenced blob inside the encrypted
+    // container, without limit. In an app whose promise is that a deleted
+    // thing is gone, "on disk but unreachable" is the wrong answer twice.
+    final (c, ctrl) = await _library();
+    addTearDown(c.dispose);
+    await ctrl.importImages([_png1x1]);
+    final pack = c.read(stickerControllerProvider).value!.single;
+    final itemId = pack.items.first;
+    expect(
+      await c.read(storageProvider).loadFile(stickerFileKey(itemId)),
+      isNotNull,
+      reason: 'precondition: the bytes were never there',
+    );
+
+    await ctrl.removeSticker(pack.id, itemId);
+
+    expect(
+      await c.read(storageProvider).loadFile(stickerFileKey(itemId)),
+      isNull,
+      reason: 'a sticker the person deleted is still in the container',
+    );
+  });
+
+  test('an installed copy mints its own item ids', () async {
+    // The invariant the unconditional delete above rests on. If an install
+    // ever carried the sender's item ids instead of minting fresh ones, two
+    // packs would name the same bytes and removing a sticker from one would
+    // blank it in the other — so this fails here, where the reason is
+    // written down, rather than there.
+    final (c, ctrl) = await _library();
+    addTearDown(c.dispose);
+    await ctrl.importImages([_png1x1]);
+    final first = c.read(stickerControllerProvider).value!.single;
+    final blob = (await ctrl.packToBlob(first.id))!;
+
+    await ctrl.installPack(blob);
+
+    final packs = c.read(stickerControllerProvider).value!;
+    expect(packs.length, 2, reason: 'the install did not add a pack');
+    final ids = packs.expand((p) => p.items).toList();
+    expect(
+      ids.toSet().length,
+      ids.length,
+      reason: 'two packs share an item id — the delete needs a refcount again',
+    );
   });
 }

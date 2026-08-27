@@ -237,8 +237,20 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
     await _save(storage, packs);
   }
 
-  /// Remove a sticker from its pack (bytes are left in the store — cheap, and a
-  /// re-add would want them; a full GC is a later concern).
+  /// Remove a sticker from its pack, and take its bytes with it.
+  ///
+  /// The bytes used to be left behind on purpose — "cheap, and a re-add would
+  /// want them" — but nothing could ever reach them again: an item id is a
+  /// pack-private uuid, so once the manifest stops naming it the blob is
+  /// unreferenced for good. Every removal added one, without limit, inside
+  /// the encrypted container (report17 XV17-L3). In an app whose whole promise
+  /// is that what you delete is gone, "still on disk, just unreachable" is the
+  /// wrong answer twice over.
+  ///
+  /// The manifest is committed FIRST and the blob deleted after. A crash in
+  /// between leaves an orphan — exactly the old behaviour, and the harmless
+  /// direction. The other order would leave the manifest naming bytes that no
+  /// longer exist.
   Future<void> removeSticker(String packId, String itemId) async {
     final storage = _storage;
     final packs = List<StickerPack>.of(state.value ?? await _load(storage));
@@ -250,6 +262,18 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
       packs[idx],
     )).copyWith(items: items);
     await _save(storage, packs);
+    // Unconditional, and this is why: installing a shared pack MINTS fresh
+    // item ids rather than carrying the sender's, so no second pack can be
+    // naming these bytes. A reference count was written here and removed —
+    // nothing could reach its "still used" branch. The invariant it rested on
+    // is pinned by a test instead, so a future install that reused ids fails
+    // there rather than silently blanking a sticker in another pack.
+    try {
+      await storage.deleteStoredFile(stickerFileKey(itemId));
+    } catch (_) {
+      // Best-effort, like every other delete here: a blob that would not go is
+      // an orphan, which is what this used to leave on every removal.
+    }
   }
 
   /// The bytes for a sticker item, or null if missing.

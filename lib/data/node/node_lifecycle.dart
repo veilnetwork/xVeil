@@ -91,17 +91,35 @@ if sudo test -x /usr/local/bin/veil-cli && sudo test -f /var/lib/veil/node.toml;
   # routable at all, and whether THIS device is still on its list. Without it
   # the only way to find out was to deploy again over a working server.
   sudo awk '
+    # A TOML value may carry a trailing comment, and this used to read it as
+    # part of the value: `allowed_node_ids = ["ab"] # keep` came back as
+    # `ab#keep`, so the screen compared that against the real id and reported
+    # an allowed exit as not allowed (report17 XV17-L2). Quote-aware, because
+    # a `#` inside a quoted id is data, not a comment. The quote character is
+    # built with sprintf so this stays free of backslash escaping, which is
+    # what a shell heredoc inside a Dart string is worst at.
+    function nocomment(s,   i, c, inq, out, dq) {
+      dq = sprintf("%c", 34); inq = 0; out = ""
+      for (i = 1; i <= length(s); i++) {
+        c = substr(s, i, 1)
+        if (c == dq) { inq = !inq }
+        else if (c == "#" && !inq) { break }
+        out = out c
+      }
+      sub(/[[:space:]]+\$/, "", out)
+      return out
+    }
     /^[[:space:]]*\\[/ {
       inexit = (\$0 ~ /^[[:space:]]*\\[[[:space:]]*proxy\\.exit[[:space:]]*\\]/); next
     }
     inexit && \$0 ~ /^[[:space:]]*enabled[[:space:]]*=/ {
-      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v); en = v
+      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v); v = nocomment(v); en = v
     }
     inexit && \$0 ~ /^[[:space:]]*allow_all[[:space:]]*=/ {
-      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v); aa = v
+      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v); v = nocomment(v); aa = v
     }
     inexit && \$0 ~ /^[[:space:]]*allowed_node_ids[[:space:]]*=/ {
-      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v)
+      v = \$0; sub(/^[^=]*=[[:space:]]*/, "", v); v = nocomment(v)
       # A list broken across lines would read as a SHORTER list, and "admits
       # nobody" is not something to report from a half-read line.
       if (v !~ /]/) { ids = "(unread)" } else { gsub(/[][" ]/, "", v); ids = v }
