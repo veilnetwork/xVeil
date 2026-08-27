@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../data/storage/storage.dart';
+
 import '../core/log.dart';
 import '../domain/screen_lock.dart';
 import 'providers.dart';
@@ -112,6 +114,19 @@ class ScreenLockController extends Notifier<ScreenLockState> {
   ScreenLockVerifier? _verifier;
   DateTime? _leftForegroundAt;
 
+  /// The storage THIS build belongs to.
+  late Storage _storage;
+
+  /// Which load is the current one.
+  ///
+  /// Several run at once by design — `build` starts one while the container is
+  /// still shut, `reloadTimeout` starts another the moment it opens, and a
+  /// switch starts a third. They are not ordered: the one that finishes LAST
+  /// used to win, so A's `off` could land on top of B's `immediately` and the
+  /// cover that hides the screen in the app switcher never appeared (report17
+  /// XV17-M4).
+  int _loadGeneration = 0;
+
   @override
   ScreenLockState build() {
     // Same shape as the other in-container policies: watching storage makes
@@ -124,17 +139,25 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     // user believes it is set. Caught by the reload test below.
     _userSet = false;
     final storage = ref.watch(storageProvider);
-    _load();
+    _storage = storage;
+    _load(storage);
     ref.onDispose(() => storage.isOpen);
     return const ScreenLockState();
   }
 
-  Future<void> _load() async {
+  Future<void> _load(Storage storage) async {
+    final mine = ++_loadGeneration;
     try {
-      final raw = await ref
-          .read(storageProvider)
-          .getSetting(kScreenLockTimeoutSettingKey);
-      if (_userSet) return;
+      final raw = await storage.getSetting(kScreenLockTimeoutSettingKey);
+      // Only the newest load may speak.
+      //
+      // That covers the identity switch as well, and deliberately so: a switch
+      // rebuilds this notifier, `build` starts a load of its own, and the read
+      // still parked against the previous identity is by construction an older
+      // generation. A separate "is this still my storage" check was written
+      // here first and removed — nothing could redden it, and a guard that
+      // cannot fail is a guard nobody can trust.
+      if (mine != _loadGeneration || _userSet) return;
       state = state.copyWith(timeout: screenLockTimeoutFromName(raw));
     } catch (_) {
       // Closed storage (the lock screen, tests) — keep the default. Which is
@@ -163,16 +186,16 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     // container wins. The in-flight guard inside [_load] still protects a user
     // who changes the setting while this read is running.
     _userSet = false;
-    return _load();
+    return _load(_storage);
   }
 
   Future<void> setTimeout(ScreenLockTimeout value) async {
+    final storage = _storage;
     _userSet = true;
     state = state.copyWith(timeout: value);
     try {
-      await ref
-          .read(storageProvider)
-          .putSetting(kScreenLockTimeoutSettingKey, value.name);
+      // Into the storage this choice was made under.
+      await storage.putSetting(kScreenLockTimeoutSettingKey, value.name);
     } catch (_) {
       // Persist best-effort; the live setting already applies.
     }
@@ -208,7 +231,10 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     final left = _leftForegroundAt;
     _leftForegroundAt = null;
     if (left == null || state.locked) return;
-    if (screenLockDue(timeout: state.timeout, awayFor: now().difference(left))) {
+    if (screenLockDue(
+      timeout: state.timeout,
+      awayFor: now().difference(left),
+    )) {
       _lock();
     }
   }
@@ -218,7 +244,9 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     // that never saw a password (a test harness, a headless boot) must not end
     // up behind a prompt that cannot be answered.
     if (_verifier == null) {
-      devLog(() => 'xVeil[screenlock]: no verifier for this session — not locking');
+      devLog(
+        () => 'xVeil[screenlock]: no verifier for this session — not locking',
+      );
       return;
     }
     if (state.locked) return;
