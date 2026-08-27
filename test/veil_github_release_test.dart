@@ -160,27 +160,32 @@ void main() {
         resolveTag('v0.4.2-rc1', minimum: 'v0.4.2'),
         throwsA(isA<VeilReleaseException>()),
       );
-      expect((await resolveTag('v0.4.3-rc1', minimum: 'v0.4.2')).tag,
-          'v0.4.3-rc1');
+      expect(
+        (await resolveTag('v0.4.3-rc1', minimum: 'v0.4.2')).tag,
+        'v0.4.3-rc1',
+      );
     });
 
-    test('a tag that cannot be ordered is refused, not waved through', () async {
-      // "nightly" is not older than the floor and not newer either — it is
-      // unknown, and an unknown age is exactly what the check exists to stop.
-      for (final tag in ['nightly', 'latest', 'v0.4', 'release-2026-08-01']) {
-        await expectLater(
-          resolveTag(tag),
-          throwsA(
-            isA<VeilReleaseException>().having(
-              (e) => e.message,
-              'message',
-              contains('not a version'),
+    test(
+      'a tag that cannot be ordered is refused, not waved through',
+      () async {
+        // "nightly" is not older than the floor and not newer either — it is
+        // unknown, and an unknown age is exactly what the check exists to stop.
+        for (final tag in ['nightly', 'latest', 'v0.4', 'release-2026-08-01']) {
+          await expectLater(
+            resolveTag(tag),
+            throwsA(
+              isA<VeilReleaseException>().having(
+                (e) => e.message,
+                'message',
+                contains('not a version'),
+              ),
             ),
-          ),
-          reason: '"$tag" was accepted',
-        );
-      }
-    });
+            reason: '"$tag" was accepted',
+          );
+        }
+      },
+    );
 
     test('a floor that is not a version fails closed', () async {
       await expectLater(
@@ -215,5 +220,55 @@ void main() {
       expect(v('v0.4.2').compareTo(v('v0.4.2-rc1')), greaterThan(0));
       expect(v('v0.4.2-rc1').compareTo(v('v0.4.1')), greaterThan(0));
     });
+  });
+
+  /// A lookup that failed must not be remembered as the answer.
+  ///
+  /// The shared response is stored as a FUTURE, and a Future that completed
+  /// with an error is a Future: one request made while the network was down
+  /// was re-thrown to every later caller for as long as the resolver lived —
+  /// including the explicit Check somebody pressed after the network came
+  /// back. The fleet screen has no `clearCache` on that path, so the only way
+  /// out was closing the screen (report15 X15-L6).
+  test(
+    'a failed lookup is not cached, and the next call really asks',
+    () async {
+      var calls = 0;
+      final resolver = VeilGithubReleaseResolver(
+        fetcher: (uri) async {
+          calls++;
+          if (calls == 1) throw const VeilReleaseException('offline');
+          return jsonEncode(releaseJson());
+        },
+      );
+
+      await expectLater(
+        resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl),
+        throwsA(isA<VeilReleaseException>()),
+        reason: 'premise: the first lookup fails',
+      );
+
+      final second = await resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl);
+
+      expect(calls, 2, reason: 'the failure was served again from the cache');
+      expect(second.sha256, x64Sha);
+    },
+  );
+
+  /// Vacuity guard: a SUCCESSFUL response is still shared, or the fix above is
+  /// "stop caching", which multiplies API requests per selected component.
+  test('and a successful response is still shared', () async {
+    var calls = 0;
+    final resolver = VeilGithubReleaseResolver(
+      fetcher: (uri) async {
+        calls++;
+        return jsonEncode(releaseJson());
+      },
+    );
+
+    await resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl);
+    await resolver.resolve(VeilLinuxReleaseTarget.x86_64Musl);
+
+    expect(calls, 1, reason: 'the shared response stopped being shared');
   });
 }

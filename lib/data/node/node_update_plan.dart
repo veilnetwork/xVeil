@@ -1,5 +1,6 @@
 import 'managed_node.dart';
 import 'node_auto_update.dart' show nodeUpdateOffer;
+import 'veil_github_release.dart' show VeilReleaseVersion;
 import 'veil_github_release.dart' show VeilLinuxReleaseTarget;
 
 /// What one node said about itself, just now.
@@ -95,7 +96,7 @@ NodeUpdatePlan planNodeUpdates({
   // No release to compare against: nobody has been asked anything, so there is
   // nothing to offer AND nothing to claim. Reporting the fleet as "current"
   // here would be a statement no comparison was made to support.
-  if (nodeUpdateOffer(reportedVersion: '0.0.0', latestTag: latestTag) == null) {
+  if (VeilReleaseVersion.tryParse(latestTag?.trim() ?? '') == null) {
     return NodeUpdatePlan(
       upgradable: upgradable,
       unreachable: unreachable,
@@ -115,8 +116,13 @@ NodeUpdatePlan planNodeUpdates({
       // Either it is current, or what it said cannot be ordered. The second is
       // not "up to date" — nobody knows — so it counts as unreachable rather
       // than being reported as fine.
-      if (nodeUpdateOffer(reportedVersion: said, latestTag: 'v99999.0.0') ==
-          null) {
+      //
+      // Asked of the PARSER, not of a magic version. This used to re-run the
+      // offer against `v99999.0.0` and read "no offer" as "unorderable" — but
+      // the parser accepts a six-digit major, so a node genuinely running
+      // 99999.0.0 or anything above it produced no offer for the honest reason
+      // and was filed as unreachable (report15 X15-L5).
+      if (VeilReleaseVersion.tryParse(said) == null) {
         unreachable.add(node);
       } else {
         current.add(node);
