@@ -337,7 +337,8 @@ class MailboxService implements MailboxSink {
     if (_draining) {
       _wakePending = true;
       devLog(
-        () => 'xVeil[mailbox]: deposit wake during a drain — queued for its end',
+        () =>
+            'xVeil[mailbox]: deposit wake during a drain — queued for its end',
       );
       return;
     }
@@ -395,9 +396,14 @@ class MailboxService implements MailboxSink {
     // evicted (it may be stale).
     var fromFresh = false;
     try {
-      var kem = await _client.lookupRelayX25519(relay.bytes);
-      fromFresh = kem != null;
-      kem ??= await _relayKeyCache?.get(relay);
+      // The resolve now answers WHEN this stops being the relay's key as well
+      // as what it is. A cached key has no such stamp — it was written down
+      // before this existed — so it registers with 0, which leaves the ad on
+      // its own hour-long window exactly as before (report17 V17-M1).
+      final resolved = await _client.lookupRelayX25519(relay.bytes);
+      fromFresh = resolved != null;
+      var kem = resolved?.key ?? await _relayKeyCache?.get(relay);
+      final kemValidUntil = resolved?.validUntilUnix ?? 0;
       if (kem == null || _disposed || _handleDead) {
         // No fresh resolve and no usable cached key — a later start()/reconnect
         // retries.
@@ -423,6 +429,9 @@ class MailboxService implements MailboxSink {
         validityWindowSecs: 3600,
         relayKemAlgo: 0,
         relayKemPk: kem,
+        // Clipped by the daemon: an ad must not go on advertising a key past
+        // the point that key stops being the relay's.
+        relayKemValidUntilUnix: kemValidUntil,
       );
       _publisherRegistered.add(relay.hex);
       if (!_registered) {
@@ -499,7 +508,8 @@ class MailboxService implements MailboxSink {
     if (unwarmed.isEmpty) return;
     final relay = unwarmed[_warmCursor++ % unwarmed.length];
     try {
-      final kem = await _client.lookupRelayX25519(relay.bytes);
+      final resolved = await _client.lookupRelayX25519(relay.bytes);
+      final kem = resolved?.key;
       if (kem != null && kem.length == 32) {
         await cache.put(relay, kem);
         if (_warmedRelays.add(relay.hex)) {
@@ -665,9 +675,7 @@ class MailboxService implements MailboxSink {
       // this loop's predecessor caused came from stacking the lookups AND
       // the 8s own-ad self-resolve into one tick — a short breather between
       // lookups keeps the isolate responsive without giving up coverage.
-      for (var left = _relays.length - _warmedRelays.length;
-          left > 0;
-          left--) {
+      for (var left = _relays.length - _warmedRelays.length; left > 0; left--) {
         final before = _warmedRelays.length;
         await _warmNextCandidate();
         if (_disposed || _handleDead) return;
