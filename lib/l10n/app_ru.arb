@@ -1549,6 +1549,7 @@
   "updateSectionTitle": "Обновления",
   "updateCheckSwitch": "Проверять обновления",
   "updateCheckHint": "Раз в сутки спрашивает у github.com, есть ли версия новее. Запрос сообщает GitHub, что на этом устройстве стоит xVeil, и с какого адреса.",
+  "updateCheckChoiceNotSaved": "Выбор не удалось сохранить — после перезапуска он вернётся к прежнему.",
   "updateCheckNow": "Проверить сейчас",
   "updateChecking": "Проверяю…",
   "updateUpToDate": "Установлена последняя версия",

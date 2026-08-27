@@ -122,14 +122,28 @@ class UpdateCheckEnabledController extends Notifier<bool> {
     }
   }
 
+  /// Whether the LAST choice reached the disk.
+  ///
+  /// Null before anything has been chosen. `false` means the switch holds for
+  /// this session and will be back where it was at the next launch — which for
+  /// an opt-OUT means a request to github.com the person thought they had
+  /// stopped, so it is worth saying rather than swallowing (report17
+  /// XV17-M2).
+  bool? get lastChoicePersisted => _persisted;
+  bool? _persisted;
+
   Future<void> set(bool value) async {
     _userSet = true;
     state = value;
     try {
-      (await ref.read(installUpdatePrefsProvider.future)).enabled = value;
+      final prefs = await ref.read(installUpdatePrefsProvider.future);
+      _persisted = prefs.setEnabled(value);
     } catch (_) {
-      // Persist best-effort: the switch still holds for this session.
+      // No prefs at all (tests, a broken store). The switch still holds for
+      // this session, and the caller can see that it did not persist.
+      _persisted = false;
     }
+    ref.notifyListeners();
   }
 }
 
