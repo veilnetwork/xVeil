@@ -233,22 +233,6 @@ hv.HvSpace _createOrOpen(
 /// Production [MultiSpaceBacking] over a native `HvMultiSpace`: hosts several
 /// spaces of one container open at once under a single lock. Build N
 /// [MultiSpaceKvLogStore] views over it (one per identity).
-/// The refusal a multi-space handle answers an acknowledgement with.
-///
-/// A named value rather than a `throw` written inline, because that is the
-/// only way to exercise the decision: `HvMultiSpaceBacking` needs an open
-/// native container to construct, and a test that skips without the dynamic
-/// library is an unverified claim rather than a test.
-///
-/// NOT `Internal` — that kind documents itself as a library bug, and this is a
-/// surface that genuinely does not exist yet.
-hv.HvException multiSpaceCannotAcknowledgeHardening() => hv.HvException(
-  'Unsupported',
-  'this container is open for several spaces at once, and the multi-space '
-      'handle cannot acknowledge a hardening record — the warning stays until '
-      'it can be acknowledged for real',
-);
-
 class HvMultiSpaceBacking implements MultiSpaceBacking {
   HvMultiSpaceBacking(this._multi);
 
@@ -312,43 +296,50 @@ class HvMultiSpaceBacking implements MultiSpaceBacking {
 
   @override
   SlotUtilization? slotUtilization(int id) {
-    // Unknown, honestly. `MultiSpaceHandle` has no `stats` on the FFI surface
-    // (only `SpaceHandle` does), and inventing a number here would be worse
-    // than saying nothing. Nothing is lost in practice: a container hosting
-    // several spaces is exactly the one where compaction is NOT offered —
-    // `compact_known` keeps only the spaces whose passwords it was given.
-    return null;
+    // Best-effort, exactly like the single-space reader: this feeds a
+    // maintenance READOUT, so a container that will not report its stats
+    // degrades to "unknown" rather than taking down the call that asked.
+    try {
+      final s = _multi.stats(id);
+      return SlotUtilization(
+        ownedChunks: s.ownedChunkCount,
+        totalSlots: s.totalSlotCount,
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: slot utilization unavailable: $e');
+      return null;
+    }
   }
 
   @override
   void acknowledgeHardeningWarning(int id) {
-    // REFUSED, not quietly done. `MultiSpaceHandle` has no `stats` on the FFI
-    // surface, so there is no container record to clear — and returning
-    // normally said the opposite. The acknowledgement's contract is "both
-    // copies or neither", and its caller writes the app's copy off as soon as
-    // this returns: on a multi-space container that cleared a kept warning
-    // with nothing on the native side agreeing, which is the same silent
-    // dismissal the ordering fix was written for (report14 X14-M6, report16
-    // XV-08).
+    // NOT best-effort, unlike its reader — for the reason the single-space
+    // one gives: this CHANGES the container, and the layer above deletes the
+    // app's kept copy as soon as it returns.
     //
-    // Costs nothing in the ordinary case: with no record to show, the button
-    // that calls this is never on the screen. It is reached only when a
-    // warning IS kept — exactly the case where clearing it silently is wrong.
-    // The storage screen already shows the refusal and leaves the warning up.
-    throw multiSpaceCannotAcknowledgeHardening();
+    // It used to return normally having done nothing, because the multi-space
+    // FFI had no acknowledgement to call. That made the deletion
+    // unconditional: a kept warning was cleared with nothing on the native
+    // side agreeing (report16 XV-08). The surface exists now.
+    _multi.acknowledgeHardeningError(id);
   }
 
   @override
   String? hardeningWarning(int id) {
-    // Unknown for the same reason as above, and said the same way: the
-    // multi-space handle has no `stats` on the FFI surface, and a null that
-    // means "not reported" is the only honest answer. It must never be read
-    // as "there was no warning".
-    //
-    // What that null does NOT do any more is let the record be dismissed: the
-    // acknowledgement above refuses rather than pretending, so a kept warning
-    // survives a multi-space session instead of being cleared by one.
-    return null;
+    // Best-effort for the same reason `slotUtilization` is. This answered a
+    // flat `null` until the multi-space FFI grew a `stats`, and a `null` that
+    // means "not reported" is read one layer up as "there was no warning" —
+    // so a padding, churn or sync step that failed after a commit was never
+    // shown to anybody, on the container hosting several identities at once
+    // (report16 XV-08).
+    try {
+      final failure = _multi.stats(id).hardeningFailure;
+      if (failure == null) return null;
+      return '${failure.step.name}: ${failure.message}';
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: hardening warning unavailable: $e');
+      return null;
+    }
   }
 
   @override
