@@ -30,8 +30,10 @@ import '../../routing/back_affordance.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/group_call_service.dart';
 import '../../state/media_availability.dart';
+import '../../data/storage/storage.dart';
 import '../../state/messaging.dart'
     show
+        MessagingService,
         conversationsProvider,
         contentProgressProvider,
         contentResumingProvider,
@@ -180,6 +182,14 @@ class GroupChatScreen extends ConsumerStatefulWidget {
 }
 
 class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
+  /// The identity this screen was opened under. See `_ChatScreenState` — the
+  /// same shape, and the same reason: an all-online switch re-points the
+  /// storage and the messaging pipeline without changing `AppPhase`, so this
+  /// State stays mounted and every provider read after that resolves to
+  /// whoever is active now (report17 XV17-H6).
+  late final Storage _storage;
+  late final MessagingService _messaging;
+
   final _input = CustomEmojiEditingController();
   final _inputFocus = FocusNode();
   final _scroll = ScrollController();
@@ -207,6 +217,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   @override
   void initState() {
     super.initState();
+    // Taken here, not on first use: "first use" can be after a switch.
+    _storage = ref.read(storageProvider);
+    _messaging = ref.read(messagingServiceProvider);
     // Mark this group as the actively-viewed conversation so the notification
     // layer never alerts for the chat on screen (post-frame: a provider must
     // not be written during build).
@@ -215,6 +228,24 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       _activeConversation = ref.read(activeConversationProvider.notifier);
       _activeConversation!.state = _conversationKey;
     });
+  }
+
+  /// The frame after the identity moved: nothing of A's, and on the way out.
+  Widget _leftBehind() {
+    _input.clear();
+    _replyTarget = null;
+    _highlightTimer?.cancel();
+    _highlightTimer = null;
+    _highlightRef = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        GoRouter.of(context).go('/home');
+      } catch (_) {
+        // No router above us (a widget test, or a torn-down app).
+      }
+    });
+    return const Scaffold(body: SizedBox.shrink());
   }
 
   @override
@@ -727,7 +758,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
       return;
     }
-    final messaging = ref.read(messagingServiceProvider);
+    final messaging = _messaging;
     final String cid;
     if (file.path != null) {
       final path = File(file.path!).absolute.path;
@@ -1380,6 +1411,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    // The identity moved under this screen. A group conversation is A's, and
+    // B is not in it — leave rather than repaint it.
+    if (!identical(ref.watch(storageProvider), _storage)) return _leftBehind();
     final svc = ref.watch(groupServiceProvider);
     if (svc == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
