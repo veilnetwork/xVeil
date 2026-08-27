@@ -18,7 +18,8 @@ import 'package:veil_media/veil_media.dart';
 
 import 'media_ffi.dart';
 import 'providers.dart';
-import 'voice_play_controller.dart' show VoicePlayer, voicePlayerFactoryProvider;
+import 'voice_play_controller.dart'
+    show VoicePlayer, voicePlayerFactoryProvider;
 
 /// Minimal frame-source surface over the native VNOTE1 player (fakeable).
 abstract class VnoteFramePlayer {
@@ -87,14 +88,14 @@ class VnotePlayState {
     int? positionMs,
     int? durationMs,
     bool? paused,
-  }) =>
-      VnotePlayState(
-        playingId:
-            identical(playingId, _unset) ? this.playingId : playingId as String?,
-        positionMs: positionMs ?? this.positionMs,
-        durationMs: durationMs ?? this.durationMs,
-        paused: paused ?? this.paused,
-      );
+  }) => VnotePlayState(
+    playingId: identical(playingId, _unset)
+        ? this.playingId
+        : playingId as String?,
+    positionMs: positionMs ?? this.positionMs,
+    durationMs: durationMs ?? this.durationMs,
+    paused: paused ?? this.paused,
+  );
 
   static const Object _unset = Object();
 }
@@ -162,10 +163,7 @@ class VnotePlayController extends Notifier<VnotePlayState> {
     _frames = frames;
     _audio = audio;
     frame.value = frames.frameAt(0);
-    state = VnotePlayState(
-      playingId: messageId,
-      durationMs: frames.durationMs,
-    );
+    state = VnotePlayState(playingId: messageId, durationMs: frames.durationMs);
     _poll = Timer.periodic(_pollEvery, (_) => _tick());
   }
 
@@ -209,6 +207,22 @@ class VnotePlayController extends Notifier<VnotePlayState> {
     frame.value = null;
   }
 
+  /// Stop what is playing and refuse a clip still being loaded.
+  ///
+  /// Called synchronously before a lock or an identity switch. The provider is
+  /// not disposed by either — it is global — so without this the clip went on
+  /// playing over the lock screen, and a load that was in flight started
+  /// playing UNDER THE NEXT IDENTITY: a voice from a conversation that
+  /// identity never had (report17 XV17-M5).
+  ///
+  /// Not [_teardown]: that one belongs to provider disposal and disposes
+  /// notifiers that have to outlive any one session.
+  void stopForPrivacy() {
+    _gen++;
+    _stopPlayer();
+    state = const VnotePlayState();
+  }
+
   void _teardown() {
     _gen++;
     _stopPlayer();
@@ -218,5 +232,5 @@ class VnotePlayController extends Notifier<VnotePlayState> {
 
 final vnotePlayControllerProvider =
     NotifierProvider<VnotePlayController, VnotePlayState>(
-  VnotePlayController.new,
-);
+      VnotePlayController.new,
+    );

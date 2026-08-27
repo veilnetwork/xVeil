@@ -30,6 +30,10 @@ import 'keep_all_online_controller.dart';
 import 'proxy_routing_controller.dart';
 import 'identity_scoped_prefs.dart';
 import 'notifications.dart';
+import 'vnote_play_controller.dart';
+import 'vnote_record_controller.dart';
+import 'voice_play_controller.dart';
+import 'voice_record_controller.dart';
 import 'providers.dart';
 import 'screen_lock_controller.dart';
 import 'storage_preferences.dart';
@@ -1222,6 +1226,24 @@ class AppController extends Notifier<AppState> {
   /// Point the providers (active storage/messaging via [activeIdentityProvider],
   /// transport/invite via [realStackProvider]) at a hosted identity and surface
   /// it. Used on entry and on every all-online switch — no teardown.
+  /// Stop the microphone, the camera and whatever is playing out loud.
+  ///
+  /// These four controllers are GLOBAL providers: a lock does not dispose them
+  /// and a switch does not rebuild them. So a voice note went on playing over
+  /// the lock screen, a clip whose bytes were still loading began playing
+  /// under the NEXT identity, and a recorder held the microphone — or the
+  /// camera — across both (report17 XV17-M5).
+  ///
+  /// Synchronous, and called before anything is awaited, for the same reason
+  /// the lifecycle generation is ended first: what must not happen is a
+  /// capture that starts after the person has locked.
+  void _stopMediaCapture() {
+    ref.read(voicePlayControllerProvider.notifier).stopForPrivacy();
+    ref.read(vnotePlayControllerProvider.notifier).stopForPrivacy();
+    ref.read(voiceRecordControllerProvider.notifier).stopForPrivacy();
+    ref.read(vnoteRecordControllerProvider.notifier).stopForPrivacy();
+  }
+
   /// Drop every posted alert and everything that attributes one.
   ///
   /// A notification outlives the session that posted it: the OS shade is
@@ -1249,6 +1271,7 @@ class AppController extends Notifier<AppState> {
     // BEFORE the view is re-pointed: from here on, this identity is the one a
     // reply would be sent from, and no alert from the one being left behind
     // may still be on screen offering to send it.
+    _stopMediaCapture();
     await _dropPostedNotifications();
     final gen = _lifecycle;
     final session = ref.read(sessionProvider)!;
@@ -1353,6 +1376,7 @@ class AppController extends Notifier<AppState> {
     if (entry == null) return;
     // Same barrier as the all-online path above, for the same reason: the
     // identity that posted the alerts on screen is about to go away.
+    _stopMediaCapture();
     await _dropPostedNotifications();
     // Timestamped phases (like _unlockInner/lock): a switch that takes seconds
     // names the step that stalled — teardown, lock release, space open, or the
@@ -2505,6 +2529,10 @@ class AppController extends Notifier<AppState> {
     // still mid-boot, published only after the await it is sitting in — now
     // refuses to publish itself and rolls back on its own (audit H-06).
     _endLifecycle();
+    // Synchronously, in the same stretch as the lifecycle end: a microphone
+    // still capturing behind a lock screen is the plainest form of the thing
+    // this screen exists to prevent.
+    _stopMediaCapture();
     // Timestamped phases: a lock that takes seconds points at whichever step
     // stalled (a busy storage worker on close is the prime suspect for the
     // "won't unlock until restart" report — see WorkerKvLogStore.close).
@@ -2817,6 +2845,7 @@ class AppController extends Notifier<AppState> {
   /// can't and shouldn't prove it exists; the user simply sets up anew.
   Future<void> startOver() async {
     _endLifecycle(); // same window as [lock] — see [_lifecycle]
+    _stopMediaCapture();
     _incomplete.clear();
     await _stopVpnTunnelRecorded();
     await _teardownSession();
@@ -2861,6 +2890,7 @@ class AppController extends Notifier<AppState> {
   /// than by trusting the delete call. Empty means empty.
   Future<List<String>> wipeContainers() async {
     _endLifecycle(); // same window as [lock] — see [_lifecycle]
+    _stopMediaCapture();
     _incomplete.clear();
     await _stopVpnTunnelRecorded();
     await _teardownSession();

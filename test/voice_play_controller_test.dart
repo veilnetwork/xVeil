@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -77,6 +79,47 @@ Future<ProviderContainer> _container(_FakePlayer? player) async {
       voicePlayerFactoryProvider.overrideWithValue((_) async => player),
     ],
   );
+}
+
+/// The same, with the player factory PARKED: a lock or an identity switch
+/// lands while a clip is still being opened.
+Future<(ProviderContainer, _PlayerGate)> _parkedContainer(
+  _FakePlayer player,
+) async {
+  final storage = FakeHvContainer().storage();
+  await storage.open(password: 'pw', createIfMissing: true);
+  await storage.storeFile(
+    'vkey',
+    Uint8List.fromList([1, 2, 3]),
+    name: 'v.opus',
+  );
+  final gate = _PlayerGate();
+  return (
+    ProviderContainer(
+      overrides: [
+        singleSpaceStorageProvider.overrideWithValue(storage),
+        voicePlayerFactoryProvider.overrideWithValue((_) async {
+          gate.opened();
+          await gate.release.future;
+          return player;
+        }),
+      ],
+    ),
+    gate,
+  );
+}
+
+/// Two moments the test needs to tell apart: the bytes are loaded and the
+/// player is being OPENED, and the player is ready. A lock landing in the
+/// first window is refused by a different guard than one landing in the
+/// second, and only the second leaves a player to clean up.
+class _PlayerGate {
+  final _entered = Completer<void>();
+  final release = Completer<void>();
+  Future<void> get entered => _entered.future;
+  void opened() {
+    if (!_entered.isCompleted) _entered.complete();
+  }
 }
 
 void main() {
@@ -310,4 +353,83 @@ void main() {
       expect(c.read(voicePlayControllerProvider).playingId, isNull);
     },
   );
+
+  group('a lock or a switch stops it (report17 XV17-M5)', () {
+    // These controllers are GLOBAL providers: a lock does not dispose them and
+    // a switch does not rebuild them. So a voice note went on playing over the
+    // lock screen — and a clip whose player was still opening began playing
+    // under the NEXT identity, which is a voice from a conversation that
+    // identity never had.
+
+    test('what is playing stops, and the player goes with it', () async {
+      final p = _FakePlayer();
+      final c = await _container(p);
+      addTearDown(c.dispose);
+      final ctrl = c.read(voicePlayControllerProvider.notifier);
+      await ctrl.toggle('m1', 'vkey');
+      expect(c.read(voicePlayControllerProvider).isPlaying('m1'), isTrue);
+
+      ctrl.stopForPrivacy();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(p.disposed, isTrue, reason: 'the clip is still playing out loud');
+      expect(c.read(voicePlayControllerProvider).playingId, isNull);
+    });
+
+    test('a clip whose BYTES are still loading never starts', () async {
+      final p = _FakePlayer();
+      final (c, gate) = await _parkedContainer(p);
+      addTearDown(c.dispose);
+      final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+      // The lock lands before the load returns: nothing is opened at all.
+      final pending = ctrl.toggle('m1', 'vkey');
+      ctrl.stopForPrivacy();
+      gate.release.complete();
+      await pending;
+
+      expect(
+        p.started,
+        isFalse,
+        reason: 'a clip of the previous identity began playing after the lock',
+      );
+      expect(c.read(voicePlayControllerProvider).playingId, isNull);
+    });
+
+    test('and one whose PLAYER is already opening is closed again', () async {
+      final p = _FakePlayer();
+      final (c, gate) = await _parkedContainer(p);
+      addTearDown(c.dispose);
+      final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+      final pending = ctrl.toggle('m1', 'vkey');
+      // The other window: the bytes are in and the platform player is being
+      // opened. This one leaves something to clean up.
+      await gate.entered;
+      ctrl.stopForPrivacy();
+      gate.release.complete();
+      await pending;
+
+      expect(p.started, isFalse);
+      expect(p.disposed, isTrue, reason: 'the player was left open');
+      expect(c.read(voicePlayControllerProvider).playingId, isNull);
+    });
+
+    test('CONTROL: without the lock the same clip does start', () async {
+      // Vacuity guard: a parked factory that never yields a playing clip would
+      // satisfy the assertions above on its own.
+      final p = _FakePlayer();
+      final (c, gate) = await _parkedContainer(p);
+      addTearDown(c.dispose);
+      final ctrl = c.read(voicePlayControllerProvider.notifier);
+
+      final pending = ctrl.toggle('m1', 'vkey');
+      await gate.entered;
+      gate.release.complete();
+      await pending;
+
+      expect(p.started, isTrue);
+      expect(c.read(voicePlayControllerProvider).isPlaying('m1'), isTrue);
+    });
+  });
 }

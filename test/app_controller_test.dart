@@ -26,6 +26,7 @@ import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/data/whisper_model_store.dart';
 import 'package:xveil/state/whisper_model_controller.dart';
+import 'package:xveil/state/voice_record_controller.dart';
 import 'package:xveil/state/vpn_controller.dart';
 import 'package:xveil/state/identity_scoped_prefs.dart';
 import 'package:xveil/state/messaging.dart';
@@ -2519,6 +2520,39 @@ void _vpnTeardownIsJournalledTests() {
     expect(ctrl.lastTeardown.incomplete, isEmpty);
   });
 
+  test('a lock stops the microphone (report17 XV17-M5)', () async {
+    // The controllers that hold the microphone, the camera and playback are
+    // GLOBAL providers: a lock does not dispose them and an identity switch
+    // does not rebuild them. Nothing in the lifecycle asked them to stop, so
+    // capture continued behind the lock screen and into the next identity.
+    final rec = _RecordingMic();
+    final c = ProviderContainer(
+      overrides: [
+        vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
+        voiceRecorderFactoryProvider.overrideWithValue(() => rec),
+        micPermissionProvider.overrideWithValue(() async => true),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+    await c.read(voiceRecordControllerProvider.notifier).start();
+    expect(
+      c.read(voiceRecordControllerProvider).isRecording,
+      isTrue,
+      reason: 'precondition: nothing was capturing, so this proves nothing',
+    );
+
+    await ctrl.lock();
+
+    expect(
+      rec.disposed,
+      isTrue,
+      reason: 'the microphone was still capturing behind the lock screen',
+    );
+    expect(c.read(voiceRecordControllerProvider).isRecording, isFalse);
+  });
+
   test('a wipe reports a survivor that is not on disk', () async {
     // The wipe re-stats what it deleted and reports what is still there. A
     // tunnel still carrying this person's traffic is a survivor too, and it is
@@ -2553,6 +2587,27 @@ void _vpnTeardownIsJournalledTests() {
 /// talked out of stopping the tunnel by a start still in flight or by the
 /// default state of a controller the teardown itself just built, so that is the
 /// entry point the teardown uses (audit XV-H2).
+/// A microphone that says whether it was closed.
+class _RecordingMic implements VoiceRecorder {
+  bool started = false;
+  bool disposed = false;
+
+  @override
+  bool start() {
+    started = true;
+    return true;
+  }
+
+  @override
+  double get level => 0.5;
+  @override
+  int get elapsedMs => 100;
+  @override
+  VoiceClip? stop({int waveformBars = 48}) => null;
+  @override
+  void dispose() => disposed = true;
+}
+
 class _RecordingVpn extends VpnController {
   _RecordingVpn({
     this.phase = VpnBackendPhase.stopped,
