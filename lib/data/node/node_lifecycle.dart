@@ -497,12 +497,20 @@ printf '%s' '$payload' | base64 -d | sudo tee "\$temp" >/dev/null
 sudo chown root:$stageGroup "\$temp"
 sudo chmod 0640 "\$temp"
 $validate
-# Existence, copy, compare and install under ONE lock on this config.
+# Existence, copy, compare, install, ACTIVATION and ROLLBACK under ONE lock.
 #
 # Without it two administrators can both read the same digest, both copy the
 # same bytes, both find their own backup unchanged and both install — last one
 # wins, and the other's change is gone with nothing having said so. The window
 # between the copy and the install is enough on its own.
+#
+# The lock used to end at the install, leaving activation and rollback outside
+# it. That is the worse half: A installs and starts the unit, B takes the lock
+# and installs its own config, then A's health check fails and A restores its
+# BACKUP — which is the config from before A, now written over B's. B was told
+# its change applied, the file says otherwise, and nothing reports it (report17
+# XV17-M8). Everything that can write the file now happens while the lock is
+# held.
 #
 # Staged as a file rather than quoted into `flock -c`, for the same reason the
 # update path does it: this section carries its own quoting.
@@ -513,6 +521,8 @@ sudo tee "\$critical" >/dev/null <<'XVEIL_APPLY'
 set -euo pipefail
 stage="\$1"
 path="\$2"
+was_enabled="\$3"
+was_active="\$4"
 temp="\$stage/config.toml"
 backup="\$stage/config.backup"
 had_config=0
@@ -522,11 +532,10 @@ if sudo test -f "\$path"; then
 fi
 XVEIL_GUARD
 sudo install -o ${target.owner} -g ${target.group} -m ${target.mode} "\$temp" "\$path"
-echo "\$had_config" > "\$stage/had_config"
-XVEIL_APPLY
-sudo chmod 0700 "\$critical"
-sudo flock -w 300 '$kVeilConfigLockPath' "\$critical" "\$stage" "\$path"
-had_config="\$(sudo cat "\$stage/had_config")"
+
+# Activation and rollback belong to the same critical section as the install:
+# a rollback is a WRITE of this file, and one performed outside the lock lands
+# on whatever the next administrator installed.
 activation_ok=1
 sudo systemctl enable --now '$unit' || activation_ok=0
 sleep 1
@@ -539,6 +548,17 @@ if [ "\$activation_ok" = 0 ]; then
   fi
   if [ "\$was_enabled" = 0 ]; then sudo systemctl disable '$unit' >/dev/null 2>&1 || true; fi
   if [ "\$was_active" = 1 ]; then sudo systemctl restart '$unit' >/dev/null 2>&1 || true; fi
+  echo rolled_back > "\$stage/outcome"
+  # Exit 0: the OUTCOME is the file, and a non-zero status here would end the
+  # outer script through `set -e` before it could read and report it.
+  exit 0
+fi
+echo applied > "\$stage/outcome"
+XVEIL_APPLY
+sudo chmod 0700 "\$critical"
+sudo flock -w 300 '$kVeilConfigLockPath' "\$critical" "\$stage" "\$path" \\
+  "\$was_enabled" "\$was_active"
+if [ "\$(sudo cat "\$stage/outcome")" != applied ]; then
   echo 'CONFIG_ROLLED_BACK'
   exit 1
 fi
