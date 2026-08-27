@@ -220,4 +220,33 @@ void main() {
       }
     });
   });
+
+  /// One rule, in one place.
+  ///
+  /// The set of reordering and invisible characters was written out twice —
+  /// here for file names and again in `display_text.dart` for labels somebody
+  /// else chose — in two notations, with the same code points and the same
+  /// reason. Two spellings of one rule is how one of them gets fixed alone,
+  /// which is the shape three separate findings in this tree already took
+  /// (report15 X15-L4, report16 XV-20).
+  test('the display rule is shared, not copied', () {
+    final names = File('lib/domain/file_names.dart').readAsStringSync();
+    final display = File('lib/domain/display_text.dart').readAsStringSync();
+
+    expect(
+      display,
+      contains('invisibleOrReordering = RegExp('),
+      reason: 'premise: the shared rule lives there',
+    );
+    expect(
+      names,
+      isNot(contains('invisibleOrReordering = RegExp(')),
+      reason: 'file names carry their own copy of the rule again',
+    );
+    expect(
+      names,
+      contains("import 'display_text.dart'"),
+      reason: 'and do not take the shared one',
+    );
+  });
 }
