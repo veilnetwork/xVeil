@@ -208,7 +208,15 @@ void main() {
       stagingBase: tmp.path,
       lib: lib,
     );
-    expect(delegated, isTrue, reason: 'the sibling joins our document');
+    // The API answers WHICH of four things happened, not whether something
+    // did. It used to answer a bool; this assertion was never updated because
+    // it runs only when the native library is present, and CI has none — so
+    // `isTrue` against an enum value was green nowhere and red nobody saw.
+    expect(
+      delegated,
+      SovereignDocumentAdoption.adopted,
+      reason: 'the sibling joins our document',
+    );
     final grown = decodeSovereignIdentity(
       storage.settings[kSovereignIdentitySetting]!,
     )![kIdentityDocumentFile]!;
@@ -606,7 +614,11 @@ void main() {
         stagingBase: tmp.path,
         lib: lib,
       );
-      expect(merged, isTrue, reason: 'the phone appends itself');
+      expect(
+        merged,
+        SovereignDocumentAdoption.adopted,
+        reason: 'the phone appends itself',
+      );
 
       // The desktop receives the merged document back. It is already named in
       // it, so there is nothing to append — but it MUST record its own subkey
@@ -620,7 +632,14 @@ void main() {
         stagingBase: tmp.path,
         lib: lib,
       );
-      expect(adopted, isTrue, reason: 'the desktop adopts');
+      // `alreadyHeld` would be the honest answer if the desktop were already
+      // named with its own subkey recorded; the comment below says it is not,
+      // so the merge has work to do.
+      expect(
+        adopted,
+        SovereignDocumentAdoption.adopted,
+        reason: 'the desktop adopts',
+      );
 
       final deskNow = decodeSovereignIdentity(
         desktop.settings[kSovereignIdentitySetting]!,
@@ -675,7 +694,10 @@ void main() {
         stagingBase: tmp.path,
         lib: lib,
       );
-      expect(ok, isFalse);
+      // REFUSED specifically, not merely "not adopted": `nothingOffered` and
+      // `alreadyHeld` are also not-adopted and would be wrong answers here —
+      // a stranger's document was offered and this device is not in it.
+      expect(ok, SovereignDocumentAdoption.refused);
       expect(mine.settings[kSovereignIdentitySetting], before);
     },
     skip: skip,
@@ -785,43 +807,47 @@ void main() {
   // This runs the app's own two calls in the app's own order, because the
   // Rust-side test proves the primitive accepts an offered key and says nothing
   // about whether this layer offers it.
-  test('a restored device is named in its document by the key it runs on', () async {
-    final lib = DynamicLibrary.open(dylib!);
-    final phrase = minePhrase!;
-    final storage = _MemStorage();
+  test(
+    'a restored device is named in its document by the key it runs on',
+    () async {
+      final lib = DynamicLibrary.open(dylib!);
+      final phrase = minePhrase!;
+      final storage = _MemStorage();
 
-    // Step one, as the restore path runs it: a transport key of this device's
-    // own, mined, written to the config.
-    final toml = await RealVeilStack.ensureNodeConfig(
-      storage,
-      identityPhrase: phrase,
-      restoringIdentity: true,
-      lib: lib,
-    );
-    final nodeKey = identityConfigFields(toml)!.publicKey;
+      // Step one, as the restore path runs it: a transport key of this device's
+      // own, mined, written to the config.
+      final toml = await RealVeilStack.ensureNodeConfig(
+        storage,
+        identityPhrase: phrase,
+        restoringIdentity: true,
+        lib: lib,
+      );
+      final nodeKey = identityConfigFields(toml)!.publicKey;
 
-    // Step two: the sovereign material, which must adopt that key rather than
-    // invent one.
-    final mat = await RealVeilStack.ensureSovereignIdentity(
-      storage,
-      stagingBase: tmp.path,
-      identityPhrase: phrase,
-      lib: lib,
-    );
-    expect(mat, isNotNull);
+      // Step two: the sovereign material, which must adopt that key rather than
+      // invent one.
+      final mat = await RealVeilStack.ensureSovereignIdentity(
+        storage,
+        stagingBase: tmp.path,
+        identityPhrase: phrase,
+        lib: lib,
+      );
+      expect(mat, isNotNull);
 
-    final document = mat![kIdentityDocumentFile]!;
-    final identity = EmbeddedNode.identityDocumentNodeId(document, lib: lib);
-    expect(
-      EmbeddedNode.identityDocumentAuthorizes(
-        document: document,
-        nodeId: identity,
-        publicKey: nodeKey,
-      ),
-      isTrue,
-      reason: 'the document must name the key this device signs with',
-    );
-  }, skip: skip);
+      final document = mat![kIdentityDocumentFile]!;
+      final identity = EmbeddedNode.identityDocumentNodeId(document, lib: lib);
+      expect(
+        EmbeddedNode.identityDocumentAuthorizes(
+          document: document,
+          nodeId: identity,
+          publicKey: nodeKey,
+        ),
+        isTrue,
+        reason: 'the document must name the key this device signs with',
+      );
+    },
+    skip: skip,
+  );
 
   test('an unusable phrase provisions nothing and stores nothing', () async {
     // The failure has to stay quiet and empty: a half-written entry would be
