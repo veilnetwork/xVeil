@@ -203,6 +203,10 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
   VnoteRecorder? _rec;
   Timer? _poll;
 
+  /// Invalidates a start still waiting on the mic and camera permissions.
+  /// See [VoiceRecordController._gen] — same window, two prompts wide.
+  int _gen = 0;
+
   /// The live self-preview frame; the recording UI listens and repaints. Kept
   /// OUT of the Notifier state on purpose — a full state emit per video frame
   /// would rebuild the whole composer ~12x/s.
@@ -228,8 +232,12 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
   /// second with nothing to show and no sign that anything was happening.
   Future<void> start() async {
     if (state.isCapturing) return;
+    final gen = ++_gen;
     final micOk = await ref.read(micPermissionProvider)();
     final camOk = await ref.read(cameraPermissionProvider)();
+    // Locked or switched while the prompts were up. Without this the camera
+    // and the microphone opened AFTERWARDS (report17 XV17-M5).
+    if (gen != _gen) return;
     if (!micOk || !camOk) {
       state = const VnoteRecordState(phase: VnoteRecordPhase.denied);
       return;
@@ -245,6 +253,7 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
     state = const VnoteRecordState(phase: VnoteRecordPhase.preparing);
     _poll = Timer.periodic(_pollEvery, (_) => _tick());
     if (!await rec.start()) {
+      if (gen != _gen) return; // already torn down by a lock or a switch
       // cancel(), not _teardown(): the latter belongs to provider disposal and
       // disposes `preview`, which outlives any one recording.
       cancel();
@@ -304,6 +313,13 @@ class VnoteRecordController extends Notifier<VnoteRecordState> {
   }
 
   /// Discard the in-progress recording without producing a clip.
+  /// Stop capturing and forget what was captured, now. See
+  /// [VoiceRecordController.stopForPrivacy] — same contract, camera included.
+  void stopForPrivacy() {
+    _gen++;
+    cancel();
+  }
+
   void cancel() {
     _poll?.cancel();
     _poll = null;
