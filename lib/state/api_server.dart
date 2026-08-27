@@ -202,7 +202,18 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// says so in its own summary. A failure, by contrast, leaves the server up
   /// to report it — which is the case worth being able to tell apart.
   @visibleForTesting
-  Future<void> lockForApi() => ref.read(appControllerProvider.notifier).lock();
+  /// Lock, and answer what the teardown could not confirm.
+  ///
+  /// `lock()` deliberately does not throw for a tunnel that would not stop —
+  /// parking someone on an unlocked-looking screen because the OS did not
+  /// answer is its own failure. The API is not a screen: a caller that asked
+  /// for the boundary to close has to be told when it did not
+  /// (report17 XV17-M14).
+  Future<List<String>> lockForApi() async {
+    final controller = ref.read(appControllerProvider.notifier);
+    await controller.lock();
+    return controller.lastTeardown.incomplete;
+  }
 
   Future<String?> _switchIdentity(String label) async {
     final app = ref.read(appControllerProvider);

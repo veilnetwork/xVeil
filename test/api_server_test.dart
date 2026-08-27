@@ -80,6 +80,10 @@ void main() {
   /// Set to make the injected lock fail the way a teardown leg does — the
   /// tunnel that would not stop, a session that would not close.
   Object? lockFailure;
+
+  /// Legs the lock finished WITHOUT: it did not throw, the screen locked and
+  /// the keys went, but the tunnel or the node was never confirmed stopped.
+  List<String> lockIncomplete = const [];
   var activeIdentity = 'personal';
   final cloudRows = <Map<String, dynamic>>[
     {'id': 'n1', 'name': 'Note', 'kind': 'note', 'size': 12, 'deleted': false},
@@ -118,6 +122,7 @@ void main() {
   }) {
     accountLocked = false;
     lockFailure = null;
+    lockIncomplete = const [];
     activeIdentity = 'personal';
     cloudDeletes.clear();
     cloudNotes.clear();
@@ -247,6 +252,7 @@ void main() {
               final failure = lockFailure;
               if (failure != null) throw failure;
               accountLocked = true;
+              return lockIncomplete;
             },
       switchIdentity: !accountAvailable
           ? null
@@ -1381,8 +1387,55 @@ void main() {
     );
     expect(lock.status, 200);
     expect((lock.body! as Map)['locked'], isTrue);
+    expect(
+      (lock.body! as Map)['complete'],
+      isTrue,
+      reason: 'a clean lock must say so, or "complete" says nothing',
+    );
     expect(accountLocked, isTrue);
   });
+
+  /// The lock that does NOT throw and is still not finished.
+  ///
+  /// `lock()` deliberately keeps going when the tunnel will not stop — parking
+  /// someone on an unlocked-looking screen because the OS did not answer is
+  /// its own failure, and in a deniable app the wrong screen is a disclosure.
+  /// That decision belongs to the screen. It was taken for the API too: the
+  /// handler saw a lock that returned normally and answered `locked: true`,
+  /// which is the only statement in the system that the privacy boundary has
+  /// closed — over a tunnel that may still be carrying this person's traffic
+  /// (report17 XV17-M14).
+  test(
+    'a lock whose legs did not confirm is not answered as complete',
+    () async {
+      final h = make();
+      lockIncomplete = const ['vpn', 'node'];
+
+      final res = await h.handle(
+        'POST',
+        Uri.parse('/v1/account/lock'),
+        'Bearer secret-token',
+      );
+
+      expect(res.status, 200);
+      expect(
+        (res.body! as Map)['locked'],
+        isTrue,
+        reason: 'the screen and the keys DID go — that part is not in doubt',
+      );
+      expect(
+        (res.body! as Map)['complete'],
+        isFalse,
+        reason: 'the caller was told the boundary closed',
+      );
+      expect(
+        (res.body! as Map)['incomplete'],
+        containsAll(<String>['vpn', 'node']),
+        reason: 'which leg is still up is the part a caller can act on',
+      );
+      expect(accountLocked, isTrue);
+    },
+  );
 
   /// `locked: true` is the only statement in the system that the privacy
   /// boundary has closed, and it used to be written before anything had been

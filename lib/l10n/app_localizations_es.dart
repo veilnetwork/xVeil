@@ -247,6 +247,10 @@ class AppL10nEs extends AppL10n {
       'No se pudieron comprobar los modelos de traducción: este dispositivo no indicó dónde se guardan.';
 
   @override
+  String get lockWipeLeftNetwork =>
+      'La parte de red no confirmó su parada: el túnel o el nodo podrían seguir activos hasta que se cierre la aplicación.';
+
+  @override
   String get lockWipeLeftTranslations =>
       'No se han podido borrar los idiomas de traducción descargados, y sus nombres siguen en este dispositivo.';
 
