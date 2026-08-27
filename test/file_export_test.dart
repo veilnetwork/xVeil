@@ -175,30 +175,117 @@ void main() {
       expect(dir.listSync(), hasLength(1), reason: 'a temp was left behind');
     });
 
-    test('and a filesystem that refuses a sibling still writes direct', () async {
-      // The sandbox case: the save panel grants the SELECTED path and nothing
-      // else, so opening `<name>.part` fails. Falling back is what makes an
-      // export possible there at all.
+    test('and a sibling refused ASYNCHRONOUSLY still falls back', () async {
+      // The one that mattered on the device. `openWrite` opens nothing, so a
+      // sandbox's refusal arrives through the sink afterwards — the `try`
+      // around the call saw a clean return, the fallback never ran, and every
+      // export on that build failed with a partial nobody had asked for
+      // (report17 XV17-M1).
       final file = target('notes.txt');
-      var refusedSibling = false;
+      final opened = <String>[];
 
       final ok = await writeStreamedFile(
         file: file,
         size: 128,
         read: source(128),
         openSink: (f) {
-          if (f.path.endsWith('.xveil-part')) {
-            refusedSibling = true;
-            throw const FileSystemException('Operation not permitted');
+          opened.add(f.path);
+          if (f.path.contains('.xveil-part-')) {
+            return _AsyncRefusingSink(f.openWrite());
           }
           return f.openWrite();
         },
       );
 
-      expect(refusedSibling, isTrue, reason: 'no sibling was even tried');
-      expect(ok, isTrue);
+      expect(
+        opened.any((p) => p.contains('.xveil-part-')),
+        isTrue,
+        reason: 'no sibling was even tried',
+      );
+      // THE POINT, and what the first version of this test missed: without the
+      // awaited open the refusal never arrives, the sibling is written and
+      // renamed, and every assertion about the RESULT still passes. What
+      // distinguishes the two is whether the direct path was opened at all.
+      expect(
+        opened,
+        contains(file.path),
+        reason:
+            'the fallback never ran: the refusal was not seen, so the '
+            'export went through a sibling the sandbox had refused',
+      );
+      expect(ok, isTrue, reason: 'the fallback did not finish the copy');
       expect(file.lengthSync(), 128);
     });
+
+    test('the sibling is not at a name anybody could have guessed', () async {
+      // Two things at once. A predictable `<target>.xveil-part` can be a
+      // symlink somebody placed in advance — `openWrite` follows it and
+      // truncates whatever it points at, before a byte of the export is
+      // written. And two exports of one target shared that path, so the first
+      // rename moved the file out from under the second.
+      final file = target('notes.txt');
+      final names = <String>[];
+
+      Future<bool> export() => writeStreamedFile(
+        file: file,
+        size: 256,
+        read: source(256),
+        openSink: (f) {
+          if (f.path != file.path) names.add(f.path);
+          return f.openWrite();
+        },
+      );
+
+      expect(await export(), isTrue);
+      expect(await export(), isTrue);
+
+      expect(names, hasLength(2), reason: 'no sibling was used at all');
+      expect(
+        names.any((n) => n.endsWith('.xveil-part')),
+        isFalse,
+        reason: 'the sibling is at the predictable name again',
+      );
+      expect(
+        names[0],
+        isNot(names[1]),
+        reason:
+            'two exports of one target share a temporary path, so the '
+            'first rename moves the file out from under the second',
+      );
+      expect(
+        dir.listSync().map((e) => e.path.split('/').last).toList(),
+        ['notes.txt'],
+        reason: 'a temporary was left behind',
+      );
+    });
+
+    test(
+      'and a filesystem that refuses a sibling still writes direct',
+      () async {
+        // The sandbox case: the save panel grants the SELECTED path and nothing
+        // else, so opening `<name>.part` fails. Falling back is what makes an
+        // export possible there at all.
+        final file = target('notes.txt');
+        var refusedSibling = false;
+
+        final ok = await writeStreamedFile(
+          file: file,
+          size: 128,
+          read: source(128),
+          openSink: (f) {
+            if (f.path.contains('.xveil-part-')) {
+              refusedSibling = true;
+              throw const FileSystemException('Operation not permitted');
+            }
+            return f.openWrite();
+          },
+        );
+
+        expect(refusedSibling, isTrue, reason: 'no sibling was even tried');
+        expect(ok, isTrue);
+        expect(file.lengthSync(), 128);
+      },
+    );
   });
 
   group('choosing where it goes', () {
@@ -281,6 +368,30 @@ void main() {
 }
 
 /// An [IOSink] that writes normally and fails to close.
+class _AsyncRefusingSink implements IOSink {
+  _AsyncRefusingSink(this._inner);
+
+  final IOSink _inner;
+
+  /// The shape a real refusal has. `openWrite` returns a sink without having
+  /// opened anything: on a sandboxed macOS build the "Operation not permitted"
+  /// arrives LATER, through the sink, which is why the `try` around the call
+  /// caught nothing and the fallback never ran.
+  @override
+  Future<void> flush() async {
+    throw const FileSystemException('Operation not permitted');
+  }
+
+  @override
+  void add(List<int> data) => _inner.add(data);
+
+  @override
+  Future<void> close() => _inner.close();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _FailingCloseSink implements IOSink {
   _FailingCloseSink(this._inner);
 
@@ -289,6 +400,11 @@ class _FailingCloseSink implements IOSink {
   @override
   void add(List<int> data) => _inner.add(data);
 
+  /// Passes through: the export awaits this to make the OPEN happen where a
+  /// refusal can be caught. Failing it here would test the wrong thing.
+  @override
+  Future<void> flush() => _inner.flush();
+
   @override
   Future<void> close() async {
     await _inner.close();
@@ -296,7 +412,5 @@ class _FailingCloseSink implements IOSink {
   }
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      super.noSuchMethod(invocation);
-
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
