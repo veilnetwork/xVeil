@@ -4,122 +4,107 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
-import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/multi_space_store.dart';
 
 import 'support/fake_multi_space.dart';
 
-/// A container open for several spaces at once cannot acknowledge a hardening
-/// record: `MultiSpaceHandle` has no `stats` on the FFI surface, so there is
-/// nothing on the native side to clear.
+/// A container open for several spaces at once must answer about its hardening
+/// like any other.
 ///
-/// It used to return normally anyway. The acknowledgement's contract is "both
-/// copies or neither", and its caller writes the app's copy off the moment the
-/// store's half returns — so on a multi-space container a kept warning was
-/// cleared with nothing agreeing, which is the same silent dismissal the
-/// ordering fix was written for (report16 XV-08).
+/// `MultiSpaceHandle` had no `stats` on the FFI surface, so this backing
+/// answered `null` for the record and did NOTHING for the acknowledgement
+/// while returning normally. Both halves were wrong in the same direction:
+/// `null` is read one layer up as "there was no warning", and an
+/// acknowledgement that returns tells its caller to clear the app's copy — so
+/// a kept warning was cleared with nothing on the native side agreeing
+/// (report16 XV-08).
 ///
-/// Nothing is lost in the ordinary case: with no record to show, the button
-/// that calls this is never on screen. It is reached only when a warning IS
-/// kept — exactly where clearing it silently is wrong.
+/// The FFI has both now. What is pinned here is the CONTRACT the storage layer
+/// keeps over whatever the backing answers: both copies or neither. The wire
+/// path itself is driven through the real library in the plugin's own suite,
+/// and the Rust side proves a real record crosses.
 
-/// A backing that answers the way the native multi-space one does.
+/// A backing whose acknowledgement fails, the way the native one does when the
+/// container refuses.
 class _RefusingBacking extends FakeMultiSpaceBacking {
   int acks = 0;
 
   @override
   void acknowledgeHardeningWarning(int id) {
     acks++;
-    throw multiSpaceCannotAcknowledgeHardening();
+    throw hv.HvException('Io', 'the container refused the acknowledgement');
+  }
+}
+
+/// A backing that reports a record and clears it when acknowledged — what the
+/// native one now does.
+class _ReportingBacking extends FakeMultiSpaceBacking {
+  String? staged = 'sync: writes are not on the platter';
+  int acks = 0;
+
+  @override
+  String? hardeningWarning(int id) => staged;
+
+  @override
+  void acknowledgeHardeningWarning(int id) {
+    acks++;
+    staged = null;
   }
 }
 
 void main() {
-  test('the refusal is a refusal, not a bug report', () {
-    final refusal = multiSpaceCannotAcknowledgeHardening();
-
-    expect(
-      refusal.kind,
-      isNot('Internal'),
-      reason:
-          'that kind documents itself as a library bug; this is a surface '
-          'that does not exist yet',
-    );
-    expect(refusal.message, contains('multi-space'));
-  });
-
-  test('and the multi-space backing throws it rather than returning', () {
-    // Read from the source: `HvMultiSpaceBacking` needs an open native
-    // container to construct, and a test that skips without the dynamic
-    // library asserts nothing. What can rot is one line, and it is a fact
-    // about the file. The searched file is not this one, so the assertion
-    // cannot match its own text.
-    final source = File(
-      'lib/data/storage/hv_kv_log_store.dart',
-    ).readAsStringSync();
-    final start = source.indexOf('class HvMultiSpaceBacking');
-    expect(start, isNot(-1), reason: 'the class was renamed');
-    final body = source.substring(start);
-    final ack = body.indexOf('void acknowledgeHardeningWarning(int id) {');
-    expect(ack, isNot(-1), reason: 'the override was renamed or removed');
-    // Enough to reach past the comment that explains it. Written at 900 first,
-    // which stopped inside the comment and made the search look for the throw
-    // in text that could not contain it.
-    expect(body.length - ack, greaterThan(1600), reason: 'window truncated');
-
-    expect(
-      body.substring(ack, ack + 1600),
-      contains('throw multiSpaceCannotAcknowledgeHardening()'),
-      reason:
-          'a multi-space acknowledgement that returns normally tells its '
-          'caller to clear the app copy with nothing on the native side '
-          'agreeing',
-    );
-  });
-
-  test('a kept warning survives a multi-space session', () async {
-    // The whole chain, with no native code in it: a multi-space backing that
-    // refuses, the per-space store over it, and the storage that keeps the
-    // app's copy.
-    final backing = _RefusingBacking();
+  test('a record the container reports reaches the app and is kept', () async {
+    // The whole chain with no native code in it: a multi-space backing that
+    // reports, the per-space store over it, and the storage that keeps a copy
+    // of what it was shown. This answered `null` before the FFI existed, and
+    // `null` one layer up means "nothing wrong".
+    final backing = _ReportingBacking();
     final id = backing.openSpace(Uint8List(64));
-    final store = MultiSpaceKvLogStore(backing, id);
     final storage = HiddenVolumeStorage(
-      ({required password, required bool create}) => store,
+      ({required password, required bool create}) =>
+          MultiSpaceKvLogStore(backing, id),
     );
     await storage.open(password: 'pw', createIfMissing: true);
 
-    // A warning from an earlier session, kept by the app. The container's own
-    // record is gone — it lives in memory only — which is exactly why the
-    // app's copy is the one that matters here.
-    await storage.putSetting(
-      'container_hardening_warning',
-      'sync: not flushed',
-    );
     expect(
       await storage.retainHardeningWarning(),
-      'sync: not flushed',
-      reason: 'premise',
+      'sync: writes are not on the platter',
+      reason: 'the container reported it and the app must take it',
     );
 
-    await expectLater(
-      storage.acknowledgeHardeningWarning(),
-      throwsA(isA<hv.HvException>()),
-      reason: 'an acknowledgement nothing can act on must not report success',
-    );
-    expect(backing.acks, 1, reason: 'premise: the store was asked');
-
+    // The container forgets at close; the app must not.
+    backing.staged = null;
     expect(
       await storage.retainHardeningWarning(),
-      'sync: not flushed',
-      reason: 'the app copy was cleared with nothing agreeing to it',
+      'sync: writes are not on the platter',
     );
   });
 
-  test('CONTROL: a backing that CAN acknowledge still clears both', () async {
-    // Vacuity guard. If every acknowledgement refused, the assertion above
-    // would be satisfied by a store nobody can ever dismiss a warning on.
-    final backing = FakeMultiSpaceBacking();
+  test('acknowledging clears BOTH copies', () async {
+    final backing = _ReportingBacking();
+    final id = backing.openSpace(Uint8List(64));
+    final storage = HiddenVolumeStorage(
+      ({required password, required bool create}) =>
+          MultiSpaceKvLogStore(backing, id),
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+    expect(
+      await storage.retainHardeningWarning(),
+      isNotNull,
+      reason: 'premise',
+    );
+
+    await storage.acknowledgeHardeningWarning();
+
+    expect(backing.acks, 1, reason: "the container's own record must go too");
+    expect(await storage.retainHardeningWarning(), isNull);
+  });
+
+  test('and a refused acknowledgement clears NEITHER', () async {
+    // The contract the multi-space no-op used to break from the other end: it
+    // returned normally having done nothing, so the app's copy went and the
+    // container's stayed.
+    final backing = _RefusingBacking();
     final id = backing.openSpace(Uint8List(64));
     final storage = HiddenVolumeStorage(
       ({required password, required bool create}) =>
@@ -131,8 +116,54 @@ void main() {
       'sync: not flushed',
     );
 
-    await storage.acknowledgeHardeningWarning();
+    await expectLater(
+      storage.acknowledgeHardeningWarning(),
+      throwsA(isA<hv.HvException>()),
+      reason:
+          'an acknowledgement the container refused must not report success',
+    );
+    expect(backing.acks, 1, reason: 'premise: the store was asked');
 
-    expect(await storage.retainHardeningWarning(), isNull);
+    expect(
+      await storage.retainHardeningWarning(),
+      'sync: not flushed',
+      reason: 'the app copy was cleared with nothing agreeing to it',
+    );
+  });
+
+  test('and the backing routes to the multi-space FFI, not to nothing', () {
+    // Read from the source: `HvMultiSpaceBacking` needs an open native
+    // container to construct, and a test that skips without the dynamic
+    // library asserts nothing. What can rot is which call each override makes,
+    // and that is a fact about the file. The searched file is not this one, so
+    // the assertions cannot match their own text.
+    final source = File(
+      'lib/data/storage/hv_kv_log_store.dart',
+    ).readAsStringSync();
+    final start = source.indexOf('class HvMultiSpaceBacking');
+    expect(start, isNot(-1), reason: 'the class was renamed');
+    final body = source.substring(start);
+
+    expect(
+      body,
+      contains('_multi.acknowledgeHardeningError(id)'),
+      reason:
+          'an acknowledgement that reaches nothing tells its caller to clear '
+          'the app copy with nothing agreeing',
+    );
+    expect(
+      body,
+      contains('_multi.stats(id).hardeningFailure'),
+      reason: 'a flat null here reads as "there was no warning" one layer up',
+    );
+    expect(
+      body,
+      isNot(
+        contains(
+          'return null;\n  }\n\n  @override\n  String? hardeningWarning',
+        ),
+      ),
+      reason: 'the utilization is answered again without asking',
+    );
   });
 }
