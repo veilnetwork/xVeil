@@ -40,7 +40,7 @@ import '../data/node/sovereign_identity_material.dart'
         kMasterConfigSetting,
         kSovereignIdentitySetting;
 import '../data/storage/storage.dart'
-    show OutboxFrame, kIdentityOriginSetting;
+    show OutboxFrame, Storage, kIdentityOriginSetting;
 import '../data/storage/storage_write_census.dart';
 import 'package:veil_media/veil_media.dart';
 
@@ -182,12 +182,14 @@ bool isSecretQueryParam(String name) =>
 @visibleForTesting
 String redactSecrets(Uri uri) {
   if (!uri.queryParameters.keys.any(isSecretQueryParam)) return uri.toString();
-  return uri.replace(
-    queryParameters: {
-      for (final e in uri.queryParameters.entries)
-        e.key: isSecretQueryParam(e.key) ? 'REDACTED' : e.value,
-    },
-  ).toString();
+  return uri
+      .replace(
+        queryParameters: {
+          for (final e in uri.queryParameters.entries)
+            e.key: isSecretQueryParam(e.key) ? 'REDACTED' : e.value,
+        },
+      )
+      .toString();
 }
 
 /// Constant-time compare. One guess per request is not a practical oracle, but
@@ -268,6 +270,100 @@ Map<String, Object?> folderSyncAddHookAnswer({
         if (refusal.path != null) 'path': refusal.path,
         if (refusal.detail != null) 'detail': refusal.detail,
       };
+
+/// What one purge run managed to do (report17 XV17-L6).
+///
+/// The legs of a purge used to be a plain `await` chain, and the FIRST of them
+/// is not supported at all in all-online: `storageProvider` hands back a
+/// multi-space view whose erase throws by contract, because a space is erased
+/// through the single-space path. The endpoint answered 500 and the four legs
+/// after it — the message log, the resume registry, the settings sweep — never
+/// ran, so a soak series wedged on IndexFull with the relief it had been told
+/// it had.
+///
+/// Split out of the handler so the independence can be driven against a
+/// storage that refuses one leg, which is the whole property.
+@visibleForTesting
+class PurgeFilesOutcome {
+  PurgeFilesOutcome();
+
+  int? erased;
+  int? erasedLog;
+  int? erasedPending;
+  int? sweptSettings;
+  Map<String, int>? before;
+  Map<String, int>? after;
+
+  /// Legs the storage refuses in this mode. Not a failure — an answer.
+  final List<String> unsupported = [];
+
+  /// Legs that threw for any other reason, with what they said.
+  final Map<String, String> failed = <String, String>{};
+
+  bool get ranSomething =>
+      erased != null ||
+      erasedLog != null ||
+      erasedPending != null ||
+      sweptSettings != null;
+
+  Map<String, Object?> toJson() => {
+    'ok': failed.isEmpty && unsupported.isEmpty,
+    'erased': erased,
+    'erasedLog': erasedLog,
+    'erasedPending': erasedPending,
+    'sweptSettings': sweptSettings,
+    if (unsupported.isNotEmpty) 'unsupported': unsupported,
+    if (failed.isNotEmpty) 'failed': failed,
+    'before': before,
+    'after': after,
+  };
+
+  /// Nothing at all could be done — every leg refused. That is a 409 about the
+  /// mode, not a 500 about a bug.
+  int get status => ranSomething ? 200 : 409;
+}
+
+/// Run every relief leg, independently, and report what happened.
+@visibleForTesting
+Future<PurgeFilesOutcome> runPurgeFiles({
+  required Storage storage,
+  required Future<int> Function() clearPendingDownloads,
+}) async {
+  final out = PurgeFilesOutcome();
+  Future<T?> leg<T>(String name, Future<T> Function() run) async {
+    try {
+      return await run();
+    } on UnsupportedError {
+      out.unsupported.add(name);
+      return null;
+    } catch (e) {
+      out.failed[name] = '$e';
+      return null;
+    }
+  }
+
+  out.before = await leg('countsBefore', storage.namespaceCounts);
+  out.erased = await leg('files', storage.purgeFileStore);
+  // The message log fills with filePost/status/tombstone rows one per run;
+  // per-record tombstones never free index slots, so a multi-day soak series
+  // eventually wedges every send on IndexFull. Wipe it too — bench chats are
+  // disposable, contacts and seq cursors survive.
+  out.erasedLog = await leg('messageLog', storage.purgeMessageLog);
+  // Clear the durable auto-resume registry too: a zombie download whose holder
+  // is gone (dead ephemeral serve identity → never answers content-GONE)
+  // otherwise lingers the whole 14-day window, re-opening stream circuits that
+  // crowd out live transfers.
+  out.erasedPending = await leg('pendingDownloads', clearPendingDownloads);
+  // The wholesale erases above drop the CHUNK/LOG namespaces but leave their
+  // per-content bookkeeping keys in settings; those keys are what eventually
+  // wedge the settings B+ index on IndexFull. Sweep them in the same call.
+  out.sweptSettings = await leg(
+    'settingsGarbage',
+    () => storage.sweepSettingsGarbage(wholesale: true),
+  );
+  out.after = await leg('countsAfter', storage.namespaceCounts);
+  return out;
+}
 
 /// Debug-only loopback HTTP hook for automated soak tests.
 ///
@@ -425,7 +521,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<String?> _claimRuntimeDir() async {
     try {
       final base =
-          Platform.environment['XVEIL_RUNTIME_DIR'] ?? Directory.systemTemp.path;
+          Platform.environment['XVEIL_RUNTIME_DIR'] ??
+          Directory.systemTemp.path;
       final dir = await claimRuntimeDirUnder(base, uniqueSuffix: '$pid');
       // Nobody sweeps on this boot path either, so leftovers from previous
       // non-graceful exits would accumulate under the same base forever.
@@ -529,7 +626,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       req.response.write(
         jsonEncode({
           'error': 'soak key required',
-          'hint': 'read it from ${_soakKeyFile ?? "<key file unavailable>"} '
+          'hint':
+              'read it from ${_soakKeyFile ?? "<key file unavailable>"} '
               'and pass ?k=<key> or X-Soak-Key',
         }),
       );
@@ -2085,9 +2183,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final transport = (await stack.transport.nodeId()).hex;
     final invite = stack.myInvite.nodeId.hex;
     final receiveBytes = await RealVeilStack.sovereignReceiveAddress(storage);
-    final receive = receiveBytes == null
-        ? null
-        : NodeId(receiveBytes).hex;
+    final receive = receiveBytes == null ? null : NodeId(receiveBytes).hex;
 
     final raw = await storage.getSetting(kSovereignIdentitySetting);
     final files = raw == null ? null : decodeSovereignIdentity(raw);
@@ -2220,7 +2316,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           // signs fails verification on every peer.
           return _json(req, {
             'ok': false,
-            'error': 'the identity document was not amended — the ceremony '
+            'error':
+                'the identity document was not amended — the ceremony '
                 'would leave a device the identity does not vouch for',
           });
         }
@@ -2543,13 +2640,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       );
       docRevoked = revocation == DocumentRevocation.tombstoned;
       if (!revocation.keyIsRetired) {
-        why = 'the document still certifies this device key — a certificate '
+        why =
+            'the document still certifies this device key — a certificate '
             'identity cannot be revoked through the phrase path, and no '
             'membership change was made';
       } else {
         ok = await svc.revokeDevice(NodeId.fromHex(peer), sovereign: sovereign);
         if (!ok) {
-          why = 'the key is tombstoned, but the group refused the membership '
+          why =
+              'the key is tombstoned, but the group refused the membership '
               'removal — the peer may not be a member, or this identity may '
               'not own the device group';
         }
@@ -2625,7 +2724,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     }
     final storage = ref.read(storageProvider);
     final keys = await storage.settingsKeys();
-    final hits = [for (final key in keys) if (key.contains(hex)) key];
+    final hits = [
+      for (final key in keys)
+        if (key.contains(hex)) key,
+    ];
     final svc = _groupSvc();
     return _json(req, {
       'ok': true,
@@ -2688,7 +2790,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'foldedEpoch': state?.epoch,
-      'foldedCommitment': state?.epochDescriptor?.keyCommitment.substring(0, 16),
+      'foldedCommitment': state?.epochDescriptor?.keyCommitment.substring(
+        0,
+        16,
+      ),
       'heldEpochs': bundle.localEpochKeys.keys.toList()..sort(),
       'descriptors': svc.debugEpochDescriptors(bundle),
       'chains': svc.debugMessageChains(bundle),
@@ -2899,7 +3004,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'name': item.name,
         'thumb': thumb,
         'here': here,
-        'local': item.contentId != null && await storage.hasFile(item.contentId!),
+        'local':
+            item.contentId != null && await storage.hasFile(item.contentId!),
         if (pull) 'pulled': pulled,
       });
     }
@@ -3025,7 +3131,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'ok': true,
       'refused': report.refusedReason,
       'applied': [
-        for (final action in report.applied) '${action.kind.name}:${action.path}',
+        for (final action in report.applied)
+          '${action.kind.name}:${action.path}',
       ],
       'failed': [
         for (final entry in report.failed)
@@ -4271,8 +4378,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           int? providerSlot;
           String? providerSlotError;
           try {
-            providerSlot = await (service.memberProviderSlot?.call() ??
-                Future.value(0));
+            providerSlot =
+                await (service.memberProviderSlot?.call() ?? Future.value(0));
           } catch (error) {
             providerSlotError = '$error'; // e.g. past the device limit
           }
@@ -5978,41 +6085,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<void> _purgeFiles(HttpRequest req) async {
     final ready = _requireReady(req);
     if (!ready) return;
-    final storage = ref.read(storageProvider);
-    final before = await storage.namespaceCounts();
-    final erased = await storage.purgeFileStore();
-    // The message log fills with filePost/status/tombstone rows one per run;
-    // per-record tombstones never free index slots, so a multi-day soak series
-    // eventually wedges every send on IndexFull. Wipe it too — bench chats are
-    // disposable, contacts and seq cursors survive.
-    final erasedLog = await storage.purgeMessageLog();
-    // Clear the durable auto-resume registry too: a zombie download whose
-    // holder is gone (dead ephemeral serve identity → never answers
-    // content-GONE) otherwise lingers the whole 14-day window, re-opening
-    // stream circuits that crowd out live transfers.
-    final erasedPending = await ref
-        .read(messagingServiceProvider)
-        .clearPendingDownloads();
-    // The wholesale erases above drop the CHUNK/LOG namespaces but leave their
-    // per-content bookkeeping keys in settings; those keys are what eventually
-    // wedge the settings B+ index on IndexFull. Sweep them in the same call.
-    final sweptSettings = await storage.sweepSettingsGarbage(wholesale: true);
-    final after = await storage.namespaceCounts();
+    final out = await runPurgeFiles(
+      storage: ref.read(storageProvider),
+      clearPendingDownloads: ref
+          .read(messagingServiceProvider)
+          .clearPendingDownloads,
+    );
     devLog(
       () =>
-          'xVeil[debug-hook]: purge_files erased=$erased erasedLog=$erasedLog '
-          'erasedPending=$erasedPending sweptSettings=$sweptSettings '
-          'before=$before after=$after',
+          'xVeil[debug-hook]: purge_files erased=${out.erased} '
+          'erasedLog=${out.erasedLog} erasedPending=${out.erasedPending} '
+          'sweptSettings=${out.sweptSettings} '
+          'unsupported=${out.unsupported} failed=${out.failed.keys.toList()} '
+          'before=${out.before} after=${out.after}',
     );
-    return _json(req, {
-      'ok': true,
-      'erased': erased,
-      'erasedLog': erasedLog,
-      'erasedPending': erasedPending,
-      'sweptSettings': sweptSettings,
-      'before': before,
-      'after': after,
-    });
+    return _json(req, out.toJson(), status: out.status);
   }
 
   Future<void> _sendFile(HttpRequest req) async {
@@ -7561,15 +7648,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       });
     });
     peers.sort(
-      (left, right) => (right['pending'] as int).compareTo(
-        left['pending'] as int,
-      ),
+      (left, right) =>
+          (right['pending'] as int).compareTo(left['pending'] as int),
     );
-    await _json(req, {
-      'ok': true,
-      'total': pending.length,
-      'peers': peers,
-    });
+    await _json(req, {'ok': true, 'total': pending.length, 'peers': peers});
   }
 
   /// Stand observer: which key epoch each protected channel is on, and who it
@@ -7612,9 +7694,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       });
     }
     channels.sort(
-      (left, right) => (left['channelId'] as String).compareTo(
-        right['channelId'] as String,
-      ),
+      (left, right) =>
+          (left['channelId'] as String).compareTo(right['channelId'] as String),
     );
     await _json(req, {'ok': true, 'channels': channels});
   }
@@ -7823,11 +7904,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   Future<int> _openProbeChannel(VeilFlutterTransport t, NodeId peer) async {
     final local = await t.nodeId();
     final keys = _mediaProbeKeys(local, peer);
-    return t.openMediaChannel(
-      peer.bytes,
-      txKey: keys.txKey,
-      rxKey: keys.rxKey,
-    );
+    return t.openMediaChannel(peer.bytes, txKey: keys.txKey, rxKey: keys.rxKey);
   }
 
   Future<void> _mediaOpen(HttpRequest req) async {
