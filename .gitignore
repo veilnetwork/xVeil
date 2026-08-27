@@ -1,7 +1,6 @@
 temp
 scratchpad/
 # Local planning notes, deliberately untracked.
-ROADMAP.md
 artifacts/
 # Miscellaneous
 *.class
@@ -75,18 +74,7 @@ ios/Runner.xcworkspace/xcshareddata/swiftpm/
 check-leaks.sh
 TranslateLink.xcconfig
 
-# Local working notes: tasks, progress and agent tooling. Deliberately
-# untracked — they carried live-test notes, device ids and infrastructure
-# detail into public history.
-/the local release checklist
-/.agent/
-/ROADMAP.md
-/TASKS.md
-/TASKS_ARCHIVE.md
 
-# Generated indexes and their caches — directory names deliberately generic.
-.*graph*
-*graph*/
 __pycache__/
 
 # Local Apple signing identity. The scripted build passes DEVELOPMENT_TEAM
