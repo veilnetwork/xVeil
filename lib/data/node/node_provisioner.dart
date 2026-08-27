@@ -793,13 +793,43 @@ const _tomlScalarHelper = r'''
 # the deployment: after the binaries were installed and before anything was
 # validated or started. `sudo tee` does the writing on the privileged side,
 # where the rest of this function already is.
+#
+# The staged config lives in a directory the `veil` service account CAN write
+# — `veil-cli` runs as veil and edits the file there. So every name inside it
+# is a name an unprivileged account controls, and root opening one twice is a
+# privilege boundary crossed by pathname.
+#
+# Two consequences, both closed below.
+#
+# The scratch file used to be `${file}.xveil.$$` — beside the config, in that
+# same writable directory, at a name anybody can compute from the pid. `rm`
+# then `tee` leaves a window: create a symlink at that name in between and the
+# `tee` writes wherever it points, as root. It is now made by `mktemp` in the
+# private directory root created for this deployment (0711 — traversable, not
+# writable), so the name is unguessable, the file exists before anything
+# writes to it, and it is not somewhere an unprivileged account can reach.
+#
+# And the config itself is checked before root reads or replaces it: a symlink
+# left in its place would have `awk` read whatever it points at — /etc/shadow
+# — and the result installed into a file the veil account can read.
+#
+# What this cannot do from a shell is hold the file OPEN across the checks: an
+# fd-based apply belongs in a helper binary, and the report says so. What is
+# left here is a window of microseconds against a check that is cheap.
+require_staged_file() {
+  if sudo test -L "$1" || ! sudo test -f "$1"; then
+    echo "xveil: refusing to use $1: not a regular file" >&2
+    return 1
+  fi
+}
 set_toml_scalar() {
   local section="$1" key="$2" value="$3" file="$4"
-  local temp="${file}.xveil.$$" owner group mode
+  require_staged_file "$file" || return 1
+  local temp owner group mode
+  temp="$(sudo mktemp "${XVEIL_TMP:-/tmp}/xveil-toml.XXXXXX")" || return 1
   owner="$(sudo stat -c %u "$file")"
   group="$(sudo stat -c %g "$file")"
   mode="$(sudo stat -c %a "$file")"
-  sudo rm -f "$temp"
   sudo awk -v section="$section" -v key="$key" -v value="$value" '
     BEGIN { in_section = 0; section_seen = 0; key_written = 0 }
     $0 == "[" section "]" {
@@ -830,6 +860,9 @@ set_toml_scalar() {
       }
     }
   ' "$file" | sudo tee "$temp" >/dev/null
+  # Checked again: the read above and this write are two opens of the same
+  # unprivileged name.
+  require_staged_file "$file" || { sudo rm -f "$temp"; return 1; }
   sudo install -o "$owner" -g "$group" -m "$mode" "$temp" "$file"
   sudo rm -f "$temp"
 }
@@ -1012,6 +1045,7 @@ String _optionalComponentSetup(Set<NodeComponent> components) {
     out.writeln(
       '''if ! sudo test -f /etc/ogate/ogate.toml; then
   sudo -u veil /usr/local/bin/ogate gen-config -o \$XVEIL_TMP/cfg/xveil-ogate.toml
+  require_staged_file \$XVEIL_TMP/cfg/xveil-ogate.toml
   sudo install -o veil -g veil -m 0640 \$XVEIL_TMP/cfg/xveil-ogate.toml /etc/ogate/ogate.toml
 fi
 sudo tee \$XVEIL_TMP/xveil-ogate.service >/dev/null <<'UNIT_EOF'
@@ -1172,7 +1206,9 @@ sudo chown veil:veil /var/lib/veil /var/log/veil
 sudo chmod 711 "\$XVEIL_TMP"
 sudo mkdir -p "\$XVEIL_TMP/cfg"
 sudo chown root:veil "\$XVEIL_TMP/cfg"
-sudo chmod 0770 "\$XVEIL_TMP/cfg"
+# Sticky, so an account that is not `veil` cannot swap out the files `veil`
+# staged there even if it somehow gets a foothold in the group.
+sudo chmod 1770 "\$XVEIL_TMP/cfg"
 
 # 1. download and authenticate EVERY selected release asset first
 $downloads
@@ -1230,6 +1266,10 @@ $exitComment
 set_toml_scalar proxy.exit enabled '$exitValue' \$XVEIL_TMP/cfg/xveil-node.toml
 $exitAdmission
 sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config validate
+# The validated file is about to be read by root out of a directory the veil
+# account writes. A symlink in its place would install whatever it points at
+# as the node's config — readable by veil, and chosen by whoever put it there.
+require_staged_file \$XVEIL_TMP/cfg/xveil-node.toml
 sudo install -o veil -g veil -m 0600 \$XVEIL_TMP/cfg/xveil-node.toml /var/lib/veil/node.toml
 
 # 7. optional applications: install complete templates + units, but do not
