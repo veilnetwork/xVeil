@@ -10,6 +10,7 @@ import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
+import '../data/storage/storage.dart';
 import 'providers.dart';
 import 'whisper_ffi.dart';
 
@@ -62,8 +63,22 @@ class TranscriptEntry {
 }
 
 class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
+  /// The storage THIS build belongs to.
+  ///
+  /// whisper runs for as long as the clip is, and the store was read again
+  /// afterwards. An all-online switch in between — which
+  /// `AppController._activateOnline` performs with no teardown — wrote the
+  /// words spoken in A's voice note into B's storage, where they stay after
+  /// the lock (report17 XV17-H4).
+  late Storage _storage;
+
   @override
-  Map<String, TranscriptEntry> build() => const {};
+  Map<String, TranscriptEntry> build() {
+    // WATCHED: a switch rebuilds this notifier, and the transcripts below are
+    // A's voice notes.
+    _storage = ref.watch(storageProvider);
+    return const {};
+  }
 
   /// Cached per (clip, language): the same clip read as Russian and as English
   /// are two different answers, and keying only by the clip meant the second
@@ -99,13 +114,14 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
   }) async {
     if (state.containsKey(messageId)) return;
     final lang = effectiveLang(senderLang: senderLang);
+    final store = _storage;
     try {
-      final store = ref.read(storageProvider);
       final cached =
           await store.getSetting(_cacheKey(fileKey, lang)) ??
           await store.getSetting(_legacyCacheKey(fileKey));
       if (cached != null) {
         _set(
+          store,
           messageId,
           TranscriptEntry(
             phase: TranscriptPhase.done,
@@ -148,16 +164,30 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
     final cur = entryFor(messageId);
     if (cur.isRunning) return;
     if (cur.isDone && cur.lang == lang) return;
-    _set(messageId, const TranscriptEntry(phase: TranscriptPhase.running));
+    // The storage this clip came from, captured before whisper runs.
+    final storage = _storage;
+    _set(
+      storage,
+      messageId,
+      const TranscriptEntry(phase: TranscriptPhase.running),
+    );
     try {
-      final bytes = await ref.read(storageProvider).loadFile(fileKey);
+      final bytes = await storage.loadFile(fileKey);
       if (bytes == null) {
-        _set(messageId, const TranscriptEntry(phase: TranscriptPhase.failed));
+        _set(
+          storage,
+          messageId,
+          const TranscriptEntry(phase: TranscriptPhase.failed),
+        );
         return;
       }
       final text = await ref.read(voiceTranscriberProvider)(bytes, lang: lang);
       if (text == null) {
-        _set(messageId, const TranscriptEntry(phase: TranscriptPhase.failed));
+        _set(
+          storage,
+          messageId,
+          const TranscriptEntry(phase: TranscriptPhase.failed),
+        );
         return;
       }
       // Cache non-empty results (best-effort) so they survive a rebuild + never
@@ -165,24 +195,30 @@ class TranscriptionController extends Notifier<Map<String, TranscriptEntry>> {
       // Transcribe button stays available to retry across sessions.
       if (text.isNotEmpty) {
         try {
-          await ref
-              .read(storageProvider)
-              .putSetting(_cacheKey(fileKey, lang), text);
+          await storage.putSetting(_cacheKey(fileKey, lang), text);
         } catch (e) {
           devLog(() => 'xVeil[transcript]: cache write failed: $e');
         }
       }
       _set(
+        storage,
         messageId,
         TranscriptEntry(phase: TranscriptPhase.done, text: text, lang: lang),
       );
     } catch (e) {
       devLog(() => 'xVeil[transcript]: transcribe failed: $e');
-      _set(messageId, const TranscriptEntry(phase: TranscriptPhase.failed));
+      _set(
+        storage,
+        messageId,
+        const TranscriptEntry(phase: TranscriptPhase.failed),
+      );
     }
   }
 
-  void _set(String messageId, TranscriptEntry e) {
+  /// Show [e], but only while the identity whose clip it is remains the one
+  /// being shown.
+  void _set(Storage storage, String messageId, TranscriptEntry e) {
+    if (!identical(_storage, storage)) return;
     state = {...state, messageId: e};
   }
 }
