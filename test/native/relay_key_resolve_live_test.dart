@@ -24,53 +24,77 @@ void main() {
   final sockF = Platform.environment['XVEIL_TEST_SOCK_SENDER'];
   final sockR = Platform.environment['XVEIL_TEST_SOCK_RELAY'];
   final rIdHex = Platform.environment['XVEIL_RELAY_NODE_ID'];
-  final skip = (dylib == null || dylib.isEmpty || sockF == null || sockF.isEmpty ||
-          sockR == null || sockR.isEmpty || rIdHex == null || rIdHex.length != 64)
+  final skip =
+      (dylib == null ||
+          dylib.isEmpty ||
+          sockF == null ||
+          sockF.isEmpty ||
+          sockR == null ||
+          sockR.isEmpty ||
+          rIdHex == null ||
+          rIdHex.length != 64)
       ? 'set VEIL_FFI_DYLIB + XVEIL_TEST_SOCK_SENDER/RELAY + XVEIL_RELAY_NODE_ID (64hex)'
       : false;
 
-  test('a node resolves a published relay X25519 by node_id (full new stack)',
-      timeout: const Timeout(Duration(seconds: 120)), () async {
-    DynamicLibrary.open(dylib!);
-    final rId = _hex(rIdHex!);
+  test(
+    'a node resolves a published relay X25519 by node_id (full new stack)',
+    timeout: const Timeout(Duration(seconds: 120)),
+    () async {
+      DynamicLibrary.open(dylib!);
+      final rId = _hex(rIdHex!);
 
-    // Self-resolve: R's daemon resolves R's OWN published RelayKeyRecord via
-    // get_local. This exercises the ENTIRE new path end to end — Dart
-    // lookupRelayX25519 → FFI veil_lookup_relay_x25519 → veilclient
-    // LookupRelayKey → IPC handler → DhtMlKemEkResolver.fetch_relay_x25519 →
-    // fetch_verified_document + RelayKeyRecord decode + verify_relay_key →
-    // reply — without depending on cross-node DHT propagation (a separately
-    // tracked cold-start gap; STEP 2b resolved its own ad for the same reason).
-    final clientR = await VeilClient.connect(sockR!);
-    try {
-      final truth = await clientR.getRelayX25519Pubkey();
-      expect(truth, isNotNull,
-          reason: 'R is not relay-capable — no key to publish/resolve');
-      stderr.writeln('[relay-key] R local key: ${truth!.length}B');
+      // Self-resolve: R's daemon resolves R's OWN published RelayKeyRecord via
+      // get_local. This exercises the ENTIRE new path end to end — Dart
+      // lookupRelayX25519 → FFI veil_lookup_relay_x25519 → veilclient
+      // LookupRelayKey → IPC handler → DhtMlKemEkResolver.fetch_relay_x25519 →
+      // fetch_verified_document + RelayKeyRecord decode + verify_relay_key →
+      // reply — without depending on cross-node DHT propagation (a separately
+      // tracked cold-start gap; STEP 2b resolved its own ad for the same reason).
+      final clientR = await VeilClient.connect(sockR!);
+      try {
+        final truth = await clientR.getRelayX25519Pubkey();
+        expect(
+          truth,
+          isNotNull,
+          reason: 'R is not relay-capable — no key to publish/resolve',
+        );
+        stderr.writeln('[relay-key] R local key: ${truth!.length}B');
 
-      // Retry briefly: the one-shot publish + the resolver's verify both need
-      // the identity doc + record to be locally stored (they are at startup).
-      Uint8List? resolved;
-      var attempts = 0;
-      while (resolved == null && attempts < 20) {
-        attempts++;
-        resolved = await clientR.lookupRelayX25519(rId);
-        if (resolved == null) {
-          await Future<void>.delayed(const Duration(seconds: 2));
+        // Retry briefly: the one-shot publish + the resolver's verify both need
+        // the identity doc + record to be locally stored (they are at startup).
+        Uint8List? resolved;
+        var attempts = 0;
+        while (resolved == null && attempts < 20) {
+          attempts++;
+          resolved = (await clientR.lookupRelayX25519(rId))?.key;
+          if (resolved == null) {
+            await Future<void>.delayed(const Duration(seconds: 2));
+          }
         }
+        stderr.writeln(
+          '[relay-key] resolved after $attempts attempt(s): '
+          '${resolved == null ? "NULL" : "${resolved.length}B"}',
+        );
+        expect(
+          resolved,
+          isNotNull,
+          reason: 'daemon could not resolve the published relay X25519',
+        );
+        expect(
+          resolved,
+          truth,
+          reason: 'resolved key must equal the published relay X25519',
+        );
+        stderr.writeln(
+          '[relay-key] ✓ DHT-resolved relay X25519 matches ground truth '
+          '(full Dart→FFI→IPC→resolver→verify stack)',
+        );
+      } finally {
+        await clientR.close();
       }
-      stderr.writeln('[relay-key] resolved after $attempts attempt(s): '
-          '${resolved == null ? "NULL" : "${resolved.length}B"}');
-      expect(resolved, isNotNull,
-          reason: 'daemon could not resolve the published relay X25519');
-      expect(resolved, truth,
-          reason: 'resolved key must equal the published relay X25519');
-      stderr.writeln('[relay-key] ✓ DHT-resolved relay X25519 matches ground truth '
-          '(full Dart→FFI→IPC→resolver→verify stack)');
-    } finally {
-      await clientR.close();
-    }
-  }, skip: skip);
+    },
+    skip: skip,
+  );
 }
 
 Uint8List _hex(String s) {

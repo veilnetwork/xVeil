@@ -148,7 +148,8 @@ Uint8List encodeMailboxPutChunk({
 /// [kMailboxPutChunkDataBytes], each keyed by [contentId] for relay reassembly.
 List<Uint8List> chunkMailboxPut(Uint8List contentId, Uint8List payload) {
   final total =
-      (payload.length + kMailboxPutChunkDataBytes - 1) ~/ kMailboxPutChunkDataBytes;
+      (payload.length + kMailboxPutChunkDataBytes - 1) ~/
+      kMailboxPutChunkDataBytes;
   return [
     for (var i = 0; i < total; i++)
       encodeMailboxPutChunk(
@@ -183,8 +184,9 @@ List<StoredMailboxBlob> decodeMailboxFetchResp(Uint8List data) {
     const header = 32 + 32 + 8 + 4;
     if (off + header > data.length) {
       throw FormatException(
-          'mailbox fetch reply truncated at entry $i (need ${off + header}, '
-          'have ${data.length})');
+        'mailbox fetch reply truncated at entry $i (need ${off + header}, '
+        'have ${data.length})',
+      );
     }
     final senderId = Uint8List.fromList(data.sublist(off, off + 32));
     final contentId = Uint8List.fromList(data.sublist(off + 32, off + 64));
@@ -194,14 +196,17 @@ List<StoredMailboxBlob> decodeMailboxFetchResp(Uint8List data) {
     final blobEnd = blobStart + blobLen;
     if (blobEnd > data.length) {
       throw FormatException(
-          'mailbox fetch reply blob $i overruns (need $blobEnd, '
-          'have ${data.length})');
+        'mailbox fetch reply blob $i overruns (need $blobEnd, '
+        'have ${data.length})',
+      );
     }
-    out.add(StoredMailboxBlob(
-      senderId: NodeId(senderId),
-      contentId: contentId,
-      blob: Uint8List.fromList(data.sublist(blobStart, blobEnd)),
-    ));
+    out.add(
+      StoredMailboxBlob(
+        senderId: NodeId(senderId),
+        contentId: contentId,
+        blob: Uint8List.fromList(data.sublist(blobStart, blobEnd)),
+      ),
+    );
     off = blobEnd;
   }
   return out;
@@ -253,8 +258,9 @@ MailboxSlice decodeMailboxSliceResp(Uint8List data) {
   final len = bd.getUint32(40, Endian.big);
   if (header + len > data.length) {
     throw FormatException(
-        'mailbox slice reply overruns (need ${header + len}, '
-        'have ${data.length})');
+      'mailbox slice reply overruns (need ${header + len}, '
+      'have ${data.length})',
+    );
   }
   return MailboxSlice(
     contentId: Uint8List.fromList(data.sublist(0, 32)),
@@ -385,14 +391,14 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // Null on the loopback/dev path. The key is PUBLIC, so caching/passing it
     // leaks nothing.
     RelayKeyCache? relayKeyCache,
-  })  : _client = client,
-        _fetchApp = fetchApp,
-        _srcApp = srcApp,
-        _replyEndpointId = replyEndpointId,
-        _putHopCount = putHopCount,
-        _putReplicaFanout = putReplicaFanout,
-        _fetchTimeout = fetchTimeout,
-        _relayKeyCache = relayKeyCache {
+  }) : _client = client,
+       _fetchApp = fetchApp,
+       _srcApp = srcApp,
+       _replyEndpointId = replyEndpointId,
+       _putHopCount = putHopCount,
+       _putReplicaFanout = putReplicaFanout,
+       _fetchTimeout = fetchTimeout,
+       _relayKeyCache = relayKeyCache {
     if (_srcAppId.length != 32) {
       throw ArgumentError(
         'srcApp.appId must be 32 bytes, got ${_srcAppId.length}',
@@ -484,17 +490,20 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     //
     // Not an error, because against an updated relay it is the ordinary case.
     // The line goes away on its own as relays update.
-    if (blob.length + kMailboxPerBlobWireHeaderBytes > kMailboxLegacyReplyBudget) {
+    if (blob.length + kMailboxPerBlobWireHeaderBytes >
+        kMailboxLegacyReplyBudget) {
       // The content id names WHICH frame class pays the slice tax (6 onion
       // round trips per window at the receiver) — without it this line says
       // only that somebody, somewhere, deposits oversized, which is exactly
       // enough to misattribute. Measured 2026-08-17: a backlog of ~30KB
       // blobs took a drain pass hours; the id is what lets the diet start
       // at the right table.
-      devLog(() =>
-          'xVeil[send]: deposit of ${blob.length}B to ${receiver.short} '
-          '(cid=${NodeId(contentId).short}) needs a relay that serves '
-          'slices — one predating the endpoint will drop it');
+      devLog(
+        () =>
+            'xVeil[send]: deposit of ${blob.length}B to ${receiver.short} '
+            '(cid=${NodeId(contentId).short}) needs a relay that serves '
+            'slices — one predating the endpoint will drop it',
+      );
     }
     // An ad that will not resolve is a ROUTING miss, not a verdict on the
     // peer, so a throw here would be the wrong shape: the fallback below is
@@ -507,8 +516,11 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           .lookupRendezvousReplicas(receiver.bytes)
           .timeout(_putStepTimeout);
     } catch (e) {
-      devLog(() => 'xVeil[stash-put]: ad lookup FAILED dst=${receiver.short} '
-          '— falling back to the last relays that held this peer\'s mailbox: $e');
+      devLog(
+        () =>
+            'xVeil[stash-put]: ad lookup FAILED dst=${receiver.short} '
+            '— falling back to the last relays that held this peer\'s mailbox: $e',
+      );
     }
     // A usable deposit target = the replica's relay + that relay's public
     // X25519 (the PUT's seal target). Prefer the key carried by the ad itself
@@ -545,17 +557,21 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       cache: _relayKeyCache,
     );
     final usable = plan.targets;
-    devLog(() => 'xVeil[stash-put]: dst=${receiver.hex.substring(0, 8)} '
-        'replicas_resolved=${replicas.length} usable(KEM)=${usable.length} '
-        'via=${plan.source.name}');
+    devLog(
+      () =>
+          'xVeil[stash-put]: dst=${receiver.hex.substring(0, 8)} '
+          'replicas_resolved=${replicas.length} usable(KEM)=${usable.length} '
+          'via=${plan.source.name}',
+    );
     if (usable.isEmpty) {
       // BOTH the ad and the cache came up empty, so this peer is genuinely
       // unaddressable and the caller's unresolved-peer backoff should hold —
       // that is what keeps a stranger from being hammered every flush tick.
       throw MailboxPeerUnresolved(
-          'no rendezvous replica with a usable KEM key for ${receiver.hex}, and '
-          'no remembered relay either — recipient has never advertised a mailbox '
-          'relay to us (or the remembered one aged out)');
+        'no rendezvous replica with a usable KEM key for ${receiver.hex}, and '
+        'no remembered relay either — recipient has never advertised a mailbox '
+        'relay to us (or the remembered one aged out)',
+      );
     }
     final payload = encodeMailboxPut(
       receiverId: receiver.bytes,
@@ -593,7 +609,9 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       }
     }
     if (accepted.isEmpty) {
-      throw StateError('all ${usable.length} mailbox deposits failed: $lastErr');
+      throw StateError(
+        'all ${usable.length} mailbox deposits failed: $lastErr',
+      );
     }
     // The deposit is DONE by here, so this bookkeeping may not be able to
     // undo it. A container write that hangs would otherwise hold the messaging
@@ -614,9 +632,13 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   /// Best-effort: a relay whose key cannot be found is simply not a target.
   Future<Uint8List?> _resolveRelayKem(NodeId relay) async {
     try {
-      return await _client
+      // The key alone: this path SEALS to it now, so how long the relay will
+      // keep publishing it does not change the decision. The stamp matters
+      // where an ad is built, which is `MailboxService`.
+      final resolved = await _client
           .lookupRelayX25519(relay.bytes)
           .timeout(_putStepTimeout);
+      return resolved?.key;
     } catch (_) {
       return null;
     }
@@ -653,8 +675,11 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       // every drain pass (this line alone was ~1K lines/hour of idle noise).
       if (relayIds.length != _lastLoggedKnownRelayCount) {
         _lastLoggedKnownRelayCount = relayIds.length;
-        devLog(() => 'xVeil[drain]: fetch via ${relayIds.length} KNOWN '
-            'relay(s) (skip DHT self-resolve)');
+        devLog(
+          () =>
+              'xVeil[drain]: fetch via ${relayIds.length} KNOWN '
+              'relay(s) (skip DHT self-resolve)',
+        );
       }
     } else {
       // Cold path (not yet registered): resolve our own ad to find a relay.
@@ -666,7 +691,9 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         return const [];
       }
       if (replicas.isEmpty) {
-        devLog(() => 'xVeil[drain]: own-ad resolved 0 replicas — nothing to fetch');
+        devLog(
+          () => 'xVeil[drain]: own-ad resolved 0 replicas — nothing to fetch',
+        );
         return const [];
       }
       relayIds = replicas.map((r) => r.relayNodeId).toList();
@@ -675,8 +702,9 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       // having been warmed by a prior registration.
       for (final r in replicas) {
         if (r.rendezvousKemPk.length == 32) {
-          kemByRelay[NodeId(r.relayNodeId).hex] =
-              Uint8List.fromList(r.rendezvousKemPk);
+          kemByRelay[NodeId(r.relayNodeId).hex] = Uint8List.fromList(
+            r.rendezvousKemPk,
+          );
         }
       }
     }
@@ -722,7 +750,10 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // rather than the full window.
     Timer? graceTimer;
     void armGrace() {
-      if (!allSent || replies == 0 || window.isCompleted || graceTimer != null) {
+      if (!allSent ||
+          replies == 0 ||
+          window.isCompleted ||
+          graceTimer != null) {
         return;
       }
       graceTimer = Timer(_stragglerGrace, () {
@@ -747,9 +778,11 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         // silent. Log only replies that actually carried mail; `fresh` still
         // distinguishes new blobs from cross-relay duplicates of the fan-out.
         if (blobs.isNotEmpty) {
-          devLog(() =>
-              'xVeil[drain]: fetch reply $replies/$expected — ${blobs.length} '
-              'blob(s) ($fresh new)');
+          devLog(
+            () =>
+                'xVeil[drain]: fetch reply $replies/$expected — ${blobs.length} '
+                'blob(s) ($fresh new)',
+          );
         }
       } on FormatException catch (e) {
         // A malformed reply IS a real fault (not a transient) — surface it
@@ -765,65 +798,74 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     });
     try {
       // Fire every relay's FETCH concurrently; count successful sends.
-      await Future.wait(relayIds.map((relayId) async {
-        anyAttempted = true;
-        // Prefer the relay's KNOWN KEM key (no flaky self-resolve): the resolved
-        // replica carries it (deposit-equivalent), else the relay-key cache. The
-        // key is a public, network-published value, so holding it leaks nothing —
-        // it just lets the onion route straight to the relay.
-        Uint8List? relayKemPk = kemByRelay[NodeId(relayId).hex];
-        if (relayKemPk == null) {
+      await Future.wait(
+        relayIds.map((relayId) async {
+          anyAttempted = true;
+          // Prefer the relay's KNOWN KEM key (no flaky self-resolve): the resolved
+          // replica carries it (deposit-equivalent), else the relay-key cache. The
+          // key is a public, network-published value, so holding it leaks nothing —
+          // it just lets the onion route straight to the relay.
+          Uint8List? relayKemPk = kemByRelay[NodeId(relayId).hex];
+          if (relayKemPk == null) {
+            try {
+              relayKemPk = await _relayKeyCache?.get(NodeId(relayId));
+            } catch (_) {
+              relayKemPk =
+                  null; // cache is best-effort; miss → self-resolve below
+            }
+          }
+          final viaKeyGiven = relayKemPk != null && relayKemPk.length == 32;
+          // DIRECT(key-given) is the routine happy path (one line per relay per
+          // pass — pure noise). The FALLBACK is the anomaly worth seeing: a
+          // relay's own ad can't self-resolve, so this send will likely fail.
+          if (!viaKeyGiven) {
+            devLog(
+              () =>
+                  'xVeil[drain]: relay ${NodeId(relayId).short} fetch '
+                  'via self-resolve(fallback) — no KEM key',
+            );
+          }
           try {
-            relayKemPk = await _relayKeyCache?.get(NodeId(relayId));
-          } catch (_) {
-            relayKemPk = null; // cache is best-effort; miss → self-resolve below
-          }
-        }
-        final viaKeyGiven = relayKemPk != null && relayKemPk.length == 32;
-        // DIRECT(key-given) is the routine happy path (one line per relay per
-        // pass — pure noise). The FALLBACK is the anomaly worth seeing: a
-        // relay's own ad can't self-resolve, so this send will likely fail.
-        if (!viaKeyGiven) {
-          devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} fetch '
-              'via self-resolve(fallback) — no KEM key');
-        }
-        try {
-          if (viaKeyGiven) {
-            // KEM-key-given mailbox FETCH: straight to (relayId, relayKemPk).
-            await _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
-              dstNodeId: relayId,
-              dstX25519Pk: relayKemPk,
-              dstAppId: kMailboxAppId,
-              dstEndpointId: kMailboxFetchEndpointId,
-              replyEndpointId: _replyEndpointId,
-              data: requestBody,
+            if (viaKeyGiven) {
+              // KEM-key-given mailbox FETCH: straight to (relayId, relayKemPk).
+              await _fetchApp.sendAnonymousAuthenticatedDirectWithReply(
+                dstNodeId: relayId,
+                dstX25519Pk: relayKemPk,
+                dstAppId: kMailboxAppId,
+                dstEndpointId: kMailboxFetchEndpointId,
+                replyEndpointId: _replyEndpointId,
+                data: requestBody,
+              );
+            } else {
+              // No known key — fall back to the self-resolving authenticated send.
+              await _fetchApp.sendAnonymousAuthenticatedWithReply(
+                dstNodeId: relayId,
+                dstAppId: kMailboxAppId,
+                dstEndpointId: kMailboxFetchEndpointId,
+                replyEndpointId: _replyEndpointId,
+                data: requestBody,
+              );
+            }
+            expected++;
+          } catch (e) {
+            // Send itself failed — that relay contributes no reply this drain.
+            // Do NOT evict the relay's KEM key here: a fetch failure is a
+            // TRANSPORT hiccup (session churn, a busy relay, a lost onion cell),
+            // NOT evidence the key is stale — and an always-on relay's key is
+            // long-lived (identity-derived, not rotated). Evicting on a transient
+            // dropped the valid key after a single timeout and stranded the drain
+            // on the self-resolving fallback (which can't resolve a relay's own
+            // ad), so the drain never recovered. Registration re-resolves fresh
+            // if the relay ever genuinely rotates.
+            lastErr = e;
+            devLog(
+              () =>
+                  'xVeil[drain]: relay ${NodeId(relayId).short} send '
+                  'failed ($e)',
             );
-          } else {
-            // No known key — fall back to the self-resolving authenticated send.
-            await _fetchApp.sendAnonymousAuthenticatedWithReply(
-              dstNodeId: relayId,
-              dstAppId: kMailboxAppId,
-              dstEndpointId: kMailboxFetchEndpointId,
-              replyEndpointId: _replyEndpointId,
-              data: requestBody,
-            );
           }
-          expected++;
-        } catch (e) {
-          // Send itself failed — that relay contributes no reply this drain.
-          // Do NOT evict the relay's KEM key here: a fetch failure is a
-          // TRANSPORT hiccup (session churn, a busy relay, a lost onion cell),
-          // NOT evidence the key is stale — and an always-on relay's key is
-          // long-lived (identity-derived, not rotated). Evicting on a transient
-          // dropped the valid key after a single timeout and stranded the drain
-          // on the self-resolving fallback (which can't resolve a relay's own
-          // ad), so the drain never recovered. Registration re-resolves fresh
-          // if the relay ever genuinely rotates.
-          lastErr = e;
-          devLog(() => 'xVeil[drain]: relay ${NodeId(relayId).short} send '
-              'failed ($e)');
-        }
-      }));
+        }),
+      );
       allSent = true;
       // A reply may have landed before the last send returned, in which case
       // the listener could not arm the grace yet (it waits for `allSent` so a
@@ -854,7 +896,8 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         } else if (outcome != _lastReplyOutcome) {
           _lastReplyOutcome = outcome;
           devLog(
-              () => 'xVeil[drain]: reply window closed with $outcome replies');
+            () => 'xVeil[drain]: reply window closed with $outcome replies',
+          );
         }
       }
     } finally {
@@ -882,15 +925,20 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           // Left out rather than passed on empty: an empty blob decrypts to
           // nothing and would be acked as processed, which is how a message
           // gets dropped and called delivered. Next drain tries again.
-          devLog(() => 'xVeil[drain]: announced blob '
-              '${NodeId(b.contentId).short} not collected this pass');
+          devLog(
+            () =>
+                'xVeil[drain]: announced blob '
+                '${NodeId(b.contentId).short} not collected this pass',
+          );
           continue;
         }
-        filled.add(StoredMailboxBlob(
-          senderId: b.senderId,
-          contentId: b.contentId,
-          blob: bytes,
-        ));
+        filled.add(
+          StoredMailboxBlob(
+            senderId: b.senderId,
+            contentId: b.contentId,
+            blob: bytes,
+          ),
+        );
       }
       aggregated
         ..clear()
@@ -979,9 +1027,12 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       if (!ok || total == null) continue;
       final bytes = out.toBytes();
       if (bytes.length != total) continue;
-      devLog(() => 'xVeil[drain]: collected announced blob '
-          '${NodeId(contentId).short} — ${bytes.length}B in $rounds slice(s) '
-          'from ${relay.short}');
+      devLog(
+        () =>
+            'xVeil[drain]: collected announced blob '
+            '${NodeId(contentId).short} — ${bytes.length}B in $rounds slice(s) '
+            'from ${relay.short}',
+      );
       return bytes;
     }
     return null;
@@ -1087,8 +1138,9 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         }
       } catch (e) {
         // Best-effort: a lost ack only delays the drop to the blob's TTL.
-        devLog(() =>
-            'xVeil[drain]: ack to ${relay.short} failed (non-fatal): $e');
+        devLog(
+          () => 'xVeil[drain]: ack to ${relay.short} failed (non-fatal): $e',
+        );
       }
     }
   }
