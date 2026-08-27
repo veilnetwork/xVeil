@@ -37,6 +37,7 @@ import '../../state/call_service.dart';
 import '../../state/chat_page_size_controller.dart';
 import '../../state/media_availability.dart';
 import '../../state/media_ffi.dart';
+import '../../data/storage/storage.dart';
 import '../../state/messaging.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/nickname_peers.dart';
@@ -127,6 +128,24 @@ class ChatScreen extends ConsumerStatefulWidget {
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
+  /// The identity this screen was opened under.
+  ///
+  /// A chat is one identity's conversation with one contact, and this screen
+  /// outlives a switch: `AppController._activateOnline` re-points the storage
+  /// and the messaging pipeline without changing `AppPhase`, so the router
+  /// keeps `/chat/:peerHex` and this State mounted. Everything below used to
+  /// resolve the provider at the moment it needed it, which meant a draft
+  /// typed as A was sent by B, a file or sticker read from A's store was
+  /// written into B's and sent from B, and a forward sheet held real messages
+  /// of A's to send as B. `mounted` is about the widget, not about who is
+  /// signed in (report17 XV17-H6).
+  ///
+  /// Captured once. An operation already in flight finishes against the
+  /// identity that started it — its blob and its outgoing row land in A's
+  /// store, where they belong — and `build` takes the screen off B.
+  late final Storage _storage;
+  late final MessagingService _messaging;
+
   final _input = CustomEmojiEditingController();
   // Keep the composer focused across sends — TextInputAction.send drops focus by
   // default (most visible on desktop: the caret leaves the field and the user has
@@ -237,7 +256,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _clearPin() async {
     setState(() => _pinned = null);
     try {
-      await ref.read(storageProvider).putSetting('pin:${widget.peerHex}', '');
+      await _storage.putSetting('pin:${widget.peerHex}', '');
     } catch (_) {}
   }
 
@@ -322,7 +341,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     List<Message> msgs;
     try {
-      msgs = await ref.read(storageProvider).loadMessages(widget.peerHex);
+      msgs = await _storage.loadMessages(widget.peerHex);
     } catch (_) {
       return;
     }
@@ -436,13 +455,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   void initState() {
     super.initState();
+    // Taken here, not on first use: "first use" can be after a switch.
+    _storage = ref.read(storageProvider);
+    _messaging = ref.read(messagingServiceProvider);
     // Show/hide the "jump to latest" button as the user scrolls.
     _scroll.addListener(_onScrollChanged);
     // Opening the chat clears its unread badge (marks read up to the latest
     // message). Deferred so the first frame isn't blocked.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        ref.read(messagingServiceProvider).markRead(widget.peerHex);
+        _messaging.markRead(widget.peerHex);
         // Apply this chat's retention policy on open, so an expired message
         // disappears even without a periodic sweep (no-op when unlimited).
         ref
@@ -461,6 +483,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         unawaited(_loadPin());
       }
     });
+  }
+
+  /// The frame after the identity moved: nothing of A's, and on the way out.
+  ///
+  /// The draft, the reply quote, the selection and the search are dropped here
+  /// rather than at dispose, because this frame is painted before the router
+  /// has taken the screen down.
+  Widget _leftBehind() {
+    _input.clear();
+    _replyingTo = null;
+    _selected.clear();
+    _chatSearchCtl.clear();
+    // A's timers, too: the disappearing sweep runs against A's conversation,
+    // and it has no business still running while B is on screen.
+    _disappearingTimer?.cancel();
+    _disappearingTimer = null;
+    _highlightTimer?.cancel();
+    _chatSearchDebounce?.cancel();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        GoRouter.of(context).go('/home');
+      } catch (_) {
+        // No router above us (a widget test, or a torn-down app). Painting
+        // nothing is still the right frame.
+      }
+    });
+    return const Scaffold(body: SizedBox.shrink());
   }
 
   @override
@@ -526,11 +576,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     if (newest <= _shownThroughMs) return;
     _shownThroughMs = newest;
-    unawaited(ref.read(messagingServiceProvider).markRead(widget.peerHex));
+    unawaited(_messaging.markRead(widget.peerHex));
   }
 
   Future<void> _sweepDisappearing() async {
-    final service = ref.read(messagingServiceProvider);
+    final service = _messaging;
     final peer = NodeId.fromHex(widget.peerHex);
     final removed = await service.sweepDisappearing(peer);
     // Only rebuild when something actually went: a 15-second timer that calls
@@ -559,7 +609,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // Re-grab focus immediately (before the async send) so typing the next
     // message never requires clicking back into the field.
     _inputFocus.requestFocus();
-    final svc = ref.read(messagingServiceProvider);
+    final svc = _messaging;
     if (_saved) {
       // Saved Messages: a purely local note to self, never the wire.
       await svc.saveNote(
@@ -627,16 +677,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Future<void> _accept() =>
-      ref.read(messagingServiceProvider).acceptContact(_peer);
+  Future<void> _accept() => _messaging.acceptContact(_peer);
 
   Future<void> _block() async {
-    await ref.read(messagingServiceProvider).blockContact(_peer);
+    await _messaging.blockContact(_peer);
     if (mounted) Navigator.of(context).maybePop();
   }
 
   Future<void> _resend() async {
-    await ref.read(messagingServiceProvider).resendRequest(_peer);
+    await _messaging.resendRequest(_peer);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(AppL10n.of(context).chatRequestSent)),
@@ -664,7 +713,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (ok != true) return;
-    await ref.read(messagingServiceProvider).cancelRequest(_peer);
+    await _messaging.cancelRequest(_peer);
     if (mounted) Navigator.of(context).maybePop();
   }
 
@@ -941,7 +990,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .read(storageProvider)
         .loadFile(stickerFileKey(result));
     if (bytes == null) return;
-    await ref.read(messagingServiceProvider).sendSticker(_peer, bytes);
+    await _messaging.sendSticker(_peer, bytes);
     _scrollToBottom(force: true);
   }
 
@@ -953,7 +1002,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _onTapFile(Message m) async {
     final key = m.fileId ?? m.fileContentId;
     if (key == null) return;
-    if (await ref.read(storageProvider).hasFile(key)) {
+    if (await _storage.hasFile(key)) {
       await _saveFile(m);
       return;
     }
@@ -1033,7 +1082,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     String? deletePath,
     Iterable<String> deletePaths = const [],
   }) {
-    final messaging = ref.read(messagingServiceProvider);
+    final messaging = _messaging;
     final terminal = Completer<bool>();
     late final StreamSubscription<String> failureSubscription;
     late final StreamSubscription<String> cancellationSubscription;
@@ -1168,7 +1217,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       } catch (_) {}
       return;
     }
-    final svc = ref.read(messagingServiceProvider);
+    final svc = _messaging;
     _watchDownloadFailure(
       cid,
       deletePath: dest,
@@ -1230,7 +1279,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       }
       if (dest == null) return; // cancelled
-      final storage = ref.read(storageProvider);
+      final storage = _storage;
       final complete = await writeStreamedFile(
         file: File(dest),
         size: size,
@@ -1242,7 +1291,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
 
-    final bytes = await ref.read(storageProvider).loadFile(key);
+    final bytes = await _storage.loadFile(key);
     if (bytes == null) {
       if (mounted) _snack(l.chatFileSaveFailed);
       return;
@@ -1282,9 +1331,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // undownloaded offer honestly gets no forward entry at all.
     final fileKey = m.fileId ?? m.fileContentId;
     final fileHeld =
-        m.isFile &&
-        fileKey != null &&
-        await ref.read(storageProvider).hasFile(fileKey);
+        m.isFile && fileKey != null && await _storage.hasFile(fileKey);
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -1506,7 +1553,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // held locally — the saved row is a copy-reference to the same stored
     // blob, so nothing is re-sent or re-downloaded. Wire-forwarding a file to
     // another peer is a real (re-)send and stays out of scope here.
-    final storage = ref.read(storageProvider);
+    final storage = _storage;
     final heldFiles = <String>{};
     for (final m in msgs.where((m) => m.isFile)) {
       final key = m.fileId ?? m.fileContentId;
@@ -1523,7 +1570,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       savedOnly: toForward.every((m) => m.isFile),
     );
     if (target == null || !mounted) return;
-    final svc = ref.read(messagingServiceProvider);
+    final svc = _messaging;
     final toSaved = myHex != null && target.hex == myHex;
     for (final m in toForward) {
       // Preserve the true origin when re-forwarding an already-forwarded
@@ -1567,7 +1614,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// copy-reference, so Saved Messages is the only honest destination.
   Future<NodeId?> _pickForwardTarget({bool savedOnly = false}) async {
     final l = AppL10n.of(context);
-    final convs = await ref.read(storageProvider).loadConversations();
+    final convs = await _storage.loadConversations();
     if (!mounted) return null;
     final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
     final accepted = savedOnly
@@ -1680,7 +1727,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (forEveryone == null) return;
-    final svc = ref.read(messagingServiceProvider);
+    final svc = _messaging;
     for (final m in chosen) {
       if (forEveryone && m.direction == MessageDirection.outgoing) {
         await _deleteForEveryone(m, svc);
@@ -1768,7 +1815,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (confirmed != true) return;
-    final svc = ref.read(messagingServiceProvider);
+    final svc = _messaging;
     if (forEveryone) {
       await _deleteForEveryone(m, svc);
     } else {
@@ -1780,7 +1827,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _ChatMenuAction action,
     ContactStatus? status,
   ) async {
-    final svc = ref.read(messagingServiceProvider);
+    final svc = _messaging;
     switch (action) {
       case _ChatMenuAction.rename:
         await _renameContact();
@@ -1836,7 +1883,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
     if (newName == null) return; // cancelled
     if (!mounted) return;
-    await ref.read(messagingServiceProvider).setContactName(_peer, newName);
+    await _messaging.setContactName(_peer, newName);
   }
 
   /// Wipe this conversation's messages but keep the contact — the chat stays in
@@ -1861,7 +1908,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
     );
     if (confirmed != true) return;
-    await ref.read(messagingServiceProvider).clearConversation(_peer);
+    await _messaging.clearConversation(_peer);
   }
 
   /// Erase this whole conversation (messages + contact) from THIS device. A
@@ -2073,6 +2120,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
+    // A switch happened under this screen. It shows one identity's messages
+    // with one contact, and B is not in that conversation — so leave, rather
+    // than repaint A's history and A's draft under B.
+    if (!identical(ref.watch(storageProvider), _storage)) return _leftBehind();
     final messages = ref.watch(messagesProvider(widget.peerHex));
     final window = ref.watch(chatWindowProvider(widget.peerHex));
     final contact = ref.watch(contactProvider(widget.peerHex)).value;
