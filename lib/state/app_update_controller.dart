@@ -54,7 +54,8 @@ Future<void> migrateUpdatePrefs(Ref ref) async {
   final install = await ref.read(installUpdatePrefsProvider.future);
   try {
     final legacy = await ref.read(prefsProvider.future);
-    if (install.enabled == null && legacy.getBool(kUpdateCheckEnabledPrefKey) == false) {
+    if (install.enabled == null &&
+        legacy.getBool(kUpdateCheckEnabledPrefKey) == false) {
       install.enabled = false;
     }
     final legacyMs = legacy.getInt(kUpdateLastCheckPrefKey);
@@ -147,6 +148,33 @@ class AppUpdateController extends Notifier<AppUpdate?> {
   @override
   AppUpdate? build() => null;
 
+  /// Which look is the current one.
+  ///
+  /// Two paths reach the network — the automatic one at launch and the button
+  /// on the settings screen — and neither knew about the other. A slow
+  /// automatic check could finish AFTER a manual one had already found a
+  /// release and overwrite it with its own stale answer; the reverse order
+  /// lost the find the same way. Last-write-wins, on a value that is not a
+  /// clock (report15 X15-L11).
+  ///
+  /// Taken at the moment a look STARTS, so the newest question is the one
+  /// whose answer counts, whatever order the answers come back in.
+  int _generation = 0;
+
+  /// Whether this look may still speak, and what it is allowed to say.
+  ///
+  /// Superseded looks are silent. A look that could not REACH the feed is
+  /// silent about the offer too when there is one standing: failing to ask is
+  /// not evidence that the release nobody has dismissed stopped existing. It
+  /// still updates [lastReached], because "could not check" is exactly what
+  /// the screen needs to show.
+  void _apply(AppUpdateCheck result, int mine) {
+    if (mine != _generation) return;
+    _lastReached = result.reached;
+    if (!result.reached && state != null) return;
+    state = result.update;
+  }
+
   /// Ask if the interval has elapsed. Silent about everything else: a check
   /// nobody requested must not interrupt a launch, so a refusal, a network
   /// failure and "nothing new" all look the same from here.
@@ -169,10 +197,10 @@ class AppUpdateController extends Notifier<AppUpdate?> {
     } catch (_) {
       // No prefs: check once for this session rather than not at all.
     }
+    final mine = ++_generation;
     final result = await (checker ?? AppUpdateChecker(running: kAppVersion))
         .check();
-    _lastReached = result.reached;
-    state = result.update;
+    _apply(result, mine);
   }
 
   /// Whether the last look actually reached the release feed.
@@ -189,11 +217,14 @@ class AppUpdateController extends Notifier<AppUpdate?> {
   /// they are looking at the screen, so the traffic is theirs to spend — but
   /// still records the stamp so the automatic one does not repeat it.
   Future<AppUpdate?> checkNow({AppUpdateChecker? checker}) async {
+    final mine = ++_generation;
     final result = await (checker ?? AppUpdateChecker(running: kAppVersion))
         .check();
-    _lastReached = result.reached;
+    _apply(result, mine);
+    // Returned whatever the shared state ended up as: the caller pressed the
+    // button and is owed this look's answer even if a newer one has since
+    // taken the state.
     final found = result.update;
-    state = found;
     try {
       (await ref.read(installUpdatePrefsProvider.future)).lastCheck =
           DateTime.now();

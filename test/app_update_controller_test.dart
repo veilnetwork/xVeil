@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -211,20 +212,26 @@ void main() {
     expect(found?.tag, 'v9.9.9');
   });
 
-  test('dismissing puts the offer away without forgetting the release', () async {
-    final container = withInstallPrefs();
-    addTearDown(container.dispose);
-    final controller = container.read(appUpdateProvider.notifier);
+  test(
+    'dismissing puts the offer away without forgetting the release',
+    () async {
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+      final controller = container.read(appUpdateProvider.notifier);
 
-    await controller.checkIfDue(checker: answering(body));
-    expect(container.read(appUpdateProvider), isNotNull);
+      await controller.checkIfDue(checker: answering(body));
+      expect(container.read(appUpdateProvider), isNotNull);
 
-    controller.dismiss();
-    expect(container.read(appUpdateProvider), isNull);
+      controller.dismiss();
+      expect(container.read(appUpdateProvider), isNull);
 
-    // Pressing check-now finds it again: dismissing is not "never tell me".
-    expect((await controller.checkNow(checker: answering(body)))?.tag, 'v9.9.9');
-  });
+      // Pressing check-now finds it again: dismissing is not "never tell me".
+      expect(
+        (await controller.checkNow(checker: answering(body)))?.tag,
+        'v9.9.9',
+      );
+    },
+  );
 
   test('nothing newer means nothing to show', () async {
     // Premise for the tests above: they pass because v9.9.9 IS newer, not
@@ -232,13 +239,14 @@ void main() {
     final container = withInstallPrefs();
     addTearDown(container.dispose);
 
-    await container.read(appUpdateProvider.notifier).checkIfDue(
-      checker: AppUpdateChecker(
-        running: '0.13.3+11',
-        fetcher: (_) async =>
-            '{"tag_name":"v0.13.3","html_url":"$page"}',
-      ),
-    );
+    await container
+        .read(appUpdateProvider.notifier)
+        .checkIfDue(
+          checker: AppUpdateChecker(
+            running: '0.13.3+11',
+            fetcher: (_) async => '{"tag_name":"v0.13.3","html_url":"$page"}',
+          ),
+        );
 
     expect(container.read(appUpdateProvider), isNull);
   });
@@ -271,31 +279,38 @@ void main() {
       );
     });
 
-    test('and the daily throttle is not restarted by switching profile',
-        () async {
-      final now = DateTime(2026, 8, 26, 9);
-      final a = withInstallPrefs();
-      final askedA = <Uri>[];
-      await a
-          .read(appUpdateProvider.notifier)
-          .checkIfDue(now: now, checker: answering(body, asked: askedA));
-      expect(askedA, hasLength(1));
-      a.dispose();
+    test(
+      'and the daily throttle is not restarted by switching profile',
+      () async {
+        final now = DateTime(2026, 8, 26, 9);
+        final a = withInstallPrefs();
+        final askedA = <Uri>[];
+        await a
+            .read(appUpdateProvider.notifier)
+            .checkIfDue(
+              now: now,
+              checker: answering(body, asked: askedA),
+            );
+        expect(askedA, hasLength(1));
+        a.dispose();
 
-      final b = withInstallPrefs();
-      addTearDown(b.dispose);
-      final askedB = <Uri>[];
-      await b.read(appUpdateProvider.notifier).checkIfDue(
-            now: now.add(const Duration(hours: 1)),
-            checker: answering(body, asked: askedB),
-          );
+        final b = withInstallPrefs();
+        addTearDown(b.dispose);
+        final askedB = <Uri>[];
+        await b
+            .read(appUpdateProvider.notifier)
+            .checkIfDue(
+              now: now.add(const Duration(hours: 1)),
+              checker: answering(body, asked: askedB),
+            );
 
-      expect(
-        askedB,
-        isEmpty,
-        reason: 'each profile got its own beacon, one per day each',
-      );
-    });
+        expect(
+          askedB,
+          isEmpty,
+          reason: 'each profile got its own beacon, one per day each',
+        );
+      },
+    );
 
     test('the stamp names no profile', () {
       // What is shared has to be worth sharing: a stamp that said WHICH
@@ -304,8 +319,9 @@ void main() {
       installPrefs.lastCheck = DateTime(2026, 8, 26);
       installPrefs.enabled = false;
 
-      final raw = File(InstallUpdatePrefs.pathIn(support.path))
-          .readAsStringSync();
+      final raw = File(
+        InstallUpdatePrefs.pathIn(support.path),
+      ).readAsStringSync();
 
       expect(raw, contains('lastCheckMs'));
       expect(raw, contains('enabled'));
@@ -319,40 +335,50 @@ void main() {
     // old key, so an upgrade found an empty store, took the default, and asked
     // github.com on behalf of somebody who had turned checks off
     // (report16 XV-13).
-    test('an opt-out from the old store is honoured after the upgrade', () async {
-      SharedPreferences.setMockInitialValues({
-        kUpdateCheckEnabledPrefKey: false,
-      });
-      final container = withInstallPrefs();
-      addTearDown(container.dispose);
-      final asked = <Uri>[];
+    test(
+      'an opt-out from the old store is honoured after the upgrade',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          kUpdateCheckEnabledPrefKey: false,
+        });
+        final container = withInstallPrefs();
+        addTearDown(container.dispose);
+        final asked = <Uri>[];
 
-      await container
-          .read(appUpdateProvider.notifier)
-          .checkIfDue(checker: answering(body, asked: asked));
+        await container
+            .read(appUpdateProvider.notifier)
+            .checkIfDue(checker: answering(body, asked: asked));
 
-      expect(
-        asked,
-        isEmpty,
-        reason: 'the upgrade asked github.com despite a stored opt-out',
-      );
-      expect(installPrefs.enabled, isFalse, reason: 'it was not carried over');
-    });
+        expect(
+          asked,
+          isEmpty,
+          reason: 'the upgrade asked github.com despite a stored opt-out',
+        );
+        expect(
+          installPrefs.enabled,
+          isFalse,
+          reason: 'it was not carried over',
+        );
+      },
+    );
 
-    test('an opt-IN from the old store is NOT carried across profiles', () async {
-      // The old keys are per profile, so a `true` in one says nothing about
-      // another — while an opt-out anywhere is a choice to respect
-      // everywhere. Only the direction that sends no packet travels.
-      SharedPreferences.setMockInitialValues({
-        kUpdateCheckEnabledPrefKey: true,
-      });
-      final container = withInstallPrefs();
-      addTearDown(container.dispose);
+    test(
+      'an opt-IN from the old store is NOT carried across profiles',
+      () async {
+        // The old keys are per profile, so a `true` in one says nothing about
+        // another — while an opt-out anywhere is a choice to respect
+        // everywhere. Only the direction that sends no packet travels.
+        SharedPreferences.setMockInitialValues({
+          kUpdateCheckEnabledPrefKey: true,
+        });
+        final container = withInstallPrefs();
+        addTearDown(container.dispose);
 
-      await container.read(updateCheckEnabledProvider.notifier).resolved();
+        await container.read(updateCheckEnabledProvider.notifier).resolved();
 
-      expect(installPrefs.enabled, isNull, reason: 'a true was written in');
-    });
+        expect(installPrefs.enabled, isNull, reason: 'a true was written in');
+      },
+    );
 
     test('the old stamp is carried, so the throttle is not reset', () async {
       final earlier = DateTime(2026, 8, 26, 9);
@@ -363,7 +389,9 @@ void main() {
       addTearDown(container.dispose);
       final asked = <Uri>[];
 
-      await container.read(appUpdateProvider.notifier).checkIfDue(
+      await container
+          .read(appUpdateProvider.notifier)
+          .checkIfDue(
             now: earlier.add(const Duration(hours: 1)),
             checker: answering(body, asked: asked),
           );
@@ -504,10 +532,9 @@ void main() {
       installPrefs.enabled = true;
       installPrefs.lastCheck = DateTime(2026, 8, 26);
 
-      final left = Directory(support.path)
-          .listSync()
-          .map((e) => e.path.split('/').last)
-          .toList();
+      final left = Directory(
+        support.path,
+      ).listSync().map((e) => e.path.split('/').last).toList();
 
       expect(left, ['xveil.install.json'], reason: 'a temp was left behind');
       expect(installPrefs.enabled, isTrue);
@@ -528,4 +555,126 @@ void main() {
       );
     });
   });
+  // ── report15 X15-L11 — two paths to the network, and neither knew ─────────
+
+  /// A checker whose answer arrives only when the test says so.
+  AppUpdateChecker gated(String text, Future<void> gate) => AppUpdateChecker(
+    running: '0.13.3+11',
+    fetcher: (uri) async {
+      await gate;
+      return text;
+    },
+  );
+
+  test(
+    'a slow automatic check does not erase what a manual one found',
+    () async {
+      // The automatic look starts first and finishes LAST, with nothing to
+      // offer. It used to write that over the release the person had just found
+      // by pressing Check.
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+      final controller = container.read(appUpdateProvider.notifier);
+      final release = Completer<void>();
+
+      const nothing =
+          '{"tag_name":"v0.0.1","html_url":"$page",'
+          '"draft":false,"prerelease":false}';
+
+      final automatic = controller.checkIfDue(
+        checker: gated(nothing, release.future),
+      );
+      // Starts second, answers first.
+      final found = await controller.checkNow(checker: answering(body));
+      expect(found, isNotNull, reason: 'premise: the manual look found one');
+      expect(container.read(appUpdateProvider), isNotNull);
+
+      release.complete();
+      await automatic;
+
+      expect(
+        container.read(appUpdateProvider),
+        isNotNull,
+        reason: 'the older look answered last and took the offer with it',
+      );
+    },
+  );
+
+  test('and the newest look wins when it is the automatic one', () async {
+    // The mirror image: the manual look starts first and answers last. Its
+    // answer is the older question's, so it must not take the state.
+    final container = withInstallPrefs();
+    addTearDown(container.dispose);
+    final controller = container.read(appUpdateProvider.notifier);
+    final release = Completer<void>();
+
+    final manual = controller.checkNow(checker: gated(body, release.future));
+    await controller.checkIfDue(checker: answering(body));
+    expect(container.read(appUpdateProvider), isNotNull, reason: 'premise');
+    controller.dismiss();
+    expect(container.read(appUpdateProvider), isNull, reason: 'premise');
+
+    release.complete();
+    await manual;
+
+    expect(
+      container.read(appUpdateProvider),
+      isNull,
+      reason: 'a superseded look put back an offer that was dismissed after it',
+    );
+  });
+
+  test(
+    'a look that could not reach the feed does not erase a standing offer',
+    () async {
+      // "Could not ask" is not evidence that the release stopped existing. The
+      // screen still needs to know the attempt failed, which is a different
+      // question from what to offer.
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+      final controller = container.read(appUpdateProvider.notifier);
+
+      await controller.checkNow(checker: answering(body));
+      expect(container.read(appUpdateProvider), isNotNull, reason: 'premise');
+
+      final offline = AppUpdateChecker(
+        running: '0.13.3+11',
+        fetcher: (uri) async => throw const SocketException('offline'),
+      );
+      await controller.checkNow(checker: offline);
+
+      expect(
+        container.read(appUpdateProvider),
+        isNotNull,
+        reason: 'a failed request was read as "there is nothing"',
+      );
+      expect(
+        controller.lastReached,
+        isFalse,
+        reason: 'and the screen must know',
+      );
+    },
+  );
+
+  test(
+    'CONTROL: a look that DID reach and found nothing clears the offer',
+    () async {
+      // Vacuity guard for the rule above: refusing to clear on every failure
+      // would leave a stale offer standing after the release was withdrawn.
+      final container = withInstallPrefs();
+      addTearDown(container.dispose);
+      final controller = container.read(appUpdateProvider.notifier);
+
+      await controller.checkNow(checker: answering(body));
+      expect(container.read(appUpdateProvider), isNotNull, reason: 'premise');
+
+      const older =
+          '{"tag_name":"v0.0.1","html_url":"$page",'
+          '"draft":false,"prerelease":false}';
+      await controller.checkNow(checker: answering(older));
+
+      expect(container.read(appUpdateProvider), isNull);
+      expect(controller.lastReached, isTrue);
+    },
+  );
 }
