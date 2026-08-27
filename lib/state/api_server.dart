@@ -243,17 +243,26 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// send can never arrive — see [contactRequestRefusal] for what was measured.
   /// This used to accept one and report `200 {"ok":true}`, having done nothing
   /// but write a `pendingOutgoing` contact nobody would ever answer.
-  Future<String?> _requestContact(String target, String greeting) async {
+  Future<String?> _requestContact(
+    String target,
+    String greeting,
+    bool Function() moved,
+  ) async {
     final refusal = contactRequestRefusal(target);
     if (refusal != null) return refusal;
     try {
       final invite = BootstrapInvite.parse(target);
       final stack = ref.read(realStackProvider);
       if (stack == null) return 'node unavailable';
+      // Both services taken now, so the contact lands in the stack that was
+      // asked and the greeting goes out over the same pipeline.
+      final messaging = ref.read(messagingServiceProvider);
       await stack.addContact(invite);
-      await ref
-          .read(messagingServiceProvider)
-          .sendRequest(invite.nodeId, greeting);
+      // The greeting is the part that reaches another person. If the identity
+      // moved while the contact was being added, it is not sent at all — the
+      // contact stays in A's stack, where the bearer that asked for it lives.
+      if (moved()) return kIdentityChanged;
+      await messaging.sendRequest(invite.nodeId, greeting);
       return null;
     } catch (e) {
       return '$e';
@@ -354,6 +363,7 @@ class ApiServerController extends Notifier<ApiConfig> {
     String path,
     String? name,
     List<String> roots,
+    bool Function() moved,
   ) async {
     final NodeId peer;
     try {
@@ -361,9 +371,17 @@ class ApiServerController extends Notifier<ApiConfig> {
     } catch (_) {
       return 'invalid peer';
     }
+    final messaging = ref.read(messagingServiceProvider);
     final opened = await veilOpenPinnedSource(path, opener: debugSourceOpener);
     if (opened.refusal != null) return opened.refusal;
     final source = opened.source!;
+    // Opening the file is the gap this closes. A's token authorized the path;
+    // sending it from B would hand B's contact a file out of A's folders.
+    // Closed here, because nothing else will: the offer is never built.
+    if (moved()) {
+      await source.close();
+      return kIdentityChanged;
+    }
     // [path] arrives resolved and absolute from the API edge, so derive the
     // display name through the URI rather than by splitting on '/' — on
     // Windows that split would hand the peer the whole `C:\…` path as a name.
@@ -372,17 +390,15 @@ class ApiServerController extends Notifier<ApiConfig> {
         : File(path).uri.pathSegments.last;
     final before = opened.stamp;
     try {
-      final cid = await ref
-          .read(messagingServiceProvider)
-          .sendFileStreaming(
-            peer,
-            n,
-            source.size,
-            source.read,
-            close: source.close,
-            sourcePath: path,
-            sourceRoots: roots,
-          );
+      final cid = await messaging.sendFileStreaming(
+        peer,
+        n,
+        source.size,
+        source.read,
+        close: source.close,
+        sourcePath: path,
+        sourceRoots: roots,
+      );
       if (cid == null) return 'peer not accepted';
       final after = await veilSourceStamp(path);
       if (before != null && after != null && before != after) {
@@ -707,6 +723,10 @@ class ApiServerController extends Notifier<ApiConfig> {
     return run;
   }
 
+  /// What a request gets when the identity that authorized it is no longer
+  /// the one signed in.
+  static const String kIdentityChanged = 'identity changed';
+
   Future<void> _reconcileNow(String? identityAtStart) async {
     if (identityAtStart == null || identityAtStart != _identityHex) return;
     await _server?.stop();
@@ -745,6 +765,24 @@ class ApiServerController extends Notifier<ApiConfig> {
             loadFile: (contentId) =>
                 storedBlobSource(ref.read(storageProvider), contentId),
           );
+    // The identity these handlers are built for.
+    //
+    // A bearer token belongs to ONE identity — the tokens themselves are read
+    // out of that identity's own store. `stop()` closes the listener and the
+    // connections, but a handler already running is a Dart Future that nothing
+    // cancels, and every one of these callbacks resolves its services when it
+    // runs. So a request authorized by A's token, still in flight when a
+    // concurrent `POST /v1/account/identity` moved the app to B, went on to
+    // send as B, write into B's store and greet a contact as B — with no
+    // bearer for B anywhere in it, and tying the two identities together in
+    // front of that contact (report17 XV17-H7).
+    //
+    // Captured in the closure, not read from the field: the field belongs to
+    // whichever identity is current, which is exactly the thing being tested
+    // against.
+    final generation = _identityGeneration;
+    bool moved() => generation != _identityGeneration;
+
     final handler = ApiHandler(
       cloudItems: cloudApi?.items,
       cloudFolders: cloudApi?.folders,
@@ -755,21 +793,33 @@ class ApiServerController extends Notifier<ApiConfig> {
       tokens: state.tokens,
       status: _status,
       account: _account,
-      accountInvite: () async =>
-          ref.read(realStackProvider)?.myInvite.toUri(),
+      accountInvite: () async => ref.read(realStackProvider)?.myInvite.toUri(),
       lockAccount: lockForApi,
-      switchIdentity: _switchIdentity,
-      contacts: _contacts,
-      requestContact: _requestContact,
-      contactAction: _contactAction,
-      send: _send,
-      messages: _messages,
-      sendFile: _sendFile,
-      fetchFile: _fetchFile,
-      loadFile: _loadFile,
-      placeCall: _placeCall,
+      switchIdentity: (label) async =>
+          moved() ? kIdentityChanged : await _switchIdentity(label),
+      contacts: () async => moved() ? const [] : await _contacts(),
+      // `moved` goes INSIDE these two: each does real work between its first
+      // await and its side effect, and the switch can land in that gap.
+      requestContact: (target, greeting) async => moved()
+          ? kIdentityChanged
+          : await _requestContact(target, greeting, moved),
+      contactAction: (peerHex, action) async =>
+          moved() ? kIdentityChanged : await _contactAction(peerHex, action),
+      send: (toHex, text) async =>
+          moved() ? kIdentityChanged : await _send(toHex, text),
+      messages: (peerHex, limit) async =>
+          moved() ? const [] : await _messages(peerHex, limit),
+      sendFile: (toHex, path, name, roots) async => moved()
+          ? kIdentityChanged
+          : await _sendFile(toHex, path, name, roots, moved),
+      fetchFile: (peerHex, messageId) async =>
+          moved() ? kIdentityChanged : await _fetchFile(peerHex, messageId),
+      loadFile: (fileId) async => moved() ? null : await _loadFile(fileId),
+      placeCall: (toHex, media) async =>
+          moved() ? kIdentityChanged : await _placeCall(toHex, media),
       callState: _callState,
-      callAction: _callAction,
+      callAction: (action) async =>
+          moved() ? kIdentityChanged : await _callAction(action),
       groups: groupApi == null ? () async => const [] : groupApi.list,
       spaces: groupApi == null ? () async => const [] : groupApi.listSpaces,
       spaceMemberships: groupApi == null
