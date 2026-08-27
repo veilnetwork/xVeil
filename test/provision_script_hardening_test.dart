@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'support/expect_before.dart';
+import 'package:xveil/data/node/node_auto_update.dart' show kVeilUpdateLockPath;
 import 'package:xveil/data/node/node_provisioner.dart';
 
 /// The provisioning script stages a deployment obfs4 PSK, a TLS private key,
@@ -23,6 +24,122 @@ void main() {
       obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
     ),
   );
+
+  group('one operation at a time on the server (report17 XV17-M11)', () {
+    // The deployment installs binaries into /usr/local/bin, writes the node's
+    // config and restarts the service — the same objects the update path
+    // guards with a flock — and it took no lock at all. A deployment running
+    // while a fleet or auto update was in flight could have its freshly
+    // installed binary replaced by the other operation's rollback, or replace
+    // one mid-rollback.
+
+    test('the whole mutating body runs under the shared update lock', () {
+      final s = script();
+
+      expect(
+        s,
+        contains("sudo flock -w 600 '/run/lock/xveil-veil-update.lock'"),
+        reason: 'the deployment can interleave with an update or a rollback',
+      );
+      // The same file the update path takes, not a lock of this path's own —
+      // two different locks serialise nothing.
+      expect(
+        s,
+        contains(kVeilUpdateLockPath),
+        reason: 'a private lock excludes only this path from itself',
+      );
+      // Everything that changes the server is inside. The installs are the
+      // ones that collide with a rollback; the restart and the config follow
+      // them and must not be left outside where the other operation can land
+      // between.
+      final staged = s.indexOf('XVEIL_PROVISION_CRITICAL');
+      final closed = s.indexOf('\nXVEIL_PROVISION_CRITICAL\n');
+      expect(staged, isNot(-1), reason: 'nothing is staged for the lock');
+      final body = s.substring(staged, closed);
+      for (final step in [
+        "install -o root -g root -m 0755",
+        'systemctl restart veil',
+        '/var/lib/veil/node.toml',
+        'systemctl daemon-reload',
+      ]) {
+        expect(
+          body,
+          contains(step),
+          reason: 'this changes the server from outside the lock: \$step',
+        );
+      }
+    });
+
+    test(
+      'and the scratch directory is cleaned up even if the lock is not won',
+      () {
+        // The trap has to stay OUTSIDE the staged script: a deployment that
+        // waited ten minutes and never got its turn would otherwise leave the
+        // deployment PSK and the TLS private key on disk.
+        final s = script();
+        final staged = s.indexOf('XVEIL_PROVISION_CRITICAL');
+
+        expect(
+          s.substring(0, staged),
+          contains(r"""trap 'sudo rm -rf -- "$XVEIL_TMP"' EXIT INT TERM"""),
+          reason: 'the secrets survive a lock this deployment never won',
+        );
+      },
+    );
+
+    test(
+      'both halves are well-formed shell',
+      () async {
+        // The body moved inside a quoted heredoc, and it is full of heredocs
+        // of its own. `bash -n` parses without running — but a QUOTED heredoc
+        // is only TEXT to the outer parse, so the staged body has to be
+        // checked as a script in its own right, or an unterminated heredoc
+        // inside it would ship.
+        final dir = Directory.systemTemp.createTempSync('xveil-syntax-');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        final s = script();
+
+        final outer = File('${dir.path}/outer.sh')..writeAsStringSync(s);
+        final outerRun = await Process.run('bash', ['-n', outer.path]);
+        expect(
+          outerRun.exitCode,
+          0,
+          reason: 'the deployment script does not parse: ${outerRun.stderr}',
+        );
+        // WARNINGS COUNT. An unterminated heredoc is not an error to bash: it
+        // says "here-document delimited by end-of-file" and exits 0, so a
+        // status-only check passes over a script whose remaining lines have
+        // been swallowed as text.
+        expect(
+          outerRun.stderr,
+          isEmpty,
+          reason: 'bash has something to say about the deployment script',
+        );
+
+        const marker = 'XVEIL_PROVISION_CRITICAL';
+        final opened = s.indexOf("<<'$marker'\n");
+        expect(opened, isNot(-1), reason: 'the staged body moved; re-anchor');
+        final bodyStart = s.indexOf('\n', opened) + 1;
+        final bodyEnd = s.indexOf('\n$marker\n', bodyStart);
+        expect(bodyEnd, isNot(-1), reason: 'the staged heredoc is not closed');
+
+        final inner = File('${dir.path}/inner.sh')
+          ..writeAsStringSync(s.substring(bodyStart, bodyEnd));
+        final innerRun = await Process.run('bash', ['-n', inner.path]);
+        expect(
+          innerRun.exitCode,
+          0,
+          reason: 'the staged body does not parse: ${innerRun.stderr}',
+        );
+        expect(
+          innerRun.stderr,
+          isEmpty,
+          reason: 'bash has something to say about the staged body',
+        );
+      },
+      skip: Platform.isWindows ? 'POSIX shell only' : null,
+    );
+  });
 
   test('nothing writes into the scratch directory without sudo', () {
     // report17 XV17-M10. The directory is created by `sudo mktemp -d`, so it
