@@ -190,7 +190,15 @@ class NotificationService {
   /// attached — the typed text comes back through `onReply` (see [init]). Only
   /// offer it when the sender is visible (full preview), so the user knows whom
   /// they are answering.
-  Future<void> show({
+  ///
+  /// Answers whether the alert was actually POSTED. It used to return void
+  /// over two silent failure paths — a service that is not ready, and a plugin
+  /// that threw — and the caller recorded the new alert's owner before
+  /// calling: a show that did not happen left the PREVIOUS alert on screen
+  /// with the new identity written against it, and its inline reply then went
+  /// out from an identity that never had that conversation
+  /// (report17 XV17-M12).
+  Future<bool> show({
     required int id,
     required String title,
     required String body,
@@ -198,7 +206,7 @@ class NotificationService {
     String? replyLabel,
     String? replyHint,
   }) async {
-    if (!_ready) return;
+    if (!_ready) return false;
     try {
       final actions = (replyLabel != null && Platform.isAndroid)
           ? <AndroidNotificationAction>[
@@ -240,8 +248,10 @@ class NotificationService {
         ),
         payload: payload,
       );
+      return true;
     } catch (e) {
       devLog(() => 'xVeil[notify]: show failed: $e');
+      return false;
     }
   }
 

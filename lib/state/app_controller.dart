@@ -1222,7 +1222,34 @@ class AppController extends Notifier<AppState> {
   /// Point the providers (active storage/messaging via [activeIdentityProvider],
   /// transport/invite via [realStackProvider]) at a hosted identity and surface
   /// it. Used on entry and on every all-online switch — no teardown.
+  /// Drop every posted alert and everything that attributes one.
+  ///
+  /// A notification outlives the session that posted it: the OS shade is
+  /// shared, the alert stays until somebody dismisses it, and its inline reply
+  /// is live the whole time. Lock has cleared the shade all along; a SWITCH
+  /// did not, so alerts posted by the identity being left behind stayed on
+  /// screen — and the owner map that decides who may reply to them survived
+  /// too, in a class whose `clear` production never called
+  /// (report17 XV17-M12).
+  ///
+  /// The order is deliberate: cancel the alerts FIRST, then drop what resolves
+  /// them. A token dropped while its alert is still on screen makes that alert
+  /// unroutable rather than absent.
+  Future<void> _dropPostedNotifications() async {
+    try {
+      await ref.read(notificationServiceProvider).cancelAll();
+    } catch (_) {
+      // A notification backend that is not up cannot be holding anything.
+    }
+    ref.read(opaqueNotificationPayloadsProvider).clear();
+    ref.read(notificationOwnersProvider).clear();
+  }
+
   Future<void> _activateOnline(String label, List<String> identities) async {
+    // BEFORE the view is re-pointed: from here on, this identity is the one a
+    // reply would be sent from, and no alert from the one being left behind
+    // may still be on screen offering to send it.
+    await _dropPostedNotifications();
     final gen = _lifecycle;
     final session = ref.read(sessionProvider)!;
     _activeLabel = label;
@@ -1324,6 +1351,9 @@ class AppController extends Notifier<AppState> {
       }
     }
     if (entry == null) return;
+    // Same barrier as the all-online path above, for the same reason: the
+    // identity that posted the alerts on screen is about to go away.
+    await _dropPostedNotifications();
     // Timestamped phases (like _unlockInner/lock): a switch that takes seconds
     // names the step that stalled — teardown, lock release, space open, or the
     // node boot inside _enterSession (whose own laps are in veil_stack).
@@ -2507,6 +2537,11 @@ class AppController extends Notifier<AppState> {
       // A notification backend that is not up cannot be holding anything.
     }
     ref.read(opaqueNotificationPayloadsProvider).clear();
+    // And what attributes an alert to an identity. Kept in memory only and by
+    // design — a restart leaves every earlier notification unattributable,
+    // which is the safe direction — but until this call the map was never
+    // cleared by anything in production (report17 XV17-M12).
+    ref.read(notificationOwnersProvider).clear();
     // The session is over, so the screen lock has nothing left to cover — and
     // must not carry this session's password recogniser into the next one,
     // which may well be a different identity entirely.

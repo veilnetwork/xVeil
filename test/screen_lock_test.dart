@@ -84,6 +84,13 @@ class _InjectableTransport implements VeilTransport {
 
 /// Records what reached the OS instead of posting it.
 class _CapturingNotifications extends NotificationService {
+  _CapturingNotifications({this.postFails = false});
+
+  /// The show that does not happen: a service that is not ready, or a plugin
+  /// that threw. Both are silent in production and both leave whatever was
+  /// already on the screen exactly where it was.
+  final bool postFails;
+
   final shown = <({String title, String body})>[];
 
   @override
@@ -93,7 +100,7 @@ class _CapturingNotifications extends NotificationService {
   Future<void> cancelAll() async {}
 
   @override
-  Future<void> show({
+  Future<bool> show({
     required int id,
     required String title,
     required String body,
@@ -101,7 +108,9 @@ class _CapturingNotifications extends NotificationService {
     String? replyLabel,
     String? replyHint,
   }) async {
+    if (postFails) return false;
     shown.add((title: title, body: body));
+    return true;
   }
 }
 
@@ -191,10 +200,7 @@ void main() {
       expect(screenLockWaitSeconds(const Duration(milliseconds: 1001)), 2);
       // The cap the backoff is clamped to, so the largest number a person can
       // ever be shown is thirty and not something that reads as a lockout.
-      expect(
-        screenLockWaitSeconds(ScreenLockController.throttleAfter(99)),
-        30,
-      );
+      expect(screenLockWaitSeconds(ScreenLockController.throttleAfter(99)), 30);
     });
   });
 
@@ -488,7 +494,7 @@ void main() {
         MessagingService messaging,
       })
     >
-    mount(WidgetTester tester, {Widget? body}) async {
+    mount(WidgetTester tester, {Widget? body, bool postFails = false}) async {
       final storage = HiddenVolumeStorage(_memory());
       final transport = _InjectableTransport();
       addTearDown(transport.dispose);
@@ -497,7 +503,7 @@ void main() {
       // and the delivery this whole group is about would be a fiction.
       final messaging = MessagingService(transport, storage)..start();
       await messaging.acceptContact(_peer);
-      final notifications = _CapturingNotifications();
+      final notifications = _CapturingNotifications(postFails: postFails);
 
       await tester.pumpWidget(
         ProviderScope(
@@ -632,6 +638,92 @@ void main() {
       );
       // Still locked afterwards: receiving a message is not a way in.
       expect(find.byType(ScreenLockCover), findsOneWidget);
+      await shutdown(tester, app.messaging);
+    });
+
+    /// Who a posted alert belongs to, and when that is written down.
+    ///
+    /// A notification outlives the session that posted it, so a reply may only
+    /// go out from the identity the alert is about. That is decided by the
+    /// owner map — and the binder used to write into it BEFORE asking the OS
+    /// to post anything. `show` has two silent failure paths (a service that
+    /// is not ready, a plugin that threw), so a post that never happened still
+    /// moved the owner, while the previous alert — belonging to another
+    /// identity — was still on the screen with its inline reply live
+    /// (report17 XV17-M12).
+    testWidgets('a posted alert is attributable to whoever posted it', (
+      tester,
+    ) async {
+      final app = await mount(tester);
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+      await background(tester);
+
+      app.transport.inject(
+        InboundMessage(
+          src: _peer,
+          payload: WireEnvelope.message(
+            'are you there',
+            id: 'owner-ok-1',
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ).encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await settle(tester);
+
+      expect(
+        app.notifications.shown,
+        isNotEmpty,
+        reason: 'nothing was posted, so this proves nothing either way',
+      );
+      expect(
+        app.container
+            .read(notificationOwnersProvider)
+            .mayReplyAs(_peer.hex, _self.hex),
+        isTrue,
+        reason: 'an alert on the screen that nobody may answer',
+      );
+      await shutdown(tester, app.messaging);
+    });
+
+    testWidgets('an alert that was never posted leaves no owner behind', (
+      tester,
+    ) async {
+      final app = await mount(tester, postFails: true);
+      final lock = app.container.read(screenLockProvider.notifier);
+      lock.rememberPassword('pw');
+      await lock.setTimeout(ScreenLockTimeout.immediately);
+      await background(tester);
+
+      app.transport.inject(
+        InboundMessage(
+          src: _peer,
+          payload: WireEnvelope.message(
+            'are you there',
+            id: 'owner-fail-1',
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ).encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await settle(tester);
+
+      expect(
+        app.notifications.shown,
+        isEmpty,
+        reason: 'the fixture must actually have failed, or this proves nothing',
+      );
+      expect(
+        app.container
+            .read(notificationOwnersProvider)
+            .mayReplyAs(_peer.hex, _self.hex),
+        isFalse,
+        reason:
+            'the owner moved for an alert that was never posted — whatever is '
+            'still on the screen would now be answered as this identity',
+      );
       await shutdown(tester, app.messaging);
     });
 
@@ -914,14 +1006,16 @@ void main() {
       expect(
         find.byType(ScreenLockCover),
         findsOneWidget,
-        reason: 'the throttle itself stopped working — see the controller '
+        reason:
+            'the throttle itself stopped working — see the controller '
             'tests; this one is about what the screen SAYS about it',
       );
       // THE assertion.
       expect(
         find.text(lang(tester).lockWrong),
         findsNothing,
-        reason: 'the password just typed was the right one, and the screen '
+        reason:
+            'the password just typed was the right one, and the screen '
             'called it wrong',
       );
       // Thirty seconds is the cap, and eleven failures is past it. One second
@@ -931,7 +1025,8 @@ void main() {
       expect(
         errorLine(tester),
         anyOf(lang(tester).screenLockWait(30), lang(tester).screenLockWait(29)),
-        reason: 'the wait has to be NAMED — "try again in 30 s" is something '
+        reason:
+            'the wait has to be NAMED — "try again in 30 s" is something '
             'a person can act on, and it is also true',
       );
       // A field that ignores what is typed into it must not look ready for it.
@@ -967,7 +1062,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('screen-lock-submit')));
       await settle(tester);
       final before = errorLine(tester);
-      expect(before, anyOf(lang(tester).screenLockWait(30), lang(tester).screenLockWait(29)));
+      expect(
+        before,
+        anyOf(lang(tester).screenLockWait(30), lang(tester).screenLockWait(29)),
+      );
 
       // Twenty of the thirty go by with nobody touching anything. A static
       // sentence would still read "30 s" here, which is the difference between
@@ -997,7 +1095,8 @@ void main() {
       expect(
         errorLine(tester),
         lang(tester).lockWrong,
-        reason: 'nothing is owed any more, and the last attempt really was '
+        reason:
+            'nothing is owed any more, and the last attempt really was '
             'wrong — hiding that would be the opposite mistake',
       );
       await tester.enterText(
@@ -1082,14 +1181,16 @@ void main() {
             .controller!
             .text,
         'pw',
-        reason: 'the fixture itself is broken — the box no longer holds the '
+        reason:
+            'the fixture itself is broken — the box no longer holds the '
             'password the screen is about to pass judgement on',
       );
       // THE assertion: whatever the field says, it must not be that.
       expect(
         errorLine(tester),
         isNot(lang(tester).lockWrong),
-        reason: 'the wait ended and uncovered a verdict on a password that '
+        reason:
+            'the wait ended and uncovered a verdict on a password that '
             'was never compared to anything — and it is the RIGHT one, still '
             'visible in the box',
       );
@@ -1148,7 +1249,8 @@ void main() {
       expect(
         errorLine(tester),
         lang(tester).lockWrong,
-        reason: 'the answer to the last thing actually compared was no, and '
+        reason:
+            'the answer to the last thing actually compared was no, and '
             'the person is entitled to know that',
       );
       await shutdown(tester, app.messaging);
@@ -1320,7 +1422,8 @@ void main() {
       expect(
         container.read(screenLockProvider).wrongPassword,
         isFalse,
-        reason: 'the flag answers "was the thing just submitted wrong", and '
+        reason:
+            'the flag answers "was the thing just submitted wrong", and '
             'the thing just submitted was refused before the HMAC ran',
       );
     });
@@ -1352,10 +1455,10 @@ void main() {
       expect(
         controller.throttleRemaining,
         Duration.zero,
-        reason: 'the counter must reset, or every later session inherits a '
+        reason:
+            'the counter must reset, or every later session inherits a '
             'punishment from an earlier one',
       );
     });
   });
 }
-

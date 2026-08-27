@@ -876,10 +876,21 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // Whose notification this is, so a reply can only go out from that
     // identity. Recorded against the RESOLVED payload — the reply callback
     // resolves an opaque token back to this before it looks.
-    ref
-        .read(notificationOwnersProvider)
-        .remember(convHex, ref.read(appControllerProvider).identity?.nodeId.hex);
-    await ref
+    //
+    // Read BEFORE the show and committed AFTER it, and both halves matter.
+    // The identity is the one this alert is about, not whichever is active by
+    // the time the OS answers. And the commit waits because the show has two
+    // silent failure paths: a service that is not ready and a plugin that
+    // threw. Recording first meant a show that never happened still moved the
+    // owner — while the PREVIOUS alert, belonging to another identity, was
+    // still on the screen with its inline reply live. That reply then went out
+    // from an identity that never had this conversation, which tells the
+    // person on the other end that the two are the same device
+    // (report17 XV17-M12). Leaving the map alone on failure keeps the alert
+    // that IS on screen attributable to whoever posted it.
+    final owners = ref.read(notificationOwnersProvider);
+    final owner = ref.read(appControllerProvider).identity?.nodeId.hex;
+    final posted = await ref
         .read(notificationServiceProvider)
         .show(
           id: notificationIdForIncomingMessage(convHex),
@@ -900,6 +911,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           replyLabel: full && allowReply ? l.notificationReply : null,
           replyHint: full && allowReply ? l.notificationReplyHint : null,
         );
+    if (posted) owners.remember(convHex, owner);
   }
 
   @override
