@@ -6302,6 +6302,12 @@ abstract class AppL10n {
   /// **'Asks github.com once a day whether a newer xVeil exists. The request tells GitHub that this device runs xVeil, and from what address.'**
   String get updateCheckHint;
 
+  /// No description provided for @updateCheckChoiceNotSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'This choice could not be saved and will be back after a restart.'**
+  String get updateCheckChoiceNotSaved;
+
   /// No description provided for @updateCheckNow.
   ///
   /// In en, this message translates to:

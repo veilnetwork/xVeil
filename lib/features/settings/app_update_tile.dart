@@ -60,6 +60,13 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final enabled = ref.watch(updateCheckEnabledProvider);
+    // Whether the last choice reached the disk. `false` means the switch holds
+    // for this session and comes back at the next launch — which for an
+    // opt-OUT is a request the person believed they had stopped, so it is said
+    // rather than swallowed (report17 XV17-M2).
+    final persisted = ref
+        .watch(updateCheckEnabledProvider.notifier)
+        .lastChoicePersisted;
     final update = ref.watch(appUpdateProvider);
 
     return Column(
@@ -68,7 +75,11 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
         SwitchListTile(
           secondary: const Icon(Icons.system_update_outlined),
           title: Text(l.updateCheckSwitch),
-          subtitle: Text(l.updateCheckHint),
+          subtitle: Text(
+            persisted == false
+                ? '${l.updateCheckHint}\n${l.updateCheckChoiceNotSaved}'
+                : l.updateCheckHint,
+          ),
           isThreeLine: true,
           value: enabled,
           onChanged: _busy
@@ -93,16 +104,14 @@ class _AppUpdateTileState extends ConsumerState<AppUpdateTile> {
             // cannot reach github.com does not ask on every launch — so its
             // presence says an attempt was made and nothing about how it went.
             // A failed check used to read as up to date (report16 XV-15).
-            title: Text(
-              switch ((
-                ref.watch(updateLastCheckProvider).value,
-                ref.watch(appUpdateProvider.notifier).lastReached,
-              )) {
-                (null, _) => l.updateNotChecked,
-                (_, false) => l.updateCouldNotCheck,
-                _ => l.updateUpToDate,
-              },
-            ),
+            title: Text(switch ((
+              ref.watch(updateLastCheckProvider).value,
+              ref.watch(appUpdateProvider.notifier).lastReached,
+            )) {
+              (null, _) => l.updateNotChecked,
+              (_, false) => l.updateCouldNotCheck,
+              _ => l.updateUpToDate,
+            }),
           ),
         if (_notice != null)
           Padding(

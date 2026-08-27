@@ -3620,6 +3620,10 @@ class AppL10nEs extends AppL10n {
       'Pregunta a github.com una vez al día si existe una versión más reciente. La petición le dice a GitHub que este dispositivo usa xVeil, y desde qué dirección.';
 
   @override
+  String get updateCheckChoiceNotSaved =>
+      'No se pudo guardar esta elección y volverá al estado anterior tras reiniciar.';
+
+  @override
   String get updateCheckNow => 'Buscar ahora';
 
   @override

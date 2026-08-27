@@ -509,6 +509,54 @@ void main() {
       expect(installPrefs.enabled, isNull);
     });
 
+    test('a write that cannot land says so, and is not silently kept', () {
+      // A read-only support directory: the file cannot be written, and both
+      // things it holds stop meaning what the caller thinks. An opt-out that
+      // is not on disk is back to "on" at the next launch — a request to
+      // github.com the person believed they had stopped (report17 XV17-M2).
+      final locked = Directory('${support.path}/locked')..createSync();
+      final prefs = InstallUpdatePrefs('${locked.path}/xveil.install.json');
+      expect(
+        prefs.setEnabled(false),
+        isTrue,
+        reason: 'premise: an ordinary write does land',
+      );
+
+      Process.runSync('chmod', ['0500', locked.path]);
+      addTearDown(() => Process.runSync('chmod', ['0700', locked.path]));
+
+      expect(
+        prefs.setEnabled(true),
+        isFalse,
+        reason: 'a write that could not reach the disk reported success',
+      );
+    });
+
+    test('a check stamp that could not be written still holds this session', () {
+      // The other half. A stamp that is forgotten because it could not be
+      // written makes every launch — and every check within one long session —
+      // ask github.com again, which is the exact traffic the interval exists
+      // to prevent.
+      final locked = Directory('${support.path}/locked-stamp')..createSync();
+      final prefs = InstallUpdatePrefs('${locked.path}/xveil.install.json');
+      Process.runSync('chmod', ['0500', locked.path]);
+      addTearDown(() => Process.runSync('chmod', ['0700', locked.path]));
+
+      final at = DateTime(2026, 8, 27, 12);
+      prefs.lastCheck = at;
+
+      expect(
+        prefs.lastCheck,
+        at,
+        reason: 'the stamp was forgotten, so the next launch asks again',
+      );
+      expect(
+        File('${locked.path}/xveil.install.json').existsSync(),
+        isFalse,
+        reason: 'the fixture is not read-only, so this test proves nothing',
+      );
+    });
+
     test('the write goes through a temp and a rename', () {
       // Structural, and this is why: what it buys is that a crash IN THE
       // MIDDLE of a write leaves the old file rather than half a new one, and
@@ -519,7 +567,7 @@ void main() {
       final source = File(
         'lib/data/update/install_prefs.dart',
       ).readAsStringSync();
-      final body = source.substring(source.indexOf('void _write('));
+      final body = source.substring(source.indexOf('bool _write('));
 
       expect(body, contains('.tmp'));
       expectBefore(body, 'writeAsStringSync', 'renameSync(path)');

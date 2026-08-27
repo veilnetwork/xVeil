@@ -3582,6 +3582,10 @@ class AppL10nEn extends AppL10n {
       'Asks github.com once a day whether a newer xVeil exists. The request tells GitHub that this device runs xVeil, and from what address.';
 
   @override
+  String get updateCheckChoiceNotSaved =>
+      'This choice could not be saved and will be back after a restart.';
+
+  @override
   String get updateCheckNow => 'Check now';
 
   @override

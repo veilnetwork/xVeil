@@ -1556,6 +1556,7 @@
   "updateSectionTitle": "Actualizaciones",
   "updateCheckSwitch": "Buscar actualizaciones",
   "updateCheckHint": "Pregunta a github.com una vez al día si existe una versión más reciente. La petición le dice a GitHub que este dispositivo usa xVeil, y desde qué dirección.",
+  "updateCheckChoiceNotSaved": "No se pudo guardar esta elección y volverá al estado anterior tras reiniciar.",
   "updateCheckNow": "Buscar ahora",
   "updateChecking": "Buscando…",
   "updateUpToDate": "Tienes la última versión",
