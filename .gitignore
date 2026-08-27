@@ -88,3 +88,10 @@ TranslateLink.xcconfig
 .*graph*
 *graph*/
 __pycache__/
+
+# Local Apple signing identity. The scripted build passes DEVELOPMENT_TEAM
+# empty and signs ad-hoc; a developer signing from Xcode puts their team in a
+# local xcconfig instead of the project file, where it is a stable public
+# identifier of the account that owns it.
+macos/Local.xcconfig
+ios/Local.xcconfig
