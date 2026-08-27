@@ -28,9 +28,13 @@ void main() {
       ),
     );
     final lines = script.split('\n');
-    final from = lines.indexWhere((l) => l.startsWith('set_toml_scalar()'));
-    expect(from, isNot(-1), reason: 'the helper moved');
-    final to = lines.indexOf('}', from);
+    // `set_toml_scalar` calls `require_staged_file`, which refuses a staged
+    // path that is a symlink — so the helper is both functions, not one.
+    final from = lines.indexWhere((l) => l.startsWith('require_staged_file()'));
+    expect(from, isNot(-1), reason: 'the staged-file check moved');
+    final edit = lines.indexWhere((l) => l.startsWith('set_toml_scalar()'));
+    expect(edit, isNot(-1), reason: 'the helper moved');
+    final to = lines.indexOf('}', edit);
     expect(to, isNot(-1));
     return lines.sublist(from, to + 1).join('\n');
   }
@@ -38,8 +42,12 @@ void main() {
   /// Run the helper against a config in a directory the test user cannot
   /// write, with a `sudo` that can. Returns the resulting file, or null when
   /// the helper failed.
-  ({int code, String stderr, String? contents}) edit(String section, String key,
-      String value, String initial) {
+  ({int code, String stderr, String? contents}) edit(
+    String section,
+    String key,
+    String value,
+    String initial,
+  ) {
     final dir = Directory.systemTemp.createTempSync('xveil-toml');
     addTearDown(() {
       Process.runSync('chmod', ['0700', '${dir.path}/cfg']);
@@ -95,7 +103,12 @@ void main() {
   }
 
   test('it edits a config in a directory only root can write', () {
-    final out = edit('transport', 'obfs4_psk_file', "'\"/x\"'", '[transport]\n');
+    final out = edit(
+      'transport',
+      'obfs4_psk_file',
+      "'\"/x\"'",
+      '[transport]\n',
+    );
 
     expect(out.code, 0, reason: out.stderr);
     expect(out.contents, contains('obfs4_psk_file = "/x"'));
@@ -128,7 +141,9 @@ void main() {
     // Only `>/dev/null` may remain — that one discards.
     for (final line in helper().split('\n')) {
       if (line.trimLeft().startsWith('#')) continue;
-      final redirects = RegExp(r'>\s*(?!/dev/null)\S').allMatches(line);
+      // `>/dev/null` discards and `>&2` / `>&1` move an existing descriptor:
+      // neither creates a file, which is what this is about.
+      final redirects = RegExp(r'>\s*(?!/dev/null|&\d)\S').allMatches(line);
       expect(
         redirects,
         isEmpty,
@@ -173,7 +188,8 @@ void main() {
       if (!line.contains(r'$XVEIL_TMP')) continue;
       // A redirect INTO the staging area, done by the shell rather than by a
       // privileged writer.
-      final redirect = RegExp(r'(^|\s)>\s*"?\$XVEIL_TMP').hasMatch(line) ||
+      final redirect =
+          RegExp(r'(^|\s)>\s*"?\$XVEIL_TMP').hasMatch(line) ||
           RegExp(r'(^|\s)-o\s+"?\$XVEIL_TMP').hasMatch(line) ||
           RegExp(r'(^|\s)-out\s+"?\$XVEIL_TMP').hasMatch(line) ||
           RegExp(r'(^|\s)-keyout\s+"?\$XVEIL_TMP').hasMatch(line);
