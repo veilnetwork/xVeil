@@ -89,7 +89,11 @@ void main() {
 
     expect(owners.debugLength, 4);
     expect(owners.mayReplyAs('chat0', a), isFalse, reason: 'the oldest stayed');
-    expect(owners.mayReplyAs('chat9', a), isTrue, reason: 'the newest fell out');
+    expect(
+      owners.mayReplyAs('chat9', a),
+      isTrue,
+      reason: 'the newest fell out',
+    );
   });
 
   test('clearing leaves nothing attributable', () {
@@ -98,6 +102,30 @@ void main() {
     owners.clear();
 
     expect(owners.mayReplyAs(chat, a), isFalse);
+  });
+
+  test('a reply that was sent cannot be sent again', () {
+    // The alert is gone — the Android action cancels it — so the entry
+    // describes nothing, and an entry that describes nothing is what a stale
+    // duplicate of the same alert would ride (report17 XV17-M12).
+    final owners = NotificationOwners()..remember(chat, a);
+
+    owners.forget(chat);
+
+    expect(owners.mayReplyAs(chat, a), isFalse);
+    expect(owners.debugLength, 0);
+  });
+
+  test('forgetting one leaves the others alone', () {
+    // Vacuity guard: a `forget` that emptied the map would refuse every other
+    // alert on the screen.
+    final owners = NotificationOwners()
+      ..remember(chat, a)
+      ..remember('other', a);
+
+    owners.forget(chat);
+
+    expect(owners.mayReplyAs('other', a), isTrue);
   });
 
   group('and the app actually uses it', () {
@@ -110,7 +138,11 @@ void main() {
       final source = File('lib/state/notifications.dart').readAsStringSync();
 
       // The refusal has to come first, or it is a report and not a guard.
-      expectBefore(source, 'mayReplyAs(payload, active)', 'sendText(peer, text)');
+      expectBefore(
+        source,
+        'mayReplyAs(payload, active)',
+        'sendText(peer, text)',
+      );
       expectBefore(source, 'mayReplyAs(payload, active)', 'svc.postMessage(');
     });
 
@@ -119,15 +151,59 @@ void main() {
         'lib/features/chat/notification_binder.dart',
       ).readAsStringSync();
 
-      expectBefore(
-        source,
-        'notificationOwnersProvider',
-        '.show(',
-      );
+      expectBefore(source, 'notificationOwnersProvider', '.show(');
       expect(
         source,
-        contains('.remember(convHex,'),
+        contains('owners.remember(convHex,'),
         reason: 'nothing records the owner, so every reply is unattributable',
+      );
+    });
+
+    test('but only once the alert is actually on the screen', () {
+      // `show` has two silent failure paths — a service that is not ready and
+      // a plugin that threw. Recording the owner first meant a show that never
+      // happened still moved it, while the PREVIOUS alert, belonging to
+      // another identity, was still on screen with its inline reply live
+      // (report17 XV17-M12).
+      final source = File(
+        'lib/features/chat/notification_binder.dart',
+      ).readAsStringSync();
+
+      expectBefore(source, '.show(', 'owners.remember(convHex,');
+      expect(
+        source,
+        contains('if (posted) owners.remember('),
+        reason: 'the owner moves for an alert that was never posted',
+      );
+    });
+
+    test('and a reply that goes out uses its attribution up', () {
+      // The alert is cancelled by the Android action, so the entry describes
+      // nothing afterwards — and an entry that describes nothing is what a
+      // stale duplicate of the same alert would ride. Consumed BEFORE the
+      // send, so an exception on the way out cannot leave it behind.
+      final source = File('lib/state/notifications.dart').readAsStringSync();
+
+      expectBefore(source, 'forget(payload)', 'sendText(peer, text)');
+      expectBefore(source, 'forget(payload)', 'svc.postMessage(');
+    });
+
+    test('a switch drops the alerts before it re-points the view', () {
+      // Lock has cleared the shade all along; a SWITCH did not, so alerts
+      // posted by the identity being left behind stayed on screen with their
+      // replies live — and the owner map that decides who may answer them
+      // survived too, in a class whose `clear` production never called.
+      final source = File('lib/state/app_controller.dart').readAsStringSync();
+
+      expect(
+        source,
+        contains('notificationOwnersProvider).clear()'),
+        reason: 'the owner map outlives every session in the process',
+      );
+      expectBefore(
+        source,
+        '_dropPostedNotifications();',
+        'realStackProvider.notifier).state = stack',
       );
     });
   });

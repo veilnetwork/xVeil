@@ -26,8 +26,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 /// opaque payload would cost tap-routing and buy nothing.
 class OpaqueNotificationPayloads {
   OpaqueNotificationPayloads({Random? random, this.capacity = _defaultCapacity})
-      : _random = random ?? Random.secure();
-
+    : _random = random ?? Random.secure();
 
   /// Tokens kept before the oldest is dropped.
   ///
@@ -122,6 +121,13 @@ class NotificationOwners {
   /// this exists to refuse, not a case to wave through.
   bool mayReplyAs(String payload, String? identity) =>
       identity != null && identity.isNotEmpty && _owners[payload] == identity;
+
+  /// Forget one payload — used up, or its alert is gone.
+  ///
+  /// A reply that was sent must not be sendable a second time from a stale
+  /// duplicate of the same alert, and an alert that was never posted must not
+  /// leave an owner behind (report17 XV17-M12).
+  void forget(String payload) => _owners.remove(payload);
 
   void clear() => _owners.clear();
 
