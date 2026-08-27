@@ -282,8 +282,14 @@ void main() {
       tA.dropPiecesOnce.add(1);
       final got = mB.contentReceived.first;
       await mA.sendContent(b, data, 'doc.bin');
-      // B's re-request timer asks A again for the missing piece; it lands next time.
-      final received = await got.timeout(const Duration(seconds: 10));
+      // B's re-request timer asks A again for the missing piece; it lands next
+      // time. The fixture's cadence is 120 ms, so this is quick in practice —
+      // the bound is here to fail a transfer that never recovers, not to
+      // measure how long recovery takes. Ten seconds was not enough for a
+      // 300 KB multi-piece transfer plus a retry on a machine running the
+      // whole suite at once, and the assertion is about recovery happening.
+      // The sibling test below already allows twenty for the same reason.
+      final received = await got.timeout(const Duration(seconds: 20));
       expect(
         await sB.loadFile(received.contentId),
         data,
