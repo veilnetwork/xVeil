@@ -10,13 +10,18 @@ import 'package:xveil/data/node/veil_github_release.dart';
 /// fail the moment somebody accepted it; the second is how a fleet drifts apart
 /// without anyone deciding to.
 void main() {
-  ManagedNode node(String id, String label) =>
-      ManagedNode(id: id, label: label, sshHost: '$id.example', sshUser: 'root');
+  ManagedNode node(String id, String label) => ManagedNode(
+    id: id,
+    label: label,
+    sshHost: '$id.example',
+    sshUser: 'root',
+  );
 
   /// A node that answered with a version and a machine we recognise.
-  NodeReading said(String version,
-          [VeilLinuxReleaseTarget target = VeilLinuxReleaseTarget.x86_64Musl]) =>
-      NodeReading(version: version, target: target);
+  NodeReading said(
+    String version, [
+    VeilLinuxReleaseTarget target = VeilLinuxReleaseTarget.x86_64Musl,
+  ]) => NodeReading(version: version, target: target);
 
   final a = node('a', 'exit-host');
   final b = node('b', 'vdsina2');
@@ -101,7 +106,11 @@ void main() {
     // answer. Counting it as up to date would report a broken box as healthy.
     final plan = planNodeUpdates(
       nodes: [a, b, c],
-      reported: {'a': said('(unavailable)'), 'b': said('unknown'), 'c': said('0.7.0')},
+      reported: {
+        'a': said('(unavailable)'),
+        'b': said('unknown'),
+        'c': said('0.7.0'),
+      },
       latestTag: 'v0.8.1',
     );
 
@@ -176,5 +185,71 @@ void main() {
       expect(plan.current, isEmpty);
       expect(plan.isWorthShowing, isFalse);
     });
+  });
+
+  /// A version the parser accepts must not be filed as unreachable.
+  ///
+  /// Validity was probed by re-running the offer against `v99999.0.0` and
+  /// reading "no offer" as "cannot be ordered". The parser takes a six-digit
+  /// major, so a node genuinely running 99999.0.0 — or anything above it —
+  /// produced no offer for the honest reason and was reported as a node nobody
+  /// could reach (report15 X15-L5).
+  test(
+    'a version at or above the old sentinel is current, not unreachable',
+    () {
+      for (final version in ['99999.0.0', '123456.0.0', '99999.9.9']) {
+        final plan = planNodeUpdates(
+          nodes: [a],
+          reported: {'a': said(version)},
+          latestTag: 'v0.8.1',
+        );
+
+        expect(
+          plan.current.map((n) => n.id),
+          ['a'],
+          reason: '$version was not recognised as a version at all',
+        );
+        expect(plan.unreachable, isEmpty, reason: version);
+        expect(plan.upgradable, isEmpty, reason: version);
+      }
+    },
+  );
+
+  /// Vacuity guard: something that is NOT a version still counts as unknown.
+  /// Filing everything as current would satisfy the test above and is the
+  /// error it replaced, in the other direction.
+  test('and a version nobody can order is still unreachable', () {
+    for (final said_ in ['not-a-version', '', '  ', '8', '0.8']) {
+      final plan = planNodeUpdates(
+        nodes: [a],
+        reported: {
+          'a': NodeReading(
+            version: said_,
+            target: VeilLinuxReleaseTarget.x86_64Musl,
+          ),
+        },
+        latestTag: 'v0.8.1',
+      );
+      expect(
+        plan.unreachable.map((n) => n.id),
+        ['a'],
+        reason: '"$said_" was reported as a node that is fine',
+      );
+      expect(plan.current, isEmpty, reason: said_);
+    }
+  });
+
+  /// And a fleet asked with no usable release still claims nothing.
+  test('no release to compare against offers and claims nothing', () {
+    for (final tag in <String?>[null, '', '  ', 'not-a-tag']) {
+      final plan = planNodeUpdates(
+        nodes: [a, b],
+        reported: {'a': said('0.8.0'), 'b': said('0.8.1')},
+        latestTag: tag,
+      );
+      expect(plan.upgradable, isEmpty, reason: '$tag');
+      expect(plan.current, isEmpty, reason: '$tag');
+      expect(plan.unreachable, isEmpty, reason: '$tag');
+    }
   });
 }

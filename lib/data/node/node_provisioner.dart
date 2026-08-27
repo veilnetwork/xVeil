@@ -162,7 +162,15 @@ ProvisionReport parseProvisionReport(String output, {String? reachableHost}) {
   // up in plenty of other output and a loose match would report whatever
   // happened to be nearby.
   final version = RegExp(
-    r'^[ \t]*version:[ \t]*v?([0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-]*)',
+    // The prerelease suffix is BOUNDED. It was `*`, and the whole captured
+    // string is upserted into the encrypted registry — which is written out
+    // whole on every change — so a pinned or compromised node answering with
+    // one `version: 0.8.0-AAAA…` line just under the SSH stream cap turned
+    // into most of a megabyte re-encrypted on every fleet edit (report15
+    // X15-L7). Thirty-two characters is longer than any real one:
+    // `-rc1`, `-beta.2`, `-20260101.deadbee`.
+    r'^[ \t]*version:[ \t]*v?([0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}'
+    r'[0-9A-Za-z.\-]{0,32})',
     multiLine: true,
   ).firstMatch(output);
 
