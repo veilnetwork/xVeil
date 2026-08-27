@@ -14,6 +14,13 @@ class _GatedLock extends AppController {
   @override
   AppState build() => const AppState(AppPhase.ready);
 
+  /// What the real controller publishes after a lock: the legs that did not
+  /// confirm they finished.
+  List<String> verdict = const [];
+
+  @override
+  TeardownOutcome get lastTeardown => TeardownOutcome(verdict);
+
   @override
   Future<void> lock() async {
     started = true;
@@ -66,6 +73,46 @@ void main() {
       call,
       throwsA(isA<StateError>()),
       reason: 'a swallowed failure is a 200 that lies',
+    );
+  });
+
+  /// The lock that does not throw and is still not finished.
+  ///
+  /// `lock()` keeps going when the tunnel will not stop, on purpose: parking
+  /// someone on an unlocked-looking screen because the OS did not answer is
+  /// its own disclosure. So the API cannot learn about a surviving tunnel from
+  /// an exception — it has to carry the verdict (report17 XV17-M14).
+  test('the callback carries what the teardown could not confirm', () async {
+    final gated = _GatedLock()
+      ..verdict = const ['vpn', 'container-lock-unknown'];
+    final c = ProviderContainer(
+      overrides: [appControllerProvider.overrideWith(() => gated)],
+    );
+    addTearDown(c.dispose);
+
+    gated.gate.complete();
+    final incomplete = await c
+        .read(apiServerControllerProvider.notifier)
+        .lockForApi();
+
+    expect(
+      incomplete,
+      containsAll(<String>['vpn', 'container-lock-unknown']),
+      reason: 'the API answers locked: true with no idea what is still up',
+    );
+  });
+
+  test('CONTROL: a lock with nothing outstanding carries nothing', () async {
+    final gated = _GatedLock();
+    final c = ProviderContainer(
+      overrides: [appControllerProvider.overrideWith(() => gated)],
+    );
+    addTearDown(c.dispose);
+
+    gated.gate.complete();
+    expect(
+      await c.read(apiServerControllerProvider.notifier).lockForApi(),
+      isEmpty,
     );
   });
 }

@@ -332,6 +332,13 @@ void main() {
       final c = ProviderContainer(
         overrides: [
           storageProvider.overrideWith((ref) => container.storage()),
+          // The tunnel is a leg of the wipe like the two model roots below,
+          // and for the same reason it has to be ANSWERABLE here: the real
+          // backend reaches a platform channel a test binary has no handler
+          // for, the stop cannot return, and the wipe now says so — correctly.
+          // Overriding it is what makes this a control for a complete wipe
+          // rather than for an unreachable plugin (report17 XV17-M14).
+          vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
           // Both model roots have to be RESOLVABLE here, or this control is
           // asserting the wrong thing. Without them the real store reaches
           // `path_provider`, which a test binary has no answer for, and the
@@ -2458,6 +2465,85 @@ void _vpnTeardownIsJournalledTests() {
         reason: 'a plugin that never answers must not be the silent case',
       );
     });
+  });
+
+  // The journal is a trace, not a verdict. Everything above records what went
+  // wrong somewhere a person has to go and look; what the CALLERS got back was
+  // the same for a clean teardown and for one that left the tunnel up. The API
+  // answered `locked: true`, a wipe reported only what it could re-stat, and
+  // `startOver` said nothing at all (report17 XV17-M14).
+
+  test(
+    'a tunnel that did not stop makes the lock verdict incomplete',
+    () async {
+      final vpn = _RecordingVpn(phase: VpnBackendPhase.error);
+      final c = ProviderContainer(
+        overrides: [
+          vpnControllerProvider.overrideWith(() => vpn),
+          vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      await ctrl.lock();
+
+      expect(vpn.stops, 1, reason: 'precondition: the teardown asked at all');
+      expect(
+        ctrl.lastTeardown.complete,
+        isFalse,
+        reason: 'the caller is told the privacy boundary closed',
+      );
+      expect(ctrl.lastTeardown.incomplete, contains('vpn'));
+    },
+  );
+
+  test('CONTROL: a teardown with nothing outstanding is complete', () async {
+    // Vacuity guard: a verdict that is never clean is a verdict nobody can act
+    // on — every lock would read as a surviving tunnel.
+    final vpn = _RecordingVpn();
+    final c = ProviderContainer(
+      overrides: [
+        vpnControllerProvider.overrideWith(() => vpn),
+        vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    await ctrl.lock();
+
+    expect(ctrl.lastTeardown.complete, isTrue);
+    expect(ctrl.lastTeardown.incomplete, isEmpty);
+  });
+
+  test('a wipe reports a survivor that is not on disk', () async {
+    // The wipe re-stats what it deleted and reports what is still there. A
+    // tunnel still carrying this person's traffic is a survivor too, and it is
+    // in no directory — so a wipe that destroyed every byte showed the same
+    // screen as one that left the network side up.
+    final vpn = _RecordingVpn(phase: VpnBackendPhase.error);
+    SharedPreferences.setMockInitialValues({'onboarded': true});
+    final c = ProviderContainer(
+      overrides: [
+        vpnControllerProvider.overrideWith(() => vpn),
+        vpnBackendProvider.overrideWithValue(_SilentVpnBackend()),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(appControllerProvider.notifier);
+    await _settle(c);
+
+    final remaining = await ctrl.wipeContainers();
+
+    expect(vpn.stops, 1, reason: 'precondition: the wipe asked at all');
+    expect(
+      remaining,
+      contains('network'),
+      reason: 'a wipe that left the tunnel up reported a clean wipe',
+    );
   });
 }
 

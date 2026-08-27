@@ -393,6 +393,11 @@ class _WipeLeftoverDialog extends StatelessWidget {
         l.lockWipeLeftSpeechModelUnknown,
       if (remaining.contains('translations-unknown'))
         l.lockWipeLeftTranslationsUnknown,
+      // Not a file: the tunnel, the node, the session or the container's lock
+      // did not confirm they were finished. A wipe that destroyed every byte
+      // on disk while the node kept its sockets and its network identity is
+      // not the wipe the confirmation promised (report17 XV17-M14).
+      if (remaining.contains('network')) l.lockWipeLeftNetwork,
     ];
     // Nothing was verified: either the wipe threw, or it came back with codes
     // this build has no sentence for. Saying "everything else is gone" over

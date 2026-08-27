@@ -4523,7 +4523,11 @@ class ApiHandler {
   /// Lock the account. The host decides WHEN: locking usually stops this very
   /// server, so it schedules the lock after the response is flushed and this
   /// returns as soon as the lock is committed to, not completed.
-  final Future<void> Function()? lockAccount;
+  ///
+  /// Answers which teardown legs did NOT confirm they finished — `vpn`,
+  /// `session`, `node`, `container-lock-unknown`, `leg:<name>`. Empty means
+  /// the privacy boundary is closed.
+  final Future<List<String>> Function()? lockAccount;
 
   /// This node's shareable bootstrap invite.
   ///
@@ -4812,8 +4816,9 @@ class ApiHandler {
       if (lockAccount == null) {
         return const ApiResponse(501, {'error': 'lock unavailable'});
       }
+      final List<String> incomplete;
       try {
-        await lockAccount!();
+        incomplete = await lockAccount!();
       } catch (e) {
         // A teardown leg failed, so the boundary is not closed — and this
         // server is still answering, which is itself the tell. Reporting 200
@@ -4827,7 +4832,27 @@ class ApiHandler {
       // Deliberately not re-reading the account here: the host stops this
       // server as part of locking, so anything read now would describe a state
       // that is already gone.
-      return const ApiResponse(200, {'ok': true, 'locked': true});
+      //
+      // `locked` is about the screen and the keys, and that part did happen —
+      // the phase flipped and the master session was cleared regardless of
+      // what failed. `complete` is about the NETWORK, and it used to be
+      // implied: a caller was told `locked: true` while the tunnel was still
+      // carrying traffic or the node still held its sockets. The legs that did
+      // not confirm are named rather than summarised, because the caller of an
+      // API is the one thing here that can act on them (report17 XV17-M14).
+      if (incomplete.isNotEmpty) {
+        return ApiResponse(200, {
+          'ok': true,
+          'locked': true,
+          'complete': false,
+          'incomplete': incomplete,
+        });
+      }
+      return const ApiResponse(200, {
+        'ok': true,
+        'locked': true,
+        'complete': true,
+      });
     }
     if (method == 'POST' && path == '/v1/account/identity') {
       if (switchIdentity == null) {

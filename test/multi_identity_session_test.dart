@@ -388,6 +388,69 @@ void main() {
     await session.disposeAll();
     expect(stopped, 2);
     expect(session.abandonedTeardowns, isEmpty);
+    expect(
+      session.containerLockReleased,
+      isTrue,
+      reason: 'a clean close must say so, or the flag says nothing',
+    );
+  });
+
+  test('a dispose that THREW is reported like one that hung', () async {
+    // The timeout was carried out of this class and the exception was not: a
+    // node dispose that threw left the same thing running — sockets open,
+    // network identity live, handle already dropped from the maps here — and
+    // the caller went on to say "locked" (report17 XV17-M14).
+    final session = MultiIdentitySession(
+      SyncWrappedAsyncMultiSpaceBacking(_ClosingFake(() {})),
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      disposeBudget: const Duration(milliseconds: 50),
+      boot: (spec, storage) async => IdentityNode(
+        transport: _FakeTransport(_nid(spec.spaceId + 100)),
+        dispose: () async => throw StateError('the node refused to stop'),
+      ),
+    );
+    await session.bootAll([_e('alice', 1)]);
+
+    await session.disposeAll();
+
+    expect(
+      session.abandonedTeardowns,
+      hasLength(1),
+      reason: 'a dispose that threw was survived silently',
+    );
+    expect(
+      session.abandonedTeardowns.single,
+      allOf(contains('node'), contains('refused to stop')),
+      reason: 'which step, and why, is the part a caller can act on',
+    );
+  });
+
+  test('a container lock that was NOT released is reported', () async {
+    // The close is best-effort by design; what it must not be is invisible.
+    // A lock still held is the fact behind every later "correct password but
+    // won't unlock", and it was only ever written to a debug log.
+    final session = MultiIdentitySession(
+      SyncWrappedAsyncMultiSpaceBacking(
+        _ClosingFake(() => throw StateError('worker would not close')),
+      ),
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      disposeBudget: const Duration(milliseconds: 50),
+      boot: (spec, storage) async => IdentityNode(
+        transport: _FakeTransport(_nid(spec.spaceId + 100)),
+        dispose: () async {},
+      ),
+    );
+    await session.bootAll([_e('alice', 1)]);
+
+    await session.disposeAll();
+
+    expect(
+      session.containerLockReleased,
+      isFalse,
+      reason: 'the container is still locked and the caller was not told',
+    );
   });
 }
 
