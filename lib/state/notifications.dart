@@ -84,10 +84,7 @@ bool shouldNotifySpaceComment({
   // Prefer the contact's saved name; fall back to a short id (never the full
   // node id on a notification).
   final cn = contactName?.trim();
-  return (
-    title: (cn != null && cn.isNotEmpty) ? cn : shortId,
-    body: preview,
-  );
+  return (title: (cn != null && cn.isNotEmpty) ? cn : shortId, body: preview);
 }
 
 /// All message alerts intentionally reuse one OS notification id. A mailbox
@@ -330,6 +327,7 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
           final gidHex = payload.substring(6);
           final svc = ref.read(groupServiceProvider);
           if (svc != null) {
+            ref.read(notificationOwnersProvider).forget(payload);
             unawaited(svc.postMessage(NodeId.fromHex(gidHex), text));
           }
           ref.read(routerProvider)
@@ -338,6 +336,11 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
           return;
         }
         final peer = NodeId.fromHex(payload);
+        // Used up. The Android action already cancels its alert, so the map
+        // entry describes nothing — and an entry that describes nothing is
+        // what a stale duplicate of the same alert would ride
+        // (report17 XV17-M12).
+        ref.read(notificationOwnersProvider).forget(payload);
         unawaited(ref.read(messagingServiceProvider).sendText(peer, text));
         // Same stack-rooting as onTap: never land in a chat with no way back.
         ref.read(routerProvider)

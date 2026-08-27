@@ -177,4 +177,24 @@ void main() {
       expect(platform.cancelAllCalls, 1);
     });
   });
+
+  /// The show that did not happen.
+  ///
+  /// It returned void over two silent failure paths — a service that is not
+  /// ready and a plugin that threw — and the caller recorded the new alert's
+  /// owner before calling it. A show that never happened therefore moved the
+  /// owner while the PREVIOUS alert, belonging to another identity, was still
+  /// on the screen offering an inline reply (report17 XV17-M12).
+  test(
+    'a show before the service is ready reports that it did not post',
+    () async {
+      final svc = NotificationService();
+
+      expect(
+        await svc.show(id: 1, title: 'title', body: 'body'),
+        isFalse,
+        reason: 'a caller cannot tell a posted alert from one that never was',
+      );
+    },
+  );
 }
