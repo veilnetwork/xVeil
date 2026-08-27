@@ -28,6 +28,8 @@ import 'dart:math';
 
 import 'package:characters/characters.dart';
 
+import 'display_text.dart';
+
 /// Longest name we accept or produce, in UTF-16 code units.
 ///
 /// The common filesystem limit is 255 BYTES per component, which for non-Latin
@@ -41,21 +43,17 @@ const int maxFileNameBytes = 255;
 
 /// Characters that reorder or hide text without being visible themselves.
 ///
+/// The SAME set the rest of the app uses on text somebody else chose — see
+/// [invisibleOrReordering]. It was written out again here, in a different
+/// notation, for the same reason and with the same code points: the risk is
+/// the same one. Two spellings of one rule is how one of them gets fixed
+/// alone, which is the shape three separate findings in this tree already
+/// took.
+///
 /// A name is read by a person before they decide to open it, and these change
 /// what they read without changing what it is. `photo\u202Egnp.exe` renders as
 /// `photoexe.png` — the extension a person sees is not the one the system
 /// uses, and the name arrives from whoever sent the file.
-///
-/// The invisible ones are here for a second reason: two names that differ only
-/// by a zero-width space look like one name, and a person choosing between
-/// them cannot.
-///
-/// U+200C and U+200D are deliberately NOT here. They join and separate letters
-/// in Persian, Hindi and emoji sequences, they reorder nothing, and stripping
-/// them breaks names that are simply written in another script.
-final RegExp _invisibleOrReordering = RegExp(
-  r'[\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u00AD\uFEFF]',
-);
 
 final RegExp _separatorOrControl = RegExp(r'[/\\]|[\x00-\x1f\x7f]');
 
@@ -69,7 +67,7 @@ bool isSafeFileLabel(String name) {
   if (name.isEmpty || name.length > maxFileNameChars) return false;
   if (name != name.trim()) return false;
   if (name == '.' || name == '..') return false;
-  if (_invisibleOrReordering.hasMatch(name)) return false;
+  if (invisibleOrReordering.hasMatch(name)) return false;
   return !_separatorOrControl.hasMatch(name);
 }
 
@@ -86,7 +84,7 @@ String safeFileLeaf(String? name, {String fallback = 'file'}) {
       // Replaced rather than removed, for the same reason separators are: two
       // names that differ only by something invisible must not collapse into
       // one.
-      .replaceAll(_invisibleOrReordering, '_')
+      .replaceAll(invisibleOrReordering, '_')
       .trim();
   if (out.length > maxFileNameChars) out = out.substring(0, maxFileNameChars);
   out = _trimTrailing(_fitBytes(out));
@@ -188,9 +186,12 @@ String _fitSuffixed(String dir, String stem, String suffix, String ext) {
   var head = stem;
   while (utf8.encode(head).length + tail > maxFileNameBytes) {
     if (head.isEmpty) break;
-    head = head.substring(0, head.characters.length - 1 < head.length
-        ? head.length - head.characters.last.length
-        : 0);
+    head = head.substring(
+      0,
+      head.characters.length - 1 < head.length
+          ? head.length - head.characters.last.length
+          : 0,
+    );
   }
   return '$dir/${_trimTrailing(head)}$suffix$ext';
 }
