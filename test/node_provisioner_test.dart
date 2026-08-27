@@ -550,17 +550,20 @@ COMPONENTS: veil-cli,ogate,oproxy-server
   });
 
   group('which machine the node is', () {
-    test('the architecture comes from the line the inventory already prints', () {
-      // `HOST_OS: $(uname -srm)` has been in the inventory since the first
-      // version. Nobody read it, and the fleet update sent every node an
-      // x86_64 build as a result.
-      final report = parseProvisionReport(
-        'HOST_OS: Linux 6.8.0-31-generic x86_64\nNODE_ID: ${'a' * 64}\n',
-      );
+    test(
+      'the architecture comes from the line the inventory already prints',
+      () {
+        // `HOST_OS: $(uname -srm)` has been in the inventory since the first
+        // version. Nobody read it, and the fleet update sent every node an
+        // x86_64 build as a result.
+        final report = parseProvisionReport(
+          'HOST_OS: Linux 6.8.0-31-generic x86_64\nNODE_ID: ${'a' * 64}\n',
+        );
 
-      expect(report.hostArch, 'x86_64');
-      expect(report.releaseTarget, VeilLinuxReleaseTarget.x86_64Musl);
-    });
+        expect(report.hostArch, 'x86_64');
+        expect(report.releaseTarget, VeilLinuxReleaseTarget.x86_64Musl);
+      },
+    );
 
     test('an arm64 server resolves to the arm64 build', () {
       final report = parseProvisionReport('HOST_OS: Linux 6.8.0 aarch64\n');
@@ -590,5 +593,44 @@ COMPONENTS: veil-cli,ogate,oproxy-server
         isNotNull,
       );
     });
+  });
+
+  /// A version string has a length, and the registry it lands in is rewritten
+  /// whole.
+  ///
+  /// The prerelease suffix was unbounded, callers do not refuse truncated SSH
+  /// output, and the captured string is upserted into the encrypted node
+  /// registry — so one pinned or compromised machine answering with a single
+  /// `version: 0.8.0-AAAA…` line just under the stream cap turned into most of
+  /// a megabyte re-encrypted on every fleet edit (report15 X15-L7).
+  test('an absurd version line is not taken whole', () {
+    final huge = 'version: 0.8.0-${'A' * 200000}\n';
+
+    final report = parseProvisionReport(huge);
+
+    expect(report.veilVersion, isNotNull, reason: 'premise: it still parses');
+    expect(
+      report.veilVersion!.length,
+      lessThan(64),
+      reason: 'the whole line was captured and is about to be persisted',
+    );
+    expect(report.veilVersion, startsWith('0.8.0-'));
+  });
+
+  /// Vacuity guard: the suffixes that actually occur must survive intact, or
+  /// the bound above is a truncation of real data.
+  test('and the prerelease suffixes that exist survive', () {
+    for (final version in [
+      '0.8.1',
+      '0.8.1-rc1',
+      '0.8.1-beta.2',
+      '1.2.3-20260101.deadbee',
+    ]) {
+      expect(
+        parseProvisionReport('version: $version\n').veilVersion,
+        version,
+        reason: '$version was cut',
+      );
+    }
   });
 }
