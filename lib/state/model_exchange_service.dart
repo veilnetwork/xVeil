@@ -167,22 +167,45 @@ class ModelExchangeService {
   /// that never answers cannot grow it.
   int get debugPendingQuestions => _asked.length;
 
+  /// Take the callbacks back off, but only the ones that are still ours.
+  ///
+  /// Compared with `==`, not `identical`. A tear-off of an instance method is
+  /// EQUAL to another tear-off of the same method on the same object, and Dart
+  /// promises nothing about the two being the same object — so the identity
+  /// check here was false every time, and this method left both callbacks
+  /// installed on a pipeline that had moved on. Nothing noticed while the
+  /// service was built once per session; once it is built per identity, a
+  /// stale handler is A still answering on A's pipeline after the screen
+  /// showed B.
   void dispose() {
-    if (identical(_messaging.onModelInventoryRequest, _answer)) {
+    if (_messaging.onModelInventoryRequest == _answer) {
       _messaging.onModelInventoryRequest = null;
     }
-    if (identical(_messaging.onModelInventoryOffer, _collect)) {
+    if (_messaging.onModelInventoryOffer == _collect) {
       _messaging.onModelInventoryOffer = null;
     }
     _answers.close();
   }
 }
 
+/// One service per identity, rebuilt when the identity changes.
+///
+/// WATCHED, not read. This service installs two callbacks on a messaging
+/// pipeline and answers questions about what this device holds — both belong
+/// to one identity. Read once, it kept A's pipeline and A's storage for the
+/// rest of the session: asking from B's screen sent the question over A's
+/// transport, which tells the contact that A and B are the same device, and
+/// the answer-contacts switch shown under B read and wrote A's setting. Worse
+/// in the other direction — B's own pipeline had no handler at all, so B
+/// silently answered nobody (report17 XV17-H5).
+///
+/// The rebuild disposes the previous service, which takes its callbacks off
+/// A's pipeline and drops the questions it was still waiting on answers to.
 final modelExchangeServiceProvider = Provider<ModelExchangeService>((ref) {
   final service = ModelExchangeService(
-    messaging: ref.read(messagingServiceProvider),
-    storage: ref.read(storageProvider),
-    translateRoot: ref.read(translationModelsRootProvider),
+    messaging: ref.watch(messagingServiceProvider),
+    storage: ref.watch(storageProvider),
+    translateRoot: ref.watch(translationModelsRootProvider),
     speechRoot: () async =>
         ref.read(whisperModelStoreProvider).modelDirectory(),
     now: DateTime.now,
@@ -200,14 +223,22 @@ final modelExchangeServiceProvider = Provider<ModelExchangeService>((ref) {
 /// thing being shown is what this device tells other people.
 class AnswerModelInventoryController extends AsyncNotifier<bool> {
   @override
-  Future<bool> build() =>
-      ref.read(modelExchangeServiceProvider).answersAutomatically();
+  Future<bool> build() {
+    // WATCHED: the switch shows what THIS identity answers, and a switch
+    // re-reads it rather than leaving the previous one's position on screen.
+    final service = ref.watch(modelExchangeServiceProvider);
+    _service = service;
+    return service.answersAutomatically();
+  }
+
+  late ModelExchangeService _service;
 
   Future<void> set(bool enabled) async {
-    await ref
-        .read(modelExchangeServiceProvider)
-        .setAnswersAutomatically(enabled);
-    state = AsyncData(enabled);
+    final service = _service;
+    await service.setAnswersAutomatically(enabled);
+    // Flipped under A, landing after a switch: the setting went where it
+    // belongs, the switch on B's screen must not move because of it.
+    if (identical(_service, service)) state = AsyncData(enabled);
   }
 }
 

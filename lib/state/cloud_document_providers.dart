@@ -195,7 +195,12 @@ final cloudDocumentReplicationServiceProvider =
       }
       ref.onDispose(() {
         for (final entry in attached) {
-          if (identical(entry.messaging.onCloudDocumentFrame, entry.handler)) {
+          // `==`, not `identical`: Dart leaves it unspecified whether two
+          // closures of the same function are the same object, and the same
+          // check written with `identical` in the model-exchange service was
+          // false every time — leaving a handler installed on a pipeline that
+          // had moved on. Equality is what "still ours" means here.
+          if (entry.messaging.onCloudDocumentFrame == entry.handler) {
             entry.messaging.onCloudDocumentFrame = null;
           }
           unawaited(entry.service.close());
