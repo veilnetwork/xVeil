@@ -1141,9 +1141,6 @@ String buildProvisionScript(NodeProvisionConfig c) {
   final exitComment = c.runExit
       ? '# built-in exit proxy enabled'
       : '# exit proxy disabled';
-  final cleanup = artifacts
-      .map((a) => _artifactTempPath(a.component))
-      .join(' ');
   final tlsSetup = _tlsCertificateSetup(c);
 
   return '''#!/usr/bin/env bash
@@ -1308,12 +1305,17 @@ sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml bootstrap 
   | head -1 || echo "(unavailable)"
 
 
-rm -f $cleanup \$XVEIL_TMP/xveil-obfs4-psk.b64 \$XVEIL_TMP/xveil-veil.service \\
-  \$XVEIL_TMP/xveil-ogate.service \$XVEIL_TMP/xveil-oproxy-client.service \\
-  \$XVEIL_TMP/xveil-oproxy-server.service \$XVEIL_TMP/cfg/xveil-ogate.toml \\
-  \$XVEIL_TMP/xveil-oproxy-client.toml \$XVEIL_TMP/xveil-oproxy-server.toml \\
-  \$XVEIL_TMP/cfg/xveil-node.toml \$XVEIL_TMP/xveil-certbot-deploy-hook \\
-  \$XVEIL_TMP/xveil-openssl.cnf \$XVEIL_TMP/xveil-selfsigned-cert.pem \\
-  \$XVEIL_TMP/xveil-selfsigned-key.pem \$XVEIL_TMP/xveil-selfsigned-spec
+# NOT a second cleanup. The trap at the top removes the scratch directory, on
+# every exit path — success, error and signal — and it does so through sudo,
+# which is what that directory requires: it is created by `sudo mktemp -d`, so
+# it is root-owned and an ordinary sudoer cannot delete from it.
+#
+#
+# There used to be an `rm -f` of every staged file here, without sudo. Under
+# `set -euo pipefail` its permission-denied was the script's exit status — so a
+# deployment that had installed the binaries, written the config and brought
+# the service up ACTIVE reported failure, after changing the system. The app
+# then showed a failed provisioning for a server that was running (report17
+# XV17-M10).
 ''';
 }
