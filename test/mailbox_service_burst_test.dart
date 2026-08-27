@@ -17,7 +17,7 @@ NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 class _FakeClient implements VeilClient {
   final events_ = StreamController<VeilEvent>.broadcast();
   final registeredRelays = <String>[];
-  Completer<Uint8List?>? lookupBlock;
+  Completer<({Uint8List key, int validUntilUnix})?>? lookupBlock;
   int lookups = 0;
   @override
   dynamic noSuchMethod(Invocation i) {
@@ -26,7 +26,12 @@ class _FakeClient implements VeilClient {
       lookups++;
       final block = lookupBlock;
       if (block != null) return block.future;
-      return Future<Uint8List?>.value(Uint8List(32));
+      // The resolve answers with the key AND when it stops being the
+      // relay's, so the ad can be clipped to it (report17 V17-M1).
+      return Future<({Uint8List key, int validUntilUnix})?>.value((
+        key: Uint8List(32),
+        validUntilUnix: 0,
+      ));
     }
     if (name.contains('registerRendezvousPublisher')) {
       final id = i.namedArguments[#rendezvousNodeId];
@@ -311,7 +316,7 @@ void main() {
     'concurrent starts coalesce and dispose waits for the native lookup',
     () async {
       final client = _FakeClient();
-      final lookup = Completer<Uint8List?>();
+      final lookup = Completer<({Uint8List key, int validUntilUnix})?>();
       client.lookupBlock = lookup;
       final svc2 = MailboxService(
         client: client,
@@ -335,7 +340,7 @@ void main() {
       final closing = svc2.dispose().then((_) => disposed = true);
       await Future<void>.delayed(Duration.zero);
       expect(disposed, isFalse);
-      lookup.complete(Uint8List(32));
+      lookup.complete((key: Uint8List(32), validUntilUnix: 0));
       await closing;
       await first;
       expect(
