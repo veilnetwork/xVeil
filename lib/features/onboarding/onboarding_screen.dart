@@ -35,11 +35,24 @@ import 'recovery_phrase_input.dart';
 /// someone else's device group must not be told to write down 24 words that
 /// restore an identity it will never own.
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({super.key, this.validatePhrase = veilPhraseValid});
+  const OnboardingScreen({
+    super.key,
+    this.validatePhrase = veilPhraseValid,
+    this.generatePhrase = veilGeneratePhrase,
+  });
 
   /// Injectable so widget tests can drive the restore path without the
   /// native library; production uses the FFI-backed validator.
   final bool Function(String phrase) validatePhrase;
+
+  /// Injectable for the same reason, and for the opposite case: the generator
+  /// answers null when the native library is absent, and the screen then shows
+  /// PLACEHOLDER words with a warning that they restore nothing.
+  ///
+  /// The test for that warning used to reach it by the library being missing —
+  /// true in CI and false in production, so it asserted a state it could not
+  /// choose. A path this important is worth being able to ask for.
+  final String? Function() generatePhrase;
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -49,6 +62,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   int _step = 0;
   List<String> _phrase = const [];
   bool _phraseConfirmed = false;
+
   /// The user chose to join an existing device group rather than own an
   /// identity. Reset by BOTH other paths: a user who backs out of the link
   /// step and picks create/restore instead must not silently finish as a
@@ -88,7 +102,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   void _startCreate() {
     _restoring = false;
-    final real = veilGeneratePhrase();
+    final real = widget.generatePhrase();
     _realPhrase = real != null;
     _phrase = real?.split(' ') ?? _generatePhrase();
     _phraseConfirmed = false;
@@ -177,7 +191,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       // `_busy` true forever, so the Done button never came back and the only
       // way on was to kill the app.
       devLog(() => 'xVeil[onboarding]: completeOnboarding failed: $e');
-      if (mounted) setState(() => _finishError = AppL10n.of(context).onboardSetupFailed);
+      if (mounted) {
+        setState(() => _finishError = AppL10n.of(context).onboardSetupFailed);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -478,6 +494,7 @@ class _Recovery extends StatefulWidget {
     required this.onNext,
   });
   final List<String> phrase;
+
   /// False when the native generator was unavailable and [phrase] is the
   /// placeholder. `veilGeneratePhrase()` returns null precisely so callers can
   /// degrade HONESTLY; showing these words with the ordinary "write them down"

@@ -215,7 +215,8 @@ void main() {
       expect(
         find.text(l(tester).recoveryTitle),
         findsNothing,
-        reason: 'a device being adopted must never be told to back up words '
+        reason:
+            'a device being adopted must never be told to back up words '
             'that restore an identity it will not own',
       );
       expect(find.byType(Checkbox), findsNothing);
@@ -238,7 +239,8 @@ void main() {
       expect(
         container.read(pendingDeviceLinkProvider),
         isTrue,
-        reason: 'the session must open on the device-link screen; without '
+        reason:
+            'the session must open on the device-link screen; without '
             'this the user lands on chats as a stranger to their own account',
       );
     });
@@ -422,9 +424,14 @@ void main() {
   testWidgets('a placeholder phrase says so; a restored one does not', (
     tester,
   ) async {
-    // `veilGeneratePhrase()` returns null when the native generator is
-    // unavailable (exactly this environment) SO THAT the caller can degrade
-    // honestly. The screen still showed those placeholder words under the
+    // The generator answers null when the native library is absent SO THAT the
+    // caller can degrade honestly.
+    //
+    // ASKED FOR, not inherited from the environment. This used to reach the
+    // placeholder path by the library being missing — true in CI and false in
+    // production, so with the library present the screen showed a REAL phrase,
+    // the warning correctly did not appear, and the test failed for being
+    // right. A path this important is chosen, not hoped for. The screen still showed those placeholder words under the
     // ordinary "these 24 words ARE your identity, write them down" copy, while
     // the identity was minted at random — the user would have backed up 24
     // words that restore nothing.
@@ -434,7 +441,10 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          home: OnboardingScreen(validatePhrase: (_) => true),
+          home: OnboardingScreen(
+            validatePhrase: (_) => true,
+            generatePhrase: () => null,
+          ),
         ),
       ),
     );
@@ -455,7 +465,6 @@ void main() {
       findsOneWidget,
       reason: 'a phrase that restores nothing must be labelled as such',
     );
-
   });
 
   testWidgets('a restored phrase carries no placeholder warning', (
@@ -540,32 +549,36 @@ void main() {
     AppL10n l(WidgetTester tester) =>
         AppL10n.of(tester.element(find.byType(OnboardingScreen)));
 
-    testWidgets('the phrase step secures the screen and the next one frees it', (
-      tester,
-    ) async {
-      await pump(tester);
-      await tester.tap(find.text(l(tester).actionContinue));
-      await tester.pumpAndSettle();
-      expect(
-        secureCalls,
-        isEmpty,
-        reason: 'the welcome and path steps carry nothing worth securing — a '
-            'flag held app-wide would black out this app\'s own screen share',
-      );
+    testWidgets(
+      'the phrase step secures the screen and the next one frees it',
+      (tester) async {
+        await pump(tester);
+        await tester.tap(find.text(l(tester).actionContinue));
+        await tester.pumpAndSettle();
+        expect(
+          secureCalls,
+          isEmpty,
+          reason:
+              'the welcome and path steps carry nothing worth securing — a '
+              'flag held app-wide would black out this app\'s own screen share',
+        );
 
-      await tester.tap(find.text(l(tester).onboardCreateIdentity));
-      await tester.pumpAndSettle();
-      expect(find.text(l(tester).recoveryTitle), findsOneWidget);
-      expect(secureCalls, [true], reason: 'the words are on screen unprotected');
+        await tester.tap(find.text(l(tester).onboardCreateIdentity));
+        await tester.pumpAndSettle();
+        expect(find.text(l(tester).recoveryTitle), findsOneWidget);
+        expect(secureCalls, [
+          true,
+        ], reason: 'the words are on screen unprotected');
 
-      // Off the step -> the flag goes back, so sharing works again.
-      await confirmRecoveryPhrase(
-        tester,
-        continueLabel: l(tester).actionContinue,
-      );
-      expect(find.text(l(tester).storageTitle), findsOneWidget);
-      expect(secureCalls, [true, false]);
-    });
+        // Off the step -> the flag goes back, so sharing works again.
+        await confirmRecoveryPhrase(
+          tester,
+          continueLabel: l(tester).actionContinue,
+        );
+        expect(find.text(l(tester).storageTitle), findsOneWidget);
+        expect(secureCalls, [true, false]);
+      },
+    );
 
     testWidgets('typing a phrase in is protected too', (tester) async {
       // Restoring puts the same 24 words on screen, in a field that is
