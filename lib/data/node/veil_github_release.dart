@@ -180,7 +180,23 @@ class VeilGithubReleaseResolver {
     if (!RegExp(r'^[a-z0-9-]+$').hasMatch(binaryName)) {
       throw const VeilReleaseException('Invalid release binary name');
     }
-    final decoded = await (_latestReleaseData ??= _loadLatestRelease());
+    // The response is SHARED so that selecting several components does not
+    // multiply API requests — but only a response that arrived. `??=` stored
+    // the Future, and a Future that completed with an error is a Future: one
+    // request made while the network was down was then re-thrown to every
+    // later caller for as long as the screen stayed open, including the
+    // explicit Check the person pressed after the network came back
+    // (report15 X15-L6).
+    final pending = _latestReleaseData ??= _loadLatestRelease();
+    final Map<String, dynamic> decoded;
+    try {
+      decoded = await pending;
+    } catch (_) {
+      // Only if it is still OURS. A caller that started a fresh request while
+      // this one was failing must not have it dropped.
+      if (identical(_latestReleaseData, pending)) _latestReleaseData = null;
+      rethrow;
+    }
     final tag = decoded['tag_name']! as String;
     final assets = decoded['assets']! as List<Object?>;
 
