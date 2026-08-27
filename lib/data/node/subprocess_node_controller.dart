@@ -53,20 +53,41 @@ class SubprocessNodeController implements NodeController {
     if (!_status.isClosed) _status.add(s);
   }
 
+  /// Which lifecycle command is the current one.
+  ///
+  /// A start is a sequence of awaits — the spawn, then a readiness poll that
+  /// can run for the whole timeout — and a `stop` arriving in the middle of it
+  /// used to find `_process` still null, report `stopped`, and leave the start
+  /// to finish: it then spawned or adopted a node and published `connected`
+  /// for something the person had just stopped. A stop supersedes a start that
+  /// has not finished (report17 XV17-M9).
+  int _generation = 0;
+
+  /// True when this controller is watching a node it did NOT spawn.
+  ///
+  /// Adoption has no handle, so `_terminate` has nothing to kill and used to
+  /// report a clean `stopped` for a node that goes on running, holding the
+  /// admin socket and the listen port.
+  bool _adopted = false;
+
   @override
   Future<void> start() async {
     if (_current.phase == NodePhase.starting ||
         _current.phase == NodePhase.connected) {
       return;
     }
+    final mine = ++_generation;
     _emit(const NodeStatus(phase: NodePhase.starting));
 
     // If a node is already running (e.g. left over from a previous session),
     // adopt it instead of spawning a duplicate.
     if (await readinessProbe()) {
+      if (mine != _generation) return;
+      _adopted = true;
       _emit(const NodeStatus(phase: NodePhase.connected));
       return;
     }
+    if (mine != _generation) return;
 
     final NodeProcess process;
     try {
@@ -77,10 +98,21 @@ class SubprocessNodeController implements NodeController {
         environment: environment,
       );
     } catch (e) {
+      if (mine != _generation) return;
       _emit(NodeStatus(phase: NodePhase.error, message: 'spawn failed: $e'));
       return;
     }
+    // A stop landed while the spawn was in flight. The process is OURS and
+    // nobody else holds a handle to it, so it goes now — leaving it would be
+    // the stranded-child case one level up (audit XV-20), and publishing
+    // anything about it would overwrite the `stopped` the person was told.
+    if (mine != _generation) {
+      process.kill();
+      unawaited(process.exitCode);
+      return;
+    }
     _process = process;
+    _adopted = false;
 
     // DRAIN BOTH PIPES (audit XV-20). Nothing read them, so once the OS pipe
     // buffer filled — 64 KiB on Linux, less elsewhere — the node BLOCKED on its
@@ -95,24 +127,35 @@ class SubprocessNodeController implements NodeController {
     ];
 
     var exited = false;
+    // No generation check here on purpose: `_terminate` cancels this
+    // subscription BEFORE it signals, so a superseded start's watcher is
+    // already gone by the time the child dies. A guard was written here and
+    // removed — nothing could redden it.
     _exitWatch = process.exitCode.asStream().listen((code) {
       exited = true;
       if (_current.phase != NodePhase.stopped) {
-        _emit(NodeStatus(
-          phase: NodePhase.error,
-          message: 'node exited with code $code',
-        ));
+        _emit(
+          NodeStatus(
+            phase: NodePhase.error,
+            message: 'node exited with code $code',
+          ),
+        );
       }
     });
 
     final deadline = DateTime.now().add(readinessTimeout);
     while (!exited && DateTime.now().isBefore(deadline)) {
       if (await readinessProbe()) {
+        // Superseded while polling: the stop above already terminated what it
+        // could and told the person the node is down.
+        if (mine != _generation) return;
         _emit(const NodeStatus(phase: NodePhase.connected));
         return;
       }
+      if (mine != _generation) return;
       await Future<void>.delayed(pollInterval);
     }
+    if (mine != _generation) return;
     if (!exited && _current.phase != NodePhase.connected) {
       // KILL IT (audit XV-20). Giving up on the WAIT used to leave the child
       // RUNNING and unowned: it kept the admin socket and the listen port, and
@@ -120,10 +163,12 @@ class SubprocessNodeController implements NodeController {
       // it. Same shape as the stranded all-online node in XV-05: we stopped
       // watching and called that stopping.
       await _terminate();
-      _emit(const NodeStatus(
-        phase: NodePhase.error,
-        message: 'node did not become ready before timeout',
-      ));
+      _emit(
+        const NodeStatus(
+          phase: NodePhase.error,
+          message: 'node did not become ready before timeout',
+        ),
+      );
     }
   }
 
@@ -191,11 +236,31 @@ class SubprocessNodeController implements NodeController {
 
   @override
   Future<void> stop() async {
+    // Claimed FIRST, so a start still working through its awaits knows it has
+    // been superseded before it can publish anything (report17 XV17-M9).
+    ++_generation;
+    final adopted = _adopted;
+    _adopted = false;
     // Awaits the exit (audit XV-20): this used to `kill()` and return
     // immediately, so a `start()` right after could spawn while the old process
     // still held the admin socket and the listen port — and the old handle was
     // already dropped, so nobody could stop it either.
     final exited = await _terminate();
+    if (exited && adopted && await readinessProbe()) {
+      // A node this controller adopted rather than spawned: there was no
+      // handle to kill, and it is still answering. Reporting `stopped` here is
+      // the same false claim as the signalled-but-not-seen-to-exit case below
+      // — the node holds its admin socket and its listen port either way.
+      _emit(
+        const NodeStatus(
+          phase: NodePhase.error,
+          message:
+              'this node was adopted, not started here, so it cannot be '
+              'stopped from the app; it is still running',
+        ),
+      );
+      return;
+    }
     if (exited) {
       _emit(NodeStatus.stopped);
       return;
