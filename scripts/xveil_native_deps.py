@@ -116,12 +116,32 @@ ENGINES = {
         dest=os.path.join("third_party", "veil", "flutter", "veil_media", "linux"),
         host_arch=("x86_64", "amd64"),
     ),
+    # One entry per Android ABI the APK ships. The asset name and the jniLibs
+    # directory are the same choice written twice, and letting one be picked
+    # without the other is how an arm64 library lands in the x86_64 folder —
+    # where nothing notices until a device refuses to load it.
     "android": Engine(
         target="android",
         artifact="libveil_media-android-arm64",
         asset="libveil_media-android-arm64.so",
         filename="libveil_media.so",
         dest=os.path.join("android", "app", "src", "main", "jniLibs", "arm64-v8a"),
+        host_arch=None,
+    ),
+    "android-arm": Engine(
+        target="android-arm",
+        artifact="libveil_media-android-arm",
+        asset="libveil_media-android-arm.so",
+        filename="libveil_media.so",
+        dest=os.path.join("android", "app", "src", "main", "jniLibs", "armeabi-v7a"),
+        host_arch=None,
+    ),
+    "android-x64": Engine(
+        target="android-x64",
+        artifact="libveil_media-android-x64",
+        asset="libveil_media-android-x64.so",
+        filename="libveil_media.so",
+        dest=os.path.join("android", "app", "src", "main", "jniLibs", "x86_64"),
         host_arch=None,
     ),
     "windows": Engine(

@@ -230,7 +230,10 @@ def _check_android_signing() -> None:
 # build_veil_media_so.sh, which needs a from-source WebRTC checkout on an
 # x86_64 Linux host. That script builds arm64 ONLY, so arm64-v8a is the one ABI
 # whose APK can carry the media engine at all.
-_MEDIA_ABI = "arm64-v8a"
+# Every ABI the release APK ships. It was arm64 alone for a long time, and the
+# reason was real: nothing else could carry the media engine. See
+# `_RELEASE_APK_ABIS`.
+_MEDIA_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 _MEDIA_SO = "libveil_media.so"
 _MEDIA_STAGE_DIR = os.path.join("android", "app", "src", "main", "jniLibs")
 _MEDIA_BUILD_SCRIPT = os.path.join(
@@ -383,16 +386,31 @@ def _check_linux_native_fresh(release: bool) -> None:
             + "\n    fix: scripts/build-native.sh"
             + (" --release" if release else "")
         )
-# arm64-v8a ONLY, deliberately. armeabi-v7a and x86_64 built fine and were
-# published through v0.9.1, but neither can carry the media engine, so voice
-# messages, video notes, calls and speech-to-text are dead in them. Shipping an
-# APK that looks like the app and quietly cannot do half of it is worse than
-# not shipping one: every phone the project has seen is arm64 anyway.
-_RELEASE_APK_ABIS = ("arm64-v8a",)
+# All three, since 2026-08-28. It was arm64-v8a alone, deliberately, and the
+# reason was not caution: armeabi-v7a and x86_64 built fine and were published
+# through v0.9.1, but neither could carry the media engine, so voice messages,
+# video notes, calls and speech-to-text were dead in them. An APK that looks
+# like the app and quietly cannot do half of it is worse than no APK.
+#
+# What changed is that the two missing halves were built, not waived:
+#   * libveil_media.so — the WebRTC SDK slices for both ABIs are published now
+#     (they were blocked by a link script that named aarch64 by hand and by a
+#     CI step that deleted the runner's NDK), and the engine job builds all
+#     three;
+#   * libveil_whisper.so — build_veil_whisper_android.sh takes ANDROID_ABI and
+#     whisper.cpp builds for both. armeabi-v7a was the doubtful one and it
+#     compiled; each library was checked by its ELF e_machine, not by the
+#     directory it sits in.
+# libveil_translate.so is not in the APK on any ABI, so it is not a gap here.
+#
+# The guard that keeps this honest is `_verify_release_apks`: it opens each APK
+# and requires the media engine in every ABI it ships, so widening this tuple
+# without the libraries fails the build instead of shipping a hollow one.
+_RELEASE_APK_ABIS = ("arm64-v8a", "armeabi-v7a", "x86_64")
 
 
-def _staged_media_so() -> str:
-    return os.path.join(ROOT, _MEDIA_STAGE_DIR, _MEDIA_ABI, _MEDIA_SO)
+def _staged_media_so(abi: str) -> str:
+    return os.path.join(ROOT, _MEDIA_STAGE_DIR, abi, _MEDIA_SO)
 
 
 def _check_media_staged() -> None:
@@ -406,12 +424,17 @@ def _check_media_staged() -> None:
     Checked before the build rather than only after it because the build costs
     minutes and this costs a stat call.
     """
-    if os.path.isfile(_staged_media_so()):
-        print(f"    {_MEDIA_ABI}/{_MEDIA_SO} staged")
+    missing = [abi for abi in _MEDIA_ABIS if not os.path.isfile(_staged_media_so(abi))]
+    if not missing:
+        for abi in _MEDIA_ABIS:
+            print(f"    {abi}/{_MEDIA_SO} staged")
         return
+    where = ", ".join(f"{_MEDIA_STAGE_DIR}/{abi}/{_MEDIA_SO}" for abi in missing)
     raise RuntimeError(
-        f"MISSING {_MEDIA_SO} — this build would ship without call media.\n"
-        f"    Expected at {_MEDIA_STAGE_DIR}/{_MEDIA_ABI}/{_MEDIA_SO}\n"
+        f"MISSING {_MEDIA_SO} for {', '.join(missing)} — this build would ship\n"
+        "    an ABI without call media, which is the failure this check exists\n"
+        "    for: the APK installs, runs, and throws only when someone records.\n"
+        f"    Expected at {where}\n"
         "    It is gitignored, so a fresh clone never has it. Voice messages,\n"
         "    video notes, in-chat video, calls and speech-to-text all load it;\n"
         "    without it each one throws 'library libveil_media.so not found'.\n"
@@ -514,14 +537,14 @@ def _check_android_native_libs() -> None:
                 if entry.startswith(f"lib/{abi}/")
             }
         required = list(_REQUIRED_EVERY_ABI)
-        if abi == _MEDIA_ABI:
+        if abi in _MEDIA_ABIS:
             required.append(_MEDIA_SO)
         missing = [so for so in required if so not in names]
         if missing:
             problems.append(f"{abi}: missing {', '.join(missing)}")
         else:
             print(f"    {abi}: {len(names)} native libs, all required ones present")
-            if abi == _MEDIA_ABI:
+            if abi in _MEDIA_ABIS:
                 # Present is not the same as current. The media engine is a
                 # prebuilt nobody in an APK build rebuilds, so the stale one
                 # travels: it is in the APK, the app starts, and the first call
@@ -583,20 +606,27 @@ def _android(release: bool) -> list[Step]:
         )
     ]
     whisper = _whisper_script("android")
-    steps.append(
-        Step(
-            "whisper wrapper (transcription)",
-            argv=["bash", whisper] if whisper and have("bash") else [],
-            optional=True,
-            skip_if=(
-                ""
-                if whisper and have("bash")
-                else "no build script for this host"
-            ),
-            # Same reason: it compiles C++ here rather than under gradle.
-            env=_path_remap_env(),
+    # ONE STEP PER ABI. The wrapper is a native library like any other, and an
+    # APK that ships an ABI without it installs, runs, and fails only when
+    # somebody dictates a message — which is the failure the ABI list was
+    # narrowed to avoid in the first place. The script picks the clang triple,
+    # the whisper.cpp build directory and the jniLibs destination from
+    # ANDROID_ABI together, so they cannot be chosen apart.
+    for abi in _RELEASE_APK_ABIS:
+        steps.append(
+            Step(
+                f"whisper wrapper (transcription, {abi})",
+                argv=["bash", whisper] if whisper and have("bash") else [],
+                optional=True,
+                skip_if=(
+                    ""
+                    if whisper and have("bash")
+                    else "no build script for this host"
+                ),
+                # Same reason: it compiles C++ here rather than under gradle.
+                env={**_path_remap_env(), "ANDROID_ABI": abi},
+            )
         )
-    )
     if release:
         steps.append(Step("call media staged", call=_check_media_staged))
         # Done here rather than in a shell script so a Windows host can also
@@ -604,13 +634,14 @@ def _android(release: bool) -> list[Step]:
         # the build it guards. scripts/build-android-release.sh calls this.
         steps.append(
             Step(
-                "release APK (arm64 only)",
+                "release APKs (arm64-v8a, armeabi-v7a, x86_64)",
                 argv=[
                     "flutter", "build", "apk", "--release", "--split-per-abi",
-                    # arm64 only — see _RELEASE_APK_ABIS. Kept as split-per-abi
-                    # rather than a plain build so the file kept the name
-                    # people already have links to.
-                    "--target-platform", "android-arm64",
+                    # One APK per ABI — see _RELEASE_APK_ABIS. Split rather
+                    # than one fat build so each file keeps the name people
+                    # already have links to, and so a phone downloads its own
+                    # architecture instead of three.
+                    "--target-platform", "android-arm64,android-arm,android-x64",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                 ],
                 env=_path_remap_env(),
