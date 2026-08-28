@@ -185,12 +185,15 @@ void main() {
 ///    the note in it is the confirmation, and a notice it closes before
 ///    showing is not) and `nodeOperationSuccess` (the SSH dialog already
 ///    prints the output and the exit-code line);
-///  * `spaceRenameDenied` is BLOCKED, not forgotten. The rename button only
-///    appears with the permission, and if it is revoked in between,
-///    `renameGroup` answers with a bare bool — so the screen cannot tell a
-///    denial from a network failure and says the honest generic thing. Wiring
-///    this string in would mean claiming "no permission" for a dropped
-///    connection. It needs a richer result first;
+///  * `spaceRenameDenied` WAS listed here, on the reasoning that `renameGroup`
+///    answers with a bare bool so the screen could not tell a denial from a
+///    network failure, and that wiring the string in would mean claiming "no
+///    permission" for a dropped connection. Attempted, and the reason did not
+///    hold: the broadcast is unawaited and never decides that bool, so a
+///    network failure is not among the answers — while the refusal IS knowable
+///    from the same ACL that decides whether to draw the button at all. It is
+///    wired, and the generic sentence it used to get told the user to check a
+///    network that had nothing to do with it (report17);
 ///  * one-off labels a refactor left behind. Checked one at a time, they
 ///    turned out to want six different answers, which is why none of this was
 ///    a sweep: a duplicate to delete, a control that lost its name, a control
@@ -209,5 +212,4 @@ const _knownUnreachable = {
   'networkComingLater',
   'networkExtSub',
   'networkExtTitle',
-  'spaceRenameDenied',
 };

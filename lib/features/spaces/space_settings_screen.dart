@@ -47,6 +47,33 @@ class SpaceSettingsScreen extends ConsumerStatefulWidget {
       _SpaceSettingsScreenState();
 }
 
+/// Why this identity may or may not change a Space's settings.
+///
+/// One decision with two readers: the control that offers a rename, and the
+/// answer given when a rename comes back refused. Written once because a
+/// screen that asks twice can offer a button under one reading and explain the
+/// refusal under another — and told apart rather than reduced to a bool,
+/// because "you do not have permission" is the wrong sentence for a Space that
+/// is merely archived.
+enum SettingsAccess { allowed, notPermitted, inactive }
+
+@visibleForTesting
+SettingsAccess settingsAccessFor(GroupService service, GroupState state) {
+  // Inactive FIRST. Archiving a Space makes the ACL refuse `manageSettings`
+  // to everyone, its owner included, so asking the ACL first would answer an
+  // archived Space with "you do not have permission" — told to the one person
+  // who has it. Measured by the test below, which failed on exactly that.
+  if (!state.isActive) return SettingsAccess.inactive;
+  return SpaceAcl(state).allows(service.selfId, SpacePermission.manageSettings)
+      ? SettingsAccess.allowed
+      : SettingsAccess.notPermitted;
+}
+
+/// The sentence a failed settings change deserves.
+@visibleForTesting
+String settingsFailureMessage(AppL10n l, {required bool denied}) =>
+    denied ? l.spaceRenameDenied : l.spaceOperationFailed;
+
 class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
   GroupService? _snapshotService;
   NodeId? _snapshotSpaceId;
@@ -129,10 +156,11 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     });
   }
 
-  void _failure() {
+  void _failure({bool denied = false}) {
     if (!mounted) return;
+    final l = AppL10n.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppL10n.of(context).spaceOperationFailed)),
+      SnackBar(content: Text(settingsFailureMessage(l, denied: denied))),
     );
   }
 
@@ -378,7 +406,25 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
       builder: (_) => _RenameSpaceDialog(current: current),
     );
     if (name == null || name.isEmpty || name == current) return;
-    if (!await service.renameGroup(spaceId, name)) _failure();
+    if (await service.renameGroup(spaceId, name)) return;
+
+    // Which failure it was. The control that offers this is drawn from a
+    // snapshot, so the permission behind it can be revoked while the dialog is
+    // open — and `renameGroup` answers with a bare bool, so the refusal used
+    // to arrive as "could not update the community, CHECK THE NETWORK and try
+    // again". The network is not what refused: the broadcast is unawaited and
+    // never decides this call's answer, so that advice could not be followed
+    // to a fix (report17).
+    //
+    // Asked of the same predicate that draws the control, not of a second
+    // opinion, so the screen cannot offer a button and then deny the
+    // permission it was offered under.
+    final now = await service.stateOf(spaceId);
+    _failure(
+      denied:
+          now != null &&
+          settingsAccessFor(service, now) == SettingsAccess.notPermitted,
+    );
   }
 
   Future<void> _editDescription(
@@ -1377,11 +1423,8 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
             final myRole = state.roleOf(service.selfId)!;
             final acl = SpaceAcl(state);
             final canRename =
-                state.isActive &&
-                acl.allows(service.selfId, SpacePermission.manageSettings);
-            final canEditDescription =
-                state.isActive &&
-                acl.allows(service.selfId, SpacePermission.manageSettings);
+                settingsAccessFor(service, state) == SettingsAccess.allowed;
+            final canEditDescription = canRename;
             final canAdd =
                 state.isActive &&
                 (canApply(
