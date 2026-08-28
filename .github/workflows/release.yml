@@ -876,7 +876,15 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: xVeil ${{ github.ref_name }}
           body_path: ${{ runner.temp }}/notes.md
-          draft: true
+          # Published, not drafted, the way hidden-volume has always released.
+          # A draft is a release nobody can install: v0.13.1 through v0.13.4
+          # each built green and then sat unpublished, so `latest` pointed at
+          # v0.13.0 and every "which version am I on" answer was a version
+          # older than the one that had been cut. The gate that decides whether
+          # a tag deserves a release is `analyze + tests` and the three
+          # bundles, all of which must pass before this job runs at all —
+          # holding the result back afterwards adds a step, not a check.
+          draft: false
           files: artifacts/**/*
           fail_on_unmatched_files: true
 
