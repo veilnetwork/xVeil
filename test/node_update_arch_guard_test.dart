@@ -117,11 +117,45 @@ void main() {
       expect(wrong.stderr, contains('another architecture'));
     });
 
+    /// Like [check], but on a host that cannot answer for itself either: the
+    /// `/proc/self/exe` probe reads nothing.
+    ///
+    /// [check] stubs only `uname`, so the probe used to read the RUNNER's own
+    /// binary — and that is a real answer. On macOS there is no
+    /// `/proc/self/exe`, so the test passed locally and failed on the Linux
+    /// runner, where the guard correctly refused a riscv64 build for an
+    /// x86_64 host. The unanswerable host is now built rather than assumed.
+    ProcessResult checkWithoutProc(String machine, File file) {
+      final stub = <String>[
+        'uname() { echo "$machine"; }',
+        'od() {',
+        '  local a',
+        '  for a in "\$@"; do',
+        '    [ "\$a" = "/proc/self/exe" ] && return 1',
+        '  done',
+        '  command od "\$@"',
+        '}',
+      ].join('\n');
+      return Process.runSync('bash', [
+        '-c',
+        '$stub\n${guard()}\ncheck_machine "${file.path}"',
+      ]);
+    }
+
     test('and only a host that cannot answer at all is let through', () {
       // Last resort, and stated rather than accidental: a machine where
       // neither the name nor /proc says anything is one veil publishes no
       // build for.
-      expect(check('riscv64', elf(243)).exitCode, 0);
+      expect(checkWithoutProc('riscv64', elf(243)).exitCode, 0);
+    });
+
+    test('but a host that CAN answer refuses the same build', () {
+      // The other half, and the one that matters: the last resort is a
+      // last resort. Where the probe works — every Linux server this
+      // deploys to — an unknown `uname -m` is not a way past the check.
+      final refused = checkVia('riscv64', elf(62), elf(243));
+      expect(refused.exitCode, isNot(0));
+      expect(refused.stderr, contains('another architecture'));
     });
   });
 
