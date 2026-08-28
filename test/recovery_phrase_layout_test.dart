@@ -50,6 +50,13 @@ class _NoopNode implements NodeController {
   Future<void> setEconomyMode(bool economy) async {}
 }
 
+/// A phrase shaped the way the native generator hands one over.
+///
+/// Injected because the onboarding screen now refuses to create an identity
+/// when the generator has nothing to give; it used to substitute words of its
+/// own, which is why these tests never named a generator.
+String phraseOf24() => List.generate(24, (i) => 'word${i + 1}').join(' ');
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -65,7 +72,10 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          home: OnboardingScreen(validatePhrase: (_) => true),
+          home: OnboardingScreen(
+            validatePhrase: (_) => true,
+            generatePhrase: phraseOf24,
+          ),
         ),
       ),
     );
@@ -164,7 +174,8 @@ void main() {
       expect(
         position.maxScrollExtent,
         greaterThan(0),
-        reason: 'words are off screen and the step does not scroll, so they '
+        reason:
+            'words are off screen and the step does not scroll, so they '
             'are simply unreachable',
       );
       expect(
@@ -175,7 +186,8 @@ void main() {
       expect(
         tester.widget<Scrollbar>(find.byType(Scrollbar).first).thumbVisibility,
         isTrue,
-        reason: 'a scrollbar that appears only once you scroll cannot tell '
+        reason:
+            'a scrollbar that appears only once you scroll cannot tell '
             'you that scrolling is needed — which is exactly how 24 words '
             'looked like 21',
       );
@@ -189,7 +201,8 @@ void main() {
       expect(
         confirm.top,
         greaterThanOrEqualTo(lastWord.bottom),
-        reason: 'the checkbox claiming all 24 words are written down sits '
+        reason:
+            'the checkbox claiming all 24 words are written down sits '
             'above word 24, so it can be ticked by someone who has never had '
             'word 24 on screen',
       );
@@ -202,7 +215,8 @@ void main() {
       expect(
         fullyInside(wordRect(tester, 24), box),
         isTrue,
-        reason: 'at the bottom of the page, where the confirmation is, word '
+        reason:
+            'at the bottom of the page, where the confirmation is, word '
             '24 must be readable: ${wordRect(tester, 24)} against $box',
       );
       expect(
@@ -229,7 +243,8 @@ void main() {
     expect(
       thirteen.top,
       lessThan(twelve.top),
-      reason: 'word 13 must start that column at the top — flowing on below '
+      reason:
+          'word 13 must start that column at the top — flowing on below '
           'word 12 is the single-run layout that did not fit',
     );
   });
@@ -248,7 +263,8 @@ void main() {
           matching: find.text('$n'),
         ),
         findsOneWidget,
-        reason: 'word $n must carry its own number, or a partial copy cannot '
+        reason:
+            'word $n must carry its own number, or a partial copy cannot '
             'be told from a complete one',
       );
     }

@@ -18,6 +18,7 @@
   "onboardChooseTitle": "Configura tu identidad",
   "onboardCreateIdentity": "Crear una identidad nueva",
   "onboardCreateIdentitySub": "Genera una clave soberana nueva en este dispositivo",
+  "onboardNoRecoveryPhrase": "Este dispositivo no pudo generar una frase de recuperación, así que no se creó ninguna identidad. Sin ella, una identidad nunca podría restaurarse: inténtelo de nuevo o restaure una identidad existente.",
   "onboardRestoreIdentity": "Restaurar con la frase de recuperación",
   "onboardRestoreIdentitySub": "Usa tu frase de 24 palabras para recuperar una identidad existente",
   "onboardRestoreBody": "Introduce la frase de recuperación de 24 palabras que anotaste al crear la identidad. Se recreará la misma identidad en este dispositivo.",
