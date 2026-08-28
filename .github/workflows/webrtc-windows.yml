@@ -116,8 +116,10 @@ jobs:
         include:
           - target: win-x64
             gn_args_var: WEBRTC_GN_ARGS_WIN
+            lib_arch: x64
           - target: win-arm64
             gn_args_var: WEBRTC_GN_ARGS_WIN_ARM64
+            lib_arch: arm64
     # Was 350, for a job that spent fifty-eight of its sixty-five minutes
     # building WebRTC. What is left is a 158 MB download, an extract and an
     # eighteen-second wrapper build; Windows gets a little more room than the
@@ -249,32 +251,44 @@ jobs:
           # it is missing, so that a link failure means the link is wrong rather
           # than that this ran in a bare shell. This is the recipe
           # libwebrtc-builds' own verify-sdk.ps1 proved on a runner.
+          # Built for the TARGET architecture, and built even when the shell
+          # already has a LIB. The runner image sets one for the HOST, so the
+          # arm64 link picked up x64 import libraries and lld-link refused:
+          # "user32.lib(USER32.dll): machine type x64 conflicts with arm64",
+          # once per symbol until it gave up. Whether LIB is set says nothing
+          # about which architecture it is for.
+          $archDir = '${{ matrix.lib_arch }}'
           Write-Host "==> LIB was: $(if ($env:LIB) { $env:LIB } else { '(unset)' })"
-          if (-not $env:LIB) {
-            $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-            if (-not (Test-Path $vswhere)) { throw "LIB is unset and there is no vswhere at $vswhere to rebuild it from" }
+          Write-Host "==> rebuilding it for $archDir"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $libs = @()
+          if (Test-Path $vswhere) {
             $vs = & $vswhere -latest -products * -property installationPath 2>$null | Select-Object -First 1
             $tools = if ($vs) {
               Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Directory -ErrorAction SilentlyContinue |
                 Sort-Object Name -Descending | Select-Object -First 1
             }
             $kits = (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue).KitsRoot10
-            $libs = @()
-            if ($tools) { $libs += (Join-Path $tools.FullName 'lib\x64') }
+            if ($tools) {
+              $p = Join-Path $tools.FullName "lib\$archDir"
+              if (Test-Path $p) { $libs += $p }
+              else { throw "no MSVC lib directory for $archDir at $p - the ARM64 build tools are not installed on this image" }
+            }
             if ($kits) {
               $sdk = Get-ChildItem (Join-Path $kits 'Lib') -Directory -ErrorAction SilentlyContinue |
                 Where-Object { $_.Name -like '10.*' } | Sort-Object Name -Descending | Select-Object -First 1
               if ($sdk) {
-                foreach ($part in @('um\x64', 'ucrt\x64')) {
+                foreach ($part in @("um\$archDir", "ucrt\$archDir")) {
                   $p = Join-Path $sdk.FullName $part
                   if (Test-Path $p) { $libs += $p }
+                  else { throw "no Windows SDK $part under $($sdk.FullName)" }
                 }
               }
             }
-            if (-not $libs) { throw 'LIB is unset and vswhere found no MSVC or Windows SDK lib directory' }
-            $env:LIB = $libs -join ';'
-            Write-Host "==> LIB set to: $env:LIB"
           }
+          if (-not $libs) { throw "found no MSVC or Windows SDK lib directory for $archDir" }
+          $env:LIB = $libs -join ';'
+          Write-Host "==> LIB set to: $env:LIB"
           & third_party\veil\flutter\veil_media\windows\build_veil_media_dll_windows.ps1 `
             -WebrtcSrc "$env:WEBRTC_SRC" `
             -WebrtcOut "$env:WEBRTC_OUT" `
