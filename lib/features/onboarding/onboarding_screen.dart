@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -100,11 +98,32 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// (every later device must, or two devices of one identity are one node).
   bool _restoring = false;
 
+  /// Set when this device could not produce a recovery phrase, so no identity
+  /// was created. Shown on the choice step, where the person still is.
+  String? _createRefusal;
+
   void _startCreate() {
     _restoring = false;
     final real = widget.generatePhrase();
-    _realPhrase = real != null;
-    _phrase = real?.split(' ') ?? _generatePhrase();
+    // FAIL CLOSED (report17, onboarding fallback).
+    //
+    // When the native generator has nothing to give, this used to hand over 24
+    // words drawn from a list of 28 kept in this file, show a warning, and let
+    // the person carry on. They wrote down something that looks exactly like a
+    // recovery phrase, confirmed it, and got an identity those words restore
+    // NOTHING of — the one failure a recovery phrase exists to prevent, made
+    // to look like the ordinary path. The warning was in the same screen as
+    // the words, so it competed with them.
+    //
+    // An identity is not created at all now. There is nothing useful to do
+    // with a phraseless one, and the person can try again once whatever kept
+    // the generator from answering is dealt with.
+    if (real == null) {
+      setState(() => _createRefusal = 'no-phrase');
+      return;
+    }
+    _realPhrase = true;
+    _phrase = real.split(' ');
     _phraseConfirmed = false;
     _joinExisting = false;
     _go(2);
@@ -224,6 +243,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onCreate: _startCreate,
               onRestore: () => _go(5),
               onLink: _startLink,
+              refused: _createRefusal != null,
             ),
             5 => _RestoreStep(
               validate: widget.validatePhrase,
@@ -263,44 +283,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   // FALLBACK-ONLY placeholder (loopback/test builds without the native
   // library): production builds show the REAL native phrase from
   // veilGeneratePhrase() and derive the identity from it (_realPhrase).
-  static const _sampleWords = [
-    'anchor',
-    'borrow',
-    'cliff',
-    'dawn',
-    'ember',
-    'forest',
-    'glide',
-    'harbor',
-    'island',
-    'jungle',
-    'kernel',
-    'lantern',
-    'meadow',
-    'noble',
-    'orbit',
-    'pebble',
-    'quartz',
-    'ripple',
-    'shadow',
-    'timber',
-    'umbra',
-    'velvet',
-    'willow',
-    'zenith',
-    'cedar',
-    'mirror',
-    'signal',
-    'cobalt',
-  ];
-
-  static List<String> _generatePhrase() {
-    final rnd = Random.secure();
-    return List.generate(
-      24,
-      (_) => _sampleWords[rnd.nextInt(_sampleWords.length)],
-    );
-  }
 }
 
 class _Welcome extends StatelessWidget {
@@ -338,10 +320,14 @@ class _ChoosePath extends StatelessWidget {
     required this.onCreate,
     required this.onRestore,
     required this.onLink,
+    this.refused = false,
   });
   final VoidCallback onCreate;
   final VoidCallback onRestore;
   final VoidCallback onLink;
+
+  /// This device could not produce a recovery phrase, so nothing was created.
+  final bool refused;
 
   @override
   Widget build(BuildContext context) {
@@ -356,6 +342,34 @@ class _ChoosePath extends StatelessWidget {
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 24),
+          if (refused) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.errorContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.warning_amber_outlined,
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l.onboardNoRecoveryPhrase,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           _OptionCard(
             icon: Icons.add_circle_outline,
             title: l.onboardCreateIdentity,

@@ -207,6 +207,12 @@ abstract class AppL10n {
   /// **'Generate a fresh sovereign key on this device'**
   String get onboardCreateIdentitySub;
 
+  /// No description provided for @onboardNoRecoveryPhrase.
+  ///
+  /// In en, this message translates to:
+  /// **'This device could not produce a recovery phrase, so no identity was created. Without one, an identity could never be restored — try again, or restore an existing identity instead.'**
+  String get onboardNoRecoveryPhrase;
+
   /// No description provided for @onboardRestoreIdentity.
   ///
   /// In en, this message translates to:

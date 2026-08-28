@@ -96,6 +96,11 @@ void main() {
               home: OnboardingScreen(
                 // The real validator is FFI; any 24 words pass here.
                 validatePhrase: (p) => p.split(' ').length == 24,
+                // And the real generator is FFI too. Named, because the screen
+                // refuses to create an identity without a phrase now — the
+                // substitute it used to fall back on is gone.
+                generatePhrase: () =>
+                    List.generate(24, (i) => 'word${i + 1}').join(' '),
               ),
             );
           },
@@ -125,7 +130,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(l(tester).onboardCreateIdentity));
     await tester.pumpAndSettle();
-    await confirmRecoveryPhrase(tester, continueLabel: l(tester).actionContinue);
+    await confirmRecoveryPhrase(
+      tester,
+      continueLabel: l(tester).actionContinue,
+    );
     // storage, then network entry.
     await tester.tap(find.text(l(tester).actionContinue));
     await tester.pumpAndSettle();

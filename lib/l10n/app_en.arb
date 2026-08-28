@@ -18,6 +18,7 @@
   "onboardChooseTitle": "Set up your identity",
   "onboardCreateIdentity": "Create a new identity",
   "onboardCreateIdentitySub": "Generate a fresh sovereign key on this device",
+  "onboardNoRecoveryPhrase": "This device could not produce a recovery phrase, so no identity was created. Without one, an identity could never be restored — try again, or restore an existing identity instead.",
   "onboardRestoreIdentity": "Restore from recovery phrase",
   "onboardRestoreIdentitySub": "Use your 24-word phrase to recover an existing identity",
   "onboardRestoreBody": "Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.",

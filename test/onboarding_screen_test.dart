@@ -29,6 +29,15 @@ class _NoopNode implements NodeController {
   Future<void> setEconomyMode(bool economy) async {}
 }
 
+/// A phrase shaped the way the native generator hands one over.
+///
+/// Injected explicitly because the screen now REFUSES to create an identity
+/// when the generator has nothing to give. It used to substitute 24 words of
+/// its own and carry on, which is also why most of these tests passed without
+/// ever naming a generator: they were exercising that substitute, not the path
+/// a person takes.
+String _phraseOf24() => List.generate(24, (i) => 'word${i + 1}').join(' ');
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
@@ -45,7 +54,7 @@ void main() {
             return MaterialApp(
               localizationsDelegates: AppL10n.localizationsDelegates,
               supportedLocales: AppL10n.supportedLocales,
-              home: const OnboardingScreen(),
+              home: OnboardingScreen(generatePhrase: _phraseOf24),
             );
           },
         ),
@@ -184,7 +193,7 @@ void main() {
               return MaterialApp(
                 localizationsDelegates: AppL10n.localizationsDelegates,
                 supportedLocales: AppL10n.supportedLocales,
-                home: const OnboardingScreen(),
+                home: OnboardingScreen(generatePhrase: _phraseOf24),
               );
             },
           ),
@@ -339,7 +348,7 @@ void main() {
               return MaterialApp(
                 localizationsDelegates: AppL10n.localizationsDelegates,
                 supportedLocales: AppL10n.supportedLocales,
-                home: const OnboardingScreen(),
+                home: OnboardingScreen(generatePhrase: _phraseOf24),
               );
             },
           ),
@@ -421,20 +430,20 @@ void main() {
     });
   });
 
-  testWidgets('a placeholder phrase says so; a restored one does not', (
+  testWidgets('a device that cannot make a phrase creates no identity', (
     tester,
   ) async {
-    // The generator answers null when the native library is absent SO THAT the
-    // caller can degrade honestly.
+    // The generator answers null when the native library cannot produce a
+    // phrase. That used to be papered over: the screen handed out 24 words of
+    // its own, showed a warning beside them, and let the person carry on —
+    // they wrote down something that looks exactly like a recovery phrase,
+    // confirmed it, and got an identity those words restore NOTHING of. The
+    // one failure a recovery phrase exists to prevent, wearing the ordinary
+    // path's clothes.
     //
-    // ASKED FOR, not inherited from the environment. This used to reach the
-    // placeholder path by the library being missing — true in CI and false in
-    // production, so with the library present the screen showed a REAL phrase,
-    // the warning correctly did not appear, and the test failed for being
-    // right. A path this important is chosen, not hoped for. The screen still showed those placeholder words under the
-    // ordinary "these 24 words ARE your identity, write them down" copy, while
-    // the identity was minted at random — the user would have backed up 24
-    // words that restore nothing.
+    // ASKED FOR, not inherited from the environment: this used to reach that
+    // path by the library being absent, which is true in CI and false in
+    // production. A path this important is chosen, not hoped for.
     await tester.pumpWidget(
       ProviderScope(
         overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
@@ -455,16 +464,50 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(l().onboardCreateIdentity));
     await tester.pumpAndSettle();
+
     expect(
       find.text(l().recoveryTitle),
-      findsOneWidget,
-      reason: 'we are on the recovery step',
+      findsNothing,
+      reason: 'the wizard advanced to hand over a phrase that restores nothing',
     );
     expect(
-      find.text(l().recoveryPlaceholderWarning),
+      find.text(l().onboardNoRecoveryPhrase),
       findsOneWidget,
-      reason: 'a phrase that restores nothing must be labelled as such',
+      reason: 'nothing on screen says why the identity was not created',
     );
+    // Still on the choice step, so the person can try again or restore.
+    expect(find.text(l().onboardCreateIdentity), findsOneWidget);
+  });
+
+  testWidgets('CONTROL: with a generator the same tap goes on to the phrase', (
+    tester,
+  ) async {
+    // Vacuity guard: a screen that refused every create would satisfy the
+    // assertions above while making the app unusable.
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: OnboardingScreen(
+            validatePhrase: (_) => true,
+            generatePhrase: _phraseOf24,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    AppL10n l() => AppL10n.of(tester.element(find.byType(OnboardingScreen)));
+
+    await tester.tap(find.text(l().actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l().onboardCreateIdentity));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l().recoveryTitle), findsOneWidget);
+    expect(find.text(l().onboardNoRecoveryPhrase), findsNothing);
+    expect(find.text('word1'), findsOneWidget, reason: 'the REAL phrase shows');
   });
 
   testWidgets('a restored phrase carries no placeholder warning', (
@@ -478,7 +521,10 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          home: OnboardingScreen(validatePhrase: (_) => true),
+          home: OnboardingScreen(
+            validatePhrase: (_) => true,
+            generatePhrase: _phraseOf24,
+          ),
         ),
       ),
     );
@@ -539,7 +585,10 @@ void main() {
           child: MaterialApp(
             localizationsDelegates: AppL10n.localizationsDelegates,
             supportedLocales: AppL10n.supportedLocales,
-            home: OnboardingScreen(validatePhrase: (_) => true),
+            home: OnboardingScreen(
+              validatePhrase: (_) => true,
+              generatePhrase: _phraseOf24,
+            ),
           ),
         ),
       );
@@ -618,7 +667,10 @@ void main() {
         child: MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          home: OnboardingScreen(validatePhrase: (_) => true),
+          home: OnboardingScreen(
+            validatePhrase: (_) => true,
+            generatePhrase: _phraseOf24,
+          ),
         ),
       ),
     );
