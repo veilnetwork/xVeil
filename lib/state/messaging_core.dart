@@ -1715,7 +1715,10 @@ class MessagingService {
       _attestation.onResponse(src, envelope);
 
   /// Ask [dst] to connect, with an optional [greeting].
-  Future<void> sendRequest(NodeId dst, String greeting) =>
+  /// Whether the request was DEPOSITED at the recipient's relay — see
+  /// [MessagingContacts.sendRequest]. The live leg is best-effort by contract,
+  /// so a false here means nothing durable went out and nothing retries it.
+  Future<bool> sendRequest(NodeId dst, String greeting) =>
       _contacts.sendRequest(dst, greeting);
 
   Future<void> resendRequest(NodeId dst) => _contacts.resendRequest(dst);
@@ -1991,7 +1994,7 @@ class MessagingService {
     bool awaitAck = false,
   }) => _mailboxDelivery.stashInBackground(peer, id, wire, awaitAck: awaitAck);
 
-  Future<void> _maybeStash(NodeId peer, String id, Uint8List wire) =>
+  Future<bool> _maybeStash(NodeId peer, String id, Uint8List wire) =>
       _mailboxDelivery.maybeStash(peer, id, wire);
 
   /// Delete a local copy, scrub its plaintext, and stop unreferenced serving.

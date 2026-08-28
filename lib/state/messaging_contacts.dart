@@ -146,7 +146,18 @@ class _MessagingContacts {
 
   /// Ask [dst] to connect, with an optional [greeting]. We can't freely
   /// message them until they accept.
-  Future<void> sendRequest(NodeId dst, String greeting) async {
+  ///
+  /// Returns whether the request was DEPOSITED at the recipient's relay.
+  ///
+  /// It used to return nothing, and both legs below had their outcome thrown
+  /// away — so a request that reached neither the relay nor the peer still
+  /// left the contact marked `pendingOutgoing`, which the app shows as "sent".
+  /// Measured on the production network: the seal could not be made because
+  /// the recipient's instance registry did not resolve, nothing was deposited,
+  /// and nothing anywhere said so. This send is also the one with no retry
+  /// behind it — `flushOutbox` re-stashes ACCEPTED contacts only — so a
+  /// silence here is permanent until somebody asks again by hand.
+  Future<bool> sendRequest(NodeId dst, String greeting) async {
     final text = greeting.trim();
     await setStatus(dst, ContactStatus.pendingOutgoing);
     // Tag the greeting with a stable id shared between our stored copy and the
@@ -187,7 +198,7 @@ class _MessagingContacts {
     // condition under which first contact silently could not be made.
     final deposit = _owner._maybeStash(dst, id, wire);
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
-    await deposit;
+    return deposit;
   }
 
   /// Re-send a pending outgoing request that hasn't been accepted yet (e.g. it
