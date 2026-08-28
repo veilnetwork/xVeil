@@ -320,7 +320,11 @@ jobs:
           # Release assets do not expire. The ENGINE_RUN below is kept as the
           # fallback route and as the record of where this came from, but it is
           # no longer what a tag depends on.
-          ENGINE_RELEASE: 'engine-2026.08.13'
+          # MOVED 2026-08-28 to `engine-2026.08.28.2`. The 08.13 release
+          # carries ONE android engine, arm64 — it predates the ABIs. This
+          # release carries all three, each verified against its own provenance
+          # and, below, against its own ELF machine type.
+          ENGINE_RELEASE: 'engine-2026.08.28.2'
           # webrtc-linux run 31609030118 (12 August), the FIRST run whose
           # engine-android job ever finished. Every earlier run carried
           # libveil_media-linux-x64 and nothing else, so there was no android
