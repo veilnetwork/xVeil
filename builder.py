@@ -525,6 +525,23 @@ def _check_android_native_libs() -> None:
 
     apk_dir = os.path.join(ROOT, "build", "app", "outputs", "flutter-apk")
     problems: list[str] = []
+    # A leftover from a build before the ABI list changed: left in place it is
+    # uploaded beside the good ones and installed by whoever reads the filename
+    # as a choice. Asked ONCE about the directory — it used to be asked inside
+    # the per-ABI loop, where "not the one I am looking at" meant every OTHER
+    # shipped APK, so widening the list made all three accuse each other.
+    expected = {f"app-{abi}-release.apk" for abi in _RELEASE_APK_ABIS}
+    stray = sorted(
+        entry
+        for entry in os.listdir(apk_dir)
+        if entry.endswith("-release.apk") and entry not in expected
+    )
+    if stray:
+        problems.append(
+            "these are not published and must not be handed out "
+            f"(not an ABI this build ships): {', '.join(stray)}"
+        )
+
     for abi in _RELEASE_APK_ABIS:
         apk = os.path.join(apk_dir, f"app-{abi}-release.apk")
         if not os.path.isfile(apk):
@@ -559,20 +576,7 @@ def _check_android_native_libs() -> None:
                 # has no such guard: it is plain dlsym, so the only place this
                 # can be caught is here, in the artifact.
                 problems.extend(_media_symbols_problem(bundle_path=apk, abi=abi))
-        stray = [
-            entry
-            for entry in os.listdir(apk_dir)
-            if entry.endswith("-release.apk")
-            and entry != f"app-{abi}-release.apk"
-        ]
-        if stray:
-            # A leftover from a build before the ABI list narrowed. Left in
-            # place it gets uploaded beside the good one and installed by
-            # whoever reads the filename as a choice.
-            problems.append(
-                "these are not published and must not be handed out "
-                f"(stale from an earlier build): {', '.join(sorted(stray))}"
-            )
+
     if problems:
         raise RuntimeError(
             "APK CONTENTS ARE WRONG — do not publish these.\n    "
