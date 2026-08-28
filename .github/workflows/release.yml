@@ -679,7 +679,12 @@ jobs:
           # is already pinned by builds that exist, and replacing its assets
           # would change what those builds mean without their pin changing.
           # The workflow refuses it, correctly.
-          ENGINE_RELEASE: 'engine-2026.08.28.2'
+          # MOVED again to `.4`. `.2` carried the apartment CHECK, which could
+          # not work: the process has an MTA, a thread that touches COM without
+          # initialising joins it implicitly, and the ADM asks after we do. `.4`
+          # builds the ADM on a thread with no apartment yet, so it establishes
+          # its own STA with nothing to collide with.
+          ENGINE_RELEASE: 'engine-2026.08.28.4'
           # DEAD once ENGINE_RELEASE above is set — the branch below is never
           # taken. Kept as the record of where this engine used to come from:
           # webrtc-windows run 30665287484 (2026-07-31), whose artifact expires
