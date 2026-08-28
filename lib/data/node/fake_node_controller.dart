@@ -37,7 +37,9 @@ class FakeNodeController implements NodeController {
 
   @override
   Future<void> setEconomyMode(bool economy) async {
-    // No-op for the fake; real adapter calls VeilClient.setBackgroundMode.
+    // No-op for the fake — and for the real adapters too: nothing in this app
+    // calls `VeilClient.setBackgroundMode`, which this line used to present as
+    // what the real one does (report17).
   }
 
   @override
