@@ -273,7 +273,16 @@ class _MessagingMailboxDelivery {
     unawaited(maybeStash(peer, id, wire, awaitAck: awaitAck));
   }
 
-  Future<void> maybeStash(
+  /// Returns true only when a blob was actually deposited at the recipient's
+  /// relay. Every other path — a backoff, no mailbox, a duplicate, a throw —
+  /// answers false.
+  ///
+  /// It used to answer nothing at all, and `sendRequest` is the one send in
+  /// this app with no second chance: a contact request whose deposit failed
+  /// left the contact marked `pendingOutgoing` with nothing on the wire and
+  /// nothing said. In a release build even the trace below is compiled out, so
+  /// the failure was invisible from both ends.
+  Future<bool> maybeStash(
     NodeId peer,
     String id,
     Uint8List wire, {
@@ -286,7 +295,9 @@ class _MessagingMailboxDelivery {
     // hammering the mailbox of a peer we had just failed to resolve. The frame
     // stays durable regardless: the flush loop deposits it once the backoff
     // expires.
-    if (suppressedByBackoff(peer.hex, DateTime.now(), 'maybeStash')) return;
+    if (suppressedByBackoff(peer.hex, DateTime.now(), 'maybeStash')) {
+      return false;
+    }
     // Deposit only what nobody has confirmed. A live send that reached ANY
     // device of the recipient ends with that device acking after it stored the
     // message, and the recipient's devices mirror it among themselves — so a
@@ -305,7 +316,7 @@ class _MessagingMailboxDelivery {
               'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already '
               'acknowledged (stored by the recipient)',
         );
-        return;
+        return false;
       }
       if (ackGrace > Duration.zero) {
         await Future<void>.delayed(ackGrace);
@@ -319,7 +330,7 @@ class _MessagingMailboxDelivery {
                 'xVeil[send]: stash SKIP dst=${peer.short} id=$id — '
                 'acknowledged within ${ackGrace.inSeconds}s',
           );
-          return;
+          return false;
         }
       }
     }
@@ -330,9 +341,12 @@ class _MessagingMailboxDelivery {
             'xVeil[send]: stash SKIP dst=${peer.short} id=$id '
             '— NO mailbox (transport not VeilFlutter or no relays)',
       );
-      return;
+      return false;
     }
     if (_stashed.contains(id)) {
+      // A deposit for this id already exists. Not this call's doing, and not a
+      // failure either: the blob is at the relay, which is all the caller asked
+      // about.
       // Reached only by a caller that did not ask [alreadyDeposited] first —
       // the periodic flush does, because it walks EVERY pending frame on every
       // pass and a frame already in the mailbox is the ordinary case, not the
@@ -342,7 +356,7 @@ class _MessagingMailboxDelivery {
         () =>
             'xVeil[send]: stash SKIP dst=${peer.short} id=$id — already stashed',
       );
-      return;
+      return true;
     }
     // A failed seal can block a worker for ~12s. Never respawn it on every 3s
     // flush; the durable entry remains pending and retries after this window.
@@ -350,16 +364,21 @@ class _MessagingMailboxDelivery {
     final failedAt = _failedAt[id];
     if (failedAt != null &&
         DateTime.now().difference(failedAt) < _retryBackoff) {
-      return;
+      return false;
     }
     // Initial send and periodic flush can race for the same stable id.
-    if (!_inFlight.add(id)) return;
+    // Another attempt for this id is in flight — the initial send and the
+    // flush loop race for the same stable id. Answering false would tell the
+    // caller nothing went out while a deposit is being made.
+    if (!_inFlight.add(id)) return true;
+    var deposited = false;
     try {
       try {
         await mailbox
             .stash(recipient: peer, payload: wire, contentId: _contentIdFor(id))
             .timeout(stashDeadline);
         _stashed.add(id);
+        deposited = true;
         _failedAt.remove(id);
         clearPeerBackoff(peer.hex);
         devLog(
@@ -398,6 +417,7 @@ class _MessagingMailboxDelivery {
     } finally {
       _inFlight.remove(id);
     }
+    return deposited;
   }
 
   /// Stable relay-side dedup/eviction key, distinct from the wire message id.

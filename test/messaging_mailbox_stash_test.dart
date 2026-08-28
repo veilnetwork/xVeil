@@ -202,6 +202,40 @@ void main() {
   /// kept its row for the life of the process. It stops affecting any decision
   /// after the retry window; what it goes on doing is holding memory, one
   /// entry per frame id that ever failed.
+  /// A request whose deposit failed must SAY so, not look sent.
+  ///
+  /// Both legs of `sendRequest` had their outcome thrown away, so a request
+  /// that reached neither the relay nor the peer still left the contact marked
+  /// `pendingOutgoing` — which the app shows as "sent". Measured on the
+  /// production network: the seal could not be made because the recipient's
+  /// instance registry did not resolve, nothing was deposited, and nothing
+  /// anywhere said so. This is also the one send with no retry behind it
+  /// (`flushOutbox` re-stashes ACCEPTED contacts only), so the silence was
+  /// permanent until somebody asked again by hand.
+  test('a request whose deposit failed does not report itself sent', () async {
+    mA.attachMailbox(_FailingSink());
+
+    final deposited = await mA.sendRequest(b, 'this one goes nowhere');
+
+    expect(
+      deposited,
+      isFalse,
+      reason: 'the deposit threw and the caller was told it went out',
+    );
+  });
+
+  /// CONTROL: the same call over a working relay reports the deposit.
+  ///
+  /// Without this the assertion above is satisfied by a `sendRequest` that
+  /// always answers false — which would make every request look failed and
+  /// tell the user nothing.
+  test('CONTROL: a request that IS deposited reports it', () async {
+    final deposited = await mA.sendRequest(b, 'this one lands');
+
+    expect(deposited, isTrue, reason: 'the recording relay stored it');
+    expect(sink.stashed, isNotEmpty);
+  });
+
   test('a retired frame leaves no bookkeeping behind', () async {
     final failing = _FailingSink();
     mA.attachMailbox(failing);

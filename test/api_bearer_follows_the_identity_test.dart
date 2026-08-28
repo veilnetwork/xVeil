@@ -70,8 +70,11 @@ class _CountingMessaging implements MessagingService {
   final greeted = <NodeId>[];
 
   @override
-  Future<void> sendRequest(NodeId peer, [String? greeting]) async =>
-      greeted.add(peer);
+  Future<bool> sendRequest(NodeId peer, [String? greeting]) async {
+    greeted.add(peer);
+    // Deposited, so the caller does not report a failure this fake never had.
+    return true;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

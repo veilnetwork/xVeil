@@ -1612,7 +1612,7 @@ void main() {
 
       // The container stops taking writes.
       sA.failRatchetSaves = true;
-      await mA.sendRequest(b, 'past the fault').catchError((_) {});
+      await mA.sendRequest(b, 'past the fault').catchError((_) => false);
       await _pump();
       final afterFault = sends;
       expect(
@@ -1623,7 +1623,7 @@ void main() {
 
       // Every send after it is refused while the state is not down.
       for (var i = 0; i < 5; i++) {
-        await mA.sendRequest(b, 'must not go out $i').catchError((_) {});
+        await mA.sendRequest(b, 'must not go out $i').catchError((_) => false);
       }
       await _pump();
       expect(
@@ -1634,7 +1634,7 @@ void main() {
 
       // A hold, not a break: the container comes back and sending resumes.
       sA.failRatchetSaves = false;
-      await mA.sendRequest(b, 'after recovery').catchError((_) {});
+      await mA.sendRequest(b, 'after recovery').catchError((_) => false);
       await _pump();
       expect(
         sends,
