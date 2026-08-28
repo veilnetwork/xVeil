@@ -10,6 +10,36 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.5] — 2026-08-28
+
+A friend request could not be sent. Two defects, both found by reproducing it
+on stand nodes against the production seeds, and the fix confirmed there before
+this was cut.
+
+Built on veil [v0.8.3](https://github.com/veilnetwork/veil/releases/tag/v0.8.3)
+and hidden-volume
+[v2.0.5](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.5).
+
+**The request went nowhere and said it was sent.** Sending a contact request
+starts two legs — a deposit at the recipient's relay and a live send — and both
+outcomes were thrown away. So a request that reached neither still left the
+contact marked as pending, which reads as "sent", while nothing was on the wire
+and nothing anywhere said otherwise: in a release build the diagnostic trace is
+compiled out. This is also the one send with no retry behind it, so the silence
+was permanent until somebody asked again by hand. The deposit now reports
+whether it landed, and the request is refused rather than quietly accepted when
+it did not.
+
+**Why it did not land** is fixed in veil v0.8.3: a recursive DHT query was
+being sent to peers that had opted out of serving DHT — a phone opts out by
+default, and behind one NAT it is the desktop's nearest session peer, so it and
+its twin exhausted the query budget before a seed was asked. Sealing an
+envelope needs the recipient's instance registry; the registry "did not
+resolve" while the record sat on all three seeds the whole time.
+
+Also in: the deniable-storage library gained a Windows ARM64 build, and its
+public-API gate learned to see `unsafe fn`.
+
 ## [0.13.4] — 2026-08-28
 
 An audit release. The report17 pass closed every numbered finding across the
