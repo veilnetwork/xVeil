@@ -2227,4 +2227,164 @@ void main() {
       );
     },
   );
+/// `renameGroup` answers with a bare bool, and the screen used to turn every
+/// false into "could not update the community, CHECK THE NETWORK and try
+/// again". The rename control is drawn from a snapshot, so the permission
+/// behind it can be revoked while the dialog is open — and the network is not
+/// what refuses: the broadcast is unawaited and never decides this call's
+/// answer, so that advice could not be followed to a fix. The string for the
+/// real answer existed, translated, and was allow-listed as unreachable
+/// (report17).
+
+  test('the reasons a settings change can be refused are told apart', () async {
+    final storage = HiddenVolumeStorage(
+      ({required password, required create}) => FakeKvLogStore(),
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = GroupService(storage, _Signer(_id(10)));
+    addTearDown(owner.dispose);
+    final outsider = GroupService(storage, _Signer(_id(11)));
+    addTearDown(outsider.dispose);
+
+    final spaceId = await owner.createSpace('Community');
+    final active = (await owner.stateOf(spaceId))!;
+
+    expect(settingsAccessFor(owner, active), SettingsAccess.allowed);
+    expect(
+      settingsAccessFor(outsider, active),
+      SettingsAccess.notPermitted,
+      reason: 'an identity with no role in the Space is refused for that',
+    );
+
+    expect(await owner.archiveSpace(spaceId), isTrue);
+    final archived = (await owner.stateOf(spaceId))!;
+    expect(
+      settingsAccessFor(owner, archived),
+      SettingsAccess.inactive,
+      reason:
+          '"you do not have permission" is the wrong sentence for a Space that '
+          'is merely archived — the owner still has the permission',
+    );
+  });
+
+  testWidgets('a refusal that is not about permission keeps the generic answer', (
+    tester,
+  ) async {
+    // The control case, and the one that runs the wiring: the rename fails
+    // while the permission is intact, so the screen must NOT start claiming a
+    // permission problem for every failure it meets.
+    final storage = HiddenVolumeStorage(
+      ({required password, required create}) => FakeKvLogStore(),
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = _RenameRefusingService(storage, _Signer(_id(10)));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Community');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+    expect(
+      settingsFailureMessage(l, denied: true),
+      isNot(settingsFailureMessage(l, denied: false)),
+      reason: 'the two answers must not be the same sentence',
+    );
+    expect(settingsFailureMessage(l, denied: true), l.spaceRenameDenied);
+
+    await tester.tap(find.byKey(const Key('space-rename-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Renamed');
+    await tester.tap(find.text(l.spaceRenameAction));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.spaceOperationFailed), findsOneWidget);
+    expect(find.text(l.spaceRenameDenied), findsNothing);
+  });
+
+  testWidgets('a rename refused for want of the permission says so', (
+    tester,
+  ) async {
+    final storage = HiddenVolumeStorage(
+      ({required password, required create}) => FakeKvLogStore(),
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+
+    // A Space this identity has no role in — what the ACL will be asked about
+    // once the rename comes back refused.
+    final stranger = GroupService(storage, _Signer(_id(11)));
+    addTearDown(stranger.dispose);
+    final theirs = await stranger.createSpace('Not ours');
+
+    final service = _RenameRefusingService(
+      storage,
+      _Signer(_id(10)),
+      stateAfter: theirs,
+    );
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Community');
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+    await tester.tap(find.byKey(const Key('space-rename-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, 'Renamed');
+
+    service.revoked = true; // taken away with the dialog already open
+    await tester.tap(find.text(l.spaceRenameAction));
+    await tester.pumpAndSettle();
+
+    expect(find.text(l.spaceRenameDenied), findsOneWidget);
+    expect(
+      find.text(l.spaceOperationFailed),
+      findsNothing,
+      reason: 'telling this user to check the network sends them nowhere',
+    );
+  });
+}
+
+/// A service whose rename always comes back refused, everything else real.
+///
+/// [stateAfter] stands in for a permission revoked while the rename dialog was
+/// open. It answers with the real folded state of a real Space this identity
+/// has no role in — so the ACL that refuses is the ACL, not a stub — and only
+/// once [revoked] is set, because the screen reads the same method to draw
+/// itself: swapping the state before the first build would take the rename
+/// control away instead of taking the permission behind it.
+class _RenameRefusingService extends GroupService {
+  _RenameRefusingService(super.storage, super.signer, {this.stateAfter});
+
+  final NodeId? stateAfter;
+
+  /// Set after the screen has drawn: the permission goes while the dialog is
+  /// open, which is the sequence this is about.
+  bool revoked = false;
+
+  @override
+  Future<bool> renameGroup(NodeId groupId, String name) async => false;
+
+  @override
+  Future<GroupState?> stateOf(NodeId groupId) => super.stateOf(
+    revoked && stateAfter != null ? stateAfter! : groupId,
+  );
 }
