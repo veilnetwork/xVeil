@@ -54,12 +54,30 @@ const int kFragmentHeaderBytes = 16;
 /// Payload bytes carried by one fragment.
 const int kFragmentDataBytes = kMaxFrameBytes - kFragmentHeaderBytes;
 
-/// `total` and `index` are 16-bit, so this is the hard ceiling on one payload.
-const int kMaxFragmentsPerFrame = 65535;
+/// Largest payload this layer will carry.
+///
+/// `total` and `index` are 16-bit, so the HEADER can address 65535 fragments —
+/// about 77 MB. That is not a payload this app has any business assembling:
+/// veil refuses to carry more than 1 MiB in one envelope (`MAX_ENVELOPE_PAYLOAD`),
+/// so anything larger could never have been delivered whole in the first place
+/// and can only be a peer spending our memory. Both sides are held to the same
+/// figure: the sender refuses to split beyond it, the receiver refuses to
+/// assemble beyond it.
+const int kMaxFragmentedPayloadBytes = 1024 * 1024;
 
-/// Largest payload this layer can carry at all.
-const int kMaxFragmentedPayloadBytes =
-    kMaxFragmentsPerFrame * kFragmentDataBytes;
+/// Fragments one payload may be cut into, given the ceiling above.
+const int kMaxFragmentsPerPayload =
+    (kMaxFragmentedPayloadBytes + kFragmentDataBytes - 1) ~/ kFragmentDataBytes;
+
+/// Bytes every half-arrived payload may hold TOGETHER.
+///
+/// Counting SETS bounds nothing on its own, and that was the hole: 64 sets of
+/// 65535 fragments is roughly five gigabytes, held for the whole TTL, and a
+/// fragment costs the peer one small frame to send. Nothing authenticates a
+/// fragment header either — four magic bytes are all it takes — so the sender
+/// of the first fragment is not necessarily anyone we know. Bytes are the
+/// resource, so bytes are what is bounded.
+const int kMaxHeldFragmentBytes = 4 * 1024 * 1024;
 
 /// A payload too large to fragment. Thrown rather than dropped: the whole
 /// reason this file exists is that an undeliverable frame used to vanish
@@ -179,32 +197,65 @@ String _hex(Uint8List b) =>
 
 /// Holds fragments until their payload is whole again.
 ///
-/// Bounded on purpose: a peer that sends first-fragments and never finishes
-/// them must not be able to grow this map without limit, so the oldest set is
-/// dropped once [maxSets] is reached, and any set idle past [ttl] is dropped
-/// with a log line that says what was missing. Silence is what made the
-/// original defect invisible; an incomplete reassembly says so out loud.
+/// Bounded on purpose, and bounded in BYTES. A peer that sends first-fragments
+/// and never finishes them must not be able to grow this table, so a set is
+/// dropped once it is idle past [ttl], the oldest set goes when [maxSets] is
+/// reached, and — the part that was missing — no fragment is kept once the
+/// bytes held would pass [maxPayloadBytes] for one payload or [maxHeldBytes]
+/// across all of them. Counting sets alone left the size of a set unbounded,
+/// which is the whole of the resource.
+///
+/// Silence is what made the original defect invisible, so every refusal and
+/// every eviction says out loud what was dropped and why.
 class FragmentReassembler {
   FragmentReassembler({
     this.ttl = const Duration(minutes: 2),
     this.maxSets = 64,
+    this.maxPayloadBytes = kMaxFragmentedPayloadBytes,
+    this.maxHeldBytes = kMaxHeldFragmentBytes,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
   final Duration ttl;
   final int maxSets;
+
+  /// Bytes one half-arrived payload may hold.
+  final int maxPayloadBytes;
+
+  /// Bytes all half-arrived payloads may hold together.
+  final int maxHeldBytes;
+
   final DateTime Function() _now;
 
   final Map<String, _PendingSet> _sets = {};
 
+  /// Running sum of `_sets.values.heldBytes`, kept in step with every insert,
+  /// overwrite and removal rather than recomputed: a walk of the table on each
+  /// arriving fragment is exactly the cost a flood would be paying us to spend.
+  int _heldBytes = 0;
+
   /// Feed one inbound frame. Returns the complete payload when [frame] was the
   /// last missing piece, the frame itself when it was never a fragment, and
-  /// null while a payload is still incomplete.
+  /// null while a payload is still incomplete — or when the fragment was
+  /// refused.
   Uint8List? accept(NodeId src, Uint8List frame) {
     final fragment = parseFragment(frame);
     if (fragment == null) return frame;
     _expire();
     final key = '${src.hex}/${fragment.key}';
+
+    // A total this side would never produce. Refused at the FIRST fragment,
+    // before a set exists for it: an index near 65535 arriving first is what
+    // makes a set expensive, and there is nothing to learn by holding it.
+    if (fragment.total > kMaxFragmentsPerPayload) {
+      devLog(
+        () =>
+            'xVeil[frag]: REFUSED $key — claims ${fragment.total} fragments, '
+            'the most a payload may be cut into is $kMaxFragmentsPerPayload',
+      );
+      return null;
+    }
+
     var target = _sets[key];
     // Evict BEFORE inserting, never from inside the insert: mutating the map
     // while it is being written to is undefined.
@@ -213,18 +264,50 @@ class FragmentReassembler {
       // Absent, or two different payloads whose ids collided / a corrupted
       // header. The newer claim wins: an id is derived from content, so the
       // one that keeps arriving is the one worth assembling.
+      if (target != null) _forget(key, 'replaced by a set of a different size');
       target = _PendingSet(fragment.total, _now());
       _sets[key] = target;
     }
-    target.parts[fragment.index] = Uint8List.fromList(fragment.data);
+
+    final part = Uint8List.fromList(fragment.data);
+    // A retry resends EVERY fragment, so an index arriving twice is the normal
+    // case, not the odd one. What it replaces has to leave the accounting or
+    // the budget drains on ordinary traffic.
+    final replaced = target.parts[fragment.index]?.length ?? 0;
+    final growth = part.length - replaced;
+
+    if (target.heldBytes + growth > maxPayloadBytes) {
+      _forget(
+        key,
+        'one payload would hold ${target.heldBytes + growth} B, '
+        'over the $maxPayloadBytes B a payload may hold',
+      );
+      return null;
+    }
+
+    // Room for it globally, taken from the sets least likely to complete.
+    while (_heldBytes + growth > maxHeldBytes && _dropOldestExcept(key)) {}
+    if (_heldBytes + growth > maxHeldBytes) {
+      _forget(
+        key,
+        'no room: ${_heldBytes + growth} B would be held, '
+        'over the $maxHeldBytes B budget',
+      );
+      return null;
+    }
+
+    target.put(fragment.index, part);
+    _heldBytes += growth;
     target.touchedAt = _now();
     devLog(
       () =>
           'xVeil[frag]: fragment ${fragment.index + 1}/${fragment.total} '
           '(${fragment.data.length}B) of $key — '
-          '${target!.parts.length}/${target.total} held',
+          '${target!.parts.length}/${target.total} held, '
+          '$_heldBytes B in the table',
     );
     if (target.parts.length != target.total) return null;
+    _heldBytes -= target.heldBytes;
     _sets.remove(key);
     return target.join();
   }
@@ -232,38 +315,49 @@ class FragmentReassembler {
   /// Number of payloads currently half-arrived — for tests and diagnostics.
   int get pendingSets => _sets.length;
 
-  void _expire() {
-    final cutoff = _now().subtract(ttl);
-    _sets.removeWhere((key, set) {
-      final stale = set.touchedAt.isBefore(cutoff);
-      if (stale) {
-        devLog(
-          () =>
-              'xVeil[frag]: DROPPED incomplete frame $key — '
-              '${set.parts.length}/${set.total} fragments after ${ttl.inSeconds}s',
-        );
-      }
-      return stale;
-    });
+  /// Bytes currently held by half-arrived payloads — for tests and diagnostics.
+  int get heldBytes => _heldBytes;
+
+  /// Drop the set at [key], saying why, and give its bytes back to the budget.
+  void _forget(String key, String why) {
+    final gone = _sets.remove(key);
+    if (gone == null) return;
+    _heldBytes -= gone.heldBytes;
+    devLog(
+      () =>
+          'xVeil[frag]: DROPPED incomplete frame $key — '
+          '${gone.parts.length}/${gone.total} fragments, $why',
+    );
   }
 
-  void _dropOldest() {
+  void _expire() {
+    final cutoff = _now().subtract(ttl);
+    for (final key in _sets.entries
+        .where((e) => e.value.touchedAt.isBefore(cutoff))
+        .map((e) => e.key)
+        .toList()) {
+      _forget(key, 'incomplete after ${ttl.inSeconds}s');
+    }
+  }
+
+  void _dropOldest() => _dropOldestExcept(null);
+
+  /// Drop the least recently touched set other than [keep]. False when there
+  /// was none to drop, which is what stops the caller's loop.
+  bool _dropOldestExcept(String? keep) {
     String? oldestKey;
     DateTime? oldest;
     _sets.forEach((key, set) {
+      if (key == keep) return;
       if (oldest == null || set.touchedAt.isBefore(oldest!)) {
         oldest = set.touchedAt;
         oldestKey = key;
       }
     });
-    if (oldestKey == null) return;
-    final dropped = _sets.remove(oldestKey);
-    devLog(
-      () =>
-          'xVeil[frag]: EVICTED incomplete frame $oldestKey — '
-          '${dropped?.parts.length}/${dropped?.total} fragments, '
-          'reassembly table full ($maxSets)',
-    );
+    final key = oldestKey;
+    if (key == null) return false;
+    _forget(key, 'reassembly table full ($maxSets sets, $maxHeldBytes B)');
+    return true;
   }
 }
 
@@ -273,6 +367,16 @@ class _PendingSet {
   final int total;
   DateTime touchedAt;
   final Map<int, Uint8List> parts = {};
+
+  /// Bytes this set holds. Maintained by [put] so the table never has to be
+  /// walked to answer it.
+  int heldBytes = 0;
+
+  void put(int index, Uint8List part) {
+    heldBytes -= parts[index]?.length ?? 0;
+    parts[index] = part;
+    heldBytes += part.length;
+  }
 
   Uint8List join() {
     var length = 0;
