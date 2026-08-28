@@ -10,6 +10,35 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.7] — 2026-08-28
+
+Answering a call on Windows killed the app. This is the fix, and it is the
+only thing in this release.
+
+Built on veil [v0.8.4](https://github.com/veilnetwork/veil/releases/tag/v0.8.4)
+and hidden-volume
+[v2.0.5](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.5),
+with the Windows call engine rebuilt as `engine-2026.08.28.2`.
+
+**The call engine took the apartment of whatever thread called it.** COM on
+Windows is configured per thread, permanently, and the camera backend
+initialised it on the first thread that ever touched a camera — an internal
+call arriving on whatever thread the app happened to use. WebRTC's Windows
+audio device module then asked for the opposite model on that same thread and
+treated the mismatch as fatal rather than as an error to report, so the process
+died before a single frame:
+
+    Invalid COM thread model change (MTA->STA)
+
+Whoever ran first won the apartment, which is why the caller survived and the
+answering side did not — reported on Windows 11 with 0.13.4, phone to desktop.
+
+Every apartment the engine sets up now belongs to a thread it started itself,
+and the camera's reader is opened, read and released on that one thread instead
+of being created on a borrowed one. If something else ever claims the caller's
+apartment anyway, the engine now refuses to build the audio device and says so:
+a call without a microphone beats an app that disappears.
+
 ## [0.13.6] — 2026-08-28
 
 Mail deposited for an offline peer now arrives. The defect was in the network

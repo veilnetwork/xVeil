@@ -641,7 +641,21 @@ jobs:
           # minutes and had to be replaced by the prebuilt WebRTC SDK first.
           # It now builds in under two minutes, which is what made publishing
           # it a two-minute errand instead of a scheduled event.
-          ENGINE_RELEASE: 'engine-2026.08.13'
+          #
+          # MOVED 2026-08-28 to `engine-2026.08.28.2`, and the move is the
+          # point of the release it ships in: the engine built before it takes
+          # the COM apartment of whatever thread first touches a camera, and
+          # WebRTC's Windows audio device module then dies on the mismatch —
+          # measured on Windows 11 with 0.13.4, the app vanished on ANSWERING
+          # a call. Fixed in veil 8ea92a10; this DLL is the first build that
+          # carries it (its provenance records xveil-commit 26c671ec, the
+          # commit that advanced the submodule to it).
+          #
+          # A new tag rather than a re-upload to `engine-2026.08.28`: that one
+          # is already pinned by builds that exist, and replacing its assets
+          # would change what those builds mean without their pin changing.
+          # The workflow refuses it, correctly.
+          ENGINE_RELEASE: 'engine-2026.08.28.2'
           # DEAD once ENGINE_RELEASE above is set — the branch below is never
           # taken. Kept as the record of where this engine used to come from:
           # webrtc-windows run 30665287484 (2026-07-31), whose artifact expires
