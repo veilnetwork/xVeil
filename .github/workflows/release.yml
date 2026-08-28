@@ -219,14 +219,21 @@ jobs:
         run: |
           set -euo pipefail
           cd whisper.cpp
-          cmake -B build-android \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
-            -DGGML_METAL=OFF -DBUILD_SHARED_LIBS=OFF \
-            -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF \
-            -DCMAKE_C_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src" \
-            -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src"
-          cmake --build build-android -j "$(nproc)"
+          # One tree per ABI. build_veil_whisper_android.sh looks for
+          # build-android-<abi>, and the ABI, the build directory and the
+          # jniLibs destination are one choice written three ways — picking
+          # them apart is how an arm64 library lands in the x86_64 folder.
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            echo "==> whisper.cpp for $abi"
+            cmake -B "build-android-$abi" \
+              -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-26 \
+              -DGGML_METAL=OFF -DBUILD_SHARED_LIBS=OFF \
+              -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=OFF \
+              -DCMAKE_C_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src" \
+              -DCMAKE_CXX_FLAGS="-ffile-prefix-map=$GITHUB_WORKSPACE=/src"
+            cmake --build "build-android-$abi" -j "$(nproc)"
+          done
 
       # gradle's cargo-ndk task builds veilclient_ffi during `flutter build`,
       # but hidden-volume ships a PREBUILT .so in jniLibs that nothing
@@ -329,21 +336,33 @@ jobs:
           # THIS ARTIFACT EXPIRES on 2026-11-10. That is the date this pin
           # becomes a dead link and the recovery becomes a 43-minute run.
           ENGINE_RUN: '31609030118'
-          ASSET: 'libveil_media-android-arm64.so'
         run: |
           set -euo pipefail
-          dest=android/app/src/main/jniLibs/arm64-v8a
-          mkdir -p "$dest"
-          if [ -n "${ENGINE_RELEASE:-}" ]; then
-            echo "engine: release $ENGINE_RELEASE from $ENGINE_REPO (no credential)"
-            base="$GITHUB_SERVER_URL/$ENGINE_REPO/releases/download/$ENGINE_RELEASE"
+          # One engine per shipped ABI. The asset name and the jniLibs
+          # directory are the same choice written twice, so they are named
+          # together here rather than derived apart.
+          abis="arm64-v8a:libveil_media-android-arm64.so armeabi-v7a:libveil_media-android-arm.so x86_64:libveil_media-android-x64.so"
+          if [ -z "${ENGINE_RELEASE:-}" ] && [ -n "${ENGINE_RUN:-}" ]; then
+            echo "::error::the run-artifact route only ever carried arm64. Set ENGINE_RELEASE to a tag that has all three engines."
+            exit 1
+          fi
+          [ -n "${ENGINE_RELEASE:-}" ] || {
+            echo "::error::ANDROID call engine is not pinned. Run the webrtc-linux workflow (engine-android job) and set ENGINE_RELEASE here to the tag its publish job attached to. Without it the APK builds and cannot do voice messages, video notes, calls or speech-to-text."
+            exit 1
+          }
+          echo "engine: release $ENGINE_RELEASE from $ENGINE_REPO (no credential)"
+          base="$GITHUB_SERVER_URL/$ENGINE_REPO/releases/download/$ENGINE_RELEASE"
+          for pair in $abis; do
+            abi="${pair%%:*}"; asset="${pair#*:}"
+            dest="android/app/src/main/jniLibs/$abi"
+            mkdir -p "$dest"
             # Into RUNNER_TEMP, not into dest: everything in a jniLibs ABI
             # directory is a candidate for packaging into the APK, and the
             # provenance record is documentation, not a native library.
-            prov="$RUNNER_TEMP/$ASSET.provenance"
-            curl -fL --retry 3 --retry-delay 5 --max-time 300 -o "$dest/libveil_media.so" "$base/$ASSET"
-            curl -fL --retry 3 --retry-delay 5 --max-time 60 -o "$prov" "$base/$ASSET.provenance"
-            echo "--- provenance ---"; cat "$prov"; echo "------------------"
+            prov="$RUNNER_TEMP/$asset.provenance"
+            curl -fL --retry 3 --retry-delay 5 --max-time 300 -o "$dest/libveil_media.so" "$base/$asset"
+            curl -fL --retry 3 --retry-delay 5 --max-time 60 -o "$prov" "$base/$asset.provenance"
+            echo "--- provenance ($abi) ---"; cat "$prov"; echo "-------------------------"
             # tr -d '\r': a provenance written on a Windows runner arrives
             # CRLF, and awk hands back the hash with a carriage return glued to
             # it, so this compares unequal against a byte-identical file. The
@@ -351,22 +370,23 @@ jobs:
             # travels and the next one may come from a host that does not.
             want="$(awk '/^sha256:/{print $2}' "$prov" | tr -d '\r')"
             got="$(sha256sum "$dest/libveil_media.so" | cut -d' ' -f1)"
-            [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
-            [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
-            echo "sha256 matches the published provenance"
-          elif [ -n "${ENGINE_RUN:-}" ]; then
-            echo "engine: run artifact $ENGINE_RUN — the EXPIRING route"
-            echo "::warning::the android engine still comes from a run artifact, which expires and needs a token. Publish it to an engine release and set ENGINE_RELEASE."
-            gh run download "$ENGINE_RUN" -n libveil_media-android-arm64 -D "$dest"
-          else
-            echo "::error::ANDROID call engine is not pinned. Run the webrtc-linux workflow (engine-android job) and set ENGINE_RELEASE here to the tag its publish job attached to. Without it the APK builds and cannot do voice messages, video notes, calls or speech-to-text."
-            exit 1
-          fi
-          ls -la "$dest/libveil_media.so"
-          # OUTSIDE the branch, deliberately. This is the check that caught an
-          # engine twelve commits behind, and a new way of fetching the file
-          # must not also be a new way around it.
-          bash scripts/check-media-symbols.sh "$dest/libveil_media.so"
+            [ -n "$want" ] || { echo "::error::$asset.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
+            [ "$want" = "$got" ] || { echo "::error::the downloaded $abi engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
+            # The name says which ABI; the file says which ABI. A published
+            # asset that disagrees with its own name would install cleanly and
+            # fail at dlopen on a device, which is the last place to find out.
+            machine="$(python3 -c 'import struct,sys; d=open(sys.argv[1],"rb").read(20); print(hex(struct.unpack("<H", d[18:20])[0]))' "$dest/libveil_media.so")"
+            case "$abi:$machine" in
+              arm64-v8a:0xb7|armeabi-v7a:0x28|x86_64:0x3e) : ;;
+              *) echo "::error::$asset is ELF e_machine $machine, which is not $abi"; exit 1 ;;
+            esac
+            echo "sha256 matches the published provenance; ELF machine $machine is $abi"
+            ls -la "$dest/libveil_media.so"
+            # OUTSIDE any fetch branch, deliberately. This is the check that
+            # caught an engine twelve commits behind, and a new way of fetching
+            # the file must not also be a new way around it.
+            bash scripts/check-media-symbols.sh "$dest/libveil_media.so"
+          done
 
       # builder.py is the same entry point used by hand, so CI and a laptop
       # cannot drift: it sets the path-remap environment, runs the whisper

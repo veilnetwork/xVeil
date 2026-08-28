@@ -172,15 +172,23 @@ check("and the library is the last argument", argv[2], "lib\\arm64-v8a\\libveil_
 # ── The Android freshness gate asks only about ABIs that ship ────────────────
 #
 # The release APK is arm64-only, and gradle rebuilds only that slice, so an
-# armeabi-v7a staged before the ABI list narrowed is permanently older than the
-# tree. Failing on it blocks every correct build — and a gate that blocks
-# correct builds is one somebody switches off, after which it protects nothing.
+# An ABI staged but not packaged is permanently older than the tree. Failing on
+# it blocks every correct build — and a gate that blocks correct builds is one
+# somebody switches off, after which it protects nothing.
+#
+# The unshipped ABI here is `x86`: both Rust libraries build for it (it is in
+# hidden-volume's ABIS_DEFAULT and in veil_flutter's abiFilters), so it really
+# does turn up in a jniLibs tree, and it is not in _RELEASE_APK_ABIS. It used
+# to be armeabi-v7a — which stopped being an example on 2026-08-28, when the
+# media engine and the whisper wrapper were built for it and it started
+# shipping. A fixture that quietly describes the old world is how a test goes
+# on passing about something that is no longer true.
 import builder  # noqa: E402
 
 with tempfile.TemporaryDirectory() as _tmp:
     _source = os.path.join(_tmp, "src.rs")
     _stage = os.path.join(_tmp, "jniLibs")
-    for _abi in ("arm64-v8a", "armeabi-v7a"):
+    for _abi in ("arm64-v8a", "x86"):
         os.makedirs(os.path.join(_stage, _abi))
         with open(os.path.join(_stage, _abi, "lib.so"), "w") as _fh:
             _fh.write("x")
