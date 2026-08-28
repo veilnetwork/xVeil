@@ -10,6 +10,49 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.4] — 2026-08-28
+
+An audit release. The report17 pass closed every numbered finding across the
+three repositories, and then a second pass removed each fix and required its
+own test to fail — which is how the three holes below were found, none of them
+by reading the code.
+
+Built on veil [v0.8.2](https://github.com/veilnetwork/veil/releases/tag/v0.8.2)
+and hidden-volume
+[v2.0.4](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.4).
+
+**Work started under one identity no longer finishes under another.** A
+translation, a folder-sync pass, a node-registry mutation and a sticker edit
+each captured the storage they were asked for and refuse to publish or write
+into whoever is open now. The reading of a message under identity A could
+otherwise land in B's storage, where it stayed after the lock.
+
+**An alert is answerable only by whoever posted it**, and a lock that could
+not finish no longer reports success: the legs that did not confirm are named
+back to the caller rather than summarised into `ok`.
+
+**Onboarding fails closed.** Where the native phrase generator is unavailable
+the app refuses to create an identity instead of minting one from a weak
+fallback that could never be recovered from.
+
+**A rename refused for want of the permission says so.** It used to answer
+"could not update the community, check the network and try again" — advice
+that cannot be followed, because the network is not what refuses. The refusal
+is read from the same ACL that decides whether to offer the button at all.
+
+**Windows.** 0.13.0 did not start there: the node's config is amended line by
+line and a Windows path in a TOML basic string made `C:\Users` an escape
+sequence. Every amended value is now rendered rather than interpolated.
+
+**The transport's reassembly table counts bytes, not just sets.** It bounded
+how MANY payloads could be half-arrived and not how large they could be — 64
+sets of 65535 fragments, held for the whole TTL, from frames anybody can
+forge.
+
+Under the release: the deniable-storage library gained a Windows ARM64 build,
+its public-API gate learned to see `unsafe fn` (four entry points had left the
+snapshot silently), and veil's lockfiles moved off a yanked chacha20.
+
 ## [0.13.3] — 2026-08-26
 
 Failover, proven on the phone: the VPN left through one server, that server was
