@@ -226,9 +226,17 @@ class SubprocessNodeController implements NodeController {
 
   @override
   Future<void> setEconomyMode(bool economy) async {
-    // The keepalive/battery scaling is driven through the transport
-    // (VeilClient.setBackgroundMode); here we only record intent so a future
-    // admin-socket command can act on it.
+    // Records intent and nothing else — nothing reads `_economy` yet, and this
+    // said the scaling was "driven through the transport
+    // (VeilClient.setBackgroundMode)" as though something drove it.
+    //
+    // That lever is real: the plugin exposes `setBackgroundMode`, the FFI
+    // exports `veil_set_background_mode`, and the daemon scales keepalives and
+    // suppresses background maintenance from it. This app has never called it.
+    // Its lifecycle observers cover the privacy screen and calls; neither
+    // tells the node it went to the background, and the plugin has no observer
+    // of its own. So the tier is not driven anywhere, by this method or by the
+    // transport, and the comment made the gap look attended to (report17).
     _economy = economy;
   }
 

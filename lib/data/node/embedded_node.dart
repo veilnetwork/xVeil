@@ -2245,8 +2245,13 @@ class EmbeddedNodeController implements NodeController {
 
   @override
   Future<void> setEconomyMode(bool economy) async {
-    // Background/economy tier is driven through the transport
-    // (VeilClient.setBackgroundMode), not the node-control FFI.
+    // Deliberately nothing: the tier belongs to the transport
+    // (`VeilClient.setBackgroundMode`), not to the node-control FFI.
+    //
+    // Said "is driven through the transport", which read as an arrangement
+    // already in place. Nothing in this app calls that method — see the note
+    // on `SubprocessNodeController.setEconomyMode` and the guard in
+    // `test/background_tier_is_not_driven_test.dart` (report17).
   }
 
   /// True when the last [stop] left a node thread running behind it.
