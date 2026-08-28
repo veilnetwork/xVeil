@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
@@ -37,6 +38,29 @@ import 'package:xveil/state/providers.dart';
 // the two are indistinguishable from the refusal test alone.
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
+
+/// A relay that stores whatever it is handed.
+///
+/// The control below asks the endpoint to make a real request, and a request
+/// with nowhere to deposit it is now REFUSED rather than silently reported as
+/// sent — which is the defect this fixture would otherwise re-encode. Give it
+/// a relay so the control exercises a complete success.
+class _RecordingRelay implements MailboxSink {
+  final stashed = <Uint8List>[];
+
+  @override
+  Future<void> stash({
+    required NodeId recipient,
+    required Uint8List payload,
+    required Uint8List contentId,
+  }) async => stashed.add(payload);
+
+  @override
+  void nudgeDrain() {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => null;
+}
 
 class _Blackhole implements VeilTransport {
   _Blackhole(this._me);
@@ -160,6 +184,7 @@ void main() {
       _activeStorage = storage;
 
       messaging = MessagingService(_Blackhole(_id(1)), storage)..start();
+      messaging.attachMailbox(_RecordingRelay());
       addTearDown(messaging.dispose);
       container = ProviderContainer(
         overrides: [
