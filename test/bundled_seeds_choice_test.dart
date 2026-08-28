@@ -124,8 +124,10 @@ class _NoopNode implements NodeController {
 /// A ready session, so the router can be built and asked what it routes where.
 class _ReadyAppController extends AppController {
   @override
-  AppState build() =>
-      AppState(AppPhase.ready, identity: Identity(nodeId: NodeId(Uint8List(32))));
+  AppState build() => AppState(
+    AppPhase.ready,
+    identity: Identity(nodeId: NodeId(Uint8List(32))),
+  );
 }
 
 /// The boot config as `main()` composes it: BUILT from the live answer, so the
@@ -144,6 +146,13 @@ final _bootOverrides = [
     ),
   ),
 ];
+
+/// A phrase shaped the way the native generator hands one over.
+///
+/// Injected because the onboarding screen now refuses to create an identity
+/// when the generator has nothing to give; it used to substitute words of its
+/// own, which is why these tests never named a generator.
+String phraseOf24() => List.generate(24, (i) => 'word${i + 1}').join(' ');
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -542,17 +551,15 @@ void main() {
     // they are the two writes the defect consisted of. What has to be asserted
     // is the thing the person came for: a node running on the shared seeds,
     // without a restart.
-    testWidgets('accepting REBOOTS the node onto the seeds, without a restart',
-        (tester) async {
+    testWidgets('accepting REBOOTS the node onto the seeds, without a restart', (
+      tester,
+    ) async {
       SharedPreferences.setMockInitialValues({'onboarded': true});
       final container = FakeHvContainer();
       // An identity in exactly the state the prompt exists for: it declined,
       // and it has nothing of its own to reach the network through.
       final seeding = container.storage();
-      expect(
-        await seeding.open(password: 'pw', createIfMissing: true),
-        isTrue,
-      );
+      expect(await seeding.open(password: 'pw', createIfMissing: true), isTrue);
       await seeding.saveProfile(UserProfile(displayName: 'refuser'));
       await seeding.putSetting(kBundledSeedsSettingKey, 'false');
       await seeding.close();
@@ -651,7 +658,8 @@ void main() {
       expect(
         plans,
         hasLength(2),
-        reason: 'the choice never reached a node: the app kept running the '
+        reason:
+            'the choice never reached a node: the app kept running the '
             'node composed from the refusal, with no relay and no mailbox, '
             'and the prompt that could have said so can never appear again',
       );
@@ -679,9 +687,13 @@ void main() {
         ProviderScope(
           overrides: [
             bundledSeedsChoiceProvider.overrideWith((ref) => false),
-            managedNodesProvider.overrideWith(() => _FakeManagedNodes(const [])),
+            managedNodesProvider.overrideWith(
+              () => _FakeManagedNodes(const []),
+            ),
             storageProvider.overrideWith((ref) => _OpenSettingStorage()),
-            appControllerProvider.overrideWith(_RebootRefusingAppController.new),
+            appControllerProvider.overrideWith(
+              _RebootRefusingAppController.new,
+            ),
             deniableBootProvider.overrideWithValue(
               const DeniableBootConfig(runtimeDir: '/tmp/x'),
             ),
@@ -717,7 +729,8 @@ void main() {
       expect(
         find.text(l.seedsRestartToApply),
         findsOneWidget,
-        reason: 'the answer was recorded and no node took it, and the person '
+        reason:
+            'the answer was recorded and no node took it, and the person '
             'was told nothing — the prompt cannot fire again, so this notice '
             'is the only thing left that mentions the restart',
       );
@@ -777,9 +790,10 @@ void main() {
       // nothing downstream has an address it could fall back to. This is the
       // assertion a switch that wrote only the preference fails.
       expect(
-        container.read(deniableBootProvider)!.bootstrapPeers.map(
-          (p) => p.publicKey,
-        ),
+        container
+            .read(deniableBootProvider)!
+            .bootstrapPeers
+            .map((p) => p.publicKey),
         ['MINE='],
       );
       // Half two: the node is forbidden its COMPILE-TIME seeds. Without this,
@@ -798,17 +812,20 @@ void main() {
       // opens showing "off" even though the provider was seeded with the
       // default — that is what makes it right after an identity switch.
       await tester.pumpAndSettle();
-      expect(tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
-          isFalse);
+      expect(
+        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+        isFalse,
+      );
 
       await tester.tap(find.byType(SwitchListTile));
       await tester.pumpAndSettle();
 
       expect(await bundledSeedsAllowed(), isTrue);
       expect(
-        container.read(deniableBootProvider)!.bootstrapPeers.map(
-          (p) => p.publicKey,
-        ),
+        container
+            .read(deniableBootProvider)!
+            .bootstrapPeers
+            .map((p) => p.publicKey),
         ['MINE=', 'SEED1=', 'SEED2='],
       );
       // Nothing is written when the seeds are kept: veil's own default is
@@ -842,7 +859,9 @@ void main() {
       tester,
     ) async {
       final container = ProviderContainer(
-        overrides: [appControllerProvider.overrideWith(_ReadyAppController.new)],
+        overrides: [
+          appControllerProvider.overrideWith(_ReadyAppController.new),
+        ],
       );
       addTearDown(container.dispose);
       final networkRoute = container
@@ -881,7 +900,8 @@ void main() {
       expect(
         find.byType(SharedSeedsSwitch),
         findsOneWidget,
-        reason: 'the onboarding step tells people the answer can be changed '
+        reason:
+            'the onboarding step tells people the answer can be changed '
             'in Network settings; this is that control',
       );
       final l = AppL10n.of(tester.element(find.byType(SharedSeedsSwitch)));
@@ -903,7 +923,7 @@ void main() {
           child: MaterialApp(
             localizationsDelegates: AppL10n.localizationsDelegates,
             supportedLocales: AppL10n.supportedLocales,
-            home: const OnboardingScreen(),
+            home: OnboardingScreen(generatePhrase: phraseOf24),
           ),
         ),
       );
@@ -946,20 +966,23 @@ void main() {
       expect(
         warning.bottom,
         lessThanOrEqualTo(viewport.bottom),
-        reason: 'the last line of the consequence is cut off the bottom of the '
+        reason:
+            'the last line of the consequence is cut off the bottom of the '
             'scroll area — exactly the defect, which reads as a finished '
             'sentence with a shaved final line',
       );
       expect(
         warning.top,
         greaterThanOrEqualTo(viewport.top),
-        reason: 'revealing the end of the warning must not push its beginning '
+        reason:
+            'revealing the end of the warning must not push its beginning '
             'off the top',
       );
       expect(
         warning.bottom,
         lessThanOrEqualTo(button.top),
-        reason: 'the consequence must be readable above the button that acts '
+        reason:
+            'the consequence must be readable above the button that acts '
             'on it, not behind or below it',
       );
     });
@@ -1050,7 +1073,8 @@ void main() {
         expect(
           booted['refuser']!.bootstrapPeers.map((p) => p.publicKey),
           ['MINE='],
-          reason: 'an identity that refused the shared seeds was handed them '
+          reason:
+              'an identity that refused the shared seeds was handed them '
               'because another identity in the same container had not',
         );
         expect(booted['refuser']!.useBundledSeeds, isFalse);
@@ -1087,10 +1111,7 @@ void main() {
         final s = container.storage();
         await s.open(password: password, createIfMissing: true);
         await s.saveProfile(UserProfile(displayName: password));
-        await s.putSetting(
-          kBundledSeedsSettingKey,
-          allowed ? 'true' : 'false',
-        );
+        await s.putSetting(kBundledSeedsSettingKey, allowed ? 'true' : 'false');
         await s.close();
       }
 
@@ -1125,10 +1146,11 @@ void main() {
           ),
         );
       };
-      for (var i = 0;
-          i < 40 &&
-              c.read(appControllerProvider).phase == AppPhase.bootstrapping;
-          i++) {
+      for (
+        var i = 0;
+        i < 40 && c.read(appControllerProvider).phase == AppPhase.bootstrapping;
+        i++
+      ) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
 
@@ -1183,7 +1205,8 @@ void main() {
       expect(
         await inSpace('duresspw', bundledSeedsAllowedFor),
         isTrue,
-        reason: 'the decoy inherited the real identity\'s network posture — '
+        reason:
+            'the decoy inherited the real identity\'s network posture — '
             'the deniability failure the per-profile file was claimed to '
             'prevent and in fact caused',
       );
@@ -1257,20 +1280,23 @@ void main() {
       expect(
         await active.getSetting(kBundledSeedsSettingKey),
         'false',
-        reason: 'the refusal never reached the identity whose node is composed '
+        reason:
+            'the refusal never reached the identity whose node is composed '
             'from it',
       );
       expect(
         await other.getSetting(kBundledSeedsSettingKey),
         'true',
-        reason: 'one identity answered for another — the defect exactly: the '
+        reason:
+            'one identity answered for another — the defect exactly: the '
             'last write won for every identity at once',
       );
       final prefs = await SharedPreferences.getInstance();
       expect(
         prefs.getBool(kBundledSeedsPrefKey),
         isNull,
-        reason: 'the answer was left in the profile preference file, where the '
+        reason:
+            'the answer was left in the profile preference file, where the '
             'next identity with none of its own inherits it and a forensic '
             'tool reads it without opening any container',
       );
@@ -1298,7 +1324,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final l = AppL10n.of(tester.element(find.byType(BundledSeedsReofferDialog)));
+      final l = AppL10n.of(
+        tester.element(find.byType(BundledSeedsReofferDialog)),
+      );
       await tester.tap(find.text(l.seedsReofferUse));
       await tester.pumpAndSettle();
 
@@ -1383,54 +1411,61 @@ void main() {
           MultiSpaceKvLogStore(backing, backing.openSpace(keys)),
         );
 
-    test('the identity\'s own answer wins over the fallback, both ways', () async {
-      SharedPreferences.setMockInitialValues({
-        'network.bundled_seeds.v1': true,
-      });
-      final backing = FakeMultiSpaceBacking();
-      final refuser = viewOf(backing, _spaceKeys(11));
-      await refuser.putSetting(kBundledSeedsSettingKey, 'false');
-      expect(
-        await bundledSeedsAllowedFromSpace(refuser, ifUnanswered: true),
-        isFalse,
-        reason: 'a daemon starting up must not undo a refusal recorded in the '
-            'container just because its own config said nothing',
-      );
+    test(
+      'the identity\'s own answer wins over the fallback, both ways',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'network.bundled_seeds.v1': true,
+        });
+        final backing = FakeMultiSpaceBacking();
+        final refuser = viewOf(backing, _spaceKeys(11));
+        await refuser.putSetting(kBundledSeedsSettingKey, 'false');
+        expect(
+          await bundledSeedsAllowedFromSpace(refuser, ifUnanswered: true),
+          isFalse,
+          reason:
+              'a daemon starting up must not undo a refusal recorded in the '
+              'container just because its own config said nothing',
+        );
 
-      final allower = viewOf(backing, _spaceKeys(12));
-      await allower.putSetting(kBundledSeedsSettingKey, 'true');
-      expect(
-        await bundledSeedsAllowedFromSpace(allower, ifUnanswered: false),
-        isTrue,
-      );
-    });
+        final allower = viewOf(backing, _spaceKeys(12));
+        await allower.putSetting(kBundledSeedsSettingKey, 'true');
+        expect(
+          await bundledSeedsAllowedFromSpace(allower, ifUnanswered: false),
+          isTrue,
+        );
+      },
+    );
 
-    test('a space that never answered takes the fallback and WRITES NOTHING', () async {
-      // Unlike the app's read, which migrates the preference into the space on
-      // first sight. A daemon has nothing to migrate FROM, and freezing a
-      // fallback into the container would answer a question nobody asked — the
-      // config file it came from can say something different tomorrow.
-      SharedPreferences.setMockInitialValues({
-        'network.bundled_seeds.v1': false,
-      });
-      final backing = FakeMultiSpaceBacking();
-      final space = viewOf(backing, _spaceKeys(13));
-      expect(
-        await bundledSeedsAllowedFromSpace(space, ifUnanswered: true),
-        isTrue,
-        reason: 'the preference belongs to an app profile the daemon is not',
-      );
-      expect(
-        await space.getSetting(kBundledSeedsSettingKey),
-        isNull,
-        reason: 'reading a config is not answering the question',
-      );
-      expect(
-        await bundledSeedsAllowedFromSpace(space, ifUnanswered: false),
-        isFalse,
-        reason: 'and the next boot is still free to be told otherwise',
-      );
-    });
+    test(
+      'a space that never answered takes the fallback and WRITES NOTHING',
+      () async {
+        // Unlike the app's read, which migrates the preference into the space on
+        // first sight. A daemon has nothing to migrate FROM, and freezing a
+        // fallback into the container would answer a question nobody asked — the
+        // config file it came from can say something different tomorrow.
+        SharedPreferences.setMockInitialValues({
+          'network.bundled_seeds.v1': false,
+        });
+        final backing = FakeMultiSpaceBacking();
+        final space = viewOf(backing, _spaceKeys(13));
+        expect(
+          await bundledSeedsAllowedFromSpace(space, ifUnanswered: true),
+          isTrue,
+          reason: 'the preference belongs to an app profile the daemon is not',
+        );
+        expect(
+          await space.getSetting(kBundledSeedsSettingKey),
+          isNull,
+          reason: 'reading a config is not answering the question',
+        );
+        expect(
+          await bundledSeedsAllowedFromSpace(space, ifUnanswered: false),
+          isFalse,
+          reason: 'and the next boot is still free to be told otherwise',
+        );
+      },
+    );
 
     test('a store that will not answer takes the fallback too', () async {
       // Same reasoning as `bundledSeedsAllowedFor`: a node config has to be
@@ -1461,7 +1496,8 @@ void main() {
       expect(
         call!.namedGroup('args'),
         contains('useBundledSeeds: config.useBundledSeeds'),
-        reason: 'the daemon must pass what its config file said (and the null '
+        reason:
+            'the daemon must pass what its config file said (and the null '
             'that means it said nothing) — dropping it leaves the key parsed, '
             'documented and inert',
       );
@@ -1474,7 +1510,11 @@ void main() {
     // switch subtitles that named no scope at all. The scope is now real, and
     // these assert that it is also SAID — in every locale, because a translated
     // string that drops the clause is the same defect in another language.
-    const scope = {'en': 'this identity', 'ru': 'этой личности', 'es': 'esta identidad'};
+    const scope = {
+      'en': 'this identity',
+      'ru': 'этой личности',
+      'es': 'esta identidad',
+    };
     const others = {
       'en': 'other identities are unaffected',
       'ru': 'другие ваши личности это не затрагивает',
@@ -1489,7 +1529,8 @@ void main() {
         expect(
           l.seedsSwitchOnSub.toLowerCase(),
           contains(entry.value),
-          reason: 'the ON subtitle states no scope, so a device-wide reading '
+          reason:
+              'the ON subtitle states no scope, so a device-wide reading '
               'is the natural one',
         );
         expect(l.seedsSwitchOffSub.toLowerCase(), contains(entry.value));
@@ -1503,7 +1544,8 @@ void main() {
         expect(
           l.seedsDeclineBody.toLowerCase(),
           contains(others[entry.key]!),
-          reason: 'the promise was "nobody else\'s server learns that this '
+          reason:
+              'the promise was "nobody else\'s server learns that this '
               'identity exists" while the answer was shared with every other '
               'identity on the device; saying whose answer it is IS the fix',
         );
@@ -1579,7 +1621,8 @@ class _RefusingStorage extends FakeSettingStorage {
   @override
   bool get isOpen => true;
   @override
-  Future<String?> getSetting(String key) async => throw StateError('unreadable');
+  Future<String?> getSetting(String key) async =>
+      throw StateError('unreadable');
   @override
   Future<void> putSetting(String key, String value) async =>
       throw StateError('unwritable');
