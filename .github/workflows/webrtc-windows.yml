@@ -1,6 +1,7 @@
 name: webrtc-windows
 
-# Produces veil_media.dll for win-x64 — the one input the Windows bundle cannot
+# Produces veil_media.dll for win-x64 and win-arm64 — the one input the Windows
+# bundle cannot
 # build for itself, and the one it has never had. Every published Windows zip
 # up to and including v0.9.1 shipped without it: voice messages, video notes,
 # calls and speech-to-text all throw at the first LoadLibrary.
@@ -32,6 +33,14 @@ name: webrtc-windows
 on:
   workflow_dispatch:
     inputs:
+      targets:
+        description: >-
+          Space-separated: win-x64 win-arm64. Defaults to what every run built
+          before the arm64 target existed, so a run that does not ask for it
+          behaves exactly as it always did.
+        required: false
+        type: string
+        default: 'win-x64'
       keep_symbols:
         description: 'Skip the strip (bigger .dll, symbolicated crashes)'
         required: false
@@ -93,11 +102,22 @@ env:
   # Copied verbatim from the published manifest's `gn_args` — see the same
   # block in webrtc-linux.yml for why the argument list is pinned here.
   WEBRTC_GN_ARGS_WIN: 'enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "x64" target_os = "win" treat_warnings_as_errors = false'
+  # Same line, arm64. Kept as its own variable rather than built by string
+  # surgery, so what a bundle is checked against is a literal.
+  WEBRTC_GN_ARGS_WIN_ARM64: 'enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "arm64" target_os = "win" treat_warnings_as_errors = false'
 
 jobs:
   engine-windows:
-    name: veil_media.dll (win-x64)
+    name: veil_media.dll (${{ matrix.target }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win-x64
+            gn_args_var: WEBRTC_GN_ARGS_WIN
+          - target: win-arm64
+            gn_args_var: WEBRTC_GN_ARGS_WIN_ARM64
     # Was 350, for a job that spent fifty-eight of its sixty-five minutes
     # building WebRTC. What is left is a 158 MB download, an extract and an
     # eighteen-second wrapper build; Windows gets a little more room than the
@@ -126,7 +146,21 @@ jobs:
       # setup.ps1 through powershell.exe) is the part of that script this job is
       # the first ever to execute, which is why it opens by naming the tools it
       # is about to depend on instead of failing in the middle of one.
-      - name: WebRTC SDK for win-x64
+      # A target nobody asked for must not fail the run: the arm64 SDK is
+      # published separately, and a run aimed at x64 must not depend on it.
+      - name: Skip targets not asked for
+        id: want
+        shell: bash
+        run: |
+          if echo "${{ inputs.targets }}" | grep -qw "${{ matrix.target }}"; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.target }} was not requested"
+          fi
+
+      - name: WebRTC SDK for ${{ matrix.target }}
+        if: steps.want.outputs.run == 'yes'
         shell: bash
         run: |
           set -euo pipefail
@@ -141,7 +175,7 @@ jobs:
           # is what clang-cl and lld-link can actually open.
           into="$(cygpath -u "$RUNNER_TEMP")/webrtc-sdk"
           # See webrtc-linux.yml for why this is not `eval "$(fetch-sdk.sh …)"`.
-          bash "$RUNNER_TEMP/fetch-sdk.sh" --target win-x64 \
+          bash "$RUNNER_TEMP/fetch-sdk.sh" --target ${{ matrix.target }} \
             --expect-pin "$WEBRTC_PIN" --into "$into" \
             > "$RUNNER_TEMP/sdk-env.sh"
           cat "$RUNNER_TEMP/sdk-env.sh"
@@ -163,6 +197,7 @@ jobs:
       # before downloading; this compares against the manifest inside the
       # extract, before a single translation unit is compiled.
       - name: The bundle is the WebRTC these sources expect
+        if: steps.want.outputs.run == 'yes'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -174,16 +209,17 @@ jobs:
             Write-Host "::error::this bundle was built from WebRTC $($m.webrtc_pin); these sources expect $env:WEBRTC_PIN"
             exit 1
           }
-          if ($m.target -ne 'win-x64') {
-            Write-Host "::error::this bundle is for $($m.target); this job builds win-x64"
+          if ($m.target -ne '${{ matrix.target }}') {
+            Write-Host "::error::this bundle is for $($m.target); this job builds ${{ matrix.target }}"
             exit 1
           }
           # The pin says WHICH WebRTC; this says HOW it was configured. Same
           # check as the two linux jobs, same reason.
-          if ($m.gn_args -ne $env:WEBRTC_GN_ARGS_WIN) {
+          $expectedGn = [Environment]::GetEnvironmentVariable('${{ matrix.gn_args_var }}')
+          if ($m.gn_args -ne $expectedGn) {
             Write-Host "::error::the bundle's gn args are not the ones this repository expects"
             Write-Host "  bundle:   $($m.gn_args)"
-            Write-Host "  expected: $env:WEBRTC_GN_ARGS_WIN"
+            Write-Host "  expected: $expectedGn"
             exit 1
           }
           $cc = Join-Path (Join-Path $env:WEBRTC_SRC $env:WEBRTC_OUT) 'compile_commands.json'
@@ -199,6 +235,7 @@ jobs:
           Write-Host "webrtc.lib: $((Get-Item $lib).Length) bytes"
 
       - name: Build veil_media.dll
+        if: steps.want.outputs.run == 'yes'
         shell: pwsh
         env:
           VEIL_MEDIA_NO_STRIP: ${{ inputs.keep_symbols && '1' || '' }}
@@ -253,6 +290,7 @@ jobs:
       # first call. check-media-symbols.sh reads ELF, so the export table comes
       # from dumpbin here and the comparison is done in place.
       - name: Every symbol Dart looks up is exported
+        if: steps.want.outputs.run == 'yes'
         shell: pwsh
         run: |
           $dll = "$env:GITHUB_WORKSPACE\engine-out\veil_media.dll"
@@ -306,7 +344,8 @@ jobs:
 
       # An asset with no provenance is the pinned-run problem in a nicer
       # wrapper. Written by the job that knows what it actually used.
-      - name: Provenance for the win-x64 asset
+      - name: Provenance for the ${{ matrix.target }} asset
+        if: steps.want.outputs.run == 'yes'
         shell: pwsh
         env:
           KEEP_SYMBOLS: ${{ inputs.keep_symbols }}
@@ -324,13 +363,13 @@ jobs:
           $m = Get-Content -Raw (Join-Path $env:WEBRTC_BUILD 'veil-webrtc-sdk.json') | ConvertFrom-Json
           New-Item -ItemType Directory -Force -Path provenance | Out-Null
           $lines = @(
-            "asset:           veil_media-win-x64.dll"
+            "asset:           veil_media-${{ matrix.target }}.dll"
             "installs-as:     veil_media.dll"
             "sha256:          $sha"
             "size:            $size bytes"
             "built:           $((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
             "webrtc:          $env:WEBRTC_PIN"
-            "webrtc-sdk:      $env:VEIL_SDK_REPO webrtc-$env:WEBRTC_PIN veil-webrtc-sdk-win-x64.zip"
+            "webrtc-sdk:      $env:VEIL_SDK_REPO webrtc-$env:WEBRTC_PIN veil-webrtc-sdk-${{ matrix.target }}.zip"
             "webrtc.lib:      sha256 $($m.libwebrtc_sha256) ($($m.libwebrtc_bytes) bytes)"
             "sdk-built-by:    $($m.built_by)"
             "depot_tools:     $($m.depot_tools_pin) (the SDK's, recorded by the run that built webrtc.lib)"
@@ -357,23 +396,25 @@ jobs:
           # because the CR returns the cursor before the difference can show.
           # WriteAllText is used because Set-Content has no line-ending switch.
           [IO.File]::WriteAllText(
-            (Join-Path (Get-Location) "provenance\veil_media-win-x64.dll.provenance"),
+            (Join-Path (Get-Location) "provenance\veil_media-${{ matrix.target }}.dll.provenance"),
             (($lines -join "`n") + "`n"),
             [Text.Encoding]::ASCII)
-          Get-Content "provenance\veil_media-win-x64.dll.provenance"
+          Get-Content "provenance\veil_media-${{ matrix.target }}.dll.provenance"
 
       # Unchanged: the old run-id route still reads this artifact, by this
       # name, expecting exactly this one file.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.want.outputs.run == 'yes'
         with:
-          name: libveil_media-win-x64
+          name: libveil_media-${{ matrix.target }}
           path: engine-out/veil_media.dll
           if-no-files-found: error
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.want.outputs.run == 'yes'
         with:
-          name: libveil_media-win-x64-provenance
-          path: provenance/veil_media-win-x64.dll.provenance
+          name: libveil_media-${{ matrix.target }}-provenance
+          path: provenance/veil_media-${{ matrix.target }}.dll.provenance
           if-no-files-found: error
 
   # THE ONLY JOB HERE THAT CAN WRITE — same split as webrtc-linux.yml and for
@@ -411,11 +452,24 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "attaching to release $tag"
 
+      # One directory per target. `merge-multiple` into a shared one was fine
+      # while there was a single target; both artifacts carry a file called
+      # veil_media.dll, so merging them now would land one on top of the other
+      # and publish whichever won under both names.
       - name: win-x64 engine and its provenance
+        if: contains(inputs.targets, 'win-x64')
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: libveil_media-win-x64*
-          path: incoming/windows
+          path: incoming/win-x64
+          merge-multiple: true
+
+      - name: win-arm64 engine and its provenance
+        if: contains(inputs.targets, 'win-arm64')
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: libveil_media-win-arm64*
+          path: incoming/win-arm64
           merge-multiple: true
 
       # veil_media-win-x64.dll, not libveil_media-win-x64.dll: the Windows
@@ -425,8 +479,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp incoming/windows/veil_media.dll dist/veil_media-win-x64.dll
-          cp incoming/windows/veil_media-win-x64.dll.provenance dist/
+          staged=0
+          for t in win-x64 win-arm64; do
+            [ -d "incoming/$t" ] || continue
+            cp "incoming/$t/veil_media.dll" "dist/veil_media-$t.dll"
+            cp "incoming/$t/veil_media-$t.dll.provenance" dist/
+            staged=$((staged + 1))
+          done
+          # A publish job that stages nothing would attach an empty release and
+          # report success.
+          [ "$staged" -gt 0 ] || { echo "::error::no target produced an engine to publish"; exit 1; }
           ls -la dist/
           sha256sum dist/*.dll
 
