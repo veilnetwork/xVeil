@@ -222,6 +222,61 @@ with tempfile.TemporaryDirectory() as _tmp:
     builder._ANDROID_NATIVE = _held
 
 
+
+# The stray-APK check asks about the DIRECTORY, once — not "everything that is
+# not the ABI I am looking at". Asked inside the per-ABI loop it was right
+# while exactly one APK shipped and became self-contradictory the moment three
+# did: each shipped APK accused the other two of being leftovers, and the
+# build refused artifacts it had just produced correctly.
+import zipfile  # noqa: E402
+
+with tempfile.TemporaryDirectory() as _tmp:
+    _apk_dir = os.path.join(_tmp, "build", "app", "outputs", "flutter-apk")
+    os.makedirs(_apk_dir)
+    _need = list(builder._REQUIRED_EVERY_ABI) + [builder._MEDIA_SO]
+
+    def _make_apk(_name: str, _abi: str) -> None:
+        with zipfile.ZipFile(os.path.join(_apk_dir, _name), "w") as _z:
+            for _so in _need:
+                _z.writestr(f"lib/{_abi}/{_so}", "x")
+
+    for _abi in builder._RELEASE_APK_ABIS:
+        _make_apk(f"app-{_abi}-release.apk", _abi)
+
+    _held_root, _held_sym = builder.ROOT, builder._media_symbols_problem
+    builder.ROOT = _tmp
+    # The symbol check reads a real ELF; these fixtures are zip files with
+    # one-byte members, and what is under test here is the file list.
+    builder._media_symbols_problem = lambda **_kw: []
+    try:
+        try:
+            builder._check_android_native_libs()
+            _refused = False
+        except RuntimeError:
+            _refused = True
+        check("every shipped ABI's APK is accepted together", _refused, False)
+
+        # And an ABI that is NOT shipped is still caught: the fix must aim the
+        # gate, not switch it off.
+        _make_apk("app-x86-release.apk", "x86")
+        try:
+            builder._check_android_native_libs()
+            _caught = ""
+        except RuntimeError as _exc:
+            _caught = str(_exc)
+        check(
+            "an APK for an ABI this build does not ship is refused",
+            "app-x86-release.apk" in _caught,
+            True,
+        )
+    finally:
+        builder.ROOT, builder._media_symbols_problem = _held_root, _held_sym
+
+
+# The verdict, LAST. It used to sit above the checks appended after it, so a
+# failure there printed "FAIL" and the script still exited 0 — a gate that
+# reports and does not gate. Anything added below this line is outside the
+# summary again, so add checks ABOVE it.
 if failures:
     print(f"\nFAIL: {len(failures)} check(s): {', '.join(failures)}")
     sys.exit(1)
