@@ -68,6 +68,10 @@ class AppL10nEs extends AppL10n {
       'Genera una clave soberana nueva en este dispositivo';
 
   @override
+  String get onboardNoRecoveryPhrase =>
+      'Este dispositivo no pudo generar una frase de recuperación, así que no se creó ninguna identidad. Sin ella, una identidad nunca podría restaurarse: inténtelo de nuevo o restaure una identidad existente.';
+
+  @override
   String get onboardRestoreIdentity => 'Restaurar con la frase de recuperación';
 
   @override

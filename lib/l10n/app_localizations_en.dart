@@ -68,6 +68,10 @@ class AppL10nEn extends AppL10n {
       'Generate a fresh sovereign key on this device';
 
   @override
+  String get onboardNoRecoveryPhrase =>
+      'This device could not produce a recovery phrase, so no identity was created. Without one, an identity could never be restored — try again, or restore an existing identity instead.';
+
+  @override
   String get onboardRestoreIdentity => 'Restore from recovery phrase';
 
   @override
