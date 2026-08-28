@@ -98,7 +98,12 @@ env:
   # fast-forward, which is why the sha here did not change on merging: the
   # commit itself is now on main's history, so nothing has to be repointed and
   # no branch has to be kept alive for this pin to stay fetchable.
-  VEIL_SDK_SCRIPT_PIN: 'deef316260886f36e2fde02e037d6bd5d1315c77'
+  # Repointed 2026-08-28. The previous pin named a commit that no longer
+  # exists: the deanonymisation pass rewrote libwebrtc-builds' history and
+  # every hash in it changed, so this fetch answered 404 and EVERY engine
+  # build failed at its first step. It went unseen because these workflows
+  # only run on manual dispatch — nothing fires them on a push.
+  VEIL_SDK_SCRIPT_PIN: 'c7506a36edb69d307663adc9d9717b527db113f0'
   # The gn arguments the published bundles were built with, copied verbatim
   # from each manifest's `gn_args` (gn's own normalised form: one `key = value`
   # per line of args.gn, sorted, joined with spaces).
@@ -313,13 +318,20 @@ jobs:
       # beside it as its OWN artifact rather than into this one — a second file
       # here would land in android/app/src/main/jniLibs/arm64-v8a on the android
       # consumer, which is a directory gradle packages into the APK.
+      # Conditional like every step since `Skip targets not asked for`. Without
+      # this the skip was only half a skip: a target nobody asked for built
+      # nothing and then failed HERE on `if-no-files-found: error`, so a run
+      # aimed at one target came back red for the other — which is exactly the
+      # dependency the skip exists to avoid.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.want.outputs.run == 'yes'
         with:
           name: libveil_media-${{ matrix.target }}
           path: third_party/veil/flutter/veil_media/linux/libveil_media.so
           if-no-files-found: error
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.want.outputs.run == 'yes'
         with:
           name: libveil_media-${{ matrix.target }}-provenance
           path: provenance/libveil_media-${{ matrix.target }}.so.provenance

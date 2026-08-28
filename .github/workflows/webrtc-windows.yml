@@ -84,7 +84,12 @@ env:
   #
   # It landed on veilnetwork/libwebrtc-builds' main by fast-forward, so this
   # sha IS a commit on that branch's history — nothing to repoint.
-  VEIL_SDK_SCRIPT_PIN: 'deef316260886f36e2fde02e037d6bd5d1315c77'
+  # Repointed 2026-08-28. The previous pin named a commit that no longer
+  # exists: the deanonymisation pass rewrote libwebrtc-builds' history and
+  # every hash in it changed, so this fetch answered 404 and EVERY engine
+  # build failed at its first step. It went unseen because these workflows
+  # only run on manual dispatch — nothing fires them on a push.
+  VEIL_SDK_SCRIPT_PIN: 'c7506a36edb69d307663adc9d9717b527db113f0'
   # Copied verbatim from the published manifest's `gn_args` — see the same
   # block in webrtc-linux.yml for why the argument list is pinned here.
   WEBRTC_GN_ARGS_WIN: 'enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "x64" target_os = "win" treat_warnings_as_errors = false'
