@@ -38,13 +38,15 @@ on:
     inputs:
       targets:
         description: >-
-          Space-separated: linux-x64 linux-arm64. Defaults to what every run
-          built before the arm64 target existed, so a run that does not ask for
-          it behaves exactly as it always did — and a target whose SDK has not
-          been published yet cannot fail a run nobody aimed at it.
+          Space-separated: linux-x64 linux-arm64 android-arm64 android-arm
+          android-x64. The default is what every run built before any of the
+          extra targets existed — linux-x64 and the android engine the APK
+          ships — so a run that asks for nothing behaves exactly as it always
+          did, and a target whose SDK has not been published yet cannot fail a
+          run nobody aimed at it.
         required: false
         type: string
-        default: 'linux-x64'
+        default: 'linux-x64 android-arm64'
       keep_symbols:
         description: 'Skip the strip (bigger .so, symbolicated crashes)'
         required: false
@@ -121,6 +123,14 @@ env:
   # noticed instead of linked.
   WEBRTC_GN_ARGS_LINUX_ARM64: 'enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "arm64" target_os = "linux" treat_warnings_as_errors = false'
   WEBRTC_GN_ARGS_ANDROID: 'android_static_analysis = "off" enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "arm64" target_os = "android" treat_warnings_as_errors = false'
+  # The same list, one argument apart. They are spelled out rather than
+  # derived from each other because this is the value a bundle is COMPARED
+  # against: a generated expectation would agree with a generated bundle by
+  # construction, and agreeing is the whole thing being checked.
+  # test/webrtc_android_args_test.dart holds them to differing in target_cpu
+  # and nothing else.
+  WEBRTC_GN_ARGS_ANDROID_ARM: 'android_static_analysis = "off" enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "arm" target_os = "android" treat_warnings_as_errors = false'
+  WEBRTC_GN_ARGS_ANDROID_X64: 'android_static_analysis = "off" enable_libaom = false is_component_build = false is_debug = false rtc_build_examples = false rtc_build_tools = false rtc_enable_protobuf = false rtc_include_opus = true rtc_include_tests = false rtc_use_h264 = false symbol_level = 0 target_cpu = "x64" target_os = "android" treat_warnings_as_errors = false'
 
 jobs:
   engine:
@@ -343,25 +353,49 @@ jobs:
   # and the NDK it downloads is linux-x86_64 only, so neither a Mac nor an
   # arm64 Linux box can produce this one.
   engine-android:
-    name: libveil_media.so (android-arm64)
+    name: libveil_media.so (${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: android-arm64
+            gn_args_var: WEBRTC_GN_ARGS_ANDROID
+          - target: android-arm
+            gn_args_var: WEBRTC_GN_ARGS_ANDROID_ARM
+          - target: android-x64
+            gn_args_var: WEBRTC_GN_ARGS_ANDROID_X64
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
 
+      # Same rule as the linux matrix: a target nobody asked for must not fail
+      # the run. `android-arm64` is in the default target list, so a dispatch
+      # that asks for nothing still builds exactly what it always built.
+      - name: Skip targets not asked for
+        id: want
+        run: |
+          if echo "${{ inputs.targets }}" | grep -qw "${{ matrix.target }}"; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            echo "${{ matrix.target }} was not requested"
+          fi
+
       # The android bundle carries what the android checkout used to have to
       # fetch through `target_os = ['android']` in .gclient: the NDK's aarch64
       # sysroot (pruned to the one architecture) and the generated headers, plus
       # the libunwind objects this link needs and the linux one does not.
-      - name: WebRTC SDK for android-arm64
+      - name: WebRTC SDK for ${{ matrix.target }}
+        if: steps.want.outputs.run == 'yes'
         run: |
           set -euo pipefail
           curl -fsSL --retry 3 --retry-delay 5 -o "$RUNNER_TEMP/fetch-sdk.sh" \
             "https://raw.githubusercontent.com/$VEIL_SDK_REPO/$VEIL_SDK_SCRIPT_PIN/scripts/fetch-sdk.sh"
           # See the linux job for why this is not `eval "$(fetch-sdk.sh …)"`.
-          bash "$RUNNER_TEMP/fetch-sdk.sh" --target android-arm64 \
+          bash "$RUNNER_TEMP/fetch-sdk.sh" --target ${{ matrix.target }} \
             --expect-pin "$WEBRTC_PIN" --into "$RUNNER_TEMP/webrtc-sdk" \
             > "$RUNNER_TEMP/sdk-env.sh"
           cat "$RUNNER_TEMP/sdk-env.sh"
@@ -372,6 +406,9 @@ jobs:
           done
 
       - name: The bundle is the WebRTC these sources expect
+        if: steps.want.outputs.run == 'yes'
+        env:
+          GN_ARGS_VAR: ${{ matrix.gn_args_var }}
         run: |
           set -euo pipefail
           manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
@@ -383,27 +420,31 @@ jobs:
           echo "bundle: target=$target webrtc=$got out=$out"
           [ "$got" = "$WEBRTC_PIN" ] \
             || { echo "::error::this bundle was built from WebRTC $got; these sources expect $WEBRTC_PIN"; exit 1; }
-          [ "$target" = "android-arm64" ] \
-            || { echo "::error::this bundle is for $target; this job builds android-arm64"; exit 1; }
+          [ "$target" = "${{ matrix.target }}" ] \
+            || { echo "::error::this bundle is for $target; this job builds ${{ matrix.target }}"; exit 1; }
           # See the linux job. android_static_analysis="off" lives in this list
           # and is not an optimisation — it is what makes the build finish at
           # all — which is the sort of thing that must not differ between the
           # bundle and the script a person runs locally.
           args="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["gn_args"])' "$manifest")"
-          if [ "$args" != "$WEBRTC_GN_ARGS_ANDROID" ]; then
+          expected="${!GN_ARGS_VAR}"
+          [ -n "$expected" ] \
+            || { echo "::error::$GN_ARGS_VAR is empty — this job has no expectation to compare the bundle against"; exit 1; }
+          if [ "$args" != "$expected" ]; then
             echo "::error::the bundle's gn args are not the ones this repository expects"
             echo "  bundle:   $args"
-            echo "  expected: $WEBRTC_GN_ARGS_ANDROID"
+            echo "  expected ($GN_ARGS_VAR): $expected"
             exit 1
           fi
           # build_veil_media_so.sh takes WEBRTC_BUILD and derives the rest, with
-          # out/android-arm64 written into the script rather than passed in. So
-          # a bundle whose out_dir were anything else would be looked for in a
-          # directory that does not exist, and the script would report "no
-          # compile_commands.json — run build_libwebrtc_android_linux.sh first",
-          # which would be a lie. Assert the agreement instead.
-          [ "$out" = "out/android-arm64" ] \
-            || { echo "::error::the bundle's out_dir is $out; build_veil_media_so.sh looks in out/android-arm64"; exit 1; }
+          # out/<target>, which build_veil_media_so.sh derives from
+          # ANDROID_TARGET. A bundle whose out_dir were anything else would be
+          # looked for in a directory that does not exist, and the script would
+          # report "no compile_commands.json — run
+          # build_libwebrtc_android_linux.sh first", which would be a lie.
+          # Assert the agreement instead.
+          [ "$out" = "out/${{ matrix.target }}" ] \
+            || { echo "::error::the bundle's out_dir is $out; this job builds ${{ matrix.target }}, and build_veil_media_so.sh looks in out/${{ matrix.target }}"; exit 1; }
           cc="$WEBRTC_SRC/$out/compile_commands.json"
           [ -f "$cc" ] || { echo "::error::no $cc — setup.sh did not run, or the bundle is incomplete"; exit 1; }
           python3 -c 'import json,sys; sys.exit(0 if [x for x in json.load(open(sys.argv[1])) if x.get("file","").endswith("call/call.cc")] else 1)' "$cc" \
@@ -411,8 +452,10 @@ jobs:
           ls -la "$WEBRTC_SRC/$out/obj/libwebrtc.a"
 
       - name: Build libveil_media.so
+        if: steps.want.outputs.run == 'yes'
         env:
           VEIL_MEDIA_NO_STRIP: ${{ inputs.keep_symbols && '1' || '' }}
+          ANDROID_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
           # patchelf writes DT_NEEDED libveilclient_ffi.so, which is how the
@@ -421,20 +464,25 @@ jobs:
           # fails at load on the phone instead of here.
           sudo apt-get update && sudo apt-get install -y patchelf
           # WEBRTC_BUILD is the bundle root and has the same shape the old
-          # checkout root had — a src/ with out/android-arm64 under it — so the
-          # script is called exactly as before.
+          # checkout root had — a src/ with out/<target> under it — so the
+          # script is called exactly as before, with ANDROID_TARGET naming
+          # which ABI's out dir and jniLibs dir it is: the script keeps those
+          # two moving together, and letting one be chosen without the other is
+          # how an arm64 library lands in the x86_64 folder.
           bash third_party/veil/flutter/veil_media/android/build_veil_media_so.sh \
             "$GITHUB_WORKSPACE/engine-out"
 
       # pipefail, for the reason spelled out in the linux job: tee always exits
       # 0, so without it this gate would pass on every engine ever built.
       - name: Every symbol Dart looks up is exported
+        if: steps.want.outputs.run == 'yes'
         run: |
           set -euo pipefail
           bash scripts/check-media-symbols.sh "$GITHUB_WORKSPACE/engine-out/libveil_media.so" \
             | tee symbol-check.txt
 
-      - name: Provenance for the android-arm64 asset
+      - name: Provenance for the ${{ matrix.target }} asset
+        if: steps.want.outputs.run == 'yes'
         env:
           KEEP_SYMBOLS: ${{ inputs.keep_symbols }}
         run: |
@@ -444,13 +492,13 @@ jobs:
           field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$manifest" "$1"; }
           mkdir -p provenance
           {
-            echo "asset:           libveil_media-android-arm64.so"
+            echo "asset:           libveil_media-${{ matrix.target }}.so"
             echo "installs-as:     libveil_media.so"
             echo "sha256:          $(sha256sum "$so" | cut -d' ' -f1)"
             echo "size:            $(stat -c%s "$so") bytes"
             echo "built:           $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "webrtc:          $WEBRTC_PIN"
-            echo "webrtc-sdk:      $VEIL_SDK_REPO webrtc-$WEBRTC_PIN veil-webrtc-sdk-android-arm64.tar.xz"
+            echo "webrtc-sdk:      $VEIL_SDK_REPO webrtc-$WEBRTC_PIN veil-webrtc-sdk-${{ matrix.target }}.tar.xz"
             echo "libwebrtc.a:     sha256 $(field libwebrtc_sha256) ($(field libwebrtc_bytes) bytes)"
             echo "sdk-built-by:    $(field built_by)"
             echo "depot_tools:     $(field depot_tools_pin) (the SDK's, recorded by the run that built libwebrtc.a)"
@@ -461,19 +509,21 @@ jobs:
             echo "run:             $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "stripped:        $([ "$KEEP_SYMBOLS" = "true" ] && echo no || echo yes)"
             echo "symbol-check:    $(cat symbol-check.txt | tr '\n' ' ')"
-          } > "provenance/libveil_media-android-arm64.so.provenance"
-          cat "provenance/libveil_media-android-arm64.so.provenance"
+          } > "provenance/libveil_media-${{ matrix.target }}.so.provenance"
+          cat "provenance/libveil_media-${{ matrix.target }}.so.provenance"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.want.outputs.run == 'yes'
         with:
-          name: libveil_media-android-arm64
+          name: libveil_media-${{ matrix.target }}
           path: engine-out/libveil_media.so
           if-no-files-found: error
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.want.outputs.run == 'yes'
         with:
-          name: libveil_media-android-arm64-provenance
-          path: provenance/libveil_media-android-arm64.so.provenance
+          name: libveil_media-${{ matrix.target }}-provenance
+          path: provenance/libveil_media-${{ matrix.target }}.so.provenance
           if-no-files-found: error
 
   # THE ONLY JOB HERE THAT CAN WRITE.
@@ -543,13 +593,46 @@ jobs:
           merge-multiple: true
         continue-on-error: true
 
+      # One directory per ABI, never merged: all three build a file called
+      # libveil_media.so, and merging would have one silently overwrite
+      # another — published under a name that says the wrong thing.
       - name: android-arm64 engine and its provenance
         if: needs['engine-android'].result == 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: libveil_media-android-arm64*
-          path: incoming/android
+          path: incoming/android-arm64
           merge-multiple: true
+        continue-on-error: true
+
+      # EXACT names, not a glob: `libveil_media-android-arm*` also matches
+      # every android-arm64 artifact, and merge-multiple would then quietly
+      # stage an arm64 library under the armeabi-v7a name — a mismatch nothing
+      # notices until a phone refuses to load it. Two steps, both exact.
+      - name: android-arm engine
+        if: needs['engine-android'].result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: libveil_media-android-arm
+          path: incoming/android-arm
+        continue-on-error: true
+
+      - name: android-arm provenance
+        if: needs['engine-android'].result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: libveil_media-android-arm-provenance
+          path: incoming/android-arm
+        continue-on-error: true
+
+      - name: android-x64 engine and its provenance
+        if: needs['engine-android'].result == 'success'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: libveil_media-android-x64*
+          path: incoming/android-x64
+          merge-multiple: true
+        continue-on-error: true
 
       # The published NAME differs from the built name on purpose: three
       # platforms all build a file called libveil_media.so, and release assets
@@ -570,10 +653,12 @@ jobs:
             cp incoming/linux-arm64/libveil_media.so dist/libveil_media-linux-arm64.so
             cp incoming/linux-arm64/libveil_media-linux-arm64.so.provenance dist/
           fi
-          if [ -d incoming/android ]; then
-            cp incoming/android/libveil_media.so dist/libveil_media-android-arm64.so
-            cp incoming/android/libveil_media-android-arm64.so.provenance dist/
-          fi
+          # Absent whenever that ABI was not requested — same rule as linux.
+          for abi in android-arm64 android-arm android-x64; do
+            [ -d "incoming/$abi" ] || continue
+            cp "incoming/$abi/libveil_media.so" "dist/libveil_media-$abi.so"
+            cp "incoming/$abi/libveil_media-$abi.so.provenance" dist/
+          done
           # A publish step that uploads nothing succeeds, and this job's whole
           # purpose is that it did not.
           [ -n "$(ls -A dist)" ] || { echo "::error::nothing staged to publish — both engine jobs were skipped or produced no artifact"; exit 1; }
