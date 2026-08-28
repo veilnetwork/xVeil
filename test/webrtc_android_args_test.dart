@@ -92,4 +92,58 @@ void main() {
     expect(fromScript, contains('target_os="android"'));
     expect(fromScript.length, greaterThan(10));
   });
+
+  /// The three Android ABIs build from ONE list, one argument apart.
+  ///
+  /// Each ABI's expectation is spelled out in the workflow rather than derived
+  /// from the others, because it is what a published bundle is COMPARED
+  /// against: an expectation generated from the same rule as the bundle would
+  /// agree by construction, and agreeing is the whole thing being checked.
+  ///
+  /// Spelled out means it can drift. A flag added for arm64 and forgotten for
+  /// x86_64 compiles WebRTC for fifteen minutes before failing, in the Java
+  /// tooling, which looks like a broken runner rather than a missing flag —
+  /// so the difference between the lists is held to exactly `target_cpu`.
+  test('the three Android ABIs differ in target_cpu and nothing else', () async {
+    final workflow =
+        await File('.github/workflows/webrtc-linux.yml').readAsString();
+
+    Set<String> pinned(String name) => _args(
+      workflow,
+      RegExp("^  $name: '([^']*)'", multiLine: true),
+      '$name in webrtc-linux.yml',
+    );
+
+    const wanted = <String, String>{
+      'WEBRTC_GN_ARGS_ANDROID': 'arm64',
+      'WEBRTC_GN_ARGS_ANDROID_ARM': 'arm',
+      'WEBRTC_GN_ARGS_ANDROID_X64': 'x64',
+    };
+
+    for (final entry in wanted.entries) {
+      expect(
+        pinned(entry.key),
+        contains('target_cpu="${entry.value}"'),
+        reason: '${entry.key} does not build for ${entry.value} — the name '
+            'and the argument list disagree about which ABI this is',
+      );
+    }
+
+    // Every pair, compared as sets: what differs must be the two target_cpu
+    // arguments and nothing besides.
+    final names = wanted.keys.toList();
+    for (var i = 0; i < names.length; i++) {
+      for (var j = i + 1; j < names.length; j++) {
+        final a = pinned(names[i]);
+        final b = pinned(names[j]);
+        final only = a.difference(b).union(b.difference(a));
+        expect(
+          only,
+          {'target_cpu="${wanted[names[i]]}"', 'target_cpu="${wanted[names[j]]}"'},
+          reason: '${names[i]} and ${names[j]} differ by more than the cpu: '
+              '$only',
+        );
+      }
+    }
+  });
 }
