@@ -10,6 +10,34 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.6] — 2026-08-28
+
+Mail deposited for an offline peer now arrives. The defect was in the network
+library and is fixed in veil v0.8.4; the production relays were upgraded before
+this was cut, and the fix was confirmed live on stand nodes against them.
+
+Built on veil [v0.8.4](https://github.com/veilnetwork/veil/releases/tag/v0.8.4)
+and hidden-volume
+[v2.0.5](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.5).
+
+**Every mailbox answer that carried mail was dropped in transit.** A sealed
+introduce crosses two cells — one on the way to the rendezvous, one down the
+receiver's own circuit — and only the first was ever checked. When circuits
+began choosing their own cell size on 2026-08-20, everything between about 2 KB
+and 8 KB started being accepted by the sender, routed, and discarded by the
+last relay. An empty answer is a couple of bytes and always arrived, so the
+mailbox looked healthy from every angle except delivery.
+
+Measured on the production network the same day: a contact request deposited
+for an offline computer was answered by the relay 58 times over two hours and
+not once reached it, so the blob was never acknowledged and the relay kept
+re-serving it. After the upgrade that same envelope was delivered and
+acknowledged within a minute.
+
+Nothing in the app changed. If you are running 0.13.5 the mail reaches you as
+soon as the relays are current — this release exists so the client carries the
+same fix when it is the one answering.
+
 ## [0.13.5] — 2026-08-28
 
 A friend request could not be sent. Two defects, both found by reproducing it
