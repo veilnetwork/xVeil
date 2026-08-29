@@ -1819,6 +1819,89 @@ void main() {
       svc.dispose();
     });
 
+    /// The lane the haunting actually arrived on.
+    ///
+    /// A crashed or missed call leaves its offer in the recipient's mailbox,
+    /// and the next drain hands it over intact — hours later, from the CALLER
+    /// directly, with no `onBehalfOf`. Reported on Windows 2026-08-28: "the
+    /// call-start signalling arrives without the call being initiated".
+    ///
+    /// The age gate existed, and guarded the relayed lane only — while nothing
+    /// stamped an outgoing offer at all, so the direct lane had no age to
+    /// judge even if it had asked.
+    test('a STALE DIRECT offer is history, not a ring', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+
+      final old = DateTime.now()
+          .subtract(const Duration(minutes: 30))
+          .millisecondsSinceEpoch;
+      fake.onCallSignal!(caller, offer('direct-stale', sentAtMs: old));
+      await pumpEventQueue();
+
+      expect(
+        svc.current,
+        isNull,
+        reason: 'a half-hour-old offer rang the device',
+      );
+      svc.dispose();
+    });
+
+    test('CONTROL: a fresh direct offer still rings', () async {
+      // Vacuity guard. A gate that refuses everything would satisfy the check
+      // above and take every call with it.
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+
+      fake.onCallSignal!(caller, offer('direct-fresh'));
+      await pumpEventQueue();
+
+      expect(svc.current?.status, CallStatus.ringing);
+      svc.dispose();
+    });
+
+    test('a direct offer with NO timestamp is admitted, not dropped', () async {
+      // Compatibility, stated on purpose: a peer built before offers carried a
+      // stamp cannot be judged, and refusing it would take that peer's calls
+      // away entirely. The gap is logged rather than silently closed.
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+
+      fake.onCallSignal!(
+        caller,
+        CallSignal(
+          callId: 'direct-unstamped',
+          type: CallSignalType.offer,
+          media: const CallMedia(audio: true),
+          posture: CallPosture.direct,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(svc.current?.status, CallStatus.ringing);
+      svc.dispose();
+    });
+
+    test('an outgoing offer carries the time it was sent', () async {
+      // Without this the gate above can never fire for anybody: the callee has
+      // nothing to measure. The two halves only work together.
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+
+      final before = DateTime.now().millisecondsSinceEpoch;
+      await svc.placeCall(caller, const CallMedia(audio: true));
+      await pumpEventQueue();
+
+      final offers = fake.sent
+          .where((sig) => sig.type == CallSignalType.offer)
+          .toList();
+      expect(offers, isNotEmpty, reason: 'no offer was sent at all');
+      final stamp = offers.first.sentAtMs;
+      expect(stamp, isNotNull, reason: 'the offer went out unstamped');
+      expect(stamp!, greaterThanOrEqualTo(before));
+      svc.dispose();
+    });
+
     test('accepting notifies the siblings, never the caller', () async {
       final fake = _FakeMessaging();
       final svc = CallService(fake)..start();

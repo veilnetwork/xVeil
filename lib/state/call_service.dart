@@ -257,11 +257,58 @@ class CallService {
   /// call for the hand that was reaching for "yes" on another.
   final Set<String> _relayedIncoming = <String>{};
 
-  /// A relayed offer older than this is history, not a call: durable
-  /// re-drives deliver offers to devices that were offline for hours, and
-  /// ringing them then would be a haunting. The mirrored call journal is the
-  /// record for those.
-  static const Duration _relayedOfferMaxAge = Duration(seconds: 90);
+  /// An offer older than this is history, not a call: durable re-drives
+  /// deliver offers to devices that were offline for hours, and ringing them
+  /// then would be a haunting. The mirrored call journal is the record for
+  /// those. Comfortably past [kCallRingTimeout], so an offer still worth
+  /// answering is never refused.
+  ///
+  /// It used to guard the RELAYED lane alone — the lane where one of my own
+  /// devices forwards a caller's offer — while the durable re-drive this
+  /// comment describes arrives on the DIRECT one. And the direct lane could
+  /// not have been guarded anyway: nothing stamped an outgoing offer, so there
+  /// was no age to compare. Both are fixed together, because either alone
+  /// changes nothing.
+  static const Duration _offerMaxAge = Duration(seconds: 90);
+
+  /// Clock skew between two real devices, tolerated. Measured live: a
+  /// sibling's relayed offer arrived age=-102ms and a gate written as
+  /// `age.isNegative` silenced a third device's ring entirely. A stamp
+  /// further in the future than this is still refused.
+  static const Duration _offerSkewAllowance = Duration(seconds: 30);
+
+  /// True when this offer is too old to ring for — or stamped absurdly far
+  /// ahead. An offer with NO stamp cannot be judged: it comes from a peer
+  /// built before offers were stamped, and refusing it would take that peer's
+  /// calls away entirely, so it is admitted and said out loud.
+  bool _offerIsStale(CallSignal sig, {required bool relayed}) {
+    final at = sig.sentAtMs;
+    if (at == null) {
+      if (relayed) {
+        // A relay is one of MY OWN devices; they move together, so an
+        // unstamped one here is the anomaly the original gate refused.
+        devLog(
+          () => 'xVeil[call-sig]: relayed offer ${sig.callId} ignored — '
+              'no timestamp to judge it by',
+        );
+        return true;
+      }
+      devLog(
+        () => 'xVeil[call-sig]: offer ${sig.callId} carries no timestamp — '
+            'admitted, but its age cannot be checked (peer predates stamping)',
+      );
+      return false;
+    }
+    final age = _now().difference(DateTime.fromMillisecondsSinceEpoch(at));
+    if (age > _offerMaxAge || age < -_offerSkewAllowance) {
+      devLog(
+        () => 'xVeil[call-sig]: offer ${sig.callId} ignored — stale '
+            '(age=${age.inSeconds}s, relayed=$relayed)',
+      );
+      return true;
+    }
+    return false;
+  }
 
   /// Give endpoint exchange and direct dialing a bounded setup window. The
   /// reachability probe keeps running after the timeout and can still warm a
@@ -409,6 +456,12 @@ class CallService {
         transport: proposal,
         mediaKey: localMediaKey,
         protocolVersion: _signalProtocolVersion,
+        // STAMPED. An offer that carries no time cannot be judged stale, and
+        // the durable lane re-drives it: a call nobody is making rings on a
+        // desktop hours later. Reported on Windows 2026-08-28 — "the call-start
+        // signalling arrives without the call being initiated" — after a
+        // crashed call left its offer in the mailbox.
+        sentAtMs: _now().millisecondsSinceEpoch,
       ),
     );
     // The realtime leg can deliver the offer and its answer while the durable
@@ -739,6 +792,13 @@ class CallService {
   void _onWireSignal(NodeId peer, CallSignal sig) {
     final claimed = sig.onBehalfOf;
     if (claimed == null) {
+      // The lane the durable re-drive actually uses. A crashed or missed call
+      // leaves its offer in the recipient's mailbox, and the next drain hands
+      // it over intact — hours later, to a device where nobody is calling.
+      if (sig.type == CallSignalType.offer &&
+          _offerIsStale(sig, relayed: false)) {
+        return;
+      }
       _onSignal(peer, sig);
       return;
     }
@@ -764,27 +824,7 @@ class CallService {
         return;
       }
       if (sig.type == CallSignalType.offer) {
-        final at = sig.sentAtMs;
-        final age = at == null
-            ? null
-            : _now().difference(DateTime.fromMillisecondsSinceEpoch(at));
-        // A NEGATIVE age is ordinary clock skew between two devices, not a
-        // forged future stamp: measured live, a sibling's relayed offer
-        // arrived age=-102ms and this gate — written as `age.isNegative` —
-        // silenced the third device's ring entirely. Tolerate the skew a
-        // LAN of real devices actually has; a stamp further in the future
-        // than that is still refused.
-        const skewAllowance = Duration(seconds: 30);
-        if (age == null ||
-            age > _relayedOfferMaxAge ||
-            age < -skewAllowance) {
-          // A durable re-drive delivered someone's morning to our evening.
-          devLog(
-            () => 'xVeil[call-sig]: relayed offer ${sig.callId} ignored — '
-                'stale (age=${age?.inSeconds}s)',
-          );
-          return;
-        }
+        if (_offerIsStale(sig, relayed: true)) return;
         _relayedIncoming.add(sig.callId);
       }
       _onSignal(caller, sig);
