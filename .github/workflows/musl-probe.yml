@@ -1,0 +1,92 @@
+# Can the Linux bundle run on musl (Alpine) at all?
+#
+# A question worth an experiment rather than an opinion. The bundle is built
+# against glibc — `xveil` links libc.so.6 and Flutter's engine imports
+# versioned symbols (GLIBC_2.17, GLIBC_2.18) — and musl has neither a
+# libc.so.6 nor symbol versioning. Alpine's `gcompat` exists to bridge exactly
+# that gap, and how far it actually gets is the thing to measure.
+#
+# This probe answers three questions in order, each one useful on its own:
+#   1. does the dynamic loader resolve the bundle's libraries under gcompat?
+#   2. if not, WHICH symbols are missing — a short list is a patchable gap, a
+#      long one is a different libc;
+#   3. what does the binary do when it is actually started?
+#
+# Dispatch-only, and it publishes nothing. It exists to produce evidence.
+name: musl probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'xVeil release whose linux-x64 bundle to probe'
+        required: false
+        type: string
+        default: 'v0.13.9'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: does the glibc bundle load on musl
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    container:
+      image: alpine:3.20
+    steps:
+      - name: What this musl looks like
+        run: |
+          set -eu
+          echo "alpine: $(cat /etc/alpine-release)"
+          echo "arch:   $(uname -m)"
+          apk add --no-cache curl tar file binutils libc6-compat gcompat \
+            gtk+3.0 glib mesa-gl >/dev/null
+          echo "gcompat: $(apk info -e gcompat >/dev/null 2>&1 && echo installed || echo MISSING)"
+          ls -la /lib/ld-musl-x86_64.so.1 || true
+          ls -la /lib/libc.so.6 2>/dev/null || echo "no libc.so.6 (expected on musl; gcompat provides a shim)"
+
+      - name: Fetch the bundle
+        env:
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -eu
+          curl -fL --retry 3 -o bundle.tar.gz \
+            "https://github.com/veilnetwork/xVeil/releases/download/$TAG/xveil-linux-x64.tar.gz"
+          tar -xzf bundle.tar.gz
+          ls -la bundle/xveil bundle/lib | head -20
+
+      # The loader's own verdict. `ldd` on musl is the musl loader, and it
+      # reports what it cannot resolve rather than guessing.
+      - name: What the loader says
+        continue-on-error: true
+        run: |
+          set -eu
+          echo "--- file ---"
+          file bundle/xveil
+          echo "--- interpreter ---"
+          readelf -l bundle/xveil | grep -A1 INTERP || true
+          echo "--- ldd xveil ---"
+          ldd bundle/xveil || true
+          echo "--- ldd the flutter engine ---"
+          ldd bundle/lib/libflutter_linux_gtk.so || true
+
+      # If it does not load, the interesting number is HOW MANY versioned glibc
+      # symbols stand in the way — that is the difference between a shim gap and
+      # a different libc.
+      - name: Which glibc symbols are demanded
+        continue-on-error: true
+        run: |
+          set -eu
+          for so in bundle/xveil bundle/lib/*.so; do
+            n="$(readelf -V "$so" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -u | tr '\n' ' ' || true)"
+            [ -n "$n" ] && echo "$(basename "$so"): $n"
+          done
+
+      - name: Try to start it
+        continue-on-error: true
+        run: |
+          set -eu
+          echo "--- xveil --version (expect a loader error if musl cannot carry it) ---"
+          ./bundle/xveil --version 2>&1 | head -20 || true
+          echo "exit: $?"
