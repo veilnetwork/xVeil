@@ -684,7 +684,7 @@ jobs:
           # initialising joins it implicitly, and the ADM asks after we do. `.4`
           # builds the ADM on a thread with no apartment yet, so it establishes
           # its own STA with nothing to collide with.
-          ENGINE_RELEASE: 'engine-2026.08.28.4'
+          ENGINE_RELEASE: 'engine-2026.08.29.3'
           # DEAD once ENGINE_RELEASE above is set — the branch below is never
           # taken. Kept as the record of where this engine used to come from:
           # webrtc-windows run 30665287484 (2026-07-31), whose artifact expires
