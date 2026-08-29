@@ -83,10 +83,50 @@ jobs:
             [ -n "$n" ] && echo "$(basename "$so"): $n"
           done
 
+      # The gap the first pass measured, closed on purpose.
+      #
+      # It is two things, and neither is "musl cannot run this":
+      #   * four Alpine PACKAGES the tray plugin wants (appindicator and its
+      #     dbusmenu friends), which Alpine has;
+      #   * exactly TWO libc symbols gcompat does not carry — strtoll_l and
+      #     strtoull_l, the locale-aware parsers. musl has the plain ones, and
+      #     the locale argument is meaningless in the C locale the engine runs
+      #     in, so a ten-line shim answers them honestly.
+      - name: Close the gap and ask the loader again
+        continue-on-error: true
+        run: |
+          set -eu
+          apk add --no-cache build-base libayatana-appindicator libdbusmenu \
+            libdbusmenu-gtk3 >/dev/null 2>&1 || \
+            apk add --no-cache build-base libayatana-appindicator >/dev/null 2>&1 || \
+            echo "note: some appindicator packages are not in this repo set"
+          # Written line by line, not with a heredoc: a heredoc terminator
+          # inside a YAML block scalar is indented, and `<<-` strips tabs only.
+          {
+            echo '#include <stdlib.h>'
+            echo 'long long strtoll_l(const char *s, char **e, int b, void *l)'
+            echo '{ (void)l; return strtoll(s, e, b); }'
+            echo 'unsigned long long strtoull_l(const char *s, char **e, int b, void *l)'
+            echo '{ (void)l; return strtoull(s, e, b); }'
+          } > shim.c
+          cc -shared -fPIC -o libmuslcompat_l.so shim.c
+          echo "--- ldd with the shim preloaded ---"
+          LD_PRELOAD="$PWD/libmuslcompat_l.so" ldd bundle/lib/libflutter_linux_gtk.so 2>&1 | head -20
+          echo "--- and the whole bundle ---"
+          missing=0
+          for so in bundle/xveil bundle/lib/*.so; do
+            out="$(LD_PRELOAD="$PWD/libmuslcompat_l.so" ldd "$so" 2>&1 | grep -E 'not found|symbol not found|Error' || true)"
+            if [ -n "$out" ]; then
+              missing=$((missing+1))
+              echo "STILL UNRESOLVED in $(basename "$so"):"
+              echo "$out" | head -4
+            fi
+          done
+          echo "objects still unresolved: $missing"
+
       - name: Try to start it
         continue-on-error: true
         run: |
           set -eu
-          echo "--- xveil --version (expect a loader error if musl cannot carry it) ---"
-          ./bundle/xveil --version 2>&1 | head -20 || true
-          echo "exit: $?"
+          echo "--- started with the shim; no display, so GTK is the expected wall ---"
+          LD_PRELOAD="$PWD/libmuslcompat_l.so" ./bundle/xveil 2>&1 | head -15 || true
