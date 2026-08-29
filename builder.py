@@ -705,12 +705,14 @@ def _engine_policy_env(release: bool) -> dict[str, str]:
 _LINUX_ENGINE_SO = "libveil_media.so"
 
 
-def _linux_build_arch() -> str:
-    """The directory `flutter build linux` writes into, by host architecture.
+def _flutter_host_arch() -> str:
+    """The directory `flutter build` writes into, by host architecture.
 
     Flutter names it after the machine it built on — `x64` or `arm64` — and
     refuses to cross-build between them, so the host's own architecture is the
-    answer rather than a guess.
+    answer rather than a guess. True of linux and windows alike: the windows
+    path spelled `x64` outright, which was correct only because nothing had
+    ever built it anywhere else.
     """
     machine = platform.machine().lower()
     if machine in ("aarch64", "arm64"):
@@ -800,7 +802,7 @@ def _linux(release: bool) -> list[Step]:
                 # the whole build had succeeded.
                 call=lambda: _check_linux_engine(
                     os.path.join(
-                        "build", "linux", _linux_build_arch(), "release", "bundle"
+                        "build", "linux", _flutter_host_arch(), "release", "bundle"
                     )
                 ),
             )
@@ -1092,7 +1094,10 @@ def _windows(release: bool) -> list[Step]:
     hv_stage = os.path.join(
         HV, "experimental", "flutter_plugin", "hidden_volume", "windows", "lib"
     )
-    runner = os.path.join("build", "windows", "x64", "runner", "Release" if release else "Debug")
+    runner = os.path.join(
+        "build", "windows", _flutter_host_arch(), "runner",
+        "Release" if release else "Debug",
+    )
     cargo_hv = ["cargo", "build", "--manifest-path", os.path.join(HV, "Cargo.toml"),
                 "-p", "hidden-volume-ffi"]
     # Which network this binary belongs to — the same rule every other build
