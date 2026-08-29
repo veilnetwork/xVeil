@@ -1,0 +1,88 @@
+# Can xVeil be built for Windows on ARM at all?
+#
+# The last release said no, and gave a reason: Flutter publishes no arm64
+# desktop SDK archive, and `flutter build windows` takes no --target-platform,
+# so there is no way to ask an x64 host for an arm64 app. Both halves are true.
+#
+# The Linux arm64 leg started from the same reason and shipped anyway, because
+# the missing piece was not the SDK — it was the HOST. Flutter installs from
+# git, builds for the architecture it runs on, and GitHub now offers arm64
+# Windows runners. That is exactly the shape of the Linux answer, so it is
+# worth an experiment rather than a second opinion.
+#
+# This probe asks three things in order:
+#   1. does a `windows-11-arm` runner start for this repository at all?
+#   2. does a git-installed Flutter SDK precache and doctor cleanly on it?
+#   3. does `flutter build windows --release` produce an ARM64 binary?
+#
+# Dispatch-only, publishes nothing. It exists to produce evidence.
+name: windows arm probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: does an arm64 windows host exist and build
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    steps:
+      - name: What this host is
+        shell: pwsh
+        run: |
+          Write-Output "arch:      $env:PROCESSOR_ARCHITECTURE"
+          Write-Output "os:        $((Get-CimInstance Win32_OperatingSystem).Caption)"
+          Write-Output "cores:     $env:NUMBER_OF_PROCESSORS"
+          Write-Output "git:       $(git --version)"
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # No setup-flutter action here: it resolves an SDK ARCHIVE, and the
+      # archives are x64-only. The SDK's own git checkout builds for the host.
+      - name: Flutter from git
+        shell: pwsh
+        run: |
+          git clone --depth 1 -b stable https://github.com/flutter/flutter.git "$env:RUNNER_TEMP\flutter"
+          "$env:RUNNER_TEMP\flutter\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: What flutter says about this host
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          flutter --version
+          flutter precache --windows
+          flutter doctor -v
+
+      - name: Try to build
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          flutter pub get
+          flutter build windows --release
+          Get-ChildItem -Recurse build\windows -Filter xveil.exe |
+            ForEach-Object { Write-Output ("BUILT " + $_.FullName + " " + $_.Length) }
+
+      # The verdict has to come from the artefact, not from the exit code: a
+      # build that quietly produced an x64 binary on an arm64 host would look
+      # like success and answer nothing.
+      - name: Which machine did it actually produce
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $exe = Get-ChildItem -Recurse build\windows -Filter xveil.exe -EA SilentlyContinue |
+                 Select-Object -First 1
+          if (-not $exe) { Write-Output "VERDICT no binary"; exit 0 }
+          $fs = [System.IO.File]::OpenRead($exe.FullName)
+          $br = New-Object System.IO.BinaryReader($fs)
+          $fs.Position = 0x3C
+          $peOff = $br.ReadInt32()
+          $fs.Position = $peOff + 4
+          $machine = $br.ReadUInt16()
+          $br.Close()
+          $name = switch ($machine) { 0x8664 {"x64"} 0xAA64 {"ARM64"} 0x1c0 {"ARM"} default {"0x{0:X}" -f $machine} }
+          Write-Output ("VERDICT machine=" + $name + " (" + $exe.FullName + ")")
