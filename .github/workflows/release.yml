@@ -500,9 +500,26 @@ jobs:
           exit 1
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        if: ${{ !matrix.flutter_from_git }}
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+
+      # The arm64 route. Flutter's release ARCHIVES are x64-only, so the action
+      # above has nothing to download — but the SDK is a git repository and the
+      # engine artifacts for this host are fetched by `precache`. Same pinned
+      # version, by tag, so both routes install the same Flutter.
+      - name: Flutter from git (no arm64 archive exists)
+        if: ${{ matrix.flutter_from_git }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
+          flutter --version
+          flutter precache --linux
+          flutter config --enable-linux-desktop
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
