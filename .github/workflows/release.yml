@@ -440,16 +440,20 @@ jobs:
           - arch: x64
             runner: ubuntu-latest
             engine_asset: libveil_media-linux-x64.so
-          # arm64 is READY on our side and blocked upstream. The engine is
-          # published (libveil_media-linux-arm64.so, engine-2026.08.29.4) and
-          # the runner is free for this repository, but Flutter ships no arm64
-          # SDK: checked 2026-08-29 against
-          # storage.googleapis.com/flutter_infra_release/releases/releases_linux.json,
-          # where every release on every channel is dart_sdk_arch x64 and the
-          # pinned 3.44.0 has no arm64 entry at all. flutter-action says so in
-          # as many words — "Unable to determine Flutter version for channel:
-          # stable version: 3.44.0 architecture: arm64". Adding the leg back is
-          # three lines the day that index carries arm64.
+          # arm64. Flutter publishes no arm64 SDK ARCHIVE — every entry in
+          # releases_linux.json on every channel is dart_sdk_arch x64, which is
+          # why flutter-action says "Unable to determine Flutter version …
+          # architecture: arm64". The TOOL supports the target: `linux_arm64` is
+          # a TargetPlatform and `flutter build linux` builds for its host. What
+          # it refuses is CROSS-building — "Cross-build from Linux x64 host to
+          # Linux arm64 target is not currently supported" — so this has to run
+          # on an arm64 machine, which is what this runner is.
+          #
+          # So the SDK is installed from git rather than from an archive.
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            engine_asset: libveil_media-linux-arm64.so
+            flutter_from_git: true
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
