@@ -273,6 +273,41 @@ with tempfile.TemporaryDirectory() as _tmp:
         builder.ROOT, builder._media_symbols_problem = _held_root, _held_sym
 
 
+# The windows bundle path follows the HOST, not a spelled-out architecture.
+#
+# It used to read `build/windows/x64/...` outright, which was right only for as
+# long as nothing built windows anywhere else. Flutter names that directory
+# after the machine it built on and refuses to cross-build, so on an arm64
+# runner the build would succeed and every check afterwards would look for a
+# bundle in a directory that does not exist — reported as "no engine in the
+# bundle" about a bundle that was never there.
+#
+# Asserted in both directions: a spelled-out arch passes the arm64 half only by
+# accident of the host, so the x64 half has to move too.
+import platform  # noqa: E402
+
+_held_machine = platform.machine
+try:
+    for _machine, _want, _other in (
+        ("aarch64", "arm64", "x64"),
+        ("x86_64", "x64", "arm64"),
+    ):
+        platform.machine = lambda m=_machine: m
+        _paths = " ".join(
+            str(step.title) + " " + " ".join(str(a) for a in (step.argv or []))
+            for step in builder._windows(True)
+        )
+        _runner = os.path.join("build", "windows", _want, "runner")
+        _wrong = os.path.join("build", "windows", _other, "runner")
+        check(
+            f"the windows bundle path names {_want} on a {_machine} host",
+            _runner in _paths and _wrong not in _paths,
+            True,
+        )
+finally:
+    platform.machine = _held_machine
+
+
 # The verdict, LAST. It used to sit above the checks appended after it, so a
 # failure there printed "FAIL" and the script still exited 0 — a gate that
 # reports and does not gate. Anything added below this line is outside the

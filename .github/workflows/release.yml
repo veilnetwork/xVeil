@@ -665,12 +665,20 @@ jobs:
           - arch: x64
             runner: windows-latest
             engine_asset: veil_media-win-x64.dll
-          # Same wall, same evidence: releases_windows.json carries x64 only,
-          # so there is no SDK to build a native arm64 Windows app with, and
-          # `flutter build windows` has no arm64 target either. The engine
-          # (veil_media-win-arm64.dll) is published and waiting. Meanwhile
-          # Windows on ARM runs the x64 bundle under emulation, which is what
-          # an arm64 machine gets today — not nothing, just not native.
+            msvc_arch: amd64
+          # arm64. This was called impossible in 0.13.9, with a reason that
+          # sounded final: releases_windows.json is x64-only, and
+          # `flutter build windows` takes no --target-platform. Both are true
+          # and neither was the obstacle. A probe on an arm64 Windows runner
+          # (run 33274309802) installed the SDK from git, ran the build, and
+          # stopped at hidden_volume's CMake asking for a DLL nobody had built
+          # yet — the same native staging the x64 leg does for itself. So the
+          # wall was never Flutter; it was a host, exactly as on Linux.
+          - arch: arm64
+            runner: windows-11-arm
+            engine_asset: veil_media-win-arm64.dll
+            msvc_arch: arm64
+            flutter_from_git: true
     runs-on: ${{ matrix.runner }}
     # Unsigned, and it will stay that way until someone buys an Authenticode
     # certificate: SmartScreen warns on first run ("Windows protected your PC"
@@ -682,13 +690,35 @@ jobs:
           submodules: recursive
 
       # Puts cl.exe on PATH. The whisper wrapper is linked with MSVC and its
-      # .def export list only works from a Developer environment.
+      # .def export list only works from a Developer environment. The arch is
+      # named per leg: without it this sets up the host default, and an arm64
+      # runner that quietly builds x64 binaries is worse than one that fails.
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        if: ${{ !matrix.flutter_from_git }}
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+
+      # The arm64 route, same as the linux arm64 leg: the release ARCHIVES are
+      # x64-only, so the action above has nothing to download, while the SDK
+      # itself is a git repository and `precache` fetches this host's engine.
+      # Same pinned version, by tag, so both routes install the same Flutter.
+      - name: Flutter from git (no arm64 archive exists)
+        if: ${{ matrix.flutter_from_git }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/flutter/bin:$PATH"
+          flutter --version
+          flutter precache --windows
+          flutter config --enable-windows-desktop
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
@@ -871,7 +901,7 @@ jobs:
           # version and the VC14x folder name move with the toolchain. onecore,
           # debug and spectre variants are not what a normal app links against.
           $found = Get-ChildItem "$vs\VC\Redist\MSVC" -Recurse -File -Include $want -ErrorAction SilentlyContinue |
-                   Where-Object { $_.FullName -match '\\x64\\' -and
+                   Where-Object { $_.FullName -match '\\${{ matrix.arch }}\\' -and
                                   $_.FullName -notmatch 'onecore|debug|spectre' } |
                    Sort-Object FullName -Descending
           foreach ($n in $want) {
