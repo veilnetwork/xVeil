@@ -440,9 +440,16 @@ jobs:
           - arch: x64
             runner: ubuntu-latest
             engine_asset: libveil_media-linux-x64.so
-          - arch: arm64
-            runner: ubuntu-24.04-arm
-            engine_asset: libveil_media-linux-arm64.so
+          # arm64 is READY on our side and blocked upstream. The engine is
+          # published (libveil_media-linux-arm64.so, engine-2026.08.29.4) and
+          # the runner is free for this repository, but Flutter ships no arm64
+          # SDK: checked 2026-08-29 against
+          # storage.googleapis.com/flutter_infra_release/releases/releases_linux.json,
+          # where every release on every channel is dart_sdk_arch x64 and the
+          # pinned 3.44.0 has no arm64 entry at all. flutter-action says so in
+          # as many words — "Unable to determine Flutter version for channel:
+          # stable version: 3.44.0 architecture: arm64". Adding the leg back is
+          # three lines the day that index carries arm64.
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -629,9 +636,12 @@ jobs:
           - arch: x64
             runner: windows-latest
             engine_asset: veil_media-win-x64.dll
-          - arch: arm64
-            runner: windows-11-arm
-            engine_asset: veil_media-win-arm64.dll
+          # Same wall, same evidence: releases_windows.json carries x64 only,
+          # so there is no SDK to build a native arm64 Windows app with, and
+          # `flutter build windows` has no arm64 target either. The engine
+          # (veil_media-win-arm64.dll) is published and waiting. Meanwhile
+          # Windows on ARM runs the x64 bundle under emulation, which is what
+          # an arm64 machine gets today — not nothing, just not native.
     runs-on: ${{ matrix.runner }}
     # Unsigned, and it will stay that way until someone buys an Authenticode
     # certificate: SmartScreen warns on first run ("Windows protected your PC"
