@@ -907,13 +907,37 @@ jobs:
           # (…\VC\Redist\MSVC\14.4x.xxxxx\x64\Microsoft.VC143.CRT), and both the
           # version and the VC14x folder name move with the toolchain. onecore,
           # debug and spectre variants are not what a normal app links against.
+          # Filtered by the file's OWN machine, not by the directory it sits
+          # in. The arm64 redist ships an x64 vcruntime140_1.dll -- the
+          # exception-handling helper is x64-only -- so a path filter alone put
+          # an x64 DLL into an arm64 bundle, where nothing imports it and
+          # nothing noticed.
+          function Get-PeMachine([string]$path) {
+            try {
+              $fs = [System.IO.File]::OpenRead($path)
+              try {
+                $br = New-Object System.IO.BinaryReader($fs)
+                $fs.Position = 0x3C
+                $fs.Position = $br.ReadInt32() + 4
+                switch ($br.ReadUInt16()) { 0x8664 {'x64'} 0xAA64 {'arm64'} default {'other'} }
+              } finally { $fs.Dispose() }
+            } catch { 'unreadable' }
+          }
           $found = Get-ChildItem "$vs\VC\Redist\MSVC" -Recurse -File -Include $want -ErrorAction SilentlyContinue |
                    Where-Object { $_.FullName -match '\\${{ matrix.arch }}\\' -and
-                                  $_.FullName -notmatch 'onecore|debug|spectre' } |
+                                  $_.FullName -notmatch 'onecore|debug|spectre' -and
+                                  (Get-PeMachine $_.FullName) -eq '${{ matrix.arch }}' } |
                    Sort-Object FullName -Descending
           foreach ($n in $want) {
             $f = $found | Where-Object { $_.Name -ieq $n } | Select-Object -First 1
-            if (-not $f) { throw "no $n under $vs\VC\Redist\MSVC — the bundle would need the redistributable installed on the user's machine" }
+            # Not fatal here. Whether this bundle actually needs a given
+            # runtime DLL is a question about the bundle, and the step below
+            # asks it of the artefact: it fails if something references a DLL
+            # that is missing, AND if a DLL is shipped that nothing references.
+            if (-not $f) {
+              Write-Output "  no ${{ matrix.arch }} $n in the redist — not shipped"
+              continue
+            }
             Copy-Item $f.FullName (Join-Path $root $f.Name) -Force
             Write-Host ("  copied {0}  {1:N0} bytes  from {2}" -f $f.Name, $f.Length, $f.DirectoryName)
           }
@@ -933,12 +957,14 @@ jobs:
           # runner's System32. The runner has the redistributable installed —
           # every check that consults the machine passes here and reproduces
           # exactly the bug it was meant to catch.
-          for dll in MSVCP140.dll VCRUNTIME140.dll VCRUNTIME140_1.dll; do
-            [ -s "$root/$dll" ] || {
-              echo "::error::$dll is not in the bundle. Every binary here imports it, so on a Windows without the Visual C++ Redistributable the app dies at startup naming some other DLL entirely."
-              exit 1; }
-            echo "  ok $root/$dll"
-          done
+          #
+          # Two questions, both answered from the artefact: is every binary
+          # here the machine this bundle claims, and is each runtime DLL
+          # present exactly when something references it. The list used to be
+          # demanded unconditionally, with the note "every binary here imports
+          # it" — true on x64, false on arm64, where VCRUNTIME140_1.dll is
+          # imported by nothing and the redist ships an x64 copy of it anyway.
+          python scripts/check-windows-bundle.py "$root" "${{ matrix.arch }}"
 
       - name: Archive
         shell: pwsh
