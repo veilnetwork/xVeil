@@ -9248,6 +9248,12 @@ abstract class AppL10n {
   /// **'Cameras'**
   String get callCameras;
 
+  /// No description provided for @callSpeakers.
+  ///
+  /// In en, this message translates to:
+  /// **'Output devices'**
+  String get callSpeakers;
+
   /// No description provided for @callMicrophones.
   ///
   /// In en, this message translates to:
@@ -9265,6 +9271,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Windows'**
   String get callWindows;
+
+  /// No description provided for @callNoAudioDevices.
+  ///
+  /// In en, this message translates to:
+  /// **'No audio devices available'**
+  String get callNoAudioDevices;
 
   /// No description provided for @callNoCaptureDevices.
   ///
