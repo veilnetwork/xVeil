@@ -25,6 +25,9 @@ class CallDevicePickerPanel extends StatelessWidget {
     final microphones = devices
         .where((device) => device.kind == CallMediaDeviceKind.microphone)
         .toList(growable: false);
+    final speakers = devices
+        .where((device) => device.kind == CallMediaDeviceKind.speaker)
+        .toList(growable: false);
     final screens = devices
         .where((device) => device.kind == CallMediaDeviceKind.screen)
         .toList(growable: false);
@@ -110,6 +113,14 @@ class CallDevicePickerPanel extends StatelessWidget {
                                   ),
                                 ),
                               ],
+                              if (speakers.isNotEmpty) ...[
+                                _SectionLabel(l.callSpeakers),
+                                for (final device in speakers)
+                                  _DeviceTile(
+                                    device: device,
+                                    onTap: () => onSelect(device),
+                                  ),
+                              ],
                               if (microphones.isNotEmpty) ...[
                                 _SectionLabel(l.callMicrophones),
                                 for (final device in microphones)
@@ -118,6 +129,16 @@ class CallDevicePickerPanel extends StatelessWidget {
                                     onTap: () => onSelect(device),
                                   ),
                               ],
+                              if (speakers.isEmpty &&
+                                  microphones.isEmpty &&
+                                  !callAudioRouter.supportsPhoneRouting)
+                                Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Text(
+                                    l.callNoAudioDevices,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
                             ],
                           ),
                           ListView(
