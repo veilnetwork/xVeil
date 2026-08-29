@@ -10,6 +10,38 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.9] — 2026-08-29
+
+A call can finally be told where to come out of.
+
+Built on veil [v0.8.4](https://github.com/veilnetwork/veil/releases/tag/v0.8.4)
+and hidden-volume
+[v2.0.5](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.5), with
+the Windows engine at `engine-2026.08.29.3` and the Linux engine at
+`engine-2026.08.29.4`.
+
+**An audio output picker.** The call sheet offered a microphone and a camera
+and no way to choose where the call is heard. That was not only a missing menu:
+nothing in the app ever selected an output, so on a desktop where nobody had
+chosen one by hand, playout started against whatever the engine defaulted to —
+and on Windows that is no device at all. The engine has been able to list and
+select outputs all along; every layer between was missing. The choice is
+remembered by label and restored next time, exactly as the microphone is.
+
+On Android the output choice is earpiece/speaker and stays where it was, in the
+call sheet's own routing.
+
+**Known:** playout on Windows still needs proving. This build carries the
+picker and the engine's report of what each playout call answered, which is how
+the remaining cause will be named rather than guessed at.
+
+**Not in this release, and not for want of trying:** native arm64 bundles for
+Windows and Linux. Our half is ready — both engines are built and published,
+and the workflow takes an architecture in three lines — but Flutter ships no
+arm64 desktop SDK. Every release on every channel in Flutter's own index is
+x64, for both platforms. Windows on ARM runs the x64 bundle under emulation
+meanwhile.
+
 ## [0.13.8] — 2026-08-29
 
 Calls on Windows: the app no longer dies when one is answered, a call nobody
