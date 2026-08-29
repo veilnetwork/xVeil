@@ -154,6 +154,21 @@ jobs:
         with:
           submodules: recursive
 
+      # Which veil this engine is built from — see the twin note in
+      # webrtc-windows.yml. The wrapper is compiled from the SUBMODULE in this
+      # checkout, so a fix pushed to veil without advancing the pointer is
+      # silently left out of the binary.
+      - name: Which veil this engine is built from
+        run: |
+          set -euo pipefail
+          here="$(git -C third_party/veil rev-parse HEAD)"
+          tip="$(git ls-remote https://github.com/veilnetwork/veil.git refs/heads/main | cut -f1)"
+          echo "veil submodule: $here"
+          echo "veil main:      $tip"
+          if [ "$here" != "$tip" ]; then
+            echo "::warning::the veil submodule is NOT at main ($here vs $tip)."
+          fi
+
       # A target nobody asked for must not fail the run. The arm64 SDK is
       # published separately, and a run aimed at x64 should not depend on it
       # existing yet.
@@ -370,6 +385,21 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: recursive
+
+      # Which veil this engine is built from — see the twin note in
+      # webrtc-windows.yml. The wrapper is compiled from the SUBMODULE in this
+      # checkout, so a fix pushed to veil without advancing the pointer is
+      # silently left out of the binary.
+      - name: Which veil this engine is built from
+        run: |
+          set -euo pipefail
+          here="$(git -C third_party/veil rev-parse HEAD)"
+          tip="$(git ls-remote https://github.com/veilnetwork/veil.git refs/heads/main | cut -f1)"
+          echo "veil submodule: $here"
+          echo "veil main:      $tip"
+          if [ "$here" != "$tip" ]; then
+            echo "::warning::the veil submodule is NOT at main ($here vs $tip)."
+          fi
 
       # Same rule as the linux matrix: a target nobody asked for must not fail
       # the run. `android-arm64` is in the default target list, so a dispatch

@@ -131,6 +131,30 @@ jobs:
         with:
           submodules: recursive
 
+      # WHICH veil this engine is built from, said out loud — and whether that
+      # is the latest one.
+      #
+      # This workflow compiles the wrapper from the SUBMODULE in this checkout,
+      # not from veil's main branch. Push a fix to veil, dispatch this without
+      # advancing the pointer, and it silently rebuilds the OLD code: measured
+      # 2026-08-29, two engine builds in a row went out from a commit that
+      # predated the playout fix, and the machine under test kept showing
+      # `playing=0` with nothing in the log to explain it, because the code
+      # that explains it was not in the binary.
+      #
+      # A warning rather than a failure: building an older pin on purpose is
+      # legitimate. Being unable to tell is not.
+      - name: Which veil this engine is built from
+        run: |
+          set -euo pipefail
+          here="$(git -C third_party/veil rev-parse HEAD)"
+          echo "veil submodule: $here"
+          tip="$(git ls-remote https://github.com/veilnetwork/veil.git refs/heads/main | cut -f1)"
+          echo "veil main:      $tip"
+          if [ "$here" != "$tip" ]; then
+            echo "::warning::the veil submodule is NOT at main ($here vs $tip). This engine will carry the submodule's code, not main's — advance the pointer first if that is not what you meant."
+          fi
+
       # `Reclaim disk` (5m 03s of deleting preinstalled SDKs), the pinned
       # depot_tools with its hand-run `bootstrap\win_tools.bat`, `fetch` +
       # `gclient sync` and `ninja webrtc` all stood here. They are gone with the
