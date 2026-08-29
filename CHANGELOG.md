@@ -10,6 +10,69 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.10] — 2026-08-29
+
+Sound on Windows, an output menu that is actually drawn, and two bundles
+that did not exist: Alpine and Linux on ARM.
+
+Built on veil [v0.8.4](https://github.com/veilnetwork/veil/releases/tag/v0.8.4)
+and hidden-volume
+[v2.0.5](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.5), with
+the Windows and Linux engines both at `engine-2026.08.29.9` — the first release
+where they are built from one veil commit.
+
+**Windows calls are heard.** The cause was not a broken device or a dead
+stream. Windows keeps TWO defaults for audio output, and they are routinely
+different devices:
+
+| role | device on the machine that reported silence |
+| --- | --- |
+| `eConsole` / `eMultimedia` | headphones (RSQ-319) |
+| `eCommunications` | speakers (2- ME6S) |
+
+The engine asked for the communications default. On paper that is the right
+answer — it is the role Windows names for calls — and in practice it is the
+wrong one: almost nobody sets that role deliberately, so Windows fills it with
+whatever it likes, and the call comes out of a device nobody is wearing.
+
+Nothing looked broken from inside, which is why this took as long as it did:
+the module reported playing, packets arrived and decoded with zero loss and
+zero concealment, the levels were healthy. Every counter green, and silence,
+because the sound was going somewhere else. The plain default is now what a
+call plays into, with the communications default kept as a fallback.
+
+**The output picker is drawn.** 0.13.9 announced this and shipped a menu that
+did not contain it. The plumbing was all there — the engine listed outputs, the
+overlay routed a chosen output to the engine, the row even had an icon — and
+the sheet filtered cameras, microphones, screens and windows out of the list it
+was handed and dropped everything else on the floor. So the audio tab offered
+microphones and no way to choose an output at all, on exactly the machines that
+have four of them plugged in. The section is now drawn, above the microphones,
+and a test written over every device kind rather than a list of kinds fails
+until each one is reachable.
+
+**Two Windows audio fixes that were proven but never released.** Between the
+engine 0.13.9 pinned and this one: the device list came back empty because it
+was asked from a thread other than the one that created the audio module, and
+the microphone was never selected at all. Both were measured on a live Windows
+machine with a hand-installed engine. This is the release that carries them.
+
+**xVeil runs on Alpine.** A `musl` bundle, `xveil-linux-x64-musl.tar.gz`. The
+glibc bundle cannot run there — musl has no `libc.so.6` and no symbol
+versioning — and the gap turned out to be small enough to close honestly rather
+than argue about: two locale-aware parsers and a handful of `_FORTIFY_SOURCE`
+entry points musl does not implement, answered by a small compatibility library
+shipped inside the bundle. The bundle starts itself in CI on Alpine before it
+is allowed out. A tray icon needs `libayatana-appindicator` and
+`libdbusmenu-gtk3`; without them the app runs, just without an icon.
+
+**Linux on ARM64.** `xveil-linux-arm64.tar.gz`, a native bundle. The previous
+release said this was not possible because Flutter publishes no arm64 desktop
+SDK archive. That was too wide a claim: there is no archive, but the SDK
+installs from git and builds arm64 on an arm64 host, which is what this leg
+does. Windows on ARM is still waiting — there `flutter build windows` has no
+target-platform switch to offer, and the engine DLL sits published and unused.
+
 ## [0.13.9] — 2026-08-29
 
 A call can finally be told where to come out of.

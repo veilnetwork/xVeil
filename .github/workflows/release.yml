@@ -575,7 +575,12 @@ jobs:
           # 08.13 release has x64 alone — it predates the arm64 bundle, and a
           # matrix that asks it for arm64 gets a 404, which is the pin saying
           # so.
-          ENGINE_RELEASE: 'engine-2026.08.29.4'
+          # MOVED again to `.9`, built from the same veil commit as the
+          # Windows engine. Nothing linux-specific changed -- the output fix is
+          # behind `#if defined(_WIN32)` -- but the diagnostics that named the
+          # cause are cross-platform, and an engine set built from one veil
+          # pointer is one thing to reason about instead of three.
+          ENGINE_RELEASE: 'engine-2026.08.29.9'
           # Kept as the fallback route and as the record of where this came
           # from. EXPIRES 2026-11-10; the release above does not.
           ENGINE_RUN: '31609030118'
@@ -746,7 +751,16 @@ jobs:
           # initialising joins it implicitly, and the ADM asks after we do. `.4`
           # builds the ADM on a thread with no apartment yet, so it establishes
           # its own STA with nothing to collide with.
-          ENGINE_RELEASE: 'engine-2026.08.29.3'
+          # MOVED 2026-08-29 to `.9`. Everything Windows audio learned today
+          # sits between `.3` and `.9` and NONE of it shipped: the device list
+          # that came back empty because it was asked from the wrong thread,
+          # the microphone that was never selected, and finally the output --
+          # `.3` and every build before it asked Windows for the COMMUNICATIONS
+          # default, which on the machine that reported silence is a different
+          # device from the one the person listens on. Each of those was proven
+          # on that machine with a hand-installed DLL; this pin is what puts
+          # them in a release.
+          ENGINE_RELEASE: 'engine-2026.08.29.9'
           # DEAD once ENGINE_RELEASE above is set — the branch below is never
           # taken. Kept as the record of where this engine used to come from:
           # webrtc-windows run 30665287484 (2026-07-31), whose artifact expires
