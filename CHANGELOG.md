@@ -10,6 +10,64 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.11] — 2026-08-30
+
+Windows on ARM, natively.
+
+Built on veil [v0.8.4](https://github.com/veilnetwork/veil/releases/tag/v0.8.4)
+and hidden-volume
+[v2.0.5](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.5), with
+the Windows and Linux engines at `engine-2026.08.29.9`.
+
+**`xveil-windows-arm64.zip`.** An ARM64 Windows machine has until now run the
+x64 bundle under emulation. This one is native: seventeen binaries, every one
+of them ARM64, checked by reading the machine field of each rather than by
+trusting the file name.
+
+**The reason 0.13.10 gave for this being impossible was wrong.** It said
+Flutter publishes no arm64 desktop SDK archive and `flutter build windows`
+takes no `--target-platform`. Both are true; neither was the obstacle. A probe
+on an arm64 Windows runner installed the SDK from git and built until it hit
+something else entirely — the same native staging the x64 leg does for itself.
+The wall was a host, exactly as it had been on Linux. Three things actually
+stood in the way, and each is worth naming because none was where the reason
+pointed:
+
+* **The output directory.** `builder.py` spelled `build/windows/x64` outright.
+  Flutter names that directory after the machine it built on, so on arm64 every
+  check after the build looked in a directory that does not exist and reported
+  "no engine in the bundle" about a bundle that was never there.
+
+* **One dependency line.** Six crates in veil take `pqcrypto-falcon` with
+  `default-features = false`; one took the defaults, and cargo unifies features
+  across the graph, so that single line turned `avx2` and `neon` on for the
+  whole workspace. pqclean's aarch64 sources are written for GCC/Clang and MSVC
+  rejects them outright. Narrowed per target rather than switched off
+  everywhere: nothing changes for x86_64 or for arm64 Linux.
+
+* **BoringSSL has no assembly route here.** Its CMake sends Windows x64 down
+  the NASM branch and Windows ARM64 down a generic one, where cl.exe is handed
+  GNU-syntax `.S` files and assembles none of them. The crate that knows the
+  answer — `OPENSSL_NO_ASM` — returns before reaching it on any *native* build,
+  which on x64 costs nothing and here was the whole problem. Answered from
+  outside with a target-scoped toolchain file. The cost, stated rather than
+  hidden: AES and GCM use BoringSSL's portable C on this bundle alone. Slower
+  than the x64 bundle's assembly, faster than the whole x64 bundle emulated.
+
+**A bundle's binaries must be the machine it claims.** The first native arm64
+build shipped an x64 `vcruntime140_1.dll`. That file carries exception-handling
+helpers that exist only on x64, nothing in an ARM64 bundle imports it, and the
+redistributable ships an x64 copy of it under the `arm64` directory anyway. The
+copy step selected by directory and the check demanded all three runtime DLLs
+unconditionally — "every binary here imports it", true on x64, false here — so
+both agreed and an x64 binary rode along. Both halves now ask the artefact: the
+copy filters by the machine field of the file itself, and the check walks the
+finished bundle and fails on any PE of the wrong architecture, on a referenced
+runtime DLL that is missing, and on a runtime DLL that nothing references.
+
+**Still not native:** nothing. This completes the desktop set — x64 and ARM64
+on both Windows and Linux, plus a musl bundle for Alpine.
+
 ## [0.13.10] — 2026-08-29
 
 Sound on Windows, an output menu that is actually drawn, and two bundles
