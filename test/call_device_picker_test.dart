@@ -84,4 +84,111 @@ void main() {
     expect(selected, window);
     expect(dismissed, 0);
   });
+
+  // The sheet has to DRAW every kind of device it is handed.
+  //
+  // It did not. `listSpeakers()` reached the overlay, the overlay dispatched
+  // `CallMediaDeviceKind.speaker` to `selectSpeaker`, `_DeviceTile` even had an
+  // icon for it — and the panel filtered cameras, microphones, screens and
+  // windows out of `devices` and quietly dropped the rest on the floor. On a
+  // desktop, where there is no earpiece/speaker route to fall back on, the
+  // audio tab offered a microphone list and no way to choose an output at all.
+  //
+  // Written over CallMediaDeviceKind.values rather than a list of kinds spelled
+  // out here: a kind added later fails this test until the sheet draws it,
+  // which is the only version of this check that keeps working.
+  testWidgets('every device kind is reachable in the sheet', (tester) async {
+    final kinds = CallMediaDeviceKind.values;
+    expect(
+      kinds.length >= 5,
+      isTrue,
+      reason:
+          'expected the full set of device kinds; ${kinds.length} found, so '
+          'this guard is checking almost nothing',
+    );
+    final devices = [
+      for (final kind in kinds)
+        CallMediaDevice(
+          id: '${kind.name}:1',
+          label: 'A ${kind.name} device',
+          kind: kind,
+        ),
+    ];
+
+    for (final kind in kinds) {
+      CallMediaDevice? selected;
+      // Tear the tree down between kinds. Without this the DefaultTabController
+      // keeps whichever tab the previous iteration left it on, and the loop
+      // reports "the sheet never draws microphones" when the truth is that the
+      // sheet is still showing the video tab.
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpWidget(
+        _host(
+          CallDevicePickerPanel(
+            devices: devices,
+            onDismiss: () {},
+            onSelect: (device) => selected = device,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final label = find.text('A ${kind.name} device');
+      if (label.evaluate().isEmpty) {
+        await tester.tap(find.text('Video'));
+        await tester.pumpAndSettle();
+      }
+      expect(
+        label,
+        findsOneWidget,
+        reason:
+            'the picker never draws ${kind.name} devices — they are handed to '
+            'it and dropped, so nobody can choose one',
+      );
+
+      await tester.tap(label);
+      await tester.pumpAndSettle();
+      expect(
+        selected?.kind,
+        kind,
+        reason: 'tapping a ${kind.name} row must select that device',
+      );
+    }
+  });
+
+  testWidgets('the audio tab offers outputs, not only microphones', (
+    tester,
+  ) async {
+    const speaker = CallMediaDevice(
+      id: 'out:1',
+      label: 'Headphones (RSQ-319)',
+      kind: CallMediaDeviceKind.speaker,
+      selected: true,
+    );
+    const mic = CallMediaDevice(
+      id: 'in:1',
+      label: 'Microphone (RSQ-319)',
+      kind: CallMediaDeviceKind.microphone,
+    );
+    CallMediaDevice? selected;
+
+    await tester.pumpWidget(
+      _host(
+        CallDevicePickerPanel(
+          devices: const [mic, speaker],
+          onDismiss: () {},
+          onSelect: (device) => selected = device,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Output devices'), findsOneWidget);
+    expect(find.text('Microphones'), findsOneWidget);
+    expect(find.text(speaker.label), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+
+    await tester.tap(find.text(speaker.label));
+    expect(selected, speaker);
+  });
 }
