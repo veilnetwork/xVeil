@@ -145,6 +145,11 @@ jobs:
       # A warning rather than a failure: building an older pin on purpose is
       # legitimate. Being unable to tell is not.
       - name: Which veil this engine is built from
+        # bash, stated: this workflow runs on Windows, where a step's default
+        # shell is PowerShell — and `if [ "$a" != "$b" ]` is a parser error
+        # there, not a comparison. The guard that was meant to stop a stale
+        # engine broke the build outright on its first run.
+        shell: bash
         run: |
           set -euo pipefail
           here="$(git -C third_party/veil rev-parse HEAD)"
