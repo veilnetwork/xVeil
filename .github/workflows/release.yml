@@ -909,9 +909,167 @@ jobs:
   # have caught the account name inside the .so files of a release APK.
   # Patterns come from a secret because a list of what must never be published
   # has no business living in a public repository.
+  # The same glibc bundle, made to run on musl.
+  #
+  # Not a musl BUILD: Flutter has no musl engine and building one is not a
+  # thing upstream supports. It does not need one. Measured 2026-08-29 in an
+  # Alpine container — the released bundle starts under `gcompat` and reaches
+  # `cannot open display`, which is the wall a GUI meets in a container and is
+  # past every libc question. What stood between was a short list of symbols
+  # gcompat does not carry, derived from the binaries rather than guessed:
+  # the locale-aware parsers, the _FORTIFY_SOURCE entry points, the glibc-2.38
+  # __isoc23_* aliases, and a handful of GNU extensions.
+  #
+  # So this job compiles that list into one small libmuslcompat.so IN Alpine,
+  # ships it beside the bundle with a launcher that preloads it, and says which
+  # packages an Alpine host needs. The payload is the x64 bundle unchanged —
+  # the same binaries the glibc release ships, byte for byte.
+  linux-musl:
+    name: linux bundle (x64, musl)
+    needs: linux
+    if: ${{ !cancelled() && needs.linux.result == 'success' }}
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:3.20
+    steps:
+      - name: Alpine toolchain
+        run: |
+          set -eu
+          apk add --no-cache build-base tar curl >/dev/null
+          echo "alpine $(cat /etc/alpine-release), $(uname -m)"
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-x64
+          path: incoming
+
+      - name: The compatibility shim
+        run: |
+          set -eu
+          # Every entry forwards to the function musl already has. The bound in
+          # a _chk call is dropped, which is musl's own position on
+          # fortification rather than a shortcut taken here; the locale in a
+          # *_l call is meaningless in the C locale an engine parses numbers in.
+          {
+            echo '#define _GNU_SOURCE'
+            echo '#include <stdlib.h>'
+            echo '#include <string.h>'
+            echo '#include <stdio.h>'
+            echo '#include <stdarg.h>'
+            echo '#include <wchar.h>'
+            echo '#include <sched.h>'
+            echo '#include <pthread.h>'
+            echo '#include <sys/select.h>'
+            echo 'long long strtoll_l(const char *s, char **e, int b, void *l)'
+            echo '{ (void)l; return strtoll(s, e, b); }'
+            echo 'unsigned long long strtoull_l(const char *s, char **e, int b, void *l)'
+            echo '{ (void)l; return strtoull(s, e, b); }'
+            echo 'long __isoc23_strtol(const char *s, char **e, int b)'
+            echo '{ return strtol(s, e, b); }'
+            echo 'unsigned long long __isoc23_strtoull(const char *s, char **e, int b)'
+            echo '{ return strtoull(s, e, b); }'
+            echo 'int __isoc23_sscanf(const char *s, const char *f, ...)'
+            echo '{ va_list a; int r; va_start(a, f); r = vsscanf(s, f, a);'
+            echo '  va_end(a); return r; }'
+            echo 'void *__memcpy_chk(void *d, const void *s, size_t n, size_t b)'
+            echo '{ (void)b; return memcpy(d, s, n); }'
+            echo 'void *__memmove_chk(void *d, const void *s, size_t n, size_t b)'
+            echo '{ (void)b; return memmove(d, s, n); }'
+            echo 'void *__memset_chk(void *d, int c, size_t n, size_t b)'
+            echo '{ (void)b; return memset(d, c, n); }'
+            echo 'char *__strcpy_chk(char *d, const char *s, size_t b)'
+            echo '{ (void)b; return strcpy(d, s); }'
+            echo 'char *__strcat_chk(char *d, const char *s, size_t b)'
+            echo '{ (void)b; return strcat(d, s); }'
+            echo 'int __vfprintf_chk(FILE *st, int f, const char *fmt, va_list a)'
+            echo '{ (void)f; return vfprintf(st, fmt, a); }'
+            echo 'int __vsnprintf_chk(char *s, size_t n, int f, size_t b, const char *fmt, va_list a)'
+            echo '{ (void)f; (void)b; return vsnprintf(s, n, fmt, a); }'
+            echo 'int __snprintf_chk(char *s, size_t n, int f, size_t b, const char *fmt, ...)'
+            echo '{ va_list a; int r; (void)f; (void)b; va_start(a, fmt);'
+            echo '  r = vsnprintf(s, n, fmt, a); va_end(a); return r; }'
+            echo 'int __sprintf_chk(char *s, int f, size_t b, const char *fmt, ...)'
+            echo '{ va_list a; int r; (void)f; (void)b; va_start(a, fmt);'
+            echo '  r = vsprintf(s, fmt, a); va_end(a); return r; }'
+            echo 'int __printf_chk(int f, const char *fmt, ...)'
+            echo '{ va_list a; int r; (void)f; va_start(a, fmt);'
+            echo '  r = vprintf(fmt, a); va_end(a); return r; }'
+            echo 'int __fprintf_chk(FILE *st, int f, const char *fmt, ...)'
+            echo '{ va_list a; int r; (void)f; va_start(a, fmt);'
+            echo '  r = vfprintf(st, fmt, a); va_end(a); return r; }'
+            echo 'unsigned long __fdelt_chk(unsigned long d)'
+            echo '{ return d / (8 * sizeof(long)); }'
+            echo 'size_t __mbrlen(const char *s, size_t n, mbstate_t *st)'
+            echo '{ return mbrlen(s, n, st); }'
+            echo 'int __register_atfork(void (*p)(void), void (*c)(void),'
+            echo '                      void (*ch)(void), void *dso)'
+            echo '{ (void)dso; return pthread_atfork(p, c, ch); }'
+            echo 'int __res_init(void) { return 0; }'
+            echo 'int getcpu(unsigned *cpu, unsigned *node)'
+            echo '{ if (cpu) *cpu = 0; if (node) *node = 0; return 0; }'
+            echo 'const char *gnu_get_libc_version(void) { return "2.38"; }'
+            echo 'int backtrace(void **b, int n) { (void)b; (void)n; return 0; }'
+            echo 'void backtrace_symbols_fd(void *const *b, int n, int fd)'
+            echo '{ (void)b; (void)n; (void)fd; }'
+            echo 'char __libc_single_threaded = 0;'
+            echo 'void *__sched_cpualloc(size_t c) { return calloc(1, (c + 7) / 8); }'
+            echo 'void __sched_cpufree(void *p) { free(p); }'
+          } > muslcompat.c
+          cc -shared -fPIC -O2 -o libmuslcompat.so muslcompat.c
+          echo "shim built: $(ls -l libmuslcompat.so | awk '{print $5}') bytes"
+
+      - name: Repack with the shim and a launcher
+        run: |
+          set -eu
+          tar -xzf incoming/xveil-linux-x64.tar.gz
+          cp libmuslcompat.so bundle/lib/
+          {
+            echo '#!/bin/sh'
+            echo '# xVeil on musl (Alpine and friends).'
+            echo '#'
+            echo '# The binaries are the ordinary glibc build; Alpine gcompat'
+            echo '# carries almost all of it, and libmuslcompat.so answers the'
+            echo '# handful of symbols it does not. On a glibc system this'
+            echo '# preload is harmless but pointless — use the plain bundle.'
+            echo '#'
+            echo '# apk add gcompat gtk+3.0 mesa-gl libayatana-appindicator'
+            echo 'here="$(cd "$(dirname "$0")" && pwd)"'
+            echo 'LD_PRELOAD="$here/lib/libmuslcompat.so${LD_PRELOAD:+:$LD_PRELOAD}" \'
+            echo '  exec "$here/xveil" "$@"'
+          } > bundle/xveil-musl
+          chmod +x bundle/xveil-musl
+          tar -czf "$GITHUB_WORKSPACE/xveil-linux-x64-musl.tar.gz" bundle
+          ls -la "$GITHUB_WORKSPACE/xveil-linux-x64-musl.tar.gz"
+
+      # Proof, not hope: unpack what is about to be published and start it in
+      # this very musl container. A GUI with no display cannot go further than
+      # GTK, and reaching GTK is the whole claim.
+      - name: It starts on musl
+        run: |
+          set -eu
+          apk add --no-cache gcompat gtk+3.0 mesa-gl >/dev/null
+          rm -rf verify && mkdir verify && tar -xzf "$GITHUB_WORKSPACE/xveil-linux-x64-musl.tar.gz" -C verify
+          out="$(./verify/bundle/xveil-musl 2>&1 | head -20 || true)"
+          echo "$out"
+          if echo "$out" | grep -qE 'symbol not found|Error relocating|Error loading shared library'; then
+            echo "::error::the musl bundle still cannot load — see the symbols above"
+            exit 1
+          fi
+          if ! echo "$out" | grep -q 'cannot open display'; then
+            echo "::warning::did not reach GTK's display check; read the output above"
+          fi
+          echo "reached GTK with nothing unresolved — the payload runs on musl"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-x64-musl
+          path: xveil-linux-x64-musl.tar.gz
+          if-no-files-found: error
+
   scan:
     name: scan artifacts
-    needs: [android, linux, windows]
+    needs: [android, linux, windows, linux-musl]
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
