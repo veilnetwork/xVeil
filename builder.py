@@ -18,6 +18,7 @@ commands are spelled out here, mirroring BUILDING.md.
 from __future__ import annotations
 
 import os
+import platform
 import re
 import shutil
 import sys
@@ -704,6 +705,19 @@ def _engine_policy_env(release: bool) -> dict[str, str]:
 _LINUX_ENGINE_SO = "libveil_media.so"
 
 
+def _linux_build_arch() -> str:
+    """The directory `flutter build linux` writes into, by host architecture.
+
+    Flutter names it after the machine it built on — `x64` or `arm64` — and
+    refuses to cross-build between them, so the host's own architecture is the
+    answer rather than a guess.
+    """
+    machine = platform.machine().lower()
+    if machine in ("aarch64", "arm64"):
+        return "arm64"
+    return "x64"
+
+
 def _check_linux_engine(bundle: str) -> None:
     """Refuse a linux bundle with no call media, the way windows already does.
 
@@ -778,8 +792,16 @@ def _linux(release: bool) -> list[Step]:
         steps.append(
             Step(
                 "call engine in the bundle",
+                # `flutter build linux` writes under the HOST architecture,
+                # not always x64: on an arm64 machine the bundle is at
+                # build/linux/arm64/release/bundle, and a check that looks only
+                # in x64 reports "MISSING libveil_media.so" about a bundle it
+                # never opened. Measured on an arm64 runner 2026-08-29, after
+                # the whole build had succeeded.
                 call=lambda: _check_linux_engine(
-                    os.path.join("build", "linux", "x64", "release", "bundle")
+                    os.path.join(
+                        "build", "linux", _linux_build_arch(), "release", "bundle"
+                    )
                 ),
             )
         )
