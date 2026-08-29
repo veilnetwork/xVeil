@@ -5314,7 +5314,7 @@ class AppL10nEs extends AppL10n {
   String get callCameras => 'Cámaras';
 
   @override
-  String get callSpeakers => 'Output devices';
+  String get callSpeakers => 'Dispositivos de salida';
 
   @override
   String get callMicrophones => 'Micrófonos';
@@ -5326,7 +5326,7 @@ class AppL10nEs extends AppL10n {
   String get callWindows => 'Ventanas';
 
   @override
-  String get callNoAudioDevices => 'No audio devices available';
+  String get callNoAudioDevices => 'No hay dispositivos de audio disponibles';
 
   @override
   String get callNoCaptureDevices =>
