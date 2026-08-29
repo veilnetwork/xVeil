@@ -679,6 +679,10 @@ jobs:
             engine_asset: veil_media-win-arm64.dll
             msvc_arch: arm64
             flutter_from_git: true
+            # See scripts/cmake/aarch64-pc-windows-msvc.cmake: BoringSSL has no
+            # assembly route on Windows for ARM64, and the crate that knows
+            # that cannot reach its own answer on a native build.
+            cmake_toolchain: scripts/cmake/aarch64-pc-windows-msvc.cmake
     runs-on: ${{ matrix.runner }}
     # Unsigned, and it will stay that way until someone buys an Authenticode
     # certificate: SmartScreen warns on first run ("Windows protected your PC"
@@ -862,6 +866,9 @@ jobs:
         env:
           WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
           CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
+          # Target-scoped, so it reaches the one build that needs it and no
+          # other. Empty on x64, where cargo ignores it.
+          CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc: ${{ matrix.cmake_toolchain && format('{0}/{1}', github.workspace, matrix.cmake_toolchain) || '' }}
         run: |
           set -euo pipefail
           msvc_bin="$(dirname "$(command -v cl.exe)")"
