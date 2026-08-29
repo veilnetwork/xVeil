@@ -81,6 +81,16 @@ void main() {
       expect(micSelected, isTrue);
       expect(media.selectedMicrophone, 'usb');
 
+      // The OUTPUT. It had no picker at all until 2026-08-29, and nothing in
+      // the app ever called selectAudioOutput — so a desktop played a call
+      // out of whatever the engine defaulted to, which on Windows is no
+      // device.
+      var speakerSelected = false;
+      svc.selectSpeaker('hdmi').then((value) => speakerSelected = value);
+      async.flushMicrotasks();
+      expect(speakerSelected, isTrue);
+      expect(media.selectedSpeaker, 'hdmi');
+
       var screenSelected = false;
       svc.selectScreen('display-2').then((value) => screenSelected = value);
       async.flushMicrotasks();
@@ -2067,6 +2077,7 @@ class _FakeMedia extends CallMediaController {
   final StreamController<void> screenStops = StreamController.broadcast();
   String? selectedCamera;
   String? selectedMicrophone;
+  String? selectedSpeaker;
   String? selectedScreen;
 
   @override
@@ -2129,6 +2140,12 @@ class _FakeMedia extends CallMediaController {
   @override
   Future<bool> selectMicrophone(String id) async {
     selectedMicrophone = id;
+    return true;
+  }
+
+  @override
+  Future<bool> selectSpeaker(String id) async {
+    selectedSpeaker = id;
     return true;
   }
 

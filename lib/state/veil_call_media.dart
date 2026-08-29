@@ -371,6 +371,8 @@ class VeilCallMediaController implements CallMediaController {
       'call.capture.camera.${Platform.operatingSystem}';
   static String get _microphonePreferenceKey =>
       'call.capture.microphone.${Platform.operatingSystem}';
+  static String get _speakerPreferenceKey =>
+      'call.playout.speaker.${Platform.operatingSystem}';
   VeilMediaEngine? _engine;
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
@@ -408,6 +410,8 @@ class VeilCallMediaController implements CallMediaController {
   String? _selectedMicrophoneId;
   String? _selectedScreenId;
   String? _preferredMicrophoneLabel;
+  String? _selectedSpeakerId;
+  String? _preferredSpeakerLabel;
   bool _screenSharing = false;
 
   // Frame cadence measured at the Dart/native boundary. Packet counters can
@@ -808,6 +812,7 @@ class VeilCallMediaController implements CallMediaController {
     _engine = engine;
     _diagnosticMediaController = this;
     await _restoreMicrophonePreference(engine);
+    await _restoreSpeakerPreference(engine);
     // Liveness signal for the call FSM: poll rx_pkts so it can tell the peer's
     // media is still arriving even when the durable signaling heartbeat lags.
     _statsTimer?.cancel();
@@ -1207,6 +1212,7 @@ class VeilCallMediaController implements CallMediaController {
       final prefs = await SharedPreferences.getInstance();
       _selectedCameraId = prefs.getString(_cameraPreferenceKey);
       _preferredMicrophoneLabel = prefs.getString(_microphonePreferenceKey);
+      _preferredSpeakerLabel = prefs.getString(_speakerPreferenceKey);
     } catch (_) {
       // A device preference must never prevent media startup.
     }
@@ -1221,6 +1227,26 @@ class VeilCallMediaController implements CallMediaController {
       try {
         if (engine.selectAudioInput(device.id)) {
           _selectedMicrophoneId = device.id;
+        }
+      } catch (_) {}
+      return;
+    }
+  }
+
+  /// Re-select the output the user last chose, by LABEL.
+  ///
+  /// Ids are not stable across reboots or replugs; the label is what a person
+  /// recognised when they picked it. Mirrors the microphone, which has done
+  /// this since it had a picker at all — the output had neither.
+  Future<void> _restoreSpeakerPreference(VeilMediaEngine engine) async {
+    final preferred = _preferredSpeakerLabel;
+    if (preferred == null || preferred.isEmpty) return;
+    final devices = await listSpeakers();
+    for (final device in devices) {
+      if (device.label != preferred) continue;
+      try {
+        if (engine.selectAudioOutput(device.id)) {
+          _selectedSpeakerId = device.id;
         }
       } catch (_) {}
       return;
@@ -1313,6 +1339,34 @@ class VeilCallMediaController implements CallMediaController {
     }
   }
 
+  /// The outputs a call can be played out of.
+  ///
+  /// Android is deliberately empty: its output choice is earpiece/speaker and
+  /// belongs to [callAudioRouter], which the call sheet already offers. This
+  /// is the desktop list, and the engine has been able to answer it all along
+  /// — nothing ever asked.
+  @override
+  Future<List<CallMediaDevice>> listSpeakers() async {
+    final engine = _engine;
+    if (engine == null || Platform.isAndroid || Platform.isIOS) return const [];
+    try {
+      return engine.listAudioOutputs().indexed
+          .map(
+            (entry) => CallMediaDevice(
+              id: entry.$2.id,
+              label: entry.$2.label,
+              kind: CallMediaDeviceKind.speaker,
+              selected:
+                  entry.$2.id == _selectedSpeakerId ||
+                  (_selectedSpeakerId == null && entry.$1 == 0),
+            ),
+          )
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   @override
   Future<List<CallMediaDevice>> listScreens() async {
     if (!Platform.isMacOS) return const [];
@@ -1350,6 +1404,28 @@ class VeilCallMediaController implements CallMediaController {
       _preferredMicrophoneLabel = chosen.label;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_microphonePreferenceKey, chosen.label);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
+  Future<bool> selectSpeaker(String id) async {
+    final engine = _engine;
+    if (engine == null) return false;
+    final devices = await listSpeakers();
+    CallMediaDevice? chosen;
+    for (final device in devices) {
+      if (device.id == id) chosen = device;
+    }
+    if (chosen == null) return false;
+    try {
+      if (!engine.selectAudioOutput(id)) return false;
+      _selectedSpeakerId = id;
+      _preferredSpeakerLabel = chosen.label;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_speakerPreferenceKey, chosen.label);
       return true;
     } catch (_) {
       return false;

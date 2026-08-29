@@ -225,6 +225,7 @@ class _DeviceTile extends StatelessWidget {
     leading: Icon(switch (device.kind) {
       CallMediaDeviceKind.camera => Icons.videocam,
       CallMediaDeviceKind.microphone => Icons.mic,
+      CallMediaDeviceKind.speaker => Icons.volume_up,
       CallMediaDeviceKind.screen => Icons.monitor,
       CallMediaDeviceKind.window => Icons.web_asset,
     }),
