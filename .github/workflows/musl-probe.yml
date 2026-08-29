@@ -108,6 +108,37 @@ jobs:
             echo '{ (void)l; return strtoll(s, e, b); }'
             echo 'unsigned long long strtoull_l(const char *s, char **e, int b, void *l)'
             echo '{ (void)l; return strtoull(s, e, b); }'
+            # glibc's _FORTIFY_SOURCE entry points. musl does not implement the
+            # fortified variants at all, so forwarding to the plain function is
+            # what musl already does for everyone else — the bound is dropped,
+            # which is exactly musl's own position on fortification.
+            echo '#include <string.h>'
+            echo '#include <stdio.h>'
+            echo '#include <stdarg.h>'
+            echo 'void *__memcpy_chk(void *d, const void *s, size_t n, size_t b)'
+            echo '{ (void)b; return memcpy(d, s, n); }'
+            echo 'void *__memmove_chk(void *d, const void *s, size_t n, size_t b)'
+            echo '{ (void)b; return memmove(d, s, n); }'
+            echo 'void *__memset_chk(void *d, int c, size_t n, size_t b)'
+            echo '{ (void)b; return memset(d, c, n); }'
+            echo 'char *__strcpy_chk(char *d, const char *s, size_t b)'
+            echo '{ (void)b; return strcpy(d, s); }'
+            echo 'char *__strcat_chk(char *d, const char *s, size_t b)'
+            echo '{ (void)b; return strcat(d, s); }'
+            echo 'int __vsnprintf_chk(char *s, size_t n, int f, size_t b, const char *fmt, va_list ap)'
+            echo '{ (void)f; (void)b; return vsnprintf(s, n, fmt, ap); }'
+            echo 'int __snprintf_chk(char *s, size_t n, int f, size_t b, const char *fmt, ...)'
+            echo '{ va_list ap; int r; (void)f; (void)b; va_start(ap, fmt);'
+            echo '  r = vsnprintf(s, n, fmt, ap); va_end(ap); return r; }'
+            echo 'int __sprintf_chk(char *s, int f, size_t b, const char *fmt, ...)'
+            echo '{ va_list ap; int r; (void)f; (void)b; va_start(ap, fmt);'
+            echo '  r = vsprintf(s, fmt, ap); va_end(ap); return r; }'
+            echo 'int __printf_chk(int f, const char *fmt, ...)'
+            echo '{ va_list ap; int r; (void)f; va_start(ap, fmt);'
+            echo '  r = vprintf(fmt, ap); va_end(ap); return r; }'
+            echo 'int __fprintf_chk(FILE *st, int f, const char *fmt, ...)'
+            echo '{ va_list ap; int r; (void)f; va_start(ap, fmt);'
+            echo '  r = vfprintf(st, fmt, ap); va_end(ap); return r; }'
           } > shim.c
           cc -shared -fPIC -o libmuslcompat_l.so shim.c
           echo "--- ldd with the shim preloaded ---"
@@ -123,6 +154,18 @@ jobs:
             fi
           done
           echo "objects still unresolved: $missing"
+          echo "--- every symbol musl+gcompat could not answer ---"
+          # Derived from the artefact, not guessed: whatever the loader names
+          # here is exactly what a compatibility shim has to carry. Plugins
+          # that only miss libflutter_linux_gtk.so are an artefact of asking
+          # ldd about them one at a time, outside the bundle's own rpath — the
+          # app itself resolved them, which is why it reached GTK.
+          for so in bundle/xveil bundle/lib/*.so; do
+            LD_PRELOAD="$PWD/libmuslcompat_l.so" ldd "$so" 2>&1 | \
+              grep -oE '[A-Za-z_][A-Za-z0-9_]*: symbol not found' || true
+          done | sed 's/: symbol not found//' | sort -u | grep -vE '^(fl_|app_indicator_|JNI_)' \
+            | tee missing-symbols.txt
+          echo "distinct libc symbols to shim: $(wc -l < missing-symbols.txt)"
 
       - name: Try to start it
         continue-on-error: true
