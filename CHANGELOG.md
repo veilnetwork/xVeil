@@ -10,6 +10,45 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.8] — 2026-08-29
+
+Calls on Windows: the app no longer dies when one is answered, a call nobody
+is making no longer rings, and the microphone works. Playout is still being
+chased — this release carries the instrumentation that will name it.
+
+Built on veil [v0.8.4](https://github.com/veilnetwork/veil/releases/tag/v0.8.4)
+and hidden-volume
+[v2.0.5](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.5), with
+the Windows call engine at `engine-2026.08.29.3`.
+
+**Answering a call killed the app.** WebRTC has two Windows audio device
+modules and they want opposite COM apartments; the default one asks for STA and
+turns a mismatch into a fatal check. The process has an MTA it cannot not have,
+and a thread that touches COM without initialising joins it implicitly — so
+asking the calling thread and hoping could not work. The engine now builds the
+module on a thread of its own that no apartment has claimed, and drives it from
+that same thread.
+
+**A call nobody was making rang.** Offers carried no timestamp, so a callee had
+no age to judge, and the freshness gate that did exist guarded the lane where
+one of your own devices forwards a ring — while a durable re-drive arrives on
+the direct one. A crashed or missed call left its offer in the mailbox and the
+next drain delivered it intact, hours later. Offers are stamped now and one
+gate serves both lanes. An offer from a peer too old to stamp is still
+admitted, and said out loud, rather than refused.
+
+**Android ships three ABIs again.** armeabi-v7a and x86_64 return alongside
+arm64-v8a: both were held back because they could not carry the call engine,
+and both now carry it, together with the speech-to-text wrapper that was also
+arm64-only. Every library in every APK is checked against its own architecture
+rather than the folder it sits in.
+
+**Known, not fixed here:** audio playout on Windows does not start, so a call
+carries your voice and not theirs. The engine in this release reports what it
+was asked for and what each playout call answered, which the previous builds
+discarded in silence. The call UI also has no audio-output picker — the engine
+now chooses the communications default itself.
+
 ## [0.13.7] — 2026-08-28
 
 Answering a call on Windows killed the app. This is the fix, and it is the
