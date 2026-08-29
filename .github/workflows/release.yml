@@ -624,7 +624,10 @@ jobs:
       - name: The bundle carries the PSK and the engine
         run: |
           set -euo pipefail
-          root=build/linux/x64/release/bundle
+          # flutter names its output directory after the HOST architecture,
+          # which is what this matrix leg IS — a shell variable would not
+          # survive to the Archive step below anyway.
+          root=build/linux/${{ matrix.arch }}/release/bundle
           psk="$root/data/flutter_assets/assets/prod/obfs4_psk.b64"
           [ -s "$psk" ] || { echo "::error::no bundled PSK at $psk"; exit 1; }
           engine="$(find "$root" -name libveil_media.so | head -1)"
@@ -636,7 +639,7 @@ jobs:
       - name: Archive
         run: |
           set -euo pipefail
-          cd build/linux/x64/release
+          cd "build/linux/${{ matrix.arch }}/release"
           tar -czf "$GITHUB_WORKSPACE/xveil-linux-${{ matrix.arch }}.tar.gz" bundle
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
