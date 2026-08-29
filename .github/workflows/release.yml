@@ -425,11 +425,25 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: linux bundle
+    name: linux bundle (${{ matrix.arch }})
     needs: checks
     if: ${{ !cancelled() && needs.checks.result != 'failure' }}
     timeout-minutes: 60
-    runs-on: ubuntu-latest
+    # One job per architecture rather than two copies of a hundred and eighty
+    # lines: the only differences are the runner, which engine asset to fetch,
+    # and what the archive is called. GitHub's arm64 runners are free for a
+    # public repository, which this is.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-latest
+            engine_asset: libveil_media-linux-x64.so
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            engine_asset: libveil_media-linux-arm64.so
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -529,11 +543,15 @@ jobs:
           # THE DURABLE PIN — see the android job for the full note. Filled
           # 2026-08-13 from the same run that produced the android engine, so
           # both come from one release and one WebRTC pin.
-          ENGINE_RELEASE: 'engine-2026.08.13'
+          # MOVED 2026-08-29 to `.4`, which carries BOTH linux engines. The
+          # 08.13 release has x64 alone — it predates the arm64 bundle, and a
+          # matrix that asks it for arm64 gets a 404, which is the pin saying
+          # so.
+          ENGINE_RELEASE: 'engine-2026.08.29.4'
           # Kept as the fallback route and as the record of where this came
           # from. EXPIRES 2026-11-10; the release above does not.
           ENGINE_RUN: '31609030118'
-          ASSET: 'libveil_media-linux-x64.so'
+          ASSET: ${{ matrix.engine_asset }}
         run: |
           set -euo pipefail
           dest=third_party/veil/flutter/veil_media/linux
@@ -558,7 +576,7 @@ jobs:
           elif [ -n "${ENGINE_RUN:-}" ]; then
             echo "engine: run artifact $ENGINE_RUN — the EXPIRING route"
             echo "::warning::the linux engine still comes from a run artifact, which expires and needs a token. Publish it to an engine release and set ENGINE_RELEASE."
-            gh run download "$ENGINE_RUN" -n libveil_media-linux-x64 -D "$dest"
+            gh run download "$ENGINE_RUN" -n "${ASSET%.so}" -D "$dest"
           else
             echo "::error::LINUX call engine is not pinned. Run the webrtc-linux workflow and set ENGINE_RELEASE here to the tag its publish job attached to. Without it veil_media/linux/CMakeLists.txt refuses to configure."
             exit 1
@@ -591,20 +609,30 @@ jobs:
         run: |
           set -euo pipefail
           cd build/linux/x64/release
-          tar -czf "$GITHUB_WORKSPACE/xveil-linux-x64.tar.gz" bundle
+          tar -czf "$GITHUB_WORKSPACE/xveil-linux-${{ matrix.arch }}.tar.gz" bundle
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: linux
-          path: xveil-linux-x64.tar.gz
+          name: linux-${{ matrix.arch }}
+          path: xveil-linux-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
 
   windows:
-    name: windows bundle
+    name: windows bundle (${{ matrix.arch }})
     needs: checks
     if: ${{ !cancelled() && needs.checks.result != 'failure' }}
     timeout-minutes: 60
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            engine_asset: veil_media-win-x64.dll
+          - arch: arm64
+            runner: windows-11-arm
+            engine_asset: veil_media-win-arm64.dll
+    runs-on: ${{ matrix.runner }}
     # Unsigned, and it will stay that way until someone buys an Authenticode
     # certificate: SmartScreen warns on first run ("Windows protected your PC"
     # → More info → Run anyway). That is a worse first impression than Linux
@@ -692,7 +720,7 @@ jobs:
           # asked; that date belongs to the android artifact. A pin whose
           # expiry is written down from memory is not pinned to anything.
           ENGINE_RUN: '30665287484'
-          ASSET: 'veil_media-win-x64.dll'
+          ASSET: ${{ matrix.engine_asset }}
         run: |
           set -euo pipefail
           dest=third_party/veil/flutter/veil_media/windows
@@ -733,7 +761,7 @@ jobs:
           elif [ -n "${ENGINE_RUN:-}" ]; then
             echo "engine: run artifact $ENGINE_RUN — the EXPIRING route"
             echo "::warning::the windows engine still comes from a run artifact, which expires and needs a token. Publish it to an engine release and set ENGINE_RELEASE."
-            gh run download "$ENGINE_RUN" -n libveil_media-win-x64 -D "$dest"
+            gh run download "$ENGINE_RUN" -n "libveil_media-win-${{ matrix.arch }}" -D "$dest"
           else
             echo "::error::WINDOWS call engine is not pinned. Run the webrtc-windows workflow and set ENGINE_RELEASE here to the tag its publish job attached to. Without it the bundle builds and cannot do voice messages, video notes, calls or speech-to-text."
             exit 1
@@ -785,7 +813,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = 'build/windows/x64/runner/Release'
+          $root = 'build/windows/${{ matrix.arch }}/runner/Release'
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -property installationPath
           if (-not $vs) { throw "vswhere found no Visual Studio installation" }
@@ -809,7 +837,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          root=build/windows/x64/runner/Release
+          root=build/windows/${{ matrix.arch }}/runner/Release
           psk="$root/data/flutter_assets/assets/prod/obfs4_psk.b64"
           [ -s "$psk" ] || { echo "::error::no bundled PSK at $psk — the bundle cannot reach the production network"; exit 1; }
           engine="$(find "$root" -name veil_media.dll | head -1)"
@@ -830,13 +858,13 @@ jobs:
       - name: Archive
         shell: pwsh
         run: |
-          Compress-Archive -Path build/windows/x64/runner/Release/* `
-            -DestinationPath xveil-windows-x64.zip
+          Compress-Archive -Path build/windows/${{ matrix.arch }}/runner/Release/* `
+            -DestinationPath xveil-windows-${{ matrix.arch }}.zip
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: windows
-          path: xveil-windows-x64.zip
+          name: windows-${{ matrix.arch }}
+          path: xveil-windows-${{ matrix.arch }}.zip
           if-no-files-found: error
 
   # One scan over everything that was built. Kept out of the build jobs so the

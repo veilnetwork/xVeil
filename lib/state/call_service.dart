@@ -20,7 +20,15 @@ import 'veil_call_media.dart';
 const _uuid = Uuid();
 Future<bool> _neverP2P(NodeId peer) async => false;
 
-enum CallMediaDeviceKind { camera, microphone, screen, window }
+/// A local device a call can be pointed at.
+///
+/// `speaker` was missing until 2026-08-29, and its absence was not only a
+/// missing menu: nothing in the app ever called `selectAudioOutput`, so on a
+/// desktop where the user had not chosen an output by hand, playout was
+/// started against whatever the engine defaulted to — and on Windows that is
+/// no device at all. The engine has exposed
+/// `veil_media_engine_list_audio_outputs` / `_select_audio_output` all along.
+enum CallMediaDeviceKind { camera, microphone, speaker, screen, window }
 
 CallMediaDeviceKind screenSourceDeviceKind(String nativeKind) =>
     nativeKind == 'window'
@@ -143,9 +151,11 @@ abstract class CallMediaController {
 
   Future<List<CallMediaDevice>> listCameras() async => const [];
   Future<List<CallMediaDevice>> listMicrophones() async => const [];
+  Future<List<CallMediaDevice>> listSpeakers() async => const [];
   Future<List<CallMediaDevice>> listScreens() async => const [];
   Future<bool> selectCamera(String id) async => false;
   Future<bool> selectMicrophone(String id) async => false;
+  Future<bool> selectSpeaker(String id) async => false;
   Future<bool> selectScreen(String id) async => false;
   bool get screenCaptureAccessGranted => true;
   bool requestScreenCaptureAccess() => true;
@@ -673,6 +683,9 @@ class CallService {
   Future<List<CallMediaDevice>> listMicrophones() =>
       _media?.listMicrophones() ?? Future.value(const []);
 
+  Future<List<CallMediaDevice>> listSpeakers() =>
+      _media?.listSpeakers() ?? Future.value(const []);
+
   Future<List<CallMediaDevice>> listScreens() =>
       _media?.listScreens() ?? Future.value(const []);
 
@@ -686,6 +699,12 @@ class CallService {
     final c = _current;
     if (c == null || !c.isLive) return false;
     return await _media?.selectMicrophone(id) ?? false;
+  }
+
+  Future<bool> selectSpeaker(String id) async {
+    final c = _current;
+    if (c == null || !c.isLive) return false;
+    return await _media?.selectSpeaker(id) ?? false;
   }
 
   Future<bool> selectScreen(String id) async {

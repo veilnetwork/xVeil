@@ -70,13 +70,22 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
       else
         Future.value(const <CallMediaDevice>[]),
       svc.listMicrophones(),
+      // The OUTPUT list. It was never asked for, so the sheet offered a
+      // microphone and a camera and no way to say where the call should be
+      // heard — and nothing in the app ever called selectAudioOutput.
+      svc.listSpeakers(),
       if (includeScreens)
         svc.listScreens()
       else
         Future.value(const <CallMediaDevice>[]),
     ]);
     if (!mounted) return;
-    final devices = [...results[0], ...results[1], ...results[2]];
+    final devices = [
+      ...results[0],
+      ...results[1],
+      ...results[2],
+      ...results[3],
+    ];
     setState(() {
       _captureDevicesLoading = false;
       // The settings sheet remains useful even without enumerable capture
@@ -100,6 +109,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
     var ok = switch (device.kind) {
       CallMediaDeviceKind.camera => await svc.selectCamera(device.id),
       CallMediaDeviceKind.microphone => await svc.selectMicrophone(device.id),
+      CallMediaDeviceKind.speaker => await svc.selectSpeaker(device.id),
       CallMediaDeviceKind.screen ||
       CallMediaDeviceKind.window => await svc.selectScreen(device.id),
     };
