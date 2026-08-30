@@ -49,37 +49,66 @@ void main() {
     // foreground capture on the far side of the boundary the hangup drew
     // (report18 XV18-H3). So the session epoch has to be taken before those
     // awaits and re-checked before the source is created.
-    final source = File('lib/state/veil_call_media.dart').readAsStringSync();
-    final start = source.indexOf('Future<bool> setScreenShareEnabled');
-    expect(start, isNot(-1), reason: 'setScreenShareEnabled was renamed');
-    final end = source.indexOf('\n  Future<', start + 1);
-    expect(end, isNot(-1));
-    final body = source.substring(start, end).replaceAll(RegExp(r'\s+'), ' ');
-
-    final tookEpoch = body.indexOf('final epoch = _mediaEpoch;');
-    final stopsCamera = body.indexOf('await nativeCam.stop();');
-    final createsSource = body.indexOf('_startAndroidScreen(engine)');
-    final checksEpoch = body.indexOf('if (epoch != _mediaEpoch) return false;');
-
-    for (final (name, at) in [
-      ('the session epoch is taken', tookEpoch),
-      ('the camera is stopped', stopsCamera),
-      ('the screen source is created', createsSource),
-      ('the epoch is re-checked', checksEpoch),
+    for (final file in const [
+      'lib/state/veil_call_media.dart',
+      // The group controller is the same code and had none of this until
+      // report19 XV19-H3 — fixing one and not the other is how this class of
+      // defect survives a fix.
+      'lib/state/veil_group_call_media.dart',
     ]) {
-      expect(at, isNot(-1), reason: '$name — this branch was rewritten');
+      _screenShareIsBoundToItsSession(file);
     }
-    expect(
-      tookEpoch < stopsCamera,
-      isTrue,
-      reason: 'the epoch is taken after the window it is meant to cover opens',
-    );
-    expect(
-      checksEpoch < createsSource,
-      isTrue,
-      reason:
-          'the screen source is created before anything asks whether the '
-          'call is still the one that asked for it',
-    );
   });
+}
+
+void _screenShareIsBoundToItsSession(String file) {
+  final source = File(file).readAsStringSync();
+  final start = source.indexOf('setScreenShareEnabled');
+  expect(start, isNot(-1), reason: 'setScreenShareEnabled was renamed');
+  // To the end of the class, not to the next method: the work moved into
+  // helpers, and a window that stops at the first `Future<` sees none of it.
+  final end = source.indexOf('\n}\n', start);
+  expect(end, isNot(-1), reason: '$file: the class boundary moved');
+  final body = source.substring(start, end).replaceAll(RegExp(r'\s+'), ' ');
+
+  final tookEpoch = body.indexOf('final epoch = _mediaEpoch;');
+  final stopsCamera = body.indexOf('.stop();');
+  final createsSource = body.indexOf('_startAndroidScreen(engine)');
+  final checksEpoch = body.indexOf('if (epoch != _mediaEpoch) return false;');
+  // The SHAPE, not the identifier: a check for the name alone stayed green
+  // when the guard around it was deleted and the field left behind, which is
+  // the same "contains means present" mistake this file is here to catch.
+  expect(
+    body.contains('final inFlight = _screenStarting;') &&
+        body.contains('if (inFlight != null) return inFlight;') &&
+        body.contains('_screenStarting = '),
+    isTrue,
+    reason:
+        '$file: two enables in flight both stop the camera and both '
+        'create a source into the same field — the second overwrites the '
+        "first, and teardown cannot stop what it cannot see",
+  );
+
+  for (final (name, at) in [
+    ('the session epoch is taken', tookEpoch),
+    ('the camera is stopped', stopsCamera),
+    ('the screen source is created', createsSource),
+    ('the epoch is re-checked', checksEpoch),
+  ]) {
+    expect(at, isNot(-1), reason: '$file: $name — this branch was rewritten');
+  }
+  expect(
+    stopsCamera,
+    isNot(-1),
+    reason:
+        '$file: nothing stops the camera after the epoch is taken, so the '
+        'window this check is about is not covered',
+  );
+  expect(
+    checksEpoch < createsSource,
+    isTrue,
+    reason:
+        '$file: the screen source is created before anything asks whether '
+        'the call is still the one that asked for it',
+  );
 }

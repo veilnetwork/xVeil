@@ -415,7 +415,7 @@ class CallService {
   Future<void> placeCall(NodeId peer, CallMedia media) async {
     if (_current != null && _current!.isLive) return; // one call at a time
     if (media.isEmpty) return;
-    if (!(_callSlot?.acquire(CallSlotOwner.direct) ?? true)) return;
+    if (!_takeSlot()) return;
     final callId = _uuid.v4();
     final posture = _localPosture;
     // Unconditional: media on every route is sealed with a key derived from
@@ -1114,8 +1114,7 @@ class CallService {
         return;
       }
     }
-    if (existing == null &&
-        !(_callSlot?.acquire(CallSlotOwner.direct) ?? true)) {
+    if (existing == null && !_takeSlot()) {
       unawaited(
         _sendControl(peer, sig.callId, CallSignalType.busy, CallEndReason.busy),
       );
@@ -1527,7 +1526,7 @@ class CallService {
     } catch (_) {
       // Teardown is best-effort, but the global slot must never leak.
     } finally {
-      _callSlot?.release(CallSlotOwner.direct);
+      _releaseSlot();
     }
   }
 
@@ -1543,7 +1542,7 @@ class CallService {
     _mediaOperationEpoch++;
     _messaging.backgroundStashPaused = false;
     if (_media == null) {
-      _callSlot?.release(CallSlotOwner.direct);
+      _releaseSlot();
     } else {
       unawaited(_stopMediaAndReleaseSlot());
     }
@@ -1576,6 +1575,36 @@ class CallService {
   /// successor (report18 XV18-H2).
   bool _disposed = false;
 
+  /// This call's claim on the device's one media stack, while it holds one.
+  ///
+  /// Held rather than re-derived: the slot compares LEASES now, so a teardown
+  /// arriving after its call is gone releases nothing instead of clearing its
+  /// successor's claim (report19 XV19-H4).
+  CallSlotLease? _slotLease;
+
+  /// Take the slot for this call. False means somebody else has it.
+  ///
+  /// A null slot is the test wiring and always succeeds. Refuses outright once
+  /// disposed: a continuation that acquires after teardown holds a lease
+  /// nothing will ever give back, and the next call is refused forever
+  /// (report19 XV19-H2).
+  bool _takeSlot() {
+    if (_disposed) return false;
+    final slot = _callSlot;
+    if (slot == null) return true;
+    final lease = slot.acquire(CallSlotOwner.direct);
+    if (lease == null) return false;
+    _slotLease = lease;
+    return true;
+  }
+
+  /// Give up this call's claim, if it still holds one.
+  void _releaseSlot() {
+    final lease = _slotLease;
+    _slotLease = null;
+    _callSlot?.release(lease);
+  }
+
   void dispose() {
     _disposed = true;
     // Cleared here, not left behind: it is what those post-await checks read.
@@ -1587,7 +1616,7 @@ class CallService {
     unawaited(_screenShareStoppedSub?.cancel());
     _screenShareStoppedSub = null;
     if (_media == null) {
-      _callSlot?.release(CallSlotOwner.direct);
+      _releaseSlot();
     } else {
       unawaited(_stopMediaAndReleaseSlot());
     }

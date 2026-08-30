@@ -316,7 +316,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   @override
   bool get screenCaptureAccessGranted =>
       !Platform.isMacOS ||
-      (VeilMediaNative.guard(() => platformScreenCaptureAccessGranted) ?? false);
+      (VeilMediaNative.guard(() => platformScreenCaptureAccessGranted) ??
+          false);
 
   @override
   bool requestScreenCaptureAccess() =>
@@ -629,14 +630,15 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         return true;
       }
       if (_androidScreen != null) return true;
-      final cameraWasRunning = _androidCamera != null;
-      final camera = _androidCamera;
-      _androidCamera = null;
-      if (camera != null) await camera.stop();
-      final started = await _startAndroidScreen(engine);
-      _screenSharing = started;
-      if (!started && cameraWasRunning) await _startAndroidCamera(engine);
-      return started;
+      final inFlight = _screenStarting;
+      if (inFlight != null) return inFlight;
+      final start = _startAndroidScreenShare(engine);
+      _screenStarting = start;
+      try {
+        return await start;
+      } finally {
+        if (identical(_screenStarting, start)) _screenStarting = null;
+      }
     }
     if (!Platform.isMacOS) return false;
     try {
@@ -698,7 +700,57 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   @override
   Future<void> stop() => _locked(_stopLocked);
 
+  /// Bumped by every teardown, so work started before one can tell.
+  ///
+  /// `setScreenShareEnabled` is not taken under `_locked` while `stop()` is,
+  /// so the two interleave: enabling share nulls the camera field and awaits
+  /// the platform stop, and a teardown landing in that window finds no camera
+  /// and no screen, tears the session down, and the continuation then creates
+  /// and starts a foreground MediaProjection on the far side of it (report19
+  /// XV19-H3). The direct controller has carried this since report18 XV18-H3;
+  /// the group one is the same code and did not.
+  int _mediaEpoch = 0;
+
+  /// One screen start at a time.
+  ///
+  /// Two enables in flight both stop the camera, then both create a source
+  /// into the same field and the same platform handler: the second overwrites
+  /// the first, the first's source is left with nobody holding it, and
+  /// teardown cannot stop what it cannot see. A second caller waits for the
+  /// first answer instead, which is what it was asking for anyway.
+  Future<bool>? _screenStarting;
+
+  /// Stop the camera, then take the screen — checking, at each await, that
+  /// the session that asked for this is still the session running.
+  Future<bool> _startAndroidScreenShare(GroupAudioEngine engine) async {
+    final epoch = _mediaEpoch;
+    final cameraWasRunning = _androidCamera != null;
+    final camera = _androidCamera;
+    _androidCamera = null;
+    if (camera != null) await camera.stop();
+    if (epoch != _mediaEpoch) return false;
+    final started = await _startAndroidScreen(engine);
+    if (epoch != _mediaEpoch) {
+      // `_startAndroidScreen` publishes its source before awaiting the
+      // platform start, so a teardown landing there stops a source that has
+      // not started yet and the start then succeeds behind it. Reclaim it.
+      final orphan = _androidScreen;
+      _androidScreen = null;
+      _screenSharing = false;
+      if (orphan != null) {
+        try {
+          await orphan.stop();
+        } catch (_) {}
+      }
+      return false;
+    }
+    _screenSharing = started;
+    if (!started && cameraWasRunning) await _startAndroidCamera(engine);
+    return started;
+  }
+
   Future<void> _stopLocked() async {
+    _mediaEpoch++;
     _statsTimer?.cancel();
     _statsTimer = null;
     _frameTimer?.cancel();
