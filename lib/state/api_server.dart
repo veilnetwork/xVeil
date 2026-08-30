@@ -811,9 +811,16 @@ class ApiServerController extends Notifier<ApiConfig> {
       saveCloudNote: cloudApi?.saveNote,
       deleteCloudItem: cloudApi?.deleteItem,
       tokens: state.tokens,
-      status: _status,
-      account: _account,
-      accountInvite: () async => ref.read(realStackProvider)?.myInvite.toUri(),
+      // `tokens` above is captured ONCE, so this handler keeps authenticating
+      // the identity it was built for even after the app has moved on. That is
+      // deliberate — the socket is not torn down mid-request — and it is
+      // exactly why everything below has to ask `moved()` before it answers
+      // from, or acts on, whatever is current.
+      status: () => moved() ? const {'ok': false, 'api': 'v1'} : _status(),
+      account: () async =>
+          moved() ? const {'ok': false, 'moved': true} : await _account(),
+      accountInvite: () async =>
+          moved() ? null : ref.read(realStackProvider)?.myInvite.toUri(),
       lockAccount: lockForApi,
       switchIdentity: (label) async =>
           moved() ? kIdentityChanged : await _switchIdentity(label),
@@ -837,7 +844,7 @@ class ApiServerController extends Notifier<ApiConfig> {
       loadFile: (fileId) async => moved() ? null : await _loadFile(fileId),
       placeCall: (toHex, media) async =>
           moved() ? kIdentityChanged : await _placeCall(toHex, media),
-      callState: _callState,
+      callState: () => moved() ? null : _callState(),
       callAction: (action) async =>
           moved() ? kIdentityChanged : await _callAction(action),
       groups: groupApi == null ? () async => const [] : groupApi.list,
@@ -963,14 +970,28 @@ class ApiServerController extends Notifier<ApiConfig> {
       sendSpaceChannelMessage: groupApi?.sendChannelMessage,
       groupsAvailable: groupService != null,
       groupMediaAvailable: groupApi != null,
-      startGroupCall: _startGroupCall,
-      startSpaceVoiceSession: _startSpaceVoiceSession,
-      groupCallState: _groupCallState,
-      groupCallAction: _groupCallAction,
-      groupCallPosture: _groupCallPosture,
+      // Each of these resolves `groupServiceProvider`/`groupCallServiceProvider`
+      // when it runs, which is the CURRENT identity's — so unbound they let a
+      // bearer minted for A start a group call as B, act on B's live call and
+      // read B's participants. Same rule as the direct-call callbacks above.
+      startGroupCall: (groupHex, media) async =>
+          moved() ? kIdentityChanged : await _startGroupCall(groupHex, media),
+      startSpaceVoiceSession: (spaceHex, channelHex, media) async => moved()
+          ? kIdentityChanged
+          : await _startSpaceVoiceSession(spaceHex, channelHex, media),
+      groupCallState: () => moved() ? null : _groupCallState(),
+      groupCallAction: (action) async =>
+          moved() ? kIdentityChanged : await _groupCallAction(action),
+      groupCallPosture: (mic, camera, screen) async => moved()
+          ? kIdentityChanged
+          : await _groupCallPosture(mic, camera, screen),
       groupCallsAvailable: groupCalls != null,
-      webhook: () => state.webhookUrl,
-      setWebhook: setWebhook,
+      webhook: () => moved() ? null : state.webhookUrl,
+      // Bound like every other acting callback, and checked AGAIN inside:
+      // this one writes to storage before it publishes, and a switch landing
+      // in that gap used to point the NEW identity's event feed — sender ids
+      // and message previews — at a URL the old identity's bearer chose.
+      setWebhook: (url) async => moved() ? null : await setWebhook(url, moved),
     );
     // The bot event feed: incoming-message notices as JSON. `.map` on a
     // broadcast stream stays broadcast, so many WS clients can each subscribe.
@@ -1021,8 +1042,17 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// Persist + apply the webhook URL (null clears). The URL is validated at
   /// the API edge ([webhookUrlError]); this stores and rewires the push
   /// subscription only — never the socket (see [_rewireWebhook]).
-  Future<void> setWebhook(String? url) async {
+  ///
+  /// [moved] is the identity-generation check of the handler this call came
+  /// through, and it is asked AFTER the storage write, not only before it. The
+  /// write itself is right either way — it was authorised for, and lands in,
+  /// the identity that asked — but everything after it is about whoever is
+  /// current: `state` belongs to the live controller and `_rewireWebhook`
+  /// subscribes the live event feed. Publishing those from a request that
+  /// began under another identity pointed B's feed at A's URL.
+  Future<void> setWebhook(String? url, [bool Function()? moved]) async {
     await ref.read(storageProvider).putSetting(_kWebhookKey, url ?? '');
+    if (moved?.call() ?? false) return;
     state = state.withWebhook(url);
     _rewireWebhook();
   }
