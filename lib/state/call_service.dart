@@ -555,10 +555,15 @@ class CallService {
 
   Future<void> _notifySiblingsAnsweredElsewhere(Call c) async {
     final list = ownSiblingDevices;
-    if (list == null) return;
+    if (list == null || _disposed) return;
     try {
       final siblings = await list();
-      if (siblings.isEmpty) return;
+      // The resolver reads `groupServiceProvider` when it RUNS, so after a
+      // switch it answers with the new identity's devices — and this would
+      // then tell B's devices about A's call id and A's caller. The service
+      // itself is per-identity and disposed by that switch, which is the
+      // signal to use (report19 XV19-H2).
+      if (siblings.isEmpty || _disposed) return;
       final signal = CallSignal(
         callId: c.callId,
         type: CallSignalType.cancel,
@@ -1155,10 +1160,12 @@ class CallService {
 
   Future<void> _relayOfferToSiblings(NodeId caller, CallSignal sig) async {
     final list = ownSiblingDevices;
-    if (list == null) return;
+    if (list == null || _disposed) return;
     try {
       final siblings = await list();
-      if (siblings.isEmpty) return;
+      // Same resolver, same reason: an offer fanned out after teardown would
+      // reach the NEXT identity's devices carrying this one's caller.
+      if (siblings.isEmpty || _disposed) return;
       final relayed = sig.copyWith(
         onBehalfOf: caller.hex,
         sentAtMs: sig.sentAtMs ?? _now().millisecondsSinceEpoch,

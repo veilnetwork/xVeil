@@ -1131,8 +1131,29 @@ jobs:
           apk add --no-cache libayatana-appindicator libdbusmenu-gtk3 \
             >/dev/null 2>&1 || echo "note: appindicator packages unavailable in this repo set"
           rm -rf verify && mkdir verify && tar -xzf "$GITHUB_WORKSPACE/xveil-linux-x64-musl.tar.gz" -C verify
-          out="$(./verify/bundle/xveil-musl 2>&1 | head -30 || true)"
+          # Run it WITHOUT a pipe, so the exit status is the app's and not
+          # `head`'s, and without `|| true`, which discarded it entirely — a
+          # segfault or a loader abort produced no output lines to match and
+          # was reported as a pass (report19 XV19-M3).
+          set +e
+          ./verify/bundle/xveil-musl > musl-run.log 2>&1
+          rc=$?
+          set -e
+          out="$(head -30 musl-run.log)"
           echo "$out"
+          echo "exit status: $rc"
+          if [ "$rc" -ge 128 ]; then
+            echo "::error::the musl bundle died on signal $((rc - 128)) — that is a crash, not the missing display this check expects"
+            exit 1
+          fi
+          # It must have got as far as GTK. Without a display that is where it
+          # stops, and that stop is the evidence the payload ran at all; an
+          # early exit with none of these lines proves nothing and used to pass.
+          if ! grep -qE 'cannot open display|Gtk|GTK|display' musl-run.log; then
+            echo "::error::the musl bundle exited ($rc) without reaching GTK — nothing here shows the payload ran"
+            head -30 musl-run.log
+            exit 1
+          fi
           # The tray plugin is judged separately from the payload. Missing
           # appindicator packages are a HOST prerequisite — the app loads and
           # runs without a tray icon — while an unresolved symbol anywhere else
