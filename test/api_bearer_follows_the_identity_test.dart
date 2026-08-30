@@ -10,6 +10,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -225,41 +226,168 @@ void main() {
     );
   });
 
-  test('every handler that acts is bound to the identity it was built for', () {
+  test('every handler that reaches live state is bound to its identity', () {
     // The behaviour above covers the gap INSIDE a running request. This covers
     // the entry: a callback held by a handler built for A, called at all. It
     // cannot be reached through the socket — `stop()` cuts the connections —
-    // so it is asserted where it is decided, and it is what stops the next
-    // callback added here from being unbound by omission.
+    // so it is asserted where it is decided.
+    //
+    // DERIVED, not enumerated. This check used to name eight callbacks, and a
+    // ninth — `setWebhook` — was added unbound and the list said nothing,
+    // because a list is a record of what somebody remembered. The rule instead
+    // reads every entry in the wiring and asks a question of it: does this
+    // expression reach something that OUTLIVES the identity the handler was
+    // built for — `ref.read(...)`, the controller's own `state`, or one of its
+    // private members? Those must consult `moved()`. Entries that delegate to
+    // an object captured for this identity (`groupApi`, `cloudApi`,
+    // `groupService`) are bound by construction and need nothing.
     final source = File('lib/state/api_server.dart').readAsStringSync();
     final start = source.indexOf('final handler = ApiHandler(');
     expect(start, isNot(-1), reason: 'the handler wiring moved');
-    final end = source.indexOf('\n    );', start);
-    expect(end, isNot(-1));
-    // Whitespace-insensitive: `dart format` reflows these argument lists every
-    // time one of them grows.
-    final wiring = source.substring(start, end).replaceAll(RegExp(r'\s+'), '');
+    final body = _balanced(source, source.indexOf('(', start));
+    expect(body, isNotNull, reason: 'the handler wiring is unbalanced');
 
-    for (final acting in const [
-      'switchIdentity',
-      'requestContact',
-      'contactAction',
-      'send',
-      'sendFile',
-      'fetchFile',
-      'placeCall',
-      'callAction',
-    ]) {
-      final at = wiring.indexOf('$acting:');
-      expect(at, isNot(-1), reason: '$acting is no longer wired here');
-      expect(
-        wiring.substring(at, at + '$acting:'.length + 40),
-        contains('moved()'),
-        reason: "$acting runs on A's token after the app has moved to B",
-      );
+    // Every method declared on this class, so a bare `name: method` reference
+    // can be recognised for what it reaches. Nested generics included:
+    // `Future<List<String>> lockForApi()` is exactly the shape a lazier
+    // pattern misses, and it is one of the entries this rule has to see.
+    final members = RegExp(
+      r'^  [\w<>,?\s]+?\s+([A-Za-z_]\w*)\s*\(',
+      multiLine: true,
+    ).allMatches(source).map((m) => m.group(1)!).toSet();
+    expect(
+      members.length,
+      greaterThan(20),
+      reason:
+          'only ${members.length} methods parsed out of the controller — '
+          'the bare-reference test below would see almost nothing',
+    );
+
+    final entries = _entries(body!);
+    // Vacuity guard: everything below passes on an empty parse.
+    expect(
+      entries.length,
+      greaterThan(80),
+      reason:
+          'only ${entries.length} handler entries parsed — the rule below '
+          'would pass without checking anything',
+    );
+
+    // Deliberately unbound, each with the reason. A list of names would be a
+    // record of what somebody remembered; a reason is a decision, and the
+    // next entry added here has to make one.
+    const unboundOnPurpose = <String, String>{
+      'tokens':
+          'the capture that IS the binding — read once, here, and what keeps '
+          'authenticating A after the app has moved on',
+      'lockAccount':
+          'closing the boundary is not identity-scoped: a caller asking to '
+          'lock is asking for the session to end, and refusing would leave it '
+          'open',
+    };
+
+    final unbound = <String>[];
+    var guarded = 0;
+    for (final entry in entries.entries) {
+      // Collapsed to single spaces, NOT removed: stripping whitespace glues
+      // `await _contacts()` into `await_contacts()`, and the private-member
+      // test below then stops seeing a private member at all. That mistake
+      // made this rule report five guarded entries instead of twenty-one, and
+      // an emptier list is exactly how a structural check goes quiet.
+      final flat = entry.value.replaceAll(RegExp(r'\s+'), ' ');
+      // A bare reference to a method of this class reaches live state through
+      // the method BODY, where none of the markers below appear. That is how
+      // `setWebhook: setWebhook` looked innocent to the first version of this
+      // rule while being the one entry that was actually unbound.
+      final bare =
+          RegExp(r'^[A-Za-z_]\w*$').hasMatch(flat.trim()) &&
+          members.contains(flat.trim());
+      final reachesLive =
+          bare ||
+          flat.contains('ref.read(') ||
+          flat.contains('state.') ||
+          RegExp(r'(^|[^A-Za-z0-9_.])_[A-Za-z]').hasMatch(flat);
+      if (!reachesLive) continue;
+      if (flat.contains('moved()')) {
+        guarded++;
+        continue;
+      }
+      if (unboundOnPurpose.containsKey(entry.key)) continue;
+      unbound.add('${entry.key}: ${flat.substring(0, min(70, flat.length))}');
     }
+
+    expect(
+      guarded,
+      greaterThan(15),
+      reason:
+          'only $guarded guarded entries found — the detection above has '
+          'stopped recognising the wiring',
+    );
+    expect(
+      unbound,
+      isEmpty,
+      reason:
+          'these run on A\'s token after the app has moved to B. Either make '
+          'them consult moved(), or — if the value is captured for this '
+          'identity on purpose — say so, with a reason, in '
+          'unboundOnPurpose:\n  ${unbound.join('\n  ')}',
+    );
+
     // And the two that keep checking after their first await.
+    final wiring = body.replaceAll(RegExp(r'\s+'), '');
     expect(wiring, contains('_requestContact(target,greeting,moved)'));
     expect(wiring, contains('_sendFile(toHex,path,name,roots,moved)'));
+    expect(
+      wiring,
+      contains('setWebhook(url,moved)'),
+      reason:
+          'setWebhook writes to storage before it publishes; a switch '
+          'landing in that gap pointed B\'s event feed at A\'s URL',
+    );
   });
+}
+
+/// The text inside the brackets that open at [at], brackets balanced.
+String? _balanced(String source, int at) {
+  var depth = 0;
+  for (var i = at; i < source.length; i++) {
+    final c = source[i];
+    if (c == '(' || c == '[' || c == '{') depth++;
+    if (c == ')' || c == ']' || c == '}') {
+      depth--;
+      if (depth == 0) return source.substring(at + 1, i);
+    }
+  }
+  return null;
+}
+
+/// `name: expression` pairs at the top level of an argument list.
+///
+/// Split on top-level commas rather than by line: `dart format` reflows these
+/// arguments every time one of them grows, and half of them are conditionals
+/// spanning several lines.
+Map<String, String> _entries(String body) {
+  final withoutComments = body.replaceAll(RegExp('//[^\n]*'), '');
+  final parts = <String>[];
+  final buffer = StringBuffer();
+  var depth = 0;
+  for (final c in withoutComments.split('')) {
+    if (c == '(' || c == '[' || c == '{') depth++;
+    if (c == ')' || c == ']' || c == '}') depth--;
+    if (c == ',' && depth == 0) {
+      parts.add(buffer.toString());
+      buffer.clear();
+    } else {
+      buffer.write(c);
+    }
+  }
+  if (buffer.toString().trim().isNotEmpty) parts.add(buffer.toString());
+
+  final out = <String, String>{};
+  for (final part in parts) {
+    final match = RegExp(r'^\s*([A-Za-z_]\w*)\s*:').firstMatch(part);
+    if (match == null) continue;
+    out[match.group(1)!] = part.substring(match.end);
+  }
+  return out;
 }
