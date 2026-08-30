@@ -124,11 +124,21 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     }
   }
 
+  /// Read the pairs of the store this call belongs to, and publish them only
+  /// if that is still the current one.
+  ///
+  /// `runOnce` has captured its store before its awaits since report17; this
+  /// did not, and read `_store` on both sides of two of them. A reload started
+  /// under A and finishing after a switch published A's pairs into B's `state`
+  /// and — worse — handed them to `_rewatch`, so B's scheduler watched A's
+  /// folders and the next watcher event or five-minute sweep uploaded A's
+  /// local files into B's cloud (report18 XV18-H6).
   Future<void> reload() async {
-    final pairs = await _store.pairs();
+    final store = _store;
+    final pairs = await store.pairs();
     final views = <FolderSyncPairView>[];
     for (final pair in pairs) {
-      final saved = await _store.state(pair.id);
+      final saved = await store.state(pair.id);
       views.add(
         FolderSyncPairView(
           pair: pair,
@@ -139,6 +149,7 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
         ),
       );
     }
+    if (!identical(_store, store)) return;
     state = views;
     _rewatch([for (final view in views) view.pair]);
   }
@@ -150,7 +161,10 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
     String? cloudFolderId,
     required String id,
   }) async {
-    final pairs = [...await _store.pairs()];
+    // The store this call was asked of, held across every await below: a list
+    // read from A must not be written to B.
+    final store = _store;
+    final pairs = [...await store.pairs()];
     // Refused rather than supported: a file inside two pairs is uploaded
     // twice, under two cloud paths, with two independent bases — nothing is
     // lost, but one file quietly becomes two objects and deleting it locally
@@ -169,17 +183,20 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
         cloudFolderId: cloudFolderId,
       ),
     );
-    await _store.savePairs(pairs);
+    if (!identical(_store, store)) return null;
+    await store.savePairs(pairs);
     await reload();
     return null;
   }
 
   Future<void> removePair(String id) async {
-    final pairs = (await _store.pairs()).where((p) => p.id != id).toList();
-    await _store.savePairs(pairs);
+    final store = _store;
+    final pairs = (await store.pairs()).where((p) => p.id != id).toList();
+    if (!identical(_store, store)) return;
+    await store.savePairs(pairs);
     // The remembered base goes with it. Keeping it would make a later re-add
     // of the same folder infer deletions from a picture of the distant past.
-    await _store.forget(id);
+    await store.forget(id);
     _scheduler?.unwatch(id);
     await reload();
   }

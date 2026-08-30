@@ -380,7 +380,9 @@ void main() {
         );
         expect(outgoingMessaging.sent.single.protocolVersion, 2);
         expect(
-          decodeCallMediaKeyContribution(outgoingMessaging.sent.single.mediaKey),
+          decodeCallMediaKeyContribution(
+            outgoingMessaging.sent.single.mediaKey,
+          ),
           hasLength(32),
         );
         outgoing.dispose();
@@ -403,7 +405,9 @@ void main() {
         await incoming.accept();
         expect(incomingMessaging.sent.single.protocolVersion, 2);
         expect(
-          decodeCallMediaKeyContribution(incomingMessaging.sent.single.mediaKey),
+          decodeCallMediaKeyContribution(
+            incomingMessaging.sent.single.mediaKey,
+          ),
           hasLength(32),
         );
         incoming.dispose();
@@ -1757,44 +1761,51 @@ void main() {
           sentAtMs: sentAtMs ?? DateTime.now().millisecondsSinceEpoch,
         );
 
-    test('an original offer is relayed to every sibling naming the caller',
-        () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
-      svc.ownSiblingDevices = () async => [sibling];
-      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+    test(
+      'an original offer is relayed to every sibling naming the caller',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        svc.ownSiblingDevices = () async => [sibling];
+        svc.isOwnDevice = (p) async => p.hex == sibling.hex;
 
-      fake.onCallSignal!(caller, offer('fan-1'));
-      await pumpEventQueue();
+        fake.onCallSignal!(caller, offer('fan-1'));
+        await pumpEventQueue();
 
-      expect(svc.current?.status, CallStatus.ringing);
-      expect(svc.current?.peer, caller);
-      final relayed = fake.sentTo
-          .where((r) => r.$2.type == CallSignalType.offer)
-          .toList();
-      expect(relayed, hasLength(1));
-      expect(relayed.single.$1.hex, sibling.hex);
-      expect(relayed.single.$2.onBehalfOf, caller.hex);
-      expect(relayed.single.$2.callId, 'fan-1');
-      svc.dispose();
-    });
+        expect(svc.current?.status, CallStatus.ringing);
+        expect(svc.current?.peer, caller);
+        final relayed = fake.sentTo
+            .where((r) => r.$2.type == CallSignalType.offer)
+            .toList();
+        expect(relayed, hasLength(1));
+        expect(relayed.single.$1.hex, sibling.hex);
+        expect(relayed.single.$2.onBehalfOf, caller.hex);
+        expect(relayed.single.$2.callId, 'fan-1');
+        svc.dispose();
+      },
+    );
 
-    test('a RELAYED offer does not fan out again (no sibling ping-pong)',
-        () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
-      svc.ownSiblingDevices = () async => [sibling];
-      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+    test(
+      'a RELAYED offer does not fan out again (no sibling ping-pong)',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        svc.ownSiblingDevices = () async => [sibling];
+        svc.isOwnDevice = (p) async => p.hex == sibling.hex;
 
-      fake.onCallSignal!(sibling, offer('fan-2', onBehalfOf: caller.hex));
-      await pumpEventQueue();
+        fake.onCallSignal!(sibling, offer('fan-2', onBehalfOf: caller.hex));
+        await pumpEventQueue();
 
-      expect(svc.current?.status, CallStatus.ringing);
-      expect(svc.current?.peer, caller,
-          reason: 'the ring must show the true caller, not the sibling');
-      expect(fake.sentTo, isEmpty);
-      svc.dispose();
-    });
+        expect(svc.current?.status, CallStatus.ringing);
+        expect(
+          svc.current?.peer,
+          caller,
+          reason: 'the ring must show the true caller, not the sibling',
+        );
+        expect(fake.sentTo, isEmpty);
+        svc.dispose();
+      },
+    );
 
     test('a relayed offer from a NON-sibling is refused outright', () async {
       final fake = _FakeMessaging();
@@ -1805,8 +1816,11 @@ void main() {
       fake.onCallSignal!(stranger, offer('fan-3', onBehalfOf: caller.hex));
       await pumpEventQueue();
 
-      expect(svc.current, isNull,
-          reason: 'a contact must not ring us wearing another caller\'s name');
+      expect(
+        svc.current,
+        isNull,
+        reason: 'a contact must not ring us wearing another caller\'s name',
+      );
       svc.dispose();
     });
 
@@ -1928,9 +1942,11 @@ void main() {
           .toList();
       expect(answers.single.$1.hex, caller.hex);
       final hushes = fake.sentTo
-          .where((r) =>
-              r.$2.type == CallSignalType.cancel &&
-              r.$2.reason == CallEndReason.answeredElsewhere)
+          .where(
+            (r) =>
+                r.$2.type == CallSignalType.cancel &&
+                r.$2.reason == CallEndReason.answeredElsewhere,
+          )
           .toList();
       expect(hushes, hasLength(1));
       expect(hushes.single.$1.hex, sibling.hex);
@@ -1938,64 +1954,68 @@ void main() {
       svc.dispose();
     });
 
-    test('answered-elsewhere from a sibling ends the ring as TAKEN, not missed',
-        () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
-      svc.ownSiblingDevices = () async => [sibling];
-      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+    test(
+      'answered-elsewhere from a sibling ends the ring as TAKEN, not missed',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        svc.ownSiblingDevices = () async => [sibling];
+        svc.isOwnDevice = (p) async => p.hex == sibling.hex;
 
-      fake.onCallSignal!(caller, offer('fan-6'));
-      await pumpEventQueue();
-      expect(svc.current?.status, CallStatus.ringing);
+        fake.onCallSignal!(caller, offer('fan-6'));
+        await pumpEventQueue();
+        expect(svc.current?.status, CallStatus.ringing);
 
-      fake.onCallSignal!(
-        sibling,
-        CallSignal(
-          callId: 'fan-6',
-          type: CallSignalType.cancel,
-          reason: CallEndReason.answeredElsewhere,
-          onBehalfOf: caller.hex,
-          sentAtMs: DateTime.now().millisecondsSinceEpoch,
-        ),
-      );
-      await pumpEventQueue();
+        fake.onCallSignal!(
+          sibling,
+          CallSignal(
+            callId: 'fan-6',
+            type: CallSignalType.cancel,
+            reason: CallEndReason.answeredElsewhere,
+            onBehalfOf: caller.hex,
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+        await pumpEventQueue();
 
-      expect(svc.current, isNull);
-      expect(
-        callLogOutcomeFor(
-          outgoing: false,
-          connected: false,
-          reason: CallEndReason.answeredElsewhere,
-        ),
-        CallLogOutcome.completed,
-        reason: 'the identity took the call — "missed" would be a lie',
-      );
-      svc.dispose();
-    });
+        expect(svc.current, isNull);
+        expect(
+          callLogOutcomeFor(
+            outgoing: false,
+            connected: false,
+            reason: CallEndReason.answeredElsewhere,
+          ),
+          CallLogOutcome.completed,
+          reason: 'the identity took the call — "missed" would be a lie',
+        );
+        svc.dispose();
+      },
+    );
 
-    test('rejecting a RELAYED ring stays local — the caller hears nothing',
-        () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
-      svc.ownSiblingDevices = () async => [sibling];
-      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+    test(
+      'rejecting a RELAYED ring stays local — the caller hears nothing',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        svc.ownSiblingDevices = () async => [sibling];
+        svc.isOwnDevice = (p) async => p.hex == sibling.hex;
 
-      fake.onCallSignal!(sibling, offer('fan-7', onBehalfOf: caller.hex));
-      await pumpEventQueue();
-      expect(svc.current?.status, CallStatus.ringing);
+        fake.onCallSignal!(sibling, offer('fan-7', onBehalfOf: caller.hex));
+        await pumpEventQueue();
+        expect(svc.current?.status, CallStatus.ringing);
 
-      await svc.reject();
-      await pumpEventQueue();
+        await svc.reject();
+        await pumpEventQueue();
 
-      expect(svc.current, isNull);
-      expect(
-        fake.sentTo.where((r) => r.$2.type == CallSignalType.reject),
-        isEmpty,
-        reason: 'other devices are still ringing; one "no" must not hang up',
-      );
-      svc.dispose();
-    });
+        expect(svc.current, isNull);
+        expect(
+          fake.sentTo.where((r) => r.$2.type == CallSignalType.reject),
+          isEmpty,
+          reason: 'other devices are still ringing; one "no" must not hang up',
+        );
+        svc.dispose();
+      },
+    );
 
     test('the caller rebinds to whichever device answers', () async {
       final fake = _FakeMessaging();
@@ -2018,8 +2038,11 @@ void main() {
       );
       await pumpEventQueue();
 
-      expect(svc.current?.peer, device,
-          reason: 'the dialog belongs to whoever picked up');
+      expect(
+        svc.current?.peer,
+        device,
+        reason: 'the dialog belongs to whoever picked up',
+      );
       expect(svc.current?.status, CallStatus.connecting);
 
       // A late busy from a re-driven offer at another device must not tear
@@ -2037,25 +2060,129 @@ void main() {
       svc.dispose();
     });
 
-    test('a re-driven offer of the current call is swallowed, not busied',
-        () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
+    test(
+      'a re-driven offer of the current call is swallowed, not busied',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
 
-      fake.onCallSignal!(caller, offer('fan-8'));
+        fake.onCallSignal!(caller, offer('fan-8'));
+        await pumpEventQueue();
+        expect(svc.current?.status, CallStatus.ringing);
+
+        fake.onCallSignal!(caller, offer('fan-8'));
+        await pumpEventQueue();
+
+        expect(svc.current?.status, CallStatus.ringing);
+        expect(
+          fake.sentTo.where((r) => r.$2.type == CallSignalType.busy),
+          isEmpty,
+          reason: 're-drives of the same call must not busy the caller',
+        );
+        svc.dispose();
+      },
+    );
+  });
+
+  group('teardown is a boundary', () {
+    // Every async mutator here already re-checks after its awaits — placeCall
+    // compares callId and status, accept compares callId, peer and status —
+    // and every one of those checks PASSED after dispose(), because teardown
+    // cancelled the timers, released the slot and left `_current` holding the
+    // very call it had torn down. The continuation then found exactly what it
+    // expected and sent an offer, or an answer, and started media, from a
+    // service whose identity is gone (report18 XV18-H1/H2).
+
+    test('an offer is not sent after dispose', () async {
+      final peer = NodeId.fromHex('e' * 64);
+      final messaging = _FakeMessaging();
+      final slot = CallSlot();
+      final gate = Completer<bool>();
+      var reachedTheGap = false;
+      final svc = CallService(
+        messaging,
+        callSlot: slot,
+        localAllowsP2P: (_) {
+          reachedTheGap = true;
+          return gate.future;
+        },
+      )..start();
+
+      final placing = svc.placeCall(peer, const CallMedia(audio: true));
       await pumpEventQueue();
-      expect(svc.current?.status, CallStatus.ringing);
-
-      fake.onCallSignal!(caller, offer('fan-8'));
-      await pumpEventQueue();
-
-      expect(svc.current?.status, CallStatus.ringing);
+      expect(svc.current, isNotNull, reason: 'premise: the call is dialing');
+      // Vacuity guard: everything below passes on a placeCall that never got
+      // as far as the await this test is about.
       expect(
-        fake.sentTo.where((r) => r.$2.type == CallSignalType.busy),
-        isEmpty,
-        reason: 're-drives of the same call must not busy the caller',
+        reachedTheGap,
+        isTrue,
+        reason: 'placeCall never reached the gap — this test proves nothing',
       );
+
       svc.dispose();
+      gate.complete(false);
+      await placing;
+
+      expect(
+        messaging.sent.where((s) => s.type == CallSignalType.offer),
+        isEmpty,
+        reason: 'an offer went out from a service whose identity is gone',
+      );
+      expect(svc.current, isNull, reason: 'teardown left the call behind');
+    });
+
+    test('an answer and media do not start after dispose', () async {
+      final peer = NodeId.fromHex('f' * 64);
+      final messaging = _FakeMessaging();
+      final media = _FakeMedia();
+      final gate = Completer<bool>();
+      var reachedTheGap = false;
+      final svc = CallService(
+        messaging,
+        media: media,
+        localAllowsP2P: (_) {
+          reachedTheGap = true;
+          return gate.future;
+        },
+      )..start();
+
+      messaging.onCallSignal!(
+        peer,
+        CallSignal(
+          callId: 'incoming-after-dispose',
+          type: CallSignalType.offer,
+          media: const CallMedia(audio: true),
+          posture: CallPosture.direct,
+          protocolVersion: kCallSignalProtocolVersion,
+          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.ringing, reason: 'premise');
+
+      final accepting = svc.accept();
+      await pumpEventQueue();
+      expect(
+        reachedTheGap,
+        isTrue,
+        reason: 'accept never reached the gap — this test proves nothing',
+      );
+
+      svc.dispose();
+      gate.complete(false);
+      await accepting;
+
+      expect(
+        messaging.sent.where((s) => s.type == CallSignalType.answer),
+        isEmpty,
+        reason: 'an answer went out after teardown',
+      );
+      expect(
+        media.startedWith,
+        isEmpty,
+        reason: 'the microphone was started after teardown',
+      );
+      expect(svc.current, isNull);
     });
   });
 }

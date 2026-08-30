@@ -271,10 +271,14 @@ class GroupCallService {
       groupId,
       channelId,
     );
-    if (state == null ||
+    if (_disposed ||
+        state == null ||
         admission == null ||
         !admission.recipients.contains(_groups.selfId)) {
-      _callSlot?.release(CallSlotOwner.group);
+      // Only the lease this call took. `dispose` has already released its own,
+      // and by now the slot may belong to a successor — releasing it again
+      // would take the new call's lease away from it.
+      if (!_disposed) _callSlot?.release(CallSlotOwner.group);
       return false;
     }
     final now = _now();
@@ -370,6 +374,7 @@ class GroupCallService {
       joinedAt: now,
       participants: participants,
     );
+    if (!_stillOn(call)) return false;
     _set(joined);
     _cancelRingTimer();
     final sent = await _groups.broadcastGroupCallSignal(
@@ -467,6 +472,9 @@ class GroupCallService {
     final state = await _groups.stateOf(call.groupId);
     final role = state?.roleOf(_groups.selfId);
     if (role == null || role.rank < GroupRole.admin.rank) return false;
+    // The permission was checked for THIS call; ending whatever is current
+    // instead would end a room this answer says nothing about.
+    if (!_stillOn(call)) return false;
     unawaited(
       _groups.broadcastGroupCallSignal(
         call.groupId,
@@ -941,7 +949,27 @@ class GroupCallService {
     _ringTimer = null;
   }
 
+  /// Is [call] still the call this service is on?
+  ///
+  /// The mutators below read `_current` at entry, await the group state and
+  /// the channel admission, and then act — publishing, broadcasting, ending.
+  /// Between those two moments the room can change or the service can be torn
+  /// down, and every one of them used to act anyway: `join` could publish a
+  /// room the service had left, and the two end paths checked permission on
+  /// call A and then ended whatever call was current (report18 XV18-H1).
+  bool _stillOn(GroupCall call) {
+    final live = _current;
+    return !_disposed &&
+        live != null &&
+        live.callId == call.callId &&
+        live.groupId == call.groupId &&
+        live.channelId == call.channelId;
+  }
+
   void _set(GroupCall call) {
+    // Nothing is published after teardown, or a late continuation puts the
+    // call back and undoes the boundary in [dispose].
+    if (_disposed) return;
     _current = call;
     if (!_changes.isClosed) _changes.add(call);
   }
@@ -1065,7 +1093,20 @@ class GroupCallService {
     return _endedCallTombstones.containsKey(_endedCallKey(groupId, callId));
   }
 
+  /// Torn down. Marked before anything else, and it clears the call.
+  ///
+  /// `startCall` awaits the group state and the voice-channel admission, then
+  /// publishes, broadcasts an announce, arms the timers and starts media —
+  /// with nothing between those awaits and those side effects. `dispose` stops
+  /// the timers, the media and the slot, so the announce went out and the
+  /// media started with no exclusive lease behind them, from an identity the
+  /// app had already left (report18 XV18-H1). `join`, `endForEveryone` and the
+  /// admin branch of `_onSignal` are the same shape.
+  bool _disposed = false;
+
   Future<void> dispose() async {
+    _disposed = true;
+    _current = null;
     _groups.changes.removeListener(_onGroupChanged);
     _cancelRingTimer();
     _heartbeatTimer?.cancel();
