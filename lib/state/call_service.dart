@@ -298,13 +298,15 @@ class CallService {
         // A relay is one of MY OWN devices; they move together, so an
         // unstamped one here is the anomaly the original gate refused.
         devLog(
-          () => 'xVeil[call-sig]: relayed offer ${sig.callId} ignored — '
+          () =>
+              'xVeil[call-sig]: relayed offer ${sig.callId} ignored — '
               'no timestamp to judge it by',
         );
         return true;
       }
       devLog(
-        () => 'xVeil[call-sig]: offer ${sig.callId} carries no timestamp — '
+        () =>
+            'xVeil[call-sig]: offer ${sig.callId} carries no timestamp — '
             'admitted, but its age cannot be checked (peer predates stamping)',
       );
       return false;
@@ -312,7 +314,8 @@ class CallService {
     final age = _now().difference(DateTime.fromMillisecondsSinceEpoch(at));
     if (age > _offerMaxAge || age < -_offerSkewAllowance) {
       devLog(
-        () => 'xVeil[call-sig]: offer ${sig.callId} ignored — stale '
+        () =>
+            'xVeil[call-sig]: offer ${sig.callId} ignored — stale '
             '(age=${age.inSeconds}s, relayed=$relayed)',
       );
       return true;
@@ -827,7 +830,8 @@ class CallService {
         caller = NodeId.fromHex(claimed);
       } catch (_) {
         devLog(
-          () => 'xVeil[call-sig]: relayed ${sig.type.name} dropped — '
+          () =>
+              'xVeil[call-sig]: relayed ${sig.type.name} dropped — '
               'unparseable onBehalfOf',
         );
         return;
@@ -837,7 +841,8 @@ class CallService {
         // The one attack this field invites: a contact ringing us while
         // wearing an arbitrary caller's name. Refuse loudly.
         devLog(
-          () => 'xVeil[call-sig]: relayed ${sig.type.name} from '
+          () =>
+              'xVeil[call-sig]: relayed ${sig.type.name} from '
               '${peer.short} REFUSED — sender is not one of my devices',
         );
         return;
@@ -1160,7 +1165,8 @@ class CallService {
         sentAtMs: sig.sentAtMs ?? _now().millisecondsSinceEpoch,
       );
       devLog(
-        () => 'xVeil[call-sig]: fanning offer ${sig.callId} from '
+        () =>
+            'xVeil[call-sig]: fanning offer ${sig.callId} from '
             '${caller.short} out to ${siblings.length} sibling device(s)',
       );
       for (final device in siblings) {
@@ -1184,7 +1190,8 @@ class CallService {
       return;
     }
     devLog(
-      () => 'xVeil[call-sig]: call ${sig.callId} answered on another '
+      () =>
+          'xVeil[call-sig]: call ${sig.callId} answered on another '
           'device — stopping this ring',
     );
     _end(CallEndReason.answeredElsewhere);
@@ -1210,7 +1217,8 @@ class CallService {
       // picked up), so media and every later signal target the device with
       // the human at it.
       devLog(
-        () => 'xVeil[call-sig]: answer for ${sig.callId} came from '
+        () =>
+            'xVeil[call-sig]: answer for ${sig.callId} came from '
             '${peer.short} — rebinding the call from ${c!.peer.short}',
       );
       c = c.copyWith(peer: peer);
@@ -1409,6 +1417,10 @@ class CallService {
   }
 
   void _set(Call call) {
+    // Nothing is published after teardown. Without this a late continuation —
+    // an offer arriving through the relayed lane, a media start finishing —
+    // would put `_current` back and undo the boundary above.
+    if (_disposed) return;
     if (_current?.callId != call.callId) {
       _lastRenegotiateAtMs = 0;
       _pendingRelayCallId = null;
@@ -1551,7 +1563,23 @@ class CallService {
     if (!_changes.isClosed) _changes.add(null);
   }
 
+  /// Torn down. The boundary, and it is marked BEFORE anything else runs.
+  ///
+  /// Every async mutator here already re-checks after its awaits: `placeCall`
+  /// compares callId and status, `accept` compares callId, peer and status.
+  /// Every one of those checks PASSED after teardown, because teardown
+  /// cancelled the timers, released the slot, closed the stream — and left
+  /// `_current` holding the very call it had just torn down. The continuation
+  /// therefore found exactly what it expected and went on to send an offer or
+  /// an answer, arm a ring timer, start a heartbeat and start media, from a
+  /// service whose identity is gone and whose call slot now belongs to its
+  /// successor (report18 XV18-H2).
+  bool _disposed = false;
+
   void dispose() {
+    _disposed = true;
+    // Cleared here, not left behind: it is what those post-await checks read.
+    _current = null;
     _cancelRingTimeout();
     _cancelHeartbeat();
     if (_messaging.onCallSignal == _handler) _messaging.onCallSignal = null;
