@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/node/managed_node.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/state/managed_nodes_controller.dart';
 import 'package:xveil/state/providers.dart';
 
@@ -170,4 +172,100 @@ void main() {
       reason: "and B's screen shows A's servers",
     );
   });
+
+  test('a write already in flight when the identity changes stays in A', () {
+    // The queued case above is the easy half. This is the other one: the
+    // mutation is not waiting in the queue, it is INSIDE `putSetting` when the
+    // switch happens. `_serialized` checks the storage when an operation
+    // reaches the front of the queue — one moment too early to see this — and
+    // the notifier is reused across builds, so the continuation published A's
+    // list into B's `state` and left `_lastPersisted` claiming A's JSON was
+    // B's last write (report18 XV18-H4).
+    //
+    // Deterministic: the write is held open on a gate, not on a timer.
+    return () async {
+      final aBacking = FakeKvLogStore();
+      final a = HiddenVolumeStorage(
+        ({required password, required bool create}) => aBacking,
+      );
+      await a.open(password: 'a', createIfMissing: true);
+      final gatedA = _GatedStorage(a);
+      final b = await opened('b');
+
+      Storage active = gatedA;
+      final container = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => active)],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(managedNodesProvider.future);
+      final notifier = container.read(managedNodesProvider.notifier);
+
+      final gate = Completer<void>();
+      gatedA.hold = gate;
+      final inFlight = notifier.upsert(node('a1'));
+      // Let the mutation reach the write and block there.
+      await Future<void>.delayed(Duration.zero);
+
+      active = b;
+      container.invalidate(storageProvider);
+      await container.read(managedNodesProvider.future);
+
+      gate.complete();
+      expect(await inFlight, isNull, reason: "A's write itself must succeed");
+
+      expect(
+        container.read(managedNodesProvider).value!.map((n) => n.id),
+        isEmpty,
+        reason: "A's servers appeared in B's live registry",
+      );
+
+      // And the cache must not claim A's list was B's last write, or B's next
+      // identical write would be skipped as a no-op.
+      expect(
+        await notifier.upsert(node('b1')),
+        isNull,
+        reason: "B's own write was refused",
+      );
+      expect(
+        container.read(managedNodesProvider).value!.map((n) => n.id),
+        ['b1'],
+        reason: "B's container took A's servers with it",
+      );
+
+      // A's write is where it belongs, and nowhere else.
+      expect(
+        ManagedNode.decodeList(
+          await a.getSetting('managed_nodes') ?? '[]',
+        ).map((n) => n.id),
+        ['a1'],
+        reason: "A's own write was lost by the guard",
+      );
+    }();
+  });
+}
+
+/// A [Storage] whose settings write can be held open.
+///
+/// Everything else forwards to the real one through noSuchMethod: this exists
+/// to open a window inside `putSetting`, not to reimplement storage.
+class _GatedStorage implements Storage {
+  _GatedStorage(this._inner);
+
+  final Storage _inner;
+  Completer<void>? hold;
+
+  @override
+  Future<void> putSetting(String key, String value) async {
+    final gate = hold;
+    if (gate != null) await gate.future;
+    return _inner.putSetting(key, value);
+  }
+
+  @override
+  Future<String?> getSetting(String key) => _inner.getSetting(key);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      _inner.noSuchMethod(invocation);
 }

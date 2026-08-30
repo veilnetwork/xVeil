@@ -65,9 +65,22 @@ class ManagedNodesController extends AsyncNotifier<List<ManagedNode>> {
     try {
       await storage.putSetting(_kManagedNodesKey, json);
     } catch (e) {
-      _lastPersisted = null; // write failed — don't suppress the next attempt
+      // Only OUR cache. See the guard below for why this is conditional.
+      if (identical(_storage, storage)) _lastPersisted = null;
       return '$e';
     }
+    // The write above went where it belonged: to the storage this operation
+    // was asked for. Everything below is about whoever is CURRENT.
+    //
+    // `_serialized` checks the storage when a queued mutation reaches the
+    // front, which is one moment too early: an operation already inside
+    // `putSetting` when the identity changes passes that check and comes back
+    // here afterwards. This notifier is REUSED across builds — riverpod
+    // re-runs `build()` on the same object — so `_lastPersisted` and `state`
+    // now belong to B, and publishing A's list into them put A's hosts, users
+    // and TOFU host-key fingerprints on B's screen and, at the next B
+    // mutation, into B's container (report18 XV18-H4).
+    if (!identical(_storage, storage)) return null;
     _lastPersisted = json;
     state = AsyncData(nodes);
     return null;
