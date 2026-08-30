@@ -661,7 +661,8 @@ class VeilCallMediaController implements CallMediaController {
   @override
   bool get screenCaptureAccessGranted =>
       !Platform.isMacOS ||
-      (VeilMediaNative.guard(() => platformScreenCaptureAccessGranted) ?? false);
+      (VeilMediaNative.guard(() => platformScreenCaptureAccessGranted) ??
+          false);
 
   @override
   bool requestScreenCaptureAccess() =>
@@ -1350,7 +1351,9 @@ class VeilCallMediaController implements CallMediaController {
     final engine = _engine;
     if (engine == null || Platform.isAndroid || Platform.isIOS) return const [];
     try {
-      return engine.listAudioOutputs().indexed
+      return engine
+          .listAudioOutputs()
+          .indexed
           .map(
             (entry) => CallMediaDevice(
               id: entry.$2.id,
@@ -1560,6 +1563,13 @@ class VeilCallMediaController implements CallMediaController {
         return true;
       }
       if (_androidScreen != null) return true;
+      // The session this request belongs to. Enabling share stops the camera
+      // FIRST, and between nulling those fields and creating the screen source
+      // there is nothing for `_stopSession` to find: it sees camera and screen
+      // both null, tears the engine down and finishes — and the continuation
+      // then creates and starts a foreground MediaProjection capture on the
+      // far side of the privacy boundary the hangup drew (report18 XV18-H3).
+      final epoch = _mediaEpoch;
       final cameraWasRunning = _androidNativeCam != null || _androidCam != null;
       final nativeCam = _androidNativeCam;
       _androidNativeCam = null;
@@ -1567,7 +1577,23 @@ class VeilCallMediaController implements CallMediaController {
       final cam = _androidCam;
       _androidCam = null;
       if (cam != null) await cam.stop();
+      if (epoch != _mediaEpoch) return false;
       final started = await _startAndroidScreen(engine);
+      // And again on the way out: `_startAndroidScreen` publishes the source
+      // before it awaits `start`, so a teardown landing THERE stops a source
+      // that has not started yet and the start then succeeds behind it —
+      // capture running with nobody holding it.
+      if (epoch != _mediaEpoch) {
+        final orphan = _androidScreen;
+        _androidScreen = null;
+        _screenSharing = false;
+        if (orphan != null) {
+          try {
+            await orphan.stop();
+          } catch (_) {}
+        }
+        return false;
+      }
       _screenSharing = started;
       if (started) _startFramePump(engine);
       if (!started && cameraWasRunning) {
