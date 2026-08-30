@@ -986,21 +986,48 @@ jobs:
           if ($dlls.Count -lt 5) {
             throw "only $($dlls.Count) DLLs under $root - this is not a bundle, and the check below would pass on it"
           }
+          # Loaded from inside the bundle so a library finds its neighbours
+          # the way it will at runtime.
+          Push-Location $root
           $failed = @()
+          $unused = @()
           foreach ($dll in $dlls) {
             try {
               $h = [System.Runtime.InteropServices.NativeLibrary]::Load($dll.FullName)
               [System.Runtime.InteropServices.NativeLibrary]::Free($h)
             } catch {
-              $failed += ("{0}: {1}" -f $dll.Name, $_.Exception.Message)
+              # Referenced by something else here, or dead weight? A bundle
+              # legitimately carries libraries this platform never loads —
+              # dartjni.dll rides along from a Dart package and wants a JVM
+              # that a Windows desktop has no reason to have. Demanding that
+              # EVERYTHING loads fails the build over cargo, which is the same
+              # mistake the runtime-DLL check made before it learned to ask
+              # who references what.
+              $name = $dll.Name
+              $referenced = $false
+              foreach ($other in ($dlls + @(Get-ChildItem $root -Filter *.exe -File))) {
+                if ($other.FullName -eq $dll.FullName) { continue }
+                $bytes = [System.IO.File]::ReadAllBytes($other.FullName)
+                $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+                if ($text.ToLower().Contains($name.ToLower())) { $referenced = $true; break }
+              }
+              if ($referenced) {
+                $failed += ("{0}: {1}" -f $name, $_.Exception.Message)
+              } else {
+                $unused += $name
+              }
             }
           }
+          Pop-Location
+          foreach ($u in $unused) {
+            Write-Output "::warning::$u does not load here and nothing in the bundle references it — dead weight, not a defect"
+          }
           if ($failed.Count -gt 0) {
-            Write-Output "::error::libraries in the bundle that the loader refuses:"
+            Write-Output "::error::libraries the bundle DEPENDS ON and the loader refuses:"
             $failed | ForEach-Object { Write-Output "  $_" }
             exit 1
           }
-          Write-Output "  ok $($dlls.Count) libraries, all load"
+          Write-Output "  ok $($dlls.Count) libraries: all that are referenced load"
 
 
       - name: Archive
