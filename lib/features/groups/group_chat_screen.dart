@@ -502,9 +502,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// inline clear-media fallback in protected channels at every clip length.
   Future<void> _sendVoiceClip(GroupService svc, VoiceClip clip) async {
     if (clip.bytes.isEmpty) return;
-    final cid = await ref
-        .read(messagingServiceProvider)
-        .registerGroupContent(clip.bytes, name: 'voice.vop1');
+    final cid = await _messaging.registerGroupContent(
+      clip.bytes,
+      name: 'voice.vop1',
+    );
     final duration = clip.durationMs > 0 ? clip.durationMs : 1;
     await _postGroupMessage(
       svc,
@@ -524,9 +525,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// as a content-path REF (VN01 bytes are far too big for inline chunks).
   Future<void> _sendVnoteClip(GroupService svc, VnoteClip clip) async {
     if (clip.bytes.isEmpty) return;
-    final cid = await ref
-        .read(messagingServiceProvider)
-        .registerGroupContent(clip.bytes, name: 'vnote.vn01');
+    final cid = await _messaging.registerGroupContent(
+      clip.bytes,
+      name: 'vnote.vn01',
+    );
     await _postGroupMessage(
       svc,
       '',
@@ -619,15 +621,13 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       );
       final String cid;
       try {
-        cid = await ref
-            .read(messagingServiceProvider)
-            .registerGroupContentStreaming(
-              file.name,
-              size,
-              source.read,
-              close: source.close,
-              sourcePath: sourcePath,
-            );
+        cid = await _messaging.registerGroupContentStreaming(
+          file.name,
+          size,
+          source.read,
+          close: source.close,
+          sourcePath: sourcePath,
+        );
       } catch (_) {
         if (mounted) _snack(l.chatFileUnreadable);
         return;
@@ -670,9 +670,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final thumb = await makeInlineImageB64(bytes, rawMax: _kRefThumbRawMax);
     final caption = _input.toWireValue();
     if (thumb != null) {
-      final cid = await ref
-          .read(messagingServiceProvider)
-          .registerGroupContent(bytes, name: file.name);
+      final cid = await _messaging.registerGroupContent(bytes, name: file.name);
       await _postGroupMessage(
         svc,
         caption.body,
@@ -694,9 +692,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       if (mounted) _snack(l.groupImageTooLarge);
       return;
     }
-    final cid = await ref
-        .read(messagingServiceProvider)
-        .registerGroupContent(bytes, name: file.name);
+    final cid = await _messaging.registerGroupContent(bytes, name: file.name);
     await _postGroupMessage(
       svc,
       caption.body,
@@ -879,9 +875,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
   /// fits the inline-attachment path (delta-broadcast, one-time chunk cost).
   Future<void> _sendGroupSticker(GroupService svc, String picked) async {
     if (picked.startsWith('pack:')) return; // no group pack-share yet
-    final bytes = await ref
-        .read(storageProvider)
-        .loadFile(stickerFileKey(picked));
+    final bytes = await _storage.loadFile(stickerFileKey(picked));
     if (bytes == null) return;
     final img = await makeInlineImageB64(bytes);
     if (img == null) return;

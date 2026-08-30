@@ -122,16 +122,23 @@ void main() {
     // Bounded at the class's closing brace at column 0, not a fixed window.
     final end = source.indexOf('\n}\n', start);
     expect(end, isNot(-1));
-    final body = source.substring(start, end);
+    // WHITESPACE-NORMALISED, and that is the whole point. This check counted
+    // the exact string `ref.read(messagingServiceProvider)` and found one — the
+    // capture — while fourteen more sat in the file as
+    // `await ref\n    .read(messagingServiceProvider)\n    .sendFile(...)`,
+    // which `dart format` writes whenever the line grows. Three of those ran
+    // after a file picker, so the bytes chosen under A were sent through B and
+    // this test stayed green throughout (report18 XV18-H7).
+    final body = source.substring(start, end).replaceAll(RegExp(r'\s+'), '');
 
     expect(
       body,
-      contains('_storage = ref.read(storageProvider)'),
+      contains('_storage=ref.read(storageProvider)'),
       reason: 'the capture itself is gone',
     );
     expect(
       body,
-      contains('_messaging = ref.read(messagingServiceProvider)'),
+      contains('_messaging=ref.read(messagingServiceProvider)'),
       reason: 'the capture itself is gone',
     );
     // Exactly the two captures above, and nothing else.
@@ -160,13 +167,13 @@ void main() {
     expect(start, isNot(-1), reason: 'the screen was renamed');
     final end = source.indexOf('\n}\n', start);
     expect(end, isNot(-1));
-    final body = source.substring(start, end);
+    final body = source.substring(start, end).replaceAll(RegExp(r'\s+'), '');
 
-    expect(body, contains('_storage = ref.read(storageProvider)'));
-    expect(body, contains('_messaging = ref.read(messagingServiceProvider)'));
+    expect(body, contains('_storage=ref.read(storageProvider)'));
+    expect(body, contains('_messaging=ref.read(messagingServiceProvider)'));
     expect(
       body,
-      contains('if (!identical(ref.watch(storageProvider), _storage))'),
+      contains('if(!identical(ref.watch(storageProvider),_storage))'),
       reason: "the screen repaints A's group under B",
     );
     for (final dynamicRead in const {
