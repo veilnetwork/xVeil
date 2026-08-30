@@ -265,7 +265,7 @@ class GroupCallService {
     if (media.isEmpty || (_current?.isLive ?? false) || _otherCallBusy()) {
       return false;
     }
-    if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return false;
+    if (!_takeSlot()) return false;
     final state = await _groups.stateOf(groupId);
     final admission = await _groups.currentVoiceChannelAdmission(
       groupId,
@@ -275,10 +275,8 @@ class GroupCallService {
         state == null ||
         admission == null ||
         !admission.recipients.contains(_groups.selfId)) {
-      // Only the lease this call took. `dispose` has already released its own,
-      // and by now the slot may belong to a successor — releasing it again
-      // would take the new call's lease away from it.
-      if (!_disposed) _callSlot?.release(CallSlotOwner.group);
+      // Only the lease this call took — which is now what `release` means.
+      _releaseSlot();
       return false;
     }
     final now = _now();
@@ -318,6 +316,11 @@ class GroupCallService {
       _end(CallEndReason.error, roomOver: true);
       return false;
     }
+    // The broadcast is an await too. A teardown landing there left this
+    // continuation to arm two periodic timers on a disposed service and
+    // report success — `_startMedia` already refused, so the timers were the
+    // whole of it, and they never stop (report19 XV19-H1).
+    if (!_stillOn(call)) return false;
     _startTimers();
     unawaited(_startMedia(call.callId));
     return true;
@@ -388,6 +391,7 @@ class GroupCallService {
       _end(CallEndReason.error);
       return false;
     }
+    if (!_stillOn(call)) return false;
     _startTimers();
     unawaited(_startMedia(call.callId));
     return true;
@@ -411,7 +415,7 @@ class GroupCallService {
     if (_otherCallBusy()) return false;
     final room = activeRoomFor(groupId, channelId: channelId);
     if (room == null) return false;
-    if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return false;
+    if (!_takeSlot()) return false;
     _suppressRing(room.callId);
     final at = room.lastAnnounceAt;
     _set(
@@ -603,7 +607,7 @@ class GroupCallService {
       if (call == null || !call.isLive) {
         if (_ringSuppressedCallIds.contains(signal.callId)) return;
         if (_otherCallBusy()) return;
-        if (!(_callSlot?.acquire(CallSlotOwner.group) ?? true)) return;
+        if (!_takeSlot()) return;
         final at = DateTime.fromMillisecondsSinceEpoch(signal.sentAtMs);
         final media = signal.media!;
         call = GroupCall(
@@ -692,7 +696,13 @@ class GroupCallService {
       case GroupCallSignalType.end:
         final state = await _groups.stateOf(call.groupId);
         final role = state?.roleOf(signal.author);
-        if (role != null && role.rank >= GroupRole.admin.rank) {
+        // The role was read for THIS room. `_end` acts on whatever is current,
+        // so without this an admin of room A, arriving after a switch, ended
+        // room B — an authorization fact applied to a different object
+        // (report19 XV19-H1).
+        if (role != null &&
+            role.rank >= GroupRole.admin.rank &&
+            _stillOn(call)) {
           _end(signal.reason ?? CallEndReason.hangup, roomOver: true);
         }
       case GroupCallSignalType.heartbeat:
@@ -980,7 +990,7 @@ class GroupCallService {
     } catch (_) {
       // Teardown is best-effort, but the global slot must never leak.
     } finally {
-      _callSlot?.release(CallSlotOwner.group);
+      _releaseSlot();
     }
   }
 
@@ -1004,7 +1014,7 @@ class GroupCallService {
     _reannounceTimer = null;
     _cancelChannelEpochReannounces();
     if (_media == null) {
-      _callSlot?.release(CallSlotOwner.group);
+      _releaseSlot();
     } else {
       unawaited(_stopMediaAndReleaseSlot());
     }
@@ -1103,6 +1113,35 @@ class GroupCallService {
   /// app had already left (report18 XV18-H1). `join`, `endForEveryone` and the
   /// admin branch of `_onSignal` are the same shape.
   bool _disposed = false;
+
+  /// This room's claim on the device's one media stack, while it holds one.
+  ///
+  /// Held rather than re-derived: the slot compares LEASES now, so a teardown
+  /// arriving after its call is gone releases nothing instead of clearing its
+  /// successor's claim (report19 XV19-H4).
+  CallSlotLease? _slotLease;
+
+  /// Take the slot for this room. False means somebody else has it.
+  ///
+  /// A null slot is the test wiring and always succeeds. Refuses outright once
+  /// disposed: a continuation acquiring after teardown holds a lease nothing
+  /// gives back, and every later call is refused.
+  bool _takeSlot() {
+    if (_disposed) return false;
+    final slot = _callSlot;
+    if (slot == null) return true;
+    final lease = slot.acquire(CallSlotOwner.group);
+    if (lease == null) return false;
+    _slotLease = lease;
+    return true;
+  }
+
+  /// Give up this room's claim, if it still holds one.
+  void _releaseSlot() {
+    final lease = _slotLease;
+    _slotLease = null;
+    _callSlot?.release(lease);
+  }
 
   Future<void> dispose() async {
     _disposed = true;

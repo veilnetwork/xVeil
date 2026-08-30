@@ -105,7 +105,8 @@ void main() {
       final peer = NodeId.fromHex('c' * 64);
       final fake = _FakeMessaging();
       final slot = CallSlot();
-      expect(slot.acquire(CallSlotOwner.group), isTrue);
+      final held = slot.acquire(CallSlotOwner.group);
+      expect(held, isNotNull);
       final svc = CallService(fake, callSlot: slot)..start();
       addTearDown(svc.dispose);
 
@@ -113,7 +114,7 @@ void main() {
       expect(svc.current, isNull);
       expect(fake.sent, isEmpty);
 
-      slot.release(CallSlotOwner.group);
+      slot.release(held);
       await svc.placeCall(peer, const CallMedia(audio: true));
       expect(slot.owner, CallSlotOwner.direct);
       expect(svc.current?.isLive, isTrue);
@@ -122,7 +123,8 @@ void main() {
 
       // The same exclusion applies to a later inbound offer.
       fake.sent.clear();
-      expect(slot.acquire(CallSlotOwner.group), isTrue);
+      final heldAgain = slot.acquire(CallSlotOwner.group);
+      expect(heldAgain, isNotNull);
       fake.onCallSignal!(
         peer,
         const CallSignal(

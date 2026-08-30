@@ -1563,43 +1563,60 @@ class VeilCallMediaController implements CallMediaController {
         return true;
       }
       if (_androidScreen != null) return true;
-      // The session this request belongs to. Enabling share stops the camera
-      // FIRST, and between nulling those fields and creating the screen source
-      // there is nothing for `_stopSession` to find: it sees camera and screen
-      // both null, tears the engine down and finishes — and the continuation
-      // then creates and starts a foreground MediaProjection capture on the
-      // far side of the privacy boundary the hangup drew (report18 XV18-H3).
-      final epoch = _mediaEpoch;
-      final cameraWasRunning = _androidNativeCam != null || _androidCam != null;
-      final nativeCam = _androidNativeCam;
-      _androidNativeCam = null;
-      if (nativeCam != null) await nativeCam.stop();
-      final cam = _androidCam;
-      _androidCam = null;
-      if (cam != null) await cam.stop();
-      if (epoch != _mediaEpoch) return false;
-      final started = await _startAndroidScreen(engine);
-      // And again on the way out: `_startAndroidScreen` publishes the source
-      // before it awaits `start`, so a teardown landing THERE stops a source
-      // that has not started yet and the start then succeeds behind it —
-      // capture running with nobody holding it.
-      if (epoch != _mediaEpoch) {
-        final orphan = _androidScreen;
-        _androidScreen = null;
-        _screenSharing = false;
-        if (orphan != null) {
-          try {
-            await orphan.stop();
-          } catch (_) {}
+      // One start at a time. Two enables in flight both stop the camera,
+      // then both create a source into the same field and the same platform
+      // handler: the second overwrites the first, whose source is then held
+      // by nobody — and teardown cannot stop what it cannot see (report19
+      // XV19-H3). A second caller waits for the first answer, which is what
+      // it was asking for anyway.
+      final inFlight = _screenStarting;
+      if (inFlight != null) return inFlight;
+      final starting = () async {
+        // The session this request belongs to. Enabling share stops the camera
+        // FIRST, and between nulling those fields and creating the screen source
+        // there is nothing for `_stopSession` to find: it sees camera and screen
+        // both null, tears the engine down and finishes — and the continuation
+        // then creates and starts a foreground MediaProjection capture on the
+        // far side of the privacy boundary the hangup drew (report18 XV18-H3).
+        final epoch = _mediaEpoch;
+        final cameraWasRunning =
+            _androidNativeCam != null || _androidCam != null;
+        final nativeCam = _androidNativeCam;
+        _androidNativeCam = null;
+        if (nativeCam != null) await nativeCam.stop();
+        final cam = _androidCam;
+        _androidCam = null;
+        if (cam != null) await cam.stop();
+        if (epoch != _mediaEpoch) return false;
+        final started = await _startAndroidScreen(engine);
+        // And again on the way out: `_startAndroidScreen` publishes the source
+        // before it awaits `start`, so a teardown landing THERE stops a source
+        // that has not started yet and the start then succeeds behind it —
+        // capture running with nobody holding it.
+        if (epoch != _mediaEpoch) {
+          final orphan = _androidScreen;
+          _androidScreen = null;
+          _screenSharing = false;
+          if (orphan != null) {
+            try {
+              await orphan.stop();
+            } catch (_) {}
+          }
+          return false;
         }
-        return false;
+        _screenSharing = started;
+        if (started) _startFramePump(engine);
+        if (!started && cameraWasRunning) {
+          await _startAndroidCam(engine, highQuality: _highQualityRoute);
+        }
+        return started;
+      }();
+      _screenStarting = starting;
+      try {
+        return await starting;
+      } finally {
+        if (identical(_screenStarting, starting)) _screenStarting = null;
       }
-      _screenSharing = started;
-      if (started) _startFramePump(engine);
-      if (!started && cameraWasRunning) {
-        await _startAndroidCam(engine, highQuality: _highQualityRoute);
-      }
-      return started;
     }
     if (!Platform.isMacOS) return false;
     try {
@@ -1619,6 +1636,9 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
   }
+
+  /// One screen start, from the camera stop to the source that replaces it.
+  Future<bool>? _screenStarting;
 
   Future<bool> _startAndroidScreen(VeilMediaEngine engine) async {
     _androidScreenPushLogged = false;
