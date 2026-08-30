@@ -966,6 +966,43 @@ jobs:
           # imported by nothing and the redist ships an x64 copy of it anyway.
           python scripts/check-windows-bundle.py "$root" "${{ matrix.arch }}"
 
+      # And it has to LOAD, which the check above cannot tell you.
+      #
+      # The musl leg starts its bundle and fails on an unresolved symbol; the
+      # windows legs asserted only the file list and the machine type, so a
+      # missing or mismatched dependency would ship and surface on somebody's
+      # machine as "the system cannot find hidden_volume_plugin.dll" — a file
+      # that is present and correct, named because the loader gave up on
+      # something it depends on.
+      #
+      # Loading rather than launching: it needs no display, it is what the app
+      # does at startup, and the failure names the library.
+      - name: Every library in the bundle loads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = 'build/windows/${{ matrix.arch }}/runner/Release'
+          $dlls = Get-ChildItem $root -Filter *.dll -File
+          if ($dlls.Count -lt 5) {
+            throw "only $($dlls.Count) DLLs under $root - this is not a bundle, and the check below would pass on it"
+          }
+          $failed = @()
+          foreach ($dll in $dlls) {
+            try {
+              $h = [System.Runtime.InteropServices.NativeLibrary]::Load($dll.FullName)
+              [System.Runtime.InteropServices.NativeLibrary]::Free($h)
+            } catch {
+              $failed += ("{0}: {1}" -f $dll.Name, $_.Exception.Message)
+            }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Output "::error::libraries in the bundle that the loader refuses:"
+            $failed | ForEach-Object { Write-Output "  $_" }
+            exit 1
+          }
+          Write-Output "  ok $($dlls.Count) libraries, all load"
+
+
       - name: Archive
         shell: pwsh
         run: |
