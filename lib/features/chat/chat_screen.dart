@@ -103,6 +103,10 @@ String _uncontestedPath(String dir, String name) => uncontestedPath(dir, name);
 /// the whole directory, not a file in it — nor other control characters.
 String _safeDownloadName(String? value) => safeFileLeaf(value);
 
+/// Cancel a download in progress. A top-level helper, so it has no captured
+/// service to use — and it does not need one: cancelling is local and names a
+/// content id, and the button that calls it lives in a message row whose ref
+/// is the one that drew it.
 Future<void> _cancelContentDownload(WidgetRef ref, String contentId) async {
   final partialPath = await ref
       .read(messagingServiceProvider)
@@ -230,9 +234,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _loadPin() async {
     try {
-      final raw = await ref
-          .read(storageProvider)
-          .getSetting('pin:${widget.peerHex}');
+      final raw = await _storage.getSetting('pin:${widget.peerHex}');
       final rec = decodePinned(raw);
       if (rec != null && mounted) setState(() => _pinned = rec);
     } catch (_) {
@@ -247,9 +249,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final encoded = encodePinned(m.id, body);
     setState(() => _pinned = decodePinned(encoded));
     try {
-      await ref
-          .read(storageProvider)
-          .putSetting('pin:${widget.peerHex}', encoded);
+      await _storage.putSetting('pin:${widget.peerHex}', encoded);
     } catch (_) {}
   }
 
@@ -467,9 +467,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _messaging.markRead(widget.peerHex);
         // Apply this chat's retention policy on open, so an expired message
         // disappears even without a periodic sweep (no-op when unlimited).
-        ref
-            .read(messagingServiceProvider)
-            .pruneConversation(NodeId.fromHex(widget.peerHex));
+        _messaging.pruneConversation(NodeId.fromHex(widget.peerHex));
         // And the SHARED window, which is measured in seconds and therefore
         // needs a sweep while the chat is open, not only when it is entered.
         unawaited(_sweepDisappearing());
@@ -644,9 +642,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final myHex = ref.read(appControllerProvider).identity?.nodeId.hex;
     final current = ref.read(reactionsProvider(widget.peerHex)).value;
     final mine = myHex == null ? null : current?[m.id]?[myHex];
-    await ref
-        .read(messagingServiceProvider)
-        .sendReaction(_peer, m.id, mine == emoji ? '' : emoji);
+    await _messaging.sendReaction(_peer, m.id, mine == emoji ? '' : emoji);
   }
 
   /// Display name for a reactor hex: me → "You", the peer → their alias,
@@ -825,18 +821,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           return;
         }
         try {
-          await ref
-              .read(messagingServiceProvider)
-              .sendFileStreaming(
-                _peer,
-                file.name,
-                size,
-                src.read,
-                close: src.close,
-                // Persist this path so a reoffer after a restart can re-open + re-serve
-                // (durable offers). Best-effort — works while the file stays here.
-                sourcePath: path,
-              );
+          await _messaging.sendFileStreaming(
+            _peer,
+            file.name,
+            size,
+            src.read,
+            close: src.close,
+            // Persist this path so a reoffer after a restart can re-open + re-serve
+            // (durable offers). Best-effort — works while the file stays here.
+            sourcePath: path,
+          );
         } catch (e) {
           devLog(() => 'xVeil[attach]: stream send failed ${file.name}: $e');
           if (mounted) _snack(l.chatFileUnreadable);
@@ -876,20 +870,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (_saved) {
       // Saved Messages: a purely local file note — stored encrypted, never
       // on the wire (sendFile would drop it anyway: self isn't a contact).
-      await ref
-          .read(messagingServiceProvider)
-          .saveFileNote(data, file.name, sourcePath: file.path);
+      await _messaging.saveFileNote(data, file.name, sourcePath: file.path);
     } else {
-      await ref
-          .read(messagingServiceProvider)
-          .sendFile(
-            _peer,
-            data,
-            file.name,
-            // For a small VIDEO the platform frame-grabber needs the on-disk
-            // source — the bytes alone can't produce a preview frame.
-            sourcePath: file.path,
-          );
+      await _messaging.sendFile(
+        _peer,
+        data,
+        file.name,
+        // For a small VIDEO the platform frame-grabber needs the on-disk
+        // source — the bytes alone can't produce a preview frame.
+        sourcePath: file.path,
+      );
     }
     _scrollToBottom(force: true);
   }
@@ -924,17 +914,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   /// Send a recorded voice clip (from the composer's hold-to-record button).
   void _sendVoiceClip(VoiceClip clip) {
-    ref
-        .read(messagingServiceProvider)
-        .sendVoice(
-          _peer,
-          clip.bytes,
-          clip.durationMs,
-          clip.waveform,
-          // Tag the note with our UI language so the receiver transcribes it
-          // in the language it was spoken in.
-          lang: ui.PlatformDispatcher.instance.locale.languageCode,
-        );
+    _messaging.sendVoice(
+      _peer,
+      clip.bytes,
+      clip.durationMs,
+      clip.waveform,
+      // Tag the note with our UI language so the receiver transcribes it
+      // in the language it was spoken in.
+      lang: ui.PlatformDispatcher.instance.locale.languageCode,
+    );
     _scrollToBottom(force: true);
   }
 
@@ -960,9 +948,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         player.dispose();
       }
     }
-    await ref
-        .read(messagingServiceProvider)
-        .sendVideoNote(_peer, clip.bytes, clip.durationMs, thumbB64: thumb);
+    await _messaging.sendVideoNote(
+      _peer,
+      clip.bytes,
+      clip.durationMs,
+      thumbB64: thumb,
+    );
     _scrollToBottom(force: true);
   }
 
@@ -980,15 +971,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (bundle != null && bundle.images.isNotEmpty) {
         thumb = await makeMessageThumbB64(bundle.images.first);
       }
-      await ref
-          .read(messagingServiceProvider)
-          .sendStickerPack(_peer, blob, firstThumbB64: thumb);
+      await _messaging.sendStickerPack(_peer, blob, firstThumbB64: thumb);
       _scrollToBottom(force: true);
       return;
     }
-    final bytes = await ref
-        .read(storageProvider)
-        .loadFile(stickerFileKey(result));
+    final bytes = await _storage.loadFile(stickerFileKey(result));
     if (bytes == null) return;
     await _messaging.sendSticker(_peer, bytes);
     _scrollToBottom(force: true);
@@ -1014,9 +1001,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (cid == null) return;
     // Already downloaded UNENCRYPTED to a plain file → OPEN it (it isn't in the
     // app store, so hasFile is false — don't re-offer).
-    final saved = await ref
-        .read(messagingServiceProvider)
-        .contentSavedPath(cid);
+    final saved = await _messaging.contentSavedPath(cid);
     if (saved != null &&
         await _savedFileLooksComplete(saved, expectedSize: m.fileSize)) {
       await _openSavedFile(saved);
@@ -1025,10 +1010,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if ((m.fileSize ?? 0) > kMaxIncomingFileBytes) {
       // A LARGE file: honour this identity's preference — ask, always encrypted,
       // or always unencrypted-to-disk (set in Settings → Files).
-      switch (ref
-          .read(messagingServiceProvider)
-          .fileDownloadPolicy
-          .largeFileMode) {
+      switch (_messaging.fileDownloadPolicy.largeFileMode) {
         case LargeFileMode.ask:
           await _showDownloadMenu(m, cid);
         case LargeFileMode.encrypted:
@@ -1065,9 +1047,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Start an in-app download (encrypted tier / in-volume) + surface a hint if we
   /// had to ask the sender to re-advertise (stale offer after a restart).
   Future<void> _downloadEncrypted(String cid) async {
-    final r = await ref
-        .read(messagingServiceProvider)
-        .downloadContent(_peer, cid);
+    final r = await _messaging.downloadContent(_peer, cid);
     if (mounted && r == ContentDownloadResult.requestedReoffer) {
       _snack(AppL10n.of(context).fileRequestingResend);
       _watchDownloadFailure(cid);
@@ -1498,9 +1478,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _requestSignature(Message m) async {
     final l = AppL10n.of(context);
     final messenger = ScaffoldMessenger.of(context);
-    await ref
-        .read(messagingServiceProvider)
-        .requestSignature(_peer, m.id, m.body);
+    await _messaging.requestSignature(_peer, m.id, m.body);
     if (!mounted) return;
     messenger.showSnackBar(
       SnackBar(
@@ -1788,9 +1766,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       return;
     }
     if (!mounted) return; // teardown may have unmounted us during the dialog
-    await ref
-        .read(messagingServiceProvider)
-        .editOwnMessage(m.id, edited.body, customEmoji: edited.customEmoji);
+    await _messaging.editOwnMessage(
+      m.id,
+      edited.body,
+      customEmoji: edited.customEmoji,
+    );
   }
 
   Future<void> _deleteMessage(Message m, {required bool forEveryone}) async {
@@ -1919,9 +1899,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final navigator = Navigator.of(context);
     final choice = await confirmChatDeleteDialog(context);
     if (choice == null) return;
-    await ref
-        .read(messagingServiceProvider)
-        .deleteConversation(_peer, notifyPeer: choice.notify);
+    await _messaging.deleteConversation(_peer, notifyPeer: choice.notify);
     if (!mounted) return;
     navigator.pop(); // leave the now-empty conversation
   }
@@ -1989,9 +1967,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Future<void> _showMessageHistory(Message m) async {
     final l = AppL10n.of(context);
     final theme = Theme.of(context);
-    final versions = await ref
-        .read(storageProvider)
-        .loadMessageHistory(widget.peerHex, m.id);
+    final versions = await _storage.loadMessageHistory(widget.peerHex, m.id);
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
