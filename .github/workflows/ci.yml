@@ -39,7 +39,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: ./scripts/check-workflow-branches.sh
+        run: |
+          # The parser first, against fixtures. It reads YAML by hand, and its
+          # first version took only the first item of a block list — so
+          # `[master, main]` and `[main, master]` gave different verdicts.
+          ./scripts/check-workflow-branches.sh --self-test
+          ./scripts/check-workflow-branches.sh
 
   checks:
     name: analyze + tests
