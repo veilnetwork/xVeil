@@ -10,6 +10,65 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.12] — 2026-08-30
+
+An audit release: nine confirmed high findings from report18, and the guards
+that let them through.
+
+Built on veil [v0.8.5](https://github.com/veilnetwork/veil/releases/tag/v0.8.5)
+and hidden-volume
+[v2.0.6](https://github.com/veilnetwork/hidden-volume/releases/tag/v2.0.6),
+with the Windows and Linux engines at `engine-2026.08.29.9`.
+
+**Nothing acts as an identity the app has already left.** One shape, found in
+six places, all of them across the same boundary: a request or a screen or a
+service starts under identity A, awaits something, and finishes after the app
+has moved to B.
+
+* The local API handler captures its token list once, so it keeps
+  authenticating A after a switch — that is deliberate, and it is why every
+  callback must ask whether the app has moved. Twelve did. `setWebhook` did
+  not, and it pointed B's event feed — sender ids, message previews — at a URL
+  A's bearer chose. Nor did the five group-call callbacks (A's bearer could
+  start a call as B and read B's participants), nor five reads that answered
+  with B's node id, B's invite, B's webhook URL and B's live call.
+* Both chat screens capture their storage and messaging pipeline on open, with
+  a comment saying why — and twenty places did not use them. Three run after a
+  FILE PICKER, the longest await in the app: bytes chosen under A were sent
+  through B.
+* The managed-node registry published A's hosts, users and TOFU host-key
+  fingerprints into B's live state, and from there into B's container.
+* Folder sync published A's pairs into B's state and handed them to B's
+  scheduler, which is one watcher event away from uploading A's local files
+  into B's cloud.
+
+**A call ends when the call ends.** Both call services already re-checked after
+their awaits — and every one of those checks passed after teardown, because
+teardown cancelled the timers, released the global call slot, and left the call
+itself in place for the continuation to find. So an offer, an answer, a
+heartbeat and a microphone could all start from a service whose identity was
+gone and whose slot already belonged to its successor. Teardown now clears the
+call and nothing publishes after it. On Android, enabling screen share stops
+the camera first, and a hangup landing in that gap found nothing to stop —
+capture then started on the far side of the boundary the hangup drew.
+
+**Three guards were green while all of this was true**, and each for the same
+kind of reason: they enumerated instead of deriving. The API guard listed eight
+callbacks by hand, so a ninth was unbound by omission. The chat guard counted
+the exact string `ref.read(...)` and never saw the twenty that `dart format`
+wraps across two lines. All of them now read the source and ask a question of
+every entry, and the two deliberate exceptions carry their reason rather than
+just their name.
+
+**CI runs by itself now.** Until today the first thing that looked at an xVeil
+commit was the tag built from it: `analyze` and the test suite lived only in
+the release workflow. The reason was an Actions-minutes budget that does not
+apply to a public repository. All three projects now gate every push, and each
+carries a check that its triggers name a branch that exists — veil's full CI
+had been dispatch-only since May, and hidden-volume's per-push gate was aimed
+at `master` on a repository whose default branch is `main`, so it had never
+once run.
+
 ## [0.13.11] — 2026-08-30
 
 Windows on ARM, natively.
