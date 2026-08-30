@@ -157,6 +157,52 @@ void main() {
       );
     },
   );
+  test('a reload already in flight does not publish A\'s pairs into B', () {
+    // `runOnce` has captured its store since report17. `reload` had not, and
+    // read `_store` on both sides of its awaits — so a reload started under A
+    // and finishing after the switch published A's pairs into B's state and
+    // handed the same list to `_rewatch`, pointing B's scheduler at A's
+    // folders (report18 XV18-H6). From there a watcher event or the sweep
+    // uploads A's local files into B's cloud.
+    return () async {
+      final a = await opened('a');
+      final b = await opened('b');
+      var active = a;
+      final gate = Completer<void>();
+
+      final container = ProviderContainer(
+        overrides: [
+          storageProvider.overrideWith((ref) => active),
+          folderSyncStoreProvider.overrideWith(
+            (ref) => _GatedStore(ref.watch(storageProvider), gate.future),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await FolderSyncStore(
+        a,
+      ).savePairs(const [FolderSyncPair(id: 'p1', localPath: '/tmp/a-only')]);
+
+      final controller = container.read(folderSyncControllerProvider.notifier);
+      final reloading = controller.reload();
+
+      // The identity moves while the reload is held at its first read.
+      active = b;
+      container.invalidate(storageProvider);
+      container.read(folderSyncControllerProvider);
+      gate.complete();
+      await reloading;
+
+      expect(
+        container.read(folderSyncControllerProvider).map((v) => v.pair.id),
+        isEmpty,
+        reason:
+            "A's folder pair reached B's live state, and with it the "
+            "scheduler that watches B's cloud",
+      );
+    }();
+  });
 }
 
 /// Counts passes and does nothing else.
