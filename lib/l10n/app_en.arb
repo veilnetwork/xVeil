@@ -2987,15 +2987,15 @@
   "@seedsChoiceTitle": {
     "description": "Heading of the onboarding step that asks whether to use the project's shared seed nodes."
   },
-  "seedsChoiceBody": "xVeil has no central server, so a new device needs at least one node it can reach before anything else can happen. Choose how this identity gets its first one.",
+  "seedsChoiceBody": "xVeil has no central server and ships no list of entry nodes, so a new device needs one node it can reach before anything else happens. Choose whether this identity may look for one.",
   "@seedsChoiceBody": {
     "description": "Explains why the question is being asked at all: there is no central server to fall back on. Deliberately NOT lengthened with the scope sentence — this step is the one that has to fit on a 407x904 phone, and the scope is stated in the option bodies below."
   },
-  "seedsUseTitle": "Use the shared entry nodes (recommended)",
+  "seedsUseTitle": "Look for available nodes (recommended)",
   "@seedsUseTitle": {
     "description": "Label of the option that keeps the shared seed nodes."
   },
-  "seedsUseBody": "The app connects on its own, with nothing for you to configure. These nodes are run by the project, and they learn that a node of yours exists and which address it connects from — not who you are, and not what you send.",
+  "seedsUseBody": "The app finds its own way in, with nothing to configure. It asks a public index nobody operates — the one BitTorrent uses — and whoever it asks learns the address this device connects from. Not who you are.",
   "@seedsUseBody": {
     "description": "What keeping the shared seed nodes costs: convenience in exchange for those nodes observing that this node exists."
   },
@@ -3003,7 +3003,7 @@
   "@seedsDeclineTitle": {
     "description": "Label of the option that refuses the shared seed nodes."
   },
-  "seedsDeclineBody": "No shared node is contacted for this identity, so nobody else's server learns that it exists. Other identities are unaffected. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.",
+  "seedsDeclineBody": "For this identity the app looks for nothing and asks nobody, so no stranger learns it exists. Other identities are unaffected. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.",
   "@seedsDeclineBody": {
     "description": "What refusing costs, and how far it reaches: this identity only — the answer is stored in this identity's own space, not for the device."
   },
@@ -3015,11 +3015,11 @@
   "@seedsReofferTitle": {
     "description": "Heading of the startup prompt shown to someone who declined and has added no node."
   },
-  "seedsReofferBody": "You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from. Whichever you pick answers for this identity only.",
+  "seedsReofferBody": "You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or let the app look for one — it asks a public index nobody operates, and whoever it asks learns the address this device connects from. Whichever you pick answers for this identity only.",
   "@seedsReofferBody": {
     "description": "Body of that prompt: says why the app is not working, what the two ways out cost, and that the answer is stored for this identity alone."
   },
-  "seedsReofferUse": "Use the shared nodes",
+  "seedsReofferUse": "Look for nodes",
   "@seedsReofferUse": {
     "description": "Button that switches this identity onto the shared seed nodes."
   },
@@ -3035,7 +3035,7 @@
   "@seedsNoNodeTitle": {
     "description": "Heading on the network screen when this identity declined the seeds and has no node."
   },
-  "seedsNoNodeBody": "This identity does not use the shared entry nodes, so it needs a node of your own. Add one and the app will connect.",
+  "seedsNoNodeBody": "This identity does not look for nodes, so it needs a node of your own. Add one and the app will connect.",
   "@seedsNoNodeBody": {
     "description": "Tells the person what to do next, so a deliberate choice does not read as a broken app."
   },
@@ -3043,7 +3043,7 @@
   "@seedsNoNodeAction": {
     "description": "Button leading to the screen where a node is added."
   },
-  "seedsRestartToApply": "The shared nodes are saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.",
+  "seedsRestartToApply": "The choice is saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.",
   "@seedsRestartToApply": {
     "description": "Shown after the startup prompt records the shared seeds but the node reboot that would apply them now did not come back."
   },
@@ -3055,17 +3055,17 @@
   "dhtServeOnSub": "This device stores other people’s records and carries their lookups. Measured on an idle client: about 85% of everything received. Keeps the network’s data spread across many machines instead of a few.",
   "dhtServeOffSub": "Peers are asked not to pick this device for their storage or lookups. Your own messages, contacts and delivery are unaffected. Fewer machines then hold the network’s data.",
   "dhtServeSaveFailed": "Could not save the setting",
-  "seedsSwitchTitle": "Use the shared entry nodes",
+  "seedsSwitchTitle": "Look for available nodes",
   "@seedsSwitchTitle": {
     "description": "Title of the network-settings switch that changes the shared-seed answer given during onboarding."
   },
-  "seedsSwitchOnSub": "On for this identity: the app finds the network on its own. The project's nodes learn that a node of yours exists and which address it connects from.",
+  "seedsSwitchOnSub": "On for this identity: the app finds the network on its own, by asking a public index nobody operates. Whoever it asks there learns the address this device connects from.",
   "@seedsSwitchOnSub": {
-    "description": "Subtitle of that switch while the shared entry nodes are in use: what keeping them costs, and that it is answered per identity."
+    "description": "Subtitle of that switch while looking for nodes is allowed: what looking costs, and that it is answered per identity."
   },
   "seedsSwitchOffSub": "Off for this identity: only nodes you add yourself. Nothing connects until you add one. Your other identities are unaffected.",
   "@seedsSwitchOffSub": {
-    "description": "Subtitle of that switch while the shared entry nodes are refused: what refusing costs, and that it is answered per identity."
+    "description": "Subtitle of that switch while looking for nodes is refused: what refusing costs, and that it is answered per identity."
   },
   "seedsSwitchSaveFailed": "That change could not be saved, so it was not applied.",
   "@seedsSwitchSaveFailed": {
