@@ -6622,21 +6622,21 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get seedsChoiceBody =>
-      'xVeil has no central server, so a new device needs at least one node it can reach before anything else can happen. Choose how this identity gets its first one.';
+      'xVeil has no central server and ships no list of entry nodes, so a new device needs one node it can reach before anything else happens. Choose whether this identity may look for one.';
 
   @override
-  String get seedsUseTitle => 'Use the shared entry nodes (recommended)';
+  String get seedsUseTitle => 'Look for available nodes (recommended)';
 
   @override
   String get seedsUseBody =>
-      'The app connects on its own, with nothing for you to configure. These nodes are run by the project, and they learn that a node of yours exists and which address it connects from — not who you are, and not what you send.';
+      'The app finds its own way in, with nothing to configure. It asks a public index nobody operates — the one BitTorrent uses — and whoever it asks learns the address this device connects from. Not who you are.';
 
   @override
   String get seedsDeclineTitle => 'Only nodes I add myself';
 
   @override
   String get seedsDeclineBody =>
-      'No shared node is contacted for this identity, so nobody else\'s server learns that it exists. Other identities are unaffected. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.';
+      'For this identity the app looks for nothing and asks nobody, so no stranger learns it exists. Other identities are unaffected. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.';
 
   @override
   String get seedsChoiceChangeLater =>
@@ -6647,10 +6647,10 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get seedsReofferBody =>
-      'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from. Whichever you pick answers for this identity only.';
+      'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or let the app look for one — it asks a public index nobody operates, and whoever it asks learns the address this device connects from. Whichever you pick answers for this identity only.';
 
   @override
-  String get seedsReofferUse => 'Use the shared nodes';
+  String get seedsReofferUse => 'Look for nodes';
 
   @override
   String get seedsReofferKeep => 'Keep my choice';
@@ -6663,14 +6663,14 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get seedsNoNodeBody =>
-      'This identity does not use the shared entry nodes, so it needs a node of your own. Add one and the app will connect.';
+      'This identity does not look for nodes, so it needs a node of your own. Add one and the app will connect.';
 
   @override
   String get seedsNoNodeAction => 'Add my node';
 
   @override
   String get seedsRestartToApply =>
-      'The shared nodes are saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.';
+      'The choice is saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.';
 
   @override
   String get seedsSaveFailed =>
@@ -6691,11 +6691,11 @@ class AppL10nEn extends AppL10n {
   String get dhtServeSaveFailed => 'Could not save the setting';
 
   @override
-  String get seedsSwitchTitle => 'Use the shared entry nodes';
+  String get seedsSwitchTitle => 'Look for available nodes';
 
   @override
   String get seedsSwitchOnSub =>
-      'On for this identity: the app finds the network on its own. The project\'s nodes learn that a node of yours exists and which address it connects from.';
+      'On for this identity: the app finds the network on its own, by asking a public index nobody operates. Whoever it asks there learns the address this device connects from.';
 
   @override
   String get seedsSwitchOffSub =>
