@@ -6700,26 +6700,25 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
-  String get seedsChoiceTitle => 'Cómo encuentra la red este dispositivo';
+  String get seedsChoiceTitle => 'Cómo este dispositivo encuentra la red';
 
   @override
   String get seedsChoiceBody =>
-      'xVeil no tiene servidor central, así que un dispositivo nuevo necesita al menos un nodo al que llegar antes de que pueda ocurrir nada más. Elige cómo consigue el primero esta identidad.';
+      'xVeil no tiene servidor central ni lista de nodos de entrada, así que un dispositivo nuevo necesita un nodo accesible. Elige si esta identidad puede buscarlo.';
 
   @override
-  String get seedsUseTitle =>
-      'Usar los nodos de entrada compartidos (recomendado)';
+  String get seedsUseTitle => 'Buscar nodos disponibles (recomendado)';
 
   @override
   String get seedsUseBody =>
-      'La aplicación se conecta sola, sin que tengas que configurar nada. Esos nodos los mantiene el proyecto, y se enteran de que existe un nodo tuyo y desde qué dirección se conecta; no de quién eres ni de lo que envías.';
+      'La aplicación encuentra la entrada sola, sin configurar nada. Consulta un índice público que nadie opera y quien reciba la consulta conocerá la dirección de este dispositivo. No quién eres.';
 
   @override
-  String get seedsDeclineTitle => 'Solo los nodos que añada yo';
+  String get seedsDeclineTitle => 'Solo los nodos que yo añada';
 
   @override
   String get seedsDeclineBody =>
-      'Para esta identidad no se contacta con ningún nodo compartido, así que el servidor de nadie más sabrá que existe. Tus otras identidades no se ven afectadas. Nada funciona hasta que añadas un nodo tú: no se podrán enviar mensajes ni llegará ninguno.';
+      'Para esta identidad la aplicación no busca nada ni pregunta a nadie, así que ningún desconocido sabrá que existe. Tus otras identidades no se ven afectadas. Nada funciona hasta que añadas un nodo: no se pueden enviar mensajes ni llegará ninguno.';
 
   @override
   String get seedsChoiceChangeLater =>
@@ -6730,10 +6729,10 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get seedsReofferBody =>
-      'Elegiste usar solo nodos añadidos por ti, y no has añadido ninguno. Mientras no lo hagas, no se puede enviar ni recibir ningún mensaje. Puedes añadir tu nodo ahora o usar después de todo los nodos de entrada compartidos: se enteran de que existe un nodo tuyo y desde qué dirección se conecta. Elijas lo que elijas, la respuesta se guarda solo para esta identidad.';
+      'Elegiste usar solo los nodos que añadas tú, y no has añadido ninguno. Hasta que lo hagas no se puede enviar ni recibir ningún mensaje. Puedes añadir tu nodo ahora o dejar que la aplicación busque uno: consulta un índice público que nadie opera, y quien reciba la consulta conocerá la dirección desde la que se conecta este dispositivo. Lo que elijas vale solo para esta identidad.';
 
   @override
-  String get seedsReofferUse => 'Usar los nodos compartidos';
+  String get seedsReofferUse => 'Buscar nodos';
 
   @override
   String get seedsReofferKeep => 'Mantener mi elección';
@@ -6746,14 +6745,14 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get seedsNoNodeBody =>
-      'Esta identidad no usa los nodos de entrada compartidos, así que necesita uno tuyo. Añádelo y la aplicación se conectará.';
+      'Esta identidad no busca nodos, así que necesita uno tuyo. Añádelo y la aplicación se conectará.';
 
   @override
   String get seedsNoNodeAction => 'Añadir mi nodo';
 
   @override
   String get seedsRestartToApply =>
-      'Los nodos compartidos se han guardado para esta identidad, pero no se pudo reiniciar el nodo en ejecución. Cierra la aplicación y vuelve a abrirla para conectarte.';
+      'La elección se guardó para esta identidad, pero no se pudo reiniciar el nodo en ejecución. Cierra la aplicación y ábrela de nuevo para conectarte.';
 
   @override
   String get seedsSaveFailed =>
@@ -6774,15 +6773,15 @@ class AppL10nEs extends AppL10n {
   String get dhtServeSaveFailed => 'No se pudo guardar el ajuste';
 
   @override
-  String get seedsSwitchTitle => 'Usar los nodos de entrada compartidos';
+  String get seedsSwitchTitle => 'Buscar nodos disponibles';
 
   @override
   String get seedsSwitchOnSub =>
-      'Activado para esta identidad: la aplicación encuentra la red por su cuenta. Los nodos del proyecto se enteran de que existe un nodo tuyo y desde qué dirección se conecta.';
+      'Activado para esta identidad: la aplicación encuentra la red por sí sola consultando un índice público que nadie opera. Quien reciba la consulta conocerá la dirección desde la que se conecta este dispositivo.';
 
   @override
   String get seedsSwitchOffSub =>
-      'Desactivado para esta identidad: solo los nodos que añadas tú. No habrá conexión hasta que añadas uno. Tus otras identidades no se ven afectadas.';
+      'Desactivado para esta identidad: solo los nodos que añadas tú. No se conecta nada hasta que añadas uno. Tus otras identidades no se ven afectadas.';
 
   @override
   String get seedsSwitchSaveFailed =>

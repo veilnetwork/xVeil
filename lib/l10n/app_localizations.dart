@@ -11633,19 +11633,19 @@ abstract class AppL10n {
   /// Explains why the question is being asked at all: there is no central server to fall back on. Deliberately NOT lengthened with the scope sentence — this step is the one that has to fit on a 407x904 phone, and the scope is stated in the option bodies below.
   ///
   /// In en, this message translates to:
-  /// **'xVeil has no central server, so a new device needs at least one node it can reach before anything else can happen. Choose how this identity gets its first one.'**
+  /// **'xVeil has no central server and ships no list of entry nodes, so a new device needs one node it can reach before anything else happens. Choose whether this identity may look for one.'**
   String get seedsChoiceBody;
 
   /// Label of the option that keeps the shared seed nodes.
   ///
   /// In en, this message translates to:
-  /// **'Use the shared entry nodes (recommended)'**
+  /// **'Look for available nodes (recommended)'**
   String get seedsUseTitle;
 
   /// What keeping the shared seed nodes costs: convenience in exchange for those nodes observing that this node exists.
   ///
   /// In en, this message translates to:
-  /// **'The app connects on its own, with nothing for you to configure. These nodes are run by the project, and they learn that a node of yours exists and which address it connects from — not who you are, and not what you send.'**
+  /// **'The app finds its own way in, with nothing to configure. It asks a public index nobody operates — the one BitTorrent uses — and whoever it asks learns the address this device connects from. Not who you are.'**
   String get seedsUseBody;
 
   /// Label of the option that refuses the shared seed nodes.
@@ -11657,7 +11657,7 @@ abstract class AppL10n {
   /// What refusing costs, and how far it reaches: this identity only — the answer is stored in this identity's own space, not for the device.
   ///
   /// In en, this message translates to:
-  /// **'No shared node is contacted for this identity, so nobody else\'s server learns that it exists. Other identities are unaffected. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.'**
+  /// **'For this identity the app looks for nothing and asks nobody, so no stranger learns it exists. Other identities are unaffected. Nothing works until you add a node yourself: messages cannot be sent and none will arrive.'**
   String get seedsDeclineBody;
 
   /// Reassurance that the choice is not permanent.
@@ -11675,13 +11675,13 @@ abstract class AppL10n {
   /// Body of that prompt: says why the app is not working, what the two ways out cost, and that the answer is stored for this identity alone.
   ///
   /// In en, this message translates to:
-  /// **'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or use the shared entry nodes after all — they learn that a node of yours exists and which address it connects from. Whichever you pick answers for this identity only.'**
+  /// **'You chose to use only nodes you add yourself, and none has been added. Until one is, no message can be sent or received. You can add your own node now, or let the app look for one — it asks a public index nobody operates, and whoever it asks learns the address this device connects from. Whichever you pick answers for this identity only.'**
   String get seedsReofferBody;
 
   /// Button that switches this identity onto the shared seed nodes.
   ///
   /// In en, this message translates to:
-  /// **'Use the shared nodes'**
+  /// **'Look for nodes'**
   String get seedsReofferUse;
 
   /// Button that leaves the refusal in place.
@@ -11705,7 +11705,7 @@ abstract class AppL10n {
   /// Tells the person what to do next, so a deliberate choice does not read as a broken app.
   ///
   /// In en, this message translates to:
-  /// **'This identity does not use the shared entry nodes, so it needs a node of your own. Add one and the app will connect.'**
+  /// **'This identity does not look for nodes, so it needs a node of your own. Add one and the app will connect.'**
   String get seedsNoNodeBody;
 
   /// Button leading to the screen where a node is added.
@@ -11717,7 +11717,7 @@ abstract class AppL10n {
   /// Shown after the startup prompt records the shared seeds but the node reboot that would apply them now did not come back.
   ///
   /// In en, this message translates to:
-  /// **'The shared nodes are saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.'**
+  /// **'The choice is saved for this identity, but the running node could not be restarted. Close the app and open it again to connect.'**
   String get seedsRestartToApply;
 
   /// Shown when the preference store refused the write.
@@ -11753,16 +11753,16 @@ abstract class AppL10n {
   /// Title of the network-settings switch that changes the shared-seed answer given during onboarding.
   ///
   /// In en, this message translates to:
-  /// **'Use the shared entry nodes'**
+  /// **'Look for available nodes'**
   String get seedsSwitchTitle;
 
-  /// Subtitle of that switch while the shared entry nodes are in use: what keeping them costs, and that it is answered per identity.
+  /// Subtitle of that switch while looking for nodes is allowed: what looking costs, and that it is answered per identity.
   ///
   /// In en, this message translates to:
-  /// **'On for this identity: the app finds the network on its own. The project\'s nodes learn that a node of yours exists and which address it connects from.'**
+  /// **'On for this identity: the app finds the network on its own, by asking a public index nobody operates. Whoever it asks there learns the address this device connects from.'**
   String get seedsSwitchOnSub;
 
-  /// Subtitle of that switch while the shared entry nodes are refused: what refusing costs, and that it is answered per identity.
+  /// Subtitle of that switch while looking for nodes is refused: what refusing costs, and that it is answered per identity.
   ///
   /// In en, this message translates to:
   /// **'Off for this identity: only nodes you add yourself. Nothing connects until you add one. Your other identities are unaffected.'**

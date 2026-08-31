@@ -1164,6 +1164,53 @@ class EmbeddedNode {
     return '$toml\n[global]\n$line\n';
   }
 
+  /// Whether this node may look for peers by itself.
+  ///
+  /// The answer onboarding asks for now, since there are no shared entry
+  /// nodes left to ask about: the repository ships no seed list, so the
+  /// question "use the shared nodes?" was a question about an empty list.
+  /// What is still a real choice is whether this device goes looking — on the
+  /// local network (layer 6) and at the public rendezvous (layer 7) — or
+  /// speaks only to nodes its owner names.
+  ///
+  /// `true` leaves veil's own defaults in place: local discovery off, the
+  /// rendezvous consulted only when nothing else offers a way in. Turning
+  /// local discovery ON is deliberately NOT what this answer does — announcing
+  /// on whatever LAN the device is plugged into is a separate decision with a
+  /// separate cost, and it belongs to the network screen, not to a setup
+  /// question somebody is clicking through.
+  ///
+  /// `false` means it: no rendezvous, no local network, and no compiled-in
+  /// seeds either. "Only nodes I add myself" has to be true of every layer or
+  /// it is not true.
+  ///
+  /// Pure helper, same duplicate-key hazard as its siblings: a rendered
+  /// `[global]` may already carry the keys.
+  static String withNodeDiscovery(String toml, bool findNodes) {
+    if (findNodes) return toml;
+    var out = toml;
+    for (final line in const [
+      'mainline_discovery = "off"',
+      'local_discovery = false',
+    ]) {
+      final key = line.split(' ').first;
+      final rendered = RegExp('^[ \\t]*$key[ \\t]*=.*\$', multiLine: true);
+      if (rendered.hasMatch(out)) {
+        out = out.replaceAll(rendered, line);
+        continue;
+      }
+      const marker = '[global]\n';
+      final idx = out.indexOf(marker);
+      if (idx >= 0) {
+        final at = idx + marker.length;
+        out = '${out.substring(0, at)}$line\n${out.substring(at)}';
+      } else {
+        out = '$out\n[global]\n$line\n';
+      }
+    }
+    return out;
+  }
+
   /// Name the directory the node must read its identity material from.
   ///
   /// WITHOUT THIS THE MATERIAL IS UNREACHABLE, however correctly it was
@@ -1748,7 +1795,8 @@ class EmbeddedNode {
       final toml = out.toDartString();
       freeStr(out);
       return withIdentityDir(
-        withBuiltinSeedPolicy(
+        withNodeDiscovery(
+          withBuiltinSeedPolicy(
           withTransportRotation(
             withSessionKeepalive(
               withObfs4PskFile(
@@ -1780,6 +1828,8 @@ class EmbeddedNode {
                 obfs4PskFile,
               ),
             ),
+          ),
+            useBundledSeeds,
           ),
           useBundledSeeds,
         ),
