@@ -106,6 +106,27 @@ void main() {
     ];
   }
 
+  /// The regex half of [builtin], taking a body so it can be proved against a
+  /// fixture. Both seed lists are empty now, and two empty sets are equal —
+  /// the comparison below would pass loudest at the moment either parser had
+  /// stopped reading anything at all. A floor on the real files used to stand
+  /// in for that proof; it cannot any more, so the parsers are proved directly.
+  List<Seed> parseRustSeeds(String body) {
+    final entry = RegExp(
+      r'transport:\s*"([^"]+)"\.to_owned\(\),\s*'
+      r'public_key:\s*"([^"]+)"\.to_owned\(\),\s*'
+      r'nonce:\s*"([^"]+)"\.to_owned\(\),',
+    );
+    return [
+      for (final m in entry.allMatches(body))
+        (
+          transport: m.group(1)!,
+          publicKey: m.group(2)!,
+          nonce: m.group(3)!,
+        ),
+    ];
+  }
+
   /// The list the NODE compiles in.
   ///
   /// Parsed out of the Rust rather than generated from it, because generating
@@ -125,21 +146,9 @@ void main() {
     // dial — a gate that invents its own finding is worse than no gate.
     final close = source.indexOf('\n}', at);
     expect(close, greaterThan(-1), reason: '\$anchor has no closing brace');
-    final body = source.substring(at, close);
-    final entry = RegExp(
-      r'transport:\s*"([^"]+)"\.to_owned\(\),\s*'
-      r'public_key:\s*"([^"]+)"\.to_owned\(\),\s*'
-      r'nonce:\s*"([^"]+)"\.to_owned\(\),',
-    );
-    return [
-      for (final m in entry.allMatches(body))
-        (
-          transport: m.group(1)!,
-          publicKey: m.group(2)!,
-          nonce: m.group(3)!,
-        ),
-    ];
+    return parseRustSeeds(source.substring(at, close));
   }
+
 
   for (final entry in _networks.entries) {
     final label = entry.key;
@@ -149,21 +158,30 @@ void main() {
       final app = bundled(File(network.assetPath));
       final node = builtin(network);
 
-      // A floor before any comparison. Both parsers are discovery-based, and
-      // two empty sets are equal — the gate would pass loudest at the moment it
-      // had stopped reading either file. This project has shipped that shape
-      // before.
+      // Both lists are empty on purpose now, and two empty sets are equal —
+      // so the comparison below proves nothing unless the parsers are known
+      // to work. They are proved here, on fixtures, instead of on a floor
+      // under the real files.
+      final probeDir = Directory.systemTemp.createTempSync('seedprobe');
+      final probeJson = File('${probeDir.path}/s.json')
+        ..writeAsStringSync(
+          '[{"transport":"tcp://a:1","public_key":"K","nonce":"N",'
+          '"algo":"ed25519"}]',
+        );
       expect(
-        app.length,
-        greaterThanOrEqualTo(3),
-        reason: 'parsed ${app.length} seeds from ${network.assetPath} — the '
-            'parse is broken, not the file',
+        bundled(probeJson).single.transport,
+        'tcp://a:1',
+        reason: 'the JSON seed parser reads nothing, or the wrong field, out '
+            'of a file that holds exactly one seed',
       );
       expect(
-        node.length,
-        greaterThanOrEqualTo(3),
-        reason: 'parsed ${node.length} seeds from ${network.rustAnchor} — the '
-            'parse is broken, not the file',
+        parseRustSeeds(
+          'transport: "tcp://b:2".to_owned(),\n'
+          'public_key: "PK".to_owned(),\n'
+          'nonce: "NC".to_owned(),',
+        ).single.publicKey,
+        'PK',
+        reason: 'the Rust seed parser reads nothing out of a body that has one',
       );
 
       final onlyInApp = app.where((s) => !node.contains(s)).map(_describe);
