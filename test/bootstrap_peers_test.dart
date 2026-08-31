@@ -10,18 +10,36 @@ void main() {
   test(
     'production seeds contain no operator-owned UDP reflector endpoint',
     () async {
+      bool free(List<dynamic> entries) => entries
+          .whereType<Map<dynamic, dynamic>>()
+          .every(
+            (entry) =>
+                !entry.containsKey('udp_reflector') &&
+                !entry.containsKey('udp_reflectors'),
+          );
+
+      // The bundled list is empty now, and every entry of an empty list
+      // satisfies anything — so the check is proved on fixtures first. A floor
+      // on the real file used to stand in for that and cannot any more.
+      expect(
+        free([
+          {'transport': 'tcp://a:1', 'udp_reflector': 'x'},
+        ]),
+        isFalse,
+        reason: 'the check does not notice a reflector key it is looking for',
+      );
+      expect(
+        free([
+          {'transport': 'tcp://a:1'},
+        ]),
+        isTrue,
+        reason: 'the check rejects an entry that carries no reflector key',
+      );
+
       final decoded =
           jsonDecode(await rootBundle.loadString('assets/prod/seeds.json'))
               as List<dynamic>;
-      expect(decoded, isNotEmpty);
-      expect(
-        decoded.whereType<Map<dynamic, dynamic>>().every(
-          (entry) =>
-              !entry.containsKey('udp_reflector') &&
-              !entry.containsKey('udp_reflectors'),
-        ),
-        isTrue,
-      );
+      expect(free(decoded), isTrue);
     },
   );
 
