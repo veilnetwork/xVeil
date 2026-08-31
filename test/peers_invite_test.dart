@@ -16,8 +16,8 @@ BootstrapInvite _peer(String transport, int seed) => BootstrapInvite(
 void main() {
   test('round-trips a multi-peer share through the URI codec', () {
     final peers = [
-      _peer('obfs4-tcp://198.51.100.11:5556', 1),
-      _peer('obfs4-tcp://198.51.100.11:5556', 50),
+      _peer('obfs4-tcp://203.0.113.146:5556', 1),
+      _peer('obfs4-tcp://203.0.113.145:5556', 50),
     ];
     final uri = SharedPeers(peers).toUri();
 
