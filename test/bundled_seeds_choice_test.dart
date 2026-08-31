@@ -195,6 +195,50 @@ void main() {
     });
   });
 
+  group('the answer also decides whether this device goes looking', () {
+    // The question onboarding asks now. "Only nodes I add myself" has to be
+    // true of EVERY layer or it is not true: no compiled-in seeds, no local
+    // network, no public rendezvous.
+    test('declining turns off every way the node could find a peer alone', () {
+      const rendered =
+          '[global]\nmainline_discovery = "fallback"\nlocal_discovery = true\n';
+      final out = EmbeddedNode.withNodeDiscovery(rendered, false);
+      expect(out, contains('mainline_discovery = "off"'));
+      expect(out, contains('local_discovery = false'));
+      expect(out, isNot(contains('"fallback"')));
+      expect(out, isNot(contains('local_discovery = true')));
+      // One key each. A duplicate is a TOML parse error and this config goes
+      // straight to the native parser.
+      expect('mainline_discovery'.allMatches(out), hasLength(1));
+      expect('local_discovery'.allMatches(out), hasLength(1));
+    });
+
+    test('accepting leaves veil own defaults exactly alone', () {
+      // Notably it does NOT turn local discovery on. Announcing on whatever
+      // LAN the device is plugged into is a separate decision with its own
+      // cost, and it is not one to take on somebody's behalf in a setup flow.
+      const rendered = '[global]\nmlkem_rotation_secs = 3600\n';
+      expect(EmbeddedNode.withNodeDiscovery(rendered, true), rendered);
+    });
+
+    test('the keys are written even when [global] rendered nothing', () {
+      final out = EmbeddedNode.withNodeDiscovery('listen = "x"\n', false);
+      expect(out, contains('[global]'));
+      expect(out, contains('mainline_discovery = "off"'));
+      expect(out, contains('local_discovery = false'));
+      expect('[global]'.allMatches(out), hasLength(1));
+    });
+
+    test('an existing [global] gains both keys without a second header', () {
+      const rendered = '[global]\nmlkem_rotation_secs = 3600\n';
+      final out = EmbeddedNode.withNodeDiscovery(rendered, false);
+      expect('[global]'.allMatches(out), hasLength(1));
+      expect(out, contains('mlkem_rotation_secs = 3600'));
+      expect(out, contains('mainline_discovery = "off"'));
+      expect(out, contains('local_discovery = false'));
+    });
+  });
+
   group('the peer list is built from the answer', () {
     test('declining never merges the bundled seeds in', () {
       final peers = resolveBootstrapPeers(
