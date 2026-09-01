@@ -6763,6 +6763,13 @@ class AppL10nEn extends AppL10n {
       'Only the wire in this building; it cannot leave the segment. Machines on it can see that this one is looking.';
 
   @override
+  String get meetingPointNostr => 'Public Nostr relays';
+
+  @override
+  String get meetingPointNostrSub =>
+      'Ordinary web servers on port 443, so it works where the other two are blocked. The relays you ask learn the address this device connects from.';
+
+  @override
   String get meetingPointsAlwaysTitle => 'Keep looking once connected';
 
   @override

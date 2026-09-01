@@ -6847,6 +6847,13 @@ class AppL10nEs extends AppL10n {
       'Solo el cable de este edificio; no sale del segmento. Las máquinas que hay en él verán que esta busca.';
 
   @override
+  String get meetingPointNostr => 'Relés públicos de Nostr';
+
+  @override
+  String get meetingPointNostrSub =>
+      'Servidores web normales en el puerto 443, así que funciona donde los otros dos están bloqueados. Los relés a los que preguntas conocen la dirección desde la que se conecta este dispositivo.';
+
+  @override
   String get meetingPointsAlwaysTitle => 'Seguir buscando ya conectado';
 
   @override

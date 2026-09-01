@@ -227,7 +227,9 @@ void main() {
       );
       expect(
         both,
-        contains('meeting_points = ["dht_bit_torrent", "local_network"]'),
+        contains(
+          'meeting_points = ["dht_bit_torrent", "local_network", "nostr"]',
+        ),
       );
     });
 
@@ -242,9 +244,42 @@ void main() {
       // A config the node cannot parse is a node that will not start; better
       // to fail here, where somebody can read the message.
       expect(
-        () => EmbeddedNode.withMeetingPoints('[global]\n', const ['nostr']),
+        () => EmbeddedNode.withMeetingPoints('[global]\n', const [
+          'carrier_pigeon',
+        ]),
         throwsArgumentError,
       );
+    });
+
+    test('every point the app offers has a name and a stated cost', () {
+      // The two switches fall back to the raw key and an EMPTY subtitle, so a
+      // point added to the list and forgotten here does not fail: it renders
+      // as `nostr` with no line under it. That is the one outcome the screen
+      // argues against in its own comment -- a tick box labelled only with a
+      // name makes every option look free.
+      final screen = File(
+        'lib/features/network/network_screen.dart',
+      ).readAsStringSync();
+      String arm(String fn) {
+        final start = screen.indexOf(fn);
+        expect(start, isNot(-1), reason: '$fn is gone; this guard is stale');
+        return screen.substring(start, screen.indexOf('};', start));
+      }
+
+      final title = arm('String _meetingPointTitle(');
+      final sub = arm('String _meetingPointSub(');
+      for (final point in EmbeddedNode.meetingPoints) {
+        expect(
+          title,
+          contains("'$point' =>"),
+          reason: '$point would render as its raw config key',
+        );
+        expect(
+          sub,
+          contains("'$point' =>"),
+          reason: '$point would be offered with no statement of what it costs',
+        );
+      }
     });
 
     test('the list the app offers is the list the node knows', () {
