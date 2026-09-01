@@ -6808,4 +6808,36 @@ class AppL10nRu extends AppL10n {
   @override
   String get hardeningSyncNoticeBody =>
       'Данные сохранены. Дополнительные записи, скрывающие ЧТО изменилось, на момент сообщения до диска не дошли. Если устройство потеряет питание раньше них, снимок, снятый после, покажет больше, чем должен.';
+
+  @override
+  String get meetingPointsTitle => 'Где ищет эта личность';
+
+  @override
+  String get meetingPointDhtBitTorrent => 'Открытый указатель BitTorrent';
+
+  @override
+  String get meetingPointDhtBitTorrentSub =>
+      'Миллионы узлов, которыми никто не управляет. Те, кого вы спросите, узнают адрес, с которого подключается это устройство.';
+
+  @override
+  String get meetingPointLocalNetwork => 'Эта локальная сеть';
+
+  @override
+  String get meetingPointLocalNetworkSub =>
+      'Только провод в этом здании, за сегмент не выходит. Машины в нём увидят, что эта ищет.';
+
+  @override
+  String get meetingPointsAlwaysTitle => 'Искать и после подключения';
+
+  @override
+  String get meetingPointsAlwaysSub =>
+      'Выключено: личность спрашивает, только пока у неё нет пиров. Включено: спрашивает всегда — это помогает другим найти сеть и стоит вам самого вопроса.';
+
+  @override
+  String get meetingPointsSaveFailed =>
+      'Изменение не удалось сохранить, поэтому оно не применено.';
+
+  @override
+  String get meetingPointsNoneChosen =>
+      'Место не выбрано — эта личность ничего не найдёт сама.';
 }

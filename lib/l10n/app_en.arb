@@ -2055,9 +2055,21 @@
   },
   "nodeRegistrySaveFailed": "The node list could not be saved: {error}",
   "nodeHostKeyNotRemembered": "The host key could not be saved: {error}. The next connection will ask you to confirm it again.",
-  "@nodeHostKeyNotRemembered": {"placeholders": {"error": {"type": "String"}}},
+  "@nodeHostKeyNotRemembered": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "nodeRemoteChangedLocalNot": "The server was changed, but this app could not record it: {error}",
-  "@nodeRemoteChangedLocalNot": {"placeholders": {"error": {"type": "String"}}},
+  "@nodeRemoteChangedLocalNot": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "@nodeRegistrySaveFailed": {
     "description": "Shown when the node registry could not be committed to encrypted storage; the change is not saved.",
     "placeholders": {
@@ -3106,5 +3118,41 @@
   },
   "settingsStorageHardeningDismiss": "Got it",
   "hardeningSyncNoticeTitle": "Masking writes may not be on disk yet",
-  "hardeningSyncNoticeBody": "Your data is saved. The extra writes that hide WHAT changed had not reached the disk when this was reported. If the device loses power before they do, a snapshot taken afterwards can show more than it should."
+  "hardeningSyncNoticeBody": "Your data is saved. The extra writes that hide WHAT changed had not reached the disk when this was reported. If the device loses power before they do, a snapshot taken afterwards can show more than it should.",
+  "meetingPointsTitle": "Where this identity looks",
+  "@meetingPointsTitle": {
+    "description": "Header of the settings section listing the places this identity may look for nodes."
+  },
+  "meetingPointDhtBitTorrent": "BitTorrent's public index",
+  "@meetingPointDhtBitTorrent": {
+    "description": "Name of the BitTorrent Mainline DHT meeting point."
+  },
+  "meetingPointDhtBitTorrentSub": "Millions of nodes nobody operates. The ones you ask learn the address this device connects from.",
+  "@meetingPointDhtBitTorrentSub": {
+    "description": "What using that meeting point costs the person."
+  },
+  "meetingPointLocalNetwork": "This local network",
+  "@meetingPointLocalNetwork": {
+    "description": "Name of the local-network meeting point."
+  },
+  "meetingPointLocalNetworkSub": "Only the wire in this building; it cannot leave the segment. Machines on it can see that this one is looking.",
+  "@meetingPointLocalNetworkSub": {
+    "description": "What using that meeting point costs the person."
+  },
+  "meetingPointsAlwaysTitle": "Keep looking once connected",
+  "@meetingPointsAlwaysTitle": {
+    "description": "Switch: keep asking the meeting points after a peer is found."
+  },
+  "meetingPointsAlwaysSub": "Off: this identity asks only while it has no peer. On: it asks every time, which helps others find the network and costs you the asking.",
+  "@meetingPointsAlwaysSub": {
+    "description": "Both answers stated with what they cost."
+  },
+  "meetingPointsSaveFailed": "That change could not be saved, so it was not applied.",
+  "@meetingPointsSaveFailed": {
+    "description": "Shown when a meeting-point change could not be written."
+  },
+  "meetingPointsNoneChosen": "No place chosen — this identity will find nothing by itself.",
+  "@meetingPointsNoneChosen": {
+    "description": "Shown when every meeting point is unticked."
+  }
 }
