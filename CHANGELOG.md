@@ -10,6 +10,14 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.14] — 2026-09-01
+
+Node side only, and both of them are things production found rather than the
+test suite. A node no longer re-dials peers it is already talking to — an
+inbound session reports our own listener as its address, so recognising such a
+peer needs its identity, not its address — and a `veil-cli` run as the daemon
+no longer dies of SIGPIPE when a relay closes a socket on it.
+
 ## [0.13.13] — 2026-09-01
 
 **A third place to look for the network.** veil grew a Nostr meeting point, so
