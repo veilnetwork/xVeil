@@ -6744,4 +6744,36 @@ class AppL10nEn extends AppL10n {
   @override
   String get hardeningSyncNoticeBody =>
       'Your data is saved. The extra writes that hide WHAT changed had not reached the disk when this was reported. If the device loses power before they do, a snapshot taken afterwards can show more than it should.';
+
+  @override
+  String get meetingPointsTitle => 'Where this identity looks';
+
+  @override
+  String get meetingPointDhtBitTorrent => 'BitTorrent\'s public index';
+
+  @override
+  String get meetingPointDhtBitTorrentSub =>
+      'Millions of nodes nobody operates. The ones you ask learn the address this device connects from.';
+
+  @override
+  String get meetingPointLocalNetwork => 'This local network';
+
+  @override
+  String get meetingPointLocalNetworkSub =>
+      'Only the wire in this building; it cannot leave the segment. Machines on it can see that this one is looking.';
+
+  @override
+  String get meetingPointsAlwaysTitle => 'Keep looking once connected';
+
+  @override
+  String get meetingPointsAlwaysSub =>
+      'Off: this identity asks only while it has no peer. On: it asks every time, which helps others find the network and costs you the asking.';
+
+  @override
+  String get meetingPointsSaveFailed =>
+      'That change could not be saved, so it was not applied.';
+
+  @override
+  String get meetingPointsNoneChosen =>
+      'No place chosen — this identity will find nothing by itself.';
 }
