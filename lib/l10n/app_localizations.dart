@@ -11870,6 +11870,18 @@ abstract class AppL10n {
   /// **'Only the wire in this building; it cannot leave the segment. Machines on it can see that this one is looking.'**
   String get meetingPointLocalNetworkSub;
 
+  /// Name of the Nostr meeting point.
+  ///
+  /// In en, this message translates to:
+  /// **'Public Nostr relays'**
+  String get meetingPointNostr;
+
+  /// What using that meeting point costs the person.
+  ///
+  /// In en, this message translates to:
+  /// **'Ordinary web servers on port 443, so it works where the other two are blocked. The relays you ask learn the address this device connects from.'**
+  String get meetingPointNostrSub;
+
   /// Switch: keep asking the meeting points after a peer is found.
   ///
   /// In en, this message translates to:

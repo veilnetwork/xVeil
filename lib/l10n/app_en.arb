@@ -3139,6 +3139,14 @@
   "@meetingPointLocalNetworkSub": {
     "description": "What using that meeting point costs the person."
   },
+  "meetingPointNostr": "Public Nostr relays",
+  "@meetingPointNostr": {
+    "description": "Name of the Nostr meeting point."
+  },
+  "meetingPointNostrSub": "Ordinary web servers on port 443, so it works where the other two are blocked. The relays you ask learn the address this device connects from.",
+  "@meetingPointNostrSub": {
+    "description": "What using that meeting point costs the person."
+  },
   "meetingPointsAlwaysTitle": "Keep looking once connected",
   "@meetingPointsAlwaysTitle": {
     "description": "Switch: keep asking the meeting points after a peer is found."
