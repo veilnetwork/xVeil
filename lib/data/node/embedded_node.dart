@@ -1180,6 +1180,7 @@ class EmbeddedNode {
   static const List<String> meetingPoints = <String>[
     'dht_bit_torrent',
     'local_network',
+    'nostr',
   ];
 
   /// Where this node looks for its first peer.

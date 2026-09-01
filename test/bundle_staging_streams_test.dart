@@ -141,7 +141,18 @@ void main() {
   });
 
   test('a record that disappears mid-copy leaves nothing behind', () async {
-    Set<String> stages() => Directory.systemTemp
+    // Its OWN temp root, not the machine's. `Directory.systemTemp` is shared
+    // by every test file the runner has in flight, so counting `xveil-bundle*`
+    // there charges this test for stages other tests are legitimately holding
+    // open -- which it did, failing in full runs and passing alone. The
+    // overridden root is visible to the code under test, so what it creates
+    // lands where only this test looks.
+    final root = await Directory.systemTemp.createTemp('xveil-stage-scope');
+    addTearDown(() async {
+      if (root.existsSync()) await root.delete(recursive: true);
+    });
+
+    Set<String> stages() => root
         .listSync()
         .whereType<Directory>()
         .map((d) => d.path)
@@ -151,15 +162,16 @@ void main() {
         )
         .toSet();
 
-    final before = stages();
     final store = _VanishAfterFirstChunk(payload(3 * 1024 * 1024));
-
-    final partial = await stageReceivedBundle(store, 'blob');
+    final partial = await IOOverrides.runZoned(
+      () => stageReceivedBundle(store, 'blob'),
+      getSystemTempDirectory: () => root,
+    );
 
     expect(partial.bundle, isNull);
     expect(partial.refusal, BundleStageRefusal.missing);
     expect(
-      stages().difference(before),
+      stages(),
       isEmpty,
       reason:
           'half a model left in the temp directory is a half-installed '

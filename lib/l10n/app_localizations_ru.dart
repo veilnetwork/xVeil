@@ -6827,6 +6827,13 @@ class AppL10nRu extends AppL10n {
       'Только провод в этом здании, за сегмент не выходит. Машины в нём увидят, что эта ищет.';
 
   @override
+  String get meetingPointNostr => 'Публичные реле Nostr';
+
+  @override
+  String get meetingPointNostrSub =>
+      'Обычные веб-серверы на порту 443 — работает там, где два других способа перекрыты. Реле, к которым вы обращаетесь, узнают адрес, с которого подключается это устройство.';
+
+  @override
   String get meetingPointsAlwaysTitle => 'Искать и после подключения';
 
   @override
