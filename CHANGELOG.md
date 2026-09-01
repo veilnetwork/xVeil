@@ -10,6 +10,23 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## 0.13.13 — 2026-09-01
+
+**A third place to look for the network.** veil grew a Nostr meeting point, so
+the network screen offers it alongside the DHT and the local network. It works
+where the other two are blocked, because it is ordinary web traffic on 443, and
+its line says what that costs: the relays you ask learn the address this device
+connects from.
+
+The guard that kept the app's list matching the node's already counted them; it
+did not require a LABEL, and both switches fall back to the raw config key and
+an empty subtitle. A point added and half-wired would have rendered as the word
+`nostr` with nothing under it — a tick box labelled only with a name makes every
+option look free. Now guarded.
+
+Underneath, veil 0.10.0: a node can now join a network it finds, not only find
+it.
+
 ## [0.13.12] — 2026-08-30
 
 An audit release: nine confirmed high findings from report18, and the guards
