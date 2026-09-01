@@ -2842,6 +2842,14 @@
   "meetingPointDhtBitTorrentSub": "Millones de nodos que nadie opera. Quienes reciban la consulta conocerán la dirección desde la que se conecta este dispositivo.",
   "meetingPointLocalNetwork": "Esta red local",
   "meetingPointLocalNetworkSub": "Solo el cable de este edificio; no sale del segmento. Las máquinas que hay en él verán que esta busca.",
+  "meetingPointNostr": "Relés públicos de Nostr",
+  "@meetingPointNostr": {
+    "description": "Name of the Nostr meeting point."
+  },
+  "meetingPointNostrSub": "Servidores web normales en el puerto 443, así que funciona donde los otros dos están bloqueados. Los relés a los que preguntas conocen la dirección desde la que se conecta este dispositivo.",
+  "@meetingPointNostrSub": {
+    "description": "What using that meeting point costs the person."
+  },
   "meetingPointsAlwaysTitle": "Seguir buscando ya conectado",
   "meetingPointsAlwaysSub": "Desactivado: esta identidad pregunta solo mientras no tiene ningún par. Activado: pregunta siempre, lo que ayuda a otros a encontrar la red y te cuesta la propia consulta.",
   "meetingPointsSaveFailed": "El cambio no se pudo guardar, así que no se aplicó.",

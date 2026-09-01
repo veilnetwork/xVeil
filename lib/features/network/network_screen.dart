@@ -490,12 +490,14 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
   String _meetingPointTitle(AppL10n l, String point) => switch (point) {
     'dht_bit_torrent' => l.meetingPointDhtBitTorrent,
     'local_network' => l.meetingPointLocalNetwork,
+    'nostr' => l.meetingPointNostr,
     _ => point,
   };
 
   String _meetingPointSub(AppL10n l, String point) => switch (point) {
     'dht_bit_torrent' => l.meetingPointDhtBitTorrentSub,
     'local_network' => l.meetingPointLocalNetworkSub,
+    'nostr' => l.meetingPointNostrSub,
     _ => '',
   };
 

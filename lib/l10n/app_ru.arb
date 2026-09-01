@@ -2824,6 +2824,14 @@
   "meetingPointDhtBitTorrentSub": "Миллионы узлов, которыми никто не управляет. Те, кого вы спросите, узнают адрес, с которого подключается это устройство.",
   "meetingPointLocalNetwork": "Эта локальная сеть",
   "meetingPointLocalNetworkSub": "Только провод в этом здании, за сегмент не выходит. Машины в нём увидят, что эта ищет.",
+  "meetingPointNostr": "Публичные реле Nostr",
+  "@meetingPointNostr": {
+    "description": "Name of the Nostr meeting point."
+  },
+  "meetingPointNostrSub": "Обычные веб-серверы на порту 443 — работает там, где два других способа перекрыты. Реле, к которым вы обращаетесь, узнают адрес, с которого подключается это устройство.",
+  "@meetingPointNostrSub": {
+    "description": "What using that meeting point costs the person."
+  },
   "meetingPointsAlwaysTitle": "Искать и после подключения",
   "meetingPointsAlwaysSub": "Выключено: личность спрашивает, только пока у неё нет пиров. Включено: спрашивает всегда — это помогает другим найти сеть и стоит вам самого вопроса.",
   "meetingPointsSaveFailed": "Изменение не удалось сохранить, поэтому оно не применено.",
