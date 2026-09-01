@@ -195,47 +195,115 @@ void main() {
     });
   });
 
-  group('the answer also decides whether this device goes looking', () {
-    // The question onboarding asks now. "Only nodes I add myself" has to be
-    // true of EVERY layer or it is not true: no compiled-in seeds, no local
-    // network, no public rendezvous.
-    test('declining turns off every way the node could find a peer alone', () {
-      const rendered =
-          '[global]\nmainline_discovery = "fallback"\nlocal_discovery = true\n';
-      final out = EmbeddedNode.withNodeDiscovery(rendered, false);
-      expect(out, contains('mainline_discovery = "off"'));
-      expect(out, contains('local_discovery = false'));
-      expect(out, isNot(contains('"fallback"')));
-      expect(out, isNot(contains('local_discovery = true')));
-      // One key each. A duplicate is a TOML parse error and this config goes
-      // straight to the native parser.
-      expect('mainline_discovery'.allMatches(out), hasLength(1));
-      expect('local_discovery'.allMatches(out), hasLength(1));
+  group('the answer also decides where this device may look', () {
+    // "Only nodes I add myself" has to be true of EVERY meeting point or it is
+    // not true. Saying yes leaves veil's own default, which is all of them —
+    // including any a later version adds, which is the reason the default is a
+    // word and not a list the app would have to keep rewriting.
+    test('declining names no meeting point at all', () {
+      const rendered = '[global]\nmeeting_points = "all"\n';
+      final out = EmbeddedNode.withMeetingPoints(rendered, const <String>[]);
+      expect(out, contains('meeting_points = "off"'));
+      expect(out, isNot(contains('"all"')));
+      // One key, not two: a duplicate is a TOML parse error and this config is
+      // handed straight to the native parser.
+      expect('meeting_points'.allMatches(out), hasLength(1));
     });
 
-    test('accepting leaves veil own defaults exactly alone', () {
-      // Notably it does NOT turn local discovery on. Announcing on whatever
-      // LAN the device is plugged into is a separate decision with its own
-      // cost, and it is not one to take on somebody's behalf in a setup flow.
+    test('accepting leaves veil own default exactly alone', () {
       const rendered = '[global]\nmlkem_rotation_secs = 3600\n';
-      expect(EmbeddedNode.withNodeDiscovery(rendered, true), rendered);
+      expect(EmbeddedNode.withMeetingPoints(rendered, null), rendered);
     });
 
-    test('the keys are written even when [global] rendered nothing', () {
-      final out = EmbeddedNode.withNodeDiscovery('listen = "x"\n', false);
+    test('a named subset is written as a list veil can read', () {
+      final out = EmbeddedNode.withMeetingPoints(
+        '[global]\n',
+        const <String>['dht_bit_torrent'],
+      );
+      expect(out, contains('meeting_points = ["dht_bit_torrent"]'));
+      final both = EmbeddedNode.withMeetingPoints(
+        '[global]\n',
+        EmbeddedNode.meetingPoints,
+      );
+      expect(
+        both,
+        contains('meeting_points = ["dht_bit_torrent", "local_network"]'),
+      );
+    });
+
+    test('the key is written even when [global] rendered nothing', () {
+      final out = EmbeddedNode.withMeetingPoints('listen = "x"\n', const []);
       expect(out, contains('[global]'));
-      expect(out, contains('mainline_discovery = "off"'));
-      expect(out, contains('local_discovery = false'));
+      expect(out, contains('meeting_points = "off"'));
       expect('[global]'.allMatches(out), hasLength(1));
     });
 
-    test('an existing [global] gains both keys without a second header', () {
-      const rendered = '[global]\nmlkem_rotation_secs = 3600\n';
-      final out = EmbeddedNode.withNodeDiscovery(rendered, false);
-      expect('[global]'.allMatches(out), hasLength(1));
-      expect(out, contains('mlkem_rotation_secs = 3600'));
-      expect(out, contains('mainline_discovery = "off"'));
-      expect(out, contains('local_discovery = false'));
+    test('a name veil does not know is refused, not written', () {
+      // A config the node cannot parse is a node that will not start; better
+      // to fail here, where somebody can read the message.
+      expect(
+        () => EmbeddedNode.withMeetingPoints('[global]\n', const ['nostr']),
+        throwsArgumentError,
+      );
+    });
+
+    test('the list the app offers is the list the node knows', () {
+      // Mirrors `veil_cfg::MeetingPoint::ALL`. If the node grows a third and
+      // this is not updated, settings silently cannot offer it.
+      final rust = File(
+        'third_party/veil/crates/veil-cfg/src/model.rs',
+      ).readAsStringSync();
+      final block = rust.substring(
+        rust.indexOf('pub enum MeetingPoint {'),
+        rust.indexOf('impl MeetingPoint {'),
+      );
+      final declared = RegExp(r'^\s{4}([A-Z][A-Za-z]*),\s*$', multiLine: true)
+          .allMatches(block)
+          .length;
+      expect(
+        declared,
+        greaterThan(0),
+        reason: 'the parse found no variants; it is broken, not the file',
+      );
+      expect(
+        EmbeddedNode.meetingPoints.length,
+        declared,
+        reason:
+            'veil declares $declared meeting points and the app offers '
+            '${EmbeddedNode.meetingPoints.length}',
+      );
+    });
+  });
+
+  group('the meeting-point setting is per identity and defaults to all', () {
+    test('an unanswered identity leaves veil own default alone', () {
+      // `null` is NOT the same as "every box ticked". It means this identity
+      // never answered, so a version that adds a meeting point gives it to
+      // them without anybody re-answering -- which is the whole reason the
+      // node's default is the word `all` and not a list.
+      expect(
+        EmbeddedNode.withMeetingPoints('[global]\n', null),
+        '[global]\n',
+      );
+      expect(
+        EmbeddedNode.withMeetingPolicy('[global]\n', null),
+        '[global]\n',
+      );
+    });
+
+    test('a policy veil does not know is refused, not written', () {
+      expect(
+        () => EmbeddedNode.withMeetingPolicy('[global]\n', 'sometimes'),
+        throwsArgumentError,
+      );
+    });
+
+    test('both policies are written as veil spells them', () {
+      for (final policy in const ['fallback', 'always']) {
+        final out = EmbeddedNode.withMeetingPolicy('[global]\n', policy);
+        expect(out, contains('meeting_policy = "$policy"'));
+        expect('meeting_policy'.allMatches(out), hasLength(1));
+      }
     });
   });
 
@@ -820,7 +888,10 @@ void main() {
       await tester.pumpWidget(host(capture: (c) => container = c));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byType(SwitchListTile));
+      await tester.tap(find.widgetWithText(
+          SwitchListTile,
+          AppL10n.of(tester.element(find.byType(SwitchListTile).first)).seedsSwitchTitle,
+        ));
       await tester.pumpAndSettle();
 
       // Survives a restart, under the key a wipe clears. No container is open
@@ -857,11 +928,17 @@ void main() {
       // default — that is what makes it right after an identity switch.
       await tester.pumpAndSettle();
       expect(
-        tester.widget<SwitchListTile>(find.byType(SwitchListTile)).value,
+        tester.widget<SwitchListTile>(find.widgetWithText(
+          SwitchListTile,
+          AppL10n.of(tester.element(find.byType(SwitchListTile).first)).seedsSwitchTitle,
+        )).value,
         isFalse,
       );
 
-      await tester.tap(find.byType(SwitchListTile));
+      await tester.tap(find.widgetWithText(
+          SwitchListTile,
+          AppL10n.of(tester.element(find.byType(SwitchListTile).first)).seedsSwitchTitle,
+        ));
       await tester.pumpAndSettle();
 
       expect(await bundledSeedsAllowed(), isTrue);
@@ -1318,7 +1395,10 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(SwitchListTile));
+      await tester.tap(find.widgetWithText(
+          SwitchListTile,
+          AppL10n.of(tester.element(find.byType(SwitchListTile).first)).seedsSwitchTitle,
+        ));
       await tester.pumpAndSettle();
 
       expect(

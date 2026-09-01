@@ -1868,6 +1868,8 @@ class RealVeilStack {
     // [EmbeddedNode.withBuiltinSeedPolicy] for the compiled-in seeds the node
     // would otherwise dial entirely on its own.
     bool? useBundledSeeds,
+    List<String>? meetingPoints,
+    String? meetingPolicy,
   }) async {
     // The SPACE alone, with no preference behind it. This runs inside the
     // headless daemon too, which has no app profile and therefore no preference
@@ -1953,6 +1955,8 @@ class RealVeilStack {
         proxy: proxy,
         debugMetricsPort: debugMetricsPort,
         useBundledSeeds: seedsAllowed,
+        meetingPoints: meetingPoints,
+        meetingPolicy: meetingPolicy,
         serveDht: serveDht,
       );
     } catch (_) {
@@ -1994,6 +1998,8 @@ class RealVeilStack {
     required ProxyRouting proxy,
     required int? debugMetricsPort,
     required bool useBundledSeeds,
+    List<String>? meetingPoints,
+    String? meetingPolicy,
     required bool serveDht,
   }) async {
     final runtimeDir = lease.path;
@@ -2055,6 +2061,7 @@ class RealVeilStack {
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
       useBundledSeeds: useBundledSeeds,
+      meetingPoints: meetingPoints,
       // Only when there IS material: naming a directory that holds no document
       // changes nothing for the node, but it would move the ML-KEM key and the
       // persisted name claims of every existing identity out of the place veil

@@ -222,6 +222,81 @@ Future<bool> setBundledSeedsAllowedInSpace(
   }
 }
 
+/// Which meeting points this identity uses, stored in its own space.
+///
+/// A comma-separated list of the names veil knows, or the word `all`. Absent
+/// means `all`, which is also veil's own default: an install that predates
+/// this setting was already looking everywhere, and a missing preference must
+/// not quietly take a working identity off the network.
+const String kMeetingPointsSettingKey = 'network.meeting_points.v1';
+
+/// Read this identity's meeting points.
+///
+/// `null` means "not answered" — the caller leaves veil's default alone rather
+/// than writing one, so a later version that adds a point gives it to this
+/// identity without anybody re-answering.
+Future<List<String>?> meetingPointsInSpace(Storage storage) async {
+  if (!storage.isOpen) return null;
+  try {
+    final raw = await storage.getSetting(kMeetingPointsSettingKey);
+    if (raw == null || raw.isEmpty || raw == 'all') return null;
+    if (raw == 'off') return const <String>[];
+    return raw
+        .split(',')
+        .map((name) => name.trim())
+        .where((name) => name.isNotEmpty)
+        .toList();
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Write this identity's meeting points. `null` restores "all".
+Future<bool> setMeetingPointsInSpace(
+  Storage storage,
+  List<String>? points,
+) async {
+  if (!storage.isOpen) return false;
+  try {
+    final value = points == null
+        ? 'all'
+        : points.isEmpty
+        ? 'off'
+        : points.join(',');
+    await storage.putSetting(kMeetingPointsSettingKey, value);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// When this identity uses its meeting points: `fallback` or `always`.
+/// Absent leaves veil's default, which is `fallback`.
+const String kMeetingPolicySettingKey = 'network.meeting_policy.v1';
+
+/// Read this identity's meeting policy, or `null` for veil's default.
+Future<String?> meetingPolicyInSpace(Storage storage) async {
+  if (!storage.isOpen) return null;
+  try {
+    final raw = await storage.getSetting(kMeetingPolicySettingKey);
+    if (raw == null || raw.isEmpty) return null;
+    return const ['fallback', 'always'].contains(raw) ? raw : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Write this identity's meeting policy. `null` restores veil's default.
+Future<bool> setMeetingPolicyInSpace(Storage storage, String? policy) async {
+  if (!storage.isOpen) return false;
+  try {
+    await storage.putSetting(kMeetingPolicySettingKey, policy ?? '');
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// This identity's answer from its own space ALONE — no preference behind it.
 ///
 /// For a process that HAS none to read: the headless daemon, and
@@ -253,8 +328,18 @@ class IdentitySeedPlan {
   const IdentitySeedPlan({
     required this.useBundledSeeds,
     required this.bootstrapPeers,
+    this.meetingPoints,
+    this.meetingPolicy,
   });
 
   final bool useBundledSeeds;
   final List<BootstrapPeerCfg> bootstrapPeers;
+
+  /// Which meeting points this identity uses, or `null` for veil's default —
+  /// all of them. Read from the identity's own space, so two identities on one
+  /// device answer separately.
+  final List<String>? meetingPoints;
+
+  /// When this identity uses them, or `null` for veil's default.
+  final String? meetingPolicy;
 }

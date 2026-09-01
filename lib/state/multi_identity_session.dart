@@ -35,6 +35,8 @@ class IdentityBootSpec {
     required this.listenPort,
     required this.anonymous,
     this.useBundledSeeds = kBundledSeedsDefault,
+    this.meetingPoints,
+    this.meetingPolicy,
     this.bootstrapPeers = const [],
     this.obfs4Psk,
     this.udpReflectors = const [],
@@ -61,6 +63,13 @@ class IdentityBootSpec {
   /// [bootstrapPeers] cannot express — an empty list alone is the condition
   /// under which veil dials its compiled-in seeds anyway.
   final bool useBundledSeeds;
+
+  /// Which meeting points this identity uses, or `null` for veil's default —
+  /// all of them. Per identity, like the answer above.
+  final List<String>? meetingPoints;
+
+  /// When this identity uses them, or `null` for veil's default.
+  final String? meetingPolicy;
 
   /// Built from [useBundledSeeds], per identity — a refuser's spec never holds
   /// the shared descriptors at all, so nothing downstream has an address it
@@ -145,6 +154,8 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
         label: roster[i].label,
         spaceId: spaceId,
         useBundledSeeds: seeds.useBundledSeeds,
+        meetingPoints: seeds.meetingPoints,
+        meetingPolicy: seeds.meetingPolicy,
         bootstrapPeers: seeds.bootstrapPeers,
         obfs4Psk: obfs4Psk,
         udpReflectors: udpReflectors,
@@ -194,6 +205,8 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
     // the same storage view. Passed rather than re-read so the policy line and
     // the peer list above cannot come from two different answers.
     useBundledSeeds: spec.useBundledSeeds,
+    meetingPoints: spec.meetingPoints,
+    meetingPolicy: spec.meetingPolicy,
   );
   return IdentityNode(
     transport: stack.transport,

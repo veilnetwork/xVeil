@@ -6828,4 +6828,36 @@ class AppL10nEs extends AppL10n {
   @override
   String get hardeningSyncNoticeBody =>
       'Tus datos están guardados. Las escrituras adicionales que ocultan QUÉ cambió aún no habían llegado al disco. Si el dispositivo pierde energía antes, una instantánea posterior mostrará más de lo debido.';
+
+  @override
+  String get meetingPointsTitle => 'Dónde busca esta identidad';
+
+  @override
+  String get meetingPointDhtBitTorrent => 'El índice público de BitTorrent';
+
+  @override
+  String get meetingPointDhtBitTorrentSub =>
+      'Millones de nodos que nadie opera. Quienes reciban la consulta conocerán la dirección desde la que se conecta este dispositivo.';
+
+  @override
+  String get meetingPointLocalNetwork => 'Esta red local';
+
+  @override
+  String get meetingPointLocalNetworkSub =>
+      'Solo el cable de este edificio; no sale del segmento. Las máquinas que hay en él verán que esta busca.';
+
+  @override
+  String get meetingPointsAlwaysTitle => 'Seguir buscando ya conectado';
+
+  @override
+  String get meetingPointsAlwaysSub =>
+      'Desactivado: esta identidad pregunta solo mientras no tiene ningún par. Activado: pregunta siempre, lo que ayuda a otros a encontrar la red y te cuesta la propia consulta.';
+
+  @override
+  String get meetingPointsSaveFailed =>
+      'El cambio no se pudo guardar, así que no se aplicó.';
+
+  @override
+  String get meetingPointsNoneChosen =>
+      'No has elegido ningún sitio: esta identidad no encontrará nada por sí sola.';
 }

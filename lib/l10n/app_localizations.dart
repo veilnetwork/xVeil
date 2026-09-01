@@ -11839,6 +11839,60 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Your data is saved. The extra writes that hide WHAT changed had not reached the disk when this was reported. If the device loses power before they do, a snapshot taken afterwards can show more than it should.'**
   String get hardeningSyncNoticeBody;
+
+  /// Header of the settings section listing the places this identity may look for nodes.
+  ///
+  /// In en, this message translates to:
+  /// **'Where this identity looks'**
+  String get meetingPointsTitle;
+
+  /// Name of the BitTorrent Mainline DHT meeting point.
+  ///
+  /// In en, this message translates to:
+  /// **'BitTorrent\'s public index'**
+  String get meetingPointDhtBitTorrent;
+
+  /// What using that meeting point costs the person.
+  ///
+  /// In en, this message translates to:
+  /// **'Millions of nodes nobody operates. The ones you ask learn the address this device connects from.'**
+  String get meetingPointDhtBitTorrentSub;
+
+  /// Name of the local-network meeting point.
+  ///
+  /// In en, this message translates to:
+  /// **'This local network'**
+  String get meetingPointLocalNetwork;
+
+  /// What using that meeting point costs the person.
+  ///
+  /// In en, this message translates to:
+  /// **'Only the wire in this building; it cannot leave the segment. Machines on it can see that this one is looking.'**
+  String get meetingPointLocalNetworkSub;
+
+  /// Switch: keep asking the meeting points after a peer is found.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep looking once connected'**
+  String get meetingPointsAlwaysTitle;
+
+  /// Both answers stated with what they cost.
+  ///
+  /// In en, this message translates to:
+  /// **'Off: this identity asks only while it has no peer. On: it asks every time, which helps others find the network and costs you the asking.'**
+  String get meetingPointsAlwaysSub;
+
+  /// Shown when a meeting-point change could not be written.
+  ///
+  /// In en, this message translates to:
+  /// **'That change could not be saved, so it was not applied.'**
+  String get meetingPointsSaveFailed;
+
+  /// Shown when every meeting point is unticked.
+  ///
+  /// In en, this message translates to:
+  /// **'No place chosen — this identity will find nothing by itself.'**
+  String get meetingPointsNoneChosen;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

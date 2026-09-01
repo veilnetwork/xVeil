@@ -10,9 +10,16 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 import '../common/shown_cause.dart';
 import '../../core/error_journal.dart';
 import '../../data/node/dht_participation.dart';
-import '../../data/node/bundled_seeds.dart' show shouldOfferBundledSeeds;
+import '../../data/node/bundled_seeds.dart'
+    show
+        meetingPointsInSpace,
+        meetingPolicyInSpace,
+        setMeetingPointsInSpace,
+        setMeetingPolicyInSpace,
+        shouldOfferBundledSeeds;
 import '../../data/node/bundled_seeds_prefs.dart'
     show setBundledSeedsAllowedFor, storedBundledSeedsAnswerFor;
+import '../../data/node/embedded_node.dart' show EmbeddedNode;
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
@@ -463,8 +470,107 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
   /// on a failed read, which is the right default when a node config has to be
   /// composed regardless, and exactly the wrong one here — it would put an
   /// identity that refused the shared seeds back on them without anyone asking.
+  /// This identity's meeting points, or `null` for veil's default — all of
+  /// them. `null` is not the same as "every box ticked": it means the identity
+  /// has not answered, so a version that adds a point gives it to them.
+  List<String>? _points;
+
+  /// This identity's meeting policy, or `null` for veil's default.
+  String? _policy;
+
+  /// Which boxes to draw ticked. An unanswered identity is on everything.
+  Set<String> get _ticked =>
+      (_points ?? EmbeddedNode.meetingPoints).toSet();
+
+  /// The name veil uses, in the language the person reads.
+  ///
+  /// A `switch` rather than a map so a meeting point added to
+  /// [EmbeddedNode.meetingPoints] without a string here shows its raw name
+  /// rather than a blank row.
+  String _meetingPointTitle(AppL10n l, String point) => switch (point) {
+    'dht_bit_torrent' => l.meetingPointDhtBitTorrent,
+    'local_network' => l.meetingPointLocalNetwork,
+    _ => point,
+  };
+
+  String _meetingPointSub(AppL10n l, String point) => switch (point) {
+    'dht_bit_torrent' => l.meetingPointDhtBitTorrentSub,
+    'local_network' => l.meetingPointLocalNetworkSub,
+    _ => '',
+  };
+
+  Future<void> _setPoints(String point, bool on) async {
+    if (_busy) return;
+    final next = _ticked.toSet();
+    if (on) {
+      next.add(point);
+    } else {
+      next.remove(point);
+    }
+    // Written in the order veil declares them, so two devices with the same
+    // boxes ticked produce the same config line.
+    final ordered = EmbeddedNode.meetingPoints
+        .where(next.contains)
+        .toList(growable: false);
+    setState(() => _busy = true);
+    try {
+      // Persist FIRST: the node config is composed from the store at the next
+      // boot, so a box that moved over a failed write would show an answer no
+      // node will read.
+      final saved = await setMeetingPointsInSpace(
+        ref.read(storageProvider),
+        ordered,
+      );
+      if (!mounted) return;
+      if (!saved) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(content: Text(AppL10n.of(context).meetingPointsSaveFailed)),
+          );
+        return;
+      }
+      setState(() => _points = ordered);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _setPolicy(bool always) async {
+    if (_busy) return;
+    final next = always ? 'always' : 'fallback';
+    setState(() => _busy = true);
+    try {
+      final saved = await setMeetingPolicyInSpace(
+        ref.read(storageProvider),
+        next,
+      );
+      if (!mounted) return;
+      if (!saved) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(content: Text(AppL10n.of(context).meetingPointsSaveFailed)),
+          );
+        return;
+      }
+      setState(() => _policy = next);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _syncFromStore() async {
-    final stored = await storedBundledSeedsAnswerFor(ref.read(storageProvider));
+    final storage = ref.read(storageProvider);
+    final points = await meetingPointsInSpace(storage);
+    final policy = await meetingPolicyInSpace(storage);
+    if (mounted) {
+      setState(() {
+        _points = points;
+        _policy = policy;
+      });
+    }
+    final stored = await storedBundledSeedsAnswerFor(storage);
     if (!mounted || stored == null) return;
     if (ref.read(bundledSeedsChoiceProvider) != stored) {
       ref.read(bundledSeedsChoiceProvider.notifier).state = stored;
@@ -523,6 +629,57 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
           value: on,
           onChanged: _busy ? null : _set,
         ),
+        // Where, and when. Only while looking is allowed at all: a list of
+        // places under an "off" switch is a control that does nothing.
+        if (on) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                l.meetingPointsTitle,
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+            ),
+          ),
+          for (final point in EmbeddedNode.meetingPoints)
+            CheckboxListTile(
+              dense: true,
+              title: Text(_meetingPointTitle(l, point)),
+              // Each says what it costs, as the switch above does. A tick box
+              // labelled only with a name makes every option look free.
+              subtitle: Text(_meetingPointSub(l, point)),
+              isThreeLine: true,
+              value: _ticked.contains(point),
+              onChanged: _busy ? null : (v) => _setPoints(point, v ?? false),
+            ),
+          if (_ticked.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber, size: 18, color: scheme.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      l.meetingPointsNoneChosen,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          SwitchListTile(
+            dense: true,
+            title: Text(l.meetingPointsAlwaysTitle),
+            subtitle: Text(l.meetingPointsAlwaysSub),
+            isThreeLine: true,
+            value: _policy == 'always',
+            onChanged: _busy ? null : _setPolicy,
+          ),
+        ],
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Row(
