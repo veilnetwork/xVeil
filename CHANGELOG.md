@@ -10,7 +10,7 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
-## 0.13.13 — 2026-09-01
+## [0.13.13] — 2026-09-01
 
 **A third place to look for the network.** veil grew a Nostr meeting point, so
 the network screen offers it alongside the DHT and the local network. It works
