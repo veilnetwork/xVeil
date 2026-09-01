@@ -1077,6 +1077,11 @@ class EmbeddedNode {
     // [withBuiltinSeedPolicy] for why an empty [bootstrapPeers] does not
     // already mean that.
     bool useBundledSeeds = true,
+    // Which meeting points this node may use. `null` leaves veil's default —
+    // all of them — which is what a node with no compiled-in seeds needs.
+    // Ignored when [useBundledSeeds] is false: a refusal is a refusal.
+    List<String>? meetingPoints,
+    String? meetingPolicy,
     // Where this device's sovereign identity material was laid out. Null on a
     // node that has none — see [withIdentityDir] for why the node cannot find
     // it otherwise.
@@ -1098,6 +1103,8 @@ class EmbeddedNode {
       obfs4PskFile: obfs4PskFile,
       proxy: proxy,
       useBundledSeeds: useBundledSeeds,
+      meetingPoints: meetingPoints,
+      meetingPolicy: meetingPolicy,
       identityDir: identityDir,
       serveDht: serveDht,
     );
@@ -1164,51 +1171,78 @@ class EmbeddedNode {
     return '$toml\n[global]\n$line\n';
   }
 
-  /// Whether this node may look for peers by itself.
+  /// Every meeting point veil knows how to name, in the order it declares
+  /// them.
   ///
-  /// The answer onboarding asks for now, since there are no shared entry
-  /// nodes left to ask about: the repository ships no seed list, so the
-  /// question "use the shared nodes?" was a question about an empty list.
-  /// What is still a real choice is whether this device goes looking — on the
-  /// local network (layer 6) and at the public rendezvous (layer 7) — or
-  /// speaks only to nodes its owner names.
+  /// Mirrors `veil_cfg::MeetingPoint::ALL`. Kept here because the app has to
+  /// offer them one by one in settings, and a hard-coded list in a widget
+  /// would drift from the node the day a third is added.
+  static const List<String> meetingPoints = <String>[
+    'dht_bit_torrent',
+    'local_network',
+  ];
+
+  /// Where this node looks for its first peer.
   ///
-  /// `true` leaves veil's own defaults in place: local discovery off, the
-  /// rendezvous consulted only when nothing else offers a way in. Turning
-  /// local discovery ON is deliberately NOT what this answer does — announcing
-  /// on whatever LAN the device is plugged into is a separate decision with a
-  /// separate cost, and it belongs to the network screen, not to a setup
-  /// question somebody is clicking through.
+  /// `null` leaves veil's own default — `"all"`, every point this build knows,
+  /// which is what a node with no compiled-in seed list needs. Pass a list to
+  /// name a subset, or an empty list for "look nowhere".
   ///
-  /// `false` means it: no rendezvous, no local network, and no compiled-in
-  /// seeds either. "Only nodes I add myself" has to be true of every layer or
-  /// it is not true.
+  /// Looking, not announcing: whether this node offers ITSELF at these points
+  /// is `global.bootstrap`, and it stays a separate decision.
   ///
   /// Pure helper, same duplicate-key hazard as its siblings: a rendered
-  /// `[global]` may already carry the keys.
-  static String withNodeDiscovery(String toml, bool findNodes) {
-    if (findNodes) return toml;
-    var out = toml;
-    for (final line in const [
-      'mainline_discovery = "off"',
-      'local_discovery = false',
-    ]) {
-      final key = line.split(' ').first;
-      final rendered = RegExp('^[ \\t]*$key[ \\t]*=.*\$', multiLine: true);
-      if (rendered.hasMatch(out)) {
-        out = out.replaceAll(rendered, line);
-        continue;
-      }
-      const marker = '[global]\n';
-      final idx = out.indexOf(marker);
-      if (idx >= 0) {
-        final at = idx + marker.length;
-        out = '${out.substring(0, at)}$line\n${out.substring(at)}';
-      } else {
-        out = '$out\n[global]\n$line\n';
-      }
+  /// `[global]` may already carry the key.
+  static String withMeetingPoints(String toml, List<String>? points) {
+    if (points == null) return toml;
+    final unknown = points.where((p) => !meetingPoints.contains(p)).toList();
+    if (unknown.isNotEmpty) {
+      // A name veil does not know would make the whole config unparseable at
+      // the node, which is a worse failure than ignoring the request.
+      throw ArgumentError('unknown meeting point(s): ${unknown.join(', ')}');
     }
-    return out;
+    final line = points.isEmpty
+        ? 'meeting_points = "off"'
+        : 'meeting_points = [${points.map((p) => '"$p"').join(', ')}]';
+    final rendered = RegExp(
+      r'^[ \t]*meeting_points[ \t]*=.*$',
+      multiLine: true,
+    );
+    if (rendered.hasMatch(toml)) return toml.replaceAll(rendered, line);
+    const marker = '[global]\n';
+    final idx = toml.indexOf(marker);
+    if (idx >= 0) {
+      final at = idx + marker.length;
+      return '${toml.substring(0, at)}$line\n${toml.substring(at)}';
+    }
+    return '$toml\n[global]\n$line\n';
+  }
+
+  /// When this node uses its meeting points — `fallback` or `always`.
+  ///
+  /// `null` leaves veil's default, `fallback`: look while you have nobody,
+  /// stop once you have somebody. `always` is for a node somebody else relies
+  /// on. Announcing (`global.bootstrap`) ignores this either way, because a
+  /// node that offers itself has to keep being there.
+  static String withMeetingPolicy(String toml, String? policy) {
+    if (policy == null) return toml;
+    const known = <String>['fallback', 'always'];
+    if (!known.contains(policy)) {
+      throw ArgumentError('unknown meeting policy: $policy');
+    }
+    final line = 'meeting_policy = "$policy"';
+    final rendered = RegExp(
+      r'^[ \t]*meeting_policy[ \t]*=.*$',
+      multiLine: true,
+    );
+    if (rendered.hasMatch(toml)) return toml.replaceAll(rendered, line);
+    const marker = '[global]\n';
+    final idx = toml.indexOf(marker);
+    if (idx >= 0) {
+      final at = idx + marker.length;
+      return '${toml.substring(0, at)}$line\n${toml.substring(at)}';
+    }
+    return '$toml\n[global]\n$line\n';
   }
 
   /// Name the directory the node must read its identity material from.
@@ -1746,6 +1780,11 @@ class EmbeddedNode {
     String? obfs4PskFile,
     ProxyRouting proxy = ProxyRouting.disabled,
     bool useBundledSeeds = true,
+    // Which meeting points this node may use. `null` leaves veil's default —
+    // all of them — which is what a node with no compiled-in seeds needs.
+    // Ignored when [useBundledSeeds] is false: a refusal is a refusal.
+    List<String>? meetingPoints,
+    String? meetingPolicy,
     String? identityDir,
     bool? serveDht,
   }) {
@@ -1795,7 +1834,8 @@ class EmbeddedNode {
       final toml = out.toDartString();
       freeStr(out);
       return withIdentityDir(
-        withNodeDiscovery(
+        withMeetingPolicy(
+          withMeetingPoints(
           withBuiltinSeedPolicy(
           withTransportRotation(
             withSessionKeepalive(
@@ -1831,7 +1871,12 @@ class EmbeddedNode {
           ),
             useBundledSeeds,
           ),
-          useBundledSeeds,
+          // The answer decides where this node may look. "Only nodes I add
+          // myself" has to be true of every meeting point or it is not true;
+          // saying yes leaves veil's own default, which is all of them.
+            useBundledSeeds ? meetingPoints : const <String>[],
+          ),
+          useBundledSeeds ? meetingPolicy : null,
         ),
         identityDir,
       );

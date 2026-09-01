@@ -208,6 +208,10 @@ Future<IdentitySeedPlan> planIdentitySeeds({
   return IdentitySeedPlan(
     useBundledSeeds: allowed,
     bootstrapPeers: peersFor(allowed),
+    // Read from the SAME space as the answer above, in the same place, so a
+    // second identity on one device cannot inherit the first one's choice.
+    meetingPoints: await meetingPointsInSpace(storage),
+    meetingPolicy: await meetingPolicyInSpace(storage),
   );
 }
 
