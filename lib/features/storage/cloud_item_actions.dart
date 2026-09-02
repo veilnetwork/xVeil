@@ -60,6 +60,7 @@ Future<CloudExportResult> exportCloudItem(
   CloudItem item,
 ) async {
   if (item.contentId == null || item.deleted) return CloudExportResult.failed;
+  if (service.isClosed) return CloudExportResult.failed;
   try {
     // The bytes may live only on another device. Waiting for them is the whole
     // point of the action, so unlike a preview this one blocks.
@@ -83,6 +84,13 @@ Future<CloudExportResult> exportCloudItem(
       );
     }
     if (destination == null) return CloudExportResult.cancelled;
+    // THE SAVE DIALOG IS THE WINDOW. It is the platform's, it stays open as
+    // long as the user wants, and in all-online mode they can switch identity
+    // while it is up: every node stays running, so this captured service kept
+    // working and the copy below wrote one identity's plaintext to a path
+    // chosen while looking at the other (report21 X21-H2). A service whose
+    // identity has been left is closed, which is the signal.
+    if (service.isClosed) return CloudExportResult.failed;
     // Straight to the chosen path, no `.part` sibling.
     //
     // The sibling was there to protect an existing file from a copy that
