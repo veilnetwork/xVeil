@@ -10,6 +10,17 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.25] — 2026-09-02
+
+### Changed
+
+- hidden-volume 2.1.2: an index node whose entries are out of order is refused
+  rather than written — the encoder used to check that with a debug assertion,
+  so a release build produced a chunk it could not read back and a debug build
+  aborted the process. And the key-or-pair a paginated walk is holding when it
+  stops at a full page is now wiped: the tail scrub only reaches what is still
+  inside the iterator, and that one had already been handed out.
+
 ## [0.13.24] — 2026-09-02
 
 ### Changed
