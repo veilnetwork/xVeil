@@ -10,6 +10,18 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.23] — 2026-09-02
+
+### Changed
+
+- hidden-volume 2.1.1: a fast container open no longer answers with the
+  superseded one of two superblocks sharing a sequence number. Three of the
+  four scan loops walk slots low to high and the shared rule was written for
+  them; the reverse scan walks the other way, so keeping the "last seen"
+  payload kept the EARLIER slot — in the one loop whose answer a fast open
+  returns. Only reachable in a container an older build wrote, and the full
+  scan still corrects it.
+
 ## [0.13.22] — 2026-09-02
 
 ### Changed
