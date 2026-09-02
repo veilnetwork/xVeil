@@ -797,6 +797,7 @@
   "mentionsEmptyHint": "Aquí aparecerán los mensajes, las publicaciones y los comentarios que te mencionen.",
   "mentionsLoadFailed": "No se pudieron cargar las menciones",
   "chatRequestSent": "Solicitud enviada: esperando aprobación",
+  "chatRequestNotDelivered": "No se pudo entregar la solicitud: nada la llevó",
   "chatRequestResend": "Enviar de nuevo",
   "chatRequestCancel": "Cancelar",
   "chatRequestCancelTitle": "¿Cancelar la solicitud?",
