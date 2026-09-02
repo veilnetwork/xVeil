@@ -2062,6 +2062,10 @@ class RealVeilStack {
       proxy: proxy,
       useBundledSeeds: useBundledSeeds,
       meetingPoints: meetingPoints,
+      // Dropped here even on the path that carried it this far: the all-online
+      // boot passed both to the stack and only the points reached the config,
+      // so `always` silently stayed `fallback`.
+      meetingPolicy: meetingPolicy,
       // Only when there IS material: naming a directory that holds no document
       // changes nothing for the node, but it would move the ML-KEM key and the
       // persisted name claims of every existing identity out of the place veil

@@ -2385,6 +2385,13 @@ class AppController extends Notifier<AppState> {
         identityPhrase: identityPhrase,
         restoringIdentity: restoringIdentity,
         useBundledSeeds: seeds.useBundledSeeds,
+        // The ordinary boot read these and then dropped them, so the network
+        // screen offered a privacy control this path did not carry out: every
+        // one-active identity ran on veil's own defaults no matter what the
+        // person ticked. `planIdentitySeeds` answers for THIS identity; the
+        // answer has to travel with the rest of its plan.
+        meetingPoints: seeds.meetingPoints,
+        meetingPolicy: seeds.meetingPolicy,
       );
     }
 
