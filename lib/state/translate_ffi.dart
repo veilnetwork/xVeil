@@ -119,7 +119,8 @@ class _Job {
 
 /// A model open in its own isolate, answering one translation at a time.
 class TranslateEngine {
-  TranslateEngine._(this._isolate, this._requests, this.version, this.deadline);
+  TranslateEngine._(this._isolate, this._requests, this.version, this.deadline)
+    : shutdownGrace = const Duration(seconds: 5);
 
   /// An engine over a port somebody else owns, so the deadline below can be
   /// exercised without a native library. The isolate is null here: nothing
@@ -129,10 +130,18 @@ class TranslateEngine {
     this._requests, {
     this.version = 'test',
     this.deadline = const Duration(seconds: 1),
+    this.shutdownGrace = const Duration(seconds: 5),
   }) : _isolate = null;
 
   final Isolate? _isolate;
   final SendPort _requests;
+
+  /// How long the worker is given to release its model before it is killed.
+  ///
+  /// Long enough for a translation already in flight to finish — the shutdown
+  /// message queues behind it — and finite, because a wedged worker must not
+  /// hold the caller.
+  final Duration shutdownGrace;
 
   /// How long one message may take before the engine is presumed lost.
   ///
@@ -226,8 +235,34 @@ class TranslateEngine {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    // ASK THE WORKER TO CLOSE THE MODEL, and wait for it to say it did.
+    //
+    // Killing the isolate frees the Dart heap and nothing else: the
+    // CTranslate2 model is a C++ allocation owned by the process, and the one
+    // call that releases it sat in `onDone` — which fires when the request
+    // port closes, and nothing ever closed it. So every model this app opened
+    // stayed in memory until the process ended, and an import/remove cycle
+    // repeated a few times on a large model walked RSS up to memory pressure
+    // (report21 X21-M3).
+    final done = ReceivePort();
+    try {
+      _requests.send(_Shutdown(done.sendPort));
+      await done.first.timeout(shutdownGrace);
+    } on Object {
+      // A worker that is gone, wedged, or was never really there. The kill
+      // below is then all there is, which is exactly what this used to do
+      // unconditionally.
+    } finally {
+      done.close();
+    }
     _isolate?.kill(priority: Isolate.beforeNextEvent);
   }
+}
+
+/// Asked of the worker so it releases the native model before it dies.
+class _Shutdown {
+  const _Shutdown(this.reply);
+  final SendPort reply;
 }
 
 class _Boot {
@@ -276,7 +311,24 @@ void _serve(_Boot boot) {
   final requests = ReceivePort();
   boot.reply.send(_Ready(requests.sendPort, version().toDartString()));
 
+  // ONCE. The engine is closed either by an explicit shutdown or by the port
+  // draining, and a double `veil_translate_close` on the same pointer is a
+  // free of freed memory.
+  var engineClosed = false;
+  void closeEngineOnce() {
+    if (engineClosed) return;
+    engineClosed = true;
+    close(engine);
+  }
+
   requests.listen((message) {
+    if (message is _Shutdown) {
+      // On the isolate that OWNS the model, before anything kills it.
+      closeEngineOnce();
+      message.reply.send(true);
+      requests.close();
+      return;
+    }
     if (message is! _Job) return;
     final textPtr = message.text.toNativeUtf8();
     try {
@@ -295,5 +347,5 @@ void _serve(_Boot boot) {
     } finally {
       calloc.free(textPtr);
     }
-  }, onDone: () => close(engine));
+  }, onDone: closeEngineOnce);
 }

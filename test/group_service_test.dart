@@ -4758,6 +4758,69 @@ void main() {
     },
   );
 
+  test('a disposed service posts nothing to the identity it belonged to',
+      () async {
+    // report21 X21-H2. `dispose()` states its own purpose — "hosts must call
+    // this before replacing/closing the active identity so a stale group feed
+    // cannot survive an identity switch" — and the writes never consulted it.
+    // A sheet or a picker captured before the switch went on posting to the
+    // device group of the identity the user had already left, and minting its
+    // recovery credential.
+    final s = FakeHvContainer().storage();
+    await s.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(s, _FakeSigner(owner));
+    await svc.linkDevice(bob, sovereign: sovereign);
+
+    // Vacuity: while active the post lands, or the assertions below pass on a
+    // service that refuses everything.
+    expect(
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.contactUp,
+          key: 'while-active',
+          tsMs: 1000,
+          payload: const {'pin': true},
+        ),
+      ),
+      isTrue,
+    );
+    final before = await svc.deviceSyncState();
+
+    await svc.dispose();
+    expect(svc.isDisposed, isTrue);
+
+    expect(
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.contactUp,
+          key: 'after-the-switch',
+          tsMs: 2000,
+          payload: const {'pin': true},
+        ),
+      ),
+      isFalse,
+      reason: 'an event reached the device group of an identity the user had '
+          'already left',
+    );
+    final after = await svc.deviceSyncState();
+    expect(
+      after.length,
+      before.length,
+      reason: 'the refusal still appended to the log',
+    );
+
+    // And the recovery path, which installs a signer rather than a row.
+    expect(
+      await svc.recoverDeviceGroupFromCertificate(
+        Uint8List.fromList(List<int>.filled(64, 7)),
+        'code',
+      ),
+      isNull,
+      reason: 'a recovery sheet completed after the switch installed the old '
+          'identity own signer',
+    );
+  });
+
   test('postDeviceEvent: concurrent fire-and-forget emits ALL land '
       '(regression: two unawaited posts raced the group log read-modify-write '
       'and the later save dropped the earlier append — caught in the brick-4 '

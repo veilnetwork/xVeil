@@ -1693,6 +1693,51 @@ void main() {
             'documented and inert',
       );
     });
+
+    test('a boot with no meeting answer asks the identity own space', () {
+      // report21 X21-H1. The daemon passes only `useBundledSeeds`; the meeting
+      // points and the policy arrive as null, and the composer then leaves
+      // veil's own `all`/`fallback` in place. An identity whose owner had
+      // turned meeting points OFF in the app went back to asking the public
+      // DHT and the relays the moment the same store was opened without a GUI.
+      //
+      // Read off the source for the same reason as the test above: `start`
+      // opens a real container and dials FFI before it composes anything, so
+      // there is no seam to inject. The fix is not "the daemon passes them" —
+      // a daemon has no GUI to have been told — but "the boot resolves what
+      // the caller did not", which is exactly what the seeds answer and the
+      // DHT answer already do beside it.
+      final source = File('lib/data/veil_stack.dart').readAsStringSync();
+      final body = source.split('static Future<RealVeilStack> startDeniable');
+      expect(body.length, greaterThan(1), reason: 'startDeniable is gone?');
+      final start = body[1];
+
+      expect(
+        start,
+        contains('meetingPoints ?? await meetingPointsInSpace(storage)'),
+        reason:
+            'a boot that was told nothing about meeting points leaves veil at '
+            '`all`, so an explicit opt-out is silently widened by opening the '
+            'store without a GUI',
+      );
+      expect(
+        start,
+        contains('meetingPolicy ?? await meetingPolicyInSpace(storage)'),
+        reason: 'the same, for `always` vs `fallback`',
+      );
+      // And the resolved values are what reaches the composer, not the
+      // arguments that were null.
+      expect(
+        start,
+        contains('meetingPoints: points'),
+        reason: 'the resolved points are not the ones handed on',
+      );
+      expect(
+        start,
+        contains('meetingPolicy: policy'),
+        reason: 'the resolved policy is not the one handed on',
+      );
+    });
   });
 
   group('the wording states whose answer it is', () {
