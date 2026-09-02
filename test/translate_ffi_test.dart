@@ -114,6 +114,66 @@ void main() {
       );
     });
 
+    test('closing asks the worker to release the native model', () async {
+      // report21 X21-M3. `close()` only killed the isolate, which frees the
+      // Dart heap and nothing else: the CTranslate2 model is a C++ allocation
+      // owned by the process, and the one call that releases it sat in the
+      // request port's `onDone` — which fires when that port closes, and
+      // nothing ever closed it. Every model the app opened stayed in memory
+      // until the process ended.
+      final worker = ReceivePort();
+      addTearDown(worker.close);
+      final asked = <Object?>[];
+      worker.listen((message) {
+        asked.add(message);
+        // The worker acknowledges after releasing the model.
+        (message as dynamic).reply.send(true);
+      });
+
+      final engine = TranslateEngine.overPort(worker.sendPort);
+      final started = DateTime.now();
+      await engine.close();
+
+      expect(
+        asked, isNotEmpty,
+        reason: 'closing never asked the worker for anything, so the native '
+            'model is released by nothing at all',
+      );
+      expect(
+        DateTime.now().difference(started),
+        lessThan(const Duration(seconds: 2)),
+        reason: 'close waited out its grace even though the worker answered',
+      );
+    });
+
+    test('a worker that never answers does not hold the caller', () async {
+      // The other half: a wedged or already-dead worker must not make close()
+      // wait forever. It gets its grace and then the kill, which is what this
+      // always did unconditionally.
+      final silent = ReceivePort();
+      addTearDown(silent.close);
+      final engine = TranslateEngine.overPort(
+        silent.sendPort,
+        shutdownGrace: const Duration(milliseconds: 200),
+      );
+
+      final started = DateTime.now();
+      await engine.close();
+      final waited = DateTime.now().difference(started);
+
+      expect(
+        waited,
+        lessThan(const Duration(seconds: 2)),
+        reason: 'it waited $waited — the shutdown grace did not apply',
+      );
+      expect(
+        waited,
+        greaterThanOrEqualTo(const Duration(milliseconds: 150)),
+        reason: 'close did not wait for the worker at all, so the model is '
+            'killed before it can be released',
+      );
+    });
+
     test('a closed engine answers immediately', () async {
       final silent = ReceivePort();
       addTearDown(silent.close);

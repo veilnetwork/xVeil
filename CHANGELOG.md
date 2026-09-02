@@ -10,6 +10,53 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.16] — 2026-09-02
+
+### Fixed
+
+- **A daemon reads the meeting-point choice the app wrote.** Booting an
+  identity resolved only the bundled-seeds answer from its own space; the
+  meeting points and the policy arrived as nulls and veil was left at its own
+  `all` / `fallback`. So an identity whose owner had turned meeting points off
+  — or pinned a subset, or asked for `always` — went back to asking the public
+  DHT and the relays the moment the same store was opened without a GUI. Both
+  are resolved beside the seeds answer now, on the same rule and for the same
+  reason (report21 X21-H1).
+
+- **A service that belongs to a departed identity refuses changes.** Closing
+  is what an identity switch does to the service it leaves, and a screen that
+  captured the old one keeps working: a file picker still open, a note editor,
+  a recovery sheet. Those callbacks went on writing into the store of the
+  identity the user had already left, while the interface of the identity they
+  were now looking at reported success. `CloudService` fails its mutations
+  closed, and the two `GroupService` writes that install credentials or post
+  to a device group consult the dispose flag whose stated purpose is exactly
+  this (report21 X21-H2).
+
+  The other half of that finding — closing the modals and pickers a switch
+  leaves open — is not in this release. What lands now is the fail-closed
+  boundary: the user sees the operation fail instead of succeeding into the
+  wrong identity.
+
+- **Closing a translation engine releases the model.** `close()` killed the
+  isolate, which frees the Dart heap and nothing else: the CTranslate2 model is
+  a C++ allocation owned by the process, and the one call that releases it sat
+  in a port callback nothing ever triggered. Every model the app opened stayed
+  in memory until the process ended, so importing and removing a large pair a
+  few times walked memory up to pressure. The worker is now asked to release
+  it, acknowledges, and is killed only if it does not answer within five
+  seconds (report21 X21-M3).
+
+### Changed
+
+- veil 0.11.4 and hidden-volume 2.0.7. veil closes the meeting-point address
+  filters (a v4 address written as `::ffff:…` stepped around every private and
+  loopback refusal), reads local discovery on both IP families, publishes the
+  port a listener actually bound, and claims a rendezvous slot on terms its
+  caller can see. hidden-volume reserves the Argon2 working buffer fallibly, so
+  a header naming the 512-MiB ceiling can no longer abort the process that
+  read it.
+
 ## [0.13.15] — 2026-09-02
 
 **The meeting-point controls now reach the node they claim to configure.** An

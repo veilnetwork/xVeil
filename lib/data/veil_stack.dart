@@ -18,7 +18,11 @@ import 'native_libs.dart' show openEnvLib, processLibFor;
 // headless daemon's import path — one such import stopped `dart build cli`
 // producing the daemon at all while every app build stayed green (709f3b9).
 import 'node/bundled_seeds.dart'
-    show bundledSeedsAllowedFromSpace, kBundledSeedsDefault;
+    show
+        bundledSeedsAllowedFromSpace,
+        kBundledSeedsDefault,
+        meetingPointsInSpace,
+        meetingPolicyInSpace;
 import 'node/dht_participation.dart';
 import 'node/embedded_node.dart';
 import 'node/identity_config_fields.dart';
@@ -1886,6 +1890,17 @@ class RealVeilStack {
     // profile-preference history to migrate from, so the space is the only
     // source and the daemon resolves it exactly as the app does.
     final serveDht = await dhtParticipationEffective(storage);
+    // AND THE MEETING POINTS, on the same rule and for the same reason. Only
+    // `useBundledSeeds` was resolved here, so a daemon booting an identity
+    // whose owner had turned meeting points off — or pinned a subset, or asked
+    // for `always` — passed null for both and the composer left veil's own
+    // `all`/`fallback` in place. An explicit privacy choice made in the app
+    // was silently widened by opening the same store without a GUI
+    // (report21 X21-H1). A caller that already resolved them passes them in;
+    // null asks the identity's own space, which is what makes the opt-out
+    // impossible for a caller to forget.
+    final points = meetingPoints ?? await meetingPointsInSpace(storage);
+    final policy = meetingPolicy ?? await meetingPolicyInSpace(storage);
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is
     // the node bind/connect, not PoW). Zero-cost diagnostic; reads at a glance.
@@ -1955,8 +1970,8 @@ class RealVeilStack {
         proxy: proxy,
         debugMetricsPort: debugMetricsPort,
         useBundledSeeds: seedsAllowed,
-        meetingPoints: meetingPoints,
-        meetingPolicy: meetingPolicy,
+        meetingPoints: points,
+        meetingPolicy: policy,
         serveDht: serveDht,
       );
     } catch (_) {
