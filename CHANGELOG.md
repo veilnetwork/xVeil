@@ -10,6 +10,32 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.20] — 2026-09-02
+
+### Fixed
+
+- **An answer about this device's models is not sent after the identity moved
+  on.** Detaching the handler on dispose stops the NEXT request and does
+  nothing about the one already running — by the time it reaches the send it is
+  a preference read and two directory scans deep. So an answer begun under one
+  identity was still delivered afterwards, on that identity's pipeline,
+  telling the contact what the identity the user had left keeps on disk: to
+  that contact, the two answered from the same place.
+
+  Worse than a leak, as the test written for it found: the roots are resolved
+  through the provider `Ref` that built the service, and a `Ref` used after its
+  provider is disposed THROWS — so the parked answer raised out of a messaging
+  callback with nobody to catch it (report21 XV18-L3).
+
+### Changed
+
+- veil 0.11.6: every rendezvous publisher registration goes through the one
+  bounded admission. The runtime entry point kept its own copy of "replace or
+  push" and so kept neither the slot bound nor the rule that a KEM-less
+  re-registration must not erase the key the app supplied — both fixes from
+  0.11.3, both reachable around through that door. Setting a relay key now
+  clears the expiry of the key it replaces.
+
 ## [0.13.19] — 2026-09-02
 
 ### Fixed

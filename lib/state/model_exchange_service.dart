@@ -83,6 +83,11 @@ class ModelExchangeService {
 
   /// When each peer was asked. An answer outside the window is dropped.
   final Map<String, DateTime> _asked = {};
+
+  /// Set by [dispose]. Detaching the handlers stops the NEXT request; an
+  /// answer already in flight is several awaits deep and needs telling.
+  bool _disposed = false;
+
   final _answers = StreamController<PeerModelOffers>.broadcast();
 
   Stream<PeerModelOffers> get answers => _answers.stream;
@@ -105,7 +110,15 @@ class ModelExchangeService {
   }
 
   Future<void> _answer(NodeId peer) async {
+    if (_disposed) return;
     if (!await answersAutomatically()) return;
+    // AFTER the first await as well, and this one is not only about what is
+    // sent. `_speechRoot` reaches back through the provider `Ref` that built
+    // this service, and a `Ref` used after its provider was disposed THROWS —
+    // so an answer parked on the preference read when the identity changed did
+    // not merely leak, it raised out of a messaging callback with nobody to
+    // catch it (report21 XV18-L3).
+    if (_disposed) return;
     final offers = await localModelOffers(
       translateRoot: await _translateRoot(),
       speechRoot: await _speechRoot(),
@@ -115,6 +128,13 @@ class ModelExchangeService {
     // only way the setting is worth having: a peer who can tell the two apart
     // learns that the person deliberately declined.
     if (offers.isEmpty) return;
+    // CHECKED AGAIN, right before the send. Detaching the handler stops the
+    // NEXT request; it does nothing about this one, which is several awaits
+    // deep — a preference read and two directory scans — by the time it gets
+    // here. Without this an answer begun under one identity was still sent
+    // after the app had moved to another, telling that peer what the identity
+    // the user had left keeps on disk (report21 XV18-L3).
+    if (_disposed) return;
     await _messaging.sendModelInventoryOffer(
       peer,
       jsonEncode([for (final offer in offers) offer.toWire()]),
@@ -122,6 +142,7 @@ class ModelExchangeService {
   }
 
   void _collect(NodeId peer, String bodyJson) {
+    if (_disposed) return;
     final at = _now();
     _forgetExpired(at);
     final askedAt = _asked[peer.hex];
@@ -178,6 +199,7 @@ class ModelExchangeService {
   /// stale handler is A still answering on A's pipeline after the screen
   /// showed B.
   void dispose() {
+    _disposed = true;
     if (_messaging.onModelInventoryRequest == _answer) {
       _messaging.onModelInventoryRequest = null;
     }
