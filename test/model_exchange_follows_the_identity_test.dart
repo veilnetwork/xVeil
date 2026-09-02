@@ -145,6 +145,82 @@ void main() {
       expect(slow.settings[kAnswerModelInventoryKey], '0');
     },
   );
+  test(
+    'an answer already in flight is not sent after the identity moved on',
+    () async {
+      // report21 XV18-L3. `dispose` detaches the handler, which stops the NEXT
+      // request and does nothing about this one: by the time it reaches the
+      // send it is several awaits deep — a preference read and two directory
+      // scans. So an answer begun under one identity was still delivered after
+      // the app had moved to another, telling that contact what the identity
+      // the user had left keeps on disk. To the contact, the two answered from
+      // the same place, which is precisely what separate identities are for.
+      //
+      // It was worse than a leak: `_speechRoot` reaches back through the
+      // provider `Ref` that built the service, and a `Ref` used after its
+      // provider is disposed THROWS — so the parked answer raised out of a
+      // messaging callback with nobody to catch it. That is what this test
+      // reaches first, which means it pins the check after the preference read
+      // and NOT the one before the send: with the throw removed the send is
+      // never reached either. The second check stands on the discipline —
+      // ask after every await — rather than on this test.
+      final slow = _SlowReadStorage();
+      slow.settings[kAnswerModelInventoryKey] = '1';
+      var messaging = messagingA;
+      Object storage = slow;
+      final c = ProviderContainer(
+        overrides: [
+          messagingServiceProvider.overrideWith((ref) => messaging),
+          storageProvider.overrideWith((ref) => storage as dynamic),
+        ],
+      );
+      addTearDown(c.dispose);
+
+      c.read(modelExchangeServiceProvider);
+      final answering = messagingA.onModelInventoryRequest;
+      expect(answering, isNotNull, reason: 'premise: A answers on A');
+
+      // The request arrives, and parks on the preference read.
+      answering!(peer);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        messagingA.offersSent,
+        isEmpty,
+        reason: 'premise: nothing is sent while the answer is still deciding',
+      );
+
+      // The user switches. A's service is disposed under the parked answer.
+      messaging = messagingB;
+      storage = storageB;
+      c.invalidate(messagingServiceProvider);
+      c.invalidate(storageProvider);
+      c.read(modelExchangeServiceProvider);
+
+      slow.release();
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        messagingA.offersSent,
+        isEmpty,
+        reason: "an answer begun under A was delivered after the app moved to "
+            'B, on A pipeline, telling that contact what A holds',
+      );
+      expect(messagingB.offersSent, isEmpty, reason: 'nor on B');
+    },
+  );
+}
+
+/// A settings store whose READS finish when the test says so.
+class _SlowReadStorage extends FakeSettingStorage {
+  final _gate = Completer<void>();
+  void release() => _gate.complete();
+
+  @override
+  Future<String?> getSetting(String key) async {
+    await _gate.future;
+    return super.getSetting(key);
+  }
 }
 
 /// A settings store whose writes finish when the test says so.
