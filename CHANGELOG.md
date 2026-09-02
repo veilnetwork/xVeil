@@ -10,6 +10,17 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.24] — 2026-09-02
+
+### Changed
+
+- veil 0.11.8: the VPN tunnel's traffic report never goes backwards. The
+  running totals and the timestamp of the last report were separate locks, so
+  two threads updating at once could each decide to report and the one holding
+  the smaller total could arrive second — a counter that only grows, seen going
+  down, and a negative delta for anything computing one. One critical section
+  decides it now.
+
 ## [0.13.23] — 2026-09-02
 
 ### Changed
