@@ -10,6 +10,38 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.18] — 2026-09-02
+
+### Fixed
+
+- **An operation cannot outlive the identity that started it.** Switching
+  identity in all-online mode re-points the view and leaves every node running,
+  so nothing that snapshotted the session's lifecycle noticed: a screen holding
+  a service kept working against the identity the user had left. There is now
+  an identity epoch, moved by the one setter every switch goes through, and an
+  `IdentityLease` a screen takes before its first await and checks after it. A
+  lease does not survive a switch in either direction — including a switch away
+  and back, where the label is equal again but every service behind it has been
+  rebuilt (report21 X21-H2).
+
+- **A file picker that outlived its identity registers nothing.** Both Space
+  media helpers awaited a file dialog — which hands control to the platform for
+  as long as the user wants it — and only then read the messaging service. The
+  blob was registered against whoever was active by the time the dialog closed,
+  while the caller went on to sign a row in the Space it started in: a signed
+  row naming content only the other identity can read. Both now take the
+  service and the lease before the picker and check the lease after
+  (report21 X21-M1).
+
+- **The add-contact sheet closes rather than finishing under the wrong
+  identity.** The invite on screen is one identity's, and every callback waits
+  on something slow — a redeem, a name resolve, the user reading a QR code off
+  another phone. A switch in any of those windows sent what followed to whoever
+  was active by then: a nickname written into the other identity's store, and
+  `/chat/<peer>` opening one identity's contact inside the other's view, which
+  is the two of them linked on screen by us. The sheet holds one lease and
+  abandons quietly when it goes stale (report21 X21-M2).
+
 ## [0.13.17] — 2026-09-02
 
 ### Changed

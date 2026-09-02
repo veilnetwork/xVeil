@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
+import '../../state/app_controller.dart';
 import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
 import '../../state/group_service_providers.dart';
@@ -25,7 +26,19 @@ Future<String?> pickAndRegisterSpaceProfileImage(
   WidgetRef ref, {
   required String name,
 }) async {
+  // Both taken BEFORE the picker. A file dialog hands control to the platform
+  // for as long as the user wants it, and in all-online mode they can switch
+  // identity while it is open: every node stays up, so the caller's own
+  // `GroupService` keeps working and this helper — reading the provider AFTER
+  // the await — would register the blob in whoever is active NOW. The signed
+  // Space row then names a content id only the other identity can read
+  // (report21 X21-M1).
+  final app = ref.read(appControllerProvider.notifier);
+  final lease = app.leaseIdentity();
+  final messaging = ref.read(messagingServiceProvider);
+
   final picked = await FilePicker.pickFiles();
+  if (!app.holdsIdentity(lease)) return null;
   final file = picked?.files.firstOrNull;
   if (file == null) return null;
   final bytes =
@@ -37,9 +50,9 @@ Future<String?> pickAndRegisterSpaceProfileImage(
     rawMax: kSpaceProfileImageRawMax,
   );
   if (scaled == null) return null;
-  return ref
-      .read(messagingServiceProvider)
-      .registerGroupContent(base64Decode(scaled.b64), name: name);
+  // Checked again: decoding and downscaling a large image is itself a wait.
+  if (!app.holdsIdentity(lease)) return null;
+  return messaging.registerGroupContent(base64Decode(scaled.b64), name: name);
 }
 
 /// Preferred fetch source for profile images when the manifest is not at

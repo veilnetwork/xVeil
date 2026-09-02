@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/ids.dart';
+import '../../state/app_controller.dart';
 import '../../data/serve_source.dart';
 import '../../domain/content_manifest.dart';
 import '../../domain/media_file_name.dart';
@@ -113,11 +114,20 @@ Future<SpacePostMediaPickResult> pickAndRegisterSpacePostMedia(
   if (remaining <= 0) {
     return (media: const <MediaObject>[], rejected: 0);
   }
+  // Both taken BEFORE the picker: a file dialog hands control to the platform
+  // for as long as the user wants it, and in all-online mode the identity can
+  // change while it is open. Reading the service AFTER the await registered
+  // the blobs against whoever was active by then, while the caller went on to
+  // sign a post in the Space it started in — a row naming content only the
+  // other identity holds (report21 X21-M1).
+  final app = ref.read(appControllerProvider.notifier);
+  final lease = app.leaseIdentity();
+  final messaging = ref.read(messagingServiceProvider);
+
   final picked = await FilePicker.pickFiles(allowMultiple: true);
-  if (picked == null) {
+  if (picked == null || !app.holdsIdentity(lease)) {
     return (media: const <MediaObject>[], rejected: 0);
   }
-  final messaging = ref.read(messagingServiceProvider);
   final media = <MediaObject>[];
   var rejected = picked.files.length > remaining
       ? picked.files.length - remaining
