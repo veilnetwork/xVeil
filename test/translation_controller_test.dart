@@ -17,6 +17,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/translation_controller.dart';
+import 'dart:async';
 import 'dart:typed_data';
 
 void main() {
@@ -204,6 +205,59 @@ void main() {
     );
   });
 
+  test('a read that finishes after a store swap does not mark the new store',
+      () async {
+    // report21 XV18-L1. `build` clears `_probed` on every rebuild, and says
+    // why: which keys have been looked for is a fact about ONE store, and
+    // carried into another a remembered miss hides a translation that one does
+    // have. A read begun under the old store and finishing after the switch
+    // put its key straight into the new store's set — the same harm, arriving
+    // one entry at a time. `_set` guards the DISPLAY and cannot help: the
+    // damage is the remembered miss.
+    container = await boot(translator: engine);
+
+    // The real store HOLDS this translation, so a walk that reads it finds
+    // something and a walk that skips the read finds nothing.
+    final seed = container.read(translationControllerProvider.notifier);
+    await seed.translate('m1', 'hello', to: 'ru');
+    expect(seed.entryFor('m1').isDone, isTrue);
+
+    final gate = Completer<void>();
+    final slow = _GatedReadStorage(storage, gate);
+    Storage active = slow;
+    final c = ProviderContainer(
+      overrides: [
+        storageProvider.overrideWith((ref) => active),
+        textTranslatorProvider.overrideWithValue(engine),
+      ],
+    );
+    addTearDown(c.dispose);
+    final ctl = c.read(translationControllerProvider.notifier);
+
+    // A read starts and parks on the old store.
+    final reading = ctl.loadCached('m1', to: 'ru');
+    await Future<void>.delayed(Duration.zero);
+
+    // The switch: the notifier rebuilds onto the new store and clears what the
+    // old one had probed.
+    active = storage;
+    c.invalidate(storageProvider);
+    final after = c.read(translationControllerProvider.notifier);
+
+    gate.complete();
+    await reading;
+
+    // The SAME notifier the switch left behind must still be able to find it.
+    after.clear('m1');
+    await after.loadCached('m1', to: 'ru');
+    expect(
+      after.entryFor('m1').isDone,
+      isTrue,
+      reason: 'the cached translation is hidden by a miss the old store\'s '
+          'read remembered against the new one',
+    );
+  });
+
   test('clearing goes back to the original text', () async {
     container = await boot(translator: engine);
     final ctl = container.read(translationControllerProvider.notifier);
@@ -315,4 +369,21 @@ class _FailFirstStorage implements Storage {
         (_inner as dynamic).noSuchMethod,
         [invocation],
       );
+}
+
+/// A store whose reads finish when the test says so.
+class _GatedReadStorage implements Storage {
+  _GatedReadStorage(this._inner, this._gate);
+  final Storage _inner;
+  final Completer<void> _gate;
+
+  @override
+  Future<String?> getSetting(String key) async {
+    await _gate.future;
+    return _inner.getSetting(key);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      Function.apply((_inner as dynamic).noSuchMethod, [invocation]);
 }

@@ -10,6 +10,25 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.27] — 2026-09-02
+
+### Fixed
+
+- **A cached translation is no longer hidden by a miss remembered against
+  another identity's store.** The controller clears what it has looked for on
+  every rebuild, for the reason written beside it: which keys have been probed
+  is a fact about ONE store, and carried into another a remembered miss hides a
+  translation that one does have. A read begun under the old store and
+  finishing after the switch wrote its key straight into the new store's set —
+  the same harm, one entry at a time — and the guard on the DISPLAY could not
+  help, because the damage is the remembered miss (report21 XV18-L1).
+
+### Changed
+
+- hidden-volume 2.2.1: framing decrypted keys for the FFI erases the copy it
+  read from. Each key existed twice and only one of the two was ever handed
+  anywhere; the other stayed in the allocator.
+
 ## [0.13.26] — 2026-09-02
 
 ### Changed
