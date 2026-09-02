@@ -51,6 +51,82 @@ void main() {
     );
   });
 
+  test('a disposed call service answers nothing, on either lane', () async {
+    // report21 XV20-L2. Detaching a handler stops the NEXT signal and does
+    // nothing about one already in flight — and the relayed lane awaits
+    // `isOwnDevice`, which reaches storage and can reach the network. A
+    // service belonging to an identity the user has left would answer a
+    // stranger's ring on that identity's pipeline, `busy` reject included.
+    //
+    // What this pins is the shared door, `_onSignal`, which every lane comes
+    // through: remove that check and both halves below fail. The extra check
+    // right after the `isOwnDevice` await is not separately pinned — the
+    // shared door stops it anyway — and stands on the discipline of asking
+    // after every await rather than on this test.
+    final peer = NodeId.fromHex('e' * 64);
+    final caller = NodeId.fromHex('f' * 64);
+
+    // The direct lane: the handler is still held after dispose.
+    final messaging = _FakeMessaging();
+    final svc = CallService(messaging)..start();
+    final handler = messaging.onCallSignal;
+    expect(handler, isNotNull, reason: 'premise: the service is listening');
+    svc.dispose();
+
+    handler!(
+      peer,
+      const CallSignal(
+        callId: 'after-dispose',
+        type: CallSignalType.offer,
+        media: CallMedia(audio: true),
+        posture: CallPosture.direct,
+      ),
+    );
+    await pumpEventQueue();
+    expect(
+      messaging.sent,
+      isEmpty,
+      reason: 'a departed identity answered a ring on its own pipeline',
+    );
+    expect(svc.current, isNull);
+
+    // The relayed lane, where the dispose lands INSIDE the await.
+    final messaging2 = _FakeMessaging();
+    final svc2 = CallService(messaging2)..start();
+    final gate = Completer<void>();
+    svc2.isOwnDevice = (_) async {
+      await gate.future;
+      return true;
+    };
+    final handler2 = messaging2.onCallSignal;
+    handler2!(
+      peer,
+      CallSignal(
+        callId: 'relayed-after-dispose',
+        type: CallSignalType.offer,
+        media: const CallMedia(audio: true),
+        posture: CallPosture.direct,
+        onBehalfOf: caller.hex,
+      ),
+    );
+    await pumpEventQueue();
+    expect(
+      messaging2.sent,
+      isEmpty,
+      reason: 'premise: the relayed signal is parked on isOwnDevice',
+    );
+
+    svc2.dispose();
+    gate.complete();
+    await pumpEventQueue();
+    expect(
+      messaging2.sent,
+      isEmpty,
+      reason: 'a relayed ring was answered after the identity moved on',
+    );
+    expect(svc2.current, isNull);
+  });
+
   test('capture device selection is delegated for a live call', () {
     fakeAsync((async) {
       final peer = NodeId.fromHex('d' * 64);

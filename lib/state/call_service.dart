@@ -842,6 +842,12 @@ class CallService {
         return;
       }
       final own = await isOwnDevice?.call(peer) ?? false;
+      // ASKED AGAIN AFTER THE AWAIT. `isOwnDevice` reaches storage and can
+      // reach the network, and the identity can change while it runs: this
+      // service belongs to the one that is going, its pipeline is still
+      // attached, and what follows would answer a stranger's ring on behalf of
+      // an identity the user has left (report21 XV20-L2).
+      if (_disposed) return;
       if (!own) {
         // The one attack this field invites: a contact ringing us while
         // wearing an arbitrary caller's name. Refuse loudly.
@@ -861,6 +867,11 @@ class CallService {
   }
 
   void _onSignal(NodeId peer, CallSignal sig) {
+    // The one door every lane comes through, relayed or not. Detaching a
+    // handler stops the NEXT signal; a service that has been disposed must not
+    // answer this one either — including with the `busy` reject `_onOffer`
+    // sends, which is a reply on a departed identity's pipeline.
+    if (_disposed) return;
     // Any signal from the current call's peer is proof of life — refresh the
     // liveness deadline before dispatching (covers offer/answer/health/… alike).
     final live = _current;
