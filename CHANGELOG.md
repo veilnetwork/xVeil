@@ -10,6 +10,17 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.22] — 2026-09-02
+
+### Changed
+
+- veil 0.11.7: a conversation's exported ratchet state no longer outgrows the
+  buffer it is written into. The reservation was 38 bytes short of this
+  format's own worst case, so on every established conversation the buffer grew
+  mid-write — and a buffer that grows copies what it holds into a new
+  allocation and abandons the old one, which by then holds the DH secret, the
+  root key and both chain keys. Only the buffer that comes back is zeroized.
+
 ## [0.13.21] — 2026-09-02
 
 ### Fixed
