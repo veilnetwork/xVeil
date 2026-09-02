@@ -10,6 +10,27 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.19] — 2026-09-02
+
+### Fixed
+
+- **An export cannot hand out the plaintext of an identity the user has left.**
+  The fail-closed boundary added in 0.13.16 covered the writes, and an export
+  writes nothing: it READS. The native save dialog is the window — it belongs to
+  the platform and stays open as long as the user wants — and a switch while it
+  is up left the captured service fetching one identity's bytes and copying
+  them, in clear, to a path chosen while looking at the other. Fetching content
+  and reading a content range now refuse on a closed service, and the export
+  asks again the moment the dialog returns (report21 X21-H2).
+
+- **A departed identity does not hand out its recovery capability.** Exporting
+  a recovery certificate produces the certificate AND the code that together
+  reconstruct that identity's signer — a long-lived capability, not a session
+  secret — and the sheet that displays them stays on screen across a switch. A
+  user could type their secret under one identity and be shown the other one's
+  pair. That export, and device linking beside it, now consult the same dispose
+  flag the device-group writes already do.
+
 ## [0.13.18] — 2026-09-02
 
 ### Fixed

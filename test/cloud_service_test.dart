@@ -165,6 +165,21 @@ void main() {
           'user had already left',
     );
 
+    // READS are refused too. An export is in a native save dialog when the
+    // switch happens, writes nothing here, and would otherwise go on to fetch
+    // the departed identity's bytes and copy them, in clear, to a path chosen
+    // while looking at the other one.
+    expect(
+      await service.ensureLocal(live),
+      isFalse,
+      reason: 'a departed identity still fetched its content',
+    );
+    expect(
+      await service.readContentRange(live, 0, 1),
+      isNull,
+      reason: 'a departed identity still handed out its plaintext',
+    );
+
     // And nothing reached the store.
     expect(
       (await storage.sharedContentReferenceSnapshot())
