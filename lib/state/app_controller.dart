@@ -133,6 +133,49 @@ class AppState {
 String _onboardedKey() => identityScopedPrefKey('onboarded');
 const _kStorageModeKey = 'storage_mode';
 
+/// A claim on the identity that was active when an operation began.
+///
+/// A screen that captures a service and then awaits something the platform
+/// owns — a file picker, a save dialog, a text editor sheet — resumes in a
+/// world that may have moved on: in all-online mode the user can switch
+/// identity while that dialog is up, every node stays running, and the old
+/// service keeps working. The operation then writes into the store of an
+/// identity the user has left, and the interface of the one they are looking
+/// at reports success (report21 X21-H2/M1/M2).
+///
+/// Take one before the first await and check it after every await that hands
+/// control away, and before any read, write, send or navigation:
+///
+/// ```dart
+/// final lease = ref.read(appControllerProvider.notifier).leaseIdentity();
+/// final picked = await pickAFile();            // the user may switch here
+/// if (!ref.read(appControllerProvider.notifier).holdsIdentity(lease)) return;
+/// ```
+///
+/// The label alone is not enough: a switch away and back (A → B → A) leaves
+/// the label equal while every service behind it has been rebuilt. The epoch
+/// is what separates those.
+@immutable
+class IdentityLease {
+  const IdentityLease(this.label, this.epoch);
+
+  /// The identity that was active, or null before any is.
+  final String? label;
+
+  /// Which activation of it — see `AppController._identityEpoch`.
+  final int epoch;
+
+  @override
+  bool operator ==(Object other) =>
+      other is IdentityLease && other.label == label && other.epoch == epoch;
+
+  @override
+  int get hashCode => Object.hash(label, epoch);
+
+  @override
+  String toString() => 'IdentityLease($label, epoch $epoch)';
+}
+
 class AppController extends Notifier<AppState> {
   /// Roster of the master unlocked this session — cached for the whole master
   /// session so identity switching needs no re-prompt. Holds child SpaceKeys;
@@ -146,7 +189,18 @@ class AppController extends Notifier<AppState> {
 
   /// Label of the identity currently active in a master session (null in
   /// single-identity mode).
-  String? _activeLabel;
+  ///
+  /// Written through a setter so [_identityEpoch] cannot be forgotten: there
+  /// are ten places that change this, and a lease outliving any one of them is
+  /// the whole defect.
+  String? get _activeLabel => _activeLabelValue;
+  set _activeLabel(String? next) {
+    if (next == _activeLabelValue) return;
+    _activeLabelValue = next;
+    _identityEpoch++;
+  }
+
+  String? _activeLabelValue;
 
   /// One-active listen-port offset, alternated on every real-stack teardown:
   /// rebinding the port a just-stopped node held stalls the next boot for up
@@ -404,6 +458,34 @@ class AppController extends Notifier<AppState> {
 
   /// True when a session-ending transition happened since [gen] was taken.
   bool _supersededSince(int gen) => gen != _lifecycle;
+
+  /// Which ACTIVE IDENTITY this is, counted.
+  ///
+  /// [_lifecycle] answers "did the session end", and an identity switch is not
+  /// that: in all-online every node stays up and only the view is re-pointed.
+  /// So nothing that snapshotted the lifecycle noticed a switch, and a screen
+  /// that captured a service before one — a file picker still open, a note
+  /// editor, an export or recovery sheet — went on calling it afterwards. The
+  /// write landed in the store of the identity the user had already left while
+  /// the interface of the one they were now looking at reported success
+  /// (report21 X21-H2/M1/M2).
+  ///
+  /// Bumped by the `_activeLabel` setter, so every one of the ten places that
+  /// change the active identity moves it and none of them has to remember to.
+  /// A lease taken before a switch is invalidated by the switch itself; taking
+  /// one after is always safe.
+  int _identityEpoch = 0;
+
+  /// A claim on the identity that is active right now.
+  ///
+  /// Take one BEFORE the first await; ask [holdsIdentity] after every await
+  /// that hands control back to the platform — a picker, a dialog, a native
+  /// save sheet — and before any read, write, send or navigation.
+  IdentityLease leaseIdentity() => IdentityLease(_activeLabel, _identityEpoch);
+
+  /// Whether `lease` still names the identity the app is showing.
+  bool holdsIdentity(IdentityLease lease) =>
+      lease.epoch == _identityEpoch && lease.label == _activeLabel;
 
   /// Test seam for the one dependency of [_ensureRealStack] a unit test cannot
   /// provide: the static [RealVeilStack.startDeniable], which boots a real

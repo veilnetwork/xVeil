@@ -525,6 +525,83 @@ void main() {
   });
 
   test(
+    'an identity lease does not survive a switch, in either direction',
+    () async {
+      // report21 X21-H2/M1/M2. A screen that captures a service and then
+      // awaits something the platform owns — a file picker, a save dialog, an
+      // editor sheet — resumes in a world that may have moved on: the user can
+      // switch identity while that dialog is up, every node stays running, and
+      // the old service keeps working. The write then lands in the store of an
+      // identity they have left while the interface reports success.
+      //
+      // `_lifecycle` could not see this: it answers "did the session end", and
+      // a switch is not that. This is the counter that does.
+      SharedPreferences.setMockInitialValues({'onboarded': true});
+      final container = FakeHvContainer();
+
+      final roster = <RosterEntry>[];
+      for (final (label, pw, name) in [
+        ('alice', 'pw-a', 'Alice'),
+        ('bob', 'pw-b', 'Bob'),
+      ]) {
+        final child = container.storage();
+        await child.open(password: pw, createIfMissing: true);
+        await child.saveProfile(UserProfile(displayName: name));
+        roster.add(
+          RosterEntry(label: label, spaceKeys: await child.exportSpaceKeys()),
+        );
+        await child.close();
+      }
+      final master = container.storage();
+      await master.open(password: 'masterpw', createIfMissing: true);
+      await master.saveRoster(roster);
+      await master.close();
+
+      final app = container.storage();
+      final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => app)],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      await ctrl.unlock('masterpw');
+      await ctrl.pickIdentity('alice');
+
+      final underAlice = ctrl.leaseIdentity();
+      expect(
+        ctrl.holdsIdentity(underAlice),
+        isTrue,
+        reason: 'vacuity: a lease taken under the active identity must hold, '
+            'or every check below refuses everything',
+      );
+
+      await ctrl.switchIdentity('bob');
+      expect(
+        ctrl.holdsIdentity(underAlice),
+        isFalse,
+        reason: 'an operation started under alice was still allowed to write '
+            'after the user switched to bob',
+      );
+
+      // And a lease taken under B does not hold under B-after-a-round-trip:
+      // the label is equal again, every service behind it is not.
+      final underBob = ctrl.leaseIdentity();
+      await ctrl.switchIdentity('alice');
+      await ctrl.switchIdentity('bob');
+      expect(
+        ctrl.holdsIdentity(underBob),
+        isFalse,
+        reason: 'the label came back and the lease was honoured, but the '
+            'services it was taken against are gone',
+      );
+
+      // A fresh one under the identity that is now active does hold.
+      expect(ctrl.holdsIdentity(ctrl.leaseIdentity()), isTrue);
+    },
+  );
+
+  test(
     'switchIdentity swaps the active identity within a master session',
     () async {
       SharedPreferences.setMockInitialValues({'onboarded': true});
