@@ -548,6 +548,7 @@ class GroupService {
       return null;
     }
   }
+
   final GroupSnapshotSender? _send;
   final SpaceInviteSender? sendSpaceInvite;
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
@@ -1002,7 +1003,6 @@ class GroupService {
   /// Bounded RAM-only counters/events with a compile-time privacy-safe schema.
   Future<SpaceObservabilitySnapshot> spaceObservabilitySnapshot() async =>
       _observability.snapshot(replication: await _spaceReplicationSnapshot());
-
 
   static const _reachableCacheForMs = 3000;
   Set<String>? _reachableCache;
@@ -4238,7 +4238,8 @@ class GroupService {
     final bodies = <String, List<String>>{};
     for (final message in retained) {
       if (!_validMessageFor(bundle.manifest.groupId, message)) continue;
-      final id = '${_messageChainScope(bundle.manifest, message)}'
+      final id =
+          '${_messageChainScope(bundle.manifest, message)}'
           '|${message.author.short}:${message.seq}';
       bySeq.putIfAbsent(id, () => <String>{}).add(groupMessageHash(message));
       bodies
@@ -4266,17 +4267,17 @@ class GroupService {
   /// a skipped entry is not a REJECTED one and nothing anywhere said which
   /// check it failed.
   List<Map<String, Object?>> debugControlLog(GroupBundle bundle) => [
-        for (final entry in bundle.control)
-          {
-            'op': entry.op.name,
-            'author': entry.author.short,
-            'seq': entry.seq,
-            'target': entry.target?.short,
-            'pubKeyLen': entry.authorPubKey.length,
-            'sigLen': entry.signature.length,
-            'valid': _validControlFor(bundle.manifest, entry),
-          },
-      ];
+    for (final entry in bundle.control)
+      {
+        'op': entry.op.name,
+        'author': entry.author.short,
+        'seq': entry.seq,
+        'target': entry.target?.short,
+        'pubKeyLen': entry.authorPubKey.length,
+        'sigLen': entry.signature.length,
+        'valid': _validControlFor(bundle.manifest, entry),
+      },
+  ];
 
   /// STAND ONLY. Every accepted control entry that declares an epoch, and
   /// whether the key this device holds for that epoch is the one it commits to.
@@ -4302,11 +4303,11 @@ class GroupService {
         'heldKeyMatches': held == null
             ? null
             : descriptor.keyCommitment ==
-                groupEpochKeyCommitment(
-                  groupId: bundle.manifest.groupId,
-                  epoch: descriptor.epoch,
-                  key: held,
-                ),
+                  groupEpochKeyCommitment(
+                    groupId: bundle.manifest.groupId,
+                    epoch: descriptor.epoch,
+                    key: held,
+                  ),
       });
     }
     return out;
@@ -5935,7 +5936,9 @@ class GroupService {
       shared.addAll(b.localEpochKeys.keys);
       return;
     }
-    final fresh = b.localEpochKeys.keys.where((e) => !shared.contains(e)).length;
+    final fresh = b.localEpochKeys.keys
+        .where((e) => !shared.contains(e))
+        .length;
     for (final device in devices) {
       try {
         await send(
@@ -13919,9 +13922,15 @@ class GroupService {
               // keys, so old receivers are unaffected.
               'sn': DateTime.now().microsecondsSinceEpoch,
               'm': b.manifest.toJson(),
-              'c': [if (i == 0) for (final e in missingCtl) e.toJson()],
+              'c': [
+                if (i == 0)
+                  for (final e in missingCtl) e.toJson(),
+              ],
               'g': [for (final m in batches[i]) m.toJson()],
-              'r': [if (i == 0) for (final r in missingRx) r.toJson()],
+              'r': [
+                if (i == 0)
+                  for (final r in missingRx) r.toJson(),
+              ],
               if (i == 0 && missingEpochEnvelopes.isNotEmpty)
                 'ke': [
                   for (final envelope in missingEpochEnvelopes)
@@ -14542,8 +14551,7 @@ class GroupService {
         ? (await spaceHiddenThroughMs(
                 groupId,
                 bundle: b,
-                revisions:
-                    retention?.revisions ?? _clearRetentionRevisions(b),
+                revisions: retention?.revisions ?? _clearRetentionRevisions(b),
               ))[_shownChannelKey(channelId)] ??
               0
         : 0;
@@ -15468,16 +15476,21 @@ class GroupService {
     // what ties an identity to its sovereign key — a design step, not an
     // equality, and it is not made here.
     if (!await ingestSnapshot(bundleJson)) {
-      _devicesRefused('the bundle failed to fold in (gid ${pending.groupId.short})');
+      _devicesRefused(
+        'the bundle failed to fold in (gid ${pending.groupId.short})',
+      );
       return false;
     }
     if (!await adoptDeviceGroup(pending.groupId)) {
-      _devicesRefused('adoptDeviceGroup refused (gid ${pending.groupId.short})');
+      _devicesRefused(
+        'adoptDeviceGroup refused (gid ${pending.groupId.short})',
+      );
       return false;
     }
     await cancelPendingDeviceAdoption();
     devLog(
-      () => 'xVeil[devices]: adopted device group ${pending.groupId.short} '
+      () =>
+          'xVeil[devices]: adopted device group ${pending.groupId.short} '
           'from ${peer.short}',
     );
     return true;
@@ -16006,7 +16019,8 @@ class GroupService {
     final epochEnvelopes = envelopeAudience == null || !distributesContent
         ? const <GroupEpochRecipientEnvelope>[]
         : _epochEnvelopesFor(b, envelopeAudience);
-    final channelEpochEnvelopes = envelopeAudience == null || !distributesContent
+    final channelEpochEnvelopes =
+        envelopeAudience == null || !distributesContent
         ? const <GroupEpochRecipientEnvelope>[]
         : _channelEpochEnvelopesFor(b, envelopeAudience);
     // Snapshot assembly is synchronous, so only the clear retention timeline
@@ -16198,6 +16212,7 @@ class GroupService {
   /// Idempotent — re-delivery of the same snapshot is a no-op.
   Future<bool> ingestSnapshot(
     String bundleJson, {
+
     /// The sender is ANOTHER DEVICE OF THIS IDENTITY, proven by its membership
     /// of the sovereign-signed device group. Only then are the epoch keys the
     /// snapshot may carry taken: from anyone else the field is ignored, so a
@@ -16396,10 +16411,7 @@ class GroupService {
       control: control,
       existingEnvelopes:
           existing?.epochEnvelopes ?? const <GroupEpochRecipientEnvelope>[],
-      existingKeys: {
-        ...?existing?.localEpochKeys,
-        ...handedKeys,
-      },
+      existingKeys: {...?existing?.localEpochKeys, ...handedKeys},
       incomingEnvelopes: inEpochEnvelopes,
     );
     final channelMaterial = await _mergeChannelEpochMaterial(
@@ -17406,6 +17418,14 @@ class GroupService {
   /// XVRC credential. Decrypted key bytes never enter Dart.
   Future<({Uint8List certificate, String code, NodeId nodeId})?>
   exportRecoveryCertificate(String currentSecret) async {
+    // Not after dispose. This produces a LONG-LIVED capability — the
+    // certificate and the code that unlocks it, the pair that reconstructs
+    // this identity's signer — and the sheet that shows it stays on screen
+    // across an identity switch. Without this the user could type their
+    // secret under one identity, switch while the export ran, and be shown
+    // the other one's recovery pair on a screen that says they are looking at
+    // this one (report21 X21-H2).
+    if (_disposed) return null;
     var credential = await localSovereignBundle();
     if (credential == null) {
       // A phrase-backed identity may pre-issue its certificate BEFORE its first
@@ -17515,6 +17535,7 @@ class GroupService {
   /// signature, bundle-hash and self-membership checks.
   Future<bool> prepareDeviceAdoption(
     DeviceLinkToken token, {
+
     /// This device's own transport node id — see [createDeviceLinkToken].
     NodeId? myDevice,
   }) async {
@@ -17544,6 +17565,7 @@ class GroupService {
   /// into the local registry but before it broadcasts the encrypted snapshot.
   Future<DeviceLinkToken?> createDeviceLinkToken(
     BootstrapInvite sourceInvite, {
+
     /// This device's own transport node id. `source` below is the IDENTITY,
     /// shared with every sibling, so without this the target cannot tell a
     /// token it was handed from one it issued itself.
@@ -18114,6 +18136,11 @@ class GroupService {
     required SovereignGroupSigner sovereign,
     bool broadcastSnapshot = true,
   }) async {
+    // Not after dispose. Linking is a multi-step write against this
+    // identity's device group, driven from a sheet that stays on screen
+    // across a switch; `false` is what this already returns when it cannot
+    // link (report21 X21-H2).
+    if (_disposed) return false;
     final hex = await deviceGroupIdHex();
     if (hex == null) {
       return await _mintSovereignDeviceGroup(sovereign, [

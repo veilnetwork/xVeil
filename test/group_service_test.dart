@@ -4819,6 +4819,25 @@ void main() {
       reason: 'a recovery sheet completed after the switch installed the old '
           'identity own signer',
     );
+
+    // The recovery EXPORT is a read, and the thing it reads out is a
+    // long-lived capability: the certificate and the code that together
+    // reconstruct this identity's signer. The sheet showing them stays on
+    // screen across a switch, so without this a user could type their secret
+    // under one identity and be shown the other one's pair.
+    expect(
+      await svc.exportRecoveryCertificate('phrase'),
+      isNull,
+      reason: 'a departed identity handed out its recovery capability',
+    );
+
+    // And linking, a multi-step write driven from a sheet that also survives.
+    expect(
+      await svc.linkDevice(bob, sovereign: sovereign),
+      isFalse,
+      reason: 'a device was linked into the group of an identity the user had '
+          'already left',
+    );
   });
 
   test('postDeviceEvent: concurrent fire-and-forget emits ALL land '

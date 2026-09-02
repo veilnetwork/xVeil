@@ -154,7 +154,6 @@ class CloudServiceClosed implements Exception {
       'this identity is no longer active: the change was not made';
 }
 
-
 class CloudService {
   CloudService(
     this._storage,
@@ -1825,6 +1824,14 @@ class CloudService {
   }
 
   Future<bool> ensureLocal(CloudItem item) async {
+    // Reads are gated too, not only writes. `close()` is what an identity
+    // switch does to the service it leaves, and an export in flight — the user
+    // is in a native save dialog while they switch — would otherwise go on to
+    // fetch the bytes of the identity they left and write them, in clear, to a
+    // path they chose while looking at the other one. The mutation gate in
+    // `_serialized` never covered this because an export writes nothing here
+    // (report21 X21-H2).
+    if (_closed) return false;
     await start();
     if (item.deleted || item.contentId == null) return false;
     if (await _storage.hasFile(item.contentId!)) {
@@ -1869,6 +1876,10 @@ class CloudService {
     int offset,
     int length,
   ) async {
+    // See [ensureLocal]: this is the call that hands the plaintext out, one
+    // range at a time, and a copy already running must stop at the switch
+    // rather than finish it.
+    if (_closed) return null;
     await start();
     final contentId = item.contentId;
     if (contentId == null) return null;
