@@ -141,6 +141,20 @@ Future<void> writeMaterializedView(Storage storage, String key, String value) =>
       hasFile: storage.hasFile,
     );
 
+/// Raised when a change is asked of a [CloudService] that has been closed.
+///
+/// Closing is what an identity switch does to the service it leaves. A screen
+/// that captured the old one keeps working — a picker, an editor, an export
+/// sheet — and this is what it gets instead of a write into the store of an
+/// identity the user has left (report21 X21-H2).
+class CloudServiceClosed implements Exception {
+  const CloudServiceClosed();
+  @override
+  String toString() =>
+      'this identity is no longer active: the change was not made';
+}
+
+
 class CloudService {
   CloudService(
     this._storage,
@@ -1999,8 +2013,26 @@ class CloudService {
     if (!_closed) _changes.add(null);
   }
 
+  /// Whether this service has been closed and no longer accepts changes.
+  bool get isClosed => _closed;
+
   Future<T> _serialized<T>(Future<T> Function() body) {
-    final result = _mutationChain.then((_) => body());
+    // FAIL CLOSED. `close()` is what an identity switch does to the service it
+    // is leaving, and a screen that captured this object BEFORE the switch —
+    // a file picker still open, a note editor, an export sheet — calls back
+    // into it afterwards. Every one of those writes went into the store of the
+    // identity the user had already left, while the interface of the identity
+    // they were now looking at reported success (report21 X21-H2).
+    //
+    // `start()` has guarded this since report9 X-15, for the subscriptions;
+    // the mutations were the half that was left. Checked TWICE: once on the
+    // way in, and once when the queue reaches this work, because the close can
+    // land while an earlier mutation is still running.
+    if (_closed) return Future.error(CloudServiceClosed());
+    final result = _mutationChain.then((_) {
+      if (_closed) throw CloudServiceClosed();
+      return body();
+    });
     _mutationChain = result.then<void>((_) {}, onError: (_) {});
     return result;
   }
