@@ -369,102 +369,138 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
 /// Top-level so the FAB, the empty-state, AND the Telegram-style drawer menu
 /// all open the same sheet.
 Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
+  // ONE lease for the whole sheet, taken before it is shown.
+  //
+  // The invite on screen is this identity's, and every callback below waits on
+  // something slow — a redeem, a DHT resolve, the user reading a QR code. In
+  // all-online mode the identity can change in any of those windows: every node
+  // stays running, so the captured stack keeps working, and what followed went
+  // to whoever was active by then. A nickname was saved into the other
+  // identity's store, and `/chat/<peer>` opened one identity's contact inside
+  // the other's view — which is the two of them linked, on screen, by us
+  // (report21 X21-M2).
+  //
+  // A stale lease ABANDONS the operation and closes the sheet. The invite it is
+  // showing belongs to an identity the user has left, and no part of what it
+  // offers can be completed safely.
+  final app = ref.read(appControllerProvider.notifier);
+  final lease = app.leaseIdentity();
+  final stack = ref.read(realStackProvider);
+  final storage = ref.read(storageProvider);
+  final messaging = ref.read(messagingServiceProvider);
+
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (sheetCtx) => InviteExchangeSheet(
-      myInvite: ref.read(myInviteProvider),
-      onAddContact: (invite) async {
-        // Guard: redeeming your OWN invite would silently open a nonsensical
-        // self-chat. Tell the user instead of pretending it worked.
-        final me = ref.read(appControllerProvider).identity?.nodeId;
-        if (me != null && invite.nodeId == me) {
+    builder: (sheetCtx) {
+      // Closes the sheet and reports nothing: an operation that did not happen
+      // must not look like one that did.
+      bool abandonedIfSwitched() {
+        if (app.holdsIdentity(lease)) return false;
+        if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+        return true;
+      }
+
+      return InviteExchangeSheet(
+        myInvite: ref.read(myInviteProvider),
+        onAddContact: (invite) async {
+          if (abandonedIfSwitched()) return;
+          // Guard: redeeming your OWN invite would silently open a nonsensical
+          // self-chat. Tell the user instead of pretending it worked.
+          final me = ref.read(appControllerProvider).identity?.nodeId;
+          if (me != null && invite.nodeId == me) {
+            if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(AppL10n.of(context).inviteIsSelf)),
+              );
+            }
+            return;
+          }
+          // In real mode, redeem the invite so our node can dial the peer
+          // (a redeem failure, e.g. already known, must not block the flow).
+          try {
+            await stack?.addContact(invite);
+          } catch (_) {}
+          // No contact is recorded yet — opening the chat lets the user send a
+          // connection request (the first message becomes the greeting).
+          if (abandonedIfSwitched()) return;
+          if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+          if (context.mounted) context.push('/chat/${invite.nodeId.hex}');
+        },
+        onImportPeers: (peers) async {
+          if (abandonedIfSwitched()) return;
+          // A `veil:peers?` entry-node share: add each as a bootstrap peer (it
+          // carries a real transport, so addContact dials it) — NO contact, NO
+          // chat. Failures (already known) must not block the rest.
+          var added = 0;
+          // Counted only when the call actually happened (audit X-17). With
+          // `stack?.addContact` the null case did nothing and still incremented,
+          // so a user with no running stack was told "N peers imported" and
+          // nothing had been. The loop is skipped entirely when there is no
+          // stack, and the same "0 imported" message tells the truth.
+          if (stack != null) {
+            for (final p in peers) {
+              try {
+                await stack.addContact(p);
+                added++;
+              } catch (_) {}
+            }
+          }
+          if (abandonedIfSwitched()) return;
           if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(AppL10n.of(context).inviteIsSelf)),
+              SnackBar(content: Text(AppL10n.of(context).peersImported(added))),
             );
           }
-          return;
-        }
-        // In real mode, redeem the invite so our node can dial the peer
-        // (a redeem failure, e.g. already known, must not block the flow).
-        try {
-          await ref.read(realStackProvider)?.addContact(invite);
-        } catch (_) {}
-        // No contact is recorded yet — opening the chat lets the user send a
-        // connection request (the first message becomes the greeting).
-        if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
-        if (context.mounted) context.push('/chat/${invite.nodeId.hex}');
-      },
-      onImportPeers: (peers) async {
-        // A `veil:peers?` entry-node share: add each as a bootstrap peer (it
-        // carries a real transport, so addContact dials it) — NO contact, NO
-        // chat. Failures (already known) must not block the rest.
-        final stack = ref.read(realStackProvider);
-        var added = 0;
-        // Counted only when the call actually happened (audit X-17). With
-        // `stack?.addContact` the null case did nothing and still incremented,
-        // so a user with no running stack was told "N peers imported" and
-        // nothing had been. The loop is skipped entirely when there is no
-        // stack, and the same "0 imported" message tells the truth.
-        if (stack != null) {
-          for (final p in peers) {
-            try {
-              await stack.addContact(p);
-              added++;
-            } catch (_) {}
+        },
+        onAddNickname: (name) async {
+          if (abandonedIfSwitched()) return;
+          // `@name` → verified DHT resolve → the owner's node id becomes the
+          // peer, the name→id binding is pinned (an owner change later WARNS,
+          // never re-points), then the normal first-message consent flow.
+          final l = AppL10n.of(context);
+          if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
+          void toast(String msg) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text(msg)));
+            }
           }
-        }
-        if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(AppL10n.of(context).peersImported(added))),
-          );
-        }
-      },
-      onAddNickname: (name) async {
-        // `@name` → verified DHT resolve → the owner's node id becomes the
-        // peer, the name→id binding is pinned (an owner change later WARNS,
-        // never re-points), then the normal first-message consent flow.
-        final l = AppL10n.of(context);
-        if (sheetCtx.mounted) Navigator.of(sheetCtx).pop();
-        void toast(String msg) {
-          if (context.mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(SnackBar(content: Text(msg)));
-          }
-        }
 
-        try {
-          final selfHex = await ref
-              .read(messagingServiceProvider)
-              .savedSelfHex();
-          final self = NodeId.fromHex(selfHex).bytes;
-          final norm = veil.normalizeNickname(name);
-          final resolved = await veil.resolveNicknameAsync(
-            selfNodeId: self,
-            name: norm,
-          );
-          if (resolved == null) {
-            toast(l.nicknameNotFound);
-            return;
+          try {
+            final selfHex = await messaging.savedSelfHex();
+            final self = NodeId.fromHex(selfHex).bytes;
+            final norm = veil.normalizeNickname(name);
+            final resolved = await veil.resolveNicknameAsync(
+              selfNodeId: self,
+              name: norm,
+            );
+            if (resolved == null) {
+              toast(l.nicknameNotFound);
+              return;
+            }
+            final ownerHex = NodeId(resolved.ownerNodeId).hex;
+            if (ownerHex == selfHex) {
+              toast(l.nicknameIsSelf);
+              return;
+            }
+            // The resolve is a network round trip, the longest wait in this
+            // sheet: checked again before the write and the navigation.
+            if (!app.holdsIdentity(lease)) return;
+            await savePeerNickname(storage, ownerHex, norm);
+            ref.invalidate(peerNicknameProvider(ownerHex));
+            if (!app.holdsIdentity(lease)) return;
+            if (context.mounted) context.push('/chat/$ownerHex');
+          } catch (e) {
+            toast(shownCause(e, kind: 'nickname'));
           }
-          final ownerHex = NodeId(resolved.ownerNodeId).hex;
-          if (ownerHex == selfHex) {
-            toast(l.nicknameIsSelf);
-            return;
-          }
-          await savePeerNickname(ref.read(storageProvider), ownerHex, norm);
-          ref.invalidate(peerNicknameProvider(ownerHex));
-          if (context.mounted) context.push('/chat/$ownerHex');
-        } catch (e) {
-          toast(shownCause(e, kind: 'nickname'));
-        }
-      },
-    ),
+        },
+      );
+    },
   );
 }
 
@@ -998,9 +1034,7 @@ class _ConversationTile extends ConsumerWidget {
                     ? Semantics(
                         label: l.trayUnread('${conversation.unread}'),
                         child: ExcludeSemantics(
-                          child: Badge(
-                            label: Text('${conversation.unread}'),
-                          ),
+                          child: Badge(label: Text('${conversation.unread}')),
                         ),
                       )
                     : null),
@@ -1011,4 +1045,3 @@ class _ConversationTile extends ConsumerWidget {
     );
   }
 }
-

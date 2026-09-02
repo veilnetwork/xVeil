@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -557,5 +558,72 @@ void main() {
     final onionY = tester.getTopLeft(find.text(l.settingsAnonymousRouting)).dy;
     expect(vpnY, lessThan(socksY));
     expect(socksY, lessThan(onionY));
+  });
+
+  test('the add-contact sheet does not outlive the identity that opened it',
+      () {
+    // report21 X21-M2. The invite on screen is one identity's, and every
+    // callback waits on something slow — a redeem, a DHT resolve, the user
+    // reading a QR code off another phone. In all-online mode the identity can
+    // change in any of those windows: every node stays running, so the
+    // captured stack keeps working, and what followed went to whoever was
+    // active by then. A nickname was written into the other identity's store,
+    // and `/chat/<peer>` opened one identity's contact inside the other's
+    // view — the two of them linked, on screen, by us.
+    //
+    // Driving a modal sheet across a real identity switch needs a live
+    // container and a master roster; the switch itself is pinned behaviourally
+    // in app_controller_test. What is asserted here is that this sheet asks.
+    final src = File('lib/features/chat/chats_screen.dart').readAsStringSync();
+    final sheet = src.substring(src.indexOf('Future<void> showAddContactSheet'));
+
+    final lease = sheet.indexOf('final lease = app.leaseIdentity();');
+    final shown = sheet.indexOf('showModalBottomSheet<void>(');
+    expect(lease, greaterThan(-1), reason: 'the sheet takes no identity lease');
+    expect(
+      lease,
+      lessThan(shown),
+      reason: 'the lease is taken after the sheet is up, which is after the '
+          'switch it exists to notice',
+    );
+
+    // Every service the callbacks use is captured before the sheet, not read
+    // out of a provider once the user has already moved on.
+    for (final read in [
+      'final stack = ref.read(realStackProvider);',
+      'final storage = ref.read(storageProvider);',
+      'final messaging = ref.read(messagingServiceProvider);',
+    ]) {
+      final at = sheet.indexOf(read);
+      expect(at, greaterThan(-1), reason: 'the sheet no longer captures $read');
+      expect(
+        at,
+        lessThan(shown),
+        reason: '$read happens after the sheet is up, so it names whoever is '
+            'active when the callback runs rather than who opened it',
+      );
+    }
+
+    // And each of the three callbacks asks before it acts.
+    for (final callback in ['onAddContact:', 'onImportPeers:', 'onAddNickname:']) {
+      final at = sheet.indexOf(callback);
+      expect(at, greaterThan(-1), reason: '$callback is gone');
+      final body = sheet.substring(at, sheet.indexOf('},', at));
+      expect(
+        body.contains('abandonedIfSwitched()'),
+        isTrue,
+        reason: '$callback acts without checking whether the identity it was '
+            'opened under is still the active one',
+      );
+    }
+
+    // The nickname path waits on the network, so it checks again after.
+    final nick = sheet.substring(sheet.indexOf('onAddNickname:'));
+    expect(
+      nick.indexOf('app.holdsIdentity(lease)'),
+      greaterThan(nick.indexOf('resolveNicknameAsync')),
+      reason: 'the nickname resolve is the longest wait in this sheet and its '
+          'result is written without asking again',
+    );
   });
 }
