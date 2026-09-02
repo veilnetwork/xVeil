@@ -198,16 +198,37 @@ class _MessagingContacts {
     // condition under which first contact silently could not be made.
     final deposit = _owner._maybeStash(dst, id, wire);
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
-    return deposit;
+    final deposited = await deposit;
+    // A greeting nothing carried is not "sent".
+    //
+    // Returning the verdict was half the answer: the caller could act on it,
+    // but the conversation itself went on showing a message with a sent tick
+    // beside it, and that is what a person looks at a minute later. Marking
+    // it failed puts the error mark and the "Send again" button that already
+    // exist on the one message they apply to (report19 XV19-M1).
+    if (!deposited && text.isNotEmpty) {
+      await _owner._storage.markMessageStatus(
+        dst.hex,
+        id,
+        MessageStatus.failed,
+      );
+      _owner._signal();
+    }
+    return deposited;
   }
 
   /// Re-send a pending outgoing request that hasn't been accepted yet (e.g. it
   /// didn't reach the peer because a relay was momentarily unresolvable). Re-uses
   /// the original greeting + id (so the peer dedups), re-sends live AND forces a
   /// fresh mailbox deposit. No-op unless the contact is still pendingOutgoing.
-  Future<void> resendRequest(NodeId dst) async {
+  ///
+  /// Returns whether the request was DEPOSITED, like [sendRequest] — this is
+  /// what a person reaches for when the first attempt did not get through, so
+  /// answering "sent" regardless was the least useful thing it could say
+  /// (report19 XV19-M1). `false` also for the no-op: nothing was deposited.
+  Future<bool> resendRequest(NodeId dst) async {
     final contact = await _owner._storage.getContact(dst);
-    if (contact?.status != ContactStatus.pendingOutgoing) return;
+    if (contact?.status != ContactStatus.pendingOutgoing) return false;
     String? body;
     String? id;
     for (final m in await _owner._storage.loadMessages(dst.hex)) {
@@ -225,8 +246,18 @@ class _MessagingContacts {
     _owner._mailboxDelivery.removeStashed(id); // allow a fresh deposit
     final deposit = _owner._maybeStash(dst, id, wire);
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
-    await deposit;
+    final deposited = await deposit;
+    // The stored greeting follows the outcome in both directions: a retry
+    // that lands clears the error mark the failed attempt left.
+    if (body != null && body.isNotEmpty) {
+      await _owner._storage.markMessageStatus(
+        dst.hex,
+        id,
+        deposited ? MessageStatus.sent : MessageStatus.failed,
+      );
+    }
     _owner._signal();
+    return deposited;
   }
 
   /// Cancel (retract) a pending outgoing request: remove the conversation +

@@ -800,6 +800,7 @@
   "mentionsEmptyHint": "Messages, community posts and comments that mention you will appear here.",
   "mentionsLoadFailed": "Could not load mentions",
   "chatRequestSent": "Request sent — waiting for approval",
+  "chatRequestNotDelivered": "Request could not be delivered — nothing carried it",
   "chatRequestResend": "Send again",
   "chatRequestCancel": "Cancel",
   "chatRequestCancelTitle": "Cancel request?",
