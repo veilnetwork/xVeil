@@ -117,8 +117,14 @@ class _FakeGroups implements GroupService {
 class _GatedMedia extends GroupCallMediaController {
   Completer<void>? shareGate;
 
+  /// How many times media was actually asked to start.
+  int starts = 0;
+
   @override
-  Future<bool> start(GroupCall call) async => true;
+  Future<bool> start(GroupCall call) async {
+    starts++;
+    return true;
+  }
   @override
   Future<void> update(GroupCall call) async {}
   @override
@@ -300,6 +306,58 @@ void main() {
     await svc.dispose();
     await fake.close();
   });
+
+  test(
+    'a start that lands after the room ended does not arm it',
+    () async {
+      // report21 XV20-L1. `_end` leaves the same call in `current` with
+      // `status: ended` — the banner and the record of who was in it survive
+      // on purpose — and the "is this still my call" check compared only the
+      // three ids. So a start parked on the announce broadcast came back to a
+      // room that was over, was told it was current, and went on to arm the
+      // heartbeat and re-announce timers and ask for media. The service is not
+      // disposed here, which is what separates this from the teardown case
+      // above: nothing else refuses on its behalf.
+      final fake = _FakeGroups(NodeId.fromHex('a' * 64));
+      final media = _GatedMedia();
+      final svc = GroupCallService(fake, media: media)..start();
+      addTearDown(svc.dispose);
+
+      fake.sendGate = Completer<void>();
+      final starting = svc.startCall(groupId, const CallMedia(audio: true));
+      await pumpEventQueue();
+      expect(
+        media.starts,
+        0,
+        reason: 'premise: the start is parked on the announce broadcast',
+      );
+
+      // The user leaves while the announce is still in flight.
+      await svc.leave().timeout(const Duration(milliseconds: 200));
+      expect(svc.current?.status, GroupCallStatus.ended);
+
+      fake.sendGate!.complete();
+      expect(
+        await starting,
+        isFalse,
+        reason: 'a start that came back to an ended room reported success',
+      );
+      await pumpEventQueue();
+
+      expect(
+        media.starts,
+        0,
+        reason: 'media was started for a room that had already ended',
+      );
+      expect(
+        svc.current?.status,
+        GroupCallStatus.ended,
+        reason: 'the late continuation put the ended room back',
+      );
+
+      await fake.close();
+    },
+  );
 
   test('admin end-for-everyone clears the room before the broadcast '
       'lands', () async {
