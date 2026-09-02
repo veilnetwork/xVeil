@@ -251,6 +251,38 @@ void main() {
       );
     });
 
+    test('both boot paths carry the meeting-point answer to the config', () {
+      // The screen wrote a per-identity answer and the ordinary boot dropped
+      // it: `startDeniable` was called without either field, so a one-active
+      // identity ran on veil's defaults whatever the person ticked. The
+      // all-online path carried both to the stack and then lost the policy on
+      // the way to `composeConfig`, so `always` silently stayed `fallback`.
+      final controller = File('lib/state/app_controller.dart').readAsStringSync();
+      final start = controller.indexOf('RealVeilStack.startDeniable(');
+      expect(start, isNot(-1), reason: 'the boot call is gone; this guard is stale');
+      final call = controller.substring(start, controller.indexOf('\n      );', start));
+      for (final field in ['meetingPoints:', 'meetingPolicy:']) {
+        expect(
+          call,
+          contains(field),
+          reason: 'the ordinary boot does not pass $field, so the setting is '
+              'read and thrown away',
+        );
+      }
+
+      final stack = File('lib/data/veil_stack.dart').readAsStringSync();
+      final at = stack.indexOf('EmbeddedNode.composeConfig(');
+      expect(at, isNot(-1), reason: 'the composer call is gone; this guard is stale');
+      final compose = stack.substring(at, stack.indexOf('\n    );', at));
+      for (final field in ['meetingPoints:', 'meetingPolicy:']) {
+        expect(
+          compose,
+          contains(field),
+          reason: '$field never reaches the composed TOML',
+        );
+      }
+    });
+
     test('every point the app offers has a name and a stated cost', () {
       // The two switches fall back to the raw key and an EMPTY subtitle, so a
       // point added to the list and forgotten here does not fail: it renders
