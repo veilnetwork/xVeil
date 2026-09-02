@@ -10,6 +10,18 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.28] — 2026-09-02
+
+### Changed
+
+- veil 0.11.9: unregistering a VPN-tunnel callback now waits for the call
+  already inside it, so the moment the setter returns the app may free the
+  context it passed — it used to return while a thread was still on its way to
+  handing that pointer back. And a finished tunnel run gives back its own run
+  token rather than whatever is in the slot: a run ending while another started
+  could unhook the new one's stop, leaving a tunnel nothing could turn off for
+  the rest of the process.
+
 ## [0.13.27] — 2026-09-02
 
 ### Fixed
