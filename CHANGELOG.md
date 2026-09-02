@@ -10,6 +10,26 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.21] — 2026-09-02
+
+### Fixed
+
+- **A call service that belongs to a departed identity answers nothing.**
+  Detaching a handler stops the NEXT signal and does nothing about one already
+  in flight — and the relayed lane awaits `isOwnDevice`, which reaches storage
+  and can reach the network. A stranger's ring was answered on the pipeline of
+  an identity the user had left, `busy` reject included. Every lane comes
+  through one door now, and that door asks (report21 XV20-L2).
+
+- **A call that has ended is not still the current one.** Ending leaves the
+  same call in `current` with `status: ended` — the banner and the record of
+  who was in it survive on purpose — and the "is this still my call" check
+  compared only the three ids. So a start parked on its announce broadcast came
+  back to a room that was over, was told it was current, and went on to arm the
+  heartbeat and re-announce timers and ask for media for a room nobody is in.
+  The two admin end paths reach the teardown through the same check, which
+  without this ran it a second time (report21 XV20-L1).
+
 ## [0.13.20] — 2026-09-02
 
 ### Fixed

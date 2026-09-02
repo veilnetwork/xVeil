@@ -971,6 +971,15 @@ class GroupCallService {
     final live = _current;
     return !_disposed &&
         live != null &&
+        // ENDED IS NOT STILL ON. `_end` leaves the same call in `_current`
+        // with `status: ended` — the banner and the "who was in it" survive on
+        // purpose — and this compared only the three ids, so a continuation
+        // parked across an await came back to a call that was over and was
+        // told it was current. It then started the heartbeat and the
+        // re-announce timers and asked for media for a call nobody is in
+        // (report21 XV20-L1). The two admin paths below reach `_end` through
+        // it, which without this ran the whole teardown a second time.
+        live.isLive &&
         live.callId == call.callId &&
         live.groupId == call.groupId &&
         live.channelId == call.channelId;
