@@ -10,6 +10,21 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.29] — 2026-09-02
+
+### Changed
+
+- veil 0.11.10: a rendezvous publisher slot goes to an entry that can actually
+  become an advertisement. The slots are bounded, and one the signer would
+  refuse used to take a slot a working publisher could have had — silently,
+  because the refusal landed later on a maintenance tick while the registration
+  had already answered "registered".
+
+  A withdraw also no longer releases its lock between deciding what to remove
+  and removing it, which let a re-registration inside the same period lose the
+  publisher row it had just made. That narrows the window rather than closing
+  it: the release notes there say what closing it would take.
+
 ## [0.13.28] — 2026-09-02
 
 ### Changed
