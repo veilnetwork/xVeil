@@ -10,6 +10,21 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.26] — 2026-09-02
+
+### Changed
+
+- hidden-volume 2.2.0: a container create that fails and then cannot remove the
+  partial file it left behind now says so, carrying both causes — the discarded
+  result meant the caller was told only why the create failed while the path
+  stayed occupied, and their retry answered `AlreadyExists` on a file they never
+  knowingly made. A successful removal is also made durable, so a power loss
+  cannot bring the stub back.
+
+  The release also widens that project's API gate, which could not see enum
+  variants: the new error variant went in and the snapshot called the surface
+  unchanged.
+
 ## [0.13.25] — 2026-09-02
 
 ### Changed
