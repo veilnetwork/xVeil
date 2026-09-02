@@ -10,6 +10,22 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.30] — 2026-09-02
+
+### Changed
+
+- veil 0.11.11: a hosted rendezvous registration now has an identity of its
+  own. The cookie is derived per identity and period, so a service withdrawn
+  and registered again inside one period came back with the same cookie, and
+  everything that told registrations apart by cookie took the new one for the
+  old: a publish still waiting for its circuit ACK could be satisfied by the
+  successor and write an advertisement for the old relay, and a withdraw that
+  landed between the check and the row left a row behind that every tick
+  re-signed. Each registration carries its own number, the row is written
+  under the same lock as the check, and a rebuild that re-selects the path or
+  crosses a period boundary moves the row with the entry. This closes what
+  0.13.29 said had only been narrowed.
+
 ## [0.13.29] — 2026-09-02
 
 ### Changed
