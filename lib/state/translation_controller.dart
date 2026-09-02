@@ -143,6 +143,15 @@ class TranslationController extends Notifier<Map<String, TranslationEntry>> {
     final storage = _storage;
     try {
       final cached = await storage.getSetting(key);
+      // And only if the store that answered is still the one this notifier
+      // belongs to. The rebuild that swaps stores CLEARS `_probed` for the
+      // reason written at `build`: a remembered miss is a fact about ONE
+      // store, and carried into another it hides a translation that one does
+      // have. A read begun under the old store and finishing after the switch
+      // put its key into the new store's set, which is that same harm arriving
+      // one entry at a time — and `_set` below cannot undo it, because the
+      // damage is the remembered miss, not the display (report21 XV18-L1).
+      if (!identical(_storage, storage)) return;
       // Marked only once the store ANSWERED. A read that threw means the store
       // is not open yet, and remembering that as "nothing there" would hide a
       // translation for the rest of the session.
