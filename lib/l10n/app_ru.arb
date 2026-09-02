@@ -797,6 +797,7 @@
   "mentionsEmptyHint": "Здесь появятся сообщения, публикации и комментарии сообществ, в которых упомянули вас.",
   "mentionsLoadFailed": "Не удалось загрузить упоминания",
   "chatRequestSent": "Запрос отправлен — ожидание одобрения",
+  "chatRequestNotDelivered": "Запрос не доставлен — его никто не понёс",
   "chatRequestResend": "Отправить снова",
   "chatRequestCancel": "Отменить",
   "chatRequestCancelTitle": "Отменить запрос?",

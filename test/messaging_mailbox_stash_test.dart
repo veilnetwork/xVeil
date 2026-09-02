@@ -224,6 +224,67 @@ void main() {
     );
   });
 
+  /// And the message a person LOOKS at says so too.
+  ///
+  /// Returning the verdict was half the answer: the conversation went on
+  /// showing the greeting with a sent tick beside it, which is what somebody
+  /// reads a minute later, long after any snackbar. The failed mark and the
+  /// "Send again" button already existed; nothing had put them on this
+  /// message (report19 XV19-M1).
+  test('the greeting of a failed request is marked failed', () async {
+    mA.attachMailbox(_FailingSink());
+
+    await mA.sendRequest(b, 'nothing carried this');
+
+    final stored = await sA.loadMessages(b.hex);
+    expect(stored, hasLength(1), reason: 'the greeting is kept, not dropped');
+    expect(
+      stored.single.status,
+      MessageStatus.failed,
+      reason: 'a greeting nothing carried is shown with a sent tick',
+    );
+    expect(stored.single.body, 'nothing carried this');
+  });
+
+  /// A retry says what happened, and a retry that lands clears the mark.
+  ///
+  /// `resendRequest` returned nothing at all, so the screen showed "Request
+  /// sent" every time — on the one button a person presses BECAUSE the
+  /// request did not get through (report19 XV19-M1).
+  test('a resend reports its own verdict and clears the mark', () async {
+    final failing = _FailingSink();
+    mA.attachMailbox(failing);
+    await mA.sendRequest(b, 'try one');
+    expect(
+      (await sA.loadMessages(b.hex)).single.status,
+      MessageStatus.failed,
+      reason: 'premise: the first attempt failed',
+    );
+
+    // Still failing: the retry must not claim otherwise.
+    expect(
+      await mA.resendRequest(b),
+      isFalse,
+      reason: 'a resend that deposited nothing answered "sent"',
+    );
+
+    // Now the relay works: the same greeting goes out under its own id and
+    // the message stops being marked failed.
+    mA.attachMailbox(sink);
+    expect(
+      await mA.resendRequest(b),
+      isTrue,
+      reason: 'a resend over a working relay must report the deposit',
+    );
+    final stored = await sA.loadMessages(b.hex);
+    expect(stored, hasLength(1), reason: 'the retry re-uses the greeting');
+    expect(
+      stored.single.status,
+      MessageStatus.sent,
+      reason: 'a retry that landed left the error mark on the message',
+    );
+  });
+
   /// CONTROL: the same call over a working relay reports the deposit.
   ///
   /// Without this the assertion above is satisfied by a `sendRequest` that

@@ -419,6 +419,7 @@ class MessagingService {
     required bool archived,
     int? retentionDays,
     required bool allowPeerDelete,
+
     /// The sibling's view of the retention policy, or null when the event came
     /// from a build that did not carry it — in which case the policy already
     /// held here is kept rather than cleared.
@@ -1721,7 +1722,7 @@ class MessagingService {
   Future<bool> sendRequest(NodeId dst, String greeting) =>
       _contacts.sendRequest(dst, greeting);
 
-  Future<void> resendRequest(NodeId dst) => _contacts.resendRequest(dst);
+  Future<bool> resendRequest(NodeId dst) => _contacts.resendRequest(dst);
 
   Future<void> cancelRequest(NodeId peer) => _contacts.cancelRequest(peer);
 
