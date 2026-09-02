@@ -17439,6 +17439,12 @@ class GroupService {
     Uint8List certificate,
     String recoveryCode,
   ) async {
+    // Same fence, and here it matters most: this writes a sovereign
+    // credential and mints a device group. A recovery sheet opened under one
+    // identity and completed after a switch installed the OLD identity's
+    // signer — the pair that can recover it — while the interface showed the
+    // new one (report21 X21-H2). `null` is this method's existing "could not".
+    if (_disposed) return null;
     if (await deviceGroupIdHex() != null) return null;
     final existing = await localSovereignBundle();
     if (existing != null && !_listEquals(existing, certificate)) return null;
@@ -18329,7 +18335,16 @@ class GroupService {
   /// [referencedContentIds] — that is what authorizes my other devices'
   /// membership pull of the bytes. The event body stays the JSON codec.
   Future<bool> postDeviceEvent(DeviceSyncEvent e, {MediaObject? attachment}) {
+    // NOT AFTER DISPOSE. `dispose()` says what it is for in its own words —
+    // "hosts must call this before replacing/closing the active identity so a
+    // stale group feed cannot survive an identity switch" — and the writes
+    // never consulted it. A screen that captured this service before the
+    // switch went on posting to the device group of the identity the user had
+    // left (report21 X21-H2). `false` is what this already returns when it
+    // cannot post, so callers need no new case.
+    if (_disposed) return Future.value(false);
     final done = _devicePostChain.then((_) async {
+      if (_disposed) return false;
       final hex = await deviceGroupIdHex();
       if (hex == null) return false;
       return postMessage(
@@ -19002,6 +19017,12 @@ class GroupService {
     }
     return true;
   }
+
+  /// Whether this service belongs to an identity that is no longer active.
+  ///
+  /// A screen holding one of these across an identity switch can ask before
+  /// it acts, rather than discovering it by writing somewhere unexpected.
+  bool get isDisposed => _disposed;
 
   /// Releases the pure-Dart event surfaces owned by this identity instance.
   /// Hosts must call this before replacing/closing the active identity so a

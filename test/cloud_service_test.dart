@@ -117,6 +117,67 @@ Future<Uint8List> Function(int, int) _reader(Uint8List bytes) =>
         Uint8List.sublistView(bytes, offset, offset + length);
 
 void main() {
+  test('a closed service refuses changes instead of writing them', () async {
+    // report21 X21-H2. `close()` is what an identity switch does to the
+    // service it leaves. A screen that captured the OLD one keeps working —
+    // a file picker still open, a note editor, an export sheet — and calls
+    // back into it after the switch. Every one of those writes landed in the
+    // store of the identity the user had already left, while the interface of
+    // the identity they were now looking at reported success.
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sync = _FakeSync(_id(1));
+    final received = StreamController<String>.broadcast();
+    final service = CloudService(
+      storage,
+      sync,
+      contentReceived: received.stream,
+      newId: () => 'note-1',
+      integrityChecks: false,
+    );
+
+    // Vacuity: while the identity is active the write goes through, or every
+    // assertion below passes on a service that refuses everything.
+    final live = await service.saveTextNote(title: 'While active', body: 'x');
+    expect(live.revision, 1);
+    final before = (await storage.sharedContentReferenceSnapshot())
+        .referencedContentIds
+        .length;
+
+    await service.close();
+    expect(service.isClosed, isTrue);
+
+    await expectLater(
+      service.saveTextNote(title: 'After the switch', body: 'y'),
+      throwsA(isA<CloudServiceClosed>()),
+      reason: 'a note was written into the store of an identity the user had '
+          'already left',
+    );
+    await expectLater(
+      service.importContent(
+        name: 'picked.bin',
+        size: 4,
+        readRange: (offset, length) async => Uint8List(length),
+      ),
+      throwsA(isA<CloudServiceClosed>()),
+      reason: 'a picked file was imported into the store of an identity the '
+          'user had already left',
+    );
+
+    // And nothing reached the store.
+    expect(
+      (await storage.sharedContentReferenceSnapshot())
+          .referencedContentIds
+          .length,
+      before,
+      reason: 'the refusal still wrote content',
+    );
+
+    await received.close();
+    await storage.close();
+  });
+
   test('text note edit retires old body into global GC quarantine', () async {
     final container = FakeHvContainer();
     final storage = container.storage();
