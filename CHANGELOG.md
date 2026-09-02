@@ -10,6 +10,21 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.15] — 2026-09-02
+
+**The meeting-point controls now reach the node they claim to configure.** An
+ordinary boot read the per-identity answer and then called `startDeniable`
+without it, so a one-active identity ran on veil's defaults whatever was
+ticked; the all-online path carried both fields to the stack and lost the
+policy on the way to the composed TOML, so "keep looking once connected"
+silently stayed "only while it has no peer". Found by report20, and the screen
+had been offering a privacy control the ordinary path did not carry out.
+
+Underneath, veil 0.10.4: a listener the operator marked hidden is no longer
+published at a meeting point, `bootstrap = false` no longer announces on the
+local network, and an address from a public index is not dialled unless it is
+globally routable.
+
 ## [0.13.14] — 2026-09-01
 
 Node side only, and both of them are things production found rather than the
