@@ -10,6 +10,18 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.17] — 2026-09-02
+
+### Changed
+
+- veil 0.11.5 and hidden-volume 2.1.0. veil stops the disk cold tier from
+  reading an I/O error as "the value is gone" — every repair it makes is a
+  delete decided by a read, and one transient failure was enough to take the
+  index away from a value that was perfectly alive. hidden-volume stops the
+  finalizer killing a worker parked inside a native call (the container's lock
+  then stayed held until the app restarted) and carries entry counts in a width
+  32-bit Android cannot truncate.
+
 ## [0.13.16] — 2026-09-02
 
 ### Fixed
