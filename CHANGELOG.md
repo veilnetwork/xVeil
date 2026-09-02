@@ -10,6 +10,28 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.31] — 2026-09-03
+
+### Fixed
+
+- A connection request that nothing carried no longer looks sent. It is the
+  one message in the app with nothing behind it — the retry pass covers
+  accepted contacts only — and both the screen and the stored greeting threw
+  the delivery verdict away, so a request that reached neither the relay nor
+  the person showed a sent tick and waited forever. The greeting is kept and
+  marked failed, the screen says so and offers the retry, and a retry that
+  lands clears the mark.
+
+### Changed
+
+- veil 0.11.12: a peer's certificate stops being sealed to when its owner says
+  it does. Whether a key may still be used depends on two clocks — how long ago
+  this device verified it, and the window its owner signed — and the second was
+  checked on two of the four caches, not on the two an ordinary send takes.
+  A message could go out sealed to a certificate its owner had stopped standing
+  behind, to a key a retired device may still hold. Every cache now asks both,
+  and the seal itself refuses rather than trusting them to.
+
 ## [0.13.30] — 2026-09-02
 
 ### Changed

@@ -624,7 +624,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       );
     } else {
       // No contact yet / not accepted — the first message is the request.
-      await svc.sendRequest(_peer, text);
+      //
+      // This is the one send in the app with nothing behind it: `flushOutbox`
+      // re-stashes accepted contacts only, so a request that reached neither
+      // the relay nor the peer is never retried by anything. The verdict was
+      // computed and thrown away here, which showed that silence as a sent
+      // message (report19 XV19-M1).
+      if (!await svc.sendRequest(_peer, text)) {
+        _reportRequestUndelivered();
+      }
     }
     _scrollToBottom(force: true);
     if (mounted) {
@@ -681,12 +689,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _resend() async {
-    await _messaging.resendRequest(_peer);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(AppL10n.of(context).chatRequestSent)),
-      );
+    final deposited = await _messaging.resendRequest(_peer);
+    if (!mounted) return;
+    if (!deposited) {
+      _reportRequestUndelivered();
+      return;
     }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(AppL10n.of(context).chatRequestSent)),
+    );
+  }
+
+  /// Say that a connection request was not delivered, and offer the retry.
+  ///
+  /// The greeting is kept — it is stored, and marked failed — so trying again
+  /// re-sends the same one under the same id and the peer still dedups it.
+  void _reportRequestUndelivered() {
+    if (!mounted) return;
+    final l = AppL10n.of(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(l.chatRequestNotDelivered),
+        action: SnackBarAction(label: l.chatRequestResend, onPressed: _resend),
+        duration: const Duration(seconds: 8),
+      ),
+    );
   }
 
   Future<void> _cancel() async {
