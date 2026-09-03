@@ -1820,8 +1820,15 @@ class GroupService {
       for (final staleKey in staleInMemory) {
         _verifiedPublicSpaceFeeds.remove(staleKey);
       }
-      if (bytes != null && !await _storage.hasFile(fileId)) {
-        await _storage.storeFile(fileId, bytes);
+      // Copied into a local before the null test. `bytes` belongs to the
+      // enclosing function and is captured by this closure, and a captured
+      // non-final local does not promote — Dart 3.10 rejects the direct form
+      // outright ("Uint8List? can't be assigned to Uint8List"), which is how
+      // a build on current stable Flutter found this while the pinned 3.44
+      // still accepted it.
+      final durable = bytes;
+      if (durable != null && !await _storage.hasFile(fileId)) {
+        await _storage.storeFile(fileId, durable);
       }
       await _storage.putSetting(
         _publicFeedCacheIndexSetting,
