@@ -1086,7 +1086,45 @@ def _check_windows_engine(runner: str) -> None:
     )
 
 
+def _arm64_windows_cmake_env() -> None:
+    """Point BoringSSL's cmake at the ARM64 toolchain file, on an ARM64 host.
+
+    BoringSSL has no assembly path for Windows/ARM64: its CMake sends Windows
+    x64 down the NASM branch and ARM64 down the generic one, where the
+    assembler becomes `cl.exe` and is handed GNU-syntax `.S`. `btls-sys` knows
+    the answer (`OPENSSL_NO_ASM`) but leaves its platform match earlier when
+    host equals target — which is every NATIVE build. The answer is the
+    target-scoped toolchain file beside this script.
+
+    `release.yml` has exported this for its ARM64 matrix entry since v0.13.11.
+    Nothing exported it for a developer running `builder.py` on an ARM64
+    Windows machine, so a native build died inside `cmake-0.1.58` with a panic
+    that names no cause (measured on a Snapdragon X Elite box, 2026-09-03).
+    Set here rather than documented, because the machine can answer the
+    question the instruction would have asked.
+
+    Never overwritten: an operator who set it meant it.
+    """
+    if platform.system() != "Windows" or _flutter_host_arch() != "arm64":
+        return
+    for var in (
+        "CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc",
+        "CMAKE_TOOLCHAIN_FILE_aarch64-pc-windows-msvc",
+    ):
+        if os.environ.get(var):
+            return
+    toolchain = os.path.join(ROOT, "scripts", "cmake", "aarch64-pc-windows-msvc.cmake")
+    if not os.path.isfile(toolchain):
+        raise RuntimeError(
+            f"MISSING {toolchain} — BoringSSL cannot build for ARM64 Windows\n"
+            "    without it, and the failure it produces names no cause."
+        )
+    os.environ["CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc"] = toolchain
+    print(f"    ARM64 host: CMAKE_TOOLCHAIN_FILE -> {os.path.relpath(toolchain, ROOT)}")
+
+
 def _windows(release: bool) -> list[Step]:
+    _arm64_windows_cmake_env()
     profile = "--release" if release else ""
     out = "release" if release else "debug"
     hv_dll = os.path.join(HV, "target", out, "hidden_volume_ffi.dll")
