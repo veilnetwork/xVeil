@@ -10,6 +10,19 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.39] — 2026-09-03
+
+### Fixed
+
+- Revoking a shared folder now stays revoked. The withdrawal was recorded by
+  removing the share and saving the list afterwards, so a save that failed —
+  a full container is enough — left the folder on disk with nothing saying it
+  had been withdrawn, and the next launch served the link again for the rest
+  of its seven days. The runtime state was already gone by then, so there was
+  nothing left to retry. The withdrawal is now written down first, and a
+  launch reads that record before it hosts anything. File shares have worked
+  this way all along; folders did not.
+
 ## [0.13.38] — 2026-09-03
 
 ### Fixed
