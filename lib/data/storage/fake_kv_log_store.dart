@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'kv_log_store.dart';
+import 'rollback_anchor.dart';
 
 String _hexKey(Uint8List key) {
   final sb = StringBuffer();
@@ -13,7 +14,7 @@ String _hexKey(Uint8List key) {
 /// In-memory [KvLogStore] — exercises the real domain→namespace/log mapping
 /// without the native library. Backs the dev/test build and is the harness
 /// for the storage unit tests.
-class FakeKvLogStore implements KvLogStore {
+class FakeKvLogStore implements KvLogStore, SyncCommitAnchorSource {
   FakeKvLogStore({Uint8List? keys})
     : _keys = keys ?? Uint8List.fromList(List.filled(64, 0));
 
@@ -118,7 +119,37 @@ class FakeKvLogStore implements KvLogStore {
           _log[namespace]?.removeWhere((entry) => entry.logId == logId);
       }
     }
-    return ++_seq;
+    _history.add(++_seq);
+    if (_history.length > anchorHorizon) _history.removeAt(0);
+    return _seq;
+  }
+
+  /// The commits this fake still recognises — the same WINDOW shape the
+  /// container keeps, so a test that walks past the horizon sees what a real
+  /// container would rather than an unbounded list.
+  final List<int> _history = <int>[];
+
+  @override
+  int commitSeq() => _seq;
+
+  @override
+  List<int> commitHistory() => List.unmodifiable(_history);
+
+  /// Put this fake back to an earlier commit, the way restoring an older copy
+  /// of a container file does. Test-only: there is no other way to produce
+  /// the condition the anchor exists to detect.
+  void rollbackTo(int seq) {
+    _seq = seq;
+    _history.removeWhere((s) => s > seq);
+  }
+
+  /// Give this fake a history that is not the one it wrote — a different
+  /// timeline, put here. Test-only, for the same reason.
+  void forkHistory(List<int> history, {required int seq}) {
+    _seq = seq;
+    _history
+      ..clear()
+      ..addAll(history);
   }
 
   @override
