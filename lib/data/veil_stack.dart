@@ -39,6 +39,8 @@ import 'node/ratchet_ffi.dart'
 import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
+import 'storage/rollback_anchor.dart';
+import '../state/ratchet_persistence.dart';
 import 'transport/bootstrap_invite.dart';
 import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
@@ -1822,6 +1824,15 @@ class RealVeilStack {
   static Future<RealVeilStack> startDeniable({
     required Storage storage,
     required String runtimeDirBase,
+
+    /// Where this space's rollback anchor is kept, OUTSIDE its container.
+    ///
+    /// Null means "do not anchor", and that is the whole of the decoy policy:
+    /// hidden-volume's guide says to anchor the acknowledged space and never
+    /// a decoy, because an anchor for a hidden space announces the space. The
+    /// multi-identity path passes nothing here, so nothing outside a decoy's
+    /// container ever records that it was opened (report8 M8-14).
+    RollbackAnchorStore? rollbackAnchor,
     DynamicLibrary? lib,
     int listenPort = 9000,
     // P2P direct-session epic: bind the node's listener on all interfaces so
@@ -1952,6 +1963,7 @@ class RealVeilStack {
     lease.startHeartbeat();
     try {
       return await _startDeniableIn(
+        rollbackAnchor: rollbackAnchor,
         lease,
         identityToml: identityToml,
         sovereign: sovereign,
@@ -1996,6 +2008,9 @@ class RealVeilStack {
   /// come back for it.
   static Future<RealVeilStack> _startDeniableIn(
     RuntimeDirLease lease, {
+
+    /// See [startDeniable]. Null means this space is not anchored.
+    required RollbackAnchorStore? rollbackAnchor,
     required String identityToml,
     required Map<String, Uint8List>? sovereign,
     required Storage storage,
@@ -2280,7 +2295,34 @@ class RealVeilStack {
       // used. Keys burned here were never emitted, so the peer sees a gap its
       // skipped-key window absorbs.
       if (ratchetState != null) {
-        await recoverReservedSendPositions(ratchetState, storage);
+        // Before that step, ask whether this container is the one we left.
+        //
+        // The reservations live INSIDE it, next to the ratchet state they
+        // guard, so an older copy put in place restores both and the step
+        // below would fast-forward to a position this device has already
+        // spent — re-deriving a key and nonce that are on the wire. The
+        // anchor is the only thing outside the container that remembers
+        // (report8 M8-14).
+        final verdict = await checkContainerAgainstAnchor(
+          storage: storage is RollbackAnchorReader
+              ? storage as RollbackAnchorReader
+              : null,
+          anchor: rollbackAnchor,
+          reserveAhead: RatchetPersistence.reserveAhead,
+        );
+        await recoverReservedSendPositions(
+          ratchetState,
+          storage,
+          extraBurn: verdict.lostSendPositions,
+        );
+        if (verdict.isSuspicious) {
+          devLog(
+            () =>
+                'xVeil[storage]: container ${verdict.verdict.name} — '
+                'burning ${verdict.lostSendPositions} send position(s) that '
+                'the missing commits may already have spent',
+          );
+        }
       }
       // Age out conversations nobody ever answered, now that the store is
       // whole. veil sweeps by itself only when the store hits its ceiling, so

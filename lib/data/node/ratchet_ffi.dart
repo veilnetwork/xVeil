@@ -927,20 +927,41 @@ String ratchetReservationKey(Uint8List conversationKey) =>
 /// has the node handle and the storage but no [RatchetPersistence] yet.
 Future<int> recoverReservedSendPositions(
   RatchetStateHandle native,
-  Storage storage,
-) async {
+  Storage storage, {
+  int extraBurn = 0,
+}) async {
   var burned = 0;
   for (final key in native.list()) {
-    final raw = await storage.getSetting(
-      ratchetReservationKey(key),
-    );
-    if (raw == null) continue;
+    final raw = await storage.getSetting(ratchetReservationKey(key));
+    if (raw == null) {
+      // No reservation for this conversation. Ordinarily nothing to do — but
+      // when the container was put back in time, this conversation's state is
+      // stale too, and the positions it has already spent are not written
+      // anywhere we can read. Step it forward from where it now believes it
+      // is (report8 M8-14).
+      if (extraBurn > 0) {
+        final at = native.sendPosition(key);
+        if (at != null) {
+          burned += native.skipSendTo(
+            key,
+            RatchetSendPosition(at.chain, at.next + extraBurn),
+          );
+        }
+      }
+      continue;
+    }
     final at = raw.lastIndexOf(':');
     if (at <= 0) continue;
     final chain = _unhexChain(raw.substring(0, at));
     final next = int.tryParse(raw.substring(at + 1));
     if (chain == null || next == null) continue;
-    burned += native.skipSendTo(key, RatchetSendPosition(chain, next));
+    // `extraBurn` is zero on an ordinary launch, so this is the same step it
+    // always was. After a detected rollback it covers every position the
+    // commits that went missing could have reserved.
+    burned += native.skipSendTo(
+      key,
+      RatchetSendPosition(chain, next + extraBurn),
+    );
   }
   if (burned > 0) {
     devLog(
