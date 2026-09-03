@@ -10,6 +10,16 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.36] — 2026-09-03
+
+### Changed
+
+- veil 0.11.16: a node now limits how much route-discovery traffic it will
+  relay in total, not just how much each peer may ask it to. Forwarding one
+  request costs a message to every peer the node is connected to, and the old
+  limit was per sender — so enough senders, each behaving, still added up to
+  the node flooding its own neighbours.
+
 ## [0.13.35] — 2026-09-03
 
 ### Changed
