@@ -13,6 +13,7 @@ import '../../domain/p2p_policy.dart';
 import '../../domain/screen_lock.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
+import '../../state/identity_guard.dart';
 import '../../state/api_server.dart';
 import '../../state/p2p_policy_controller.dart';
 import '../../state/screen_lock_controller.dart';
@@ -46,6 +47,8 @@ class PrivacySettingsScreen extends ConsumerWidget {
     WidgetRef ref,
     AppL10n l,
   ) async {
+    // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+    final lease = ref.leaseIdentity();
     final current = ref.read(p2pPolicyProvider);
     final choice = await showDialog<P2PGlobalPolicy>(
       context: context,
@@ -62,6 +65,10 @@ class PrivacySettingsScreen extends ConsumerWidget {
       ),
     );
     if (choice == null) return;
+    // The switch may have happened while the dialog was open: nothing
+    // unmounts in all-online mode, so this would set B's posture from a
+    // question put to A.
+    if (!ref.holdsIdentity(lease)) return;
     await ref.read(p2pPolicyProvider.notifier).set(choice);
   }
 
@@ -70,6 +77,8 @@ class PrivacySettingsScreen extends ConsumerWidget {
     WidgetRef ref,
     AppL10n l,
   ) async {
+    // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+    final lease = ref.leaseIdentity();
     final current = ref.read(signaturePolicyProvider);
     final choice = await showDialog<SignaturePolicy>(
       context: context,
@@ -86,6 +95,10 @@ class PrivacySettingsScreen extends ConsumerWidget {
       ),
     );
     if (choice == null) return;
+    // The switch may have happened while the dialog was open: nothing
+    // unmounts in all-online mode, so this would set B's posture from a
+    // question put to A.
+    if (!ref.holdsIdentity(lease)) return;
     await ref.read(signaturePolicyProvider.notifier).set(choice);
   }
 
@@ -94,6 +107,8 @@ class PrivacySettingsScreen extends ConsumerWidget {
     WidgetRef ref,
     AppL10n l,
   ) async {
+    // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+    final lease = ref.leaseIdentity();
     final current = ref.read(screenLockProvider).timeout;
     final choice = await showDialog<ScreenLockTimeout>(
       context: context,
@@ -110,6 +125,10 @@ class PrivacySettingsScreen extends ConsumerWidget {
       ),
     );
     if (choice == null) return;
+    // The switch may have happened while the dialog was open: nothing
+    // unmounts in all-online mode, so this would set B's posture from a
+    // question put to A.
+    if (!ref.holdsIdentity(lease)) return;
     await ref.read(screenLockProvider.notifier).setTimeout(choice);
   }
 

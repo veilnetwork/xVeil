@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/file_download_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
+import '../../state/app_controller.dart' show IdentityLease;
+import '../../state/identity_guard.dart';
 import '../../state/messaging.dart';
 
 /// Per-identity incoming-file policy editor (Phase A1): the auto-download size
@@ -39,7 +41,15 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
     super.dispose();
   }
 
-  Future<void> _save(FileDownloadPolicy next) async {
+  /// Write [next] back, but only for the identity that was asked.
+  ///
+  /// `next` is a FULL policy built from `_policy`, which was read once from
+  /// whichever identity was active when this screen opened. Applied to
+  /// another one it does not change a field — it replaces the whole thing,
+  /// including that identity's blocked extensions, its auto-download cap and
+  /// whether it allows the plaintext large-file mode.
+  Future<void> _save(IdentityLease lease, FileDownloadPolicy next) async {
+    if (!ref.holdsIdentity(lease)) return;
     setState(() => _policy = next);
     await ref.read(messagingServiceProvider).setFileDownloadPolicy(next);
   }
@@ -57,6 +67,8 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
   }
 
   Future<void> _pickLimit(AppL10n l) async {
+    // Taken BEFORE the dialog, checked in _save. See IdentityGuard.
+    final lease = ref.leaseIdentity();
     const customSentinel = -1;
     final choice = await showDialog<int>(
       context: context,
@@ -86,11 +98,13 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
       await _pickCustomLimit(l);
       return;
     }
-    await _save(_policy.copyWith(autoMaxBytes: choice));
+    await _save(lease, _policy.copyWith(autoMaxBytes: choice));
   }
 
   /// Free-form auto-download cap in MB (the presets don't have to fit everyone).
   Future<void> _pickCustomLimit(AppL10n l) async {
+    // Taken BEFORE the dialog, checked in _save. See IdentityGuard.
+    final lease = ref.leaseIdentity();
     final cur = _policy.autoMaxBytes / (1 << 20);
     final mb = await showDialog<double>(
       context: context,
@@ -105,20 +119,29 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
       ),
     );
     if (mb == null || mb < 0) return;
-    await _save(_policy.copyWith(autoMaxBytes: (mb * (1 << 20)).round()));
+    await _save(
+      lease,
+      _policy.copyWith(autoMaxBytes: (mb * (1 << 20)).round()),
+    );
   }
 
   Future<void> _addType() async {
+    // Taken BEFORE the write, checked in _save. See IdentityGuard.
+    final lease = ref.leaseIdentity();
     final ext = FileDownloadPolicy.normalizeExt(_addCtl.text);
     _addCtl.clear();
     if (ext == null || _policy.blockedExts.contains(ext)) {
       setState(() {}); // clear the field even on a no-op
       return;
     }
-    await _save(_policy.copyWith(blockedExts: {..._policy.blockedExts, ext}));
+    await _save(
+      lease,
+      _policy.copyWith(blockedExts: {..._policy.blockedExts, ext}),
+    );
   }
 
   Future<void> _removeType(String ext) async => _save(
+    ref.leaseIdentity(),
     _policy.copyWith(
       blockedExts: _policy.blockedExts.where((e) => e != ext).toSet(),
     ),
@@ -131,6 +154,8 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
   };
 
   Future<void> _pickLargeFileMode(AppL10n l) async {
+    // Taken BEFORE the dialog, checked in _save. See IdentityGuard.
+    final lease = ref.leaseIdentity();
     final choice = await showDialog<LargeFileMode>(
       context: context,
       builder: (d) => SimpleDialog(
@@ -148,11 +173,17 @@ class _FileSettingsScreenState extends ConsumerState<FileSettingsScreen> {
       ),
     );
     if (choice == null) return;
-    await _save(_policy.copyWith(largeFileMode: choice));
+    await _save(lease, _policy.copyWith(largeFileMode: choice));
   }
 
   @override
   Widget build(BuildContext context) {
+    // The snapshot came from ONE identity's service. A switch replaces that
+    // service without unmounting this screen, so both what is drawn and the
+    // full policy every _save writes back would still be the other one's.
+    ref.listen(messagingServiceProvider, (_, next) {
+      setState(() => _policy = next.fileDownloadPolicy);
+    });
     final l = AppL10n.of(context);
     final exts = _policy.blockedExts.toList()..sort();
     return Scaffold(
