@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/posix_file_facts.dart';
 import '../data/storage/folder_sync_store.dart';
 import '../domain/folder_sync.dart';
+import 'app_controller.dart' show IdentityLease, appControllerProvider;
 import 'cloud_service.dart';
 import 'folder_sync_adapters.dart';
 import 'folder_sync_engine.dart';
@@ -156,11 +157,23 @@ class FolderSyncController extends Notifier<List<FolderSyncPairView>> {
 
   /// Configure [localPath] as a sync root. Null when it was taken; otherwise
   /// why it was refused, as a [FolderSyncRefusal] the UI translates.
+  /// [owner] is the identity the PICKER was opened under, when there was one.
+  ///
+  /// The guard below holds `_store` across the awaits inside this method, but
+  /// the expensive await is outside it: the native directory picker. Riverpod
+  /// reuses this notifier across a switch and repoints `_store` to B, so a
+  /// path chosen from A's screen became a pair of B's, and B's scheduler then
+  /// uploaded those local files into B's cloud.
   Future<FolderSyncRefusal?> addPair({
     required String localPath,
     String? cloudFolderId,
     required String id,
+    IdentityLease? owner,
   }) async {
+    if (owner != null &&
+        !ref.read(appControllerProvider.notifier).holdsIdentity(owner)) {
+      return const FolderSyncRefusal(FolderSyncRefusalCode.identityChanged);
+    }
     // The store this call was asked of, held across every await below: a list
     // read from A must not be written to B.
     final store = _store;
@@ -371,6 +384,14 @@ enum FolderSyncRefusalCode {
   /// A step of the path may be written by group or by other, so another local
   /// account can redirect what is mirrored into it.
   writableByOtherAccounts,
+
+  /// The identity changed while the picker was open, so the folder chosen on
+  /// one identity's screen would have become a pair of another's.
+  ///
+  /// Not a refusal to explain: the person is now looking at a different
+  /// identity, and a dialog about a folder they picked as someone else would
+  /// say more than it should. The caller shows nothing.
+  identityChanged,
 }
 
 /// A [FolderSyncRefusalCode] together with the facts a person cannot guess.

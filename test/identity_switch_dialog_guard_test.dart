@@ -181,6 +181,63 @@ void main() {
     );
   });
 
+  /// The node editor holds SSH secrets, so its lease has to cover the load
+  /// that DISPLAYS them as well as the save that writes them.
+  test('the managed node editor checks its lease on load and on save', () {
+    final source = read('lib/features/network/managed_nodes_screen.dart');
+    expect(
+      source.contains('IdentityLease _lease = ref.leaseIdentity()'),
+      isTrue,
+      reason: 'the editor no longer records the identity that opened it',
+    );
+    for (final name in ['_loadCredentials', '_save']) {
+      final at = source.indexOf('Future<void> $name(');
+      expect(at, isNot(-1), reason: '$name moved; re-aim this guard');
+      final body = source.substring(at, source.indexOf('\n  }', at));
+      expect(
+        body.contains('holdsIdentity(_lease)'),
+        isTrue,
+        reason:
+            '$name runs after an await under a sheet that a switch does not '
+            "close, so it would show or write one identity's SSH secrets "
+            'under another',
+      );
+    }
+    // The save writes twice — the registry, then the secrets — and the second
+    // is the half that must not land in the wrong container.
+    final save = source.substring(
+      source.indexOf('Future<void> _save('),
+      source.indexOf('\n  }', source.indexOf('Future<void> _save(')),
+    );
+    expect(
+      RegExp('holdsIdentity\\(_lease\\)').allMatches(save).length,
+      greaterThanOrEqualTo(2),
+      reason: 'the credential write is not re-checked after the registry one',
+    );
+  });
+
+  /// The folder picker's await is outside the mutation, so the identity has
+  /// to travel WITH the answer.
+  test('the folder picker hands its identity to the mutation', () {
+    final screen = read('lib/features/storage/folder_sync_screen.dart');
+    expect(
+      screen.contains('ref.leaseIdentity()'),
+      isTrue,
+      reason: 'nothing records which identity opened the picker',
+    );
+    expect(
+      screen.contains('owner: lease'),
+      isTrue,
+      reason: 'the lease is taken and never handed to addPair',
+    );
+    final controller = read('lib/state/folder_sync_controller.dart');
+    expect(
+      controller.contains('FolderSyncRefusalCode.identityChanged'),
+      isTrue,
+      reason: 'addPair accepts a pair whose owner is no longer active',
+    );
+  });
+
   /// The guard helper itself must keep saying what it is for; a lease that is
   /// taken and never compared is decoration.
   test('the guard helper offers both halves of the rule', () {

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
+import '../../state/identity_guard.dart';
 import '../../state/folder_sync_controller.dart';
 import '../common/relative_time.dart';
 
@@ -33,8 +34,14 @@ class FolderSyncScreen extends ConsumerWidget {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
+          // Taken BEFORE the native picker, which is the long await here. The
+          // notifier is reused across a switch and its store is repointed to
+          // B, so a path chosen from A's screen became a pair of B's and B's
+          // scheduler uploaded those local files into B's cloud.
+          final lease = ref.leaseIdentity();
           final path = await (pickDirectory ?? FilePicker.getDirectoryPath)();
           if (path == null || path.isEmpty) return;
+          if (!ref.holdsIdentity(lease)) return;
           // `addPair` answers with WHY it would not take the folder — a root
           // another account on this computer can write to, or one that overlaps
           // a folder already mirrored. That answer was thrown away, so a
@@ -46,8 +53,11 @@ class FolderSyncScreen extends ConsumerWidget {
           final refusal = await controller.addPair(
             localPath: path,
             id: 'pair-${DateTime.now().microsecondsSinceEpoch}',
+            owner: lease,
           );
           if (refusal == null || !context.mounted) return;
+          final message = folderSyncRefusalText(l, refusal);
+          if (message == null) return;
           await showDialog<void>(
             context: context,
             builder: (ctx) => AlertDialog(
@@ -62,7 +72,7 @@ class FolderSyncScreen extends ConsumerWidget {
               // used to arrive as an English sentence and go straight into
               // this localised frame, so a Russian reader was shown a Russian
               // sentence with an English middle.
-              content: Text(l.folderSyncNotAdded(folderSyncRefusalText(l, refusal))),
+              content: Text(l.folderSyncNotAdded(message)),
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(ctx).pop(),
@@ -108,20 +118,21 @@ class FolderSyncScreen extends ConsumerWidget {
 /// Lives here rather than on [FolderSyncRefusal] because the controller has no
 /// [BuildContext] and must not acquire one: a rule that decides whether a
 /// folder is safe has no business knowing what language the person reads.
-String folderSyncRefusalText(AppL10n l, FolderSyncRefusal refusal) {
+/// Null when there is nothing to say, which is not the same as no refusal.
+String? folderSyncRefusalText(AppL10n l, FolderSyncRefusal refusal) {
   final path = refusal.path ?? '';
   return switch (refusal.code) {
+    // Silence on purpose: see the code's own doc.
+    FolderSyncRefusalCode.identityChanged => null,
     FolderSyncRefusalCode.overlapsExistingPair => l.folderSyncRefusedOverlap,
     FolderSyncRefusalCode.unresolvable => l.folderSyncRefusedUnresolvable(
       path,
       refusal.detail ?? '',
     ),
-    FolderSyncRefusalCode.permissionsUnreadable => l.folderSyncRefusedUnreadable(
-      path,
-    ),
-    FolderSyncRefusalCode.writableByOtherAccounts => l.folderSyncRefusedWritable(
-      path,
-    ),
+    FolderSyncRefusalCode.permissionsUnreadable =>
+      l.folderSyncRefusedUnreadable(path),
+    FolderSyncRefusalCode.writableByOtherAccounts =>
+      l.folderSyncRefusedWritable(path),
   };
 }
 
