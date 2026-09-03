@@ -724,10 +724,26 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // relay — but each relay sends EXACTLY ONE reply per FETCH, so counting
     // replies is enough: collect until every sent fetch answered or the window
     // closes. Blob attribution is unnecessary — the union dedups by content_id.
+    // WHICH relay answered is checked, and it used to not be. The comment
+    // above said replies were unattributable on the anonymous path; they are
+    // not — they arrive authenticated, carrying the daemon's verified id of
+    // the relay that sent them. Believing otherwise, the drain counted any
+    // decodable frame as "a relay answered" and unioned blobs by the
+    // relay-supplied content id alone, first copy winning. So one relay of the
+    // receiver's own set could answer first with a genuine content id and
+    // substituted bytes, and the honest copy was then discarded as a duplicate
+    // of it (report22 XV-MBX1). The content id is the message uuid — it says
+    // nothing about the bytes — so the union is keyed by the id AND a digest
+    // of the blob, and every variant survives to be tried.
     Object? lastErr;
     var anyAttempted = false;
     final seen = <String>{};
     final aggregated = <StoredMailboxBlob>[];
+    // The relays this drain asked, and the ones that have answered. A relay
+    // answers at most once: a second frame from the same one cannot close the
+    // window early on the others' behalf.
+    final asked = <String>{};
+    final answered = <String>{};
     var replies = 0;
     FormatException? malformed;
     var expected = 0;
@@ -762,13 +778,25 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     }
 
     final sub = _fetchApp.messages().listen((m) {
+      // Only a relay this drain actually asked, and only when the daemon
+      // verified who sent it. An unauthenticated frame, or one from a node we
+      // did not ask, is not an answer — counting it closed the window on
+      // relays that had not spoken yet.
+      final from = NodeId(m.srcNodeId).hex;
+      if (m.provenance != veil.SenderProvenance.signed ||
+          !asked.contains(from) ||
+          !answered.add(from)) {
+        return;
+      }
       try {
         final blobs = decodeMailboxFetchResp(m.data);
-        // Union by content_id: the deposit fans out to several replicas, so the
-        // SAME blob can sit on more than one relay — keep the first copy only.
+        // Union by (content id, blob digest). The deposit fans out to several
+        // replicas, so the same blob really does sit on more than one relay
+        // and still dedups; what no longer happens is a DIFFERENT blob under
+        // the same id displacing the honest one.
         var fresh = 0;
         for (final b in blobs) {
-          if (seen.add(String.fromCharCodes(b.contentId))) {
+          if (seen.add(mailboxVariantKey(b.contentId, b.blob))) {
             aggregated.add(b);
             fresh++;
           }
@@ -785,10 +813,18 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           );
         }
       } on FormatException catch (e) {
-        // A malformed reply IS a real fault (not a transient) — surface it
-        // after the window closes (can't rethrow out of a stream callback).
+        // A malformed reply is that RELAY's fault and nobody else's. It used
+        // to be remembered and then thrown after the window closed, which
+        // discarded the whole union — every honest relay's mail with it
+        // (report22 XV-MBX1). Recorded against its source, and the drain goes
+        // on with what the others sent.
         malformed = e;
         replies++;
+        devLog(
+          () =>
+              'xVeil[drain]: malformed fetch reply from relay '
+              '${NodeId(m.srcNodeId).short} — ignoring that relay this pass',
+        );
       }
       if (allSent && replies >= expected && !window.isCompleted) {
         window.complete();
@@ -847,6 +883,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
               );
             }
             expected++;
+            asked.add(NodeId(relayId).hex);
           } catch (e) {
             // Send itself failed — that relay contributes no reply this drain.
             // Do NOT evict the relay's KEM key here: a fetch failure is a

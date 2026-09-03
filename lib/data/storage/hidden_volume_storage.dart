@@ -197,20 +197,83 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     return true;
   }
 
-  /// This container's commit counter and the window of commits it still
-  /// recognises, or null when the store behind this handle has no container
-  /// to ask (the in-memory fake, and every multi-space view — see
-  /// [CommitAnchorSource] for why that omission IS the decoy policy).
+  /// Where this container's anchor is kept, once somebody has attached one.
+  ///
+  /// Null for every space that is not anchored, which is every decoy: an
+  /// anchor for a hidden space announces that the space exists. Attaching is
+  /// how the acknowledged space opts in, and nothing else can.
+  RollbackAnchorStore? _rollbackAnchor;
+
+  /// Anchor this container from here on. See [RollbackAnchorStore].
+  void attachRollbackAnchor(RollbackAnchorStore anchor) {
+    _rollbackAnchor = anchor;
+  }
+
+  /// The settings key holding this container's generation.
+  ///
+  /// Inside the container on purpose: it must travel with the data it names,
+  /// so a copy of the container carries the same generation and a different
+  /// container carries a different one.
+  static const String _generationKey = 'hv.anchor.generation';
+
+  /// This container's commit counter, the window of commits it still
+  /// recognises, and its generation — or null when the store behind this
+  /// handle has no container to ask (the in-memory fake, and every
+  /// multi-space view — see [CommitAnchorSource] for why that omission IS the
+  /// decoy policy).
   @override
   Future<AnchorReading?> readCommitAnchor() async {
     final store = _store;
     if (store is! CommitAnchorSource) return null;
     final anchored = store as CommitAnchorSource;
+    final generation = await _containerGeneration();
+    if (generation == null) return null;
     final seq = await anchored.commitSeq();
     // Negative is the worker's "there is no container behind me". An anchor
     // built on it would call every honest open a rollback.
     if (seq < 0) return null;
-    return AnchorReading(seq: seq, history: await anchored.commitHistory());
+    return AnchorReading(
+      seq: seq,
+      history: await anchored.commitHistory(),
+      generation: generation,
+    );
+  }
+
+  /// This container's generation, minted and stored on first use.
+  ///
+  /// Minting is a write, so it moves the commit counter — which is why it
+  /// happens BEFORE the counter is read above, and never after.
+  Future<String?> _containerGeneration() async {
+    final held = await getSetting(_generationKey);
+    if (held != null && held.isNotEmpty) return held;
+    final fresh = _randomHex(16);
+    await putSetting(_generationKey, fresh);
+    // Read back rather than trust the write: a container that refused it
+    // would otherwise be anchored under a generation it does not hold, and
+    // every later open would look like a different container.
+    final stored = await getSetting(_generationKey);
+    return stored == fresh ? fresh : null;
+  }
+
+  static String _randomHex(int bytes) {
+    final rng = Random.secure();
+    final out = StringBuffer();
+    for (var i = 0; i < bytes; i++) {
+      out.write(rng.nextInt(256).toRadixString(16).padLeft(2, '0'));
+    }
+    return out.toString();
+  }
+
+  /// Record where this container now stands. See [RollbackAnchorReader].
+  @override
+  Future<bool> advanceRollbackAnchor() async {
+    final anchor = _rollbackAnchor;
+    if (anchor == null) return false;
+    final reading = await readCommitAnchor();
+    if (reading == null) return false;
+    return anchor.write(
+      AnchorRecord(generation: reading.generation, seq: reading.seq),
+    );
   }
 
   @override
