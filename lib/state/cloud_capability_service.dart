@@ -299,6 +299,19 @@ class CloudCapabilityService {
   Future<void>? _started;
   Future<void> _mutation = Future.value();
   bool _closed = false;
+
+  /// Return endpoints opened by [_withFolderClient], and the calls that own
+  /// them.
+  ///
+  /// [close] took down the registered shares and the sync and knew nothing
+  /// about these. A folder listing or a file download already in flight kept
+  /// its own endpoint alive, verified its pieces and wrote them — plus the
+  /// manifest — into a storage the app had stopped showing. Only the next
+  /// `CloudService.adoptCapability` noticed the closure and threw, leaving
+  /// orphan content behind; a manifest may declare up to `1 << 50` bytes, so
+  /// this is disk as well as confusion.
+  final _transientEndpoints = <CloudCapabilityEndpointPort>{};
+  final _inFlightFolderCalls = <Future<void>>[];
   int _lastTimestamp = 0;
 
   Future<void> start() => _started ??= _start();
@@ -832,6 +845,9 @@ class CloudCapabilityService {
 
   /// Anonymously fetch the current listing of a shared folder from its link.
   Future<CloudFolderListing> fetchFolderListing(String link) async {
+    if (_closed) {
+      throw StateError('the cloud service for this identity has been closed');
+    }
     await start();
     final parsed = await CloudCapabilityCodec.parseLink(link);
     if (parsed is! ParsedCloudFolderLink) {
@@ -920,6 +936,26 @@ class CloudCapabilityService {
   Future<T> _withFolderClient<T>(
     CloudFolderCapability capability,
     Future<T> Function(CloudFolderShareClient client) body,
+  ) {
+    // A barrier, not a flag: no new anonymous client after the identity that
+    // owned this service is gone.
+    if (_closed) {
+      return Future<T>.error(
+        StateError('the cloud service for this identity has been closed'),
+      );
+    }
+    final call = _folderClientCall(capability, body);
+    // Tracked so `close` can WAIT rather than return while a download is
+    // still verifying pieces into the old storage.
+    final tracked = call.then<void>((_) {}, onError: (_) {});
+    _inFlightFolderCalls.add(tracked);
+    unawaited(tracked.whenComplete(() => _inFlightFolderCalls.remove(tracked)));
+    return call;
+  }
+
+  Future<T> _folderClientCall<T>(
+    CloudFolderCapability capability,
+    Future<T> Function(CloudFolderShareClient client) body,
   ) async {
     final seed = _randomBytes(32);
     final alias = _base64(_randomBytes(32));
@@ -937,6 +973,11 @@ class CloudCapabilityService {
       if (!seed.every((byte) => byte == 0)) {
         throw StateError('native return-service seed was not scrubbed');
       }
+      // Closed while the endpoint was being hosted.
+      if (_closed) {
+        throw StateError('the cloud service for this identity has been closed');
+      }
+      _transientEndpoints.add(endpoint);
       subscription = endpoint.messages.listen(incoming.add);
       final resolvedEndpoint = endpoint;
       final client = CloudFolderShareClient(
@@ -956,6 +997,7 @@ class CloudCapabilityService {
       );
       return await body(client);
     } finally {
+      if (endpoint != null) _transientEndpoints.remove(endpoint);
       seed.fillRange(0, seed.length, 0);
       await subscription?.cancel();
       await endpoint?.close();
@@ -985,6 +1027,9 @@ class CloudCapabilityService {
   /// learns the other's sovereign node id. Pieces are committed only after
   /// every AEAD chunk and the manifest hash verify.
   Future<CloudCapability> download(String link) async {
+    if (_closed) {
+      throw StateError('the cloud service for this identity has been closed');
+    }
     await start();
     final capability = await CloudCapabilityCodec.parse(link);
     if (capability.expiresAtMs <= _now().millisecondsSinceEpoch) {
@@ -1474,6 +1519,20 @@ class CloudCapabilityService {
       await share.close();
     }
     await Future.wait(_retiringEndpoints.values.toList());
+    // The transient half. Closing the endpoint makes the call that owns it
+    // fail rather than finish into a storage nobody is showing, and then we
+    // wait for it — a close that returns while a download is still writing
+    // is not a close.
+    final transient = _transientEndpoints.toList();
+    _transientEndpoints.clear();
+    for (final endpoint in transient) {
+      try {
+        await endpoint.close();
+      } catch (_) {}
+    }
+    if (_inFlightFolderCalls.isNotEmpty) {
+      await Future.wait(_inFlightFolderCalls.toList());
+    }
     await _sync?.close();
   }
 

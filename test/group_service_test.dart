@@ -469,7 +469,6 @@ class _CountingGroupReadStorage extends HiddenVolumeStorage {
   }
 }
 
-
 /// The one chain in a sync vector whose scope starts with [prefix].
 ///
 /// Looked up by prefix because a chain's scope now ends with the DEVICE that
@@ -597,9 +596,7 @@ void main() {
       await service.addControlOp(
         gid,
         ControlOp.addMember,
-        target: NodeId.fromHex(
-          i.toRadixString(16).padLeft(2, '0') * 32,
-        ),
+        target: NodeId.fromHex(i.toRadixString(16).padLeft(2, '0') * 32),
         role: GroupRole.member,
       );
     }
@@ -1035,7 +1032,8 @@ void main() {
       expect(
         firstPass.replication.chatGroups,
         1,
-        reason: 'the chat must be in this pass, or the read count below is '
+        reason:
+            'the chat must be in this pass, or the read count below is '
             'about a pass that skipped it',
       );
       expect(
@@ -4758,87 +4756,92 @@ void main() {
     },
   );
 
-  test('a disposed service posts nothing to the identity it belonged to',
-      () async {
-    // report21 X21-H2. `dispose()` states its own purpose — "hosts must call
-    // this before replacing/closing the active identity so a stale group feed
-    // cannot survive an identity switch" — and the writes never consulted it.
-    // A sheet or a picker captured before the switch went on posting to the
-    // device group of the identity the user had already left, and minting its
-    // recovery credential.
-    final s = FakeHvContainer().storage();
-    await s.open(password: 'pw', createIfMissing: true);
-    final svc = GroupService(s, _FakeSigner(owner));
-    await svc.linkDevice(bob, sovereign: sovereign);
+  test(
+    'a disposed service posts nothing to the identity it belonged to',
+    () async {
+      // report21 X21-H2. `dispose()` states its own purpose — "hosts must call
+      // this before replacing/closing the active identity so a stale group feed
+      // cannot survive an identity switch" — and the writes never consulted it.
+      // A sheet or a picker captured before the switch went on posting to the
+      // device group of the identity the user had already left, and minting its
+      // recovery credential.
+      final s = FakeHvContainer().storage();
+      await s.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(s, _FakeSigner(owner));
+      await svc.linkDevice(bob, sovereign: sovereign);
 
-    // Vacuity: while active the post lands, or the assertions below pass on a
-    // service that refuses everything.
-    expect(
-      await svc.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.contactUp,
-          key: 'while-active',
-          tsMs: 1000,
-          payload: const {'pin': true},
+      // Vacuity: while active the post lands, or the assertions below pass on a
+      // service that refuses everything.
+      expect(
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.contactUp,
+            key: 'while-active',
+            tsMs: 1000,
+            payload: const {'pin': true},
+          ),
         ),
-      ),
-      isTrue,
-    );
-    final before = await svc.deviceSyncState();
+        isTrue,
+      );
+      final before = await svc.deviceSyncState();
 
-    await svc.dispose();
-    expect(svc.isDisposed, isTrue);
+      await svc.dispose();
+      expect(svc.isDisposed, isTrue);
 
-    expect(
-      await svc.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.contactUp,
-          key: 'after-the-switch',
-          tsMs: 2000,
-          payload: const {'pin': true},
+      expect(
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.contactUp,
+            key: 'after-the-switch',
+            tsMs: 2000,
+            payload: const {'pin': true},
+          ),
         ),
-      ),
-      isFalse,
-      reason: 'an event reached the device group of an identity the user had '
-          'already left',
-    );
-    final after = await svc.deviceSyncState();
-    expect(
-      after.length,
-      before.length,
-      reason: 'the refusal still appended to the log',
-    );
+        isFalse,
+        reason:
+            'an event reached the device group of an identity the user had '
+            'already left',
+      );
+      final after = await svc.deviceSyncState();
+      expect(
+        after.length,
+        before.length,
+        reason: 'the refusal still appended to the log',
+      );
 
-    // And the recovery path, which installs a signer rather than a row.
-    expect(
-      await svc.recoverDeviceGroupFromCertificate(
-        Uint8List.fromList(List<int>.filled(64, 7)),
-        'code',
-      ),
-      isNull,
-      reason: 'a recovery sheet completed after the switch installed the old '
-          'identity own signer',
-    );
+      // And the recovery path, which installs a signer rather than a row.
+      expect(
+        await svc.recoverDeviceGroupFromCertificate(
+          Uint8List.fromList(List<int>.filled(64, 7)),
+          'code',
+        ),
+        isNull,
+        reason:
+            'a recovery sheet completed after the switch installed the old '
+            'identity own signer',
+      );
 
-    // The recovery EXPORT is a read, and the thing it reads out is a
-    // long-lived capability: the certificate and the code that together
-    // reconstruct this identity's signer. The sheet showing them stays on
-    // screen across a switch, so without this a user could type their secret
-    // under one identity and be shown the other one's pair.
-    expect(
-      await svc.exportRecoveryCertificate('phrase'),
-      isNull,
-      reason: 'a departed identity handed out its recovery capability',
-    );
+      // The recovery EXPORT is a read, and the thing it reads out is a
+      // long-lived capability: the certificate and the code that together
+      // reconstruct this identity's signer. The sheet showing them stays on
+      // screen across a switch, so without this a user could type their secret
+      // under one identity and be shown the other one's pair.
+      expect(
+        await svc.exportRecoveryCertificate('phrase'),
+        isNull,
+        reason: 'a departed identity handed out its recovery capability',
+      );
 
-    // And linking, a multi-step write driven from a sheet that also survives.
-    expect(
-      await svc.linkDevice(bob, sovereign: sovereign),
-      isFalse,
-      reason: 'a device was linked into the group of an identity the user had '
-          'already left',
-    );
-  });
+      // And linking, a multi-step write driven from a sheet that also survives.
+      expect(
+        await svc.linkDevice(bob, sovereign: sovereign),
+        isFalse,
+        reason:
+            'a device was linked into the group of an identity the user had '
+            'already left',
+      );
+    },
+  );
 
   test('postDeviceEvent: concurrent fire-and-forget emits ALL land '
       '(regression: two unawaited posts raced the group log read-modify-write '
@@ -5802,9 +5805,9 @@ void main() {
         isTrue,
       );
       // The master really holds both writers' rows.
-      final held = (await primary.load(gid))!.messages
-          .map((m) => m.body)
-          .toList();
+      final held = (await primary.load(
+        gid,
+      ))!.messages.map((m) => m.body).toList();
       expect(held.join(), contains('from-the-master'));
       expect(held.join(), contains('from-the-sibling'));
 
@@ -5946,10 +5949,7 @@ void main() {
       );
       final thirdStorage = FakeHvContainer().storage();
       await thirdStorage.open(password: 'pw', createIfMissing: true);
-      final third = GroupService(
-        thirdStorage,
-        _FakeSigner(carol),
-      );
+      final third = GroupService(thirdStorage, _FakeSigner(carol));
       addTearDown(third.dispose);
       expect(
         await third.ingestSnapshot(
@@ -5958,9 +5958,9 @@ void main() {
         isTrue,
       );
       expect(await third.adoptDeviceGroup(gid), isTrue);
-      final before = (await third.load(gid))!.messages
-          .map((m) => m.body)
-          .join(' ');
+      final before = (await third.load(
+        gid,
+      ))!.messages.map((m) => m.body).join(' ');
       expect(before, contains('master-1'));
       expect(before, isNot(contains('sibling-1')));
 
@@ -5972,9 +5972,9 @@ void main() {
       for (final wire in replies) {
         await third.ingestSnapshot(wire);
       }
-      final after = (await third.load(gid))!.messages
-          .map((m) => m.body)
-          .join(' ');
+      final after = (await third.load(
+        gid,
+      ))!.messages.map((m) => m.body).join(' ');
       expect(
         after,
         contains('sibling-1'),
@@ -6051,6 +6051,66 @@ void main() {
     expect(await target.prepareDeviceAdoption(token), isFalse);
   });
 
+  /// The admission is DURABLE and lasts a week, and it had no dispose fence.
+  ///
+  /// The target sheet stays open across an identity switch, so a ceremony
+  /// begun under one identity could leave "accept a marker group from this
+  /// source" sitting in the OTHER identity's storage — for seven days, past
+  /// restarts (report22 XV-LIFE1). The export and the recovery already
+  /// refused after dispose; this one did not.
+  test('a disposed service admits no device adoption', () async {
+    final sourceStorage = FakeHvContainer().storage();
+    await sourceStorage.open(password: 'pw', createIfMissing: true);
+    final sourceInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 41)),
+      nonce: Uint8List.fromList([9, 9, 9, 9]),
+    );
+    final source = GroupService(
+      sourceStorage,
+      _FakeSigner(sourceInvite.nodeId),
+    );
+    final targetInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 42)),
+      nonce: Uint8List.fromList([8, 8, 8, 8]),
+    );
+    expect(
+      await source.linkDevice(
+        targetInvite.nodeId,
+        sovereign: _FakeSovereign(_id(11)),
+        broadcastSnapshot: false,
+      ),
+      isTrue,
+    );
+    final token = (await source.createDeviceLinkToken(sourceInvite))!;
+
+    final targetStorage = FakeHvContainer().storage();
+    await targetStorage.open(password: 'pw', createIfMissing: true);
+    final target = GroupService(
+      targetStorage,
+      _FakeSigner(targetInvite.nodeId),
+    );
+
+    // Vacuity: while active it is admitted, or the refusal below proves only
+    // that this token was never acceptable.
+    expect(await target.prepareDeviceAdoption(token), isTrue);
+    await target.cancelPendingDeviceAdoption();
+    expect(await target.pendingDeviceAdoption(), isNull);
+
+    await target.dispose();
+    expect(
+      await target.prepareDeviceAdoption(token),
+      isFalse,
+      reason:
+          'a ceremony finished after the switch wrote its admission '
+          "into the storage of an identity that never took part",
+    );
+    expect(
+      await target.pendingDeviceAdoption(),
+      isNull,
+      reason: 'the admission was written anyway',
+    );
+  });
+
   test(
     'the device-group sync reply is batched under the frame budget',
     () async {
@@ -6085,7 +6145,11 @@ void main() {
             kind: DeviceSyncKind.msgMirror,
             key: 'chat|bulk-$i',
             tsMs: 1000 + i,
-            payload: {'peer': 'aa', 'dir': 'outgoing', 'body': 'bulk-$i $filler'},
+            payload: {
+              'peer': 'aa',
+              'dir': 'outgoing',
+              'body': 'bulk-$i $filler',
+            },
           ),
         );
       }
@@ -6119,9 +6183,9 @@ void main() {
         );
         await third.ingestSnapshot(wire);
       }
-      final after = (await third.load(gid))!.messages
-          .map((m) => m.body)
-          .join(' ');
+      final after = (await third.load(
+        gid,
+      ))!.messages.map((m) => m.body).join(' ');
       for (var i = 0; i < 25; i++) {
         expect(after, contains('bulk-$i '), reason: 'row $i arrived');
       }
@@ -20747,7 +20811,8 @@ void main() {
       expect(
         before,
         isNotEmpty,
-        reason: 'the Space auto-creates a default channel; without one there '
+        reason:
+            'the Space auto-creates a default channel; without one there '
             'is nothing here to collide with and this proves nothing',
       );
       final defaultPosition = before.first.position;
@@ -20765,7 +20830,8 @@ void main() {
       expect(
         made.position,
         isNot(defaultPosition),
-        reason: 'it shares a slot with the default channel, so which comes '
+        reason:
+            'it shares a slot with the default channel, so which comes '
             'first is decided by a hash of their ids',
       );
       expect(
@@ -20799,7 +20865,8 @@ void main() {
       expect(
         positions.toSet().length,
         positions.length,
-        reason: 'two channels share a position: '
+        reason:
+            'two channels share a position: '
             '${channels.map((c) => '${c.name}@${c.position}').join(', ')}',
       );
 
@@ -20908,7 +20975,8 @@ void main() {
       expect(
         await svc.allowStrangerGroupSync(source, gid.hex),
         isTrue,
-        reason: 'the chunked snapshot of the group being linked must be let '
+        reason:
+            'the chunked snapshot of the group being linked must be let '
             'through, or reassembly never starts and linking cannot finish',
       );
     });
@@ -20918,7 +20986,10 @@ void main() {
     test('only from the device the token names', () async {
       final svc = await joining(self);
       await svc.prepareDeviceAdoption(ticket(gid));
-      expect(await svc.allowStrangerGroupSync(otherInvite.nodeId, gid.hex), isFalse);
+      expect(
+        await svc.allowStrangerGroupSync(otherInvite.nodeId, gid.hex),
+        isFalse,
+      );
     });
 
     test('only for the group the token names', () async {
@@ -20939,5 +21010,4 @@ void main() {
       );
     });
   });
-
 }
