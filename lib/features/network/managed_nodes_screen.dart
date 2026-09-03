@@ -12,6 +12,8 @@ import '../../data/node/proxy_routing.dart';
 import '../../data/node/ssh_credentials.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
+import '../../state/app_controller.dart' show IdentityLease;
+import '../../state/identity_guard.dart';
 import '../../state/managed_nodes_controller.dart';
 import '../../state/proxy_routing_controller.dart';
 import '../../state/ssh_credentials.dart';
@@ -50,9 +52,7 @@ class ManagedNodesScreen extends ConsumerWidget {
           if (nodes.isEmpty) {
             return _Empty(message: l.nodesEmpty, hint: l.nodesEmptyHint);
           }
-          final withSsh = nodes.where(
-            (n) => n.hasSsh && n.sshUser != null,
-          );
+          final withSsh = nodes.where((n) => n.hasSsh && n.sshUser != null);
           return ListView(
             children: [
               for (final n in nodes) _NodeTile(node: n),
@@ -233,6 +233,14 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
   bool _endpointClearNotified = false;
   ProbeResult? _probeResult;
 
+  /// The identity that OPENED this editor.
+  ///
+  /// An all-online switch does not close a bottom sheet. Without this, the
+  /// load showed A's SSH password and private key under B, and the save read
+  /// the providers again and wrote A's endpoint and secrets into B's
+  /// encrypted storage.
+  late final IdentityLease _lease = ref.leaseIdentity();
+
   @override
   void initState() {
     super.initState();
@@ -252,6 +260,8 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
         .read(sshCredentialsRepositoryProvider)
         .load(nodeId);
     if (!mounted) return;
+    // Showing these under a different identity is the leak, before any write.
+    if (!ref.holdsIdentity(_lease)) return;
     _password.text = credentials.password ?? '';
     setState(() {
       _privateKeyPem = credentials.privateKeyPem;
@@ -413,6 +423,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
       autoUpdate: sameEndpoint && current.autoUpdate,
       veilVersion: sameEndpoint ? current.veilVersion : null,
     );
+    // The sheet outlived the identity that opened it, so these secrets and
+    // this endpoint belong to a container that is no longer current.
+    if (!ref.holdsIdentity(_lease)) return;
     setState(() => _saving = true);
     try {
       // The registry write reports rather than throws, so it has to be
@@ -430,6 +443,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
         );
         return;
       }
+      // Re-checked: the registry write above is awaited, and the secrets are
+      // the half that must not land in the wrong container.
+      if (!ref.holdsIdentity(_lease)) return;
       await ref
           .read(sshCredentialsRepositoryProvider)
           .save(node.id, _credentials);
@@ -497,8 +513,9 @@ class _NodeEditSheetState extends ConsumerState<_NodeEditSheet> {
     );
     if (confirmed != true || !mounted) return;
     await ref.read(sshCredentialsRepositoryProvider).clear(widget.existing!.id);
-    final registryError =
-        await ref.read(managedNodesProvider.notifier).remove(widget.existing!.id);
+    final registryError = await ref
+        .read(managedNodesProvider.notifier)
+        .remove(widget.existing!.id);
     if (!mounted) return;
     if (registryError != null) {
       // Closing here would say the node is gone while it is still on disk and
