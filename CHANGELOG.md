@@ -10,6 +10,20 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.33] — 2026-09-03
+
+### Changed
+
+- veil 0.11.13: two ways a stranger could aim this node's routing are closed.
+  A proof-of-work challenge and its answer are relayed frames, and every fault
+  they could carry was charged against whoever delivered them — five of those
+  ban a peer, so a stranger could choose which of your relays your own node
+  would cut off. And an announcement claiming to be one hop from a node was
+  trusted over a route this device had confirmed itself, which let any peer
+  with a session pull that node's traffic through itself. The payload stays
+  sealed either way; what was at stake is who can see whom you talk to, and
+  who can quietly drop it.
+
 ## [0.13.32] — 2026-09-03
 
 ### Fixed
