@@ -10,6 +10,14 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.37] — 2026-09-03
+
+### Changed
+
+- veil 0.11.17: repairs a test that stopped compiling in 0.11.12 and was only
+  caught by the project's own automated checks, not by anything run before the
+  tag. No behaviour change for the app.
+
 ## [0.13.36] — 2026-09-03
 
 ### Changed
