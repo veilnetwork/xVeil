@@ -238,6 +238,54 @@ void main() {
     );
   });
 
+  /// A notification that started under one identity must not finish under
+  /// another, and re-subscribing IS the switch.
+  test('the notification path invalidates across a switch', () {
+    final source = read('lib/features/chat/notification_binder.dart');
+
+    for (final name in ['_subscribe', '_subscribeGroups']) {
+      final at = source.indexOf('void $name(');
+      expect(at, isNot(-1), reason: '$name moved; re-aim this guard');
+      final body = source.substring(at, source.indexOf('\n  }', at));
+      expect(
+        body.contains('_notificationGeneration++'),
+        isTrue,
+        reason:
+            'switching identity re-subscribes here, so it has to invalidate '
+            'the notices already in flight — $name did not',
+      );
+    }
+
+    final at = source.indexOf('Future<void> _show(');
+    expect(at, isNot(-1), reason: '_show moved; re-aim this guard');
+    // Past the named-parameter list: `}) async {` starts with the same
+    // sequence the body's closing brace does, and taking the first one cut
+    // the body off at the signature.
+    final bodyAt = source.indexOf('async {', at);
+    expect(bodyAt, isNot(-1), reason: '_show is no longer async; re-aim this');
+    final show = source.substring(bodyAt, source.indexOf('\n  }', bodyAt));
+    expect(
+      show.contains('final generation = _notificationGeneration;'),
+      isTrue,
+      reason: '_show takes no ticket, so it cannot tell it went stale',
+    );
+    expect(
+      RegExp('generation != _notificationGeneration').allMatches(show).length,
+      greaterThanOrEqualTo(3),
+      reason:
+          '_show awaits mention resolution and then the OS post; each await '
+          'and the post itself need the ticket compared',
+    );
+    expect(
+      show.contains('.cancel(id)'),
+      isTrue,
+      reason:
+          'an alert posted for the previous identity has to come back DOWN '
+          "by its exact id, not merely go unrecorded — otherwise A's sender "
+          'and preview stay on screen under B with a live inline reply',
+    );
+  });
+
   /// The guard helper itself must keep saying what it is for; a lease that is
   /// taken and never compared is decoration.
   test('the guard helper offers both halves of the rule', () {

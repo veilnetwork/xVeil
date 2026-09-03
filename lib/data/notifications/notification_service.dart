@@ -295,6 +295,23 @@ class NotificationService {
     }
   }
 
+  /// Take ONE alert down, by the id it was posted with.
+  ///
+  /// [cancelAll] is the lock's tool and takes everything. This is for the
+  /// alert that should never have been posted: a notification belonging to
+  /// the identity that was active when it started, which finished arriving
+  /// after the user had switched away. Leaving it up shows one identity's
+  /// sender and preview under another, with its inline reply live.
+  Future<void> cancel(int id) async {
+    if (!_ready) return;
+    try {
+      await _plugin.cancel(id: id);
+    } catch (_) {
+      // Nothing to retry: the alert either went or the platform refused, and
+      // a failed take-down must not become a second clear of everything.
+    }
+  }
+
   @visibleForTesting
   bool get isReady => _ready;
 }
