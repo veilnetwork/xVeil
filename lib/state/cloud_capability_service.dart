@@ -844,10 +844,6 @@ class CloudCapabilityService {
     );
     final manifest = fileCapability.manifest;
     if (await _storage.hasFile(manifest.contentId)) return fileCapability;
-    final bytes = await _withFolderClient(
-      capability,
-      (client) => client.fetchFile(entry),
-    );
     var stored = false;
     try {
       if (manifest.pieceCount == 0) {
@@ -858,22 +854,28 @@ class CloudCapabilityService {
         );
         stored = true;
       } else {
-        for (var piece = 0; piece < manifest.pieceCount; piece++) {
-          final offset = piece * manifest.pieceSize;
-          final length = manifest.pieceLength(piece);
-          await _storage.storeFilePiece(
-            manifest.contentId,
-            piece,
-            manifest.pieceCount,
-            manifest.pieceSize,
-            manifest.size,
-            Uint8List.sublistView(bytes, offset, offset + length),
-            name: manifest.name,
-          );
-          // Mark stored as soon as the first piece lands so a mid-loop
-          // failure still scrubs the partial blob in the catch below.
-          stored = true;
-        }
+        // Each piece goes to disk as it verifies, so the file never exists in
+        // memory all at once. It used to be fetched whole and then written
+        // out, which meant a large or hostile entry in a shared folder grew
+        // the app to the size of the file before a single byte was persisted
+        // (report6 XV-08).
+        await _withFolderClient(
+          capability,
+          (client) => client.fetchFileStreaming(entry, (piece, bytes) async {
+            await _storage.storeFilePiece(
+              manifest.contentId,
+              piece,
+              manifest.pieceCount,
+              manifest.pieceSize,
+              manifest.size,
+              bytes,
+              name: manifest.name,
+            );
+            // Marked as soon as the first piece lands, so a failure part-way
+            // still scrubs the partial blob in the catch below.
+            stored = true;
+          }),
+        );
       }
       await _storage.storeFile(
         '$_manifestPrefix${manifest.contentId}',
