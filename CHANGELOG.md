@@ -10,6 +10,44 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.38] — 2026-09-03
+
+### Fixed
+
+- One bad mailbox relay can no longer destroy a message's honest copies. A
+  message is filed under an id that names the message, not its contents, so a
+  relay could answer first with a genuine id and a substituted body. Every
+  layer then treated the id as the message: the drain kept one body per id, a
+  body that would not open condemned the id, and the app told every relay to
+  delete it — including the ones holding the real thing, and including the
+  real thing itself if it arrived later. Bodies are now told apart by their
+  contents as well as their id, every one filed under an id is tried, and an
+  id is given up only when nothing filed under it opened. Replies are also
+  accepted only from a relay this drain asked and only when the daemon
+  verified who sent it; one relay's malformed answer no longer discards what
+  the others sent.
+
+- The rollback anchor now follows the container instead of naming the moment
+  it was opened. Written once at boot, it protected only the boot: the device
+  ran past that commit, and restoring any later snapshot still read as a clean
+  continuation while the send positions that snapshot did not carry were
+  derived a second time. It advances with each durable reservation, which is
+  the point where new ciphertext becomes publishable.
+
+  Three companions to that. The record now says WHICH container it is about,
+  so a fresh container after a wipe is a different container rather than one
+  that went backwards — it used to burn keys and raise an alarm at every
+  launch. A container whose history is not ours is no longer quietly adopted
+  at the next launch, which destroyed the only evidence it was ever a
+  different one. And an anchor write that does not reach the disk says so
+  instead of reporting success.
+
+### Changed
+
+- hidden-volume 2.2.2: the Argon2 working matrix — the password's expansion,
+  64 MiB and up — is wiped when the derivation returns. It was freed as it
+  stood while the security notes said otherwise.
+
 ## [0.13.37] — 2026-09-03
 
 ### Changed
