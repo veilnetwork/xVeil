@@ -35,7 +35,8 @@ void main() {
       expect(
         body.contains('_arm64_windows_cmake_env()'),
         isTrue,
-        reason: 'the windows build no longer points BoringSSL at the ARM64 '
+        reason:
+            'the windows build no longer points BoringSSL at the ARM64 '
             'toolchain file, so a native ARM64 build dies in cmake with a '
             'panic that names no cause',
       );
@@ -53,16 +54,74 @@ void main() {
       expect(
         setterBody.contains("_flutter_host_arch() != \"arm64\""),
         isTrue,
-        reason: 'the ARM64 toolchain file is being set on hosts that are not '
+        reason:
+            'the ARM64 toolchain file is being set on hosts that are not '
             'ARM64',
       );
     });
 
-    ProcessResult run(List<String> args) => Process.runSync(
-      python!,
-      args,
-      workingDirectory: Directory.current.path,
-    );
+    ProcessResult run(List<String> args, {Map<String, String>? env}) =>
+        Process.runSync(
+          python!,
+          args,
+          workingDirectory: Directory.current.path,
+          environment: env,
+          includeParentEnvironment: true,
+        );
+
+    /// EVERY platform arms the stand's control plane when asked.
+    ///
+    /// The hook is compile-time: a build made without the define has none and
+    /// no way to gain one. What that looks like from outside is a node that
+    /// never bootstrapped — no port answers, no runtime key is written — so
+    /// the search goes to the network stack and stays there.
+    ///
+    /// These six lines were copied per platform and the copy was missed FOUR
+    /// times: android, linux, macos, and then windows, where it cost an
+    /// afternoon of driving a stand that could not be driven. One sweep, so
+    /// the fifth platform cannot be missed the same way.
+    test('every platform arms the debug hook when asked for one', () {
+      for (final target in ['android', 'linux', 'ios', 'windows', 'macos']) {
+        final plan = run(
+          ['builder.py', target, '--debug', '--dry-run'],
+          env: {'XVEIL_DEBUG_HOOK': 'true'},
+        );
+        expect(plan.exitCode, 0, reason: '$target: ${plan.stderr}');
+        final text = plan.stdout.toString();
+        if (!text.contains('flutter build') &&
+            !text.contains('build-macos-adhoc.sh')) {
+          continue;
+        }
+        if (text.contains('build-macos-adhoc.sh')) {
+          expect(
+            File('scripts/build-macos-adhoc.sh').readAsStringSync(),
+            contains('XVEIL_DEBUG_HOOK'),
+            reason: 'the script this plan delegates to arms no hook',
+          );
+          continue;
+        }
+        expect(
+          text,
+          contains('--dart-define=XVEIL_DEBUG_HOOK=true'),
+          reason:
+              '$target builds a stand with no control plane, which reads from '
+              'outside as a node that never bootstrapped',
+        );
+      }
+    });
+
+    /// Vacuity: without the environment variable it must NOT be armed, or the
+    /// sweep above would pass against a build that always carries it — and a
+    /// full control plane in every debug build is what the opt-in prevents.
+    test('and none of them arms it unasked', () {
+      final plan = run(['builder.py', 'windows', '--debug', '--dry-run']);
+      expect(plan.exitCode, 0, reason: plan.stderr.toString());
+      expect(
+        plan.stdout.toString().contains('XVEIL_DEBUG_HOOK'),
+        isFalse,
+        reason: 'a debug build is still an ordinary build unless asked',
+      );
+    });
 
     test('EVERY platform names the version it was built as', () {
       // Written as one sweep over the targets rather than a line per platform,
@@ -142,17 +201,20 @@ void main() {
       // string telling somebody what to run, and a check that cannot tell an
       // instruction from a command fails on the wrong lines.
       var checked = 0;
-      for (final script in Directory('scripts')
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.sh'))) {
+      for (final script in Directory(
+        'scripts',
+      ).listSync().whereType<File>().where((f) => f.path.endsWith('.sh'))) {
         // Continuations first: an invocation split across lines carries its
         // arguments — the define among them — on the lines below.
-        final joined = script
-            .readAsStringSync()
-            .replaceAll(RegExp(r'\\\n\s*'), ' ');
+        final joined = script.readAsStringSync().replaceAll(
+          RegExp(r'\\\n\s*'),
+          ' ',
+        );
         for (final line in joined.split('\n')) {
-          final command = line.trimLeft().replaceFirst(RegExp(r'^if\s+!\s+'), '');
+          final command = line.trimLeft().replaceFirst(
+            RegExp(r'^if\s+!\s+'),
+            '',
+          );
           if (!command.startsWith('flutter build')) continue;
           checked++;
           expect(
@@ -286,7 +348,8 @@ void main() {
       final temp = Directory.systemTemp.createTempSync('xveil_apk_check');
       addTearDown(() => temp.deleteSync(recursive: true));
       final repo = Directory.current.path;
-      final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
+      final probe = File('${temp.path}/probe.py')
+        ..writeAsStringSync('''
 import sys, os, zipfile
 sys.path.insert(0, ${_pyStr(repo)})
 import builder
@@ -330,7 +393,8 @@ except RuntimeError as error:
       addTearDown(() => temp.deleteSync(recursive: true));
       final runner = 'build/windows/x64/runner/Release';
       Directory('${temp.path}/$runner').createSync(recursive: true);
-      final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
+      final probe = File('${temp.path}/probe.py')
+        ..writeAsStringSync('''
 import sys, os
 sys.path.insert(0, ${_pyStr(Directory.current.path)})
 import builder
@@ -380,7 +444,8 @@ except RuntimeError as error:
       // platform someone adds it to.
       final temp = Directory.systemTemp.createTempSync('xveil_remap');
       addTearDown(() => temp.deleteSync(recursive: true));
-      final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
+      final probe = File('${temp.path}/probe.py')
+        ..writeAsStringSync('''
 import sys
 sys.path.insert(0, ${_pyStr(Directory.current.path)})
 import builder
@@ -444,7 +509,8 @@ for target in ("android", "linux", "macos", "ios", "windows"):
       // whatever the host happens to do asserts nothing.
       final temp = Directory.systemTemp.createTempSync('xveil_macos_hook');
       addTearDown(() => temp.deleteSync(recursive: true));
-      final probe = File('${temp.path}/probe.py')..writeAsStringSync('''
+      final probe = File('${temp.path}/probe.py')
+        ..writeAsStringSync('''
 import sys
 sys.path.insert(0, ${_pyStr(Directory.current.path)})
 import builder
