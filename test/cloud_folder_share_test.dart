@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -206,6 +207,110 @@ void main() {
       await hostToClient.close();
     },
   );
+
+  /// A shared folder's file reaches the sink piece by piece, never whole.
+  ///
+  /// The folder client used to assemble the entire file before returning it,
+  /// so tapping Download on a large or hostile entry grew the app to the size
+  /// of the file before a byte was persisted — and the only ceiling on the
+  /// path is a 1 PiB sanity check in the manifest. The two sibling paths were
+  /// already streaming; this one was not (report6 XV-08).
+  test(
+    'a folder file streams to its sink one verified piece at a time',
+    () async {
+      final fixture = await buildFolder(fileCount: 1);
+      final hostToClient = StreamController<Uint8List>.broadcast();
+      addTearDown(hostToClient.close);
+      final host = CloudFolderShareHost(
+        capability: fixture.capability,
+        storage: fixture.storage,
+        listing: fixture.listing,
+        send:
+            ({
+              required servicePublicKey,
+              required targetAppId,
+              required targetEndpointId,
+              required data,
+            }) async => hostToClient.add(data),
+      );
+      final client = CloudFolderShareClient(
+        capability: fixture.capability,
+        returnServicePublicKey: Uint8List.fromList(List.filled(32, 3)),
+        returnAppId: Uint8List.fromList(List.filled(32, 4)),
+        returnEndpointId: 48,
+        incoming: hostToClient.stream,
+        send: (data) async => unawaited(host.serve(data)),
+        randomBytes: _counterBytes(),
+      );
+
+      final listing = await client.fetchListing();
+      final file = listing.entries.firstWhere((e) => !e.isFolder);
+      final manifest = file.manifest!;
+
+      final delivered = <int, Uint8List>{};
+      var largestHeldAtOnce = 0;
+      final total = await client.fetchFileStreaming(file, (piece, bytes) async {
+        delivered[piece] = bytes;
+        if (bytes.length > largestHeldAtOnce) largestHeldAtOnce = bytes.length;
+      });
+
+      // Every piece arrived, in order, and reassembling them gives the file —
+      // so the streaming path returns the same bytes the whole-file one did.
+      expect(
+        delivered.keys.toList(),
+        List.generate(manifest.pieceCount, (i) => i),
+      );
+      final rebuilt = BytesBuilder(copy: false);
+      for (var i = 0; i < manifest.pieceCount; i++) {
+        rebuilt.add(delivered[i]!);
+      }
+      expect(rebuilt.toBytes(), fixture.plaintext[manifest.contentId]);
+      expect(total, manifest.size);
+
+      // And no single handoff carried more than one piece. This is the property
+      // that bounds memory: assembling first would have handed the sink the
+      // whole file in one call.
+      expect(
+        largestHeldAtOnce,
+        lessThanOrEqualTo(manifest.pieceSize),
+        reason:
+            'the sink was handed more than one piece at a time, so the file '
+            'is being assembled before it is written',
+      );
+    },
+  );
+
+  /// And the download path does not quietly go back to fetching it whole.
+  ///
+  /// `fetchFile` still exists and still compiles at that call site, so the
+  /// streaming test above would stay green while the app returned to holding
+  /// the file in memory. Structural because the caller lives behind an
+  /// anonymous transport a widget test cannot stand up.
+  test('the folder download path uses the streaming fetch', () {
+    final source = File(
+      'lib/state/cloud_capability_service.dart',
+    ).readAsStringSync();
+    final at = source.indexOf('Future<CloudCapability> downloadFolderFile');
+    expect(at, greaterThan(0), reason: 'the download path moved; re-aim this');
+    // Up to the end of that method: the next declaration at the same indent.
+    final body = source.substring(at);
+    final end = body.indexOf('\n  }\n');
+    expect(end, greaterThan(0), reason: 'no end of method found');
+    final method = body.substring(0, end);
+
+    expect(
+      method.contains('fetchFileStreaming('),
+      isTrue,
+      reason: 'the folder download stopped streaming',
+    );
+    expect(
+      RegExp(r'\bclient\.fetchFile\(').hasMatch(method),
+      isFalse,
+      reason:
+          'the folder download fetches the whole file into memory again, '
+          'which is what takes the app out on a phone',
+    );
+  });
 
   test('a request whose MAC does not verify is never answered', () async {
     // Found by break-checking: removing the MAC comparison from the host let
@@ -647,56 +752,58 @@ void main() {
       expect(answers, 2);
     });
 
-    test('a share stops emitting once its budget for the window is spent',
-        () async {
-      // The nonce cache stops a replay; it cannot stop a link holder minting
-      // fresh authentic requests, because minting them is what holding the
-      // link means. The budget is the ceiling on THAT — set here far below the
-      // production one so the test does not have to move 32 MiB.
-      final fixture = await buildFolder(fileCount: 1);
-      var clock = DateTime(2030);
-      var answers = 0;
-      final host = CloudFolderShareHost(
-        capability: fixture.capability,
-        storage: fixture.storage,
-        listing: fixture.listing,
-        now: () => clock,
-        egressBudgetBytes: 2000,
-        egressWindow: const Duration(minutes: 1),
-        send:
-            ({
-              required servicePublicKey,
-              required targetAppId,
-              required targetEndpointId,
-              required data,
-            }) async => answers++,
-      );
-      await host.ready;
-      final nonces = _counterBytes();
-      for (var i = 0; i < 40; i++) {
-        await host.serve(await askedListing(fixture.capability, nonces));
-      }
-      final spent = answers;
-      expect(
-        spent,
-        greaterThan(0),
-        reason: 'a budget that refuses everything is not a budget',
-      );
-      expect(
-        spent,
-        lessThan(40),
-        reason:
-            'forty authentic requests emptied the share with nothing counting '
-            'the bytes going out',
-      );
+    test(
+      'a share stops emitting once its budget for the window is spent',
+      () async {
+        // The nonce cache stops a replay; it cannot stop a link holder minting
+        // fresh authentic requests, because minting them is what holding the
+        // link means. The budget is the ceiling on THAT — set here far below the
+        // production one so the test does not have to move 32 MiB.
+        final fixture = await buildFolder(fileCount: 1);
+        var clock = DateTime(2030);
+        var answers = 0;
+        final host = CloudFolderShareHost(
+          capability: fixture.capability,
+          storage: fixture.storage,
+          listing: fixture.listing,
+          now: () => clock,
+          egressBudgetBytes: 2000,
+          egressWindow: const Duration(minutes: 1),
+          send:
+              ({
+                required servicePublicKey,
+                required targetAppId,
+                required targetEndpointId,
+                required data,
+              }) async => answers++,
+        );
+        await host.ready;
+        final nonces = _counterBytes();
+        for (var i = 0; i < 40; i++) {
+          await host.serve(await askedListing(fixture.capability, nonces));
+        }
+        final spent = answers;
+        expect(
+          spent,
+          greaterThan(0),
+          reason: 'a budget that refuses everything is not a budget',
+        );
+        expect(
+          spent,
+          lessThan(40),
+          reason:
+              'forty authentic requests emptied the share with nothing counting '
+              'the bytes going out',
+        );
 
-      // The window turns over and the share serves again — this is a
-      // ceiling on a rate, not a share that breaks the first time it is
-      // leaned on.
-      clock = clock.add(const Duration(minutes: 2));
-      await host.serve(await askedListing(fixture.capability, nonces));
-      expect(answers, spent + 1);
-    });
+        // The window turns over and the share serves again — this is a
+        // ceiling on a rate, not a share that breaks the first time it is
+        // leaned on.
+        clock = clock.add(const Duration(minutes: 2));
+        await host.serve(await askedListing(fixture.capability, nonces));
+        expect(answers, spent + 1);
+      },
+    );
   });
 
   group('a listing that will not seal (audit XV-18)', () {
@@ -745,9 +852,7 @@ void main() {
       expect((await client().fetchListing()).revision, 2);
 
       await expectLater(
-        host.setListing(
-          bloated(fixture.listing.entries.first.manifest!, 3),
-        ),
+        host.setListing(bloated(fixture.listing.entries.first.manifest!, 3)),
         throwsA(anything),
         reason: 'a listing past the sealed ceiling must be refused',
       );

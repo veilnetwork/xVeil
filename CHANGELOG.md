@@ -10,6 +10,27 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.34] — 2026-09-03
+
+### Fixed
+
+- Downloading a file from a shared folder no longer holds all of it in memory.
+  Each piece is written out as its hash checks, so what the app holds at once
+  is one piece rather than the whole file — which, on that path, is whatever
+  size the sharer says it is. Tapping Download on a large or hostile entry
+  could take the app out on a phone before a single byte was persisted. The
+  two sibling download paths had been streaming for a while; this was the one
+  left assembling.
+
+### Changed
+
+- veil 0.11.14: a gossiped contact can no longer move where this node dials a
+  peer it was told about another way. The peer table is searched by node id to
+  answer "do we know this one", and that search returned whichever row held
+  the id — so a peer on the exchange path could rewrite the address of a peer
+  from the operator's own configuration, and the rewrite survived a restart. A
+  rumour may now refresh only the rows the exchange itself created.
+
 ## [0.13.33] — 2026-09-03
 
 ### Changed

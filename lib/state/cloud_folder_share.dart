@@ -746,31 +746,64 @@ class CloudFolderShareClient {
     );
   }
 
-  /// Fetch and verify one file named by a listing entry. Returns the plaintext
-  /// bytes; the caller persists them.
+  /// Fetch and verify one file named by a listing entry, returning all of it
+  /// at once.
+  ///
+  /// Holds the whole file in memory. Prefer [fetchFileStreaming] for anything
+  /// a person picked off a shared folder — the size is whatever the sharer
+  /// says it is.
   Future<Uint8List> fetchFile(CloudFolderListingEntry entry) async {
+    final assembled = BytesBuilder(copy: false);
+    await fetchFileStreaming(entry, (_, bytes) async => assembled.add(bytes));
+    return assembled.toBytes();
+  }
+
+  /// Stream the file, handing each piece to [onPiece] once its hash is
+  /// verified, and return the total byte count.
+  ///
+  /// Nothing is retained here: peak memory is one piece plus whatever the sink
+  /// keeps. The whole-file twin above grew to the size of the file before a
+  /// single byte was persisted, so tapping Download on a large entry in a
+  /// shared folder took the app out on a phone — and the only ceiling anywhere
+  /// on the path is a 1 PiB sanity check in the manifest (report6 XV-08). The
+  /// member-content client has had this shape for a while; the folder client
+  /// was the one path still assembling.
+  ///
+  /// A piece is passed on only AFTER its hash is checked, so a sink may write
+  /// it out immediately: unverified bytes never escape.
+  Future<int> fetchFileStreaming(
+    CloudFolderListingEntry entry,
+    Future<void> Function(int pieceIndex, Uint8List bytes) onPiece, {
+    void Function(int received, int total)? onProgress,
+  }) async {
     final fileCapability = CloudCapabilityCodec.folderFileCapability(
       capability,
       entry,
     );
     final manifest = fileCapability.manifest;
     final contentIdBytes = _contentIdBytes(manifest.contentId);
-    final assembled = BytesBuilder(copy: false);
+    var received = 0;
     for (var piece = 0; piece < manifest.pieceCount; piece++) {
       final clearPiece = BytesBuilder(copy: false);
       final chunks = CloudCapabilityCodec.chunkCount(fileCapability, piece);
       for (var chunk = 0; chunk < chunks; chunk++) {
-        clearPiece.add(
-          await _fetchChunk(fileCapability, contentIdBytes, piece, chunk),
+        final clear = await _fetchChunk(
+          fileCapability,
+          contentIdBytes,
+          piece,
+          chunk,
         );
+        received += clear.length;
+        clearPiece.add(clear);
+        onProgress?.call(received, manifest.size);
       }
       final bytes = clearPiece.toBytes();
       if (!manifest.verifyPiece(piece, bytes)) {
         throw StateError('folder file piece hash mismatch');
       }
-      assembled.add(bytes);
+      await onPiece(piece, bytes);
     }
-    return assembled.toBytes();
+    return received;
   }
 
   /// One chunk, retried when the anonymous path drops the request.
