@@ -170,9 +170,17 @@ void main() {
       ).readAsStringSync();
 
       expectBefore(source, '.show(', 'owners.remember(convHex,');
+      // The shape moved when the post gained an identity check (XV-N1): a
+      // failed post now returns early rather than guarding one statement.
+      // What must hold is the same either way — nothing between the post and
+      // the record may run when the post did not happen.
+      final at = source.indexOf('owners.remember(convHex,');
+      final between = source.substring(source.indexOf('.show(', 0), at);
       expect(
-        source,
-        contains('if (posted) owners.remember('),
+        RegExp(
+          r'if \(!posted\) return;|if \(posted\) owners\.remember\(',
+        ).hasMatch(between),
+        isTrue,
         reason: 'the owner moves for an alert that was never posted',
       );
     });
