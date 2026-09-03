@@ -10,6 +10,81 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.41] — 2026-09-04
+
+### Fixed
+
+- **Refusing the bundled seeds left the node nowhere to look.** Two questions
+  shared one answer: `builtin_seed_policy` says whether the node may dial the
+  compiled-in seed list, and the meeting-point checkboxes say where it may look
+  for a first peer. The composition took the seed answer for both, so a refusal
+  wrote `meeting_points = "off"` — no DHT, no Nostr, no LAN. That cost little
+  while a seed list existed; it ships empty on every network now, so the refusal
+  removed the only way left to find anyone while removing nothing that existed.
+  Measured on a user's machine: the app's node up with zero peers, zero sessions
+  and zero outbound connections, while a peerless node beside it met all three
+  seeds through Nostr in thirty seconds. The opt-out stays and still forbids the
+  compiled-in list; only the coupling goes.
+- **The switch said the shared seeds were on while the node had refused them.**
+  An open space that will not answer resolves to `false` for the node — fail
+  closed, so an unreadable setting cannot undo a refusal — while the control's
+  read returned "no answer" and left the switch on its boot default. The person
+  had a control saying the seeds were in use, a node told the opposite, and no
+  warning, because the re-offer card keys off that same value. Both reads answer
+  the same way now.
+- **Quitting crashed the app, and Error Reporting held it for 150 seconds.**
+  `windowManager.destroy()` is `PostQuitMessage(0)` on Windows, so the window
+  outlives the message loop, `OnDestroy` never runs, and the controller dies in
+  `~FlutterWindow` — whose `DestroyWindow` dispatches messages back into a
+  half-gone controller. `unique_ptr` does not clear its pointer before running
+  the deleter, so the guard in `MessageHandler` passed. The access violation
+  escaped a kernel callback, which Windows turns into
+  `STATUS_FATAL_USER_CALLBACK_EXCEPTION`, and Error Reporting then kept the
+  process alive for two and a half minutes with the window and tray icon
+  already gone. Now 2 seconds, no dump, no event.
+- **Close-to-tray answered with its default on the launch that mattered.**
+  Riverpod builds a notifier on its first read and `build()` is synchronous, and
+  the only read that decides anything — the window-close handler — is on a cold
+  start also the first. A user who turned close-to-tray off had it honoured
+  until they restarted.
+- **A dialog opened under one identity applied its answer to another.** In
+  all-online mode a switch unmounts nothing, so `mounted` stays true while
+  `ref.read` already returns the new identity's services. Clearing a chat wrote
+  its tombstones into the wrong identity and queued a frame for the old peer in
+  the new outbox; the file policy was replaced wholesale; one Nostr toggle could
+  store a meeting-point set neither identity asked for. Guarded as a rule over
+  the file, not a list of known helpers.
+- **An SSH secret and a picked folder crossed to the wrong identity.** The
+  managed-node editor showed one identity's SSH password and private key under
+  another and saved them there; a folder chosen from one identity's picker
+  became a sync pair of another, whose scheduler then uploaded those files.
+- **A notification for one identity was posted and attributed to another.**
+  Re-subscribing is what an identity switch does in the notification binder, and
+  it left the generation alone. An alert posted after the switch is now taken
+  back down by its exact id.
+- **A captured device or cloud service kept working for the identity it left.**
+  `prepareDeviceAdoption` had no dispose fence at all and its admission lasts
+  seven days across restarts; `CloudCapabilityService.close` knew nothing about
+  the transient endpoints a listing or download holds, so a stale download wrote
+  verified pieces and a manifest into a storage the app had stopped showing.
+- **Auto-signing followed the user from one identity to the next.** The policy
+  provider never watched the active identity, so an `auto` chosen by one made
+  the next produce non-repudiable proof of authorship its owner never agreed to.
+- **A delete during the directory restore left the share serving.** The public
+  directory service set `_started` before its first await, so a delete arriving
+  in that window saw an empty status, skipped the withdraw and dropped the
+  folder — and the late restore republished the pointer. The bearer share lives
+  seven days.
+- **A captured nullable was passed where a non-nullable was wanted.** Accepted
+  by the pinned Flutter, rejected by current stable.
+- **A Windows or iOS stand could never have a control plane.** `builder.py` did
+  not pass the debug-hook define on either, so those builds had no hook and no
+  way to gain one — which reads from outside as a node that never bootstrapped.
+
+### Changed
+
+- veil 0.11.19.
+
 ## [0.13.40] — 2026-09-03
 
 ### Fixed
