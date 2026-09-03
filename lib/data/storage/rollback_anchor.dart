@@ -67,6 +67,7 @@ class AnchorCheck {
     required this.verdict,
     this.lostCommits = 0,
     this.lostSendPositions = 0,
+    this.anchorNotRecorded = false,
   });
 
   final AnchorVerdict verdict;
@@ -88,6 +89,21 @@ class AnchorCheck {
   /// worth telling a person about; only one of them re-uses key material.
   bool get isSuspicious =>
       verdict == AnchorVerdict.rolledBack || verdict == AnchorVerdict.forked;
+
+  /// Whether the anchor for this open could NOT be written down.
+  ///
+  /// The check still stands — it is about what was already recorded — but the
+  /// protection is now weaker than it looks: the next launch measures against
+  /// an older commit than this device has reached. Said rather than swallowed
+  /// (report22 XV-RA4).
+  final bool anchorNotRecorded;
+
+  AnchorCheck withAnchorNotRecorded() => AnchorCheck(
+    verdict: verdict,
+    lostCommits: lostCommits,
+    lostSendPositions: lostSendPositions,
+    anchorNotRecorded: true,
+  );
 }
 
 /// An upper bound on the send positions one conversation may have spent
@@ -197,12 +213,39 @@ abstract interface class SyncCommitAnchorSource {
   List<int> commitHistory();
 }
 
-/// What one open of an anchored space reports about itself.
-class AnchorReading {
-  const AnchorReading({required this.seq, required this.history});
+/// What this device recorded outside a container: which container, and how
+/// far along it was.
+///
+/// The generation is what makes the pair a statement about ONE container. An
+/// anchor that carried only a commit number said "some container reached N",
+/// so a different container — a fresh one after a wipe, another file put in
+/// place — read as a container that had gone backwards, and every launch
+/// looked like a rollback (report22 XV-RA2). The generation is minted once,
+/// kept INSIDE the container beside the data it describes, and copied out
+/// here; two that disagree are two containers, which is not a rollback and not
+/// evidence of anything.
+class AnchorRecord {
+  const AnchorRecord({required this.generation, required this.seq});
 
+  /// Which container this is about.
+  final String generation;
+
+  /// The newest commit of that container this device stands behind.
   final int seq;
-  final List<int> history;
+
+  /// `gen:seq`, the form kept outside. The generation is hex, so the last
+  /// colon separates the two unambiguously.
+  String encode() => '$generation:$seq';
+
+  /// The inverse, or null when the stored text is not one of ours.
+  static AnchorRecord? decode(String? raw) {
+    if (raw == null) return null;
+    final at = raw.lastIndexOf(':');
+    if (at <= 0) return null;
+    final seq = int.tryParse(raw.substring(at + 1));
+    if (seq == null || seq < 0) return null;
+    return AnchorRecord(generation: raw.substring(0, at), seq: seq);
+  }
 }
 
 /// Where the anchor is kept — OUTSIDE the container it describes.
@@ -210,11 +253,31 @@ class AnchorReading {
 /// Inside would be worthless: the thing being detected is the container going
 /// back in time, and anything inside goes back with it.
 abstract interface class RollbackAnchorStore {
-  /// The commit this device last recorded, or null when it never has.
-  Future<int?> read();
+  /// What this device last recorded, or null when it never recorded anything.
+  Future<AnchorRecord?> read();
 
-  /// Record [seq] as the newest commit this device stands behind.
-  Future<void> write(int seq);
+  /// Record [record]. Returns whether it actually reached the disk.
+  ///
+  /// The answer is load-bearing rather than decorative: a write that silently
+  /// failed leaves an anchor naming an older commit, and the next launch then
+  /// measures against a point this device has already moved past (report22
+  /// XV-RA4). Callers say so rather than assuming.
+  Future<bool> write(AnchorRecord record);
+}
+
+/// What one open of an anchored space reports about itself.
+class AnchorReading {
+  const AnchorReading({
+    required this.seq,
+    required this.history,
+    required this.generation,
+  });
+
+  final int seq;
+  final List<int> history;
+
+  /// The generation kept inside this container, minted on first use.
+  final String generation;
 }
 
 /// The commit-anchor questions, asked of a storage handle.
@@ -224,7 +287,21 @@ abstract interface class RollbackAnchorStore {
 /// multi-space handle do not answer, and nothing outside their container ever
 /// records that they were opened.
 abstract interface class RollbackAnchorReader {
+  /// This container's commit counter, the window it still recognises, and its
+  /// generation — minting and storing the generation on first use.
   Future<AnchorReading?> readCommitAnchor();
+
+  /// Record where this container now stands, if it is anchored at all.
+  ///
+  /// Called where a durable write has just made new ciphertext publishable,
+  /// NOT only at open. An anchor written once at boot names a commit the
+  /// device then moves past, so restoring any snapshot from in between reads
+  /// as a clean continuation and the positions published after it are derived
+  /// a second time (report22 XV-RA1).
+  ///
+  /// `false` means nothing was recorded — an unanchored space, or a write that
+  /// did not land.
+  Future<bool> advanceRollbackAnchor();
 }
 
 /// Judge a freshly-opened space against its anchor, and record where it now
@@ -234,9 +311,12 @@ abstract interface class RollbackAnchorReader {
 /// whenever the space is not anchored at all, which is every decoy and every
 /// store with no container behind it.
 ///
-/// The new anchor is written for every verdict EXCEPT a rollback. Recording
-/// after a rollback would tell the next launch that this older copy is the
-/// newest thing this device stands behind, and the evidence would be gone.
+/// The new anchor is written only for verdicts that are not evidence of
+/// anything. A rollback must keep its evidence, or the older copy becomes the
+/// newest thing this device stands behind and the next launch calls it clean.
+/// A FORK is the same: re-anchoring one made the other timeline trusted at the
+/// next boot, and destroyed the only record that it was ever a different one
+/// (report22 XV-RA3).
 Future<AnchorCheck> checkContainerAgainstAnchor({
   required RollbackAnchorReader? storage,
   required RollbackAnchorStore? anchor,
@@ -249,14 +329,23 @@ Future<AnchorCheck> checkContainerAgainstAnchor({
   if (reading == null) {
     return const AnchorCheck(verdict: AnchorVerdict.firstRun);
   }
-  final check = checkRollbackAnchor(
-    anchorSeq: await anchor.read(),
-    currentSeq: reading.seq,
-    history: reading.history,
-    reserveAhead: reserveAhead,
-  );
-  if (check.verdict != AnchorVerdict.rolledBack) {
-    await anchor.write(reading.seq);
+  final held = await anchor.read();
+  // A record about a DIFFERENT container says nothing about this one. Not a
+  // rollback: a wipe leaves a fresh container whose counter starts again, and
+  // calling that a rollback burned keys and raised an alarm every launch.
+  final check = (held == null || held.generation != reading.generation)
+      ? const AnchorCheck(verdict: AnchorVerdict.firstRun)
+      : checkRollbackAnchor(
+          anchorSeq: held.seq,
+          currentSeq: reading.seq,
+          history: reading.history,
+          reserveAhead: reserveAhead,
+        );
+  if (!check.isSuspicious) {
+    final recorded = await anchor.write(
+      AnchorRecord(generation: reading.generation, seq: reading.seq),
+    );
+    if (!recorded) return check.withAnchorNotRecorded();
   }
   return check;
 }

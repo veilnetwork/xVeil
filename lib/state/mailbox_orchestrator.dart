@@ -384,8 +384,15 @@ class MailboxOrchestrator {
       // the first post-call drain will recover them normally.
       if (shouldContinue?.call() == false) break;
       if (blobs.isEmpty) break; // relays truly empty — done
+      // By (id, body), not by id. Keyed on the id alone this dropped every
+      // body after the first under that id — so a replica answering with a
+      // genuine id and substituted bytes kept the honest copy from ever
+      // reaching the open below (report22 XV-MBX1). Re-serves of the SAME
+      // body across rounds still collapse, which is what this is for.
       final fresh = blobs
-          .where((b) => seenThisDrain.add(_cidHex(b.contentId)))
+          .where(
+            (b) => seenThisDrain.add(mailboxVariantKey(b.contentId, b.blob)),
+          )
           .toList();
       if (fresh.isEmpty) {
         // Relays re-serving only blobs we've handled — their ack removal is
@@ -453,8 +460,28 @@ class MailboxOrchestrator {
     void Function(DrainedMessage message)? onMessage,
     required _DrainCost cost,
   }) async {
+    // How many blobs in THIS batch still carry each content id.
+    //
+    // A drain can now return several bodies under one id — the deposit fans
+    // out to replicas, and one of those replicas may have answered with a
+    // genuine id and substituted bytes. A body that will not open is evidence
+    // about that body, not about the id: quarantining the id on the first
+    // failure threw away every other copy, and because the quarantine is
+    // durable it also skipped the honest blob when it arrived later (report22
+    // XV-MBX1). So the id is only given up when nothing filed under it opened.
+    final remainingForCid = <String, int>{};
+    for (final b in blobs) {
+      final cid = _cidHex(b.contentId);
+      remainingForCid[cid] = (remainingForCid[cid] ?? 0) + 1;
+    }
     for (final b in blobs) {
       if (shouldContinue?.call() == false) return;
+      final variantsLeft = () {
+        final cid = _cidHex(b.contentId);
+        final left = (remainingForCid[cid] ?? 1) - 1;
+        remainingForCid[cid] = left;
+        return left;
+      }();
       // Quarantined: this cid already failed open PERMANENTLY (decryption is
       // deterministic). Skip the decrypt — but keep acking so a relay that
       // supports the ack endpoint finally drops it (replicas that missed an
@@ -569,6 +596,19 @@ class MailboxOrchestrator {
               'xVeil[drain]: OPEN FAILED contentId=${_shortHex(b.contentId)} '
               'senderHint=${b.senderId.short} — $e',
         );
+        // Another body is still filed under this id in this batch. THAT one
+        // may be the real message, so the id is not given up and nothing is
+        // acked yet: an ack deletes the relay's copy, and the copy that
+        // deserves deleting is the one that failed, which the relay cannot be
+        // told apart from the other.
+        if (variantsLeft > 0) {
+          devLog(
+            () =>
+                'xVeil[drain]: OPEN FAILED contentId=${_shortHex(b.contentId)} '
+                '— $variantsLeft other body(ies) under that id still to try',
+          );
+          continue;
+        }
         if (_openFailedOnce.length >= _openFailedOnceMax) {
           _openFailedOnce.remove(_openFailedOnce.first);
         }

@@ -39,6 +39,7 @@ import 'node/ratchet_ffi.dart'
 import 'node/sovereign_identity_material.dart';
 import 'node/veil_node.dart';
 import 'storage/storage.dart';
+import 'storage/hidden_volume_storage.dart';
 import 'storage/rollback_anchor.dart';
 import '../state/ratchet_persistence.dart';
 import 'transport/bootstrap_invite.dart';
@@ -2303,6 +2304,13 @@ class RealVeilStack {
         // spent — re-deriving a key and nonce that are on the wire. The
         // anchor is the only thing outside the container that remembers
         // (report8 M8-14).
+        // Attach FIRST, so the anchor keeps moving after this check: every
+        // later reservation advances it through the storage handle, and an
+        // anchor that only ever names the boot commit protects nothing past
+        // the boot (report22 XV-RA1).
+        if (rollbackAnchor != null && storage is HiddenVolumeStorage) {
+          storage.attachRollbackAnchor(rollbackAnchor);
+        }
         final verdict = await checkContainerAgainstAnchor(
           storage: storage is RollbackAnchorReader
               ? storage as RollbackAnchorReader
@@ -2320,7 +2328,15 @@ class RealVeilStack {
             () =>
                 'xVeil[storage]: container ${verdict.verdict.name} — '
                 'burning ${verdict.lostSendPositions} send position(s) that '
-                'the missing commits may already have spent',
+                'the missing commits may already have spent; the anchor is '
+                'KEPT, so the next launch still sees this',
+          );
+        }
+        if (verdict.anchorNotRecorded) {
+          devLog(
+            () =>
+                'xVeil[storage]: the rollback anchor could not be written — '
+                'a restore may go unnoticed until it can be',
           );
         }
       }
