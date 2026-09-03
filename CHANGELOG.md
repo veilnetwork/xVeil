@@ -10,6 +10,16 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.35] — 2026-09-03
+
+### Changed
+
+- veil 0.11.15: a node with value persistence enabled no longer pauses
+  everything else it is doing while it writes its periodic snapshot. The
+  snapshot was built on the same thread that runs the rest of the node, and on
+  a full store that is a large copy taken every two minutes. Affects operators
+  who run a seed with that setting; the app never enables it.
+
 ## [0.13.34] — 2026-09-03
 
 ### Fixed
