@@ -15,7 +15,6 @@ import 'package:xveil/state/cloud_capability_service.dart';
 
 import 'support/fake_hv_container.dart';
 
-
 /// Fails the capability EVENT-log write on demand. The registry and every
 /// other file keep working, which is the shape that matters: the two are
 /// separate writes and only one of them is what a restart trusts.
@@ -850,6 +849,79 @@ void main() {
     await storage.close();
   });
 
+  test('a revoked folder share stays revoked across a restart', () async {
+    // The registry says what was last written; the event log says what was
+    // revoked. The folder path used to tear the share out of memory and
+    // save the registry AFTER — so a registry write that failed left the
+    // row on disk with nothing recording the withdrawal, and the next
+    // launch re-hosted the bearer link for the rest of its seven-day life
+    // (report22 XV-CAP-REVOKE). A full container is enough to trigger it.
+    final network = _Network();
+    final box = FakeHvContainer();
+    final storage = box.storage();
+    await storage.open(password: 'o', createIfMissing: true);
+    final bytes = Uint8List.fromList(List.generate(300, (i) => i & 0xff));
+    final manifest = ContentManifest.fromBytes(
+      'doc.bin',
+      bytes,
+      pieceSize: 256,
+    );
+    await storage.storeFile(manifest.contentId, bytes);
+    await storage.storeFile(
+      'mf:${manifest.contentId}',
+      Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+    );
+
+    final owner = CloudCapabilityService(
+      storage,
+      network,
+      now: () => DateTime(2030),
+    );
+    await owner.start();
+    final share = await owner.createFolderShare(
+      folderId: 'folder-revoked',
+      folderName: 'Folder',
+      entries: [
+        CloudFolderListingEntry.file(name: 'doc.bin', manifest: manifest),
+      ],
+    );
+    expect(owner.listFolderShares(), hasLength(1), reason: 'premise');
+    // What the registry holds while the share is still active. The failure
+    // being modelled is the revoke's registry write not landing, so this is
+    // what is on disk when the app comes back.
+    final activeRegistry = await storage.loadFile(
+      'cloud.folder.capabilities.registry.v1',
+    );
+    expect(activeRegistry, isNotNull, reason: 'premise: a row was written');
+
+    expect(await owner.revokeFolderShare(share.shareId), isTrue);
+    await owner.close();
+
+    // The revoke's registry write is undone — a full container, a crash
+    // between the two writes. The tombstone in the event log is the only
+    // thing left saying this share was withdrawn.
+    await storage.storeFile(
+      'cloud.folder.capabilities.registry.v1',
+      activeRegistry!,
+    );
+
+    final second = CloudCapabilityService(
+      storage,
+      network,
+      now: () => DateTime(2030),
+    );
+    await second.start();
+    expect(
+      second.listFolderShares(),
+      isEmpty,
+      reason:
+          'a revoked folder share was hosted again after a restart, so '
+          'the bearer link the person withdrew is serving',
+    );
+    await second.close();
+    await storage.close();
+  });
+
   test(
     'folder share hosts, serves a listing+file, then revokes silently',
     () async {
@@ -1367,9 +1439,7 @@ void main() {
     );
     expect(
       jsonDecode(
-        utf8.decode(
-          (await storage.loadFile(_EventsWriteFails.registryFile))!,
-        ),
+        utf8.decode((await storage.loadFile(_EventsWriteFails.registryFile))!),
       ),
       hasLength(1),
       reason: 'the registry still holds the row it was never told to drop',
@@ -1438,7 +1508,8 @@ void main() {
     expect(
       await restarted.listShares(),
       isEmpty,
-      reason: 'the log says it was revoked; the registry is only what was last '
+      reason:
+          'the log says it was revoked; the registry is only what was last '
           'written',
     );
     expect(
