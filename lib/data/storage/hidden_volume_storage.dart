@@ -19,6 +19,7 @@ import 'async_kv_log_store.dart';
 import 'file_store.dart';
 import 'materialized_view.dart';
 import 'kv_log_store.dart';
+import 'rollback_anchor.dart';
 import 'on_disk_blob_store.dart';
 import 'storage.dart';
 import 'package:xveil/core/log.dart';
@@ -81,7 +82,7 @@ Future<AsyncKvLogStore?> _noOpener({
 /// `get`/`commit`/`iterLogRange` runs OFF the UI isolate (no freeze / Android
 /// ANR). The public API is unchanged: it was already `Future`-returning and
 /// callers already `await`.
-class HiddenVolumeStorage implements Storage {
+class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -194,6 +195,22 @@ class HiddenVolumeStorage implements Storage {
     await _invalidateScanCache(); // adopting a different space — drop the old fold
     await _invalidateOutboxCache();
     return true;
+  }
+
+  /// This container's commit counter and the window of commits it still
+  /// recognises, or null when the store behind this handle has no container
+  /// to ask (the in-memory fake, and every multi-space view — see
+  /// [CommitAnchorSource] for why that omission IS the decoy policy).
+  @override
+  Future<AnchorReading?> readCommitAnchor() async {
+    final store = _store;
+    if (store is! CommitAnchorSource) return null;
+    final anchored = store as CommitAnchorSource;
+    final seq = await anchored.commitSeq();
+    // Negative is the worker's "there is no container behind me". An anchor
+    // built on it would call every honest open a rollback.
+    if (seq < 0) return null;
+    return AnchorReading(seq: seq, history: await anchored.commitHistory());
   }
 
   @override
@@ -2792,7 +2809,8 @@ class HiddenVolumeStorage implements Storage {
         final cut = rest.indexOf(':');
         if (cut > 0) {
           final messageId = rest.substring(cut + 1);
-          final unreferenced = wholesale ||
+          final unreferenced =
+              wholesale ||
               (liveMessages != null && !liveMessages.contains(messageId));
           if (unreferenced) doomed.add(key);
         }

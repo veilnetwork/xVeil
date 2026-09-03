@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import 'kv_log_store.dart';
+import 'rollback_anchor.dart';
 import 'multi_space_store.dart';
 import 'package:xveil/core/log.dart';
 
@@ -35,13 +36,21 @@ List<hv.HvWriteOp> _toHvOps(List<KvLogOp> ops) => ops.map<hv.HvWriteOp>((op) {
 /// Production [KvLogStore] backed by a real unlocked `HvSpace` from the
 /// hidden-volume plugin. The mapping is 1:1, so the domain storage layer
 /// (HiddenVolumeStorage) is unchanged whether it runs over this or the fake.
-class HvKvLogStore implements KvLogStore {
+class HvKvLogStore implements KvLogStore, SyncCommitAnchorSource {
   HvKvLogStore(this._space);
 
   final hv.HvSpace _space;
 
   @override
   int commit(List<KvLogOp> ops) => _space.commit(_toHvOps(ops));
+
+  // The two anchor primitives, straight through. Both are reads served from
+  // state the space already holds (report8 M8-14).
+  @override
+  int commitSeq() => _space.commitSeq();
+
+  @override
+  List<int> commitHistory() => _space.commitHistory();
 
   @override
   Uint8List? get(int namespace, Uint8List key) => _space.get(namespace, key);
