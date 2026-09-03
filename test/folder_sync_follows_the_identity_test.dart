@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/domain/folder_sync.dart';
+import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/folder_sync_controller.dart';
 import 'package:xveil/data/storage/folder_sync_store.dart';
 import 'package:xveil/state/folder_sync_engine.dart';
@@ -36,6 +37,58 @@ void main() {
     await storage.open(password: password, createIfMissing: true);
     return storage;
   }
+
+  /// The picker's await is OUTSIDE addPair, which is where the guard was.
+  ///
+  /// The native directory picker is the long await here, and the notifier is
+  /// reused across a switch: a path chosen from A's screen became a pair of
+  /// B's, and B's scheduler then uploaded those local files into B's cloud.
+  /// So the identity that opened the picker has to travel with the answer.
+  test('a folder picked under another identity is refused', () async {
+    final a = await opened('a');
+    final dir = await Directory.systemTemp.createTemp('xveil-fs1');
+    addTearDown(() => dir.delete(recursive: true));
+
+    final container = ProviderContainer(
+      overrides: [storageProvider.overrideWith((ref) => a)],
+    );
+    addTearDown(container.dispose);
+    final controller = container.read(folderSyncControllerProvider.notifier);
+    final app = container.read(appControllerProvider.notifier);
+
+    // Vacuity first: the lease that IS current must be accepted, or the
+    // refusal below proves only that the guard refuses everything.
+    expect(
+      await controller.addPair(
+        localPath: dir.path,
+        id: 'ok',
+        owner: app.leaseIdentity(),
+      ),
+      isNull,
+      reason: 'the guard refused the identity that is actually active',
+    );
+
+    // And one from an identity that is not the active one. A lease is a
+    // label plus the activation it was taken in, so this is exactly what a
+    // pre-switch lease looks like afterwards.
+    expect(
+      (await controller.addPair(
+        localPath: '${dir.path}/elsewhere',
+        id: 'stale',
+        owner: const IdentityLease('someone-else', 41),
+      ))?.code,
+      FolderSyncRefusalCode.identityChanged,
+      reason:
+          "a folder chosen on another identity's screen became a pair of "
+          'this one',
+    );
+
+    expect(
+      (await FolderSyncStore(a).pairs()).map((p) => p.id),
+      ['ok'],
+      reason: 'the refused pair was stored anyway',
+    );
+  });
 
   test('a switch rebuilds the controller against the new identity', () async {
     final a = await opened('a');
