@@ -220,7 +220,10 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
   void onWindowClose() async {
     // preventClose is armed (initDesktopWindow), so the window won't close on
     // its own — we decide. Close-to-tray on → hide; off → really quit.
-    final closeToTray = ref.read(closeToTrayProvider);
+    // resolved(), not read(): this is normally the FIRST read of the provider
+    // in the process, and a synchronous read there answers with the default
+    // rather than with what the user chose. See CloseToTrayController.
+    final closeToTray = await ref.read(closeToTrayProvider.notifier).resolved();
     devLog(
       () =>
           'xVeil[tray]: window close intercepted, '
