@@ -17,6 +17,47 @@ void main() {
   final python = _python();
 
   group('build entry points', () {
+    /// A native ARM64 Windows build needs the BoringSSL toolchain file, and
+    /// only the release workflow was handing it over.
+    ///
+    /// BoringSSL has no assembly path for Windows/ARM64, and `btls-sys` stops
+    /// matching platforms when host equals target — which is every native
+    /// build. Without the target-scoped toolchain file the build dies inside
+    /// `cmake-0.1.58` with a panic that names no cause. `release.yml` has
+    /// exported it for its ARM64 entry since v0.13.11; `builder.py` did not,
+    /// so a developer on an ARM64 Windows machine hit the wall the workflow
+    /// had already cleared. Measured on one, 2026-09-03.
+    test('the windows build hands BoringSSL its ARM64 toolchain file', () {
+      final builder = File('builder.py').readAsStringSync();
+      final at = builder.indexOf('def _windows(');
+      expect(at, greaterThan(0), reason: 'the windows step list moved');
+      final body = builder.substring(at, builder.indexOf('\ndef ', at + 1));
+      expect(
+        body.contains('_arm64_windows_cmake_env()'),
+        isTrue,
+        reason: 'the windows build no longer points BoringSSL at the ARM64 '
+            'toolchain file, so a native ARM64 build dies in cmake with a '
+            'panic that names no cause',
+      );
+      expect(
+        File('scripts/cmake/aarch64-pc-windows-msvc.cmake').existsSync(),
+        isTrue,
+        reason: 'the toolchain file the windows build points at is gone',
+      );
+      // And the setter is aimed at the right host: an x64 build must not have
+      // its toolchain file replaced.
+      final setter = builder.substring(
+        builder.indexOf('def _arm64_windows_cmake_env('),
+      );
+      final setterBody = setter.substring(0, setter.indexOf('\ndef ', 1));
+      expect(
+        setterBody.contains("_flutter_host_arch() != \"arm64\""),
+        isTrue,
+        reason: 'the ARM64 toolchain file is being set on hosts that are not '
+            'ARM64',
+      );
+    });
+
     ProcessResult run(List<String> args) => Process.runSync(
       python!,
       args,

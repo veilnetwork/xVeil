@@ -10,6 +10,23 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.40] — 2026-09-03
+
+### Fixed
+
+- A native build on an ARM64 Windows machine now works without being told a
+  secret. BoringSSL has no assembly route for Windows on ARM64, and the crate
+  that knows the answer cannot reach it on a native build; the release
+  workflow has handed over the toolchain file that says so since v0.13.11, but
+  nothing handed it to a person running the builder by hand. The build died
+  deep inside cmake with a message naming no cause. The builder sets it itself
+  on an ARM64 Windows host, and refuses loudly if the file is missing.
+
+### Changed
+
+- veil 0.11.18: two Windows CI test steps were running zero tests, and audio
+  playout now reports whether it actually started.
+
 ## [0.13.39] — 2026-09-03
 
 ### Fixed
