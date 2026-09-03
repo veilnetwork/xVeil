@@ -113,11 +113,17 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   }
 
   void _subscribe(MessagingService service) {
+    // The SWITCH ITSELF invalidates whatever is in flight. Re-subscribing is
+    // what a switch does here, and it used to leave the generation alone — so
+    // a notice that arrived under A and was still resolving mentions kept its
+    // ticket and finished under B.
+    _notificationGeneration++;
     _sub?.cancel();
     _sub = service.incoming.listen(_onIncoming);
   }
 
   void _subscribeGroups(GroupService? service) {
+    _notificationGeneration++;
     _groupSub?.cancel();
     _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();
@@ -857,6 +863,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     bool isMention = false,
   }) async {
     if (!mounted) return;
+    // The ticket this alert holds. Two awaits follow — mention resolution and
+    // the OS post — and a switch across either one means the sender, the
+    // preview and the live inline reply below belong to an identity that is
+    // no longer on screen.
+    final generation = _notificationGeneration;
     final l = AppL10n.of(context);
     final full = settings.preview == NotificationPreview.full;
     // Mentions only resolve for a FULL preview — the hidden branch must not
@@ -864,7 +875,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final resolved = full
         ? await resolveMentionsForLocalDisplay(ref, preview)
         : '';
-    if (!mounted) return;
+    if (!mounted || generation != _notificationGeneration) return;
     final content = notificationContent(
       mode: settings.preview,
       contactName: name,
@@ -888,12 +899,14 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // person on the other end that the two are the same device
     // (report17 XV17-M12). Leaving the map alone on failure keeps the alert
     // that IS on screen attributable to whoever posted it.
+    if (generation != _notificationGeneration) return;
     final owners = ref.read(notificationOwnersProvider);
     final owner = ref.read(appControllerProvider).identity?.nodeId.hex;
+    final id = notificationIdForIncomingMessage(convHex);
     final posted = await ref
         .read(notificationServiceProvider)
         .show(
-          id: notificationIdForIncomingMessage(convHex),
+          id: id,
           title: content.title,
           body: content.body,
           // HIDDEN mode hands the OS a token, not the conversation (audit
@@ -911,7 +924,15 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           replyLabel: full && allowReply ? l.notificationReply : null,
           replyHint: full && allowReply ? l.notificationReplyHint : null,
         );
-    if (posted) owners.remember(convHex, owner);
+    if (!posted) return;
+    // Posted, and the identity moved while the OS was answering. Take it back
+    // down by its exact id rather than leaving A's sender and preview on
+    // screen under B — and do not record an owner for an alert that is gone.
+    if (generation != _notificationGeneration) {
+      unawaited(ref.read(notificationServiceProvider).cancel(id));
+      return;
+    }
+    owners.remember(convHex, owner);
   }
 
   @override
