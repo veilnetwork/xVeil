@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -165,6 +166,156 @@ void main() {
     );
   });
 
+  /// THE RESTORE WINDOW, which the sequential tests above never open.
+  ///
+  /// This screen lists folders as soon as the listing arrives, which can be
+  /// well before the saved pointer has been read back. Deleting the published
+  /// folder in that window used to read an empty `status`, conclude nothing
+  /// was published, skip the withdraw and drop the folder — and then the late
+  /// restore republished the pointer to a folder that no longer existed. The
+  /// bearer share serves for seven days by default, so the link kept working.
+  test('a delete inside the restore window still revokes the share', () async {
+    final owner = _FakeIdentity(11);
+    final transport = _FakeDiscoveryTransport();
+    final revoked = <String>[];
+
+    // The saved state a restore would find.
+    final kv = <String, String>{
+      'publicdir.published.v1':
+          '{"folderId":"folder-1","shareId":"share-1",'
+          '"link":"xveil://cloud/v1#saved","title":"Alice files","ts":1}',
+    };
+
+    // Hold the settings read open so the delete lands mid-restore.
+    final gate = Completer<void>();
+    final service = PublicDirectoryService(
+      transport: transport,
+      selfId: owner.nodeId,
+      selfPublicKey: owner.publicKey,
+      sign: owner.sign,
+      verify: _fakeVerify,
+      putSetting: (k, v) async => kv[k] = v,
+      getSetting: (k) async {
+        await gate.future;
+        return kv[k];
+      },
+      resolveNickname: (_) async => null,
+      revokeShare: (shareId) async => revoked.add(shareId),
+      now: () => DateTime.fromMillisecondsSinceEpoch(100000),
+      republishEvery: null,
+    );
+
+    final starting = service.start();
+    // What the screen does on a delete, while the restore is still blocked.
+    final deleting = service.withdrawIfFolder('folder-1');
+    await pumpEventQueue();
+    expect(
+      revoked,
+      isEmpty,
+      reason: 'the withdrawal must wait for the restore, not race it',
+    );
+
+    gate.complete();
+    await starting;
+    final withdrawn = await deleting;
+
+    expect(
+      withdrawn?.shareId,
+      'share-1',
+      reason:
+          'the delete saw no published folder and let the share keep serving',
+    );
+    expect(revoked, ['share-1']);
+    expect(service.status.isPublished, isFalse);
+
+    // And nothing republishes it afterwards. The record already on the DHT is
+    // not deleted by design — there is no delete, it expires inside 2h — so
+    // the property that matters is that no FRESH one is signed.
+    final before = transport.publishCount;
+    await service.republishNow();
+    expect(
+      transport.publishCount,
+      before,
+      reason: 'a late republish put the deleted folder back on the wire',
+    );
+  });
+
+  /// A folder that is NOT the published one must not take the pointer down.
+  test('withdrawing a different folder leaves the directory alone', () async {
+    final owner = _FakeIdentity(12);
+    final transport = _FakeDiscoveryTransport();
+    final revoked = <String>[];
+    final kv = <String, String>{};
+    final service = PublicDirectoryService(
+      transport: transport,
+      selfId: owner.nodeId,
+      selfPublicKey: owner.publicKey,
+      sign: owner.sign,
+      verify: _fakeVerify,
+      putSetting: (k, v) async => kv[k] = v,
+      getSetting: (k) async => kv[k],
+      resolveNickname: (_) async => null,
+      revokeShare: (shareId) async => revoked.add(shareId),
+      now: () => DateTime.fromMillisecondsSinceEpoch(100000),
+      republishEvery: null,
+    );
+    await service.start();
+    await service.publish(
+      folderId: 'folder-1',
+      shareId: 'share-1',
+      link: 'xveil://cloud/v1#one',
+      title: 'One',
+    );
+    expect(await service.withdrawIfFolder('folder-2'), isNull);
+    expect(revoked, isEmpty);
+    expect(service.status.folderId, 'folder-1');
+  });
+
+  /// Two starts are one restore, and the second waits for it.
+  test('a second start joins the first instead of racing past it', () async {
+    final owner = _FakeIdentity(13);
+    final gate = Completer<void>();
+    var reads = 0;
+    final service = PublicDirectoryService(
+      transport: _FakeDiscoveryTransport(),
+      selfId: owner.nodeId,
+      selfPublicKey: owner.publicKey,
+      sign: owner.sign,
+      verify: _fakeVerify,
+      putSetting: (_, _) async {},
+      getSetting: (_) async {
+        reads++;
+        await gate.future;
+        return '{"folderId":"f","shareId":"s","link":"l","title":"t","ts":1}';
+      },
+      resolveNickname: (_) async => null,
+      now: () => DateTime.fromMillisecondsSinceEpoch(100000),
+      republishEvery: null,
+    );
+    // COMPLETION ORDER is the discriminator. Asserting on `status` after
+    // awaiting the second start does not discriminate: completing the gate
+    // resolves the read in the same microtask drain, so the state looks
+    // loaded either way. A second start that finished BEFORE the restore did
+    // is the actual defect.
+    final order = <String>[];
+    final first = service.start().then((_) => order.add('first'));
+    final second = service.start().then((_) => order.add('second'));
+    await pumpEventQueue();
+    expect(
+      service.status.isPublished,
+      isFalse,
+      reason: 'the restore has not read anything yet',
+    );
+    gate.complete();
+    await Future.wait([first, second]);
+    expect(order, [
+      'first',
+      'second',
+    ], reason: 'the second start finished before the restore it should join');
+    expect(reads, 1, reason: 'the second start ran its own restore');
+    expect(service.status.isPublished, isTrue);
+  });
+
   test('service publish → persist → restart republish → resolve', () async {
     final owner = _FakeIdentity(5);
     final transport = _FakeDiscoveryTransport();
@@ -233,8 +384,10 @@ void main() {
     expect(restarted.status.isPublished, isTrue);
     expect(restarted.status.folderId, 'folder-2');
     expect(transport.publishCount, republishesBefore + 1); // republished
-    expect((await restarted.resolveByNodeId(owner.nodeId))!.title,
-        'Alice more');
+    expect(
+      (await restarted.resolveByNodeId(owner.nodeId))!.title,
+      'Alice more',
+    );
 
     // Withdraw stops publishing AND revokes the current folder share.
     final prior = await restarted.withdraw();
