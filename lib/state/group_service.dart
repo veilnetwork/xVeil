@@ -17546,6 +17546,13 @@ class GroupService {
     /// This device's own transport node id — see [createDeviceLinkToken].
     NodeId? myDevice,
   }) async {
+    // The same fence the export and the recovery already carry, and this one
+    // was missing entirely. What it writes is a SEVEN-DAY admission: until it
+    // expires, this device will accept a marker group from the source the
+    // token names. A target sheet opened under one identity and completed
+    // after a switch left that admission in the OTHER identity's storage
+    // (report22 XV-LIFE1).
+    if (_disposed) return false;
     // NOT `token.source == selfId`: that is the identity, and both devices of
     // one identity share it, so a token from a sibling read as one this device
     // issued and every genuine adoption was rejected.
@@ -17558,6 +17565,10 @@ class GroupService {
         token.isExpired(_now())) {
       return false;
     }
+    // Re-checked: `isSameDevice` and the expiry test above are cheap, but
+    // this method is reached from a ceremony that has already awaited, and
+    // the write below is the durable half.
+    if (_disposed) return false;
     await _storage.putSetting(
       kPendingDeviceAdoptionSetting,
       jsonEncode(token.toJson()),
