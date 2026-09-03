@@ -563,10 +563,15 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
       // Deleting the folder that is currently published as a public directory
       // must also stop publishing + revoke its share — otherwise it would keep
       // serving bytes for a folder the user just deleted.
-      final directory = _publicDirectory;
-      if (directory != null && directory.status.folderId == folder.id) {
-        await directory.withdraw();
-      }
+      //
+      // Asked and answered in ONE queued step. Reading `status` here and then
+      // deciding was a race against the service's own restore: this screen
+      // lists folders as soon as the listing arrives, which can be well
+      // before the saved pointer has been read back, and an empty status then
+      // said "nothing published" for a folder that was. The delete went
+      // through, the late restore republished the pointer, and the bearer
+      // share kept serving for its seven days.
+      await _publicDirectory?.withdrawIfFolder(folder.id);
       final fallback = service.effectiveFolderParents()[folder.id];
       await service.deleteFolder(folder.id);
       if (mounted && _openFolderId == folder.id) {
