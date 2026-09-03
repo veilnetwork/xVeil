@@ -446,10 +446,22 @@ class SharedSeedsSwitch extends ConsumerStatefulWidget {
 class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
   bool _busy = false;
 
+  /// Which identity the fields below belong to.
+  ///
+  /// The same counter [_ServeDhtSwitchState] next door already uses, and for
+  /// the same reason: a read or a write that started against A and completed
+  /// after the switch to B would publish A's answer for B. Here it is worse
+  /// than one stale field — `_setPoints` builds a FULL meeting-point set out
+  /// of the stale `_points` and writes it to whatever store is current, so
+  /// with A on `{local_network}` and B on `{dht_bit_torrent}` one Nostr
+  /// toggle stored B as `{local_network, nostr}`: DHT off and LAN on, neither
+  /// of them asked for.
+  int _generation = 0;
+
   @override
   void initState() {
     super.initState();
-    _syncFromStore();
+    unawaited(_syncFromStore());
   }
 
   /// Re-read the ACTIVE identity's own answer, from its own space.
@@ -479,8 +491,7 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
   String? _policy;
 
   /// Which boxes to draw ticked. An unanswered identity is on everything.
-  Set<String> get _ticked =>
-      (_points ?? EmbeddedNode.meetingPoints).toSet();
+  Set<String> get _ticked => (_points ?? EmbeddedNode.meetingPoints).toSet();
 
   /// The name veil uses, in the language the person reads.
   ///
@@ -503,6 +514,7 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
 
   Future<void> _setPoints(String point, bool on) async {
     if (_busy) return;
+    final generation = _generation;
     final next = _ticked.toSet();
     if (on) {
       next.add(point);
@@ -524,11 +536,17 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
         ordered,
       );
       if (!mounted) return;
+      // The identity changed under the write. What landed belongs to
+      // whichever space was current when it did; this switch now shows a
+      // different one, and the pending re-read owns what it displays.
+      if (generation != _generation) return;
       if (!saved) {
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
           ..showSnackBar(
-            SnackBar(content: Text(AppL10n.of(context).meetingPointsSaveFailed)),
+            SnackBar(
+              content: Text(AppL10n.of(context).meetingPointsSaveFailed),
+            ),
           );
         return;
       }
@@ -540,6 +558,7 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
 
   Future<void> _setPolicy(bool always) async {
     if (_busy) return;
+    final generation = _generation;
     final next = always ? 'always' : 'fallback';
     setState(() => _busy = true);
     try {
@@ -548,11 +567,14 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
         next,
       );
       if (!mounted) return;
+      if (generation != _generation) return;
       if (!saved) {
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
           ..showSnackBar(
-            SnackBar(content: Text(AppL10n.of(context).meetingPointsSaveFailed)),
+            SnackBar(
+              content: Text(AppL10n.of(context).meetingPointsSaveFailed),
+            ),
           );
         return;
       }
@@ -563,17 +585,20 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
   }
 
   Future<void> _syncFromStore() async {
+    final generation = ++_generation;
     final storage = ref.read(storageProvider);
     final points = await meetingPointsInSpace(storage);
     final policy = await meetingPolicyInSpace(storage);
-    if (mounted) {
-      setState(() {
-        _points = points;
-        _policy = policy;
-      });
-    }
+    if (!mounted || generation != _generation) return;
+    setState(() {
+      _points = points;
+      _policy = policy;
+    });
     final stored = await storedBundledSeedsAnswerFor(storage);
-    if (!mounted || stored == null) return;
+    if (!mounted || generation != _generation || stored == null) return;
+    // The global choice provider too: three awaits in, this used to check
+    // only `mounted` and could overwrite it under an identity that never
+    // answered the question.
     if (ref.read(bundledSeedsChoiceProvider) != stored) {
       ref.read(bundledSeedsChoiceProvider.notifier).state = stored;
     }
@@ -581,6 +606,7 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
 
   Future<void> _set(bool allowed) async {
     if (_busy) return;
+    final generation = _generation;
     setState(() => _busy = true);
     try {
       // Persist FIRST, and treat a refused write as "nothing happened". The
@@ -599,6 +625,7 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
         allowed,
       );
       if (!mounted) return;
+      if (generation != _generation) return;
       if (!saved) {
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
@@ -615,6 +642,18 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
 
   @override
   Widget build(BuildContext context) {
+    // Follow identity switches, exactly as the DHT switch above does. Blank
+    // the local fields rather than leaving one identity's meeting points on
+    // screen under another's name — and, more to the point, rather than
+    // letting the next toggle build its full set out of them.
+    ref.listen(storageProvider, (previous, next) {
+      if (identical(previous, next)) return;
+      setState(() {
+        _points = null;
+        _policy = null;
+      });
+      unawaited(_syncFromStore());
+    });
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final on = ref.watch(bundledSeedsChoiceProvider);
@@ -665,9 +704,9 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
                   Expanded(
                     child: Text(
                       l.meetingPointsNoneChosen,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.error,
-                      ),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: scheme.error),
                     ),
                   ),
                 ],

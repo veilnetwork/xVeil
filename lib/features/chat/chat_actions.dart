@@ -3,12 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
 import '../../core/log.dart';
-import '../../data/transport/wire_envelope.dart'
-    show disappearingMarker;
+import '../../data/transport/wire_envelope.dart' show disappearingMarker;
 import '../../domain/chat.dart';
 import '../../domain/disappearing_messages.dart';
 import '../../domain/p2p_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/identity_guard.dart';
 import '../../state/messaging.dart';
 
 /// Shared conversation-management actions, reused by the in-chat AppBar menu AND
@@ -261,6 +261,8 @@ Future<void> pickContactP2P(
   NodeId peer,
   ContactP2POverride current,
 ) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  final lease = ref.leaseIdentity();
   final l = AppL10n.of(context);
   final choice = await showDialog<ContactP2POverride>(
     context: context,
@@ -287,6 +289,9 @@ Future<void> pickContactP2P(
     ),
   );
   if (choice == null) return;
+  // The switch may have happened while the dialog was open: in all-online
+  // mode nothing unmounts, so this would apply A's answer to B.
+  if (!ref.holdsIdentity(lease)) return;
   await ref.read(messagingServiceProvider).setContactP2POverride(peer, choice);
 }
 
@@ -536,8 +541,13 @@ Future<void> pickMuteDuration(
   WidgetRef ref,
   NodeId peer,
 ) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  final lease = ref.leaseIdentity();
   final picked = await pickNotificationMutePolicy(context);
   if (picked == null || !context.mounted) return;
+  // The switch may have happened while the dialog was open: in all-online
+  // mode nothing unmounts, so this would apply A's answer to B.
+  if (!ref.holdsIdentity(lease)) return;
   await ref
       .read(messagingServiceProvider)
       .setContactMutedUntil(peer, picked.until, mode: picked.mode);
@@ -641,6 +651,8 @@ Future<void> pickDisappearing(
   NodeId peer,
   int? current,
 ) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  final lease = ref.leaseIdentity();
   final l = AppL10n.of(context);
   final picked = await showDialog<(bool, int?)>(
     context: context,
@@ -670,6 +682,9 @@ Future<void> pickDisappearing(
     ),
   );
   if (picked == null) return;
+  // The switch may have happened while the dialog was open: in all-online
+  // mode nothing unmounts, so this would apply A's answer to B.
+  if (!ref.holdsIdentity(lease)) return;
   await ref
       .read(messagingServiceProvider)
       .setContactDisappearing(peer, picked.$2);
@@ -690,6 +705,8 @@ Future<void> pickHideAfterRead(
   NodeId peer,
   int? current,
 ) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  final lease = ref.leaseIdentity();
   final l = AppL10n.of(context);
   final picked = await showDialog<(bool, int?)>(
     context: context,
@@ -721,6 +738,9 @@ Future<void> pickHideAfterRead(
     ),
   );
   if (picked == null) return;
+  // The switch may have happened while the dialog was open: in all-online
+  // mode nothing unmounts, so this would apply A's answer to B.
+  if (!ref.holdsIdentity(lease)) return;
   await ref
       .read(messagingServiceProvider)
       .setContactHideAfterRead(peer, picked.$2);
@@ -732,6 +752,8 @@ Future<void> pickRetention(
   NodeId peer,
   int? current,
 ) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  final lease = ref.leaseIdentity();
   final l = AppL10n.of(context);
   final messenger = ScaffoldMessenger.of(context);
   final presets = <(String, int?)>[
@@ -773,6 +795,9 @@ Future<void> pickRetention(
   } else {
     days = picked.$2;
   }
+  // The switch may have happened while the dialog was open: in all-online
+  // mode nothing unmounts, so this would apply A's answer to B.
+  if (!ref.holdsIdentity(lease)) return;
   await ref.read(messagingServiceProvider).setContactRetention(peer, days);
   if (days != null && days > 0) {
     messenger.showSnackBar(
@@ -800,6 +825,8 @@ Future<void> _renameContact(
   WidgetRef ref,
   Contact contact,
 ) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  final lease = ref.leaseIdentity();
   final l = AppL10n.of(context);
   final newName = await showDialog<String>(
     context: context,
@@ -811,6 +838,9 @@ Future<void> _renameContact(
     ),
   );
   if (newName == null || !context.mounted) return;
+  // The switch may have happened while the dialog was open: in all-online
+  // mode nothing unmounts, so this would apply A's answer to B.
+  if (!ref.holdsIdentity(lease)) return;
   await ref
       .read(messagingServiceProvider)
       .setContactName(contact.nodeId, newName);
@@ -821,6 +851,12 @@ Future<void> _confirmClear(
   WidgetRef ref,
   NodeId peer,
 ) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  //
+  // The worst of this family: clearConversation writes the clear and its
+  // tombstones into B durably, and then queues a frame addressed to A's peer
+  // in B's outbox with no contact gate.
+  final lease = ref.leaseIdentity();
   final l = AppL10n.of(context);
   final ok = await showDialog<bool>(
     context: context,
@@ -840,6 +876,9 @@ Future<void> _confirmClear(
     ),
   );
   if (ok != true) return;
+  // The switch may have happened while the dialog was open: in all-online
+  // mode nothing unmounts, so this would apply A's answer to B.
+  if (!ref.holdsIdentity(lease)) return;
   // Route through the service (not storageProvider directly): clearConversation
   // emits the changes signal so messagesProvider reloads and the now-empty chat
   // actually re-renders. Calling storage.clearMessages directly cleared the
@@ -906,8 +945,16 @@ Future<void> _confirmDelete(
   NodeId peer,
   VoidCallback? onDeleted,
 ) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  //
+  // Unguarded this deletes B's history, ratchet and folder membership, and
+  // where the peer is accepted by B as well it sends a farewell from B.
+  final lease = ref.leaseIdentity();
   final choice = await confirmChatDeleteDialog(context);
   if (choice == null) return;
+  // The switch may have happened while the dialog was open: in all-online
+  // mode nothing unmounts, so this would apply A's answer to B.
+  if (!ref.holdsIdentity(lease)) return;
   await ref
       .read(messagingServiceProvider)
       .deleteConversation(peer, notifyPeer: choice.notify);
