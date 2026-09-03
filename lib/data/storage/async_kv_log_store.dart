@@ -10,6 +10,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'hv_kv_log_store.dart';
 import 'hv_native.dart';
 import 'kv_log_store.dart';
+import 'rollback_anchor.dart';
 import 'storage_write_census.dart';
 import 'worker_death.dart';
 import 'package:xveil/core/log.dart';
@@ -62,7 +63,8 @@ abstract interface class AsyncKvLogStore {
 /// back to when their worker proves defective. Both real openers — password and
 /// keys — are worker-backed now (audit XV-14); this is the degraded path, not
 /// the default one.
-class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
+class SyncWrappedAsyncKvLogStore
+    implements AsyncKvLogStore, CommitAnchorSource {
   SyncWrappedAsyncKvLogStore(this._inner);
 
   final KvLogStore _inner;
@@ -106,6 +108,25 @@ class SyncWrappedAsyncKvLogStore implements AsyncKvLogStore {
   Future<Uint8List> exportKeys() async => _inner.exportKeys();
   @override
   Future<SlotUtilization?> slotUtilization() async => _inner.slotUtilization();
+
+  // Only when the wrapped store actually has a container behind it. A wrapper
+  // that answered for one that does not would hand the anchor a number nobody
+  // committed (report8 M8-14).
+  @override
+  Future<int> commitSeq() async {
+    final inner = _inner;
+    return inner is SyncCommitAnchorSource
+        ? (inner as SyncCommitAnchorSource).commitSeq()
+        : -1;
+  }
+
+  @override
+  Future<List<int>> commitHistory() async {
+    final inner = _inner;
+    return inner is SyncCommitAnchorSource
+        ? (inner as SyncCommitAnchorSource).commitHistory()
+        : const <int>[];
+  }
 
   @override
   Future<String?> hardeningWarning() async => _inner.hardeningWarning();
@@ -239,6 +260,17 @@ class _SlotUtilizationReq extends _Req {
   const _SlotUtilizationReq(super.reply);
 }
 
+/// The two anchor reads (report8 M8-14). Separate messages rather than one,
+/// because a caller that only re-anchors after a commit needs the counter and
+/// not the window.
+class _CommitSeqReq extends _Req {
+  const _CommitSeqReq(super.reply);
+}
+
+class _CommitHistoryReq extends _Req {
+  const _CommitHistoryReq(super.reply);
+}
+
 class _CloseReq extends _Req {
   const _CloseReq(super.reply);
 }
@@ -346,6 +378,22 @@ void _workerEntry(_OpenConfig cfg) {
         run(() => store.exportKeys());
       case _SlotUtilizationReq():
         run(() => store.slotUtilization());
+      // A store with no container behind it cannot answer, and must not
+      // invent a number: an anchor built on a fabricated counter would call
+      // an honest open a rollback. -1 and an empty window are the two
+      // "cannot answer" values the caller checks for.
+      case _CommitSeqReq():
+        run(
+          () => store is SyncCommitAnchorSource
+              ? (store as SyncCommitAnchorSource).commitSeq()
+              : -1,
+        );
+      case _CommitHistoryReq():
+        run(
+          () => store is SyncCommitAnchorSource
+              ? (store as SyncCommitAnchorSource).commitHistory()
+              : const <int>[],
+        );
       case _HardeningWarningReq():
         run(() => store.hardeningWarning());
       case _AckHardeningReq():
@@ -370,7 +418,7 @@ void _workerEntry(_OpenConfig cfg) {
 /// Off-UI-isolate [AsyncKvLogStore] backed by a dedicated worker isolate that
 /// owns the real [HvKvLogStore]. One instance == one worker == one container
 /// handle. Drop with [close].
-class WorkerKvLogStore implements AsyncKvLogStore {
+class WorkerKvLogStore implements AsyncKvLogStore, CommitAnchorSource {
   WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
   /// Assemble a store over a worker that is ALREADY up.
@@ -580,6 +628,13 @@ class WorkerKvLogStore implements AsyncKvLogStore {
   @override
   Future<SlotUtilization?> slotUtilization() =>
       _call<SlotUtilization?>((reply) => _SlotUtilizationReq(reply));
+
+  @override
+  Future<int> commitSeq() => _call<int>((reply) => _CommitSeqReq(reply));
+
+  @override
+  Future<List<int>> commitHistory() =>
+      _call<List<int>>((reply) => _CommitHistoryReq(reply));
 
   @override
   Future<String?> hardeningWarning() =>

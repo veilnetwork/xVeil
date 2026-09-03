@@ -10,6 +10,36 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.32] — 2026-09-03
+
+### Fixed
+
+- A container put back to an older copy no longer re-uses a key that has
+  already been on the wire. Every conversation's send-position reservation
+  lives inside the container, beside the ratchet state it guards, so restoring
+  an older copy restored both: the next send re-derived a key and nonce this
+  device had already published, and two plaintexts under one key is not a lost
+  message. Nothing outside the container remembered where it had got to.
+
+  The app now records the container's commit counter outside it, on the
+  acknowledged space only, and judges the container against that record at
+  every unlock. A container that is behind burns every send position the
+  missing commits could have reserved before a single message goes out; one
+  whose history is not the one this device wrote is reported as such. The
+  bound is deliberately generous — burning too many positions costs a peer
+  some skipped keys, burning too few cannot be taken back.
+
+  **What this stops, and what it does not.** It stops a container that was
+  restored from a backup, synced backwards, or copied back by hand, which is
+  how this actually happens. It does not stop somebody who puts the whole disk
+  back at once, because that returns the record too. Going further needs a
+  counter that cannot be rewritten, which this device does not have.
+
+  Decoy identities are never anchored. An anchor for a hidden space announces
+  that the space exists, so only the acknowledged space keeps one, and the
+  identities opened through the multi-space handle cannot answer the question
+  at all rather than being trusted not to.
+
 ## [0.13.31] — 2026-09-03
 
 ### Fixed

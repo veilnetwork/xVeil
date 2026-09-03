@@ -17,6 +17,7 @@ import '../data/node/node_controller.dart';
 import '../data/node/proxy_routing.dart';
 import '../data/storage/kv_log_store.dart' show SlotUtilization;
 import '../data/storage/on_disk_blob_store.dart';
+import '../data/storage/prefs_rollback_anchor.dart';
 import '../data/storage/storage.dart';
 import '../data/veil_stack.dart';
 import '../data/vpn/vpn_backend.dart' show VpnBackendPhase;
@@ -2442,6 +2443,12 @@ class AppController extends Notifier<AppState> {
       if (starter != null) return starter(seeds);
       return RealVeilStack.startDeniable(
         storage: storage,
+        // The acknowledged space is anchored; the multi-identity path passes
+        // nothing, so a decoy's container never leaves a trace outside itself
+        // (report8 M8-14).
+        rollbackAnchor: PrefsRollbackAnchorStore(
+          await ref.read(prefsProvider.future),
+        ),
         runtimeDirBase: boot.runtimeDir,
         // Offset alternates after every teardown (see _teardownRealStack) so
         // a switch/relock never rebinds the just-freed port.
