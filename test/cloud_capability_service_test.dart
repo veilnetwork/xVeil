@@ -308,6 +308,68 @@ void main() {
     });
   });
 
+  /// `close` has to be a BARRIER, not a flag.
+  ///
+  /// The provider closes the old service on an identity switch, and `close`
+  /// knew only about registered shares and the sync. A folder listing or a
+  /// download already in flight kept its own transient return endpoint,
+  /// verified its pieces and wrote them — plus the manifest — into a storage
+  /// the app had stopped showing. Only the next `adoptCapability` noticed,
+  /// leaving orphan content behind (report22 XV-LIFE1).
+  test('a closed cloud service starts no new anonymous client', () async {
+    final container = FakeHvContainer();
+    final storage = container.storage();
+    await storage.open(password: 'a', createIfMissing: true);
+    addTearDown(storage.close);
+
+    final service = CloudCapabilityService(
+      storage,
+      _Network(),
+      sync: _SyncPort(_SyncBackend(), 1),
+      now: () => DateTime(2030),
+      random: _Random(),
+    );
+
+    // Vacuity: a link this service cannot parse must fail for THAT reason
+    // while it is open, or the refusal below proves only that the link is
+    // bad rather than that the service is closed.
+    await expectLater(
+      service.fetchFolderListing('not-a-link'),
+      throwsA(
+        isA<Object>().having(
+          (e) => e.toString(),
+          'reason',
+          isNot(contains('has been closed')),
+        ),
+      ),
+    );
+
+    await service.close();
+
+    await expectLater(
+      service.fetchFolderListing('not-a-link'),
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('has been closed'),
+        ),
+      ),
+      reason: 'a closed service still opened an anonymous return endpoint',
+    );
+    await expectLater(
+      service.download('not-a-link'),
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('has been closed'),
+        ),
+      ),
+      reason: 'a closed service still fetched and committed pieces',
+    );
+  });
+
   test('an EXPIRED bearer link is refused before any network work', () async {
     // Found by break-checking: removing the expiry check failed NOTHING in the
     // suite. A bearer link is the whole authorisation — it names no recipient
