@@ -110,6 +110,81 @@ void main() {
     expect((await relay.fetch(me: me, authCookie: cookie)), isEmpty);
   });
 
+  /// A forged body under a real message id must not destroy the real one.
+  ///
+  /// The content id is the message uuid: it names the message, not the bytes.
+  /// A replica of the receiver's own set can therefore answer with a genuine
+  /// id and a substituted body, and the drain used to union by that id alone —
+  /// first copy winning — then quarantine the id on the first failed open and
+  /// ACK every replica, which deletes the honest copies for good (report22
+  /// XV-MBX1). One bad replica out of N is exactly the failure replication
+  /// exists to survive.
+  test(
+    'a forged body under a real id does not delete the honest one',
+    () async {
+      final data = Uint8List.fromList([7, 7, 7]);
+      final cid = _cid(0xD1);
+      // The malicious replica answers FIRST — that is the attacker's whole
+      // advantage, and a test that puts the honest body first proves nothing:
+      // it passes with the fix removed.
+      await relay.put(
+        receiver: me,
+        contentId: cid,
+        sender: peer,
+        blob: Uint8List.fromList([0, 1, 2]), // < 36 bytes -> open throws
+      );
+      // The honest deposit, under the same id.
+      await orch.stash(
+        me: peer,
+        recipient: me,
+        appId: _appId(5),
+        endpointId: 11,
+        data: data,
+        contentId: cid,
+      );
+      final pending = await relay.fetch(me: me, authCookie: cookie);
+      expect(pending, hasLength(2), reason: 'premise: two bodies, one id');
+
+      final drained = await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
+      expect(
+        drained,
+        hasLength(1),
+        reason: 'the forged body under a genuine id destroyed the real message',
+      );
+      expect(drained.single.data, data, reason: 'and it is the honest body');
+    },
+  );
+
+  /// And a content id is given up only when NOTHING filed under it opened.
+  test('an id whose every body fails is still quarantined and acked', () async {
+    final cid = _cid(0xD2);
+    for (final junk in [
+      Uint8List.fromList([0, 1, 2]),
+      Uint8List.fromList([3, 4, 5]),
+    ]) {
+      await relay.put(receiver: me, contentId: cid, sender: peer, blob: junk);
+    }
+    final drained = await orch.drain(
+      me: me,
+      authCookie: cookie,
+      ourCertVersion: 1,
+      alreadyHave: never,
+    );
+    expect(drained, isEmpty);
+    expect(
+      await relay.fetch(me: me, authCookie: cookie),
+      isEmpty,
+      reason:
+          'an id nothing could open must still be acked away, or it is '
+          're-served and re-opened for its whole relay TTL',
+    );
+  });
+
   /// A blob that cannot be opened YET must not take the queue behind it down.
   ///
   /// An unacked blob is re-served on every fetch, and the relay fills its reply

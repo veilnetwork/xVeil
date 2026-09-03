@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
+
 import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../../core/ids.dart';
@@ -87,10 +89,7 @@ class VeilFlutterMailboxCrypto implements VeilMailboxCrypto {
     required Uint8List blob,
     required int ourCertVersion,
   }) async {
-    final r = await _mailbox.open(
-      blob: blob,
-      ourCertVersion: ourCertVersion,
-    );
+    final r = await _mailbox.open(blob: blob, ourCertVersion: ourCertVersion);
     return OpenedMailboxMessage(
       verifiedSender: NodeId(r.senderNodeId),
       appId: r.appId,
@@ -107,8 +106,13 @@ class VeilFlutterMailboxCrypto implements VeilMailboxCrypto {
 /// [senderForOpen] (default all-zero). `recipient` / `ourCertVersion` are ignored
 /// (the real adapter binds + verifies them). NEVER use in production.
 class LoopbackMailboxCrypto implements VeilMailboxCrypto {
-  // ignore: prefer_initializing_formals
-  LoopbackMailboxCrypto({NodeId? senderForOpen}) : _senderForOpen = senderForOpen;
+  // A named parameter cannot carry a private field's name, so the initialising
+  // formal the lint asks for cannot be written here. (The suppression sits on
+  // the initialiser line itself: `dart format` moved that line away from its
+  // old comment once, and the lint came back.)
+  LoopbackMailboxCrypto({NodeId? senderForOpen})
+    // ignore: prefer_initializing_formals
+    : _senderForOpen = senderForOpen;
 
   /// The verified-sender stand-in [open] reports — lets a unit test exercise the
   /// orchestrator's attribution path without real crypto. Null ⇒ all-zero.
@@ -154,6 +158,26 @@ class LoopbackMailboxCrypto implements VeilMailboxCrypto {
 
 /// A blob fetched from a mailbox relay: who sent it, its content id (for dedup +
 /// ack), and the sealed bytes.
+/// A mailbox blob's identity for deduplication: the id it was filed under AND
+/// a digest of the bytes.
+///
+/// The content id is the message uuid. It names the message, not the bytes, so
+/// two different blobs can arrive under one id — which is what a replica does
+/// when it answers with a genuine id and a substituted body (report22
+/// XV-MBX1). Keyed on both, a substitute is an EXTRA candidate to try rather
+/// than a replacement for the honest one.
+String mailboxVariantKey(Uint8List contentId, Uint8List blob) {
+  final out = StringBuffer();
+  for (final b in contentId) {
+    out.write(b.toRadixString(16).padLeft(2, '0'));
+  }
+  out.write(':');
+  for (final b in crypto.sha256.convert(blob).bytes) {
+    out.write(b.toRadixString(16).padLeft(2, '0'));
+  }
+  return out.toString();
+}
+
 class StoredMailboxBlob {
   const StoredMailboxBlob({
     required this.senderId,
@@ -253,13 +277,18 @@ class VeilFlutterMailboxRelay implements VeilMailboxRelay {
     List<NodeId> knownRelays = const [], // FFI resolves the relay internally,
     List<Uint8List> skip = const [],
   }) async {
-    final raw = await _mailbox.fetch(receiverId: me.bytes, authCookie: authCookie);
+    final raw = await _mailbox.fetch(
+      receiverId: me.bytes,
+      authCookie: authCookie,
+    );
     return raw
-        .map((b) => StoredMailboxBlob(
-              senderId: NodeId(b.senderId),
-              contentId: b.contentId,
-              blob: b.data,
-            ))
+        .map(
+          (b) => StoredMailboxBlob(
+            senderId: NodeId(b.senderId),
+            contentId: b.contentId,
+            blob: b.data,
+          ),
+        )
         .toList();
   }
 
@@ -290,11 +319,9 @@ class InMemoryMailboxRelay implements VeilMailboxRelay {
     required NodeId sender,
     required Uint8List blob,
   }) async {
-    (_store[receiver.hex] ??= []).add(StoredMailboxBlob(
-      senderId: sender,
-      contentId: contentId,
-      blob: blob,
-    ));
+    (_store[receiver.hex] ??= []).add(
+      StoredMailboxBlob(senderId: sender, contentId: contentId, blob: blob),
+    );
   }
 
   @override
@@ -303,8 +330,7 @@ class InMemoryMailboxRelay implements VeilMailboxRelay {
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
     List<Uint8List> skip = const [],
-  }) async =>
-      List.unmodifiable(_store[me.hex] ?? const []);
+  }) async => List.unmodifiable(_store[me.hex] ?? const []);
 
   @override
   Future<void> ack({
@@ -313,9 +339,7 @@ class InMemoryMailboxRelay implements VeilMailboxRelay {
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
   }) async {
-    _store[me.hex]?.removeWhere(
-      (b) => _bytesEqual(b.contentId, contentId),
-    );
+    _store[me.hex]?.removeWhere((b) => _bytesEqual(b.contentId, contentId));
   }
 }
 

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/node/ratchet_ffi.dart';
+import '../data/storage/rollback_anchor.dart';
 import '../data/storage/storage.dart';
 import '../data/storage/storage_write_census.dart';
 import '../data/veil_stack.dart' show RealVeilStack;
@@ -187,6 +188,7 @@ class RatchetPersistence {
   ];
 
   Future<void> _reserveBeforePublish(NodeId peer) async {
+    var wrote = false;
     for (final key in _keysFor(peer)) {
       final at = _native.sendPosition(key);
       // No sending chain yet means nothing has been sealed, so there is no
@@ -204,6 +206,34 @@ class RatchetPersistence {
         '${_hex(at.chain)}:$to',
       );
       _reserved[_hex(key)] = (chain: at.chain, reservedTo: to);
+      wrote = true;
+    }
+    // The anchor moves with the reservation, and this is the only place it
+    // can honestly move.
+    //
+    // Written once at boot, it named a commit the device then ran past: every
+    // reservation after it was durable, every message published under those
+    // reservations was on the wire, and restoring any snapshot from in
+    // between still compared equal-or-ahead against that first commit and
+    // read as a clean continuation. The positions those snapshots did not
+    // carry were then derived a second time (report22 XV-RA1).
+    //
+    // AFTER the reservation, so the recorded commit is one the reservation is
+    // already part of. Before would name a commit that does not yet permit
+    // the ciphertext this reservation is about to allow.
+    if (wrote) {
+      final storage = _storage;
+      if (storage is RollbackAnchorReader &&
+          !await (storage as RollbackAnchorReader).advanceRollbackAnchor()) {
+        // Not fatal, and not silent: the reservation IS durable, so nothing
+        // published is unaccounted for. What is weaker is the next launch's
+        // ability to notice a restore that lands after this point.
+        devLog(
+          () =>
+              'xVeil[ratchet]: reservation written but the rollback anchor '
+              'did not move — a restore after this point may not be noticed',
+        );
+      }
     }
   }
 

@@ -22,16 +22,16 @@ class PrefsRollbackAnchorStore implements RollbackAnchorStore {
   static const String _key = 'hv.anchor.commit_seq';
 
   @override
-  Future<int?> read() async {
-    final seq = _prefs.getInt(_key);
-    // A negative value is not an anchor. Treat it as absent rather than as a
-    // commit nothing can be behind.
-    return (seq == null || seq < 0) ? null : seq;
-  }
+  Future<AnchorRecord?> read() async =>
+      AnchorRecord.decode(_prefs.getString(_key));
 
   @override
-  Future<void> write(int seq) async {
-    if (seq < 0) return;
-    await _prefs.setInt(_key, seq);
+  Future<bool> write(AnchorRecord record) async {
+    if (record.seq < 0 || record.generation.isEmpty) return false;
+    // The answer is the platform's, not a guess: `setString` reports whether
+    // the write landed, and an anchor that did not land leaves the next
+    // launch measuring against a commit this device has already moved past
+    // (report22 XV-RA4).
+    return _prefs.setString(_key, record.encode());
   }
 }
