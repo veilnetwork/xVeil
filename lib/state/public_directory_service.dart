@@ -115,10 +115,45 @@ class PublicDirectoryService {
   bool _started = false;
   bool _closed = false;
 
+  /// ONE queue for start, publish, republish, withdraw and close.
+  ///
+  /// The pointer and the folder share it hands out have to move through
+  /// restore, replace and withdraw in a single linear order. Run them
+  /// concurrently and the orders disagree: a restore still reading settings
+  /// leaves `status` empty, so a delete that arrives meanwhile sees nothing
+  /// published, skips the withdraw and drops the folder — and then the late
+  /// restore republishes the pointer to a folder that is gone. The bearer
+  /// share lives seven days by default, so whoever holds the link keeps
+  /// reading data the UI says was deleted.
+  Future<void> _tail = Future<void>.value();
+
+  /// The restore, so a second caller JOINS it instead of racing past it.
+  Future<void>? _startFuture;
+
+  /// Chain [op] after everything already queued.
+  ///
+  /// The tail swallows errors on purpose: a failed publish must not poison
+  /// every later call with its exception, which would wedge the service for
+  /// the life of the identity. The caller still sees the real result.
+  Future<T> _serial<T>(Future<T> Function() op) {
+    final result = _tail.then((_) => op());
+    _tail = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
   PublicDirectoryStatus get status => _status;
 
   /// Load persisted state and, if published, republish now + arm the timer.
-  Future<void> start() async {
+  ///
+  /// Single-flight. This used to set `_started` before its first await and
+  /// return, so a second caller was told the state was loaded while the read
+  /// was still in flight.
+  Future<void> start() {
+    if (_closed) return Future<void>.value();
+    return _startFuture ??= _serial(_startLocked);
+  }
+
+  Future<void> _startLocked() async {
     if (_started || _closed) return;
     _started = true;
     final raw = await _getSetting(_settingKey);
@@ -140,6 +175,20 @@ class PublicDirectoryService {
   /// caller only needs to revoke [shareId] itself if this returns false.
   /// Returns false (state untouched) if signing/publishing failed.
   Future<bool> publish({
+    required String folderId,
+    required String shareId,
+    required String link,
+    required String title,
+  }) => _serial(
+    () => _publishLocked(
+      folderId: folderId,
+      shareId: shareId,
+      link: link,
+      title: title,
+    ),
+  );
+
+  Future<bool> _publishLocked({
     required String folderId,
     required String shareId,
     required String link,
@@ -168,7 +217,21 @@ class PublicDirectoryService {
   /// Stop publishing and revoke the underlying folder share so it no longer
   /// serves bytes. The DHT pointer record itself simply expires (there is no
   /// delete) within its ≤2h lifetime; nothing re-publishes it after this.
-  Future<PublicDirectoryStatus> withdraw() async {
+  Future<PublicDirectoryStatus> withdraw() => _serial(_withdrawLocked);
+
+  /// Withdraw ONLY if what is published is [folderId], as one queued step.
+  ///
+  /// The caller deleting a folder cannot ask `status` and then decide: the
+  /// restore may not have run yet, and between the question and the answer
+  /// the queue can publish. Asking here means the test and the withdrawal
+  /// happen in the same slot, after any pending restore.
+  Future<PublicDirectoryStatus?> withdrawIfFolder(String folderId) =>
+      _serial(() async {
+        if (_status.folderId != folderId) return null;
+        return _withdrawLocked();
+      });
+
+  Future<PublicDirectoryStatus> _withdrawLocked() async {
     final previous = _status;
     _timer?.cancel();
     _timer = null;
@@ -182,9 +245,9 @@ class PublicDirectoryService {
 
   /// Re-list nothing here — just republish the CURRENT link with a fresh
   /// signature/lifetime so it survives the 2h cap. No-op when not published.
-  Future<void> republishNow() async {
+  Future<void> republishNow() => _serial(() async {
     if (_status.isPublished) await _republish();
-  }
+  });
 
   /// Resolve a nickname to its owner's published directory, or null if the
   /// name is unclaimed / has no live, valid directory record.
@@ -226,6 +289,9 @@ class PublicDirectoryService {
     _closed = true;
     _timer?.cancel();
     _timer = null;
+    // A barrier, not a flag: whatever is mid-flight finishes before the
+    // caller may treat this service as gone.
+    await _serial(() async {});
   }
 
   Future<void> _republish() async {
@@ -262,8 +328,7 @@ class PublicDirectoryService {
         title: state.title ?? '',
         link: link,
         issuedAtUnixMs: issued,
-        expiresAtUnixMs:
-            issued + kSpaceDiscoveryCarrierLifetime.inMilliseconds,
+        expiresAtUnixMs: issued + kSpaceDiscoveryCarrierLifetime.inMilliseconds,
         sign: _sign,
       );
       await _transport.publish(record);
@@ -277,7 +342,7 @@ class PublicDirectoryService {
     _timer?.cancel();
     final every = _republishEvery;
     if (every == null || _closed) return;
-    _timer = Timer.periodic(every, (_) => unawaited(_republish()));
+    _timer = Timer.periodic(every, (_) => unawaited(republishNow()));
   }
 
   Future<void> _persist() =>
