@@ -400,6 +400,12 @@ class CloudCapabilityService {
           continue;
         }
         final key = _shareKey(capability.shareId);
+        // A tombstone outranks a row still sitting in the registry: that is
+        // what a crash between a revoke's two writes leaves behind, and
+        // without this the revoked folder was hosted again (report22
+        // XV-CAP-REVOKE). The file-share loader has read the log this way all
+        // along; this one consulted nothing.
+        if (_events[key]?.payload['deleted'] == true) continue;
         _folderRows[key] = row;
         _folderCaps[key] = capability;
         try {
@@ -797,10 +803,26 @@ class CloudCapabilityService {
   Future<bool> revokeFolderShare(String shareId) async {
     await start();
     return _serialized(() async {
+      if (!_folderRows.containsKey(shareId)) return false;
+      // The tombstone goes down BEFORE the active row comes out — the same
+      // order [revoke] uses for a file share, and for the same reason.
+      //
+      // This one used to tear the share out of memory and save the registry
+      // afterwards. A registry write that failed then left the row on disk
+      // with nothing recording that it had been withdrawn, and the next
+      // launch re-hosted it: the bearer link the person had just revoked
+      // served again for the rest of its lifetime, which defaults to seven
+      // days. No attacker needed — a full container is enough (report22
+      // XV-CAP-REVOKE). Worse, the runtime state was already gone, so the
+      // caller could not retry what it had lost.
+      //
+      // In this order a crash in the middle leaves a tombstone and a row that
+      // is still in the registry, and `_loadFolderShares` reads the log
+      // before it hosts anything, so the row is never served again.
+      if (!await _recordCapabilityEvent(shareId, deleted: true)) return false;
       final hosted = _folderShares.remove(shareId);
-      final existed = _folderRows.remove(shareId) != null;
+      _folderRows.remove(shareId);
       _folderCaps.remove(shareId);
-      if (!existed) return false;
       await hosted?.stopAccepting();
       if (hosted != null) _retireFolder(hosted);
       await _saveFolderRows();
