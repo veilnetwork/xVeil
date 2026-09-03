@@ -161,20 +161,31 @@ Future<bool> bundledSeedsAllowedFor(Storage storage) async {
   return inherited;
 }
 
-/// This identity's stored answer, or NULL when nothing would answer.
+/// This identity's stored answer, or NULL when there is nothing to show.
 ///
-/// The control's read, and it differs from [bundledSeedsAllowedFor] exactly
-/// where [storedBundledSeedsAnswer] differs from [bundledSeedsAllowed]: a node
-/// config has to be composed one way or the other, a SWITCH does not, and one
-/// that moved on a failed read would put an identity that refused the shared
-/// seeds back on them with nobody having asked. Never migrates — reading a
-/// control is not answering the question.
+/// The control's read. It still never MIGRATES — reading a control is not
+/// answering the question — and it still never moves a refusal back to yes,
+/// which is the direction the original warning was about.
+///
+/// What it no longer does is stay quiet about an open space that would not
+/// answer. [bundledSeedsAllowedFor] resolves that case to `false` and the
+/// node is composed on it, so returning null here left the switch showing
+/// the boot default — ON — for an identity whose node had just been told the
+/// opposite. The person then had a control that said the seeds were in use,
+/// a node that had refused them, and the re-offer card suppressed because it
+/// keys off this same value. Measured on a user's machine.
+///
+/// So the unknown resolves the same way in both readers, and `false` is the
+/// safe direction for a control as well: it cannot undo a refusal, and it is
+/// what actually happened.
 Future<bool?> storedBundledSeedsAnswerFor(Storage storage) async {
   final own = await bundledSeedsAnswerInSpace(storage);
   if (own.value != null) return own.value;
-  // No space open (onboarding, or a locked app): the profile answer is the only
-  // one there is. An OPEN space that would not answer stays null — see above.
-  if (!own.readable && storage.isOpen) return null;
+  // An OPEN space that would not answer: the same verdict the node was
+  // composed with, so the control cannot contradict it.
+  if (!own.readable && storage.isOpen) return false;
+  // No space open (onboarding, or a locked app): the profile answer is the
+  // only one there is.
   return storedBundledSeedsAnswer();
 }
 

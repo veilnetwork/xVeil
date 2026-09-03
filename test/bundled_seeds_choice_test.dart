@@ -1652,17 +1652,52 @@ void main() {
       expect(prefs.getBool(kBundledSeedsPrefKey), isNull);
     });
 
-    test('a store that will not answer moves no switch', () async {
-      // The control's read, which reports "no answer" rather than moving on a
-      // failure. The boot's read has to compose something either way, and what
-      // it composes is the opt-out — see the test below.
+    test('a store that will not answer says so on BOTH reads', () async {
+      // The control used to report "no answer" here, so the switch kept the
+      // boot default — ON — for an identity whose node had just been composed
+      // with the opposite. The person then had a control saying the seeds
+      // were in use, a node that had refused them, and the re-offer card
+      // suppressed because it keys off this same value. Measured on a user's
+      // machine.
+      //
+      // `false` is the safe direction for a control too: it cannot undo a
+      // refusal, which is what the original warning was about, and it is what
+      // actually happened.
       SharedPreferences.setMockInitialValues({
         'network.bundled_seeds.v1': false,
       });
       final refusing = _RefusingStorage();
-      expect(await storedBundledSeedsAnswerFor(refusing), isNull);
-      expect(await bundledSeedsAllowedFor(refusing), isFalse);
+      expect(
+        await storedBundledSeedsAnswerFor(refusing),
+        isFalse,
+        reason: 'the switch showed the opposite of what the node was given',
+      );
+      expect(
+        await bundledSeedsAllowedFor(refusing),
+        isFalse,
+        reason: 'vacuity: the two reads have to be compared against each other',
+      );
       expect(await setBundledSeedsAllowedFor(refusing, true), isFalse);
+    });
+
+    /// THE TWO READS AGREE, whatever the store does.
+    ///
+    /// One composes the node, the other draws the switch. They may differ in
+    /// what they do — only one migrates — but never in what they answer, or
+    /// the interface describes a node that does not exist.
+    test('the control never contradicts the composed answer', () async {
+      SharedPreferences.setMockInitialValues({});
+      for (final (name, storage) in <(String, Storage)>[
+        ('a store that will not answer', _RefusingStorage()),
+      ]) {
+        final shown = await storedBundledSeedsAnswerFor(storage);
+        final composed = await bundledSeedsAllowedFor(storage);
+        expect(
+          shown,
+          composed,
+          reason: '$name: the switch and the node were told different things',
+        );
+      }
     });
 
     test('an OPEN space that will not answer composes WITHOUT the shared '
