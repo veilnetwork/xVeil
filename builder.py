@@ -1022,6 +1022,10 @@ def _ios(release: bool) -> list[Step]:
                     "flutter", "build", "ios",
                     "--release" if release else "--debug",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    # BOTH iOS branches, and neither had it. See
+                    # _debug_hook_define: the file's own comment says iOS was
+                    # a whole platform's worth of stand missing.
+                    *_debug_hook_define(),
                 ],
                 env=_build_env(),
             )
@@ -1034,6 +1038,7 @@ def _ios(release: bool) -> list[Step]:
                     "flutter", "build", "ios",
                     "--release" if release else "--debug", "--no-codesign",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_debug_hook_define(),
                 ],
                 env=_build_env(),
             )
@@ -1187,6 +1192,12 @@ def _windows(release: bool) -> list[Step]:
                 "flutter", "build", "windows",
                 "--release" if release else "--debug",
                 f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                # The FOURTH platform to be missed by this, after Android,
+                # Linux and macOS — see _debug_hook_define. Without it a
+                # Windows stand has no hook and no way to gain one, and what
+                # that looks like from outside is a node that never
+                # bootstrapped: no port answers and no runtime key is written.
+                *_debug_hook_define(),
             ],
             env=_build_env(**_engine_policy_env(release)),
         ),
