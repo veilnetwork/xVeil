@@ -1079,7 +1079,8 @@ class EmbeddedNode {
     bool useBundledSeeds = true,
     // Which meeting points this node may use. `null` leaves veil's default —
     // all of them — which is what a node with no compiled-in seeds needs.
-    // Ignored when [useBundledSeeds] is false: a refusal is a refusal.
+    // Independent of [useBundledSeeds]: declining the seed LIST is not
+    // declining to look for peers, and it has its own control.
     List<String>? meetingPoints,
     String? meetingPolicy,
     // Where this device's sovereign identity material was laid out. Null on a
@@ -1783,7 +1784,8 @@ class EmbeddedNode {
     bool useBundledSeeds = true,
     // Which meeting points this node may use. `null` leaves veil's default —
     // all of them — which is what a node with no compiled-in seeds needs.
-    // Ignored when [useBundledSeeds] is false: a refusal is a refusal.
+    // Independent of [useBundledSeeds]: declining the seed LIST is not
+    // declining to look for peers, and it has its own control.
     List<String>? meetingPoints,
     String? meetingPolicy,
     String? identityDir,
@@ -1837,47 +1839,60 @@ class EmbeddedNode {
       return withIdentityDir(
         withMeetingPolicy(
           withMeetingPoints(
-          withBuiltinSeedPolicy(
-          withTransportRotation(
-            withSessionKeepalive(
-              withObfs4PskFile(
-                withUdpReflectors(
-                  withProxy(
-                    withBootstrapPeers(
-                      withMobileServiceBudget(
-                        withDhtParticipation(
-                          withClientNodeRole(
-                            withLazyMining(
-                              withAnonymity(toml, anonymous),
-                              lazyMining,
+            withBuiltinSeedPolicy(
+              withTransportRotation(
+                withSessionKeepalive(
+                  withObfs4PskFile(
+                    withUdpReflectors(
+                      withProxy(
+                        withBootstrapPeers(
+                          withMobileServiceBudget(
+                            withDhtParticipation(
+                              withClientNodeRole(
+                                withLazyMining(
+                                  withAnonymity(toml, anonymous),
+                                  lazyMining,
+                                ),
+                              ),
+                              // Platform default when the user has not chosen:
+                              // phones serve nothing, desktops serve.
+                              participate:
+                                  serveDht ??
+                                  !(Platform.isAndroid || Platform.isIOS),
                             ),
+                            isMobile: Platform.isAndroid || Platform.isIOS,
                           ),
-                          // Platform default when the user has not chosen:
-                          // phones serve nothing, desktops serve.
-                          participate:
-                              serveDht ??
-                              !(Platform.isAndroid || Platform.isIOS),
+                          bootstrapPeers,
                         ),
-                        isMobile: Platform.isAndroid || Platform.isIOS,
+                        proxy,
                       ),
-                      bootstrapPeers,
+                      udpReflectors,
                     ),
-                    proxy,
+                    obfs4PskFile,
                   ),
-                  udpReflectors,
                 ),
-                obfs4PskFile,
               ),
+              useBundledSeeds,
             ),
+            // NOT the same question, and conflating them cost an install its
+            // whole network.
+            //
+            // `builtin_seed_policy` above answers "may this node dial the
+            // COMPILED-IN seed list", and that is what declining the shared
+            // seeds means. Where the node may LOOK for a first peer is a
+            // separate choice with a control of its own — the meeting-point
+            // checkboxes next to this switch.
+            //
+            // Tying the two meant a refusal composed `meeting_points = "off"`:
+            // no DHT, no Nostr, no LAN, nothing. And since every network now
+            // ships an EMPTY compiled-in list, the refusal removed the only way
+            // left to find anyone while removing nothing that existed. Measured
+            // on a user's machine: node up, zero peers, zero sessions, zero
+            // outbound connections, while a peerless node on the same machine
+            // met all three seeds through Nostr in thirty seconds.
+            meetingPoints,
           ),
-            useBundledSeeds,
-          ),
-          // The answer decides where this node may look. "Only nodes I add
-          // myself" has to be true of every meeting point or it is not true;
-          // saying yes leaves veil's own default, which is all of them.
-            useBundledSeeds ? meetingPoints : const <String>[],
-          ),
-          useBundledSeeds ? meetingPolicy : null,
+          meetingPolicy,
         ),
         identityDir,
       );

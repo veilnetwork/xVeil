@@ -195,6 +195,105 @@ void main() {
     });
   });
 
+  /// DECLINING THE SEEDS IS NOT DECLINING TO LOOK.
+  ///
+  /// These are two questions with two controls: `builtin_seed_policy` answers
+  /// "may this node dial the compiled-in seed list", and the meeting-point
+  /// checkboxes answer where it may look for a first peer. The composition
+  /// used to take one answer for both, so refusing the seeds composed
+  /// `meeting_points = "off"` — no DHT, no Nostr, no LAN.
+  ///
+  /// With every network now shipping an EMPTY compiled-in list, that refusal
+  /// removed the only way left to find anyone while removing nothing that
+  /// existed. Measured on a user's machine: the app's node up with zero
+  /// peers, zero sessions and zero outbound connections, while a peerless
+  /// node beside it met all three seeds through Nostr in thirty seconds.
+  group('refusing the seed list still leaves the node somewhere to look', () {
+    /// The three layers `composeConfig` applies at the top, in its order and
+    /// with its arguments.
+    String composeTop(
+      String toml, {
+      required bool useBundledSeeds,
+      List<String>? meetingPoints,
+      String? meetingPolicy,
+    }) {
+      var out = EmbeddedNode.withBuiltinSeedPolicy(toml, useBundledSeeds);
+      out = EmbeddedNode.withMeetingPoints(out, meetingPoints);
+      out = EmbeddedNode.withMeetingPolicy(out, meetingPolicy);
+      return out;
+    }
+
+    test('a refusal forbids the list and touches nothing else', () {
+      final out = composeTop(
+        '[global]\nmeeting_points = "all"\n',
+        useBundledSeeds: false,
+      );
+      expect(
+        out,
+        contains('builtin_seed_policy = "never"'),
+        reason: 'the refusal must still forbid the compiled-in seed list',
+      );
+      expect(
+        out,
+        contains('meeting_points = "all"'),
+        reason:
+            'refusing the seed list turned off every meeting point, which is '
+            'the only way a node with no compiled-in seeds can find anyone',
+      );
+      expect(out, isNot(contains('meeting_points = "off"')));
+    });
+
+    test('keeping the seeds is unchanged', () {
+      final out = composeTop(
+        '[global]\nmeeting_points = "all"\n',
+        useBundledSeeds: true,
+      );
+      expect(out, isNot(contains('builtin_seed_policy')));
+      expect(out, contains('meeting_points = "all"'));
+    });
+
+    /// And "look nowhere" is still reachable — by the control that means it.
+    test('the meeting-point control can still turn everything off', () {
+      final out = composeTop(
+        '[global]\nmeeting_points = "all"\n',
+        useBundledSeeds: true,
+        meetingPoints: const <String>[],
+      );
+      expect(out, contains('meeting_points = "off"'));
+    });
+
+    /// The wiring itself, because the defect was in the ARGUMENT and a helper
+    /// test cannot see it: both helpers were handed an expression gated on
+    /// the seed answer, and each helper behaved perfectly.
+    test('the composition does not gate the meeting points on the seeds', () {
+      final source = File(
+        'lib/data/node/embedded_node.dart',
+      ).readAsStringSync();
+      // Anchored on the COMPOSITION, not on the helper definitions: the
+      // helpers are declared earlier in the same file and indexOf found one
+      // of those, so the guard read a region the defect could never be in.
+      final at = source.indexOf('return withIdentityDir(');
+      expect(at, isNot(-1), reason: 'the composition moved; re-aim this guard');
+      final end = source.indexOf('identityDir,', at);
+      expect(end, isNot(-1), reason: 'the composition shape changed');
+      final tail = source.substring(at, end);
+      expect(
+        tail.contains('useBundledSeeds ?'),
+        isFalse,
+        reason:
+            'the meeting points are gated on the seed answer again: a refusal '
+            'composes "off" and the node can look nowhere',
+      );
+      // Vacuity: the seed answer must still reach the policy above them, or
+      // this passes over a composition that dropped the opt-out entirely.
+      expect(
+        source.contains('withBuiltinSeedPolicy('),
+        isTrue,
+        reason: 'the seed opt-out is gone; it is the half that should stay',
+      );
+    });
+  });
+
   group('the answer also decides where this device may look', () {
     // "Only nodes I add myself" has to be true of EVERY meeting point or it is
     // not true. Saying yes leaves veil's own default, which is all of them —
@@ -216,10 +315,9 @@ void main() {
     });
 
     test('a named subset is written as a list veil can read', () {
-      final out = EmbeddedNode.withMeetingPoints(
-        '[global]\n',
-        const <String>['dht_bit_torrent'],
-      );
+      final out = EmbeddedNode.withMeetingPoints('[global]\n', const <String>[
+        'dht_bit_torrent',
+      ]);
       expect(out, contains('meeting_points = ["dht_bit_torrent"]'));
       final both = EmbeddedNode.withMeetingPoints(
         '[global]\n',
@@ -257,22 +355,36 @@ void main() {
       // identity ran on veil's defaults whatever the person ticked. The
       // all-online path carried both to the stack and then lost the policy on
       // the way to `composeConfig`, so `always` silently stayed `fallback`.
-      final controller = File('lib/state/app_controller.dart').readAsStringSync();
+      final controller = File(
+        'lib/state/app_controller.dart',
+      ).readAsStringSync();
       final start = controller.indexOf('RealVeilStack.startDeniable(');
-      expect(start, isNot(-1), reason: 'the boot call is gone; this guard is stale');
-      final call = controller.substring(start, controller.indexOf('\n      );', start));
+      expect(
+        start,
+        isNot(-1),
+        reason: 'the boot call is gone; this guard is stale',
+      );
+      final call = controller.substring(
+        start,
+        controller.indexOf('\n      );', start),
+      );
       for (final field in ['meetingPoints:', 'meetingPolicy:']) {
         expect(
           call,
           contains(field),
-          reason: 'the ordinary boot does not pass $field, so the setting is '
+          reason:
+              'the ordinary boot does not pass $field, so the setting is '
               'read and thrown away',
         );
       }
 
       final stack = File('lib/data/veil_stack.dart').readAsStringSync();
       final at = stack.indexOf('EmbeddedNode.composeConfig(');
-      expect(at, isNot(-1), reason: 'the composer call is gone; this guard is stale');
+      expect(
+        at,
+        isNot(-1),
+        reason: 'the composer call is gone; this guard is stale',
+      );
       final compose = stack.substring(at, stack.indexOf('\n    );', at));
       for (final field in ['meetingPoints:', 'meetingPolicy:']) {
         expect(
@@ -324,9 +436,10 @@ void main() {
         rust.indexOf('pub enum MeetingPoint {'),
         rust.indexOf('impl MeetingPoint {'),
       );
-      final declared = RegExp(r'^\s{4}([A-Z][A-Za-z]*),\s*$', multiLine: true)
-          .allMatches(block)
-          .length;
+      final declared = RegExp(
+        r'^\s{4}([A-Z][A-Za-z]*),\s*$',
+        multiLine: true,
+      ).allMatches(block).length;
       expect(
         declared,
         greaterThan(0),
@@ -348,14 +461,8 @@ void main() {
       // never answered, so a version that adds a meeting point gives it to
       // them without anybody re-answering -- which is the whole reason the
       // node's default is the word `all` and not a list.
-      expect(
-        EmbeddedNode.withMeetingPoints('[global]\n', null),
-        '[global]\n',
-      );
-      expect(
-        EmbeddedNode.withMeetingPolicy('[global]\n', null),
-        '[global]\n',
-      );
+      expect(EmbeddedNode.withMeetingPoints('[global]\n', null), '[global]\n');
+      expect(EmbeddedNode.withMeetingPolicy('[global]\n', null), '[global]\n');
     });
 
     test('a policy veil does not know is refused, not written', () {
@@ -955,10 +1062,14 @@ void main() {
       await tester.pumpWidget(host(capture: (c) => container = c));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.widgetWithText(
+      await tester.tap(
+        find.widgetWithText(
           SwitchListTile,
-          AppL10n.of(tester.element(find.byType(SwitchListTile).first)).seedsSwitchTitle,
-        ));
+          AppL10n.of(
+            tester.element(find.byType(SwitchListTile).first),
+          ).seedsSwitchTitle,
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Survives a restart, under the key a wipe clears. No container is open
@@ -995,17 +1106,27 @@ void main() {
       // default — that is what makes it right after an identity switch.
       await tester.pumpAndSettle();
       expect(
-        tester.widget<SwitchListTile>(find.widgetWithText(
-          SwitchListTile,
-          AppL10n.of(tester.element(find.byType(SwitchListTile).first)).seedsSwitchTitle,
-        )).value,
+        tester
+            .widget<SwitchListTile>(
+              find.widgetWithText(
+                SwitchListTile,
+                AppL10n.of(
+                  tester.element(find.byType(SwitchListTile).first),
+                ).seedsSwitchTitle,
+              ),
+            )
+            .value,
         isFalse,
       );
 
-      await tester.tap(find.widgetWithText(
+      await tester.tap(
+        find.widgetWithText(
           SwitchListTile,
-          AppL10n.of(tester.element(find.byType(SwitchListTile).first)).seedsSwitchTitle,
-        ));
+          AppL10n.of(
+            tester.element(find.byType(SwitchListTile).first),
+          ).seedsSwitchTitle,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(await bundledSeedsAllowed(), isTrue);
@@ -1462,10 +1583,14 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(
+      await tester.tap(
+        find.widgetWithText(
           SwitchListTile,
-          AppL10n.of(tester.element(find.byType(SwitchListTile).first)).seedsSwitchTitle,
-        ));
+          AppL10n.of(
+            tester.element(find.byType(SwitchListTile).first),
+          ).seedsSwitchTitle,
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(
