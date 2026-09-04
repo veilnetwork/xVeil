@@ -10,6 +10,31 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.42] — 2026-09-05
+
+### Fixed
+
+- **A phone dialled every seed it found with its own listener's transport.**
+  The app gives every phone `quic://0.0.0.0:9000` for its own inbound while
+  every seed serves obfs4-tcp on 5556, and veil picked the dial scheme from
+  what the node advertises about itself. So a phone found all three seeds at
+  the Nostr rendezvous and timed out against each of them, forever, showing
+  "Подключено — 0 узлов" with every setting correct. Fixed in veil 0.11.20 and
+  verified with the phone's exact shape: it now holds three sessions.
+- **A phone build could not be pointed at production.** `network_flavor.dart`
+  reads `XVEIL_NETWORK` from the process environment, which a phone does not
+  have — while `builder.py` did read it, so `XVEIL_NETWORK=prod builder.py
+  android --debug` compiled the native half for production and left the Dart
+  half on the testnet assets and PSK. Two halves of one choice disagreeing.
+  The choice now travels as a `--dart-define` as well, guarded by a sweep over
+  every target.
+
+### Changed
+
+- veil 0.11.20: the dial-scheme fix above, and on Android the node's own log
+  now reaches logcat instead of a stderr nobody reads — which is what made the
+  defect findable.
+
 ## [0.13.41] — 2026-09-04
 
 ### Fixed
