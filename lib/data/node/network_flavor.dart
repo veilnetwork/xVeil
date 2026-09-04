@@ -51,9 +51,23 @@ enum VeilNetwork {
 ///
 /// For the stand, mostly: a debug build pointed at production to reproduce
 /// something a user reported, or a release build pointed at the testnet to
-/// rehearse a deployment. Absent on mobile, where there is no environment —
-/// there the build mode is the whole answer.
+/// rehearse a deployment.
 const String kNetworkEnvVar = 'XVEIL_NETWORK';
+
+/// The same choice, fixed at BUILD time.
+///
+/// A phone has no process environment, so [kNetworkEnvVar] could never reach
+/// one — and the stated purpose of that variable is "a debug build pointed at
+/// production to reproduce something a user reported", which is exactly the
+/// case a phone brings. Reproducing a phone report meant either shipping a
+/// release build, which compiles the diagnostics out, or a debug build that
+/// silently talked to the testnet while its native half had been compiled for
+/// production: two halves of one choice disagreeing, which is the failure
+/// this file exists to prevent.
+///
+/// Empty unless `--dart-define=XVEIL_NETWORK=` was passed, so nothing changes
+/// for an ordinary build.
+const String _networkDefine = String.fromEnvironment(kNetworkEnvVar);
 
 /// Resolve the network from an explicit name, falling back to the build mode.
 ///
@@ -71,11 +85,18 @@ VeilNetwork resolveVeilNetwork({String? override, bool? debugBuild}) {
   // DEBUG MEANS TESTNET. Development traffic does not belong on the network
   // real installs use, and the reverse — a release build on the testnet — is
   // worse still, so neither is the default for the other.
-  return (debugBuild ?? kXVeilDebugBuild) ? VeilNetwork.testnet
-                                          : VeilNetwork.prod;
+  return (debugBuild ?? kXVeilDebugBuild)
+      ? VeilNetwork.testnet
+      : VeilNetwork.prod;
 }
 
 /// The network this process talks to.
+///
+/// The process environment wins where there is one — a desktop stand can
+/// re-point a build it already has — and the compile-time define answers
+/// where there is not.
 VeilNetwork get veilNetwork => resolveVeilNetwork(
-      override: Platform.environment[kNetworkEnvVar],
-    );
+  override: Platform.environment[kNetworkEnvVar]?.trim().isNotEmpty ?? false
+      ? Platform.environment[kNetworkEnvVar]
+      : (_networkDefine.isNotEmpty ? _networkDefine : null),
+);
