@@ -110,6 +110,59 @@ void main() {
       }
     });
 
+    /// EVERY platform carries the network choice into the build.
+    ///
+    /// The Dart half reads `XVEIL_NETWORK` from the process environment, and
+    /// a phone has none — so `XVEIL_NETWORK=prod builder.py android --debug`
+    /// compiled the native half for production while the Dart half kept the
+    /// debug default and loaded the testnet assets and PSK. Two halves of one
+    /// choice disagreeing is exactly what network_flavor.dart exists to
+    /// prevent, and it made a phone report impossible to reproduce with
+    /// diagnostics: release builds compile those out.
+    test('every platform carries the network choice into the build', () {
+      for (final target in ['android', 'linux', 'ios', 'windows', 'macos']) {
+        final plan = run(
+          ['builder.py', target, '--debug', '--dry-run'],
+          env: {'XVEIL_NETWORK': 'prod'},
+        );
+        expect(plan.exitCode, 0, reason: '$target: ${plan.stderr}');
+        final text = plan.stdout.toString();
+        if (!text.contains('flutter build') &&
+            !text.contains('build-macos-adhoc.sh')) {
+          continue;
+        }
+        if (text.contains('build-macos-adhoc.sh')) continue;
+        expect(
+          text,
+          contains('--dart-define=XVEIL_NETWORK=prod'),
+          reason:
+              '$target builds a Dart half that picks its network by build '
+              'mode while the native half was told otherwise',
+        );
+      }
+    });
+
+    /// And an unset variable changes nothing.
+    test('a build nobody re-pointed carries no network define', () {
+      final plan = run(['builder.py', 'android', '--debug', '--dry-run']);
+      expect(plan.exitCode, 0, reason: plan.stderr.toString());
+      expect(plan.stdout.toString().contains('XVEIL_NETWORK'), isFalse);
+    });
+
+    /// A typo must stop the build rather than pick a network.
+    test('an unknown network name is refused', () {
+      final plan = run(
+        ['builder.py', 'android', '--debug', '--dry-run'],
+        env: {'XVEIL_NETWORK': 'staging'},
+      );
+      expect(plan.exitCode, isNot(0));
+      expect(
+        '${plan.stdout}${plan.stderr}',
+        contains('unknown XVEIL_NETWORK'),
+        reason: 'a typo picked a network instead of failing',
+      );
+    });
+
     /// Vacuity: without the environment variable it must NOT be armed, or the
     /// sweep above would pass against a build that always carries it — and a
     /// full control plane in every debug build is what the opt-in prevents.
