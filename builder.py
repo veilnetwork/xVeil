@@ -166,6 +166,27 @@ def _debug_hook_define() -> list[str]:
     return defines
 
 
+def _network_define() -> list[str]:
+    """Carry `XVEIL_NETWORK` into the BUILD, for the platforms with no environment.
+
+    The Dart half reads the variable from the process environment, which a
+    phone does not have — so `XVEIL_NETWORK=prod builder.py android --debug`
+    used to compile the native half for production while the Dart half kept
+    the debug default and loaded the testnet assets and PSK. Two halves of one
+    choice, disagreeing, which `network_flavor.dart` exists to prevent.
+
+    Emitted only when the variable is set, so an ordinary build is unchanged.
+    """
+    network = os.environ.get("XVEIL_NETWORK", "").strip()
+    if not network:
+        return []
+    # Validated here rather than at the far end: a typo must fail the build,
+    # not quietly pick a network. `seed_feature` owns the same table.
+    if network not in ("prod", "testnet"):
+        raise SystemExit(f"unknown XVEIL_NETWORK={network} (want prod|testnet)")
+    return [f"--dart-define=XVEIL_NETWORK={network}"]
+
+
 def _pubspec_version() -> str:
     """The version the error report will name.
 
@@ -648,6 +669,7 @@ def _android(release: bool) -> list[Step]:
                     # architecture instead of three.
                     "--target-platform", "android-arm64,android-arm,android-x64",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_network_define(),
                 ],
                 env=_path_remap_env(),
             )
@@ -666,6 +688,7 @@ def _android(release: bool) -> list[Step]:
                 argv=[
                     "flutter", "build", "apk", "--debug",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_network_define(),
                     # See _debug_hook_define: without this an APK comes up mute
                     # and /health answering nothing looks exactly like a node
                     # that failed to bootstrap, which is where the search goes.
@@ -781,6 +804,7 @@ def _linux(release: bool) -> list[Step]:
                 "linux",
                 "--release" if release else "--debug",
                 f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                *_network_define(),
                 # See _debug_hook_define. This was called "the third host and
                 # the last one that was missing it" — it was not: the SIGNED
                 # macOS branch had never had it, and the ad-hoc script that
@@ -905,6 +929,7 @@ def _macos(release: bool) -> list[Step]:
                     # The other two platforms carried comments asserting macOS
                     # already had this.
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_network_define(),
                     *_debug_hook_define(),
                 ],
                 # The Xcode build runs build-packet-tunnel-macos.sh, which is a
@@ -1022,6 +1047,7 @@ def _ios(release: bool) -> list[Step]:
                     "flutter", "build", "ios",
                     "--release" if release else "--debug",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_network_define(),
                     # BOTH iOS branches, and neither had it. See
                     # _debug_hook_define: the file's own comment says iOS was
                     # a whole platform's worth of stand missing.
@@ -1038,6 +1064,7 @@ def _ios(release: bool) -> list[Step]:
                     "flutter", "build", "ios",
                     "--release" if release else "--debug", "--no-codesign",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_network_define(),
                     *_debug_hook_define(),
                 ],
                 env=_build_env(),
@@ -1192,6 +1219,7 @@ def _windows(release: bool) -> list[Step]:
                 "flutter", "build", "windows",
                 "--release" if release else "--debug",
                 f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                *_network_define(),
                 # The FOURTH platform to be missed by this, after Android,
                 # Linux and macOS — see _debug_hook_define. Without it a
                 # Windows stand has no hook and no way to gain one, and what
