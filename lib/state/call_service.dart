@@ -92,6 +92,16 @@ const Duration kCallMediaRepairAfter = Duration(seconds: 10);
 /// admission before falling back from a permitted direct route to relay.
 const Duration kCallP2PSetupTimeout = Duration(seconds: 5);
 
+/// How long `media.start` may take before the call is torn down.
+///
+/// Audio comes up in well under a second. A camera, and above all a screen
+/// capture, can sit on an OS consent dialog while the person reads it and
+/// picks a window, which is why these two get their own budget — the 8 s that
+/// fits audio would cut off a start that was going to succeed. Well inside
+/// [kCallRingTimeout], so the peer is still ringing when this gives up.
+const Duration kCallMediaStartTimeout = Duration(seconds: 8);
+const Duration kCallVisualMediaStartTimeout = Duration(seconds: 30);
+
 /// Pure transport negotiation: given both parties' postures (+ P2P consent and
 /// reachability for the direct case), pick the media path per the design matrix.
 /// **Anonymity is never sacrificed** — if EITHER side is anonymous the media
@@ -1476,13 +1486,23 @@ class CallService {
             'media=a${c.media.audio ? 1 : 0}v${c.media.video ? 1 : 0}'
             's${c.media.screen ? 1 : 0}',
       );
+      // A LONGER WAIT, not a kinder verdict. This used to answer `true` for a
+      // video or screen start that had not come back in 8 s — the call was
+      // promoted to `active` on the strength of "it is probably still
+      // coming": slot and stash held, a transport badge for a route nothing
+      // was flowing on, and the late start's side effects landing on a call
+      // the person had already given up on. The real problem it was papering
+      // over is that a camera or a screen-capture consent dialog does not fit
+      // in the budget audio needs, so give it one that fits and then believe
+      // the answer (report18 XV18-M9).
+      final visual = c.media.video || c.media.screen;
       ok = await media
           .start(c)
           .timeout(
-            const Duration(seconds: 8),
+            visual ? kCallVisualMediaStartTimeout : kCallMediaStartTimeout,
             onTimeout: () {
               devLog(() => 'xVeil[call-media]: start timeout call=$callId');
-              return c.media.video || c.media.screen;
+              return false;
             },
           );
       devLog(() => 'xVeil[call-media]: start result call=$callId ok=$ok');

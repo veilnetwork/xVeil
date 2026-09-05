@@ -1299,6 +1299,86 @@ void main() {
     });
   });
 
+  group('a media start that never answers (report18 XV18-M9)', () {
+    final peer = NodeId.fromHex('a' * 64);
+
+    CallSignal offer(String id, CallMedia media) => CallSignal(
+      callId: id,
+      type: CallSignalType.offer,
+      media: media,
+      posture: CallPosture.direct,
+    );
+
+    (CallService, _GatedStartMedia) stalled(FakeAsync async, CallMedia want) {
+      final fake = _FakeMessaging();
+      final media = _GatedStartMedia();
+      final svc = CallService(fake, now: () => clock.now(), media: media)
+        ..start();
+      fake.onCallSignal!(peer, offer('stalled', want));
+      svc.accept();
+      async.flushMicrotasks();
+      return (svc, media);
+    }
+
+    test('a video start still waiting is not a call in progress', () {
+      fakeAsync((async) {
+        final (svc, _) = stalled(
+          async,
+          const CallMedia(audio: true, video: true),
+        );
+        // Where the old timeout fired and answered `true` for video.
+        async.elapse(const Duration(seconds: 9));
+        async.flushMicrotasks();
+        expect(
+          svc.current?.status,
+          isNot(CallStatus.active),
+          reason:
+              'the call went active on a media start that has not come back: '
+              'slot and stash held, a transport badge for a route nothing is '
+              'flowing on',
+        );
+      });
+    });
+
+    test('a camera IS given longer than audio before it is given up on', () {
+      fakeAsync((async) {
+        final (svc, media) = stalled(
+          async,
+          const CallMedia(audio: true, video: true),
+        );
+        async.elapse(const Duration(seconds: 20));
+        async.flushMicrotasks();
+        // Still connecting — not active, and not ended either. This is the
+        // consent dialog the old `true` was really papering over.
+        expect(svc.current?.status, CallStatus.connecting);
+        media.initialStart.complete(true);
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.active);
+      });
+    });
+
+    test('a start that never answers ends the call rather than faking it', () {
+      fakeAsync((async) {
+        final (svc, _) = stalled(
+          async,
+          const CallMedia(audio: true, video: true),
+        );
+        async.elapse(kCallVisualMediaStartTimeout + const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(svc.current, isNull);
+      });
+    });
+
+    test('audio keeps the short budget it always had', () {
+      fakeAsync((async) {
+        final (svc, _) = stalled(async, const CallMedia(audio: true));
+        async.elapse(kCallMediaStartTimeout + const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(svc.current, isNull);
+      });
+    });
+  });
+
   group('CallService screen share orchestration', () {
     final peer = NodeId.fromHex('a' * 64);
 
