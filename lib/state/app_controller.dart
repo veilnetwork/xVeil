@@ -25,6 +25,7 @@ import '../data/whisper_model_store.dart' show WhisperModelStore;
 import '../domain/storage_compaction_policy.dart';
 import '../domain/identity.dart';
 import '../domain/p2p_policy.dart';
+import '../domain/p2p_policy.dart' as p2p;
 import '../domain/roster.dart';
 import 'background_node_controller.dart';
 import 'keep_all_online_controller.dart';
@@ -2408,17 +2409,16 @@ class AppController extends Notifier<AppState> {
   ///    read bound a LAN listener for a user who had explicitly denied P2P.
   ///    The setting exists precisely to stop that; an open LAN port is not
   ///    something to grant on a guess.
+  /// Kept as a name the tests already use; the answer lives with the rest of
+  /// the policy so both boot paths give the same one.
   @visibleForTesting
   static bool lanListenAllowed({
     required String? storedPolicy,
     required bool readFailed,
-  }) {
-    if (readFailed) return false;
-    if (storedPolicy == null) {
-      return kDefaultP2PGlobalPolicy != P2PGlobalPolicy.denied;
-    }
-    return p2pGlobalPolicyFromName(storedPolicy) != P2PGlobalPolicy.denied;
-  }
+  }) => p2p.lanListenAllowed(
+    storedPolicy: storedPolicy,
+    readFailed: readFailed,
+  );
 
   /// Build the in-process deniable stack post-unlock (storage is open) when the
   /// embedded boot is configured and not already running.

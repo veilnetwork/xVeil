@@ -1,8 +1,9 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:xveil/data/storage/file_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
-import 'dart:io';
-import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
@@ -12,6 +13,7 @@ import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/multi_identity_session.dart';
 
@@ -71,6 +73,87 @@ class _FakeTransport implements VeilTransport {
 }
 
 void main() {
+  test('every always-online node is told whether it may bind the LAN', () async {
+    // `RealVeilStack.startDeniable` takes `lanListen` and defaults it to false.
+    // The one-active boot resolves it from the P2P policy; this plan did not
+    // pass it AT ALL, so every node in an all-online session bound loopback.
+    // The direct-route ladder then ran in full — shared nothing, dialled,
+    // punched — against a listener nobody could reach, in either direction,
+    // for as long as the session lasted.
+    final backing = SyncWrappedAsyncMultiSpaceBacking(FakeMultiSpaceBacking());
+    final roster = [_e('allows', 11), _e('denies', 12)];
+
+    // Two identities in ONE container with OPPOSITE answers: the case a single
+    // session-wide answer gets wrong whichever way it is resolved.
+    for (final entry in roster) {
+      final id = await backing.openSpace(entry.spaceKeys);
+      await _viewOf(backing, id).putSetting(
+        kP2PGlobalPolicySettingKey,
+        entry.label == 'allows'
+            ? P2PGlobalPolicy.allowAll.name
+            : P2PGlobalPolicy.denied.name,
+      );
+    }
+
+    final specs = await planIdentityBoots(
+      roster,
+      backing,
+      runtimeDirBase: '/run',
+      listenPortBase: 9000,
+      storageFor: (id) => _viewOf(backing, id),
+      peersFor: (_) => const [],
+    );
+
+    final byLabel = {for (final s in specs) s.label: s};
+    expect(
+      byLabel['allows']!.lanListen,
+      isTrue,
+      reason:
+          'the node binds loopback, so it shares no dialable endpoint and no '
+          'peer can reach it — the direct route cannot come up at all',
+    );
+    expect(
+      byLabel['denies']!.lanListen,
+      isFalse,
+      reason:
+          'an identity whose owner denied P2P got a LAN listener because a '
+          'neighbour in the same container allows it',
+    );
+  });
+
+  test('and the boot actually hands it to the stack', () {
+    // The plan resolving it and the boot passing it are two links, and the
+    // second is the one that was missing. `_realBoot` needs a real stack, so
+    // the link is asserted over the source: a spec field nobody forwards is a
+    // field that reads correct and does nothing.
+    final src = File('lib/state/multi_identity_session.dart').readAsStringSync();
+    final at = src.indexOf('Future<IdentityNode> _realBoot(');
+    expect(at, isNot(-1), reason: '_realBoot was renamed');
+    final body = src.substring(at, src.indexOf('\n}', at));
+    expect(
+      body,
+      contains('lanListen: spec.lanListen'),
+      reason:
+          'the boot drops the answer the plan resolved, so every node binds '
+          'loopback again and nobody can dial it',
+    );
+  });
+
+  test('an unreadable P2P setting does not open a LAN port on a guess', () {
+    // The two ways the setting can be missing pull in opposite directions:
+    // denying an absent one breaks every fresh install, allowing an unreadable
+    // one binds a port for somebody who said no.
+    expect(lanListenAllowed(storedPolicy: null, readFailed: false), isTrue);
+    expect(lanListenAllowed(storedPolicy: null, readFailed: true), isFalse);
+    expect(
+      lanListenAllowed(
+        storedPolicy: P2PGlobalPolicy.denied.name,
+        readFailed: false,
+      ),
+      isFalse,
+    );
+  });
+
   test(
     'planIdentityBoots assigns a distinct space/port per identity',
     () async {
