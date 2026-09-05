@@ -2089,6 +2089,12 @@ class GroupService {
         if (member.role == GroupRole.owner) member.nodeId,
     ];
     if (!state.isActive || owners.length != 1 || owners.single != selfId) {
+      // ignore: avoid_print
+      print('OWN active=${state.isActive} n=${owners.length} '
+          'owner=${owners.isEmpty ? "-" : owners.single.hex.substring(0, 4)} '
+          'self=${selfId.hex.substring(0, 4)} '
+          'rows=${folded.accepted.length} rej=${folded.rejected.length} '
+          'transfers=${folded.accepted.where((e) => e.op == ControlOp.transferOwnership).length}');
       return null;
     }
     final authorityChain = buildSpacePublicAuthorityChain(
@@ -2103,9 +2109,13 @@ class GroupService {
       return null;
     }
     final feedMaterial = await _spacePublicFeedMaterial(bundle);
-    if (feedMaterial == null) return null;
+    if (feedMaterial == null) {
+      return null;
+    }
     final joinCode = await createSpaceJoinCode(spaceId);
-    if (joinCode == null) return null;
+    if (joinCode == null) {
+      return null;
+    }
     final ticket = SpaceJoinCode.parse(joinCode);
     final wallNow = _now();
     // A member writes its OWN control entries — `leave` needs no permission at
@@ -2137,7 +2147,9 @@ class GroupService {
       ticket.expiresAtMs,
       issuedAt + kSpacePublicDescriptorLifetime.inMilliseconds,
     );
-    if (expiresAt <= wallNow || expiresAt <= issuedAt) return null;
+    if (expiresAt <= wallNow || expiresAt <= issuedAt) {
+      return null;
+    }
     final controlHeadHash = crypto.sha256
         .convert(
           utf8.encode(
@@ -2158,7 +2170,9 @@ class GroupService {
       issuedAtMs: issuedAt,
       expiresAtMs: expiresAt,
     );
-    if (feed == null) return null;
+    if (feed == null) {
+      return null;
+    }
     final unsignedDescriptor = SpacePublicDescriptor(
       spaceId: spaceId,
       publisher: selfId,
@@ -2193,14 +2207,18 @@ class GroupService {
     final descriptor = unsignedDescriptor.withSignature(
       descriptorSignature.signature,
     );
-    if (!descriptor.verifyAt(issuedAt, _signer.verifyDetached)) return null;
+    if (!descriptor.verifyAt(issuedAt, _signer.verifyDetached)) {
+      return null;
+    }
 
     final holderIssuedAt = wallNow;
     final holderExpiresAt = min(
       descriptor.expiresAtMs,
       holderIssuedAt + kSpacePublicHolderLifetime.inMilliseconds,
     );
-    if (holderExpiresAt <= holderIssuedAt) return null;
+    if (holderExpiresAt <= holderIssuedAt) {
+      return null;
+    }
     final unsignedHolder = SpacePublicHolderAnnouncement(
       spaceId: spaceId,
       descriptorHash: descriptor.descriptorHash,
@@ -4168,7 +4186,7 @@ class GroupService {
     return historical;
   }
 
-  ({int seq, String prevHash, bool blocked}) _nextControlLink(
+  ({int seq, String prevHash, bool blocked, String? seen}) _nextControlLink(
     SpaceManifest manifest,
     List<ControlEntry> control,
     NodeId author,
@@ -4198,11 +4216,23 @@ class GroupService {
           _validControlFor(manifest, entry) &&
           entry.seq > acceptedHeadSeq,
     );
+    // The newest row THIS author had already applied, as a happens-before edge
+    // for the row they are about to write. `prevHash` binds them to their own
+    // previous row; between authors the log carried nothing, so the fold fell
+    // back to a wall clock each author picks — and a row dated forward stayed
+    // the standing last word (report5-plan §5.3).
+    //
+    // `accepted.last` is exactly "the newest row I had applied": the fold above
+    // returns them in application order. A row that saw nothing gets null.
+    final seen = folded.accepted.isEmpty
+        ? null
+        : '${folded.accepted.last.author.hex}:${folded.accepted.last.seq}';
     if (authored.isEmpty) {
-      return (seq: 0, prevHash: '', blocked: hasRejectedSuffix);
+      return (seq: 0, prevHash: '', blocked: hasRejectedSuffix, seen: seen);
     }
     final head = authored.last;
     return (
+      seen: seen,
       seq: head.seq + 1,
       prevHash: controlEntryHash(head),
       blocked: hasRejectedSuffix,
@@ -7342,6 +7372,7 @@ class GroupService {
         author: _signer.selfId,
         seq: link.seq,
         prevHash: link.prevHash,
+        seen: link.seen,
         op: ControlOp.createChannel,
         target: null,
         role: null,
@@ -8152,7 +8183,7 @@ class GroupService {
           b.manifest.isSpace && revokesPublishing && target != null
           ? _postBoundaryFor(b, target)
           : null;
-      ControlEntry signMutation(int seq, String prevHash) =>
+      ControlEntry signMutation(int seq, String prevHash, String? seen) =>
           _signer.signControl(
             ControlEntry(
               version: authorityBoundary != null
@@ -8196,6 +8227,7 @@ class GroupService {
               author: _signer.selfId,
               seq: seq,
               prevHash: prevHash,
+              seen: seen,
               op: op,
               target: target,
               role: role,
@@ -8227,7 +8259,7 @@ class GroupService {
       // recipient sets are derived from this future state. This ordering lets
       // the current owner preserve an owner-only retention decision during an
       // ownership transfer while the final bundle is still one atomic write.
-      final projected = signMutation(initialLink.seq, initialLink.prevHash);
+      final projected = signMutation(initialLink.seq, initialLink.prevHash, initialLink.seen);
       final projectedFold = foldControlLog(
         owner: b.manifest.owner,
         entries: [...b.control, projected],
@@ -8288,7 +8320,7 @@ class GroupService {
       );
       if (mutationLink.blocked) return false;
       mySeq = mutationLink.seq;
-      final signed = signMutation(mySeq, mutationLink.prevHash);
+      final signed = signMutation(mySeq, mutationLink.prevHash, mutationLink.seen);
       controls.add(signed);
       var candidate = [...workingBundle.control, signed];
       var folded = foldControlLog(
@@ -9505,6 +9537,7 @@ class GroupService {
       author: _signer.selfId,
       seq: link.seq,
       prevHash: link.prevHash,
+      seen: link.seen,
       op: ControlOp.leave,
       target: null,
       role: null,
@@ -11281,6 +11314,7 @@ class GroupService {
       author: _signer.selfId,
       seq: link.seq,
       prevHash: link.prevHash,
+      seen: link.seen,
       op: ControlOp.checkpoint,
       target: null,
       role: null,
@@ -18109,6 +18143,7 @@ class GroupService {
         author: sovereign.nodeId,
         seq: link.seq,
         prevHash: link.prevHash,
+        seen: link.seen,
         op: op,
         target: device,
         role: op == ControlOp.addMember ? GroupRole.member : null,
