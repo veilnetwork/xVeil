@@ -190,7 +190,16 @@ void main() {
 
       expect(result.state.description, 'Protocol research and field notes');
       expect(result.rejected, hasLength(2));
-      expect(result.rejected.first.author, _bob);
+      // MEMBERSHIP, not position. Which of the two rejected rows comes first
+      // is the merge's business and nothing ever promised it: the fold orders
+      // concurrent heads deterministically but arbitrarily, and this assertion
+      // used to pin whichever order the wall clock happened to give. What the
+      // test is actually about is that a plain member's edit is refused.
+      expect(
+        result.rejected.map((entry) => entry.author),
+        contains(_bob),
+        reason: "a member's forged description edit was not rejected",
+      );
       final accepted = result.accepted.last;
       expect(ControlEntry.fromJson(accepted.toJson())?.text, accepted.text);
       expect(

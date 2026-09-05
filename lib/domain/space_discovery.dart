@@ -38,6 +38,7 @@ class SpacePublicAuthorityLink {
     required this.transferredAtMs,
     required this.previousOwnerPublicKey,
     required this.signature,
+    this.seen,
   });
 
   static const int version = 1;
@@ -47,6 +48,19 @@ class SpacePublicAuthorityLink {
   final int authorSeq;
   final String authorPreviousHash;
   final int policyVersion;
+
+  /// The transfer's own [ControlEntry.seen], carried because the signature
+  /// covers it.
+  ///
+  /// [transferCanonicalBytes] rebuilds the signed bytes BY HAND — this is a
+  /// second copy of the v6 control-entry layout, written out so the public
+  /// wire can carry the original signature without the rest of the log. That
+  /// makes every additive field on ControlEntry a silent break here: the row
+  /// is signed over bytes that include it and this reconstruction omits it, so
+  /// the signature stops verifying and the whole authority chain fails closed.
+  /// It is exactly what happened when `seen` was added.
+  final String? seen;
+
   final int transferredAtMs;
   final Uint8List previousOwnerPublicKey;
   final Uint8List signature;
@@ -72,6 +86,7 @@ class SpacePublicAuthorityLink {
         'prev': authorPreviousHash,
         'op': ControlOp.transferOwnership.name,
         'target': nextOwner.hex,
+        if (seen != null) 'seen': seen,
         'pv': policyVersion,
         'ts': transferredAtMs,
       }),
@@ -101,6 +116,7 @@ class SpacePublicAuthorityLink {
     'to': nextOwner.hex,
     'seq': authorSeq,
     'prev': authorPreviousHash,
+    if (seen != null) 'seen': seen,
     'pv': policyVersion,
     'ts': transferredAtMs,
     'key': base64Encode(previousOwnerPublicKey),
@@ -126,6 +142,7 @@ class SpacePublicAuthorityLink {
       transferredAtMs: entry.createdAtMs,
       previousOwnerPublicKey: Uint8List.fromList(entry.authorPubKey),
       signature: Uint8List.fromList(entry.signature),
+      seen: entry.seen,
     );
   }
 
@@ -159,6 +176,7 @@ class SpacePublicAuthorityLink {
         nextOwner: NodeId.fromHex(value['to'] as String),
         authorSeq: value['seq'] as int,
         authorPreviousHash: value['prev'] as String,
+        seen: value['seen'] is String ? value['seen'] as String : null,
         policyVersion: value['pv'] as int,
         transferredAtMs: value['ts'] as int,
         previousOwnerPublicKey: Uint8List.fromList(
