@@ -53,6 +53,20 @@ class HvKvLogStore implements KvLogStore, SyncCommitAnchorSource {
   List<int> commitHistory() => _space.commitHistory();
 
   @override
+  Map<int, String> commitRoots() => {
+    for (final era in _space.commitHistoryWithRoots())
+      era.seq: _hex(era.rootHash),
+  };
+
+  static String _hex(Uint8List bytes) {
+    final out = StringBuffer();
+    for (final b in bytes) {
+      out.write(b.toRadixString(16).padLeft(2, '0'));
+    }
+    return out.toString();
+  }
+
+  @override
   Uint8List? get(int namespace, Uint8List key) => _space.get(namespace, key);
 
   @override
