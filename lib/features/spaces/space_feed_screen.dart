@@ -146,6 +146,7 @@ class _SpaceFeedScreenState extends ConsumerState<SpaceFeedScreen> {
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
+        useSafeArea: true,
         builder: (_) => _SpaceFeedFilterSheet(
           initial: current,
           availableSpaces: availableSpaces,

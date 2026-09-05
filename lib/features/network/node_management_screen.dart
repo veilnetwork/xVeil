@@ -184,6 +184,7 @@ class NodeManagementScreen extends ConsumerWidget {
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
+        useSafeArea: true,
         builder: (_) => ShareLinkSheet(
           title: l.nodeShareEntryTitle(node.label),
           hint: l.nodeShareEntryHint,
