@@ -16,6 +16,8 @@ import 'cloud_document_envelope_service.dart';
 import 'cloud_document_replication_service.dart';
 import 'cloud_document_store.dart';
 import 'messaging.dart';
+import 'cloud_capability_service.dart' show cloudProviderSlotFor;
+import 'device_group_reader.dart';
 import 'providers.dart';
 
 /// Member content hosting reads and writes files through the same encrypted
@@ -127,12 +129,29 @@ final cloudDocumentReplicationServiceProvider =
           // dependency cycle, so groupServiceProvider installs the real
           // resolver via [CloudDocumentReplicationService.memberProviderSlot]
           // once it is built.
-          // LIMIT: only the ACTIVE identity gets a GroupService, so in
-          // all-online mode the other identities' services keep slot 0. Two
-          // devices hosting the same shared folder for a NON-active identity
-          // can therefore still collide; closing that needs a per-identity
-          // device group, which does not exist yet.
-          memberProviderSlot: () async => 0,
+          // NOT a constant any more. Only the ACTIVE identity gets a
+          // GroupService, so every other identity kept slot 0 — and two
+          // devices of one of them, hosting the same shared folder, registered
+          // as ONE provider and collided (report20 XV20-M9). The device group
+          // is per-identity DATA and always was; what was missing was a way to
+          // read it without that identity's live service, and
+          // [deviceMembersOf] is that — over the same
+          // `GroupService.deviceMembers`, so there is no second implementation
+          // to drift.
+          //
+          // FAIL CLOSED on "unknown": a slot guessed from an unread device
+          // list is the collision this exists to stop. `null` from the
+          // resolver leaves hosting unregistered rather than registering it
+          // wrongly, and a single-device identity answers 0 through the
+          // ordinary path because its device list is empty.
+          memberProviderSlot: () async {
+            final devices = await deviceMembersOf(
+              storage: storage,
+              selfId: nodeId,
+            );
+            if (devices == null) return null;
+            return cloudProviderSlotFor(nodeId, devices);
+          },
         );
         unawaited(service.reconcileMemberHosting());
         Future<bool> handler(NodeId peer, String frameJson) async {
