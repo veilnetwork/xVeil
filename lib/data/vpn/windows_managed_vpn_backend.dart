@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 
 import 'geoip_country_routes.dart';
@@ -32,13 +33,44 @@ Map<String, Object?> buildWindowsVpnHelperRequest({
   };
 }
 
-String buildWindowsVpnElevationScript(String executable, String request) {
+/// The SHA-256 the elevated helper is told to expect, as lowercase hex.
+///
+/// Over the bytes the host WRITES, which is why the caller hashes what it is
+/// about to write rather than re-reading the file: a second read is another
+/// moment in which the same user's processes could have replaced it, and that
+/// moment is the whole defect this closes.
+String windowsVpnRequestDigest(List<int> requestBytes) =>
+    sha256.convert(requestBytes).toString();
+
+/// The PowerShell that asks for elevation and starts the helper.
+///
+/// [digest] travels on the COMMAND LINE, and that is the point of it. The
+/// request JSON has to be staged in the user's own `%TEMP%` — the host is
+/// unelevated when it writes it — so any process of that user can rewrite the
+/// file while the UAC prompt is on screen, and the helper's read of it is what
+/// gives the contents administrator power over routes, DNS and the SOCKS
+/// endpoint. A command line is fixed when the approved process is created.
+/// The digest is not a secret; it is a value the attacker cannot change
+/// (report5 R5-X-03).
+String buildWindowsVpnElevationScript(
+  String executable,
+  String request,
+  String digest,
+) {
+  // Refused here rather than passed on: a caller that has no digest must not
+  // be able to produce a launch, and the helper's own check would then be the
+  // only thing standing between a rewritten request and an elevated tunnel.
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(digest)) {
+    throw ArgumentError('windows VPN request digest must be 64 hex characters');
+  }
   String quote(String value) => "'${value.replaceAll("'", "''")}'";
   return r'$exe = ' +
       quote(executable) +
       r'; $request = ' +
       quote(request) +
-      r"""; $arguments = '--xveil-vpn-helper "' + $request + '"'; $process = Start-Process -FilePath $exe -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -PassThru; [Console]::Out.WriteLine($process.Id)""";
+      r'; $digest = ' +
+      quote(digest) +
+      r"""; $arguments = '--xveil-vpn-helper "' + $request + '" ' + $digest; $process = Start-Process -FilePath $exe -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -PassThru; [Console]::Out.WriteLine($process.Id)""";
 }
 
 /// Windows system VPN backed by a UAC-elevated helper mode in `xveil.exe`.
@@ -206,7 +238,9 @@ class WindowsManagedVpnBackend implements VpnBackend {
     _statusFile = File('${session.path}${separator}status.json');
     _stopFile = File('${session.path}${separator}stop');
     _token = token;
-    await request.writeAsString(
+    // The exact bytes, hashed and written from ONE value. Encoding twice — or
+    // hashing a re-read of the file — would leave the gap this closes.
+    final requestBytes = utf8.encode(
       jsonEncode(
         buildWindowsVpnHelperRequest(
           hostPid: pid,
@@ -215,8 +249,9 @@ class WindowsManagedVpnBackend implements VpnBackend {
           expandedPolicy: expanded,
         ),
       ),
-      flush: true,
     );
+    final requestDigest = windowsVpnRequestDigest(requestBytes);
+    await request.writeAsBytes(requestBytes, flush: true);
 
     try {
       // ASKED AGAIN, immediately before the UAC prompt. Everything between the
@@ -238,7 +273,11 @@ class WindowsManagedVpnBackend implements VpnBackend {
           '-ExecutionPolicy',
           'Bypass',
           '-Command',
-          buildWindowsVpnElevationScript(_executablePath, request.path),
+          buildWindowsVpnElevationScript(
+            _executablePath,
+            request.path,
+            requestDigest,
+          ),
         ],
         stdoutEncoding: utf8,
         stderrEncoding: utf8,
