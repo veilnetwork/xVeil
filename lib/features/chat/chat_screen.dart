@@ -28,6 +28,9 @@ import 'model_bundle_card.dart';
 import 'mention_composer.dart';
 import '../../domain/call_signal.dart';
 import '../../domain/chat.dart';
+import '../../domain/chat_timeline.dart';
+import '../../state/call_log.dart';
+import '../calls/call_timeline_row.dart';
 import '../../domain/file_download_policy.dart';
 import '../../domain/inline_custom_emoji.dart';
 import '../../domain/space_recommendation.dart';
@@ -2420,10 +2423,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 final hasMore = list.length >= window;
                 // id → message, so a reply bubble can resolve + render its quote.
                 final byId = {for (final m in list) m.id: m};
+                // Calls belong in the conversation they happened in. They are
+                // not messages and are not stored as any — the journal is the
+                // record, and a second copy in the message log would be the
+                // same fact in two places with two deletion rules. This is a
+                // view over both, clipped to the loaded window so a year of
+                // calls cannot pile above the oldest loaded message.
+                final items = mergeCallsIntoTimeline(
+                  messages: list,
+                  calls:
+                      ref
+                          .watch(callLogForPeerProvider(widget.peerHex))
+                          .asData
+                          ?.value ??
+                      const [],
+                );
                 return ListView.builder(
                   controller: _scroll,
                   padding: const EdgeInsets.all(12),
-                  itemCount: list.length + (hasMore ? 1 : 0),
+                  itemCount: items.length + (hasMore ? 1 : 0),
                   itemBuilder: (_, i) {
                     if (hasMore && i == 0) {
                       return Center(
@@ -2437,7 +2455,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         ),
                       );
                     }
-                    final m = list[hasMore ? i - 1 : i];
+                    final item = items[hasMore ? i - 1 : i];
+                    if (item is ChatCallItem) {
+                      return CallTimelineRow(entry: item.call);
+                    }
+                    final m = (item as ChatMessageItem).message;
                     // A disappearing-window change renders as a centered
                     // system notice on BOTH sides — the person who set it and
                     // the person it was set on both need to see it.

@@ -74,6 +74,25 @@ final callLogStoreProvider = Provider<CallLogStore>(
 /// Folds the call FSM's terminal snapshots into the journal. Eagerly watched
 /// from the app scope (like the group bridge) so calls are journaled even
 /// while no journal UI exists.
+/// This conversation's calls, newest-last, for the chat timeline.
+///
+/// Watches [CallLogStore.changes] so a call that ends while the chat is open
+/// appears without anybody reopening it.
+final callLogForPeerProvider =
+    FutureProvider.family<List<CallLogEntry>, String>((ref, peerHex) async {
+      final store = ref.watch(callLogStoreProvider);
+      // The notifier is the store's "something changed" tick; rebuilding on it
+      // is what makes a call that just ended show up in the open chat.
+      final listenable = store.changes;
+      void bump() => ref.invalidateSelf();
+      listenable.addListener(bump);
+      ref.onDispose(() => listenable.removeListener(bump));
+      final all = await store.list();
+      final mine = [for (final e in all) if (e.peerHex == peerHex) e]
+        ..sort((a, b) => a.atMs.compareTo(b.atMs));
+      return mine;
+    });
+
 final callLogRecorderProvider = Provider<void>((ref) {
   final svc = ref.watch(callServiceProvider);
   final store = ref.read(callLogStoreProvider);
