@@ -10,6 +10,60 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.43] — 2026-09-05
+
+### Fixed
+
+- The deployment PSK sat in a world-readable script for the whole deployment.
+  The critical part of the provisioning script embeds the obfs4 pre-shared key
+  as a literal, was created by `sudo tee` under sudo's own umask, and then set
+  0755 — in a staging directory the same script makes traversable for the rest
+  of the run. Every local account on the server could read it. It is created
+  0700 before a byte of the body exists now, and root is the only account that
+  ever runs it.
+- The elevated Windows VPN helper applied whatever `request.json` said at the
+  moment it read it. The request has to be staged in this user's own `%TEMP%`,
+  so a process of that user could rewrite it while the UAC prompt was on screen
+  and have administrator-level routes, DNS and a SOCKS endpoint applied from a
+  file nobody approved. The launch now carries the SHA-256 of the bytes that
+  were written, on a command line fixed when the approved process is created.
+- ...and the status the helper writes back was equally forgeable, for the same
+  reason and in the same directory. It moves to a location this process can
+  read and cannot write.
+- A stop during an Android camera start left the camera on with no owner. The
+  start walks several awaits before it owns anything visible, and stop() found
+  the null it had not filled in yet, cleared nothing and returned — so the
+  start then published a controller to a capturer nobody was holding. The OS
+  camera indicator stayed lit after a hangup, a lock or an identity switch, and
+  the next call could not open the camera at all.
+- A video call went active on a media start that had not answered. A video or
+  screen start that had not come back in eight seconds was treated as success:
+  the call slot and the background stash were held, the transport badge showed
+  a route nothing was flowing on, and the late start's side effects landed on a
+  call the person had already given up on. Camera and screen now get a budget
+  that fits an OS consent dialog, and then the answer is believed.
+- A replaced endpoint service kept sharing addresses under another identity.
+  After an all-online switch the previous identity's service went on running,
+  sending on the pipeline it had captured while asking the NEW identity's
+  policy for permission. Sharing an endpoint hands over a real network address.
+- The identity switch took its lifecycle token after it had already waited, so
+  a lock landing in that window handed it the post-lock number and the switch
+  believed nothing had superseded it.
+- A meeting point written by a newer build stopped the identity booting. The
+  list of points grows, and a name this build does not know reached the config
+  composer from storage, where it threw.
+- A P2P policy that could not be written still showed as chosen, and silently
+  went back to the old one on the next start.
+- The buffer sizes the Dart side allocates for video frames are bounded now.
+  They were grown to whatever the native side reported, and on a receive path
+  that number comes from a peer's decoder.
+- An ARM host was told no call engine is published for it, long after
+  release.yml started building one.
+
+### Changed
+
+- veil 0.11.21.
+
 ## [0.13.42] — 2026-09-05
 
 ### Fixed
