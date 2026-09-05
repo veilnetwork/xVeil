@@ -135,6 +135,51 @@ void main() {
       );
     });
 
+    test('the status is read from where this process cannot write it', () {
+      final path = windowsVpnStatusPath(
+        r'C:\Users\A Name\AppData\Local\Temp\xveil-vpn-abc123',
+        r'C:\ProgramData',
+      );
+      // The leaf is the session's own name, so two runs never collide and the
+      // name is unguessable before the launch.
+      expect(path, contains('xveil-vpn-abc123'));
+      expect(path, startsWith(r'C:\ProgramData'));
+      expect(path, endsWith('status.json'));
+      // And NOT beside the request, which is the whole point.
+      expect(path, isNot(contains('Temp')));
+    });
+
+    test('the helper and the host derive the same place', () {
+      // The path is one fact in two languages. If the native side moves it,
+      // the host polls a file nobody writes and reports a tunnel that is up as
+      // never having started.
+      final rust = File(
+        'third_party/veil/crates/veil-vpn-helper/src/windows.rs',
+      ).readAsStringSync();
+      expect(
+        rust,
+        contains('join("xVeil")'),
+        reason: 'the helper no longer publishes under %ProgramData%\\xVeil',
+      );
+      expect(rust, contains('join("vpn")'));
+      expect(rust, contains('join("status.json")'));
+      expect(
+        rust,
+        contains('STATUS_DIR_SDDL'),
+        reason:
+            'the directory is created without an explicit DACL, so it inherits '
+            'whatever the parent grants — which is what made the old status '
+            'forgeable',
+      );
+      // Users read, and nothing else: the host has to poll it.
+      expect(rust, contains('(A;OICI;FR;;;BU)'));
+      expect(
+        rust,
+        isNot(contains('(A;OICI;FA;;;BU)')),
+        reason: 'Users were granted full control over the status directory',
+      );
+    });
+
     test('the digest is over the bytes, and moves with them', () {
       final a = utf8.encode('{"routeMode":"all"}');
       final b = utf8.encode('{"routeMode":"nil"}');
