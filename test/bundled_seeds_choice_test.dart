@@ -1955,6 +1955,74 @@ void main() {
       });
     }
   });
+
+  group('a stored point this build cannot honour (report20 XV20-M1)', () {
+    // The list of meeting points grows: `EmbeddedNode.meetingPoints` is three
+    // names today and was two before. So a name written by a NEWER build can
+    // be read back by an older one — an app downgrade, or a container carried
+    // to a device on an older release.
+    //
+    // `withMeetingPoints` throws ArgumentError on a name it does not know, and
+    // that throw is right where it is: it catches a typo in a literal. But the
+    // value here comes out of STORAGE and reaches the composer during boot, so
+    // the throw took the identity off the network entirely — it could not
+    // start at all.
+
+    test('an unknown name is dropped, not carried into the composer', () async {
+      final storage = _OpenSettingStorage();
+      await setMeetingPointsInSpace(storage, const [
+        'dht_bit_torrent',
+        'quantum_rendezvous',
+      ]);
+      final points = await meetingPointsInSpace(storage);
+      expect(points, const ['dht_bit_torrent']);
+      // The point of dropping it: what comes back must compose.
+      expect(
+        () => EmbeddedNode.withMeetingPoints('[global]\n', points),
+        returnsNormally,
+        reason:
+            'a name from a newer build reached the composer and threw during '
+            'boot; the identity did not start',
+      );
+    });
+
+    test('the names it does not know really would have thrown', () {
+      // Vacuity guard. If the composer ever stops refusing unknown names the
+      // test above is guarding nothing and should be re-aimed, not left green.
+      expect(
+        () => EmbeddedNode.withMeetingPoints('[global]\n', const [
+          'quantum_rendezvous',
+        ]),
+        throwsArgumentError,
+      );
+    });
+
+    test('dropping every name means look nowhere, not look everywhere', () async {
+      final storage = _OpenSettingStorage();
+      await setMeetingPointsInSpace(storage, const ['quantum_rendezvous']);
+      final points = await meetingPointsInSpace(storage);
+      // NOT null. Null is "the owner never answered", which the composer reads
+      // as veil's own `all` — every point including the ones this owner left
+      // out. A set none of whose members exist here is a set with nothing in
+      // it, and the narrow reading is the only safe one.
+      expect(points, isNotNull);
+      expect(points, isEmpty);
+      expect(
+        EmbeddedNode.withMeetingPoints('[global]\n', points),
+        contains('meeting_points = "off"'),
+      );
+    });
+
+    test('a list this build fully understands is untouched', () async {
+      final storage = _OpenSettingStorage();
+      await setMeetingPointsInSpace(storage, EmbeddedNode.meetingPoints);
+      expect(
+        await meetingPointsInSpace(storage),
+        EmbeddedNode.meetingPoints,
+      );
+    });
+  });
+
 }
 
 /// Deterministic space keys, distinct per seed — one hosted space each.
