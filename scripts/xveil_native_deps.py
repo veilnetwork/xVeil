@@ -51,7 +51,7 @@ import sys
 import urllib.error
 import urllib.request
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
 from xveil_build_support import ROOT, Abort, Step, have, host
@@ -95,8 +95,16 @@ class Engine:
 
     `host_arch` is the set of host architectures the download is usable on. It
     is None for android, whose engine is a cross-built .so that any host can
-    stage into an APK, and a pair of x86-64 spellings for linux and windows,
+    stage into an APK, and the host's own architecture for linux and windows,
     whose engines run on the host itself.
+
+    `arm64` is the same target built for an AARCH64 host. It exists because
+    both those targets now publish one — release.yml's `linux:` matrix has an
+    `arch: arm64` leg producing libveil_media-linux-arm64.so, and `windows:`
+    one producing veil_media-win-arm64.dll — from the SAME job, so both
+    architectures sit on the same ENGINE_RELEASE pin. This script used to tell
+    an aarch64 host that "the only published engine is x86_64" and that there
+    was no route at all, which stopped being true when those legs were added.
     """
 
     target: str
@@ -105,6 +113,20 @@ class Engine:
     filename: str
     dest: str
     host_arch: tuple[str, ...] | None
+    arm64: tuple[str, str] | None = None
+
+    def for_host(self) -> "Engine":
+        """This engine as THIS machine has to download it.
+
+        A no-op where the host does not decide the download (android), and
+        where this host is the architecture the base entry names.
+        """
+        if self.host_arch is None or arch() != "aarch64" or self.arm64 is None:
+            return self
+        artifact, asset = self.arm64
+        return replace(
+            self, artifact=artifact, asset=asset, host_arch=("aarch64",)
+        )
 
 
 ENGINES = {
@@ -114,7 +136,8 @@ ENGINES = {
         asset="libveil_media-linux-x64.so",
         filename="libveil_media.so",
         dest=os.path.join("third_party", "veil", "flutter", "veil_media", "linux"),
-        host_arch=("x86_64", "amd64"),
+        host_arch=("x86_64",),
+        arm64=("libveil_media-linux-arm64", "libveil_media-linux-arm64.so"),
     ),
     # One entry per Android ABI the APK ships. The asset name and the jniLibs
     # directory are the same choice written twice, and letting one be picked
@@ -150,7 +173,8 @@ ENGINES = {
         asset="veil_media-win-x64.dll",
         filename="veil_media.dll",
         dest=os.path.join("third_party", "veil", "flutter", "veil_media", "windows"),
-        host_arch=("x86_64", "amd64"),
+        host_arch=("x86_64",),
+        arm64=("libveil_media-win-arm64", "veil_media-win-arm64.dll"),
     ),
 }
 
@@ -711,6 +735,11 @@ def fetch_engine(target: str) -> None:
         )
         return
 
+    # Which build of it THIS machine needs, before anything is named to the
+    # user. The engine runs on the host for linux and windows, so an aarch64
+    # box and an x86-64 box want different files from the same pin.
+    engine = engine.for_host()
+
     destination = os.path.join(ROOT, engine.dest)
     existing = os.path.join(destination, engine.filename)
     if os.path.isfile(existing):
@@ -728,32 +757,32 @@ def fetch_engine(target: str) -> None:
         return
 
     if engine.host_arch is not None and arch() not in engine.host_arch:
-        # The honest dead end. The engine runs ON this host for linux and
-        # windows targets, so an aarch64 machine cannot use the x86-64 build —
-        # and cannot make its own either: WebRTC's gn asserts on the host and
-        # ships linux-x86_64 toolchains only, which is why webrtc-linux.yml
-        # says an x86_64 Linux host is required. There is no route from here.
+        # A host nobody publishes for. This used to be reached by every aarch64
+        # machine, with a paragraph explaining that no route existed — written
+        # when that was true, and left standing after release.yml grew an
+        # `arch: arm64` leg for both linux and windows. `for_host()` above now
+        # answers those two; what is left here is a genuinely unpublished host.
         OUTCOMES.append(
             Outcome(
                 item=f"call engine ({target})",
                 got=False,
                 detail=(
-                    f"this host is {arch()} and the only published engine is "
-                    f"{'/'.join(engine.host_arch)}"
+                    f"this host is {arch()} and the published {target} engines "
+                    f"are {'/'.join(engine.host_arch)}"
+                    + (" and aarch64" if engine.arm64 is not None else "")
                 ),
                 cost=COST["engine"],
                 hint=[
-                    f"There is no route to a {target}/{arch()} engine from this",
-                    "machine, and that is not a gap in this script: WebRTC's own",
-                    "build asserts on the host architecture and ships",
-                    "linux-x86_64 toolchains only, so an aarch64 box cannot",
-                    "build one either. webrtc-linux.yml says so in its header.",
+                    f"No {target} engine is published for a {arch()} host. The",
+                    "engine runs on the host for this target, so a build for",
+                    "another architecture is of no use here.",
                     "",
                     "What that costs, concretely: unless your checkout has made",
-                    "a missing engine non-fatal, `flutter build linux` stops at",
-                    "CMake configure. Everything else here still works.",
+                    "a missing engine non-fatal, `flutter build` stops at CMake",
+                    "configure. Everything else here still works.",
                     "",
-                    f"To get a {target} build with calls, use an x86_64 host.",
+                    "Building one needs a WebRTC checkout on a host gn accepts;",
+                    "webrtc-linux.yml and webrtc-windows.yml are what CI runs.",
                 ],
             )
         )

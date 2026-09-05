@@ -308,6 +308,77 @@ finally:
     platform.machine = _held_machine
 
 
+# ---------------------------------------------------------------------------
+# The prebuilt call engine, per HOST architecture (report19 XV19-L2).
+#
+# `xveil_native_deps.ENGINES` names Release assets, and release.yml publishes
+# them: two copies of one fact. The table listed only the x86-64 pair long
+# after release.yml grew an `arch: arm64` leg for linux and windows, so an
+# aarch64 developer was told "the only published engine is x86_64/amd64" and
+# handed a paragraph explaining there was no route at all.
+#
+# So the guard is not "does the arm64 entry exist" — it is "does every name in
+# the table still appear in the workflow that publishes it".
+import re as _re  # noqa: E402
+
+import xveil_native_deps as nd  # noqa: E402
+
+_release = open(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                 ".github", "workflows", "release.yml"),
+    encoding="utf-8",
+).read()
+
+# The two shapes release.yml names an engine in: a matrix `engine_asset:` for
+# linux and windows, and the `abis="<abi>:<asset> ..."` line for android. A
+# substring search over the whole file would pass on any mention anywhere,
+# which is not the question — the question is whether a job publishes it.
+_published = set(_re.findall(r"engine_asset:\s*(\S+)", _release))
+for _abis in _re.findall(r'abis="([^"]+)"', _release):
+    _published |= {
+        pair.split(":", 1)[1] for pair in _abis.split() if ":" in pair
+    }
+
+check("release.yml names some engine assets at all", bool(_published), True)
+for _name, _engine in sorted(nd.ENGINES.items()):
+    _assets = [_engine.asset] + (
+        [_engine.arm64[1]] if _engine.arm64 is not None else []
+    )
+    for _asset in _assets:
+        check(
+            f"release.yml still publishes {_asset}",
+            _asset in _published,
+            True,
+        )
+
+# And the host actually selects among them. android is cross-built, so its
+# answer must NOT move with the host.
+_held_machine = platform.machine
+try:
+    for _machine, _linux, _windows in (
+        ("aarch64", "libveil_media-linux-arm64.so", "veil_media-win-arm64.dll"),
+        ("x86_64", "libveil_media-linux-x64.so", "veil_media-win-x64.dll"),
+    ):
+        platform.machine = lambda m=_machine: m
+        check(
+            f"a {_machine} host is offered {_linux}",
+            nd.ENGINES["linux"].for_host().asset,
+            _linux,
+        )
+        check(
+            f"a {_machine} host is offered {_windows}",
+            nd.ENGINES["windows"].for_host().asset,
+            _windows,
+        )
+        check(
+            f"the android engine is the same on a {_machine} host",
+            nd.ENGINES["android"].for_host().asset,
+            "libveil_media-android-arm64.so",
+        )
+finally:
+    platform.machine = _held_machine
+
+
 # The verdict, LAST. It used to sit above the checks appended after it, so a
 # failure there printed "FAIL" and the script still exited 0 — a gate that
 # reports and does not gate. Anything added below this line is outside the
