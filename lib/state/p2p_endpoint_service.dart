@@ -154,6 +154,24 @@ class P2PEndpointService {
   void Function(NodeId, String)? _handler;
   bool _started = false;
 
+  /// This service belonged to ONE identity's messaging pipeline, and the
+  /// provider replaces it on a switch. Detaching the inbound handler was all
+  /// [dispose] did, so everything else went on: the ladder, the announce, the
+  /// share. Both halves of that are wrong.
+  ///
+  /// The frames go out on the `_messaging` captured at construction — A's
+  /// pipeline — while `_localAllowsP2P` is a closure over the provider, which
+  /// answers with whoever is ACTIVE. So after an all-online switch, B's P2P
+  /// policy authorised sharing and dialling A's direct endpoints on A's
+  /// pipeline: a decision one identity made, applied to another's address
+  /// (report18 XV18-M6). Sharing an endpoint is handing over a real network
+  /// address, which is the thing "only nodes I add myself" exists to withhold.
+  ///
+  /// Checked at every entry point AND after the awaits inside them: a share
+  /// that has already passed the policy check but not yet reached
+  /// `sendP2PEndpoints` is exactly the case a flag set at the top would miss.
+  bool _disposed = false;
+
   static const _shareThrottle = Duration(minutes: 3);
 
   /// How often a conversation may re-run the ladder toward one peer. A chat
@@ -178,6 +196,7 @@ class P2PEndpointService {
   }
 
   void dispose() {
+    _disposed = true;
     if (_messaging.onP2PEndpoints == _handler) {
       _messaging.onP2PEndpoints = null;
     }
@@ -203,6 +222,7 @@ class P2PEndpointService {
     bool force = false,
     bool requestReshare = false,
   }) async {
+    if (_disposed) return;
     if (!_lanListenEnabled()) return; // loopback bind — nothing dialable
     if (!await _localAllowsP2P(peer)) return;
     final at = _lastSharedAt[peer.hex];
@@ -210,6 +230,9 @@ class P2PEndpointService {
     if (!force && at != null && now.difference(at) < _shareThrottle) return;
     final uris = await _mintLocalUris();
     if (uris.isEmpty) return;
+    // AGAIN, after the mint. The policy answer above may already belong to
+    // the identity that replaced ours.
+    if (_disposed) return;
     _lastSharedAt[peer.hex] = now;
     final ts = now.millisecondsSinceEpoch;
     final body = jsonEncode({
@@ -242,6 +265,7 @@ class P2PEndpointService {
   /// we want its. [max] bounds the boot burst on a large roster; the rest keep
   /// the ordinary path (a share on their next ladder run).
   Future<void> announceLocalEndpoints({int max = 32}) async {
+    if (_disposed) return;
     if (!_lanListenEnabled()) return; // loopback bind — nothing dialable
     final List<NodeId> peers;
     try {
@@ -257,6 +281,7 @@ class P2PEndpointService {
           '${peers.length > max ? max : peers.length} contact(s) after node boot',
     );
     for (final peer in peers.take(max)) {
+      if (_disposed) return;
       try {
         await maybeShare(peer, force: true, requestReshare: true);
       } catch (e) {
@@ -280,6 +305,7 @@ class P2PEndpointService {
   /// [messagingAllowsP2P] is the per-contact opt-in, NOT the global policy the
   /// call path uses. See `p2pMessagingAllows`.
   Future<void> warmForMessaging(NodeId peer) async {
+    if (_disposed) return;
     if (!_lanListenEnabled()) return; // loopback bind — nothing dialable
     final last = _lastWarmAt[peer.hex];
     final now = _now();
@@ -328,7 +354,9 @@ class P2PEndpointService {
     NodeId peer, {
     Duration budget = const Duration(milliseconds: 2500),
   }) async {
+    if (_disposed) return false;
     if (!await _localAllowsP2P(peer)) return false;
+    if (_disposed) return false;
 
     // Rung 1 — existing admitted session short-circuits (idempotent). Still
     // force a mutual reshare so the peer's own renewal has fresh endpoints.
@@ -357,6 +385,7 @@ class P2PEndpointService {
     final hostWindow = budget < _hostDialWindow ? budget : _hostDialWindow;
     while (hostSw.elapsed < hostWindow) {
       await Future<void>.delayed(const Duration(milliseconds: 300));
+      if (_disposed) return false;
       if (await _admitted(peer)) {
         _fallbackReason.remove(peer.hex);
         return true;
@@ -416,6 +445,7 @@ class P2PEndpointService {
       // (2026-07-24). The outer catch also covers a throwing policy/provider
       // read — an exception in this unawaited closure is otherwise invisible.
       try {
+        if (_disposed) return;
         if (!await _localAllowsP2P(peer)) {
           devLog(
             () =>
@@ -620,12 +650,14 @@ class P2PEndpointService {
   /// path already pins its issuer (`expected_issuer_pk`); this is the app-side
   /// half of the same admission.
   Future<void> _dialPeer(NodeId peer) async {
+    if (_disposed) return;
     final key = peer.hex;
     final uris = _peerEndpoints[key];
     if (uris == null || uris.isEmpty) return;
     if (!_dialing.add(key)) return;
     try {
       for (final uri in uris) {
+        if (_disposed) return;
         if (await _admitted(peer)) return;
         if (!_invitePresents(uri, peer)) continue;
         try {
