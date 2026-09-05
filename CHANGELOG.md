@@ -10,6 +10,48 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.44] — 2026-09-05
+
+### Fixed
+
+- The conversation menu started under the status bar. `isScrollControlled`
+  lifts the height cap a long sheet needs, and that also lets the sheet reach
+  the very top of the screen — where its first row ("Rename") sat behind the
+  clock and the battery icon. The SafeArea already inside it does not help:
+  that pads the child of a sheet which is already full height, and the
+  intrusion is the sheet's own top edge. Twenty sheets across the app, not
+  only the one in the report.
+- A call that happened in a conversation now appears in it. The journal was
+  already there — encrypted, capped, mirrored between this identity's devices
+  — but a missed call left no trace where a person looks.
+- The app says when it has nobody to talk to. A strip under the title tells
+  four silences apart: a node still starting, a node that is not running, a way
+  into the network that was switched off, and simply having found nobody yet.
+- Help, in the menu. Ten topics for somebody who is not in IT, including the
+  two that are worth reading BEFORE they are needed: that a lost password and a
+  lost device cannot be recovered by anyone, and what preparation protects.
+- A stop during an Android camera start left the camera on with no owner — the
+  OS indicator lit after a hangup, and the next call could not open the camera.
+- Two devices of a non-active identity hosting one shared folder registered as
+  the same provider, and the folder became unreachable from one of them.
+- The control log was ordered by a clock each entry's own author sets. An
+  author could date a row forward and keep the last word over every concurrent
+  honest change until that date. Rows now carry what their author had already
+  seen, and the fold honours that instead of a timestamp.
+- The rollback anchor recorded a number both branches of a fork can say. It
+  records the era — the commit and what that commit published — and matches
+  the pair.
+- Any process of this user could stop the Windows VPN tunnel by creating a
+  file. The stop travels on a control pipe that tells the helper which process
+  is asking, and only this one is accepted. The helper's status moved out of
+  reach too, and its request is bound to the launch that was approved.
+- A decoded video frame's size was the sender's to choose: three buffers were
+  sized from a number that comes out of a peer's stream.
+
+### Changed
+
+- veil 0.11.21, hidden-volume 2.3.0.
+
 ## [0.13.43] — 2026-09-05
 
 ### Fixed
