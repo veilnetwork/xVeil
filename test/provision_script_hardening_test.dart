@@ -684,4 +684,65 @@ void main() {
       );
     });
   });
+
+  group('the script that holds the PSK is root-only (report18 XV18-L2)', () {
+    // The critical body is not just a script: it embeds the deployment obfs4
+    // PSK as a literal, because the whole point of staging it is to hand it to
+    // `install` as root. So its MODE is the same secret as the staged
+    // `xveil-obfs4-psk.b64` file next to it, which is already 0600.
+    //
+    // It was 0755, in a staging directory the same script chmods to 0711 for
+    // the rest of the run, at a `mktemp -d` name that any account able to list
+    // /tmp can read. Every local UID could read the deployment PSK for the
+    // length of a deployment.
+
+    test('it is created 0700 before the body is written, and stays 0700', () {
+      final s = script();
+      final created = s.indexOf('install -m 0700 /dev/null "\$critical"');
+      final written = s.indexOf('sudo tee "\$critical"');
+      expect(
+        created,
+        isNot(-1),
+        reason:
+            'without a restrictive create, `sudo tee` makes the file under '
+            "SUDO's umask — 0644 on a default sudoers — and the PSK is "
+            'readable from the instant it exists',
+      );
+      expect(
+        created,
+        lessThan(written),
+        reason:
+            'a chmod AFTER the write still leaves a window in which the file '
+            'holds the PSK at whatever mode tee chose',
+      );
+      expect(
+        s,
+        contains('sudo chmod 0700 "\$critical"'),
+        reason: 'the finished script must not be readable by anyone but root',
+      );
+      expect(
+        s,
+        isNot(contains('chmod 0755 "\$critical"')),
+        reason:
+            'root is the only account that runs it (`sudo flock ... '
+            '"\$critical"`); nothing else needs to read it',
+      );
+    });
+
+    test('the PSK really is in the body this mode protects', () {
+      // The vacuity guard: if the PSK ever stops being embedded here, the
+      // test above is guarding an empty room and should be re-aimed, not
+      // left passing.
+      final s = script();
+      final staged = s.indexOf('XVEIL_PROVISION_CRITICAL');
+      final closed = s.indexOf('\nXVEIL_PROVISION_CRITICAL\n');
+      final body = s.substring(staged, closed);
+      expect(
+        body,
+        contains('dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE='),
+        reason:
+            'the mode of this file is a secret only while the secret is in it',
+      );
+    });
+  });
 }
