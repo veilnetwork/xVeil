@@ -73,6 +73,29 @@ String buildWindowsVpnElevationScript(
       r"""; $arguments = '--xveil-vpn-helper "' + $request + '" ' + $digest; $process = Start-Process -FilePath $exe -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -PassThru; [Console]::Out.WriteLine($process.Id)""";
 }
 
+/// Where the elevated helper publishes its status, for a run staged in
+/// [sessionPath].
+///
+/// Mirrors `protected_status_dir` in veil-vpn-helper: the leaf is named after
+/// the session directory and lives under [programData], where the helper can
+/// write and this process cannot.
+///
+/// It used to sit beside the request in our own %TEMP%, which HAS to be
+/// user-writable — the host is unelevated when it stages the request — so any
+/// process of this user could write a status of its own: a forged `running`
+/// for a tunnel that never came up, or a forged `error` that tears down a
+/// working one. The token in the file was never a defence against that: it is
+/// in the request the same user can read (report5 R5-X-03).
+String windowsVpnStatusPath(String sessionPath, String programData) {
+  final parts = sessionPath.split(RegExp(r'[\\/]'))
+    ..removeWhere((p) => p.isEmpty);
+  if (parts.isEmpty) {
+    throw ArgumentError('the VPN session path names no directory');
+  }
+  final sep = Platform.pathSeparator;
+  return '$programData${sep}xVeil${sep}vpn$sep${parts.last}${sep}status.json';
+}
+
 /// Windows system VPN backed by a UAC-elevated helper mode in `xveil.exe`.
 ///
 /// The elevated copy loads the packet engine DLL beside the application and
@@ -235,7 +258,18 @@ class WindowsManagedVpnBackend implements VpnBackend {
     final separator = Platform.pathSeparator;
     final request = File('${session.path}${separator}request.json');
     _sessionDirectory = session;
-    _statusFile = File('${session.path}${separator}status.json');
+    // NOT beside the request. See [windowsVpnStatusPath].
+    final programData = Platform.environment['ProgramData'];
+    if (programData == null || programData.isEmpty) {
+      await session.delete(recursive: true);
+      return VpnBackendState(
+        VpnBackendPhase.error,
+        detail:
+            'ProgramData is not set, so the helper has nowhere to publish a '
+            'status this process cannot forge',
+      );
+    }
+    _statusFile = File(windowsVpnStatusPath(session.path, programData));
     _stopFile = File('${session.path}${separator}stop');
     _token = token;
     // The exact bytes, hashed and written from ONE value. Encoding twice — or
