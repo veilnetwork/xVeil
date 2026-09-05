@@ -1556,6 +1556,35 @@ GroupFoldResult _foldControlLogOnce({
   var lastRetentionActivationMs = 0;
   final authorityLedger = <String, List<SpaceAuthorityBoundary>>{};
   final rejected = <ControlEntry>[];
+
+  // Every row this fold has finished with, accepted or rejected, as
+  // `<author>:<seq>`. A row that names one of these in [ControlEntry.seen] has
+  // had its edge satisfied; a row naming something not in here yet waits.
+  //
+  // REJECTED counts, and so does a row thrown out before the merge even
+  // begins. A reference to a row the fold discarded is still a reference to a
+  // row that happened as far as its author could tell, and waiting for an
+  // acceptance that will never come would park the referring row forever —
+  // which is exactly what it did until this covered the pre-pass too.
+  final settled = <String>{};
+
+  /// A row this fold has finished with, whatever the verdict.
+  void settle(ControlEntry entry) =>
+      settled.add('${entry.author.hex}:${entry.seq}');
+
+  // Every row THIS fold was given, whether it will be accepted or not.
+  //
+  // A reference to a row that is not in the log at all must be ignored rather
+  // than waited for. Snapshots are filtered per recipient, so a row the author
+  // had applied is not a row the recipient necessarily holds — and deferring
+  // on it pushed a perfectly valid ownership transfer to the end of the merge,
+  // where the policy-version check then rejected it. It also disposes of the
+  // forged-reference question: naming something that does not exist buys
+  // nothing, because nothing waits for it.
+  final present = <String>{
+    for (final e in entries) '${e.author.hex}:${e.seq}',
+  };
+
   final accepted = <ControlEntry>[];
   final withdrawn = <ControlEntry>[];
 
@@ -1569,6 +1598,7 @@ GroupFoldResult _foldControlLogOnce({
   for (final e in entries) {
     if (!e.isStructurallyValid || !verify(e)) {
       rejected.add(e);
+      settle(e);
       continue;
     }
     byIdentity.putIfAbsent('${e.author.hex}:${e.seq}', () => []).add(e);
@@ -1583,6 +1613,9 @@ GroupFoldResult _foldControlLogOnce({
     };
     if (distinct.length > 1) {
       rejected.addAll(candidates);
+      for (final candidate in candidates) {
+        settle(candidate);
+      }
       final sample = candidates.first;
       final current = forkedAt[sample.author.hex];
       if (current == null || sample.seq < current) {
@@ -1594,18 +1627,37 @@ GroupFoldResult _foldControlLogOnce({
     byAuthor.putIfAbsent(winner.author.hex, () => []).add(winner);
   }
 
-  // Deterministic causal merge: each author's seq order is inviolable even if
-  // wall clock moves backwards between two signed operations. Across authors,
-  // select the earliest current head by (createdAtMs, author hex, seq). A plain
-  // global timestamp sort would reorder seq 1 before seq 0 after a clock step,
-  // rejecting the earlier operation and diverging membership across devices.
-  final ordered = <ControlEntry>[];
+  // Deterministic CLOCK-FREE causal merge. Order is a linear extension of the
+  // two happens-before edges the log actually carries, and of nothing else:
+  //
+  //  * each author's own signed chain — `seq` is contiguous and `prevHash`
+  //    binds the exact previous accepted row, so an author's operations can
+  //    never be reordered against each other;
+  //  * admission — an author's chain cannot begin before the entry that made
+  //    that author a member, because that entry is what creates the authority
+  //    the whole chain is checked against. [admitted] below is the frontier of
+  //    that edge, and it is GROW-ONLY on purpose: a demotion or a removal does
+  //    NOT take an author back out of it, so a stale operation is still ranked
+  //    and still fails closed exactly where it does today, instead of being
+  //    held back and revived by a later re-grant.
+  //
+  // Genuinely concurrent heads — different authors, neither admitting nor
+  // chained to the other — have no true order, so they get an arbitrary but
+  // deterministic one from [controlSlotKey], which is a digest of `(author,
+  // seq)` and therefore identical on every device and choosable by nobody.
+  // `createdAtMs` is deliberately absent: it is a number the entry's own
+  // author picks, nothing in this network issues time, and no signature makes
+  // a clock honest. Ranking on it let one author date a row forward and hold
+  // the tail of the log against every honest operation until that date, or
+  // date one backward and slip it in ahead of the demotion that would have
+  // stopped it. The entry keeps that stamp verbatim as its DISPLAY time; only
+  // order stops asking for it.
   for (final list in byAuthor.values) {
     list.sort((a, b) => a.seq.compareTo(b.seq));
   }
   int compareHeads(ControlEntry a, ControlEntry b) {
-    final t = a.createdAtMs.compareTo(b.createdAtMs);
-    if (t != 0) return t;
+    final k = controlSlotKey(a).compareTo(controlSlotKey(b));
+    if (k != 0) return k;
     final h = a.author.hex.compareTo(b.author.hex);
     if (h != 0) return h;
     return a.seq.compareTo(b.seq);
@@ -1617,10 +1669,99 @@ GroupFoldResult _foldControlLogOnce({
   for (final author in byAuthor.keys) {
     heads.add((author: author, index: 0, entry: byAuthor[author]!.first));
   }
+  // The admission frontier. The genesis owner predates the log, so their chain
+  // is ready from the start; everyone else joins the merge at the row that
+  // admits them.
+  final admitted = <String>{owner.hex};
+
+
+
+  // A head is ready when every piece of state it NAMES has been reached.
+  //
+  // Beyond admission the log carries three signed counters an author cannot
+  // name without having seen the row that produced the value: `policyVersion`,
+  // the group `epoch` an `epochDescriptor` rotates into, and a protected
+  // channel's `channelEpoch`. All three only ever go up in the fold, so
+  // "naming a value the fold has not reached" is exactly "authored after a row
+  // that has not been applied yet" — a happens-before edge, read straight off
+  // the signed bytes with no clock anywhere in it.
+  //
+  // Nothing here can be gamed, because waiting is strictly one-sided. Naming a
+  // value AHEAD only postpones the row, and a value that never arrives leaves
+  // it to the flush below where the existing gates reject it fail-closed.
+  // Naming a value BEHIND is stale and is not held back for a moment: such a
+  // row is ranked and rejected exactly where it is today, so no operation is
+  // ever parked waiting for a dependency that has already happened, and a
+  // later re-grant can never revive one.
+  int reachedChannelEpoch(NodeId channelId) =>
+      protectedChannels[channelId.hex]?.channelEpoch ?? 0;
+
+  bool isReady(ControlEntry entry) {
+    if (!admitted.contains(entry.author.hex)) return false;
+    // THE EDGE THE LOG NEVER CARRIED. Its author names the newest row they had
+    // already applied, so a row written after seeing something is folded after
+    // it — which is what the wall clock was standing in for, and the reason a
+    // date could be moved forward to win.
+    //
+    // Naming a row can only ever hold this one BACK: it buys nothing, and a
+    // reference that never arrives leaves the row to the flush below, where
+    // the ordinary authorization checks reject it exactly as they do today.
+    final seen = entry.seen;
+    if (seen != null && present.contains(seen) && !settled.contains(seen)) {
+      return false;
+    }
+    if (entry.policyVersion > policyVersion) return false;
+    // `rotateEpoch` ONLY. A departure carrying a descriptor for an epoch this
+    // fold has not reached is tolerated below — the key proposal is dropped and
+    // the removal still applies — so waiting for it would hand any author a
+    // lever: attach an unreachable epoch to a `removeMember` and be deferred
+    // to the very end of the log, where the removal outlives a re-admission
+    // that legitimately followed it. A rotate has no such tolerance; deferred
+    // to the flush it is simply rejected, so nothing is bought by claiming one.
+    final descriptor = entry.epochDescriptor;
+    if (descriptor != null &&
+        entry.op == ControlOp.rotateEpoch &&
+        descriptor.epoch > epoch + 1) {
+      return false;
+    }
+    // `createChannel` mints epoch 1 and names no predecessor, so it waits for
+    // nothing; `updateChannel` names the successor of the revision it saw, and
+    // an encrypted moderation/retention row names the exact revision it was
+    // sealed against.
+    final control = entry.channelControl;
+    if (control != null && entry.op == ControlOp.updateChannel) {
+      if (control.channelEpoch > reachedChannelEpoch(control.channelId) + 1) {
+        return false;
+      }
+    }
+    final moderation = entry.channelModeration;
+    if (moderation != null &&
+        moderation.channelEpoch > reachedChannelEpoch(moderation.channelId)) {
+      return false;
+    }
+    final retention = entry.channelRetention;
+    if (retention != null &&
+        retention.channelEpoch > reachedChannelEpoch(retention.channelId)) {
+      return false;
+    }
+    return true;
+  }
+
+  final lastSeq = <String, int>{};
+  final lastEntry = <String, ControlEntry>{};
   while (heads.isNotEmpty) {
-    final head = heads.first;
+    // The earliest ready head. Falling back to the very first head keeps the
+    // order TOTAL: a chain nothing will ever make ready (a stranger's forged
+    // row, or one whose admission was itself rejected) is still ranked and
+    // still rejected below, never dropped and never left to hang the merge.
+    var head = heads.first;
+    for (final candidate in heads) {
+      if (isReady(candidate.entry)) {
+        head = candidate;
+        break;
+      }
+    }
     heads.remove(head);
-    ordered.add(head.entry);
     final nextIndex = head.index + 1;
     final authored = byAuthor[head.author]!;
     if (nextIndex < authored.length) {
@@ -1630,11 +1771,11 @@ GroupFoldResult _foldControlLogOnce({
         entry: authored[nextIndex],
       ));
     }
-  }
-
-  final lastSeq = <String, int>{};
-  final lastEntry = <String, ControlEntry>{};
-  for (final e in ordered) {
+    final e = head.entry;
+    // FINISHED WITH, whatever the verdict below turns out to be: everything
+    // past this point either accepts or rejects it, and a row waiting on it
+    // must be released either way.
+    settle(e);
     final forkSeq = forkedAt[e.author.hex];
     if (forkSeq != null && e.seq >= forkSeq) {
       rejected.add(e);
@@ -2192,6 +2333,11 @@ GroupFoldResult _foldControlLogOnce({
           role: e.role ?? GroupRole.member,
           joinedAtMs: e.createdAtMs,
         );
+        // This row is the happens-before edge that lets the new member's own
+        // chain enter the merge at all. Grow-only: a later removal leaves the
+        // edge standing, so their rows keep being ranked and keep failing the
+        // authorization check below rather than waiting for a re-admission.
+        admitted.add(id.hex);
       case ControlOp.removeMember:
       case ControlOp.ban:
         members.remove(e.target!.hex);

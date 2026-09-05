@@ -502,6 +502,7 @@ class ControlEntry {
     required this.policyVersion,
     required this.createdAtMs,
     required this.signature,
+    this.seen,
     this.text,
     this.epochDescriptor,
     this.channel,
@@ -587,6 +588,26 @@ class ControlEntry {
   /// this control entry. Legacy entries omit it and keep identical bytes.
   final GroupEpochDescriptor? epochDescriptor;
   final int policyVersion;
+
+  /// The newest control row this author had ALREADY APPLIED when they wrote
+  /// this one — `<author hex>:<seq>`, or null for a row that saw nothing (a
+  /// first row) or was written before this field existed.
+  ///
+  /// This is the happens-before edge the log never carried. `prevHash` binds
+  /// an author to their OWN previous row; between authors there was nothing,
+  /// so the fold ordered concurrent heads by [createdAtMs] — a number each
+  /// author picks. Dating a row forward made it the standing last word over
+  /// every honest row until that date arrived (report5-plan §5.3).
+  ///
+  /// A reference cannot be forged into an advantage: naming a row only ever
+  /// holds this one BACK until that row is settled, and naming one that never
+  /// arrives leaves it to the flush, where the ordinary authorization checks
+  /// reject it exactly as they do today.
+  ///
+  /// Additive: it is absent from the canonical bytes when null, so every row
+  /// signed before it existed still verifies, and a log that mixes the two
+  /// folds deterministically — rows without a reference simply carry no edge.
+  final String? seen;
   final int createdAtMs;
   final Uint8List signature; // ed25519 over canonicalBytes (verified app-side)
 
@@ -999,6 +1020,7 @@ class ControlEntry {
     recommendationPolicy: recommendationPolicy,
     accessPolicy: accessPolicy,
     authorityBoundary: authorityBoundary,
+    seen: seen,
     policyVersion: policyVersion,
     createdAtMs: createdAtMs,
     signature: sig,
@@ -1046,6 +1068,7 @@ class ControlEntry {
       if (accessPolicy != null) 'accessPolicy': accessPolicy!.toJson(),
       if (authorityBoundary != null)
         'authorityBoundary': authorityBoundary!.toJson(),
+      if (seen != null) 'seen': seen,
       'pv': policyVersion,
       'ts': createdAtMs,
     };
@@ -1089,6 +1112,7 @@ class ControlEntry {
     if (accessPolicy != null) 'accessPolicy': accessPolicy!.toJson(),
     if (authorityBoundary != null)
       'authorityBoundary': authorityBoundary!.toJson(),
+    if (seen != null) 'seen': seen,
     'pv': policyVersion,
     'ts': createdAtMs,
     'sig': base64Encode(signature),
@@ -1264,6 +1288,7 @@ class ControlEntry {
         recommendationPolicy: recommendationPolicy,
         accessPolicy: accessPolicy,
         authorityBoundary: authorityBoundary,
+        seen: j['seen'] is String ? j['seen'] as String : null,
         policyVersion: pv,
         createdAtMs: ts,
         signature: Uint8List.fromList(base64Decode(sig)),
@@ -1285,6 +1310,19 @@ String controlEntryHash(ControlEntry entry) => crypto.sha256.convert(<int>[
   ...entry.canonicalBytes(),
   ...entry.signature,
 ]).toString();
+
+/// Deterministic tie-break key for two concurrent control-log heads.
+///
+/// Bound to the SLOT an entry occupies in its author's chain — `(author, seq)`
+/// — and to nothing else. Both halves are already signed, already on the wire
+/// and already unique per accepted entry, so this adds no field and no state.
+/// Deliberately NOT [controlEntryHash]: that covers `createdAtMs`, which its
+/// author picks freely, so a content digest is ground to any value the author
+/// wants at one signature per attempt — and a ground digest buys back exactly
+/// the last-forever position this ordering exists to remove.
+String controlSlotKey(ControlEntry entry) => crypto.sha256
+    .convert(utf8.encode('${entry.author.hex}:${entry.seq}'))
+    .toString();
 
 /// A member's current standing in the group (the folded result of the log).
 class GroupMember {
