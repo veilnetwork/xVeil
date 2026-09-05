@@ -1382,6 +1382,7 @@
   "settingsApiCopyToken": "Copiar el token",
   "settingsCommunication": "Comunicación",
   "settingsP2PPolicy": "Política P2P",
+  "settingsP2PPolicyNotSaved": "Aplicado por ahora, pero no se pudo guardar: volverá al reiniciar",
   "settingsP2PPolicyHint": "Permite el transporte directo para llamadas, contenido pesado, archivos e intercambio entre dispositivos cuando ambas partes lo consienten.",
   "settingsP2PPolicyAnonymousHint": "El P2P está desactivado mientras esta identidad usa enrutado anónimo.",
   "p2pPolicyAllowAll": "Permitir a todo el mundo",
