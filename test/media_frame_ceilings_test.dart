@@ -60,7 +60,7 @@ void main() {
     String body(String src, String signature) {
       final at = src.indexOf(signature);
       expect(at, isNot(-1), reason: 'not found, so unguarded: $signature');
-      final close = src.indexOf('\n  }', at);
+      final close = src.indexOf('\n  }\n', at);
       expect(close, greaterThan(at), reason: 'could not delimit $signature');
       return src
           .substring(at, close)
