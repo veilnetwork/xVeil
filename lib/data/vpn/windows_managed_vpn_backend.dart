@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import '../../core/log.dart';
 import 'package:flutter/foundation.dart';
 
 import 'geoip_country_routes.dart';
@@ -73,6 +74,27 @@ String buildWindowsVpnElevationScript(
       r"""; $arguments = '--xveil-vpn-helper "' + $request + '" ' + $digest; $process = Start-Process -FilePath $exe -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -PassThru; [Console]::Out.WriteLine($process.Id)""";
 }
 
+/// The control pipe for a run staged in [sessionPath].
+///
+/// Mirrors `control_pipe_name` in veil-vpn-helper. The stop used to be a FILE
+/// in the session directory, which has to be writable by this user — so any
+/// process of this user could create it and take down an administrator-level
+/// tunnel, sending the traffic outside it.
+///
+/// A pipe is writable by that user too; same user, same access. What it can do
+/// that a file cannot is tell the helper WHO connected, and the helper accepts
+/// only the process it was launched for (report5 R5-X-03).
+String windowsVpnControlPipe(String sessionPath) {
+  final parts = sessionPath.split(RegExp(r'[\\/]'))
+    ..removeWhere((p) => p.isEmpty);
+  if (parts.isEmpty) {
+    throw ArgumentError('the VPN session path names no directory');
+  }
+  // The session directory is already named `xveil-vpn-<random>`; prefixing
+  // again would carry it twice. Both sides derive the same string.
+  return r'\\.\pipe\' + parts.last;
+}
+
 /// Where the elevated helper publishes its status, for a run staged in
 /// [sessionPath].
 ///
@@ -124,7 +146,7 @@ class WindowsManagedVpnBackend implements VpnBackend {
   VpnBackendState _state = const VpnBackendState(VpnBackendPhase.stopped);
   Directory? _sessionDirectory;
   File? _statusFile;
-  File? _stopFile;
+  String? _controlPipe;
   String? _token;
   int? _helperPid;
 
@@ -270,7 +292,7 @@ class WindowsManagedVpnBackend implements VpnBackend {
       );
     }
     _statusFile = File(windowsVpnStatusPath(session.path, programData));
-    _stopFile = File('${session.path}${separator}stop');
+    _controlPipe = windowsVpnControlPipe(session.path);
     _token = token;
     // The exact bytes, hashed and written from ONE value. Encoding twice — or
     // hashing a re-read of the file — would leave the gap this closes.
@@ -429,8 +451,20 @@ class WindowsManagedVpnBackend implements VpnBackend {
   }
 
   Future<void> _requestStop() async {
-    final file = _stopFile;
-    if (file != null) await file.writeAsString('stop', flush: true);
+    final pipe = _controlPipe;
+    if (pipe == null) return;
+    // The helper identifies THIS process by pid on the other end, so the write
+    // has to come from here and not from a spawned tool.
+    //
+    // Best-effort by design: the helper also watches this process, so a stop
+    // that cannot be delivered still ends the tunnel when the app exits. What
+    // it must not do is throw out of a teardown path.
+    try {
+      final handle = File(pipe);
+      await handle.writeAsString('stop', flush: true);
+    } catch (e) {
+      devLog(() => 'xVeil[vpn]: stop over the control pipe failed: $e');
+    }
   }
 
   Future<bool> _isHelperAlive() async {
@@ -458,7 +492,7 @@ class WindowsManagedVpnBackend implements VpnBackend {
     final directory = _sessionDirectory;
     _sessionDirectory = null;
     _statusFile = null;
-    _stopFile = null;
+    _controlPipe = null;
     _token = null;
     _helperPid = null;
     if (directory != null) {
