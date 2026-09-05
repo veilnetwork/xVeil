@@ -129,6 +129,14 @@ class SyncWrappedAsyncKvLogStore
   }
 
   @override
+  Future<Map<int, String>> commitRoots() async {
+    final inner = _inner;
+    return inner is SyncCommitAnchorSource
+        ? (inner as SyncCommitAnchorSource).commitRoots()
+        : const <int, String>{};
+  }
+
+  @override
   Future<String?> hardeningWarning() async => _inner.hardeningWarning();
 
   @override
@@ -271,6 +279,10 @@ class _CommitHistoryReq extends _Req {
   const _CommitHistoryReq(super.reply);
 }
 
+class _CommitRootsReq extends _Req {
+  const _CommitRootsReq(super.reply);
+}
+
 class _CloseReq extends _Req {
   const _CloseReq(super.reply);
 }
@@ -393,6 +405,12 @@ void _workerEntry(_OpenConfig cfg) {
           () => store is SyncCommitAnchorSource
               ? (store as SyncCommitAnchorSource).commitHistory()
               : const <int>[],
+        );
+      case _CommitRootsReq():
+        run(
+          () => store is SyncCommitAnchorSource
+              ? (store as SyncCommitAnchorSource).commitRoots()
+              : const <int, String>{},
         );
       case _HardeningWarningReq():
         run(() => store.hardeningWarning());
@@ -635,6 +653,10 @@ class WorkerKvLogStore implements AsyncKvLogStore, CommitAnchorSource {
   @override
   Future<List<int>> commitHistory() =>
       _call<List<int>>((reply) => _CommitHistoryReq(reply));
+
+  @override
+  Future<Map<int, String>> commitRoots() =>
+      _call<Map<int, String>>((reply) => _CommitRootsReq(reply));
 
   @override
   Future<String?> hardeningWarning() =>

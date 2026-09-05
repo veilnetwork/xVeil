@@ -140,6 +140,8 @@ AnchorCheck checkRollbackAnchor({
   required int? anchorSeq,
   required int currentSeq,
   required List<int> history,
+  String? anchorRoot,
+  Map<int, String> roots = const {},
   int horizon = anchorHorizon,
   int reserveAhead = 0,
 }) {
@@ -179,9 +181,32 @@ AnchorCheck checkRollbackAnchor({
   if (history.isEmpty || anchorSeq < history.first) {
     return const AnchorCheck(verdict: AnchorVerdict.outOfRange);
   }
-  // 3. Inside the window, so the container should still know the commit this
+  // 3. Inside the window, so the container should still know the ERA this
   //    device anchored. If it does not, its history is somebody else's.
-  return history.contains(anchorSeq)
+  //
+  // THE ERA, not the number. Both sides of a fork count commits the same way,
+  // so a seq that is present says only "this container reached that number" —
+  // which the branch that was split off says too. What identifies a branch is
+  // what the commit published, and that is the root (report22 HV-FORK-SEQ,
+  // closed by hidden-volume 2.3.0, which is what made the root readable at
+  // all).
+  if (!history.contains(anchorSeq)) {
+    return const AnchorCheck(verdict: AnchorVerdict.forked);
+  }
+  if (anchorRoot == null) {
+    // An anchor written before this device recorded roots. The seq matched, so
+    // this is the ordinary continuation of an app that has just been updated —
+    // accepting it is right, and the next commit re-anchors with a root.
+    return const AnchorCheck(verdict: AnchorVerdict.clean);
+  }
+  final known = roots[anchorSeq];
+  if (known == null) {
+    // The seq is in the history but the container cannot identify that era —
+    // its Superblock did not decode. Nothing is proved either way, and calling
+    // that a fork would accuse a container that is merely damaged.
+    return const AnchorCheck(verdict: AnchorVerdict.outOfRange);
+  }
+  return known == anchorRoot
       ? const AnchorCheck(verdict: AnchorVerdict.clean)
       : const AnchorCheck(verdict: AnchorVerdict.forked);
 }
@@ -205,12 +230,22 @@ abstract interface class CommitAnchorSource {
   /// The commits this container still recognises, ascending. A WINDOW bounded
   /// by [anchorHorizon], not the whole of history.
   Future<List<int>> commitHistory();
+
+  /// The eras it can IDENTIFY: seq -> that commit's root, lowercase hex.
+  ///
+  /// A subset of [commitHistory]: a seq whose Superblock decrypted but did not
+  /// decode is a commit this container saw and an era it cannot name. Empty on
+  /// a container that predates hidden-volume 2.3.0.
+  Future<Map<int, String>> commitRoots();
 }
 
 /// The synchronous half, for the store that runs inside the worker isolate.
 abstract interface class SyncCommitAnchorSource {
   int commitSeq();
   List<int> commitHistory();
+
+  /// seq -> that era's root, lowercase hex. See [CommitAnchorSource.commitRoots].
+  Map<int, String> commitRoots();
 }
 
 /// What this device recorded outside a container: which container, and how
@@ -225,7 +260,11 @@ abstract interface class SyncCommitAnchorSource {
 /// here; two that disagree are two containers, which is not a rollback and not
 /// evidence of anything.
 class AnchorRecord {
-  const AnchorRecord({required this.generation, required this.seq});
+  const AnchorRecord({
+    required this.generation,
+    required this.seq,
+    this.root,
+  });
 
   /// Which container this is about.
   final String generation;
@@ -233,18 +272,31 @@ class AnchorRecord {
   /// The newest commit of that container this device stands behind.
   final int seq;
 
-  /// `gen:seq`, the form kept outside. The generation is hex, so the last
-  /// colon separates the two unambiguously.
-  String encode() => '$generation:$seq';
+  /// What that commit PUBLISHED — the era's root, lowercase hex — or null for
+  /// an anchor written before this device recorded one.
+  ///
+  /// The seq says a container reached a number; both branches of a fork say
+  /// that. The root says which branch, and it is why the anchor is a pair.
+  final String? root;
+
+  /// `gen:seq` or `gen:seq:root`, the form kept outside. The generation is
+  /// hex and so is the root, so splitting on colons is unambiguous.
+  ///
+  /// The two-part form is still read, because an anchor written by an earlier
+  /// build is an honest anchor and refusing it would report a rollback on the
+  /// first launch after an update.
+  String encode() => root == null ? '$generation:$seq' : '$generation:$seq:$root';
 
   /// The inverse, or null when the stored text is not one of ours.
   static AnchorRecord? decode(String? raw) {
     if (raw == null) return null;
-    final at = raw.lastIndexOf(':');
-    if (at <= 0) return null;
-    final seq = int.tryParse(raw.substring(at + 1));
-    if (seq == null || seq < 0) return null;
-    return AnchorRecord(generation: raw.substring(0, at), seq: seq);
+    final parts = raw.split(':');
+    if (parts.length < 2 || parts.length > 3) return null;
+    final seq = int.tryParse(parts[1]);
+    if (parts[0].isEmpty || seq == null || seq < 0) return null;
+    final root = parts.length == 3 ? parts[2] : null;
+    if (root != null && root.isEmpty) return null;
+    return AnchorRecord(generation: parts[0], seq: seq, root: root);
   }
 }
 
@@ -271,10 +323,14 @@ class AnchorReading {
     required this.seq,
     required this.history,
     required this.generation,
+    this.roots = const {},
   });
 
   final int seq;
   final List<int> history;
+
+  /// seq -> era root, for the eras this container can identify.
+  final Map<int, String> roots;
 
   /// The generation kept inside this container, minted on first use.
   final String generation;
@@ -337,13 +393,23 @@ Future<AnchorCheck> checkContainerAgainstAnchor({
       ? const AnchorCheck(verdict: AnchorVerdict.firstRun)
       : checkRollbackAnchor(
           anchorSeq: held.seq,
+          anchorRoot: held.root,
           currentSeq: reading.seq,
           history: reading.history,
+          roots: reading.roots,
           reserveAhead: reserveAhead,
         );
   if (!check.isSuspicious) {
     final recorded = await anchor.write(
-      AnchorRecord(generation: reading.generation, seq: reading.seq),
+      AnchorRecord(
+        generation: reading.generation,
+        seq: reading.seq,
+        // The era, not just the number. A container that cannot identify its
+        // own newest era anchors without one, and the next check falls back to
+        // the seq — which is where this started, and is still better than
+        // anchoring a root that is not this era's.
+        root: reading.roots[reading.seq],
+      ),
     );
     if (!recorded) return check.withAnchorNotRecorded();
   }

@@ -135,6 +135,22 @@ class FakeKvLogStore implements KvLogStore, SyncCommitAnchorSource {
   @override
   List<int> commitHistory() => List.unmodifiable(_history);
 
+  @override
+  Map<int, String> commitRoots() => {
+    for (final seq in _history) seq: _rootFor(seq),
+  };
+
+  /// A stand-in root. Distinct per seq AND per fake, so a test can put two of
+  /// these side by side and have them disagree the way two branches do.
+  String _rootFor(int seq) =>
+      '${_branch.toRadixString(16).padLeft(8, '0')}'
+      '${seq.toRadixString(16).padLeft(8, '0')}';
+
+  /// Which branch this fake is. Two fakes with different values model a
+  /// container that was copied and then written to independently.
+  int branch = 0;
+  int get _branch => branch;
+
   /// Put this fake back to an earlier commit, the way restoring an older copy
   /// of a container file does. Test-only: there is no other way to produce
   /// the condition the anchor exists to detect.
