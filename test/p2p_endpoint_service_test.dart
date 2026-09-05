@@ -97,9 +97,22 @@ class _Harness {
   /// The running node's TRANSPORT id (a sibling's differs from the identity).
   NodeId? selfNode;
 
+  /// Runs INSIDE the local-address mint — after `maybeShare` has taken the
+  /// policy answer and before it sends. The seam exists so a test can put an
+  /// identity switch exactly where a flag checked only on entry would miss it.
+  void Function()? duringMint;
+
+  /// How many times the local P2P policy was consulted. A disposed service
+  /// asking at all is the defect: the closure it asks answers for whichever
+  /// identity is active NOW, not the one whose pipeline it sends on.
+  int policyReads = 0;
+
   late final P2PEndpointService svc = P2PEndpointService(
     messaging,
-    localAllowsP2P: (_) async => allows,
+    localAllowsP2P: (_) async {
+      policyReads++;
+      return allows;
+    },
     messagingAllowsP2P: (_) async => messagingAllows,
     joinEndpoint: (uri) async {
       joined.add(uri);
@@ -110,7 +123,10 @@ class _Harness {
     listenPort: () => 9000,
     listenScheme: () => listenScheme,
     lanListenEnabled: () => lanListen,
-    localAddresses: () async => addresses,
+    localAddresses: () async {
+      duringMint?.call();
+      return addresses;
+    },
     listenTransports: listenTransports == null
         ? null
         : () async => listenTransports!,
@@ -731,6 +747,76 @@ void _messagingWarmTests() {
       h.acceptedError = StateError('container closed');
       await h.svc.announceLocalEndpoints();
       expect(h.messaging.sentEndpoints, isEmpty);
+    });
+  });
+
+  group('a replaced service stops sending (report18 XV18-M6)', () {
+    // The provider builds ONE endpoint service, for the active identity's
+    // messaging pipeline, and replaces it on an all-online switch. `dispose`
+    // detached the inbound handler and nothing else, so the old instance kept
+    // its ladder, its announce and its share — all sending on the pipeline it
+    // captured (A's), while the policy closure it consults answers for
+    // whoever is active NOW (B's).
+    //
+    // Sharing an endpoint hands over a real network address. "Only nodes I add
+    // myself" is exactly the answer that must not be given on someone else's
+    // behalf.
+
+    test('nothing is shared after dispose, however permissive the policy', () async {
+      final h = _Harness();
+      h.svc.dispose();
+      // The switch: the identity that replaced ours allows everything.
+      h.allows = true;
+      h.messagingAllows = true;
+      await h.svc.maybeShare(_peer(1), force: true);
+      await h.svc.announceLocalEndpoints();
+      await h.svc.warmForMessaging(_peer(2));
+      expect(h.messaging.sentEndpoints, isEmpty);
+      expect(h.joined, isEmpty);
+      expect(
+        h.policyReads,
+        0,
+        reason:
+            'the disposed service still asked the policy — and what answers '
+            'is the identity that replaced it',
+      );
+    });
+
+    test('the ladder refuses rather than dialling for the new identity', () async {
+      final h = _Harness();
+      h.allows = true;
+      h.svc.dispose();
+      expect(await h.svc.ensureReady(_peer(1)), isFalse);
+      expect(h.messaging.sentEndpoints, isEmpty);
+      expect(h.joined, isEmpty);
+      expect(h.punchCalls, isEmpty);
+    });
+
+    test('a share already past the policy check does not go out', () async {
+      // The window a flag checked only on entry would miss: the policy has
+      // answered for the OLD identity, the mint is in flight, and the switch
+      // lands before the frame is sent.
+      final h = _Harness();
+      h.allows = true;
+      h.duringMint = () => h.svc.dispose();
+      await h.svc.maybeShare(_peer(1), force: true);
+      expect(
+        h.messaging.sentEndpoints,
+        isEmpty,
+        reason:
+            'the endpoints went out on the replaced pipeline after the '
+            'identity had already changed',
+      );
+    });
+
+    test('an undisposed service still does its job', () async {
+      // Vacuity guard: every assertion above passes on a service that shares
+      // nothing at all, so one of them has to be the other way round.
+      final h = _Harness();
+      h.allows = true;
+      await h.svc.maybeShare(_peer(1), force: true);
+      expect(h.messaging.sentEndpoints, isNotEmpty);
+      expect(h.policyReads, greaterThan(0));
     });
   });
 }
