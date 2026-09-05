@@ -59,11 +59,39 @@ int preferredExactCameraFps(Iterable<int> available) {
 /// WebRTC adapt it under the larger route-specific bitrate budget.
 /// One capturer per live call.
 class AndroidCameraCapture {
-  AndroidCameraCapture({this.highQuality = false});
+  AndroidCameraCapture({
+    this.highQuality = false,
+    // Stands in for a FACT about the device — which cameras it has — never for
+    // a decision. Without a seam the supersede rule below can only be tested by
+    // owning a camera, and it is a rule about awaits, not about hardware.
+    @visibleForTesting
+    Future<List<CameraDescription>> Function()? listCameras,
+  }) : _listCameras = listCameras ?? availableCameras;
 
   /// Direct P2P can afford a 720p capture source that WebRTC scales/adapts;
   /// padded onion media keeps the old low-resolution source.
   final bool highQuality;
+  final Future<List<CameraDescription>> Function() _listCameras;
+
+  /// Which start this is.
+  ///
+  /// A start walks several awaits before it owns anything the caller can see:
+  /// the worker isolate, the camera list, and the controller open — which
+  /// retries per fps candidate, widening the window further. `stop()` looked
+  /// at `_ctrl`, found the null a start had not filled in yet, cleared nothing
+  /// and returned. The start then published its controller to a capturer
+  /// nobody was holding any more: the physical camera stayed open with no
+  /// owner for the rest of the process — the OS indicator lit after a hangup,
+  /// a lock or an identity switch, the battery draining, and the next call
+  /// unable to open the camera at all (report22 XV-CAM1).
+  ///
+  /// Bumped by `stop()`, captured by each start, and checked after every await
+  /// that could have spanned one.
+  int _generation = 0;
+
+  /// The start in flight, so `stop()` can WAIT for it rather than race it.
+  Future<bool>? _starting;
+
   CameraController? _ctrl;
   int _rotCw = 0; // clockwise rotation to make the frame upright (0/90/180/270)
   Isolate? _worker;
@@ -96,11 +124,25 @@ class AndroidCameraCapture {
   Future<bool> _start({
     I420FrameSink? i420Sink,
     Android420FrameSink? rawSink,
+  }) {
+    final started = _startOnce(i420Sink: i420Sink, rawSink: rawSink);
+    _starting = started;
+    return started.whenComplete(() {
+      if (identical(_starting, started)) _starting = null;
+    });
+  }
+
+  Future<bool> _startOnce({
+    I420FrameSink? i420Sink,
+    Android420FrameSink? rawSink,
   }) async {
+    final gen = ++_generation;
     try {
       _rawSink = rawSink;
       if (i420Sink != null) await _startWorker(i420Sink);
-      final cams = await availableCameras();
+      if (gen != _generation) return false;
+      final cams = await _listCameras();
+      if (gen != _generation) return false;
       if (cams.isEmpty) return false;
       final cam = cams.firstWhere(
         (c) => c.lensDirection == CameraLensDirection.front,
@@ -116,13 +158,27 @@ class AndroidCameraCapture {
             'veil-cam: lens=${cam.lensDirection} '
             'sensor=${cam.sensorOrientation} rotCw=$_rotCw',
       );
-      final ctrl = await _openController(cam);
+      final ctrl = await _openController(cam, gen);
+      // Superseded while the controller was opening. Nobody is holding this
+      // capturer any more, so publishing the controller would hand the camera
+      // to no one — `_openController` has already closed it.
+      if (ctrl == null) return false;
+      if (gen != _generation) {
+        try {
+          await ctrl.dispose();
+        } catch (_) {}
+        return false;
+      }
       _ctrl = ctrl;
       androidCallCameraPreviewController.value = ctrl;
       await ctrl.startImageStream(_onImage);
-      return true;
+      // A stop that landed after the publish took the controller with it and
+      // has closed it. Nothing to release here — but the caller must not be
+      // told it has video.
+      return gen == _generation;
     } catch (_) {
-      await stop();
+      // NOT `stop()`: this runs inside the very future `stop()` waits for.
+      await _teardown();
       return false;
     }
   }
@@ -179,7 +235,15 @@ class AndroidCameraCapture {
   /// 30 fps for the selected front-camera resolution, and camera backends may
   /// reject an unsupported exact FPS range instead of selecting the closest
   /// one. In that case retry with the platform default.
-  Future<CameraController> _openController(CameraDescription cam) async {
+  /// Opens a controller for [cam], or null when start [gen] was superseded.
+  ///
+  /// The check is INSIDE the retry loop, not only around it: each candidate is
+  /// a separate `initialize()`, and a `stop()` waiting on this would otherwise
+  /// wait for every remaining candidate.
+  Future<CameraController?> _openController(
+    CameraDescription cam,
+    int gen,
+  ) async {
     var directFps = 30;
     if (highQuality) {
       try {
@@ -204,6 +268,7 @@ class AndroidCameraCapture {
         : const <int?>[null];
     Object? lastError;
     for (final fps in requestedRates) {
+      if (gen != _generation) return null;
       final ctrl = CameraController(
         cam,
         highQuality ? ResolutionPreset.medium : ResolutionPreset.low,
@@ -213,6 +278,12 @@ class AndroidCameraCapture {
       );
       try {
         await ctrl.initialize();
+        if (gen != _generation) {
+          try {
+            await ctrl.dispose();
+          } catch (_) {}
+          return null;
+        }
         _requestedFps = fps;
         devLog(
           () =>
@@ -300,6 +371,22 @@ class AndroidCameraCapture {
   }
 
   Future<void> stop() async {
+    // END THE CURRENT START FIRST, before anything is torn down: a start still
+    // walking its awaits has to learn it has been superseded before it can
+    // publish a controller, and this is the only thing that tells it.
+    _generation++;
+    final starting = _starting;
+    if (starting != null) {
+      // It will stop at its next check; waiting means the teardown below runs
+      // after it has released whatever it opened, instead of racing it.
+      try {
+        await starting;
+      } catch (_) {}
+    }
+    await _teardown();
+  }
+
+  Future<void> _teardown() async {
     _sink = null;
     _rawSink = null;
     final c = _ctrl;
