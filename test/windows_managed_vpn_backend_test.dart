@@ -180,6 +180,54 @@ void main() {
       );
     });
 
+    test('the stop travels on a pipe named for the session', () {
+      final pipe = windowsVpnControlPipe(
+        r'C:\Users\A Name\AppData\Local\Temp\xveil-vpn-abc123',
+      );
+      expect(pipe, r'\\.\pipe\xveil-vpn-abc123');
+      // Two runs must not share one: whoever can write to the pipe can ask
+      // for a stop, and the name is the only thing separating the runs.
+      expect(
+        windowsVpnControlPipe(r'C:\Temp\xveil-vpn-zzz'),
+        isNot(pipe),
+      );
+    });
+
+    test('the helper takes the stop from the host, not from a file', () {
+      // Not a style check. A file in the session directory is a stop button
+      // for every process of this user, and taking down an
+      // administrator-level tunnel sends the traffic outside it. A pipe is
+      // writable by that user too — same user, same access — so what makes it
+      // different is the client-PID check, and losing that would leave the
+      // pipe as a file with extra steps.
+      final rust = File(
+        'third_party/veil/crates/veil-vpn-helper/src/windows.rs',
+      ).readAsStringSync();
+      expect(
+        rust,
+        contains('GetNamedPipeClientProcessId'),
+        reason: 'the helper no longer asks who is on the other end',
+      );
+      expect(
+        rust,
+        contains('client != host_pid'),
+        reason: 'any process of this user can stop the tunnel again',
+      );
+      // The label is what lets the unelevated host write at all: a pipe made
+      // by a HIGH-integrity process is not writable by a MEDIUM one without
+      // it. Measured on the stand, not assumed.
+      expect(
+        rust,
+        contains('S:(ML;;NW;;;ME)'),
+        reason: 'the host cannot write to its own control pipe',
+      );
+      expect(
+        rust,
+        isNot(contains('stop_path.exists()')),
+        reason: 'the file-based stop is back',
+      );
+    });
+
     test('the digest is over the bytes, and moves with them', () {
       final a = utf8.encode('{"routeMode":"all"}');
       final b = utf8.encode('{"routeMode":"nil"}');
