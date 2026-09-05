@@ -3491,6 +3491,18 @@ class AppL10nEs extends AppL10n {
   String get networkTitle => 'Red superpuesta';
 
   @override
+  String get reachOffline =>
+      'Sin conexión: aún no se han encontrado otros nodos';
+
+  @override
+  String get reachNodeDown =>
+      'El nodo no está en marcha: toca para ver por qué';
+
+  @override
+  String get reachNoRoute =>
+      'No hay forma de entrar en la red: toca para elegir una';
+
+  @override
   String get networkStatusConnected => 'Conectado';
 
   @override
