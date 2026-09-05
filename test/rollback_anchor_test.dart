@@ -213,4 +213,112 @@ void main() {
       reason: 'the app believes a different horizon than the container keeps',
     );
   });
+
+  group('a seq is not a branch (report22 HV-FORK-SEQ)', () {
+    // Both sides of a fork count commits the same way, so a container that
+    // reached the anchored NUMBER says nothing about being the container that
+    // left it. hidden-volume 2.3.0 exports what each commit published; the
+    // anchor holds that pair and matches it exactly.
+
+    test('the same seq under a different root is a fork', () {
+      final check = checkRollbackAnchor(
+        anchorSeq: 7,
+        anchorRoot: 'aaaa',
+        currentSeq: 9,
+        history: const [5, 6, 7, 8, 9],
+        roots: const {7: 'bbbb'},
+      );
+      expect(
+        check.verdict,
+        AnchorVerdict.forked,
+        reason:
+            'the anchored number is present, and the era it names is somebody '
+            "else's — which is exactly what the seq test could not see",
+      );
+    });
+
+    test('the same seq under the same root is a clean continuation', () {
+      final check = checkRollbackAnchor(
+        anchorSeq: 7,
+        anchorRoot: 'aaaa',
+        currentSeq: 9,
+        history: const [5, 6, 7, 8, 9],
+        roots: const {7: 'aaaa'},
+      );
+      expect(check.verdict, AnchorVerdict.clean);
+    });
+
+    test('an anchor from before roots existed is still honoured', () {
+      // The first launch after an update carries an anchor with no root. It is
+      // an honest anchor written by this device, and refusing it would report
+      // a fork on every upgrade.
+      final check = checkRollbackAnchor(
+        anchorSeq: 7,
+        currentSeq: 9,
+        history: const [5, 6, 7, 8, 9],
+        roots: const {7: 'aaaa'},
+      );
+      expect(check.verdict, AnchorVerdict.clean);
+    });
+
+    test('an era the container cannot identify accuses nobody', () {
+      // The seq is in the history but its Superblock did not decode. Nothing
+      // is proved either way, and calling that a fork would accuse a container
+      // that is merely damaged.
+      final check = checkRollbackAnchor(
+        anchorSeq: 7,
+        anchorRoot: 'aaaa',
+        currentSeq: 9,
+        history: const [5, 6, 7, 8, 9],
+        roots: const {},
+      );
+      expect(check.verdict, AnchorVerdict.outOfRange);
+    });
+
+    test('a missing seq is still a fork, root or no root', () {
+      expect(
+        checkRollbackAnchor(
+          anchorSeq: 7,
+          anchorRoot: 'aaaa',
+          currentSeq: 9,
+          history: const [5, 6, 8, 9],
+          roots: const {},
+        ).verdict,
+        AnchorVerdict.forked,
+      );
+    });
+  });
+
+  group('the anchor record carries the era', () {
+    test('a pair round-trips, and so does a record without one', () {
+      const withRoot = AnchorRecord(generation: 'ab12', seq: 7, root: 'cd34');
+      final back = AnchorRecord.decode(withRoot.encode());
+      expect(back?.generation, 'ab12');
+      expect(back?.seq, 7);
+      expect(back?.root, 'cd34');
+
+      const bare = AnchorRecord(generation: 'ab12', seq: 7);
+      final bareBack = AnchorRecord.decode(bare.encode());
+      expect(bareBack?.root, isNull, reason: 'a bare record grew a root');
+      expect(bareBack?.seq, 7);
+    });
+
+    test('an anchor written by an older build still reads', () {
+      // Two-part form, on disk from before this change.
+      final old = AnchorRecord.decode('ab12:7');
+      expect(old?.generation, 'ab12');
+      expect(old?.seq, 7);
+      expect(old?.root, isNull);
+    });
+
+    test('nonsense is refused rather than half-read', () {
+      for (final raw in ['', 'ab12', 'ab12:x', 'ab12:7:', 'a:b:c:d', ':7']) {
+        expect(
+          AnchorRecord.decode(raw),
+          isNull,
+          reason: 'accepted $raw',
+        );
+      }
+    });
+  });
 }
