@@ -16,6 +16,34 @@ const String kP2PGlobalPolicySettingKey = 'p2p.policy.v1';
 P2PGlobalPolicy p2pGlobalPolicyFromName(String? raw) => P2PGlobalPolicy.values
     .firstWhere((p) => p.name == raw, orElse: () => kDefaultP2PGlobalPolicy);
 
+/// Whether this identity's node listener may bind beyond loopback.
+///
+/// Separates the two ways the setting can be missing, which collapsing them
+/// gets wrong in opposite directions:
+///
+///  * ABSENT (`storedPolicy == null`, `readFailed == false`) — never set, so
+///    the default applies. Denying here would break every fresh install.
+///  * UNREADABLE (`readFailed == true`) — a transient storage error. Falling
+///    back to the default is permissive, so a failed read would bind a LAN
+///    listener for someone who had explicitly denied P2P. The setting exists
+///    precisely to stop that, and an open LAN port is not something to grant
+///    on a guess.
+///
+/// Here rather than on the app controller because BOTH boot paths need it and
+/// there must not be two answers: the always-online path had none at all, so
+/// every node in an all-online session bound loopback and could not be dialled
+/// by anybody.
+bool lanListenAllowed({
+  required String? storedPolicy,
+  required bool readFailed,
+}) {
+  if (readFailed) return false;
+  if (storedPolicy == null) {
+    return kDefaultP2PGlobalPolicy != P2PGlobalPolicy.denied;
+  }
+  return p2pGlobalPolicyFromName(storedPolicy) != P2PGlobalPolicy.denied;
+}
+
 /// Whether MESSAGING may run the direct-connection ladder toward this contact.
 ///
 /// Deliberately stricter than [p2pPolicyAllows], and it does NOT consult

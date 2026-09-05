@@ -34,6 +34,7 @@ class IdentityBootSpec {
     required this.runtimeBase,
     required this.listenPort,
     required this.anonymous,
+    this.lanListen = false,
     this.useBundledSeeds = kBundledSeedsDefault,
     this.meetingPoints,
     this.meetingPolicy,
@@ -52,6 +53,20 @@ class IdentityBootSpec {
   final String runtimeBase;
   final int listenPort;
   final bool anonymous;
+
+  /// Whether THIS identity's node listener may bind beyond loopback, read from
+  /// its own space like every other per-identity answer here.
+  ///
+  /// It was not passed at all, so every always-online node took the `false`
+  /// default and bound loopback. A node on loopback shares no dialable
+  /// endpoint and cannot be reached by one, so the direct route could not be
+  /// established in either direction for anybody running all-online — the
+  /// ladder ran, dialled, punched, and had nothing to connect to.
+  ///
+  /// Per identity, for the reason the seed answer is: one session-wide answer
+  /// would hand an identity whose owner denied P2P a listener on the LAN
+  /// because another identity in the same container allows it.
+  final bool lanListen;
 
   /// THIS identity's answer to the shared-seed question, read from its own
   /// space — not the session's, and not the profile's.
@@ -145,14 +160,25 @@ Future<List<IdentityBootSpec>> planIdentityBoots(
   final out = <IdentityBootSpec>[];
   for (var i = 0; i < roster.length; i++) {
     final spaceId = await backing.openSpace(roster[i].spaceKeys);
-    final seeds = await planIdentitySeeds(
-      storage: storageFor(spaceId),
-      peersFor: peersFor,
-    );
+    final storage = storageFor(spaceId);
+    final seeds = await planIdentitySeeds(storage: storage, peersFor: peersFor);
+    // THIS identity's P2P posture, from THIS identity's space — the same
+    // question the one-active boot asks, asked the same way. An unreadable
+    // setting denies: an open LAN port is not something to grant on a guess.
+    bool lanListen;
+    try {
+      lanListen = lanListenAllowed(
+        storedPolicy: await storage.getSetting(kP2PGlobalPolicySettingKey),
+        readFailed: false,
+      );
+    } catch (_) {
+      lanListen = lanListenAllowed(storedPolicy: null, readFailed: true);
+    }
     out.add(
       IdentityBootSpec(
         label: roster[i].label,
         spaceId: spaceId,
+        lanListen: lanListen,
         useBundledSeeds: seeds.useBundledSeeds,
         meetingPoints: seeds.meetingPoints,
         meetingPolicy: seeds.meetingPolicy,
@@ -193,6 +219,7 @@ Future<IdentityNode> _realBoot(IdentityBootSpec spec, Storage storage) async {
     runtimeDirBase: spec.runtimeBase,
     listenPort: spec.listenPort,
     anonymous: spec.anonymous,
+    lanListen: spec.lanListen,
     lazyMining: spec.lazyMining,
     // Same split as the single-identity path: keep explicit peers out of the
     // reload config (Android ENOENT), then activate them through IPC.
