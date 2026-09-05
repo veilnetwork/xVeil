@@ -76,7 +76,7 @@ void main() {
         r'C:\Temp\request.json',
         digest,
       );
-      expect(script, contains(r'$digest = ' + "'$digest'"));
+      expect(script, contains('\$digest = \'$digest\''));
       // And it is APPENDED to the operands the helper receives, outside the
       // quoted path, so the shim sees it as its own argv[3].
       expect(
