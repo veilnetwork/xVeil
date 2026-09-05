@@ -46,7 +46,16 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
     }
   }
 
-  Future<void> set(P2PGlobalPolicy value) async {
+  /// Apply [value] and persist it. False means the STORE still holds the old
+  /// answer — the caller must say so.
+  ///
+  /// The write used to be best-effort and silent. What this setting decides is
+  /// whether a conversation may take the direct ladder, which hands the peer a
+  /// real network address, so a failed write left the screen showing `denied`
+  /// while the store kept the permissive value and the next start quietly went
+  /// back to it. A privacy posture that reverts without a word is worse than
+  /// one that refuses to change (report20 XV20-M2).
+  Future<bool> set(P2PGlobalPolicy value) async {
     final storage = _storage;
     _userSet = true;
     state = value;
@@ -57,8 +66,13 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
       // ever does await in between, which is exactly how the load above came
       // to land on the wrong identity.
       await storage.putSetting(kP2PGlobalPolicySettingKey, value.name);
-    } catch (_) {
-      // Persist best-effort.
+      return true;
+    } catch (e) {
+      // The live state KEEPS the answer the person gave: it applies for this
+      // session, which is what they asked for. What must not happen is their
+      // believing it survived.
+      devLog(() => 'xVeil[p2p]: could not persist the P2P policy: $e');
+      return false;
     }
   }
 

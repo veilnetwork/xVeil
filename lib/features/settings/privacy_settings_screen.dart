@@ -69,7 +69,14 @@ class PrivacySettingsScreen extends ConsumerWidget {
     // unmounts in all-online mode, so this would set B's posture from a
     // question put to A.
     if (!ref.holdsIdentity(lease)) return;
-    await ref.read(p2pPolicyProvider.notifier).set(choice);
+    final saved = await ref.read(p2pPolicyProvider.notifier).set(choice);
+    // A posture that silently reverts on the next start is worse than one that
+    // refuses to change: the person believes their answer stands.
+    if (!saved && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.settingsP2PPolicyNotSaved)));
+    }
   }
 
   Future<void> _pickSignaturePolicy(
