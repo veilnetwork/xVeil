@@ -1205,6 +1205,14 @@ trap 'sudo rm -rf -- "\$XVEIL_TMP"' EXIT INT TERM
 # that times out, or a deployment that never got its turn would leave the
 # deployment PSK and the TLS private key on disk.
 critical="\$XVEIL_TMP/provision.sh"
+# 0700 BEFORE a byte of the body exists. That body embeds the deployment obfs4
+# PSK literally, and `sudo tee` creates the file under SUDO's umask, not the
+# `umask 077` above — 0644 on a default sudoers. The staging directory becomes
+# 0711 further down, and `mktemp -d` hides the name only from someone who
+# cannot list /tmp, so a world-readable script there is the PSK handed to every
+# local account for the length of the deployment. root is the only account that
+# ever runs it (`sudo flock ... "\$critical"`).
+sudo install -m 0700 /dev/null "\$critical"
 sudo tee "\$critical" >/dev/null <<'XVEIL_PROVISION_CRITICAL'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1357,7 +1365,7 @@ sudo -u veil /usr/local/bin/veil-cli --config /var/lib/veil/node.toml bootstrap 
 # then showed a failed provisioning for a server that was running (report17
 # XV17-M10).
 XVEIL_PROVISION_CRITICAL
-sudo chmod 0755 "\$critical"
+sudo chmod 0700 "\$critical"
 # Named rather than met as a bare "command not found": every mutating step is
 # behind this, so a server without util-linux must say so instead of failing
 # somewhere in the middle of a deployment.
