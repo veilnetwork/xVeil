@@ -53,6 +53,11 @@ class MenuTilesScreen extends ConsumerWidget {
             onTap: () => context.push('/network'),
           ),
           _MenuTile(
+            icon: Icons.help_outline,
+            label: l.navHelp,
+            onTap: () => context.push('/help'),
+          ),
+          _MenuTile(
             icon: Icons.settings_outlined,
             label: l.navSettings,
             onTap: () => context.push('/settings'),

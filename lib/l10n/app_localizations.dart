@@ -561,6 +561,150 @@ abstract class AppL10n {
   /// **'Network'**
   String get navNetwork;
 
+  /// No description provided for @navHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Help'**
+  String get navHelp;
+
+  /// No description provided for @helpIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Short answers to the questions this app raises. Nothing here needs any technical knowledge.'**
+  String get helpIntro;
+
+  /// No description provided for @helpWhatTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What is this?'**
+  String get helpWhatTitle;
+
+  /// No description provided for @helpWhatBody.
+  ///
+  /// In en, this message translates to:
+  /// **'A messenger with no company behind it. There is no server that keeps your messages, no account, and nobody asked for your phone number or your email — because there is nowhere to send them.\n\nYour messages travel straight to the person you are writing to, or are passed along by other people\'s copies of this app until they arrive. They are locked on your device and unlocked on theirs, and nobody in between can read them.\n\nThat has one consequence worth knowing up front: since nobody is keeping anything for you, nobody can give it back to you either. What is on your devices is what exists.'**
+  String get helpWhatBody;
+
+  /// No description provided for @helpIdentityTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Who am I here?'**
+  String get helpIdentityTitle;
+
+  /// No description provided for @helpIdentityBody.
+  ///
+  /// In en, this message translates to:
+  /// **'When you first started the app it made you an identity — a long string of characters that is your address in this network. You can give it a name for yourself; other people see the name they gave you.\n\nYou also chose a password. It does not unlock an account somewhere: it unlocks the storage on THIS device. Nobody can reset it, because nobody else has it.\n\nIf you were offered a recovery phrase, write it on paper and keep it somewhere safe. It is the only way to be the same person again on a new device.'**
+  String get helpIdentityBody;
+
+  /// No description provided for @helpContactsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'How do I add somebody?'**
+  String get helpContactsTitle;
+
+  /// No description provided for @helpContactsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Menu → Add contact. You get a link (and a QR code). Send it to the person any way you like — another messenger, a photo of the screen, a note on paper.\n\nWhen they open it, they can write to you. You will see the request and decide whether to accept.\n\nA link is an invitation, not a phone number: you can make a new one whenever you like, and an old one you never used harms nothing.'**
+  String get helpContactsBody;
+
+  /// No description provided for @helpOfflineTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'It says offline, or nothing is being delivered'**
+  String get helpOfflineTitle;
+
+  /// No description provided for @helpOfflineBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The app needs at least one other node to reach the rest of the network. If it finds none, a grey strip appears at the top and your messages wait — they are not lost, and they go out as soon as there is a route.\n\nThe usual reasons:\n\n• You are on a network that blocks a lot — hotel or corporate Wi-Fi. Mobile data usually works.\n• Your phone put the app to sleep. Open it and give it a moment.\n• You switched off the shared entry nodes and have not added any of your own. Then the strip says so in red, and Network is where you turn them back on.\n\nThe person you are writing to also has to be reachable at some point. A message to somebody whose phone is off waits for them.'**
+  String get helpOfflineBody;
+
+  /// No description provided for @helpCallsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Calls'**
+  String get helpCallsTitle;
+
+  /// No description provided for @helpCallsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice and video, in the same window as the chat. Both sides need to be online at the same time — there is nothing in between to hold a call for later.\n\nA call that nobody answered leaves a line in the conversation, so you can see somebody tried.\n\nIf a call will not connect, it is almost always the same reason as messages not arriving: no route to the other side right now.'**
+  String get helpCallsBody;
+
+  /// No description provided for @helpFilesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Files and shared folders'**
+  String get helpFilesTitle;
+
+  /// No description provided for @helpFilesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You can send a file in a chat like a message. Large ones travel in pieces and continue where they left off, so a lost connection is not a lost file.\n\nA shared folder is a folder on YOUR device that you let particular people read. There is no cloud behind it: while your device is off, nobody can fetch anything from it.\n\nA link to a folder can be withdrawn. After that it stops working, even for somebody who saved it.'**
+  String get helpFilesBody;
+
+  /// No description provided for @helpIdentitiesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Several identities, several devices'**
+  String get helpIdentitiesTitle;
+
+  /// No description provided for @helpIdentitiesBody.
+  ///
+  /// In en, this message translates to:
+  /// **'You can have more than one identity in the app — separate names, separate contacts, separate storage. They do not know about each other, and nobody can tell from the outside that they belong to one person.\n\nYou can also link a second device to the same identity: a phone and a computer, say. They pass messages to each other so both are up to date.\n\nSwitching identity switches everything at once — chats, files, settings. Look at the name at the top if you are unsure which one you are writing from.'**
+  String get helpIdentitiesBody;
+
+  /// No description provided for @helpPrivacyTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'What the privacy settings actually do'**
+  String get helpPrivacyTitle;
+
+  /// No description provided for @helpPrivacyBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Anonymous routing sends your traffic through several other nodes, so the person you are writing to does not learn your address and neither does anybody watching. It is slower. There is a strip at the top of the screen when it is on.\n\nDirect connection (P2P) is the opposite trade: fast, and the other side learns your address. It is per contact and per identity.\n\nDisappearing messages remove a message from both sides after the time you set. It is a convenience, not a guarantee: somebody who wants to keep what you sent can always photograph the screen.'**
+  String get helpPrivacyBody;
+
+  /// No description provided for @helpLossTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'If you lose the device or forget the password'**
+  String get helpLossTitle;
+
+  /// No description provided for @helpLossBody.
+  ///
+  /// In en, this message translates to:
+  /// **'There is no recovery. Not by us, not by anybody — the password is not stored anywhere and there is no account to reset.\n\nWhat protects you is preparation: write the recovery phrase on paper, and link a second device while you still can. A second device holds the same identity, so losing one is an inconvenience rather than an ending.\n\nThis is the price of the thing that makes the app worth using: if we could give your messages back to you, we could give them to somebody else too.'**
+  String get helpLossBody;
+
+  /// No description provided for @helpStuckTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Something is not working'**
+  String get helpStuckTitle;
+
+  /// No description provided for @helpStuckBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Start with Network. It says in words whether the node is running, how many other nodes you are connected to, and what is wrong if something is.\n\nIf there are zero nodes, look at the strip at the top of the screen — it says whether nothing was found or whether the way in is switched off.\n\nIf a message will not go out, it is waiting rather than lost. It leaves when a route appears.'**
+  String get helpStuckBody;
+
+  /// No description provided for @helpGoNetwork.
+  ///
+  /// In en, this message translates to:
+  /// **'Whether the node is running, and who you are connected to'**
+  String get helpGoNetwork;
+
+  /// No description provided for @helpGoSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Passwords, privacy, notifications and appearance'**
+  String get helpGoSettings;
+
   /// No description provided for @navSettings.
   ///
   /// In en, this message translates to:
