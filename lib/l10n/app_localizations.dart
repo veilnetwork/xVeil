@@ -6092,6 +6092,24 @@ abstract class AppL10n {
   /// **'Overlay network'**
   String get networkTitle;
 
+  /// No description provided for @reachOffline.
+  ///
+  /// In en, this message translates to:
+  /// **'Offline — no other nodes found yet'**
+  String get reachOffline;
+
+  /// No description provided for @reachNodeDown.
+  ///
+  /// In en, this message translates to:
+  /// **'The node is not running — tap to see why'**
+  String get reachNodeDown;
+
+  /// No description provided for @reachNoRoute.
+  ///
+  /// In en, this message translates to:
+  /// **'No way into the network — tap to choose one'**
+  String get reachNoRoute;
+
   /// No description provided for @networkStatusConnected.
   ///
   /// In en, this message translates to:

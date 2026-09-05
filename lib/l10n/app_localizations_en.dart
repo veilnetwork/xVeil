@@ -3454,6 +3454,15 @@ class AppL10nEn extends AppL10n {
   String get networkTitle => 'Overlay network';
 
   @override
+  String get reachOffline => 'Offline — no other nodes found yet';
+
+  @override
+  String get reachNodeDown => 'The node is not running — tap to see why';
+
+  @override
+  String get reachNoRoute => 'No way into the network — tap to choose one';
+
+  @override
   String get networkStatusConnected => 'Connected';
 
   @override

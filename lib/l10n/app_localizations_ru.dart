@@ -3489,6 +3489,16 @@ class AppL10nRu extends AppL10n {
   String get networkTitle => 'Оверлей-сеть';
 
   @override
+  String get reachOffline => 'Офлайн — других узлов пока не найдено';
+
+  @override
+  String get reachNodeDown =>
+      'Узел не запущен — нажмите, чтобы увидеть причину';
+
+  @override
+  String get reachNoRoute => 'Нет пути в сеть — нажмите, чтобы выбрать';
+
+  @override
   String get networkStatusConnected => 'Подключено';
 
   @override

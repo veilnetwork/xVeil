@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
+import 'network_reach_banner.dart';
 import '../../state/providers.dart' show sessionCountProvider;
 import '../network/security_center_sheet.dart';
 
@@ -165,10 +166,20 @@ class HomeSectionScaffold extends ConsumerWidget {
                   ],
                 ],
               ),
-        bottom: anonymous
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(22),
-                child: Container(
+        // TWO strips, stacked, because they answer different questions and
+        // either can be the one that matters: "this identity routes through
+        // the onion" and "there is nobody to talk to". The reach strip sizes
+        // itself to nothing when there is nothing to say, so the bar keeps its
+        // ordinary height in the ordinary case.
+        bottom: PreferredSize(
+          preferredSize: Size.fromHeight(
+            (anonymous ? 22 : 0) + NetworkReachBanner.height,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (anonymous)
+                Container(
                   width: double.infinity,
                   color: scheme.primaryContainer,
                   padding: const EdgeInsets.symmetric(vertical: 2),
@@ -181,8 +192,10 @@ class HomeSectionScaffold extends ConsumerWidget {
                     ),
                   ),
                 ),
-              )
-            : null,
+              const NetworkReachBanner(),
+            ],
+          ),
+        ),
         actions: [
           if (!searching && canSearch)
             IconButton(
