@@ -235,6 +235,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     return AnchorReading(
       seq: seq,
       history: await anchored.commitHistory(),
+      roots: await anchored.commitRoots(),
       generation: generation,
     );
   }
