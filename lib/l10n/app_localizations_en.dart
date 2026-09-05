@@ -296,6 +296,15 @@ class AppL10nEn extends AppL10n {
   String get callOutcomeMissed => 'Missed';
 
   @override
+  String get callKindVoice => 'Voice call';
+
+  @override
+  String get callKindVideo => 'Video call';
+
+  @override
+  String get callOutcomeCompleted => 'Call,';
+
+  @override
   String get callOutcomeDeclined => 'Declined';
 
   @override

@@ -591,6 +591,24 @@ abstract class AppL10n {
   /// **'Missed'**
   String get callOutcomeMissed;
 
+  /// No description provided for @callKindVoice.
+  ///
+  /// In en, this message translates to:
+  /// **'Voice call'**
+  String get callKindVoice;
+
+  /// No description provided for @callKindVideo.
+  ///
+  /// In en, this message translates to:
+  /// **'Video call'**
+  String get callKindVideo;
+
+  /// No description provided for @callOutcomeCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Call,'**
+  String get callOutcomeCompleted;
+
   /// No description provided for @callOutcomeDeclined.
   ///
   /// In en, this message translates to:
