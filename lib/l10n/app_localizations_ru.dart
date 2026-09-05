@@ -297,6 +297,15 @@ class AppL10nRu extends AppL10n {
   String get callOutcomeMissed => 'Пропущенный';
 
   @override
+  String get callKindVoice => 'Голосовой звонок';
+
+  @override
+  String get callKindVideo => 'Видеозвонок';
+
+  @override
+  String get callOutcomeCompleted => 'Звонок,';
+
+  @override
   String get callOutcomeDeclined => 'Отклонён';
 
   @override
