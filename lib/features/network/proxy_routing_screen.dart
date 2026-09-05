@@ -313,6 +313,7 @@ class _ProxyRoutingScreenState extends ConsumerState<ProxyRoutingScreen> {
                             onPressed: () => showModalBottomSheet<void>(
                               context: context,
                               isScrollControlled: true,
+                              useSafeArea: true,
                               builder: (_) => ShareLinkSheet(
                                 title: l.oproxyShareTitle(endpoint.label),
                                 hint: l.oproxyShareAdmissionHint,

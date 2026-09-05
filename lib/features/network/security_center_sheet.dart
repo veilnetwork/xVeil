@@ -28,6 +28,7 @@ Future<void> showSecurityCenterSheet(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (_) => const _SecurityCenterSheet(),
   );
 }

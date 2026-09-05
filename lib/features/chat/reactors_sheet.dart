@@ -31,6 +31,7 @@ Future<void> showReactorsSheet(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (context) {
       final l = AppL10n.of(context);
       return SafeArea(

@@ -2261,6 +2261,7 @@ class _SharedDocumentSectionState extends State<_SharedDocumentSection> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       showDragHandle: true,
       builder: (context) => _DocumentAclSheet(
         service: widget.service,
