@@ -10,7 +10,7 @@
 
 namespace {
 
-using WindowsVpnHelperFn = int (*)(const wchar_t*);
+using WindowsVpnHelperFn = int (*)(const wchar_t*, const wchar_t*);
 
 constexpr wchar_t kHelperArgument[] = L"--xveil-vpn-helper";
 constexpr wchar_t kHelperLibrary[] = L"veil_vpn_helper.dll";
@@ -41,11 +41,19 @@ std::optional<int> RunWindowsVpnHelperIfRequested() {
     ::LocalFree(arguments);
     return std::nullopt;
   }
-  if (argument_count != 3 || arguments[2][0] == L'\0') {
+  // THREE operands, not two. The third is the SHA-256 the host computed over
+  // the request bytes it wrote. The request itself sits in the user's own
+  // %TEMP%, writable by every process of that user for as long as the UAC
+  // prompt is on screen; this command line was fixed when that prompt was
+  // approved and cannot be changed after it. A missing operand is a refusal,
+  // never a run without the check.
+  if (argument_count != 4 || arguments[2][0] == L'\0' ||
+      arguments[3][0] == L'\0') {
     ::LocalFree(arguments);
     return EXIT_FAILURE;
   }
   const std::wstring request_path(arguments[2]);
+  const std::wstring request_digest(arguments[3]);
   ::LocalFree(arguments);
 
   const std::filesystem::path directory = ExecutableDirectory();
@@ -59,8 +67,12 @@ std::optional<int> RunWindowsVpnHelperIfRequested() {
   if (library == nullptr) {
     return EXIT_FAILURE;
   }
+  // _v2 takes the digest. The one-argument entry point it replaces read the
+  // request on trust and is gone, so a DLL from another build resolves to
+  // nullptr here and this returns failure — a mixed installation must not fall
+  // back to the unchecked route.
   const FARPROC symbol =
-      ::GetProcAddress(library, "veil_run_windows_vpn_helper");
+      ::GetProcAddress(library, "veil_run_windows_vpn_helper_v2");
   if (symbol == nullptr) {
     ::FreeLibrary(library);
     return EXIT_FAILURE;
@@ -68,7 +80,7 @@ std::optional<int> RunWindowsVpnHelperIfRequested() {
   static_assert(sizeof(symbol) == sizeof(WindowsVpnHelperFn));
   WindowsVpnHelperFn helper = nullptr;
   std::memcpy(&helper, &symbol, sizeof(helper));
-  const int result = helper(request_path.c_str());
+  const int result = helper(request_path.c_str(), request_digest.c_str());
   ::FreeLibrary(library);
   return result == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
