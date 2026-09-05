@@ -1345,6 +1345,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // Scrollable: with reply/forward/select/copy/edit/delete/history/info the
       // action list can exceed a short sheet (small screens / large text).
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (sheet) => SafeArea(
         child: SingleChildScrollView(
           child: Column(
@@ -1999,6 +2000,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (sheet) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),

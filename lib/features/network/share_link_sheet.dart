@@ -147,6 +147,7 @@ class _ShareLinkSheetState extends ConsumerState<ShareLinkSheet> {
     final chosen = await showModalBottomSheet<Contact>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (sheet) => SafeArea(
         child: ListView(
           shrinkWrap: true,

@@ -37,6 +37,7 @@ class PeersScreen extends ConsumerWidget {
               context: context,
               showDragHandle: true,
               isScrollControlled: true,
+              useSafeArea: true,
               builder: (_) => const SharePeersSheet(),
             ),
           ),
@@ -50,6 +51,7 @@ class PeersScreen extends ConsumerWidget {
           context: context,
           showDragHandle: true,
           isScrollControlled: true,
+          useSafeArea: true,
           builder: (_) => const AddPeerSheet(),
         ),
         icon: const Icon(Icons.person_add_alt),
@@ -134,6 +136,7 @@ class _PeerTile extends StatelessWidget {
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
+        useSafeArea: true,
         builder: (_) => _PeerDetailSheet(peer: peer),
       ),
     );

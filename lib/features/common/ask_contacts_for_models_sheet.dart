@@ -24,6 +24,7 @@ import '../../state/model_exchange_service.dart';
 Future<void> showAskContactsForModels(BuildContext context) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
+  useSafeArea: true,
   builder: (context) => const _AskContactsSheet(),
 );
 

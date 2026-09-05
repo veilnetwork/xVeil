@@ -900,6 +900,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => StreamBuilder<int>(
         stream: svc.changes.stream,
         builder: (context, _) => FutureBuilder<GroupState?>(
@@ -1286,6 +1287,7 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final picked = await showModalBottomSheet<NodeId>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       builder: (_) => SafeArea(
         child: ListView(
           shrinkWrap: true,

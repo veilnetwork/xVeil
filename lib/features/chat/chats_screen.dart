@@ -392,6 +392,7 @@ Future<void> showAddContactSheet(BuildContext context, WidgetRef ref) async {
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     showDragHandle: true,
     builder: (sheetCtx) {
       // Closes the sheet and reports nothing: an operation that did not happen

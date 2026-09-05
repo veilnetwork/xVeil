@@ -191,6 +191,7 @@ Future<void> _showManagedNodeEditor(
   final saved = await showModalBottomSheet<ManagedNode>(
     context: context,
     isScrollControlled: true,
+    useSafeArea: true,
     showDragHandle: true,
     builder: (_) => _NodeEditSheet(existing: existing, createMode: createMode),
   );
