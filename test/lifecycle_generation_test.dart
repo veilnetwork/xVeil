@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
 
@@ -20,8 +21,11 @@ import 'package:xveil/domain/roster.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/keep_all_online_controller.dart';
 import 'package:xveil/state/multi_identity_session.dart';
+import 'package:xveil/data/notifications/notification_service.dart';
+import 'package:xveil/state/notifications.dart';
 import 'package:xveil/state/providers.dart';
 
+import 'support/expect_before.dart';
 import 'support/fake_hv_container.dart';
 import 'support/fake_multi_space.dart';
 
@@ -233,6 +237,7 @@ typedef _AllOnline = ({
   List<String> disposedNodes,
   Completer<void> gate,
   bool Function() booting,
+  _GatedNotifications notifications,
 });
 
 Future<_AllOnline> _allOnlineHarness() async {
@@ -261,6 +266,7 @@ Future<_AllOnline> _allOnlineHarness() async {
   await master.close();
 
   final backing = _RecordingBacking(raw);
+  final notifications = _GatedNotifications();
   final gate = Completer<void>();
   final disposedNodes = <String>[];
   var entered = false;
@@ -280,6 +286,7 @@ Future<_AllOnline> _allOnlineHarness() async {
 
   final c = ProviderContainer(
     overrides: [
+      notificationServiceProvider.overrideWithValue(notifications),
       singleSpaceStorageProvider.overrideWith(
         (ref) => masterContainer.storage(),
       ),
@@ -316,7 +323,41 @@ Future<_AllOnline> _allOnlineHarness() async {
     disposedNodes: disposedNodes,
     gate: gate,
     booting: () => entered,
+    notifications: notifications,
   );
+}
+
+/// A notification service whose `cancelAll` can be parked.
+///
+/// `_activateOnline` drops the posted alerts of the identity being left before
+/// it re-points anything, and that await is where a lock lands.
+class _GatedNotifications extends NotificationService {
+  Completer<void>? gate;
+  int cancelCalls = 0;
+
+  @override
+  Future<bool> requestPermission() async => true;
+
+  @override
+  Future<void> cancelAll() async {
+    cancelCalls++;
+    final g = gate;
+    // ONE call is parked. `lock()` drops the posted alerts too, and it must
+    // not queue behind the switch it is racing — that is a deadlock in the
+    // test, not a property of the app.
+    gate = null;
+    if (g != null) await g.future;
+  }
+
+  @override
+  Future<bool> show({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+    String? replyLabel,
+    String? replyHint,
+  }) async => true;
 }
 
 void main() {
@@ -456,6 +497,91 @@ void main() {
       reason: 'the container\'s shared lock was never released',
     );
     expect(c.read(appControllerProvider).phase, AppPhase.locked);
+  });
+
+  test('all-online: a lock DURING an identity switch is not overwritten by '
+      'the ready the switch was about to publish', () async {
+    final h = await _allOnlineHarness();
+    final c = h.container;
+    h.gate.complete();
+    await h.controller.unlock('masterpw');
+    expect(c.read(appControllerProvider).phase, AppPhase.ready);
+    final first = c.read(appControllerProvider).activeIdentity;
+    final other = first == 'alice' ? 'bob' : 'alice';
+
+    // The switch parks where it drops the alerts of the identity being left.
+    final parked = Completer<void>();
+    h.notifications.gate = parked;
+    final switching = h.controller.switchIdentity(other);
+    await _pumpUntil(
+      () => h.notifications.cancelCalls > 0,
+      'the switch dropping posted alerts',
+    );
+
+    // The lock lands in that window. It ends the lifecycle at its FIRST line
+    // and publishes `locked` at its last, so a token taken after this await
+    // is the post-lock one and compares equal to itself.
+    await h.controller.lock();
+    expect(c.read(appControllerProvider).phase, AppPhase.locked);
+
+    parked.complete();
+    // NOT `await switching` bare: the switch used to read `sessionProvider!`
+    // straight after this await, and the lock has already cleared it — so
+    // what came back was an unhandled null-check exception thrown across a
+    // user gesture. Failing here is the point.
+    await expectLater(switching, completes);
+
+    expect(
+      c.read(appControllerProvider).phase,
+      AppPhase.locked,
+      reason:
+          'the switch published ready over a lock screen the person had just '
+          'raised',
+    );
+    expect(
+      c.read(sessionProvider),
+      isNull,
+      reason: 'the lock did not actually reclaim the session — retarget this',
+    );
+  });
+
+  test('the switch takes its lifecycle token before it awaits anything', () {
+    // The half the harness above cannot reach today. `lock()` clears the
+    // session, so the stale switch stops at the null check before it can
+    // publish `ready` — but the token it holds is still the post-lock one,
+    // because it was taken after `_dropPostedNotifications`. Nothing between
+    // here and a change to that teardown order would make it fail loudly, so
+    // the ORDER is asserted directly.
+    final src = File('lib/state/app_controller.dart').readAsStringSync();
+    final start = src.indexOf('Future<void> _activateOnline(');
+    expect(start, isNot(-1), reason: '_activateOnline was renamed');
+    final body = src.substring(start, src.indexOf('\n  }\n', start));
+    expectBefore(
+      body,
+      'final gen = _lifecycle;',
+      'await ',
+      reason:
+          'the generation is taken after an await, so it is the generation of '
+          'whatever happened during it — including the lock this is meant to '
+          'notice',
+    );
+  });
+
+  test('all-online CONTROL: with no lock the switch does re-point the view',
+      () async {
+    // The other way round, so the test above cannot pass on a switch that
+    // does nothing at all.
+    final h = await _allOnlineHarness();
+    final c = h.container;
+    h.gate.complete();
+    await h.controller.unlock('masterpw');
+    final first = c.read(appControllerProvider).activeIdentity;
+    final other = first == 'alice' ? 'bob' : 'alice';
+
+    await h.controller.switchIdentity(other);
+
+    expect(c.read(appControllerProvider).phase, AppPhase.ready);
+    expect(c.read(appControllerProvider).activeIdentity, other);
   });
 
   test('all-online CONTROL: with no lock the same boot reaches ready and the '
