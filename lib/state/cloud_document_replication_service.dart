@@ -233,7 +233,7 @@ class CloudDocumentReplicationService {
     Duration quiescenceFreezeDuration = const Duration(minutes: 10),
     CloudCapabilityNetworkPort? memberContentNetwork,
     CloudMemberFolderStoragePort? memberContentStorage,
-    Future<int> Function()? memberProviderSlot,
+    Future<int?> Function()? memberProviderSlot,
     int memberHostLimit = 3,
     Duration memberFetchTimeout = const Duration(seconds: 30),
   }) => CloudDocumentReplicationService._(
@@ -282,7 +282,7 @@ class CloudDocumentReplicationService {
     required this._quiescenceFreezeDuration,
     required CloudCapabilityNetworkPort? memberContentNetwork,
     required CloudMemberFolderStoragePort? memberContentStorage,
-    required Future<int> Function()? memberProviderSlot,
+    required Future<int?> Function()? memberProviderSlot,
     required int memberHostLimit,
     required Duration memberFetchTimeout,
   }) : _memberNetwork = memberContentNetwork,
@@ -341,7 +341,15 @@ class CloudDocumentReplicationService {
   ///
   /// Resolved per host rather than captured: devices join and leave the group
   /// while this service is alive, and the slot is an index into that group.
-  Future<int> Function()? memberProviderSlot;
+  /// Which of this identity's devices this one is, among those hosting.
+  ///
+  /// NULL means "not knowable right now", and it is not the same as 0. Every
+  /// device of an identity derives the same member host seed and alias, so the
+  /// slot is the only thing that keeps two of them from registering as one
+  /// provider — and a guessed slot is the collision it exists to stop. When
+  /// the answer is unknown this device does not host at all (report20
+  /// XV20-M9).
+  Future<int?> Function()? memberProviderSlot;
   final int _memberHostLimit;
   final Duration _memberFetchTimeout;
   final Map<String, _MemberFolderHostState> _memberHosts = {};
@@ -1144,6 +1152,14 @@ class CloudDocumentReplicationService {
         );
         final hostSeed = Uint8List.fromList(vkSeed);
         CloudCapabilityEndpointPort? endpoint;
+        // ASKED BEFORE anything is registered. A resolver that cannot answer —
+        // an identity whose container is not readable from here, a build with
+        // no native signer — leaves this device out of hosting rather than
+        // taking slot 0 and colliding with a sibling that legitimately holds
+        // it.
+        final int? providerSlot =
+            memberProviderSlot == null ? 0 : await memberProviderSlot!.call();
+        if (providerSlot == null) continue;
         try {
           final expectedVk =
               await CloudCapabilityCodec.onionServicePublicKeyFromSeed(vkSeed);
@@ -1154,7 +1170,7 @@ class CloudDocumentReplicationService {
               epochKey: plan.epochKey,
             ),
             endpointId: CloudCapabilityCodec.memberHostEndpointId,
-            providerSlot: await (memberProviderSlot?.call() ?? Future.value(0)),
+            providerSlot: providerSlot,
           );
           // close() may have run during the awaits above; inserting now would
           // orphan a live onion registration forever (close() already swept
