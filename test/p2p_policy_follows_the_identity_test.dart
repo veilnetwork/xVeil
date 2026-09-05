@@ -190,6 +190,81 @@ void main() {
       reason: "a choice made under A was written into B's storage",
     );
   });
+
+  group('a write that fails is not a choice that stood (report20 XV20-M2)', () {
+    test('the setter says so, and the live state keeps the answer', () async {
+      final storage = _RefusingWrites(await opened('a'));
+      final container = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => storage)],
+      );
+      addTearDown(container.dispose);
+
+      container.read(p2pPolicyProvider);
+      await Future<void>.delayed(Duration.zero);
+
+      final saved = await container
+          .read(p2pPolicyProvider.notifier)
+          .set(P2PGlobalPolicy.denied);
+
+      expect(
+        saved,
+        isFalse,
+        reason:
+            'the write failed and the setter reported success, so the screen '
+            'shows a posture the store does not hold',
+      );
+      // The answer still applies NOW — that is what the person asked for. What
+      // must not happen is their believing it survived a restart.
+      expect(container.read(p2pPolicyProvider), P2PGlobalPolicy.denied);
+      expect(
+        await storage.inner.getSetting(kP2PGlobalPolicySettingKey),
+        isNull,
+        reason: 'retarget this: the write was supposed to have failed',
+      );
+    });
+
+    test('a write that lands still reports success', () async {
+      final storage = await opened('a');
+      final container = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => storage)],
+      );
+      addTearDown(container.dispose);
+      container.read(p2pPolicyProvider);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        await container
+            .read(p2pPolicyProvider.notifier)
+            .set(P2PGlobalPolicy.denied),
+        isTrue,
+      );
+      expect(
+        await storage.getSetting(kP2PGlobalPolicySettingKey),
+        P2PGlobalPolicy.denied.name,
+      );
+    });
+  });
+}
+
+/// A storage that reads but will not write — a full or damaged container.
+class _RefusingWrites implements Storage {
+  _RefusingWrites(this.inner);
+
+  final HiddenVolumeStorage inner;
+
+  @override
+  bool get isOpen => inner.isOpen;
+
+  @override
+  Future<String?> getSetting(String key) => inner.getSetting(key);
+
+  @override
+  Future<void> putSetting(String key, String value) async =>
+      throw StateError('no space left in the container');
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      Function.apply((inner as dynamic).noSuchMethod, [invocation]);
 }
 
 /// A storage whose settings calls finish when the test says so.

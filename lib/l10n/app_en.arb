@@ -1409,6 +1409,7 @@
   "settingsApiCopyToken": "Copy token",
   "settingsCommunication": "Communication",
   "settingsP2PPolicy": "P2P policy",
+  "settingsP2PPolicyNotSaved": "Applied for now, but it could not be saved — it will go back after a restart",
   "settingsP2PPolicyHint": "Allows direct transport for calls, large media, files, and device-to-device exchange when both sides consent.",
   "settingsP2PPolicyAnonymousHint": "P2P is disabled while this identity uses anonymous routing.",
   "p2pPolicyAllowAll": "Allow everyone",

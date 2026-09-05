@@ -1375,6 +1375,7 @@
   "settingsApiCopyToken": "Копировать токен",
   "settingsCommunication": "Связь",
   "settingsP2PPolicy": "Политика P2P",
+  "settingsP2PPolicyNotSaved": "Сейчас применено, но сохранить не удалось — после перезапуска вернётся прежнее",
   "settingsP2PPolicyHint": "Разрешает прямой транспорт для звонков, больших медиа, файлов и обмена между устройствами, когда обе стороны согласны.",
   "settingsP2PPolicyAnonymousHint": "P2P отключён, пока эта личность использует анонимную маршрутизацию.",
   "p2pPolicyAllowAll": "Разрешить всем",

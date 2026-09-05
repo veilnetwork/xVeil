@@ -3202,6 +3202,10 @@ class AppL10nEn extends AppL10n {
   String get settingsP2PPolicy => 'P2P policy';
 
   @override
+  String get settingsP2PPolicyNotSaved =>
+      'Applied for now, but it could not be saved — it will go back after a restart';
+
+  @override
   String get settingsP2PPolicyHint =>
       'Allows direct transport for calls, large media, files, and device-to-device exchange when both sides consent.';
 

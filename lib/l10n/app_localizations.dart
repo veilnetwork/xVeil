@@ -5612,6 +5612,12 @@ abstract class AppL10n {
   /// **'P2P policy'**
   String get settingsP2PPolicy;
 
+  /// No description provided for @settingsP2PPolicyNotSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Applied for now, but it could not be saved — it will go back after a restart'**
+  String get settingsP2PPolicyNotSaved;
+
   /// No description provided for @settingsP2PPolicyHint.
   ///
   /// In en, this message translates to:
