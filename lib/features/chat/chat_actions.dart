@@ -41,6 +41,7 @@ Future<void> showConversationActions(
     // folders/block/clear/delete no longer fit a short sheet (the phone showed
     // "bottom overflowed by 243px" and the tail actions were unreachable).
     isScrollControlled: true,
+    useSafeArea: true,
     builder: (sheet) => SafeArea(
       child: SingleChildScrollView(
         child: Column(
