@@ -1,5 +1,7 @@
+import '../../core/log.dart';
 import '../storage/storage.dart';
-import 'embedded_node.dart' show BootstrapPeerCfg, mergeBootstrapPeers;
+import 'embedded_node.dart'
+    show BootstrapPeerCfg, EmbeddedNode, mergeBootstrapPeers;
 
 /// Whether this identity reaches the network through the SHARED seed nodes.
 ///
@@ -241,11 +243,38 @@ Future<List<String>?> meetingPointsInSpace(Storage storage) async {
     final raw = await storage.getSetting(kMeetingPointsSettingKey);
     if (raw == null || raw.isEmpty || raw == 'all') return null;
     if (raw == 'off') return const <String>[];
-    return raw
+    final stored = raw
         .split(',')
         .map((name) => name.trim())
         .where((name) => name.isNotEmpty)
         .toList();
+    // NAMES THIS BUILD KNOWS, and only those. A newer build may have written a
+    // point that does not exist here — the list grows, and the app downgrades
+    // — and [EmbeddedNode.withMeetingPoints] throws `ArgumentError` on an
+    // unknown one. That throw is right where it is: it catches a typo in a
+    // literal at a call site. Here the value comes out of STORAGE, so the
+    // throw reached the boot and the identity could not start at all, which is
+    // a far worse answer than the honest one.
+    //
+    // Dropped rather than widened. The stored list is a set the owner chose
+    // FROM; a name this build cannot honour is not a licence to use the ones
+    // they left out. Dropping every name leaves "look nowhere", which is what
+    // a list of points none of which exist here actually means — said out loud
+    // in the log rather than silently.
+    final known = stored
+        .where((name) => EmbeddedNode.meetingPoints.contains(name))
+        .toList();
+    if (known.length != stored.length) {
+      final dropped = stored
+          .where((name) => !EmbeddedNode.meetingPoints.contains(name))
+          .join(', ');
+      devLog(
+        () =>
+            'xVeil[net]: meeting point(s) this build does not know, dropped: '
+            '$dropped (kept ${known.isEmpty ? "none" : known.join(", ")})',
+      );
+    }
+    return known;
   } catch (_) {
     return null;
   }
