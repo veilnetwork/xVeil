@@ -1351,13 +1351,31 @@ class AppController extends Notifier<AppState> {
   }
 
   Future<void> _activateOnline(String label, List<String> identities) async {
+    // FIRST STATEMENT, before any await. A generation taken later is the
+    // generation of whatever happened during the wait: `lock()` bumps it at
+    // its very first line and publishes `locked` at its last, so a lock
+    // landing inside `_dropPostedNotifications` handed this switch the
+    // POST-LOCK number. `_supersededSince` then compared the new value with
+    // itself, said nothing had superseded us, and let `ready` be published
+    // over a lock screen the person had just raised (report18 XV18-M7).
+    final gen = _lifecycle;
     // BEFORE the view is re-pointed: from here on, this identity is the one a
     // reply would be sent from, and no alert from the one being left behind
     // may still be on screen offering to send it.
     _stopMediaCapture();
     await _dropPostedNotifications();
-    final gen = _lifecycle;
-    final session = ref.read(sessionProvider)!;
+    if (_supersededSince(gen)) {
+      devLog(() => 'xVeil[all-online]: locked mid-activate — staying locked');
+      return;
+    }
+    // And the session may be gone with it. `!` here threw an unhandled
+    // null-check across the switch when a lock got there first, which is the
+    // same window by another name.
+    final session = ref.read(sessionProvider);
+    if (session == null) {
+      devLog(() => 'xVeil[all-online]: no session mid-activate — staying put');
+      return;
+    }
     _activeLabel = label;
     ref.read(activeIdentityProvider.notifier).state = label;
     final stack = session.stackFor(label);
