@@ -8,6 +8,7 @@ import '../features/chat/chat_screen.dart';
 import '../features/chat/mentions_screen.dart';
 import '../features/groups/group_chat_screen.dart';
 import '../features/home/home_shell.dart';
+import '../features/help/help_screen.dart';
 import '../features/identity/add_identity_screen.dart';
 import '../features/identity/decoy_master_screen.dart';
 import '../features/identity/identity_damaged_screen.dart';
@@ -203,6 +204,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Network and Settings are pushed from the drawer app-menu (they left
       // the bottom bar when it became Chats + reserved future sections).
       GoRoute(path: '/network', builder: (_, _) => const NetworkScreen()),
+      GoRoute(path: '/help', builder: (_, _) => const HelpScreen()),
       GoRoute(path: '/calls', builder: (_, _) => const CallLogScreen()),
       GoRoute(path: '/spaces', builder: (_, _) => const SpaceListScreen()),
       GoRoute(path: '/storage', builder: (_, _) => const CloudStorageScreen()),
