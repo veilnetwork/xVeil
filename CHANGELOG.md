@@ -10,6 +10,33 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.45] — 2026-09-06
+
+### Fixed
+
+- A direct connection could never be established by anyone whose session keeps
+  all identities online — the default for a master profile with more than one.
+  Such a node bound the loopback address only, so nothing outside the device
+  could reach it: not a contact on the same network, not a punched flow from
+  the far side of a NAT. With both ends in that state there was no direct route
+  in either direction, and every call and every transfer quietly took the long
+  way round through a relay. Nothing reported it; the ladder ran, offered an
+  address it did not have, and fell back.
+
+  The setting was there and said yes. The other boot path — one identity active
+  — read it and passed it on; this one never asked. The answer is now resolved
+  per identity, from that identity's own space, because one answer for the
+  whole session would open a port for an identity whose owner had refused P2P
+  just because a neighbour in the same container allows it. A setting that
+  cannot be read is a refusal.
+
+### Changed
+
+- veil 0.11.21 plus three fixes (an elevated VPN tunnel any process of the user
+  could stop, a rendezvous encoder that could emit what its own decoder
+  refuses, and an overwritten cold copy that stayed on the byte books),
+  hidden-volume 2.3.0.
+
 ## [0.13.44] — 2026-09-05
 
 ### Fixed
