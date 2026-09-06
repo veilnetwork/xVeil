@@ -1930,6 +1930,9 @@ class AppL10nEn extends AppL10n {
   String get chatRequestSent => 'Request sent — waiting for approval';
 
   @override
+  String get chatRequestResent => 'Sent again — waiting for approval';
+
+  @override
   String get chatRequestNotDelivered =>
       'Request could not be delivered — nothing carried it';
 
