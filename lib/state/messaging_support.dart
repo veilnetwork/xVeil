@@ -21,6 +21,63 @@ List<NodeId> mailboxRelayCandidates(List<BootstrapPeerCfg> peers) {
   return out;
 }
 
+/// The candidates a mailbox may register with: the configured ones first, then
+/// the peers the node actually has.
+///
+/// The configured list used to be the whole answer, and on the production
+/// network that list is EMPTY BY DESIGN — `assets/prod/seeds.json` ships `[]`
+/// and veil's own `seeds.rs` says a production build carries no builtin seeds
+/// either. Peers come from discovery now (the open index, Nostr, the LAN), and
+/// the node finds them by itself: a device can sit there reporting "connected,
+/// 2 peers" while this list is empty, no mailbox is ever built, and every
+/// deposit fails. A contact request is the one send with no retry, so that
+/// combination means first contact cannot be made at all.
+///
+/// Order matters and is not alphabetical: an operator's own nodes come first
+/// because they are the ones chosen deliberately and kept running. Discovered
+/// peers follow as the fallback that makes a stock install work. Neither is
+/// trusted by being here — [MailboxService.start] keeps only the candidates
+/// whose relay key actually resolves, so a peer that hosts no mailbox drops out
+/// on its own.
+List<NodeId> mergeMailboxRelayCandidates(
+  List<NodeId> configured,
+  List<PeerInfo> peers,
+) {
+  final out = <NodeId>[];
+  final seen = <NodeId>{};
+  for (final node in configured) {
+    if (seen.add(node)) out.add(node);
+  }
+  for (final peer in peers) {
+    if (!peer.isActive) continue;
+    if (seen.add(peer.nodeId)) out.add(peer.nodeId);
+  }
+  return out;
+}
+
+/// The candidate list to hand [MailboxService.start], asked at the moment it is
+/// needed: [configured] first, then whoever the node has found.
+///
+/// Takes the peer lookup as a function rather than a transport so the decision
+/// is testable without a node — the two hosts that call it (the app provider
+/// and the headless daemon) pass `transport.peers`.
+///
+/// A lookup that throws falls back to [configured], which is what both hosts
+/// did before discovery existed: a transport that cannot answer must not cost
+/// an operator the relays they configured by hand.
+Future<List<NodeId>> liveMailboxRelayCandidates({
+  required Future<List<PeerInfo>> Function() peers,
+  required List<NodeId> configured,
+}) async {
+  var found = const <PeerInfo>[];
+  try {
+    found = await peers();
+  } catch (_) {
+    // Keep the configured answer rather than none.
+  }
+  return mergeMailboxRelayCandidates(configured, found);
+}
+
 const _streamRangeParallelismDartDefine = int.fromEnvironment(
   'XVEIL_STREAM_RANGE_PARALLELISM',
   defaultValue: 0,
