@@ -46,6 +46,9 @@ NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 /// sent — which is the defect this fixture would otherwise re-encode. Give it
 /// a relay so the control exercises a complete success.
 class _RecordingRelay implements MailboxSink {
+  @override
+  bool get isRegistered => true;
+
   final stashed = <Uint8List>[];
 
   @override

@@ -76,6 +76,15 @@ abstract interface class MailboxSink {
   /// the device. Deposits and recovered-message delivery are unaffected.
   bool get backgroundDrainPaused;
   set backgroundDrainPaused(bool value);
+
+  /// Whether a relay is hosting this device's mailbox right now.
+  ///
+  /// False means nobody can deposit for this identity: it can start
+  /// conversations and cannot be reached first, and a contact request sent to
+  /// it is dropped with nothing to see at either end. The daemon has warned its
+  /// operator about that state since the day it existed; this getter is how the
+  /// app finally says it too.
+  bool get isRegistered;
 }
 
 /// Runs the offline-delivery side of messaging alongside [MessagingService]:
@@ -224,6 +233,7 @@ class MailboxService implements MailboxSink {
   int _warmCursor = 0;
 
   /// Whether we have successfully advertised a mailbox relay this session.
+  @override
   bool get isRegistered => _registered;
 
   /// Advertise an always-on mailbox host (the first of [relays] whose relay-key
