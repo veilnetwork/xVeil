@@ -1949,6 +1949,9 @@ class AppL10nRu extends AppL10n {
   String get chatRequestSent => 'Запрос отправлен — ожидание одобрения';
 
   @override
+  String get chatRequestResent => 'Отправлено ещё раз — ожидание одобрения';
+
+  @override
   String get chatRequestNotDelivered =>
       'Запрос не доставлен — его никто не понёс';
 
