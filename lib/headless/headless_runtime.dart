@@ -113,6 +113,23 @@ class HeadlessRuntime {
         psk = await readSharedSecretFile(pskPath, 'obfs4 PSK');
       }
 
+      // MINING TAKES MINUTES, and the daemon used to spend them in silence:
+      // no output, no socket, no API — indistinguishable from a hang, and the
+      // first thing anybody does about a hang is kill it. The node identity is
+      // proof-of-work, so the wait is the design working, not a fault; say so
+      // BEFORE it starts rather than explaining it afterwards.
+      //
+      // Asked of the container, not of `--create`: a store can exist while its
+      // node config does not (a first start that was killed during exactly
+      // this wait), and that second start mines too.
+      if (await storage.loadNodeConfig() == null) {
+        stderr.writeln(
+          'xveil: mining this node\'s identity — it is proof-of-work and '
+          'takes a couple of minutes on first start. Nothing is wrong; leave '
+          'it running. The API opens when the node is up.',
+        );
+      }
+
       stack = await RealVeilStack.startDeniable(
         storage: storage,
         // A BASE. The daemon creates its own directory under it and owns
@@ -280,20 +297,29 @@ class HeadlessRuntime {
         );
         messaging.attachMailbox(mailbox);
         final started = mailbox;
+        var complained = false;
         unawaited(
-          liveRelays(transport).then((relays) {
-            if (relays.isEmpty) {
-              // Now it means what it says: not "you left the config empty",
-              // but "this node has nowhere to be reached, from either source".
-              stderr.writeln(
-                'xveil: no mailbox relays — no bootstrap_peers configured and '
-                'no peers discovered yet. This node can reach others but '
-                'CANNOT BE REACHED FIRST: contact requests sent to it will '
-                'not arrive.',
-              );
-            }
-            return started.start(relays: relays);
-          }),
+          startMailboxWhenCarriersExist(
+            candidates: () async {
+              final relays = await liveRelays(transport);
+              if (relays.isEmpty && !complained) {
+                // Said ONCE, on the first empty answer. It used to be the last
+                // word on the subject; now it is the first, because the search
+                // keeps going and this state is usually temporary.
+                complained = true;
+                stderr.writeln(
+                  'xveil: no mailbox relays yet — none configured and none '
+                  'discovered. Until one appears this node can reach others '
+                  'but CANNOT BE REACHED FIRST: contact requests sent to it '
+                  'will not arrive. Still looking.',
+                );
+              }
+              return relays;
+            },
+            start: (relays) => started.start(relays: relays),
+            registered: () => started.isRegistered,
+            cancelled: () => false,
+          ),
         );
       }
       nodeStatus = stack.controller.status().listen((next) {
@@ -301,9 +327,9 @@ class HeadlessRuntime {
           unawaited(messaging!.reconcileOnConnect());
           final m = mailbox;
           final t = stack!.transport;
-          // The reconnect is the moment discovery has an answer it did not
-          // have at boot, so the list is rebuilt rather than reused.
-          if (m != null) {
+          // The reconnect is one moment discovery may have an answer it did
+          // not have at boot; the retry above covers the rest.
+          if (m != null && !m.isRegistered) {
             unawaited(liveRelays(t).then((relays) => m.start(relays: relays)));
           }
         }
