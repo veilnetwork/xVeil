@@ -10,6 +10,40 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.47] — 2026-09-06
+
+### Fixed
+
+- The mailbox was asked who could carry for it once, at a moment when the
+  answer is always "nobody". A node reports itself connected when it is UP, and
+  its first peers arrive a second later — so the list was empty, and
+  `MailboxService` retries registration only among relays it was already given.
+  Empty stayed empty for the life of the process: connected, and unreachable by
+  anyone who had not spoken to us before, which is indistinguishable from
+  having no network at all. It now keeps asking until somebody can carry.
+
+  Measured on a daemon built for the purpose: three sessions established one
+  second after the mailbox had already been handed nothing.
+
+### Added
+
+- The app says when it is connected and still cannot be reached. That state is
+  the only silence that does not look like one — everything a person tries
+  first works — and until now the headless daemon was the only half of this
+  project that mentioned it, to an operator reading a terminal. Shown after 45
+  seconds rather than the usual six: registering a mailbox is a job with a
+  backoff, not a blip, and "not yet" is the honest answer for the first half
+  minute of any launch.
+
+- The daemon says that it is mining its identity and roughly how long that
+  takes. It used to spend those minutes in total silence, which is
+  indistinguishable from a hang — and the first thing anybody does about a hang
+  is kill it, which throws the work away and starts it again.
+
+### Changed
+
+- veil 0.11.21 plus three fixes, hidden-volume 2.3.0 — unchanged from 0.13.45.
+
 ## [0.13.46] — 2026-09-06
 
 ### Fixed

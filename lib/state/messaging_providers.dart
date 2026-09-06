@@ -84,6 +84,10 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // (a configured bootstrap peer) and drain our mailbox into the inbound path.
   // Best-effort + inert on the loopback transport or when no bootstrap peers
   // are configured — live delivery is unaffected if this never registers.
+  // Declared before the closures that read it: a late-resolving mailbox must
+  // not be attached to, or retried on, a provider that is already gone.
+  var providerDisposed = false;
+  ref.onDispose(() => providerDisposed = true);
   final configuredRelays = mailboxRelayCandidates(
     ref.read(deniableBootProvider)?.bootstrapPeers ?? const [],
   );
@@ -102,18 +106,25 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   /// Asked again on each start because discovery is not instant: at the first
   /// call the node may have nobody yet, and the reconnect below is exactly the
   /// moment it does.
-  Future<void> startWithLiveRelays(MailboxService m) async {
-    final relays = await liveMailboxRelayCandidates(
-      peers: transport.peers,
-      configured: configuredRelays,
-    );
-    devLog(
-      () =>
-          'xVeil[mailbox]: start — ${configuredRelays.length} configured + '
-          '${relays.length - configuredRelays.length} discovered',
-    );
-    await m.start(relays: relays);
-  }
+  Future<void> startWithLiveRelays(MailboxService m) =>
+      startMailboxWhenCarriersExist(
+        candidates: () async {
+          final relays = await liveMailboxRelayCandidates(
+            peers: transport.peers,
+            configured: configuredRelays,
+          );
+          devLog(
+            () =>
+                'xVeil[mailbox]: candidates — ${configuredRelays.length} '
+                'configured + ${relays.length - configuredRelays.length} '
+                'discovered',
+          );
+          return relays;
+        },
+        start: (relays) => m.start(relays: relays),
+        registered: () => m.isRegistered,
+        cancelled: () => providerDisposed,
+      );
 
   devLog(
     () =>
@@ -127,8 +138,6 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // If we attached then, the orphaned mailbox's retry timer would run forever on
   // a dead veil handle ("handle already closed" spam). Track disposal and drop a
   // late-arriving mailbox instead of leaking it.
-  var providerDisposed = false;
-  ref.onDispose(() => providerDisposed = true);
   // WHICH ADDRESS IS OURS is not a mailbox question, and it used to be asked
   // inside the mailbox's `if`. A build with no relay candidates therefore left
   // the transport not knowing the identity's address at all — and the transport
