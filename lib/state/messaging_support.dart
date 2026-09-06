@@ -78,6 +78,38 @@ Future<List<NodeId>> liveMailboxRelayCandidates({
   return mergeMailboxRelayCandidates(configured, found);
 }
 
+/// Keep asking for carriers until somebody can carry, then register.
+///
+/// Asking once is asking too early, and that is not a race — it is the
+/// ordinary order of events. A node reports itself CONNECTED when it is up,
+/// and its first peers arrive after that: measured on a fresh daemon, three
+/// sessions were established a second later, while the mailbox had already
+/// been handed an empty list and had nothing to retry with. `MailboxService`
+/// retries its registration, but only among the relays it was given, so an
+/// empty list stays empty for the life of the process — connected, and unable
+/// to be reached first, exactly as if there were no network at all.
+///
+/// Stops at the first start that leaves the mailbox registered. [cancelled]
+/// ends it early when the identity or the stack it belongs to is gone.
+Future<void> startMailboxWhenCarriersExist({
+  required Future<List<NodeId>> Function() candidates,
+  required Future<void> Function(List<NodeId>) start,
+  required bool Function() registered,
+  required bool Function() cancelled,
+  Duration interval = const Duration(seconds: 10),
+  int attempts = 30,
+}) async {
+  for (var attempt = 0; attempt < attempts; attempt++) {
+    if (cancelled()) return;
+    final relays = await candidates();
+    if (relays.isNotEmpty) {
+      await start(relays);
+      if (cancelled() || registered()) return;
+    }
+    await Future<void>.delayed(interval);
+  }
+}
+
 const _streamRangeParallelismDartDefine = int.fromEnvironment(
   'XVEIL_STREAM_RANGE_PARALLELISM',
   defaultValue: 0,
