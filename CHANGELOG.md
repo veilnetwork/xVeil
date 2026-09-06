@@ -10,6 +10,34 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.48] — 2026-09-07
+
+### Fixed
+
+- Confirming a re-sent request covered the buttons it was confirming. Pressing
+  "Send again" raised the sentence already standing one line above it, on top
+  of "Send again" and "Cancel". The confirmation moved into that line, where
+  the eye already is, and now says the one thing the standing text does not:
+  that it went out again.
+
+### Changed
+
+- veil 0.11.22, hidden-volume 2.3.0.
+
+  The veil release carries the instrument for the one question still open here:
+  a peer found at a rendezvous is dialled to be asked for contacts and broken
+  straight after, and when the session ended first the ask was skipped in
+  silence — three seeds dialled, three sessions opened and closed inside the
+  same millisecond, and a node reporting itself connected with no peers for the
+  rest of the process. It now says when the ask could not happen, and every
+  session says how long it lived.
+
+  The hidden-volume pin moves for a sharper reason than the version: the commit
+  it was pinned to does not build with its own features enabled. `SpaceState`
+  gained a field that only the sequential scan filled, so the parallel and mmap
+  backends failed to compile under `--all-features` while a default build
+  stayed green.
+
 ## [0.13.47] — 2026-09-06
 
 ### Fixed
