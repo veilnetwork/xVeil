@@ -22,6 +22,7 @@ import '../data/storage/hidden_volume_storage.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_flutter_transport.dart';
+import '../data/transport/veil_transport.dart' show VeilTransport;
 import '../data/transport/veil_mailbox.dart';
 import '../data/veil_stack.dart';
 import '../domain/chat.dart';
@@ -240,23 +241,29 @@ class HeadlessRuntime {
       groups.startPublicSpaceDiscoveryMaintenance();
       _wireGroupIngress(messaging, groups);
 
-      final relays = mailboxRelayCandidates(config.bootstrapPeers);
-      if (relays.isEmpty) {
-        // The node joins the network from seeds compiled into the native, so a
-        // config with no bootstrap_peers still connects and looks healthy —
-        // while silently having NO mailbox. Without one it never advertises a
-        // KEM key, so nobody can deposit for it: it can start conversations but
-        // cannot be reached first, and a contact request sent to it is dropped
-        // with nothing to see on either side. Say so where the operator will
-        // read it.
-        stderr.writeln(
-          'xveil: no mailbox relays — set bootstrap_peers in the config. '
-          'This node can reach others but CANNOT BE REACHED FIRST: contact '
-          'requests sent to it will not arrive.',
+      final configuredRelays = mailboxRelayCandidates(config.bootstrapPeers);
+      // What the LAST start actually had to work with. The `account`
+      // answer reports reachability from this rather than from the
+      // configured list, which since discovery is no longer the same
+      // question: a node with an empty config can be perfectly reachable.
+      var relayCount = 0;
+      // Configured peers PLUS whatever the node found by itself. The
+      // configured list used to be the whole answer, and this daemon already
+      // said out loud what that costs when it is empty — which on the
+      // production network it is BY DESIGN, since neither the app's asset nor
+      // the native carries a seed list any more. So the warning fired for a
+      // correctly configured node while discovery had it connected, and the
+      // advice it gave (set bootstrap_peers) was no longer the only way out.
+      Future<List<NodeId>> liveRelays(VeilTransport transport) async {
+        final merged = await liveMailboxRelayCandidates(
+          peers: transport.peers,
+          configured: configuredRelays,
         );
+        relayCount = merged.length;
+        return merged;
       }
-      if (stack.transport case final VeilFlutterTransport transport
-          when relays.isNotEmpty) {
+
+      if (stack.transport case final VeilFlutterTransport transport) {
         final receiveAddress = await RealVeilStack.sovereignReceiveAddress(
           storage,
         );
@@ -272,12 +279,33 @@ class HeadlessRuntime {
           ),
         );
         messaging.attachMailbox(mailbox);
-        unawaited(mailbox.start(relays: relays));
+        final started = mailbox;
+        unawaited(
+          liveRelays(transport).then((relays) {
+            if (relays.isEmpty) {
+              // Now it means what it says: not "you left the config empty",
+              // but "this node has nowhere to be reached, from either source".
+              stderr.writeln(
+                'xveil: no mailbox relays — no bootstrap_peers configured and '
+                'no peers discovered yet. This node can reach others but '
+                'CANNOT BE REACHED FIRST: contact requests sent to it will '
+                'not arrive.',
+              );
+            }
+            return started.start(relays: relays);
+          }),
+        );
       }
       nodeStatus = stack.controller.status().listen((next) {
         if (next.phase == NodePhase.connected) {
           unawaited(messaging!.reconcileOnConnect());
-          if (mailbox != null) unawaited(mailbox.start(relays: relays));
+          final m = mailbox;
+          final t = stack!.transport;
+          // The reconnect is the moment discovery has an answer it did not
+          // have at boot, so the list is rebuilt rather than reused.
+          if (m != null) {
+            unawaited(liveRelays(t).then((relays) => m.start(relays: relays)));
+          }
         }
       });
 
@@ -370,7 +398,7 @@ class HeadlessRuntime {
           'ok': stack!.controller.current.phase == NodePhase.connected,
           // Whether this node can be reached first. False means no mailbox:
           // see the startup warning.
-          'reachableOffline': relays.isNotEmpty,
+          'reachableOffline': relayCount > 0,
           'phase': stack.controller.current.phase.name,
           'nodeId': nodeId.hex,
           'short': nodeId.short,
