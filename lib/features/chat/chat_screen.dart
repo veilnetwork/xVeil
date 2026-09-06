@@ -537,6 +537,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    _resentReset?.cancel();
     _chatSearchDebounce?.cancel();
     _highlightTimer?.cancel();
     _disappearingTimer?.cancel();
@@ -691,6 +692,19 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (mounted) Navigator.of(context).maybePop();
   }
 
+  /// A successful re-send, shown IN the footer rather than over it.
+  ///
+  /// The confirmation used to be a snackbar carrying `chatRequestSent` — the
+  /// same sentence already standing one line above it, and positioned on top
+  /// of the two buttons it was describing. It covered "Send again" and
+  /// "Cancel" to announce that "Send again" had worked.
+  ///
+  /// So the footer says it instead, and says something the standing line does
+  /// not already say: that it went out AGAIN. Cleared after a few seconds so
+  /// the row settles back to describing the state rather than the last action.
+  Timer? _resentReset;
+  bool _justResent = false;
+
   Future<void> _resend() async {
     final deposited = await _messaging.resendRequest(_peer);
     if (!mounted) return;
@@ -698,9 +712,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       _reportRequestUndelivered();
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(AppL10n.of(context).chatRequestSent)),
-    );
+    _resentReset?.cancel();
+    setState(() => _justResent = true);
+    _resentReset = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _justResent = false);
+    });
   }
 
   /// Say that a connection request was not delivered, and offer the retry.
@@ -2577,7 +2593,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     switch (status) {
       case ContactStatus.pendingOutgoing:
         return _PendingOutgoingActions(
-          text: l.chatRequestSent,
+          text: _justResent ? l.chatRequestResent : l.chatRequestSent,
           resendLabel: l.chatRequestResend,
           cancelLabel: l.chatRequestCancel,
           onResend: _resend,
