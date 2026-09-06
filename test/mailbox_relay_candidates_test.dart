@@ -124,4 +124,84 @@ void main() {
       );
     });
   });
+
+  // Asking once is asking too early, and that is the ordinary order of events
+  // rather than a race: a node reports CONNECTED when it is up, and its peers
+  // arrive after. Measured on a fresh daemon — three sessions established a
+  // second after the mailbox had already been handed an empty list.
+  group('waiting for somebody to carry', () {
+    NodeId id(int seed) => NodeId(Uint8List.fromList(
+          List<int>.generate(32, (i) => (seed + i) & 0xff),
+        ));
+
+    test('keeps asking until a carrier appears, then registers', () async {
+      var asked = 0;
+      var registered = false;
+      final started = <List<NodeId>>[];
+      await startMailboxWhenCarriersExist(
+        // Empty twice, exactly like a node that is up before it has peers.
+        candidates: () async => ++asked < 3 ? const <NodeId>[] : [id(1)],
+        start: (relays) async {
+          started.add(relays);
+          registered = true;
+        },
+        registered: () => registered,
+        cancelled: () => false,
+        interval: Duration.zero,
+      );
+      expect(asked, 3, reason: 'it gave up while the node was still finding');
+      expect(started, [
+        [id(1)],
+      ]);
+    });
+
+    test('does not start on an empty list', () async {
+      var started = 0;
+      await startMailboxWhenCarriersExist(
+        candidates: () async => const <NodeId>[],
+        start: (_) async => started++,
+        registered: () => false,
+        cancelled: () => false,
+        interval: Duration.zero,
+        attempts: 3,
+      );
+      expect(started, 0);
+    });
+
+    test('keeps trying when a start did not register', () async {
+      var asked = 0;
+      await startMailboxWhenCarriersExist(
+        candidates: () async {
+          asked++;
+          return [id(2)];
+        },
+        start: (_) async {},
+        // The relay resolved nothing, so registration did not stick.
+        registered: () => false,
+        cancelled: () => false,
+        interval: Duration.zero,
+        attempts: 4,
+      );
+      expect(asked, 4);
+    });
+
+    test('asks nobody once the stack it belongs to is gone', () async {
+      // The check has to come BEFORE the question, not after the answer: a
+      // disposed stack's transport is a dead handle, and asking it is the
+      // "handle already closed" spam this provider is careful about elsewhere.
+      var asked = 0;
+      await startMailboxWhenCarriersExist(
+        candidates: () async {
+          asked++;
+          return [id(3)];
+        },
+        start: (_) async {},
+        registered: () => false,
+        cancelled: () => true,
+        interval: Duration.zero,
+        attempts: 50,
+      );
+      expect(asked, 0, reason: 'it questioned a stack that was already gone');
+    });
+  });
 }
