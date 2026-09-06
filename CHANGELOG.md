@@ -10,6 +10,36 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.46] — 2026-09-06
+
+### Fixed
+
+- Nothing could be delivered to a device that had no nodes of its own
+  configured — which is every stock install. A contact request is deposited at
+  the recipient's mailbox relay, and the candidates for that relay were taken
+  from the configured list alone. That list is empty on the production network
+  by design: neither the app nor the node ships one any more, and peers are
+  found by discovery instead. So a device sat there connected, saying so, while
+  it had no mailbox at all and answered every deposit with a refusal. A contact
+  request is the one send with no second chance, so first contact could not be
+  made and the sender was told only that nothing had carried it.
+
+  Carriers are now the configured nodes PLUS the ones the node actually found,
+  asked afresh at each start rather than once at boot — discovery is not
+  instant, and a reconnect is exactly the moment there is an answer that was
+  not there before. Nodes chosen by hand come first; discovered ones are the
+  fallback that makes a stock install work. Being on the list is not trust: a
+  peer that hosts no mailbox drops out when its relay key does not resolve, and
+  a deposit is sealed to the recipient either way. Worth knowing all the same —
+  where your mailbox lives is now a node you did not pick.
+
+  The headless daemon had the same gate, and had been warning its operator
+  about the consequence for as long as the gate existed.
+
+### Changed
+
+- veil 0.11.21 plus three fixes, hidden-volume 2.3.0 — unchanged from 0.13.45.
+
 ## [0.13.45] — 2026-09-06
 
 ### Fixed
