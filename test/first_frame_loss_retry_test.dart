@@ -90,6 +90,9 @@ SpaceOpener _mem() {
 /// Records every mailbox deposit, so a test can count how many copies of one
 /// offer piled up at the recipient's relay.
 class _RecordingSink implements MailboxSink {
+  @override
+  bool get isRegistered => true;
+
   final stashed = <(NodeId, Uint8List)>[];
 
   @override

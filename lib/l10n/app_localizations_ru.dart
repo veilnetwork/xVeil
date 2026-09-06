@@ -3585,6 +3585,10 @@ class AppL10nRu extends AppL10n {
   String get reachOffline => 'Офлайн — других узлов пока не найдено';
 
   @override
+  String get reachCannotBeReached =>
+      'Связь есть, но написать вам первым никто не сможет';
+
+  @override
   String get reachNodeDown =>
       'Узел не запущен — нажмите, чтобы увидеть причину';
 
