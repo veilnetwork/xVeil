@@ -3552,6 +3552,10 @@ class AppL10nEn extends AppL10n {
   String get reachOffline => 'Offline — no other nodes found yet';
 
   @override
+  String get reachCannotBeReached =>
+      'Connected, but nobody can reach you first';
+
+  @override
   String get reachNodeDown => 'The node is not running — tap to see why';
 
   @override

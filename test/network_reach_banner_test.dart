@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/features/home/network_reach_banner.dart';
@@ -16,12 +18,14 @@ void main() {
     bool useBundledSeeds = true,
     int ownNodeCount = 0,
     int configuredPeerCount = 0,
+    bool canBeReachedFirst = true,
   }) => networkReach(
     phase: phase,
     peers: peers,
     useBundledSeeds: useBundledSeeds,
     ownNodeCount: ownNodeCount,
     configuredPeerCount: configuredPeerCount,
+    canBeReachedFirst: canBeReachedFirst,
   );
 
   test('a peer is a peer, whatever else is true', () {
@@ -77,5 +81,68 @@ void main() {
     // A peer count dips to zero on a route change or an identity switch and
     // comes back within a second or two.
     expect(kNetworkReachSettle.inSeconds, greaterThanOrEqualTo(5));
+  });
+
+  // The fifth silence, and the only one that does not look like silence at all:
+  // connected, working in every direction the person tries, and unable to
+  // receive a first word from anybody. That is what a mailbox nobody hosts
+  // means, and it cost a real user a contact request that vanished with
+  // nothing to see at either end.
+  group('connected is not the same as reachable', () {
+    test('says so when no relay hosts this mailbox', () {
+      expect(
+        reach(peers: 2, canBeReachedFirst: false),
+        NetworkReach.unreachableFirst,
+      );
+    });
+
+    test('stays quiet once a relay does', () {
+      expect(reach(peers: 2, canBeReachedFirst: true), NetworkReach.reachable);
+    });
+
+    test('does not outrank the silences that are about having no peers', () {
+      // With nobody connected there is nothing to say about being reachable
+      // BY them, and the older reasons are the ones a person can act on.
+      expect(
+        reach(peers: 0, phase: NodePhase.stopped, canBeReachedFirst: false),
+        NetworkReach.down,
+      );
+      expect(
+        reach(peers: 0, phase: NodePhase.starting, canBeReachedFirst: false),
+        NetworkReach.reachable,
+      );
+    });
+
+    test('waits far longer than a flicker before it is shown', () {
+      // Registration is a job with a backoff, not a blip: the honest answer
+      // for the first half-minute of a launch is "not yet", and a strip that
+      // appears there would be crying fault at ordinary startup.
+      expect(
+        kNetworkUnreachableSettle,
+        greaterThan(kNetworkReachSettle * 5),
+      );
+    });
+  });
+
+  // The widget's half. The verdict function is pure and covered above; what
+  // no unit test here can reach is whether the strip actually ASKS. A constant
+  // in that argument reads correct and reports "reachable" forever — the same
+  // shape as an all-online boot that resolved a LAN policy and then did not
+  // pass it on.
+  test('the strip asks the messaging service instead of assuming', () {
+    final source =
+        File('lib/features/home/network_reach_banner.dart').readAsStringSync();
+    final at = source.lastIndexOf('canBeReachedFirst:');
+    expect(at, isNot(-1), reason: 'the strip no longer passes the answer');
+    final value = source
+        .substring(at + 'canBeReachedFirst:'.length, source.indexOf(',', at))
+        .trim();
+    expect(
+      value,
+      isNot(anyOf('true', 'false')),
+      reason:
+          'the strip hands networkReach the constant `$value`, so it can never '
+          'report the one silence it was added for',
+    );
   });
 }

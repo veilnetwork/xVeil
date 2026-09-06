@@ -1531,6 +1531,7 @@
   "identityPickerSubtitle": "This vault holds several identities — pick one to act as.",
   "networkTitle": "Overlay network",
   "reachOffline": "Offline — no other nodes found yet",
+  "reachCannotBeReached": "Connected, but nobody can reach you first",
   "reachNodeDown": "The node is not running — tap to see why",
   "reachNoRoute": "No way into the network — tap to choose one",
   "networkStatusConnected": "Connected",

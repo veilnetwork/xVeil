@@ -74,6 +74,9 @@ class _FakeTransport implements VeilTransport {
 }
 
 class _BlockingMailboxSink implements MailboxSink {
+  @override
+  bool get isRegistered => true;
+
   final _release = Completer<void>();
   int calls = 0;
 
@@ -103,6 +106,9 @@ class _BlockingMailboxSink implements MailboxSink {
 
 /// Refuses every deposit the way a peer with no advertised mailbox does.
 class _UnresolvedMailboxSink implements MailboxSink {
+  @override
+  bool get isRegistered => true;
+
   int calls = 0;
 
   @override

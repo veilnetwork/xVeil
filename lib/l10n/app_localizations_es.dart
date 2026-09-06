@@ -3591,6 +3591,10 @@ class AppL10nEs extends AppL10n {
       'Sin conexión: aún no se han encontrado otros nodos';
 
   @override
+  String get reachCannotBeReached =>
+      'Conectado, pero nadie puede escribirte primero';
+
+  @override
   String get reachNodeDown =>
       'El nodo no está en marcha: toca para ver por qué';
 

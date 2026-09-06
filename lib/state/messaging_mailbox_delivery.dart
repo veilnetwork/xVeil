@@ -273,6 +273,11 @@ class _MessagingMailboxDelivery {
     unawaited(maybeStash(peer, id, wire, awaitAck: awaitAck));
   }
 
+  /// Whether a relay currently hosts this device's mailbox — i.e. whether
+  /// anybody could deposit for us. False before the first registration, and
+  /// whenever there was no mailbox to build at all.
+  bool get canBeReachedFirst => _mailbox?.isRegistered ?? false;
+
   /// Returns true only when a blob was actually deposited at the recipient's
   /// relay. Every other path — a backoff, no mailbox, a duplicate, a throw —
   /// answers false.

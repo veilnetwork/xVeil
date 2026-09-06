@@ -6260,6 +6260,12 @@ abstract class AppL10n {
   /// **'Offline — no other nodes found yet'**
   String get reachOffline;
 
+  /// No description provided for @reachCannotBeReached.
+  ///
+  /// In en, this message translates to:
+  /// **'Connected, but nobody can reach you first'**
+  String get reachCannotBeReached;
+
   /// No description provided for @reachNodeDown.
   ///
   /// In en, this message translates to:

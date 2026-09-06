@@ -867,6 +867,12 @@ class MessagingService {
   /// built with [deliverInbound] as its drain sink, so it must exist first).
   void attachMailbox(MailboxSink mailbox) => _mailboxDelivery.attach(mailbox);
 
+  /// Whether a relay is hosting this device's mailbox, so somebody who has
+  /// never spoken to us could reach us. False means the opposite, and the app
+  /// says so rather than leaving a person to discover it one failed request at
+  /// a time.
+  bool get canBeReachedFirst => _mailboxDelivery.canBeReachedFirst;
+
   /// The durable half of the hybrid ratchet, when this build has a node that
   /// runs one.
   ///

@@ -8,6 +8,7 @@ import '../../data/node/bundled_seeds.dart' show shouldOfferBundledSeeds;
 import '../../data/node/node_controller.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/managed_nodes_controller.dart';
+import '../../state/messaging.dart' show messagingServiceProvider;
 import '../../state/providers.dart';
 
 /// Why the app has nobody to talk to, when it has nobody to talk to.
@@ -24,6 +25,15 @@ enum NetworkReach {
 
   /// The node is not running, or failed to come up.
   down,
+
+  /// Peers are connected, and yet nobody could start a conversation with us.
+  ///
+  /// No relay hosts this device's mailbox, so a contact request addressed here
+  /// is dropped with nothing to see at either end. It is not the same silence
+  /// as the others and it does not look like one: the app is connected, says
+  /// so, and works in every direction the person tries first. The daemon has
+  /// warned its operator about this state since the day the state existed.
+  unreachableFirst,
 
   /// There is no route to look through at all.
   ///
@@ -46,8 +56,16 @@ NetworkReach networkReach({
   required bool useBundledSeeds,
   required int ownNodeCount,
   required int configuredPeerCount,
+  required bool canBeReachedFirst,
 }) {
-  if (peers > 0) return NetworkReach.reachable;
+  // CONNECTED IS NOT REACHABLE. Having peers settles every question below —
+  // the node is up, there is a route, somebody answered — and answers none
+  // about whether anyone can reach US.
+  if (peers > 0) {
+    return canBeReachedFirst
+        ? NetworkReach.reachable
+        : NetworkReach.unreachableFirst;
+  }
   if (phase == NodePhase.error ||
       phase == NodePhase.offline ||
       phase == NodePhase.stopped) {
@@ -78,6 +96,15 @@ NetworkReach networkReach({
 /// those is worse than no strip: it trains the eye to skip it, and then it is
 /// not there when it matters.
 const Duration kNetworkReachSettle = Duration(seconds: 6);
+
+/// How long "nobody can reach you" must hold before it is shown.
+///
+/// Much longer than [kNetworkReachSettle], and for a different reason: this one
+/// is not debouncing a flicker, it is waiting out a job. Registering a mailbox
+/// needs a peer, then that peer's key resolved, and it retries on a backoff, so
+/// the honest answer for the first half-minute of every launch is "not yet"
+/// rather than "never".
+const Duration kNetworkUnreachableSettle = Duration(seconds: 45);
 
 /// The strip under the app bar that says the app has nobody to talk to.
 class NetworkReachBanner extends ConsumerStatefulWidget {
@@ -123,7 +150,10 @@ class _NetworkReachBannerState extends ConsumerState<NetworkReachBanner> {
     if (_pending == next) return;
     _pending = next;
     _settle?.cancel();
-    _settle = Timer(kNetworkReachSettle, () {
+    _settle = Timer(
+        next == NetworkReach.unreachableFirst
+            ? kNetworkUnreachableSettle
+            : kNetworkReachSettle, () {
       if (!mounted) return;
       setState(() {
         _shown = next;
@@ -144,6 +174,10 @@ class _NetworkReachBannerState extends ConsumerState<NetworkReachBanner> {
       ownNodeCount: ref.watch(managedNodesProvider).asData?.value.length ?? 0,
       configuredPeerCount:
           ref.watch(deniableBootProvider)?.bootstrapPeers.length ?? 0,
+      // Read, not watched: registration has no stream, and the peer count
+      // above ticks often enough to carry this along with it.
+      canBeReachedFirst:
+          ref.read(messagingServiceProvider).canBeReachedFirst,
     );
     _observe(reach);
     if (_shown == NetworkReach.reachable) return const SizedBox.shrink();
@@ -170,6 +204,14 @@ class _NetworkReachBannerState extends ConsumerState<NetworkReachBanner> {
         scheme.surfaceContainerHighest,
         scheme.onSurfaceVariant,
         Icons.wifi_tethering_off,
+      ),
+      // Not an error either: everything the person does works. What they
+      // cannot see without being told is the one direction that does not.
+      NetworkReach.unreachableFirst => (
+        l.reachCannotBeReached,
+        scheme.surfaceContainerHighest,
+        scheme.onSurfaceVariant,
+        Icons.markunread_mailbox_outlined,
       ),
       NetworkReach.reachable => ('', scheme.surface, scheme.onSurface, Icons.check),
     };

@@ -82,6 +82,9 @@ class _BlackholeTransport implements VeilTransport {
 /// A sink whose deposits never complete while [hang] is set — the shape of a
 /// relay that silently drops a PUT and answers nothing.
 class _HangingSink implements MailboxSink {
+  @override
+  bool get isRegistered => true;
+
   int calls = 0;
   bool hang = true;
 
@@ -107,6 +110,9 @@ class _HangingSink implements MailboxSink {
 /// A sink whose every deposit fails, so the per-frame failure bookkeeping is
 /// actually written.
 class _FailingSink implements MailboxSink {
+  @override
+  bool get isRegistered => true;
+
   int calls = 0;
 
   @override
@@ -131,6 +137,9 @@ class _FailingSink implements MailboxSink {
 
 /// Records every stash so we can assert the offline-deposit path fired.
 class _RecordingSink implements MailboxSink {
+  @override
+  bool get isRegistered => true;
+
   final stashed = <(NodeId, Uint8List)>[];
   int nudges = 0;
 
