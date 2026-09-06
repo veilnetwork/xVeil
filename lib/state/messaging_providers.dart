@@ -84,13 +84,41 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   // (a configured bootstrap peer) and drain our mailbox into the inbound path.
   // Best-effort + inert on the loopback transport or when no bootstrap peers
   // are configured — live delivery is unaffected if this never registers.
-  final relays = mailboxRelayCandidates(
+  final configuredRelays = mailboxRelayCandidates(
     ref.read(deniableBootProvider)?.bootstrapPeers ?? const [],
   );
+
+  /// The candidate list, resolved at the moment it is needed rather than once
+  /// at build time.
+  ///
+  /// It used to be the configured list alone, computed here and reused for
+  /// every later start — and on the production network that list is EMPTY BY
+  /// DESIGN. The node finds its peers through discovery, so a device could sit
+  /// there showing "connected, 2 peers" while the mailbox had no candidate,
+  /// was never built, and answered every deposit with `false`. A contact
+  /// request is the one send with no retry, so first contact simply could not
+  /// be made.
+  ///
+  /// Asked again on each start because discovery is not instant: at the first
+  /// call the node may have nobody yet, and the reconnect below is exactly the
+  /// moment it does.
+  Future<void> startWithLiveRelays(MailboxService m) async {
+    final relays = await liveMailboxRelayCandidates(
+      peers: transport.peers,
+      configured: configuredRelays,
+    );
+    devLog(
+      () =>
+          'xVeil[mailbox]: start — ${configuredRelays.length} configured + '
+          '${relays.length - configuredRelays.length} discovered',
+    );
+    await m.start(relays: relays);
+  }
+
   devLog(
     () =>
         'xVeil[mailbox]: setup — transport=${transport.runtimeType} '
-        'relays=${relays.length}',
+        'configured=${configuredRelays.length}',
   );
   MailboxService? mailbox;
   // The provider rebuilds whenever the real stack changes (node reboot, identity
@@ -120,7 +148,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
       }),
     );
   }
-  if (transport is VeilFlutterTransport && relays.isNotEmpty) {
+  if (transport is VeilFlutterTransport) {
     // Persist verified relay keys INSIDE the active deniable space so a cold
     // restart can stay reachable through a transient resolve failure (the fresh
     // one-hop resolve is still preferred — see MailboxService._register).
@@ -162,7 +190,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
           mailbox = m;
           service.attachMailbox(m);
           ref.onDispose(m.dispose);
-          unawaited(m.start(relays: relays));
+          unawaited(startWithLiveRelays(m));
         })
         .catchError((e) {
           devLog(() => 'xVeil[mailbox]: build/start FAILED: $e');
@@ -170,8 +198,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   } else {
     devLog(
       () =>
-          'xVeil[mailbox]: NOT started '
-          '(transport=${transport.runtimeType}, relays=${relays.length})',
+          'xVeil[mailbox]: NOT started — this transport has no mailbox '
+          '(${transport.runtimeType})',
     );
   }
 
@@ -185,7 +213,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
       // Reconcile on reconnect: fire the gap-fill beacons immediately + flush the
       // outbox so messages composed while offline (and any the peer missed) heal.
       unawaited(service.reconcileOnConnect());
-      unawaited(mailbox?.start(relays: relays) ?? Future.value());
+      final m = mailbox;
+      if (m != null) unawaited(startWithLiveRelays(m));
     }
   });
   ref.onDispose(service.dispose);
