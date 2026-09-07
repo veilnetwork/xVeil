@@ -120,4 +120,47 @@ void main() {
       expect(EmbeddedNode.withLogFile(toml, ''), toml);
     });
   });
+
+  group('a write that failed does not silence the rest of the session', () {
+    // MEASURED ON WINDOWS, not here: the stand's diagnostic build wrote eleven
+    // lines and then nothing at all through an unlock, a node start and
+    // everything after — because a reader that does not share writes (an
+    // ordinary copy, which is exactly what a person does to SEND us the log)
+    // made one write throw, and the sink had disabled itself for good.
+    //
+    // Not reproducible on this host: on POSIX the handle survives having the
+    // file deleted under it, so there is no portable way to make a write fail
+    // from a test. The structure is what is guarded here; the behaviour was
+    // checked on the machine that has it.
+    test('the sink reopens instead of giving up on the first failure', () {
+      final source = File('lib/core/log.dart').readAsStringSync();
+      final at = source.indexOf('void _writeLogFile');
+      expect(at, isNot(-1), reason: 'the sink was renamed');
+      final body = source.substring(at, source.indexOf('\n}', at));
+      expect(
+        body,
+        contains('_logFileTried = false'),
+        reason: 'a failed write leaves the sink closed AND marked as tried, '
+            'so nothing is ever written again — the state the stand was in',
+      );
+    });
+
+    test('but it stops trying rather than storming a full disk', () {
+      final source = File('lib/core/log.dart').readAsStringSync();
+      final at = source.indexOf('void _writeLogFile');
+      final body = source.substring(at, source.indexOf('\n}', at));
+      expect(
+        body,
+        contains('_logFileFailures >= _logFileGiveUpAfter'),
+        reason: 'the retry is unbounded, so a disk that will never accept a '
+            'line turns every line into an open/write/close',
+      );
+      expect(
+        body,
+        contains('_logFileFailures = 0'),
+        reason: 'the failure count never resets, so five failures spread over '
+            'a long session silence a sink that worked in between',
+      );
+    });
+  });
 }
