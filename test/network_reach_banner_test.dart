@@ -19,6 +19,9 @@ void main() {
     int ownNodeCount = 0,
     int configuredPeerCount = 0,
     bool canBeReachedFirst = true,
+    // Long enough that the "still looking" grace is not in the way of the
+    // cases below, which are about WHAT the silence is rather than when.
+    Duration? connectedFor = const Duration(minutes: 5),
   }) => networkReach(
     phase: phase,
     peers: peers,
@@ -26,6 +29,7 @@ void main() {
     ownNodeCount: ownNodeCount,
     configuredPeerCount: configuredPeerCount,
     canBeReachedFirst: canBeReachedFirst,
+    connectedFor: connectedFor,
   );
 
   test('a peer is a peer, whatever else is true', () {
@@ -129,6 +133,24 @@ void main() {
   // in that argument reads correct and reports "reachable" forever — the same
   // shape as an all-online boot that resolved a LAN policy and then did not
   // pass it on.
+  test('the strip measures how long it has been connected, not a constant', () {
+    // A literal here reads correct and freezes the verdict forever: an hour
+    // never announces an outage, a zero announces one at every launch.
+    final source =
+        File('lib/features/home/network_reach_banner.dart').readAsStringSync();
+    final at = source.lastIndexOf('connectedFor:');
+    expect(at, isNot(-1), reason: 'the strip no longer passes the answer');
+    final value =
+        source.substring(at + 'connectedFor:'.length, source.indexOf(',', at));
+    expect(
+      value,
+      contains('_connectedAt'),
+      reason:
+          'the strip hands networkReach `$value` rather than the time since '
+          'the node connected, so the grace can never expire or never apply',
+    );
+  });
+
   test('the strip asks the messaging service instead of assuming', () {
     final source =
         File('lib/features/home/network_reach_banner.dart').readAsStringSync();
@@ -144,5 +166,58 @@ void main() {
           'the strip hands networkReach the constant `$value`, so it can never '
           'report the one silence it was added for',
     );
+  });
+
+  // "Connected" means the node is UP, not that it has found anybody — the same
+  // misreading that cost the mailbox its carriers, biting the strip this time.
+  // Reported from a laptop: "offline, no other nodes found" over a node that
+  // was finding them, taken back a moment later.
+  group('a node that has only just connected is still looking', () {
+    test('says nothing while the first peer may still be arriving', () {
+      expect(
+        reach(peers: 0, connectedFor: const Duration(seconds: 5)),
+        NetworkReach.reachable,
+      );
+    });
+
+    test('says so once the grace is past', () {
+      expect(
+        reach(peers: 0, connectedFor: const Duration(seconds: 50)),
+        NetworkReach.searching,
+      );
+    });
+
+    test('the grace covers a desktop starting discovery from nothing', () {
+      // Measured on the Windows stand: the strip fired inside the gap between
+      // "connected" and the first peer, so a settle of a few seconds is not
+      // enough — the gap is the better part of a minute.
+      expect(kNetworkFirstPeerGrace, greaterThanOrEqualTo(
+        const Duration(seconds: 30),
+      ));
+    });
+
+    test('but a node with no way in at all is not made to wait', () {
+      // That is a settled fact about configuration, not a race: nothing about
+      // waiting will find a peer for a node that was told to look nowhere.
+      expect(
+        reach(
+          peers: 0,
+          connectedFor: const Duration(seconds: 1),
+          useBundledSeeds: false,
+        ),
+        NetworkReach.noRoute,
+      );
+    });
+
+    test('and neither is a node that is not running', () {
+      expect(
+        reach(
+          peers: 0,
+          phase: NodePhase.stopped,
+          connectedFor: const Duration(seconds: 1),
+        ),
+        NetworkReach.down,
+      );
+    });
   });
 }
