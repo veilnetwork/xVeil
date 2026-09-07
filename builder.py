@@ -135,6 +135,30 @@ def _build_env(**extra: str) -> dict[str, str]:
     return {**_path_remap_env(), **extra}
 
 
+def _diagnostic_log_define() -> list[str]:
+    """Keep the diagnostic log in a RELEASE build, when asked.
+
+    `devLog` is dead-code-eliminated by `dart.vm.product`, which is what makes
+    a distribution build carry none of the node ids, message ids and byte
+    counts its lines are full of. That is the right default and it is also why
+    nobody can send us a log: the person hitting the crash is running the build
+    that cannot write one.
+
+    So this is the same artifact — release AOT, production network, same code
+    paths and the same timing — with the trace put back and written to a file
+    beside the binary. A true `--debug` build would answer a different
+    question: it is JIT, it is slower, and a race that only happens at release
+    speed may simply not happen in it.
+
+    Passed through from the environment rather than always on, and applied
+    beside [_debug_hook_define] at every call site — the comment there records
+    what happens when six lines like these are copied per platform instead.
+    """
+    if os.environ.get("XVEIL_RELEASE_LOG", "").lower() not in ("1", "true", "yes"):
+        return []
+    return ["--dart-define=XVEIL_RELEASE_LOG=true"]
+
+
 def _debug_hook_define() -> list[str]:
     """The stand hook, passed through from the environment. Empty unless asked.
 
@@ -693,6 +717,7 @@ def _android(release: bool) -> list[Step]:
                     # and /health answering nothing looks exactly like a node
                     # that failed to bootstrap, which is where the search goes.
                     *_debug_hook_define(),
+                    *_diagnostic_log_define(),
                 ],
                 env=_path_remap_env(),
             )
@@ -810,6 +835,7 @@ def _linux(release: bool) -> list[Step]:
                 # macOS branch had never had it, and the ad-hoc script that
                 # does is only reached on a machine with no Apple account.
                 *_debug_hook_define(),
+                *_diagnostic_log_define(),
             ],
             env=_build_env(**_engine_policy_env(release)),
         )
@@ -931,6 +957,7 @@ def _macos(release: bool) -> list[Step]:
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                     *_network_define(),
                     *_debug_hook_define(),
+                    *_diagnostic_log_define(),
                 ],
                 # The Xcode build runs build-packet-tunnel-macos.sh, which is a
                 # cargo build several processes down. The environment is the
@@ -1052,6 +1079,7 @@ def _ios(release: bool) -> list[Step]:
                     # _debug_hook_define: the file's own comment says iOS was
                     # a whole platform's worth of stand missing.
                     *_debug_hook_define(),
+                    *_diagnostic_log_define(),
                 ],
                 env=_build_env(),
             )
@@ -1066,6 +1094,7 @@ def _ios(release: bool) -> list[Step]:
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                     *_network_define(),
                     *_debug_hook_define(),
+                    *_diagnostic_log_define(),
                 ],
                 env=_build_env(),
             )
@@ -1226,6 +1255,7 @@ def _windows(release: bool) -> list[Step]:
                 # that looks like from outside is a node that never
                 # bootstrapped: no port answers and no runtime key is written.
                 *_debug_hook_define(),
+                *_diagnostic_log_define(),
             ],
             env=_build_env(**_engine_policy_env(release)),
         ),
