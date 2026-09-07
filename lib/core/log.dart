@@ -195,16 +195,41 @@ io.RandomAccessFile? _openLogFile() {
   return null;
 }
 
+/// Consecutive write failures, and the point at which the sink gives up.
+///
+/// Reopening rather than giving up on the first one, because the first one is
+/// LIKELY and temporary: on Windows a reader that opens the file without
+/// sharing writes — which is what copying it with an ordinary tool does —
+/// makes the next write throw. That is precisely the moment a person is
+/// collecting the log to send it, and the old behaviour was to stop writing
+/// for the rest of the session. Measured on the stand: eleven lines, then
+/// silence through an unlock, a node start and everything after.
+///
+/// Bounded so a disk that is genuinely full does not turn every logged line
+/// into an open/write/close storm.
+int _logFileFailures = 0;
+const int _logFileGiveUpAfter = 5;
+
 void _writeLogFile(String line) {
+  if (_logFileFailures >= _logFileGiveUpAfter) return;
   final handle = _openLogFile();
   if (handle == null) return;
   try {
     handle.writeStringSync('$line\n');
     handle.flushSync();
+    _logFileFailures = 0;
   } catch (_) {
     // A disk that filled up or a handle that went away must not take the app
-    // with it. Stop trying; the other sinks are unaffected.
+    // with it, and must not silence it either: drop the handle and let the
+    // next line open a fresh one.
+    _logFileFailures++;
+    try {
+      _logFileHandle?.closeSync();
+    } catch (_) {
+      // Already unusable; there is nothing to salvage.
+    }
     _logFileHandle = null;
+    _logFileTried = false;
   }
 }
 
