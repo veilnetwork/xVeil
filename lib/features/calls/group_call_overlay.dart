@@ -334,6 +334,8 @@ class GroupCallRoomView extends StatelessWidget {
                     // honesty rule as the 1:1 call view. The self preview
                     // stays unbadged: local capture state is visible anyway.
                     staleLabel: isSelf ? null : l.callVideoPaused,
+                    mirrored: isSelf &&
+                        selfViewMirrored(screenSharing: participant.media.screen),
                   );
                 },
               );
@@ -420,6 +422,7 @@ class _ParticipantCard extends StatelessWidget {
     required this.media,
     this.videoFrame,
     this.staleLabel,
+    this.mirrored = false,
   });
 
   final GroupCallParticipant participant;
@@ -427,6 +430,11 @@ class _ParticipantCard extends StatelessWidget {
   final CallMedia media;
   final ValueListenable<VeilVideoFrame?>? videoFrame;
   final String? staleLabel;
+
+  /// Own tile, own camera: shown mirrored, the same as the 1:1 self preview
+  /// and as every mirror its owner has used. Never for a shared screen, and
+  /// never for somebody else's tile — a remote face is not yours to flip.
+  final bool mirrored;
 
   @override
   Widget build(BuildContext context) {
@@ -446,18 +454,23 @@ class _ParticipantCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               if ((media.video || media.screen) && videoFrame != null)
-                CallVideoFrameView(
-                  key: ValueKey('group-call-video-${participant.nodeId.short}'),
-                  frameListenable: videoFrame!,
-                  freshnessToken: (participant.nodeId.hex, media.screen),
-                  waitingLabel: media.screen
-                      ? l.callScreenWaiting
-                      : l.callVideoWaiting,
-                  staleLabel: staleLabel,
-                  placeholderIcon: media.screen
-                      ? Icons.screen_share_outlined
-                      : Icons.videocam_outlined,
-                  fit: BoxFit.cover,
+                Transform.flip(
+                  flipX: mirrored,
+                  child: CallVideoFrameView(
+                    key: ValueKey(
+                      'group-call-video-${participant.nodeId.short}',
+                    ),
+                    frameListenable: videoFrame!,
+                    freshnessToken: (participant.nodeId.hex, media.screen),
+                    waitingLabel: media.screen
+                        ? l.callScreenWaiting
+                        : l.callVideoWaiting,
+                    staleLabel: staleLabel,
+                    placeholderIcon: media.screen
+                        ? Icons.screen_share_outlined
+                        : Icons.videocam_outlined,
+                    fit: BoxFit.cover,
+                  ),
                 )
               else
                 Center(
