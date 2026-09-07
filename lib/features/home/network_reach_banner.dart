@@ -57,6 +57,7 @@ NetworkReach networkReach({
   required int ownNodeCount,
   required int configuredPeerCount,
   required bool canBeReachedFirst,
+  required Duration? connectedFor,
 }) {
   // CONNECTED IS NOT REACHABLE. Having peers settles every question below —
   // the node is up, there is a route, somebody answered — and answers none
@@ -86,8 +87,31 @@ NetworkReach networkReach({
   )) {
     return NetworkReach.noRoute;
   }
+  // AND CONNECTED IS NOT "HAS PEERS" EITHER. The guard above waits out
+  // `starting`, which was the wrong phase to wait on: a node reports itself
+  // connected when it is UP, and its first peer arrives seconds later —
+  // measured at up to a minute on a desktop doing discovery from nothing. So
+  // the strip announced "offline, no other nodes found" over a node that was
+  // finding them, and took it back a moment later. Reported from a laptop, and
+  // it is the same misreading of "connected" that cost the mailbox its
+  // carriers.
+  //
+  // Only the "found nobody yet" verdict waits. The two above it do not: having
+  // no way in at all is a settled fact about configuration rather than a race,
+  // and a node that is not running is not going to start by being waited for.
+  if (connectedFor != null && connectedFor < kNetworkFirstPeerGrace) {
+    return NetworkReach.reachable;
+  }
   return NetworkReach.searching;
 }
+
+/// How long a node may be connected with no peers before that is worth saying.
+///
+/// Not a debounce: it is the gap between "the node is up" and "the node has
+/// found somebody", which on a desktop starting discovery from nothing runs to
+/// the better part of a minute. A strip that fires inside that window calls an
+/// ordinary start an outage.
+const Duration kNetworkFirstPeerGrace = Duration(seconds: 45);
 
 /// How long a reason must hold before it is shown.
 ///
@@ -121,6 +145,10 @@ class _NetworkReachBannerState extends ConsumerState<NetworkReachBanner> {
   NetworkReach _shown = NetworkReach.reachable;
   NetworkReach? _pending;
   Timer? _settle;
+
+  /// When the node last became connected, so the verdict can tell "up and
+  /// still looking" from "up and found nobody". Null while it is not.
+  DateTime? _connectedAt;
 
   @override
   void dispose() {
@@ -167,6 +195,11 @@ class _NetworkReachBannerState extends ConsumerState<NetworkReachBanner> {
     final phase =
         ref.watch(nodeStatusProvider).asData?.value.phase ?? NodePhase.starting;
     final peers = ref.watch(sessionCountProvider).asData?.value ?? 0;
+    if (phase == NodePhase.connected) {
+      _connectedAt ??= DateTime.now();
+    } else {
+      _connectedAt = null;
+    }
     final reach = networkReach(
       phase: phase,
       peers: peers,
@@ -178,6 +211,9 @@ class _NetworkReachBannerState extends ConsumerState<NetworkReachBanner> {
       // above ticks often enough to carry this along with it.
       canBeReachedFirst:
           ref.read(messagingServiceProvider).canBeReachedFirst,
+      connectedFor: _connectedAt == null
+          ? null
+          : DateTime.now().difference(_connectedAt!),
     );
     _observe(reach);
     if (_shown == NetworkReach.reachable) return const SizedBox.shrink();
