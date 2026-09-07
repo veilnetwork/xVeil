@@ -1114,16 +1114,22 @@ class _SelfPreview extends StatelessWidget {
             if (Platform.isAndroid && call.cameraOn && !call.screenOn)
               _AndroidCameraSelfPreview(waitingLabel: l.callVideoWaiting)
             else
-              CallVideoFrameView(
-                frameListenable: localVideoFrame,
-                freshnessToken: (call.callId, call.screenOn),
-                waitingLabel: call.screenOn
-                    ? l.callScreenWaiting
-                    : l.callVideoWaiting,
-                placeholderIcon: call.screenOn
-                    ? Icons.screen_share_outlined
-                    : Icons.videocam_outlined,
-                fit: BoxFit.cover,
+              // Mirrored, like the Android path beside it and like every
+              // mirror its owner has ever used. Not while sharing a screen —
+              // see [selfViewMirrored].
+              _MaybeMirrored(
+                mirrored: selfViewMirrored(screenSharing: call.screenOn),
+                child: CallVideoFrameView(
+                  frameListenable: localVideoFrame,
+                  freshnessToken: (call.callId, call.screenOn),
+                  waitingLabel: call.screenOn
+                      ? l.callScreenWaiting
+                      : l.callVideoWaiting,
+                  placeholderIcon: call.screenOn
+                      ? Icons.screen_share_outlined
+                      : Icons.videocam_outlined,
+                  fit: BoxFit.cover,
+                ),
               ),
             if (!call.cameraOn)
               const ColoredBox(
@@ -1460,4 +1466,17 @@ class _Scrim extends StatelessWidget {
       ),
     );
   }
+}
+
+/// [Transform.flip] applied only when asked, so the widget tree of an
+/// unmirrored preview is unchanged.
+class _MaybeMirrored extends StatelessWidget {
+  const _MaybeMirrored({required this.mirrored, required this.child});
+
+  final bool mirrored;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      mirrored ? Transform.flip(flipX: true, child: child) : child;
 }

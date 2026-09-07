@@ -4,6 +4,19 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
+/// Whether a LOCAL preview should be shown mirrored.
+///
+/// A person looking at themselves expects a mirror: that is what every mirror
+/// they have ever used does, and an un-mirrored self-view reads as "inverted"
+/// even though it is what everybody else sees. Android already did this for a
+/// front lens and the desktop path did not, so the same call showed the phone
+/// its owner the right way round and the laptop its owner reversed.
+///
+/// A SHARED SCREEN is the exception and the reason this is a function rather
+/// than a constant: text on a mirrored screen share is unreadable, and it is
+/// not a face — nobody expects a mirror of their desktop.
+bool selfViewMirrored({required bool screenSharing}) => !screenSharing;
+
 
 /// Coalescing RGBA renderer shared by direct and group calls.
 ///
