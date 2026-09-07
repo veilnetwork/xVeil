@@ -10,6 +10,47 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.49] — 2026-09-07
+
+### Added
+
+- A diagnostic build beside each Windows and Linux artifact, `-debug`, for the
+  person who can reproduce a crash and has no way to send anything. It writes
+  what it sees to two files next to the binary it was started from:
+  `xveil-debug.log` from the app, and `xveil-node-debug.log` from the node,
+  which is a separate runtime with its own view of transports and peers — and
+  whose output, on a Windows GUI process, otherwise goes nowhere at all.
+
+  It is a release build with the trace put back rather than a debug one: same
+  timing, same production network. A debug build runs slower and would have
+  joined the test network, so a crash that happens at release speed on the real
+  network might not happen in it at all.
+
+  An ordinary build writes none of this. The trace carries node ids and message
+  ids, and the code that emits it is removed by the compiler from anything but
+  the build somebody asked for.
+
+### Fixed
+
+- The self view was mirrored on a phone and reversed on a desktop. A person
+  looking at themselves expects a mirror; Android gave them one and every other
+  platform did not. A shared screen is still never mirrored — text on it would
+  be unreadable, and a desktop is not a face.
+
+- The strip called an ordinary start an outage: "offline, no other nodes found"
+  over a node that was finding them, taken back a moment later. It waits now,
+  because a node reports itself connected when it is up and its first peer
+  arrives seconds later. The two verdicts that are not about waiting — no way
+  in at all, and a node that is not running — still appear at once.
+
+- Confirming a re-sent request covered the buttons it was confirming. It moved
+  into the line above them, where it says the one thing that line does not:
+  that the request went out again.
+
+### Changed
+
+- veil 0.11.22, hidden-volume 2.3.0 — unchanged from 0.13.48.
+
 ## [0.13.48] — 2026-09-07
 
 ### Fixed
