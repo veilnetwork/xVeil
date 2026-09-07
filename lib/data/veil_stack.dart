@@ -2103,6 +2103,10 @@ class RealVeilStack {
       // has always kept them.
       identityDir: sovereign == null ? null : runtimeDir,
       serveDht: serveDht,
+      // Debug builds only, and null in every other: the node's own log, beside
+      // the app's, so a person hitting a crash has both halves in one folder
+      // and needs no instruction beyond "next to the exe".
+      logFile: debugNodeLogPath(),
     );
     // Debug stands only: loopback Prometheus metrics for the embedded node,
     // the per-node twin of a relay's [metrics] endpoint. Never binds a
