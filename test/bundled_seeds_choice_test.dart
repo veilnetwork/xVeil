@@ -272,7 +272,14 @@ void main() {
       // Anchored on the COMPOSITION, not on the helper definitions: the
       // helpers are declared earlier in the same file and indexOf found one
       // of those, so the guard read a region the defect could never be in.
-      final at = source.indexOf('return withIdentityDir(');
+      //
+      // And anchored on the FFI call it follows rather than on whichever
+      // patcher happens to be outermost — naming that one made this guard
+      // fail the day a new patcher was wrapped around it, which is a guard
+      // reporting on its own shape rather than on the code.
+      final composed = source.indexOf('veil_config_compose');
+      expect(composed, isNot(-1), reason: 'the compose call moved');
+      final at = source.indexOf('return with', composed);
       expect(at, isNot(-1), reason: 'the composition moved; re-aim this guard');
       final end = source.indexOf('identityDir,', at);
       expect(end, isNot(-1), reason: 'the composition shape changed');

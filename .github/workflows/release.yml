@@ -653,6 +653,47 @@ jobs:
           path: xveil-linux-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
 
+      # The DIAGNOSTIC twin, for the person who can reproduce a crash and has
+      # no way to send a log. Same release AOT, same production network, same
+      # timing — a `--debug` build is JIT and slower, and a race that only
+      # happens at release speed may not happen in one at all. The only
+      # difference is that `devLog` survives, and it writes to a file beside
+      # the binary, so the instruction is "send me what is next to xveil".
+      #
+      # Built in THIS job on purpose: the native staging above takes most of
+      # the wall clock and is already done.
+      - name: Build the diagnostic bundle
+        env:
+          WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
+          CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
+          CFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
+          CXXFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
+          XVEIL_RELEASE_LOG: '1'
+        run: python3 builder.py linux --release
+
+      - name: The diagnostic bundle really carries the log
+        run: |
+          set -euo pipefail
+          root=build/linux/${{ matrix.arch }}/release/bundle
+          # A define that did not reach the compiler leaves a bundle that looks
+          # right and writes nothing — the exact failure this artifact exists
+          # to prevent, and it would only be found by shipping it.
+          grep -rql "xveil-debug.log" "$root" \
+            || { echo "::error::the diagnostic bundle has no log sink in it"; exit 1; }
+          echo "  ok the log sink is compiled in"
+
+      - name: Archive the diagnostic bundle
+        run: |
+          set -euo pipefail
+          cd "build/linux/${{ matrix.arch }}/release"
+          tar -czf "$GITHUB_WORKSPACE/xveil-linux-${{ matrix.arch }}-debug.tar.gz" bundle
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-${{ matrix.arch }}-debug
+          path: xveil-linux-${{ matrix.arch }}-debug.tar.gz
+          if-no-files-found: error
+
   windows:
     name: windows bundle (${{ matrix.arch }})
     needs: checks
@@ -1052,6 +1093,47 @@ jobs:
         with:
           name: windows-${{ matrix.arch }}
           path: xveil-windows-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+      # The DIAGNOSTIC twin — see the Linux leg for why it is a release build
+      # with the trace put back rather than a `--debug` one. It matters most
+      # here: a GUI process on Windows has no console at all, so stdout and
+      # stderr are not merely inconvenient, they go nowhere.
+      - name: Build the diagnostic bundle
+        shell: bash
+        env:
+          WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
+          CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
+          CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc: ${{ matrix.cmake_toolchain && format('{0}/{1}', github.workspace, matrix.cmake_toolchain) || '' }}
+          XVEIL_RELEASE_LOG: '1'
+        run: |
+          set -euo pipefail
+          msvc_bin="$(dirname "$(command -v cl.exe)")"
+          export PATH="$msvc_bin:$PATH"
+          python3 builder.py windows --release
+
+      - name: The diagnostic bundle really carries the log
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="build/windows/${{ matrix.arch }}/runner/Release"
+          # A define that did not reach the compiler leaves a bundle that looks
+          # right and writes nothing — which would only be discovered by
+          # shipping it to the person who cannot send a log.
+          grep -rql "xveil-debug.log" "$root" \
+            || { echo "::error::the diagnostic bundle has no log sink in it"; exit 1; }
+          echo "  ok the log sink is compiled in"
+
+      - name: Archive the diagnostic bundle
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/windows/${{ matrix.arch }}/runner/Release/* `
+            -DestinationPath xveil-windows-${{ matrix.arch }}-debug.zip
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-${{ matrix.arch }}-debug
+          path: xveil-windows-${{ matrix.arch }}-debug.zip
           if-no-files-found: error
 
   # One scan over everything that was built. Kept out of the build jobs so the

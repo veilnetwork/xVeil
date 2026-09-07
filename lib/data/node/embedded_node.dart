@@ -1090,6 +1090,8 @@ class EmbeddedNode {
     // Whether this node serves the DHT for others. Null means "decide by
     // platform" — see [withDhtParticipation].
     bool? serveDht,
+    // Where the NODE writes its own log. Debug builds only — see [withLogFile].
+    String? logFile,
   }) {
     return _composeConfigImpl(
       identityToml: identityToml,
@@ -1108,6 +1110,7 @@ class EmbeddedNode {
       meetingPolicy: meetingPolicy,
       identityDir: identityDir,
       serveDht: serveDht,
+      logFile: logFile,
     );
   }
 
@@ -1267,6 +1270,37 @@ class EmbeddedNode {
   /// Pure helper (no FFI), so it is unit-testable — same shape as
   /// [withBuiltinSeedPolicy], and the same duplicate-key hazard: a rendered
   /// `[global]` may already carry the key.
+  /// Name the file the NODE writes its own log to.
+  ///
+  /// Half of a crash report lives here rather than in the app's log: the node
+  /// is a separate runtime with its own view of transports, sessions and
+  /// peers, and on a GUI process its stderr goes nowhere a person can reach —
+  /// on Windows, nowhere at all.
+  ///
+  /// Set only by a debug build, and pointed at the same folder the app's own
+  /// log goes to, so "send me the files next to the exe" is the whole
+  /// instruction.
+  ///
+  /// Same shape and the same hazard as [withIdentityDir]: a rendered
+  /// `[global]` may already carry the key, and a second one is a duplicate the
+  /// TOML parser rejects.
+  static String withLogFile(String toml, String? path) {
+    if (path == null || path.isEmpty) return toml;
+    // Escaped, not interpolated: on Windows this is a path full of
+    // backslashes, and inside a TOML basic string a backslash begins an
+    // escape. See [tomlBasicString].
+    final line = 'log_file = ${tomlBasicString(path)}';
+    final rendered = RegExp(r'^[ \t]*log_file[ \t]*=.*$', multiLine: true);
+    if (rendered.hasMatch(toml)) return toml.replaceAll(rendered, line);
+    const marker = '[global]\n';
+    final idx = toml.indexOf(marker);
+    if (idx >= 0) {
+      final at = idx + marker.length;
+      return '${toml.substring(0, at)}$line\n${toml.substring(at)}';
+    }
+    return '$toml\n[global]\n$line\n';
+  }
+
   static String withIdentityDir(String toml, String? dir) {
     if (dir == null || dir.isEmpty) return toml;
     // Escaped, not interpolated: on Windows this is a path full of
@@ -1790,6 +1824,7 @@ class EmbeddedNode {
     String? meetingPolicy,
     String? identityDir,
     bool? serveDht,
+    String? logFile,
   }) {
     final dl = lib ?? _veilLib();
     final composeFn = dl.lookupFunction<_ComposeNative, _ComposeDart>(
@@ -1836,65 +1871,68 @@ class EmbeddedNode {
       }
       final toml = out.toDartString();
       freeStr(out);
-      return withIdentityDir(
-        withMeetingPolicy(
-          withMeetingPoints(
-            withBuiltinSeedPolicy(
-              withTransportRotation(
-                withSessionKeepalive(
-                  withObfs4PskFile(
-                    withUdpReflectors(
-                      withProxy(
-                        withBootstrapPeers(
-                          withMobileServiceBudget(
-                            withDhtParticipation(
-                              withClientNodeRole(
-                                withLazyMining(
-                                  withAnonymity(toml, anonymous),
-                                  lazyMining,
+      return withLogFile(
+        withIdentityDir(
+          withMeetingPolicy(
+            withMeetingPoints(
+              withBuiltinSeedPolicy(
+                withTransportRotation(
+                  withSessionKeepalive(
+                    withObfs4PskFile(
+                      withUdpReflectors(
+                        withProxy(
+                          withBootstrapPeers(
+                            withMobileServiceBudget(
+                              withDhtParticipation(
+                                withClientNodeRole(
+                                  withLazyMining(
+                                    withAnonymity(toml, anonymous),
+                                    lazyMining,
+                                  ),
                                 ),
+                                // Platform default when the user has not chosen:
+                                // phones serve nothing, desktops serve.
+                                participate:
+                                    serveDht ??
+                                    !(Platform.isAndroid || Platform.isIOS),
                               ),
-                              // Platform default when the user has not chosen:
-                              // phones serve nothing, desktops serve.
-                              participate:
-                                  serveDht ??
-                                  !(Platform.isAndroid || Platform.isIOS),
+                              isMobile: Platform.isAndroid || Platform.isIOS,
                             ),
-                            isMobile: Platform.isAndroid || Platform.isIOS,
+                            bootstrapPeers,
                           ),
-                          bootstrapPeers,
+                          proxy,
                         ),
-                        proxy,
+                        udpReflectors,
                       ),
-                      udpReflectors,
+                      obfs4PskFile,
                     ),
-                    obfs4PskFile,
                   ),
                 ),
+                useBundledSeeds,
               ),
-              useBundledSeeds,
+              // NOT the same question, and conflating them cost an install its
+              // whole network.
+              //
+              // `builtin_seed_policy` above answers "may this node dial the
+              // COMPILED-IN seed list", and that is what declining the shared
+              // seeds means. Where the node may LOOK for a first peer is a
+              // separate choice with a control of its own — the meeting-point
+              // checkboxes next to this switch.
+              //
+              // Tying the two meant a refusal composed `meeting_points = "off"`:
+              // no DHT, no Nostr, no LAN, nothing. And since every network now
+              // ships an EMPTY compiled-in list, the refusal removed the only way
+              // left to find anyone while removing nothing that existed. Measured
+              // on a user's machine: node up, zero peers, zero sessions, zero
+              // outbound connections, while a peerless node on the same machine
+              // met all three seeds through Nostr in thirty seconds.
+              meetingPoints,
             ),
-            // NOT the same question, and conflating them cost an install its
-            // whole network.
-            //
-            // `builtin_seed_policy` above answers "may this node dial the
-            // COMPILED-IN seed list", and that is what declining the shared
-            // seeds means. Where the node may LOOK for a first peer is a
-            // separate choice with a control of its own — the meeting-point
-            // checkboxes next to this switch.
-            //
-            // Tying the two meant a refusal composed `meeting_points = "off"`:
-            // no DHT, no Nostr, no LAN, nothing. And since every network now
-            // ships an EMPTY compiled-in list, the refusal removed the only way
-            // left to find anyone while removing nothing that existed. Measured
-            // on a user's machine: node up, zero peers, zero sessions, zero
-            // outbound connections, while a peerless node on the same machine
-            // met all three seeds through Nostr in thirty seconds.
-            meetingPoints,
+            meetingPolicy,
           ),
-          meetingPolicy,
+          identityDir,
         ),
-        identityDir,
+        logFile,
       );
     } finally {
       // Only ptrs[0]/args[0] hold a secret; the rest are socket paths. Wiping

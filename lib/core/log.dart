@@ -69,6 +69,145 @@ int _devLogSeq = 0;
 final bool _echoToStdout =
     !_productMode && io.Platform.environment['XVEIL_LOG_STDOUT'] == '1';
 
+/// The file a debug build writes its log to, opened once and appended to.
+///
+/// A person hitting a crash cannot send a log that was never written down.
+/// `developer.log` needs a debugger attached, the stdout echo needs a console —
+/// which a GUI process on Windows does not have — and the ring buffer dies with
+/// the process, which is precisely the moment its contents were wanted. So a
+/// build that logs at all also writes the log where the person can find it
+/// without being told anything but "the folder you started it from".
+///
+/// INSIDE the same compile-time gate as [devLog] itself: a distribution build
+/// evaluates none of this, opens no file, and pays nothing. The anonymity
+/// argument is unchanged — these lines carry node ids, and the build that
+/// emits them is the one somebody asked for.
+///
+/// Appended and FLUSHED per line, deliberately. A buffered sink loses its tail
+/// exactly when the process dies, and the tail is the part a crash report is
+/// about.
+io.RandomAccessFile? _logFileHandle;
+bool _logFileTried = false;
+
+/// Bytes above which the file is started over on the next launch.
+///
+/// Rotation rather than a cap: the newest run is the one being asked about,
+/// and an old log that stops the new one from being written would be the worst
+/// of both.
+const int _logFileRotateAbove = 16 * 1024 * 1024;
+
+/// Where the log went, for the line the app prints at startup so nobody has to
+/// guess. Null until [_openLogFile] has run.
+String? devLogFilePath;
+
+/// Where the logs go, in preference order.
+///
+/// Beside the binary that is running, which is the one place a person can
+/// describe over a chat window. `resolvedExecutable` and not the working
+/// directory: a shortcut, a file manager and a terminal all disagree about the
+/// latter. The temp directory is the fallback for an install under Program
+/// Files or on a read-only mount — a log somewhere is worth more than a
+/// permission error.
+List<String> _logDirCandidates() {
+  final override = devLogDirectoryOverride;
+  if (override != null) return <String>[override];
+  return <String>[
+    io.File(io.Platform.resolvedExecutable).parent.path,
+    io.Directory.systemTemp.path,
+  ];
+}
+
+/// Where the log goes instead, for tests and stands.
+///
+/// The default answer is "beside the running binary", which is right for the
+/// app and wrong for a test suite: under `flutter test` the running binary is
+/// `flutter_tester`, so the suite wrote its log INTO the Flutter SDK's cache
+/// directory — and dozens of parallel test processes appended to one file
+/// there, which then failed to decode as UTF-8. A shared folder nobody chose
+/// is a bad place for a log even when it does decode.
+///
+/// Setting this reopens the file on the next line written.
+String? _logDirectoryOverride;
+String? get devLogDirectoryOverride => _logDirectoryOverride;
+set devLogDirectoryOverride(String? dir) {
+  _logDirectoryOverride = dir;
+  try {
+    _logFileHandle?.closeSync();
+  } catch (_) {
+    // Already gone; nothing to do but forget it.
+  }
+  _logFileHandle = null;
+  _logFileTried = false;
+  devLogFilePath = null;
+}
+
+/// The file the NODE writes its own log to, beside the app's.
+///
+/// Half of a crash report lives there: the node is a separate runtime with its
+/// own view of transports and peers, and on a GUI process its stderr goes
+/// nowhere a person can reach. Both files in one folder makes "send me what is
+/// next to the exe" the whole instruction.
+///
+/// Null in a distribution build, which writes neither. Returns a PATH without
+/// creating anything: the node opens it.
+String? debugNodeLogPath() {
+  if (_productMode && !_releaseDiagnosticLog) return null;
+  for (final dir in _logDirCandidates()) {
+    final probe = io.File('$dir${io.Platform.pathSeparator}.xveil-write-probe');
+    try {
+      probe.writeAsStringSync('');
+      probe.deleteSync();
+      return '$dir${io.Platform.pathSeparator}xveil-node-debug.log';
+    } catch (_) {
+      // Not writable — try the next.
+    }
+  }
+  return null;
+}
+
+io.RandomAccessFile? _openLogFile() {
+  if (_logFileTried) return _logFileHandle;
+  _logFileTried = true;
+  // A test process writes nothing unless it asked to. `flutter test` runs
+  // `flutter_tester` out of the SDK's cache, so "beside the running binary"
+  // means inside somebody else's installation — shared with every other test
+  // process on the machine, which is how a suite of four thousand tests
+  // produced one file that no longer decoded as UTF-8.
+  if (_logDirectoryOverride == null &&
+      io.Platform.environment['FLUTTER_TEST'] == 'true') {
+    return null;
+  }
+  for (final dir in _logDirCandidates()) {
+    try {
+      final file = io.File('$dir${io.Platform.pathSeparator}xveil-debug.log');
+      if (file.existsSync() && file.lengthSync() > _logFileRotateAbove) {
+        file.deleteSync();
+      }
+      final handle = file.openSync(mode: io.FileMode.append);
+      devLogFilePath = file.path;
+      _logFileHandle = handle;
+      return handle;
+    } catch (_) {
+      // Program Files is not writable, a read-only mount, a sandbox: try the
+      // next place rather than losing the log to a permission error.
+    }
+  }
+  return null;
+}
+
+void _writeLogFile(String line) {
+  final handle = _openLogFile();
+  if (handle == null) return;
+  try {
+    handle.writeStringSync('$line\n');
+    handle.flushSync();
+  } catch (_) {
+    // A disk that filled up or a handle that went away must not take the app
+    // with it. Stop trying; the other sinks are unaffected.
+    _logFileHandle = null;
+  }
+}
+
 void devLog(String Function() message) {
   if (!_productMode || _releaseDiagnosticLog) {
     final line = message();
@@ -81,6 +220,7 @@ void devLog(String Function() message) {
     if (_echoToStdout) {
       io.stdout.writeln('xVeil: $stamped');
     }
+    _writeLogFile(stamped);
     _devLogRing.addLast(stamped);
     if (_devLogRing.length > _devLogRingCapacity) {
       _devLogRing.removeFirst();
