@@ -460,7 +460,86 @@ void main() {
             '${EmbeddedNode.meetingPoints.length}',
       );
     });
+  
+  // A read fault is not silence. Both used to answer `null`, which the boot
+  // turns into veil's `all` — so a damaged or closed space put the WIDE
+  // discovery setting back for somebody who had deliberately narrowed it,
+  // including the points that hand a stranger's server the address this device
+  // connects from (report20 XV20-M1).
+  group('meeting points tell a read fault from an unanswered space', () {
+    test('an unanswered space is readable and says nothing', () async {
+      final answer = await meetingPointsAnswerInSpace(_OpenSettingStorage());
+      expect(answer.readable, isTrue);
+      expect(
+        answer.points,
+        isNull,
+        reason: 'a space that never answered must leave the default alone',
+      );
+    });
+
+    test('a space that will not answer is UNREADABLE', () async {
+      final answer = await meetingPointsAnswerInSpace(_RefusingStorage());
+      expect(
+        answer.readable,
+        isFalse,
+        reason: 'a read fault reported as silence becomes the wide default',
+      );
+    });
+
+    test('a closed space is unreadable too, not unanswered', () async {
+      final answer = await meetingPointsAnswerInSpace(_ClosedStorage());
+      expect(
+        answer.readable,
+        isFalse,
+        reason: 'nothing may be concluded from a closed space\'s silence',
+      );
+    });
+
+    test('an unreadable space looks on the local network and nowhere else',
+        () {
+      // The harm the finding is about: `null` here leaves veil at `all`, so a
+      // read fault re-enables the points that publish this device's address.
+      expect(
+        meetingPointsForBoot(const MeetingPointsAnswer.unreadable()),
+        ['local_network'],
+        reason: 'a failed read either widened the exposure somebody had '
+            'narrowed, or left the node looking nowhere at all',
+      );
+    });
+
+    test('while an unanswered one still leaves the default alone', () {
+      // The migration case, and the reason this is not simply "narrow on
+      // anything unclear": a space that never answered must keep getting new
+      // points as they are added, without anybody re-answering.
+      expect(
+        meetingPointsForBoot(const MeetingPointsAnswer.absent()),
+        isNull,
+      );
+    });
+
+    test('and an explicit answer is passed through as given', () {
+      expect(
+        meetingPointsForBoot(
+          const MeetingPointsAnswer.answered(['nostr']),
+        ),
+        ['nostr'],
+      );
+      expect(
+        meetingPointsForBoot(const MeetingPointsAnswer.answered([])),
+        isEmpty,
+        reason: '"look nowhere" is an answer somebody gave',
+      );
+    });
+
+    test('and an answered space is carried through unchanged', () async {
+      final storage = _OpenSettingStorage();
+      await setMeetingPointsInSpace(storage, const ['local_network']);
+      final answer = await meetingPointsAnswerInSpace(storage);
+      expect(answer.readable, isTrue);
+      expect(answer.points, ['local_network']);
+    });
   });
+});
 
   group('the meeting-point setting is per identity and defaults to all', () {
     test('an unanswered identity leaves veil own default alone', () {
@@ -1879,9 +1958,15 @@ void main() {
       expect(body.length, greaterThan(1), reason: 'startDeniable is gone?');
       final start = body[1];
 
+      // The DECISION — "resolve what the caller did not" — rather than the
+      // expression that implemented it on the day this was written. Naming the
+      // expression made this guard fail when the resolution grew a third case
+      // (a read fault is not an unanswered space, report20 XV20-M1), which is
+      // a test reporting on its own shape instead of on the code.
       expect(
-        start,
-        contains('meetingPoints ?? await meetingPointsInSpace(storage)'),
+        RegExp(r'meetingPoints \?\?\s*await\s+\w+\(\s*storage\s*\)')
+            .hasMatch(start),
+        isTrue,
         reason:
             'a boot that was told nothing about meeting points leaves veil at '
             '`all`, so an explicit opt-out is silently widened by opening the '
@@ -2097,4 +2182,10 @@ class _RefusingStorage extends FakeSettingStorage {
   @override
   Future<void> putSetting(String key, String value) async =>
       throw StateError('unwritable');
+}
+
+/// A space nobody opened. Its silence means nothing at all.
+class _ClosedStorage extends FakeSettingStorage {
+  @override
+  bool get isOpen => false;
 }
