@@ -849,7 +849,9 @@ class HeadlessRuntime {
     } catch (_) {
       return 'invalid peer';
     }
-    final opened = await veilOpenPinnedSource(path);
+    // Same as the app's sender: the roots this send was authorized against
+    // let the open walk from a descriptor rather than trust the name twice.
+    final opened = await veilOpenPinnedSource(path, beneathRoots: roots);
     if (opened.refusal != null) return opened.refusal;
     final source = opened.source!;
     final before = opened.stamp;

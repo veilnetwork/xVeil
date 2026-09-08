@@ -2052,7 +2052,15 @@ final class GroupApiAdapter {
       // matters goes around the OPEN, and that exists here exactly as it does
       // for the 1:1 send. A name swapped between the edge's check and this
       // open now refuses before the offer is posted (audit X-01).
-      final opened = await veilOpenPinnedSource(file.absolute.path);
+      //
+      // AND the walk, where the host has it: the roots this send was
+      // authorized against let the open start from a descriptor on one of
+      // them, so a symlink component is refused rather than followed and the
+      // remaining window above closes on POSIX (audit X-02).
+      final opened = await veilOpenPinnedSource(
+        file.absolute.path,
+        beneathRoots: roots,
+      );
       if (opened.refusal != null) {
         return (error: opened.refusal, contentId: null);
       }
