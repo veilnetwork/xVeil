@@ -32,6 +32,15 @@ import 'package:flutter/services.dart';
 /// interface rather than a hidden policy.
 const Duration kClipboardSecretLifetime = Duration(seconds: 45);
 
+/// The window for the RECOVERY PHRASE, which is shorter on purpose.
+///
+/// Everything else this helper carries is a credential that can be revoked and
+/// reissued — an API token, an invite. The phrase cannot: it is the identity
+/// itself, for as long as the identity exists. So it gets the shortest window
+/// that still lets a person paste it into a password manager in the next
+/// window over, and the interface states the number rather than hiding it.
+const Duration kRecoveryPhraseClipboardLifetime = Duration(seconds: 30);
+
 /// Clear the clipboard after [after].
 ///
 /// Returns the pending work so a test can await it; production fires and
