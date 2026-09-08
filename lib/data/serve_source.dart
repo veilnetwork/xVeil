@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/posix_file_facts.dart';
+import 'fs_beneath.dart';
 
 /// A byte source the SENDER serves a large file from directly (the original file
 /// on disk) — read + close closures over a [RandomAccessFile]. Reads are
@@ -192,7 +193,44 @@ typedef VeilPinnedOpen = ({
 Future<VeilPinnedOpen> veilOpenPinnedSource(
   String path, {
   Future<VeilOpenedSource?> Function(String path)? opener,
+  List<String> beneathRoots = const <String>[],
 }) async {
+  // THE STRONG PATH FIRST, when the caller can name the root it authorized
+  // against. `veilOpenBeneath` walks from a descriptor on that root, refusing
+  // a symlink instead of following it — which is the thing the stamping below
+  // can only detect, and only when the swap does not swap back. A caller with
+  // no root (a local pick, a cache path) or a host without the native walk
+  // gets the stamped open, unchanged.
+  //
+  // Deliberately not a hard failure when the walk refuses: a refusal here is
+  // "not through the strong path", and the stamped open below still applies
+  // its own check. The one thing that must not happen is serving a file the
+  // strong path would have refused AS IF it had passed — so the fallback
+  // reports through the same stamp comparison it always did, and a caller that
+  // wants the strong guarantee asks [veilOpenBeneathAvailable] first.
+  if (beneathRoots.isNotEmpty && opener == null) {
+    final strong = await _openBeneathAnyRoot(path, beneathRoots);
+    if (strong.supported) {
+      // ITS VERDICT IS FINAL, both ways. The first version fell back to the
+      // stamped open whenever the walk said no — which serves the very file
+      // the walk refused, and handed a caller a symlink out of the granted
+      // root. A weaker check is a fallback for a host that CANNOT do the
+      // strong one, never a second opinion on a refusal.
+      if (strong.source == null) {
+        return (
+          source: null,
+          refusal: 'the path is not reachable inside the granted folder '
+              'without following a link',
+          stamp: null,
+        );
+      }
+      return (
+        source: strong.source,
+        refusal: null,
+        stamp: await veilSourceStamp(path),
+      );
+    }
+  }
   final before = await veilSourceStamp(path);
   final source = await (opener ?? veilOpenSourceForSend)(path);
   if (source == null) {
@@ -330,4 +368,41 @@ Future<Uint8List> _readFully(
     remaining -= chunk.length;
   }
   return out.toBytes();
+}
+
+/// Try the descriptor walk under whichever granted root contains [path].
+///
+/// The path handed here is already resolved by the authorization check, so the
+/// containment test is a component comparison rather than another resolution —
+/// resolving again would be one more lookup of a name, which is the thing
+/// being got rid of.
+Future<VeilBeneathOpen> _openBeneathAnyRoot(
+  String path,
+  List<String> roots,
+) async {
+  var supported = false;
+  for (final root in roots) {
+    final String base;
+    try {
+      base = await Directory(root).resolveSymbolicLinks();
+    } catch (_) {
+      continue;
+    }
+    final prefix = base.endsWith(Platform.pathSeparator)
+        ? base
+        : '$base${Platform.pathSeparator}';
+    if (!path.startsWith(prefix)) continue;
+    final relative = path.substring(prefix.length);
+    if (relative.isEmpty) continue;
+    final open = await veilOpenBeneath(base, relative);
+    // A host that can do the walk has answered about this path, under the one
+    // root that contains it. Trying the next root would be asking a different
+    // question until one says yes.
+    if (open.supported) return open;
+    supported = false;
+  }
+  // No root contained the path, or none could be resolved. Reported as "not
+  // supported" so the caller keeps its own check rather than refusing a send
+  // it never asked this about — the containment decision is the API edge's.
+  return (source: null, supported: supported);
 }
