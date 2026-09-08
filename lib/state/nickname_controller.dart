@@ -14,6 +14,22 @@
 //   seed set is persisted to the identity's encrypted settings KV after
 //   every chunk — so a restart RESUMES instead of restarting, and cancel is
 //   just "stop looping".
+//
+//   That cache used to be ONE settings value, and the set it holds has no
+//   ceiling: seeds are 32 bytes each and accumulate until the target weight is
+//   reached, while a settings value must fit a single hidden-volume chunk
+//   (4096 bytes less nonce and tag = 4068 of plaintext), with base64 adding a
+//   third on top. So a value held about ninety seeds, and a name that needed
+//   more failed EVERY persist from that point on — and the exception came out
+//   of the mining loop and killed the claim itself. Reported live on
+//   2026-09-08: "HvException.PayloadTooLarge: payload exceeds chunk capacity"
+//   while claiming @HateError, with the mining already done.
+//
+//   Two things changed, and they are separate: the cache is SPLIT across
+//   numbered values, each well under the ceiling, so resume survives a set of
+//   any size a claim will really reach; and a cache write that fails no longer
+//   propagates. Losing resume costs time; losing the claim throws away work
+//   the person already waited through.
 
 import 'dart:async';
 import 'dart:convert';
@@ -26,6 +42,7 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import '../core/ids.dart';
 import '../data/storage/storage.dart';
 import 'app_controller.dart';
+import 'nickname_seed_cache.dart';
 import 'messaging.dart';
 import 'providers.dart';
 
@@ -128,6 +145,8 @@ class NicknameState {
 const _kClaimedKey = 'nickname:claimed';
 const _kMiningKey = 'nickname:mining';
 
+
+
 /// Hashes per mining chunk — one background-isolate unit. ~0.5–2 s of work: small
 /// enough for smooth progress + prompt cancel, big enough to amortize the
 /// isolate hop.
@@ -192,6 +211,13 @@ class NicknameController extends StateNotifier<NicknameState> {
       }),
     );
   }
+
+  /// The resume cache, wired to this identity's settings namespace.
+  late final NicknameSeedCache _seedCache = NicknameSeedCache(
+    manifestKey: _kMiningKey,
+    get: (k) => _storage.getSetting(k),
+    put: (k, v) => _storage.putSetting(k, v),
+  );
 
   /// Re-resolve the owned name and sync the card to the NETWORK state: the
   /// live cumulative weight while we still own it, or the takeover flag (and
@@ -373,16 +399,9 @@ class NicknameController extends StateNotifier<NicknameState> {
 
   Future<void> _mineAndPublish(String norm, Uint8List self, int target) async {
     // Resume from the persisted seed cache when it matches this name.
-    Uint8List seeds = Uint8List(0);
-    try {
-      final raw = await _storage.getSetting(_kMiningKey);
-      if (raw != null) {
-        final m = jsonDecode(raw) as Map<String, dynamic>;
-        if (m['name'] == norm) {
-          seeds = base64Decode(m['seeds'] as String? ?? '');
-        }
-      }
-    } catch (_) {}
+    Uint8List seeds = await _seedCache.load(norm);
+    var parts = 0;
+    var caching = true;
 
     var weight = 0;
     var hashesTotal = 0;
@@ -406,10 +425,15 @@ class NicknameController extends StateNotifier<NicknameState> {
       hashesTotal += out.hashesDone;
       state = state.copyWith(minedWeight: weight, hashesDone: hashesTotal);
       // Persist the running best set after EVERY chunk — restart resumes.
-      await _storage.putSetting(
-        _kMiningKey,
-        jsonEncode({'name': norm, 'seeds': base64Encode(seeds)}),
-      );
+      // Never at the cost of the claim: see the note at the top of this file.
+      if (caching) {
+        final written = await _seedCache.save(norm, seeds, parts);
+        if (written == null) {
+          caching = false;
+        } else {
+          parts = written;
+        }
+      }
       if (out.hitTarget || weight >= target) break;
     }
     if (_cancel) {
@@ -426,7 +450,7 @@ class NicknameController extends StateNotifier<NicknameState> {
     );
     if (_disposed) return;
     await _persistClaim(norm, published);
-    await _storage.putSetting(_kMiningKey, jsonEncode(<String, dynamic>{}));
+    await _seedCache.clear(parts);
     state = state.copyWith(
       phase: NicknamePhase.idle,
       ownedName: norm,
