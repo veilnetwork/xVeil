@@ -158,6 +158,17 @@ class AppL10nRu extends AppL10n {
       'Я записал(а) все 24 слова, последнее — номер 24';
 
   @override
+  String get recoveryCopy => 'Скопировать все 24 слова';
+
+  @override
+  String get recoveryCopyCaution =>
+      'Буфер обмена общий для всех приложений на устройстве, а на Apple и Windows может уехать на другие ваши машины. Копия стирается через 30 секунд — успейте вставить её туда, где доверяете.';
+
+  @override
+  String get recoveryCopied =>
+      'Скопировано. Буфер будет очищен через 30 секунд.';
+
+  @override
   String get recoveryPlaceholderWarning =>
       'Это слова-ЗАГЛУШКИ. Генератор личности в этой сборке недоступен, поэтому личность создаётся случайно, и эти слова ничего не восстановят. Не записывайте их как резервную копию.';
 
@@ -6965,4 +6976,130 @@ class AppL10nRu extends AppL10n {
   @override
   String get meetingPointsNoneChosen =>
       'Место не выбрано — эта личность ничего не найдёт сама.';
+
+  @override
+  String get transferTitle => 'Перенос данных';
+
+  @override
+  String get transferIntro =>
+      'Сохраните всё, что есть у этой личности, в файл и прочитайте его на другом устройстве. Импорт объединяет: недостающее добавляется, имеющееся остаётся, из двух версий побеждает свежая.';
+
+  @override
+  String get transferExportTitle => 'Экспорт';
+
+  @override
+  String transferContents(int contacts, int messages, int calls) {
+    return 'Диалогов: $contacts, сообщений: $messages, звонков: $calls';
+  }
+
+  @override
+  String get transferIncludeFiles => 'Включить файлы';
+
+  @override
+  String transferSizes(String without, String with_, int files) {
+    return 'Без файлов примерно $without МБ; с файлами примерно $with_ МБ (файлов: $files)';
+  }
+
+  @override
+  String transferOversizeFiles(int count) {
+    return 'Файлов больше 64 МБ: $count. Они попадут в архив только именем.';
+  }
+
+  @override
+  String get transferIncludeIdentity => 'Включить личность';
+
+  @override
+  String get transferIncludeIdentityHint =>
+      'Чистая установка станет этим устройством из одного архива, без фразы восстановления.';
+
+  @override
+  String get transferIdentityWarning =>
+      'Этот файл БУДЕТ вашей личностью. Кто его получил — стал вами. Храните его как 24 слова, и лучше выбирайте экспорт под паролем.';
+
+  @override
+  String get transferExportOpen => 'Сохранить открытым';
+
+  @override
+  String get transferExportSealed => 'Сохранить под паролем';
+
+  @override
+  String get transferExportPasswordTitle => 'Пароль для архива';
+
+  @override
+  String get transferPasswordLabel => 'Пароль';
+
+  @override
+  String get transferWorking => 'Выполняется…';
+
+  @override
+  String transferProgress(int done, int total) {
+    return '$done из $total';
+  }
+
+  @override
+  String transferExportDone(int records, int files, String mb) {
+    return 'Записано: записей $records, файлов $files, $mb МБ.';
+  }
+
+  @override
+  String get transferImportTitle => 'Импорт';
+
+  @override
+  String get transferImportBody =>
+      'Выберите архив, записанный этой же личностью на другом устройстве. Ничего не применится, пока вы не подтвердите содержимое.';
+
+  @override
+  String get transferImportPick => 'Выбрать файл';
+
+  @override
+  String get transferImportPasswordTitle => 'Архив защищён паролем';
+
+  @override
+  String get transferImportConfirmTitle => 'Объединить с этим архивом?';
+
+  @override
+  String transferImportConfirmBody(
+    String id,
+    String when,
+    int messages,
+    int files,
+  ) {
+    return 'Личность $id…, записан $when. Внутри сообщений: $messages, файлов: $files. Имеющееся сохранится, добавится только недостающее.';
+  }
+
+  @override
+  String get transferImportAction => 'Объединить';
+
+  @override
+  String transferImportDone(int events, int files, int settings) {
+    return 'Объединено: записей $events, добавлено файлов $files, восполнено настроек $settings.';
+  }
+
+  @override
+  String get transferRefusedOtherIdentity =>
+      'Архив принадлежит другой личности. Слияние приписало бы вам чужие сообщения.';
+
+  @override
+  String get transferRefusedHasIdentity =>
+      'В архиве есть личность, а у этого устройства она уже есть. Импортируйте его на чистую установку.';
+
+  @override
+  String get transferRefusedNotReady =>
+      'Приложение ещё не готово к слиянию — откройте любой чат и попробуйте снова.';
+
+  @override
+  String get transferBadPassword => 'Неверный пароль или архив изменён.';
+
+  @override
+  String get transferTruncated => 'Архив неполон — копирование не завершилось.';
+
+  @override
+  String get transferNotAnArchive => 'Это не архив xVeil.';
+
+  @override
+  String get transferCorrupt => 'Архив повреждён.';
+
+  @override
+  String get settingsTransferHint =>
+      'Перенести всё на другое устройство через файл';
 }

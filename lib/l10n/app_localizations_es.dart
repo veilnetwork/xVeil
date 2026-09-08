@@ -158,6 +158,17 @@ class AppL10nEs extends AppL10n {
       'He anotado las 24 palabras, hasta la número 24';
 
   @override
+  String get recoveryCopy => 'Copiar las 24 palabras';
+
+  @override
+  String get recoveryCopyCaution =>
+      'El portapapeles es compartido por todas las apps del dispositivo y, en Apple y Windows, puede sincronizarse con tus otros equipos. La copia se borra a los 30 segundos: pégala antes en un lugar de confianza.';
+
+  @override
+  String get recoveryCopied =>
+      'Copiado. El portapapeles se borrará en 30 segundos.';
+
+  @override
   String get recoveryPlaceholderWarning =>
       'Estas palabras son de RELLENO. El generador de identidades no está disponible en esta versión, así que la identidad se está creando al azar y estas palabras no restauran nada. No las anotes como copia de seguridad.';
 
@@ -6990,4 +7001,132 @@ class AppL10nEs extends AppL10n {
   @override
   String get meetingPointsNoneChosen =>
       'No has elegido ningún sitio: esta identidad no encontrará nada por sí sola.';
+
+  @override
+  String get transferTitle => 'Transferir datos';
+
+  @override
+  String get transferIntro =>
+      'Guarda todo lo que tiene esta identidad en un archivo y léelo en otro dispositivo. La importación fusiona: lo que falta se añade, lo que ya está se conserva y de dos versiones gana la más reciente.';
+
+  @override
+  String get transferExportTitle => 'Exportar';
+
+  @override
+  String transferContents(int contacts, int messages, int calls) {
+    return '$contacts conversaciones, $messages mensajes, $calls llamadas';
+  }
+
+  @override
+  String get transferIncludeFiles => 'Incluir archivos';
+
+  @override
+  String transferSizes(String without, String with_, int files) {
+    return 'Sin archivos unos $without MB; con archivos unos $with_ MB ($files archivos)';
+  }
+
+  @override
+  String transferOversizeFiles(int count) {
+    return '$count archivo(s) superan los 64 MB y solo constarán por su nombre.';
+  }
+
+  @override
+  String get transferIncludeIdentity => 'Incluir la identidad';
+
+  @override
+  String get transferIncludeIdentityHint =>
+      'Una instalación nueva puede convertirse en este dispositivo solo con el archivo, sin la frase de recuperación.';
+
+  @override
+  String get transferIdentityWarning =>
+      'Este archivo SERÁ tu identidad. Quien lo obtenga, será tú. Guárdalo como las 24 palabras y prefiere la exportación con contraseña.';
+
+  @override
+  String get transferExportOpen => 'Guardar abierto';
+
+  @override
+  String get transferExportSealed => 'Guardar con contraseña';
+
+  @override
+  String get transferExportPasswordTitle => 'Contraseña del archivo';
+
+  @override
+  String get transferPasswordLabel => 'Contraseña';
+
+  @override
+  String get transferWorking => 'Trabajando…';
+
+  @override
+  String transferProgress(int done, int total) {
+    return '$done de $total';
+  }
+
+  @override
+  String transferExportDone(int records, int files, String mb) {
+    return 'Escrito: $records registros, $files archivos, $mb MB.';
+  }
+
+  @override
+  String get transferImportTitle => 'Importar';
+
+  @override
+  String get transferImportBody =>
+      'Elige un archivo escrito por esta misma identidad en otro dispositivo. No se aplica nada hasta que confirmes su contenido.';
+
+  @override
+  String get transferImportPick => 'Elegir archivo';
+
+  @override
+  String get transferImportPasswordTitle => 'El archivo está protegido';
+
+  @override
+  String get transferImportConfirmTitle => '¿Fusionar este archivo?';
+
+  @override
+  String transferImportConfirmBody(
+    String id,
+    String when,
+    int messages,
+    int files,
+  ) {
+    return 'Identidad $id…, escrito el $when. Contiene $messages mensajes y $files archivos. Lo existente se conserva; solo se añade lo que falta.';
+  }
+
+  @override
+  String get transferImportAction => 'Fusionar';
+
+  @override
+  String transferImportDone(int events, int files, int settings) {
+    return 'Fusionado: $events entradas, $files archivos añadidos, $settings ajustes completados.';
+  }
+
+  @override
+  String get transferRefusedOtherIdentity =>
+      'Este archivo pertenece a otra identidad. Fusionarlo te atribuiría mensajes ajenos.';
+
+  @override
+  String get transferRefusedHasIdentity =>
+      'El archivo trae una identidad y este dispositivo ya tiene una. Impórtalo en una instalación nueva.';
+
+  @override
+  String get transferRefusedNotReady =>
+      'La app aún no está lista para fusionar: abre cualquier chat e inténtalo de nuevo.';
+
+  @override
+  String get transferBadPassword =>
+      'Contraseña incorrecta o el archivo fue modificado.';
+
+  @override
+  String get transferTruncated =>
+      'El archivo está incompleto: la copia no terminó.';
+
+  @override
+  String get transferNotAnArchive => 'Ese archivo no es un archivo de xVeil.';
+
+  @override
+  String get transferCorrupt => 'El archivo está dañado.';
+
+  @override
+  String get settingsTransferHint =>
+      'Mover todo a otro dispositivo mediante un archivo';
 }

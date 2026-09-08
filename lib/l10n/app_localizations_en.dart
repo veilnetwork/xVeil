@@ -157,6 +157,17 @@ class AppL10nEn extends AppL10n {
       'I have written down all 24 words, ending with number 24';
 
   @override
+  String get recoveryCopy => 'Copy all 24 words';
+
+  @override
+  String get recoveryCopyCaution =>
+      'The clipboard is shared with every app on this device and, on Apple and Windows, may sync to your other machines. The copy is cleared after 30 seconds — paste it somewhere you trust before then.';
+
+  @override
+  String get recoveryCopied =>
+      'Copied. The clipboard will be cleared in 30 seconds.';
+
+  @override
   String get recoveryPlaceholderWarning =>
       'These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.';
 
@@ -6902,4 +6913,132 @@ class AppL10nEn extends AppL10n {
   @override
   String get meetingPointsNoneChosen =>
       'No place chosen — this identity will find nothing by itself.';
+
+  @override
+  String get transferTitle => 'Transfer data';
+
+  @override
+  String get transferIntro =>
+      'Write everything this identity holds to a file, and read it back on another device. Importing merges: what is missing is added, what is already here is left alone, and the newer of two versions wins.';
+
+  @override
+  String get transferExportTitle => 'Export';
+
+  @override
+  String transferContents(int contacts, int messages, int calls) {
+    return '$contacts conversations, $messages messages, $calls calls';
+  }
+
+  @override
+  String get transferIncludeFiles => 'Include files';
+
+  @override
+  String transferSizes(String without, String with_, int files) {
+    return 'Without files about $without MB; with files about $with_ MB ($files files)';
+  }
+
+  @override
+  String transferOversizeFiles(int count) {
+    return '$count file(s) are larger than 64 MB and will be listed by name only.';
+  }
+
+  @override
+  String get transferIncludeIdentity => 'Include the identity';
+
+  @override
+  String get transferIncludeIdentityHint =>
+      'A fresh install can become this device from the archive alone, without the recovery phrase.';
+
+  @override
+  String get transferIdentityWarning =>
+      'This file will BE your identity. Anyone who obtains it becomes you. Keep it as you would keep the 24 words — and prefer the password-protected export.';
+
+  @override
+  String get transferExportOpen => 'Save open';
+
+  @override
+  String get transferExportSealed => 'Save with a password';
+
+  @override
+  String get transferExportPasswordTitle => 'Password for the archive';
+
+  @override
+  String get transferPasswordLabel => 'Password';
+
+  @override
+  String get transferWorking => 'Working…';
+
+  @override
+  String transferProgress(int done, int total) {
+    return '$done of $total';
+  }
+
+  @override
+  String transferExportDone(int records, int files, String mb) {
+    return 'Written: $records records, $files files, $mb MB.';
+  }
+
+  @override
+  String get transferImportTitle => 'Import';
+
+  @override
+  String get transferImportBody =>
+      'Pick an archive written by this identity on another device. Nothing is applied until you confirm what is inside it.';
+
+  @override
+  String get transferImportPick => 'Choose a file';
+
+  @override
+  String get transferImportPasswordTitle => 'This archive is protected';
+
+  @override
+  String get transferImportConfirmTitle => 'Merge this archive?';
+
+  @override
+  String transferImportConfirmBody(
+    String id,
+    String when,
+    int messages,
+    int files,
+  ) {
+    return 'Identity $id…, written $when. It holds $messages messages and $files files. Existing data is kept; only what is missing is added.';
+  }
+
+  @override
+  String get transferImportAction => 'Merge';
+
+  @override
+  String transferImportDone(int events, int files, int settings) {
+    return 'Merged: $events entries, $files files added, $settings settings filled in.';
+  }
+
+  @override
+  String get transferRefusedOtherIdentity =>
+      'This archive belongs to a different identity. Merging it would attribute somebody else’s messages to you.';
+
+  @override
+  String get transferRefusedHasIdentity =>
+      'This archive carries an identity and this device already has one. Import it on a fresh install instead.';
+
+  @override
+  String get transferRefusedNotReady =>
+      'The app is not ready to merge yet — open a chat once and try again.';
+
+  @override
+  String get transferBadPassword =>
+      'Wrong password, or the archive was edited.';
+
+  @override
+  String get transferTruncated =>
+      'The archive is incomplete — the copy did not finish.';
+
+  @override
+  String get transferNotAnArchive => 'That file is not an xVeil archive.';
+
+  @override
+  String get transferCorrupt => 'The archive is damaged.';
+
+  @override
+  String get settingsTransferHint =>
+      'Move everything to another device through a file';
 }
