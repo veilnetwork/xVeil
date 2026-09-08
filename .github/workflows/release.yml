@@ -177,7 +177,7 @@ jobs:
           done
 
       - name: cargo-ndk
-        run: cargo install cargo-ndk --locked
+        run: cargo install cargo-ndk --version "^4.1" --locked
 
       # The runner image already carries a complete NDK. Downloading another
       # one gave a tree whose clang was missing at the path cmake was told to
