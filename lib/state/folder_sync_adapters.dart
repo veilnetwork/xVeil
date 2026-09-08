@@ -9,6 +9,7 @@ import 'cloud_service.dart';
 import '../data/range_sources.dart';
 import '../domain/range_source.dart';
 import 'folder_sync_engine.dart';
+import '../data/fs_beneath.dart';
 
 /// The path a mirrored file may occupy under a sync root, or null if it may
 /// not occupy one at all.
@@ -277,7 +278,11 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     }
     final file = File(resolved);
     await file.parent.create(recursive: true);
-    final temp = await _openScratch(file);
+    // The ROOT goes with it: the scratch file is created through a descriptor
+    // walk from there, so a component turned into a symlink between
+    // `mirrorPathWithin` above and this open is refused rather than followed.
+    // That is the residual this file has documented since it was written.
+    final temp = await _openScratch(root, path, file);
     if (temp == null) return;
     final sink = temp.sink;
     var written = 0;
@@ -336,7 +341,11 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
   /// open the name could still be replaced. Closing that needs `O_NOFOLLOW`
   /// with `O_EXCL`, which `dart:io` does not expose — the same boundary
   /// `mirrorPathWithin` documents.
-  Future<({File file, RandomAccessFile sink})?> _openScratch(File target) async {
+  Future<({File file, VeilCreatedSink sink})?> _openScratch(
+    String root,
+    String relative,
+    File target,
+  ) async {
     // Sweep OUR OWN leftovers for this target first. A random name means an
     // interrupted write no longer collides with the next attempt — which also
     // means it no longer gets reused and cleaned up, so without this the
@@ -368,10 +377,32 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
           FileSystemEntityType.notFound) {
         continue; // occupied — never adopt it
       }
+      // THE WALK FIRST, and its verdict is final where it works: falling back
+      // to `File.open` on a refusal would open the very name the walk just
+      // rejected, which is the whole thing being closed.
+      final beneath = await veilCreateBeneath(
+        root,
+        '$relative.$tag$kPartialSuffix',
+      );
+      if (beneath.supported) {
+        if (beneath.sink == null) continue; // occupied or unreachable — retry
+        return (file: candidate, sink: beneath.sink!);
+      }
       try {
+        final raf = await candidate.open(mode: FileMode.writeOnly);
+        // The host cannot do the walk — a build whose library predates the
+        // symbols, since every platform this ships to can. Wrapped so the
+        // caller has one sink type either way, and the weaker check above is
+        // what stands.
         return (
           file: candidate,
-          sink: await candidate.open(mode: FileMode.writeOnly),
+          sink: (
+            writeFrom: (chunk) async {
+              await raf.writeFrom(chunk);
+            },
+            flush: raf.flush,
+            close: raf.close,
+          ),
         );
       } catch (_) {
         continue;

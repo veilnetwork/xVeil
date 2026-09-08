@@ -27,14 +27,17 @@ import 'serve_source.dart';
 /// refusing `..` rather than resolving it. What comes back reads from that
 /// descriptor, so a rename after the fact reaches nothing.
 ///
-/// ## When this returns null
+/// ## Which hosts have it
 ///
-/// On Windows, where the native says so rather than pretending — the caller
-/// falls back to the stamped open, which is the same weaker check it already
-/// had there. Also when the library is missing (tests, a build without it) or
-/// the path is refused. A refusal is not distinguished from an absence on
-/// purpose: both mean "do not serve this through the strong path", and the
-/// caller decides whether to fall back or give up.
+/// All of them that this app ships to. POSIX walks with `openat(O_NOFOLLOW)`;
+/// Windows walks with `NtCreateFile` against a RootDirectory handle and
+/// `OBJ_DONT_REPARSE`, which is the same guarantee spelled in the NT layer — a
+/// junction or a symlink on the way is refused rather than followed. Verified
+/// on a Windows ARM machine, junction included.
+///
+/// `supported: false` is left for a host that is neither, and for a build whose
+/// library predates these symbols. It is NOT the same as a refusal, and the
+/// caller must not treat it as one: see [VeilBeneathOpen].
 typedef _OpenBeneathNative =
     Pointer<Void> Function(
       Pointer<Utf8>,
@@ -59,6 +62,28 @@ typedef _ReadNative =
       Pointer<Pointer<Utf8>>,
     );
 typedef _ReadDart =
+    int Function(
+      Pointer<Void>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Pointer<Utf8>>,
+    );
+
+typedef _CreateNative =
+    Pointer<Void> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+typedef _CreateDart =
+    Pointer<Void> Function(Pointer<Utf8>, Pointer<Utf8>, Pointer<Pointer<Utf8>>);
+
+typedef _WriteNative =
+    IntPtr Function(
+      Pointer<Void>,
+      Uint64,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _WriteDart =
     int Function(
       Pointer<Void>,
       int,
@@ -199,6 +224,127 @@ Future<VeilBeneathOpen> veilOpenBeneath(
 
   return (
     source: (size: size, read: readRange, close: closeIt),
+    supported: true,
+  );
+}
+
+/// A file being written through a descriptor: the same three calls a
+/// `RandomAccessFile` sink offers the download loop, and nothing else.
+typedef VeilCreatedSink = ({
+  Future<void> Function(List<int> chunk) writeFrom,
+  Future<void> Function() flush,
+  Future<void> Function() close,
+});
+
+/// What [veilCreateBeneath] answers. `supported` for the same reason
+/// [VeilBeneathOpen] carries it: a refusal is not an inability.
+typedef VeilBeneathCreate = ({VeilCreatedSink? sink, bool supported});
+
+/// Create [relative] beneath [root] for writing, following no symlink and
+/// refusing a name that already exists.
+///
+/// The write half of the same gap. Folder sync checks a mirrored path is
+/// inside its root and then opens it, and `File.open` follows a link — so a
+/// component turned into a symlink between the check and the open sent the
+/// download outside the mirrored tree, truncating whatever it aimed at.
+Future<VeilBeneathCreate> veilCreateBeneath(
+  String root,
+  String relative, {
+  DynamicLibrary? lib,
+}) async {
+  const unsupported = (sink: null, supported: false);
+  final DynamicLibrary dl;
+  try {
+    dl = lib ?? verifiedVeilLibrary();
+  } catch (_) {
+    return unsupported;
+  }
+  final _CreateDart create;
+  final _WriteDart write;
+  final _CloseDart close;
+  final _FreeStrDart freeStr;
+  try {
+    create = dl.lookupFunction<_CreateNative, _CreateDart>(
+      'veil_fs_create_beneath',
+    );
+    write = dl.lookupFunction<_WriteNative, _WriteDart>('veil_fs_write');
+    close = dl.lookupFunction<_CloseNative, _CloseDart>('veil_fs_close');
+    freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+  } catch (_) {
+    return unsupported;
+  }
+
+  final rootC = root.toNativeUtf8();
+  final relC = relative.toNativeUtf8();
+  final errOut = calloc<Pointer<Utf8>>();
+  Pointer<Void> handle;
+  try {
+    handle = create(rootC, relC, errOut);
+    if (handle == nullptr) {
+      var supported = true;
+      final err = errOut.value;
+      if (err != nullptr) {
+        final msg = err.toDartString();
+        supported = !msg.contains('POSIX-only');
+        devLog(() => 'xVeil[fs]: refused creating $relative beneath $root: $msg');
+        freeStr(err);
+      }
+      return (sink: null, supported: supported);
+    }
+  } finally {
+    calloc.free(rootC);
+    calloc.free(relC);
+    calloc.free(errOut);
+  }
+
+  var offset = 0;
+  var closed = false;
+
+  Future<void> writeChunk(List<int> chunk) async {
+    if (closed) throw StateError('sink closed');
+    if (chunk.isEmpty) return;
+    final buf = calloc<Uint8>(chunk.length);
+    final err = calloc<Pointer<Utf8>>();
+    try {
+      buf.asTypedList(chunk.length).setAll(0, chunk);
+      var done = 0;
+      while (done < chunk.length) {
+        final n = write(
+          handle,
+          offset + done,
+          buf + done,
+          chunk.length - done,
+          err,
+        );
+        if (n <= 0) {
+          final e = err.value;
+          final msg = e == nullptr ? 'write failed' : e.toDartString();
+          if (e != nullptr) freeStr(e);
+          throw FileSystemException(msg, '<descriptor>');
+        }
+        done += n;
+      }
+      offset += chunk.length;
+    } finally {
+      calloc.free(buf);
+      calloc.free(err);
+    }
+  }
+
+  // Every write is a `pwrite` that has already reached the kernel, so there is
+  // nothing buffered here to push. Present because the caller's sink has it.
+  Future<void> flush() async {}
+
+  Future<void> closeIt() async {
+    if (closed) return;
+    closed = true;
+    close(handle);
+  }
+
+  return (
+    sink: (writeFrom: writeChunk, flush: flush, close: closeIt),
     supported: true,
   );
 }
