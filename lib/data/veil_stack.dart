@@ -21,7 +21,8 @@ import 'node/bundled_seeds.dart'
     show
         bundledSeedsAllowedFromSpace,
         kBundledSeedsDefault,
-        meetingPointsInSpace,
+        meetingPointsAnswerInSpace,
+        meetingPointsForBoot,
         meetingPolicyInSpace;
 import 'node/dht_participation.dart';
 import 'node/embedded_node.dart';
@@ -46,6 +47,37 @@ import 'transport/bootstrap_invite.dart';
 import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
 import 'package:xveil/core/log.dart';
+
+
+/// Which meeting points to boot with, when the caller did not resolve them.
+///
+/// Three answers, not two. A space that never said anything leaves veil's own
+/// default alone — that is the migration, and a later version adding a point
+/// gives it to this identity without anybody re-answering. A space that could
+/// not be READ is a different thing entirely, and treating it as silence gave
+/// the node `all`: a read fault put back the wide setting for somebody who had
+/// deliberately narrowed it, including the points that hand a stranger's
+/// server the address this device connects from (report20 XV20-M1).
+///
+/// So an unreadable space gets the LOCAL network and nothing else. Not
+/// "nowhere", because a node that looks nowhere finds nobody and the person
+/// has a messenger that never connects; not "everywhere", because widening
+/// somebody's exposure is not a thing to do on a guess. The local segment
+/// announces to machines already on the same wire, which is the one place a
+/// device is not telling anybody new where it is.
+Future<List<String>?> _meetingPointsForBoot(Storage storage) async {
+  final answer = await meetingPointsAnswerInSpace(storage);
+  if (!answer.readable) {
+    devLog(
+      () =>
+          'xVeil[net]: could not read this identity\'s meeting points — '
+          'looking on the local network only. A stored choice is not '
+          'overridden by a failed read, and the wide default is not applied '
+          'on a guess',
+    );
+  }
+  return meetingPointsForBoot(answer);
+}
 
 /// Thrown when the runtime directory cannot be made owner-only.
 ///
@@ -1911,7 +1943,7 @@ class RealVeilStack {
     // (report21 X21-H1). A caller that already resolved them passes them in;
     // null asks the identity's own space, which is what makes the opt-out
     // impossible for a caller to forget.
-    final points = meetingPoints ?? await meetingPointsInSpace(storage);
+    final points = meetingPoints ?? await _meetingPointsForBoot(storage);
     final policy = meetingPolicy ?? await meetingPolicyInSpace(storage);
     // Time each phase so the log pinpoints where a slow boot/switch goes (the
     // boot is mining-free when the identity already exists, so a slow switch is

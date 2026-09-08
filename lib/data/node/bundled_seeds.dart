@@ -237,9 +237,75 @@ const String kMeetingPointsSettingKey = 'network.meeting_points.v1';
 /// `null` means "not answered" — the caller leaves veil's default alone rather
 /// than writing one, so a later version that adds a point gives it to this
 /// identity without anybody re-answering.
-Future<List<String>?> meetingPointsInSpace(Storage storage) async {
-  if (!storage.isOpen) return null;
+/// Which meeting points one space names, telling "no answer" from "no read" —
+/// the same three cases as [BundledSeedsSpaceAnswer], and for a sharper reason.
+///
+/// [points] `null` with [readable] means the space never answered, and veil's
+/// default stands. [readable] false means the space could not be asked, and
+/// nothing may be concluded from its silence: collapsing that into "not
+/// answered" gave the node veil's `all`, so a read fault after somebody had
+/// explicitly narrowed where their identity looks for peers quietly put the
+/// wide setting back — including the ones that hand a stranger's server the
+/// address this device connects from (report20 XV20-M1).
+class MeetingPointsAnswer {
+  const MeetingPointsAnswer.answered(List<String> this.points)
+    : readable = true;
+  const MeetingPointsAnswer.absent() : points = null, readable = true;
+  const MeetingPointsAnswer.unreadable() : points = null, readable = false;
+
+  final List<String>? points;
+  final bool readable;
+}
+
+/// What a boot should look through, given what the space could say.
+///
+/// Pure, and separate from the read, because this is the decision the finding
+/// is about: an unreadable space used to come out as `null`, which leaves
+/// veil's own `all` — so a read fault put the WIDE setting back for somebody
+/// who had narrowed it, including the points that tell a stranger's server
+/// where this device connects from (report20 XV20-M1).
+///
+/// The answer for "we could not ask" is the local network and nothing else.
+/// Not `null`: widening somebody's exposure is not a thing to do on a guess.
+/// Not "nowhere" either: a node that looks nowhere finds nobody, and a
+/// messenger that never connects is its own defect (0.13.41). The local
+/// segment reaches machines already on the same wire — the one place a device
+/// is not telling anybody new where it is.
+List<String>? meetingPointsForBoot(MeetingPointsAnswer answer) =>
+    answer.readable ? answer.points : const <String>['local_network'];
+
+/// [meetingPointsInSpace], keeping the difference between the two silences.
+Future<MeetingPointsAnswer> meetingPointsAnswerInSpace(Storage storage) async {
+  if (!storage.isOpen) return const MeetingPointsAnswer.unreadable();
   try {
+    final points = await _meetingPointsOrThrow(storage);
+    return points == null
+        ? const MeetingPointsAnswer.absent()
+        : MeetingPointsAnswer.answered(points);
+  } catch (_) {
+    return const MeetingPointsAnswer.unreadable();
+  }
+}
+
+/// The lenient read: `null` for a space that said nothing AND for one that
+/// could not be read. Kept for the callers that have nothing better to do with
+/// the difference — a settings screen showing the current value, and the seed
+/// plan, which passes `null` on to a boot that asks again through
+/// [meetingPointsAnswerInSpace] and resolves the two apart there.
+Future<List<String>?> meetingPointsInSpace(Storage storage) async {
+  try {
+    return await _meetingPointsOrThrow(storage);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// The strict read, so [meetingPointsAnswerInSpace] can tell a fault from a
+/// silence. Private: a caller that cannot handle the difference should take
+/// the lenient one above and say so, rather than catching here by accident.
+Future<List<String>?> _meetingPointsOrThrow(Storage storage) async {
+  if (!storage.isOpen) return null;
+  {
     final raw = await storage.getSetting(kMeetingPointsSettingKey);
     if (raw == null || raw.isEmpty || raw == 'all') return null;
     if (raw == 'off') return const <String>[];
@@ -275,9 +341,12 @@ Future<List<String>?> meetingPointsInSpace(Storage storage) async {
       );
     }
     return known;
-  } catch (_) {
-    return null;
   }
+  // NO `catch` HERE ANY MORE. It turned a read fault into "not answered",
+  // which the caller turns into veil's `all` — see [MeetingPointsAnswer].
+  // The one caller that can tolerate a throw catches it there and says which
+  // silence it is; a caller that cannot must not be told a comfortable
+  // answer instead.
 }
 
 /// Write this identity's meeting points. `null` restores "all".
