@@ -827,9 +827,14 @@ const _tomlScalarHelper = r'''
 # left in its place would have `awk` read whatever it points at — /etc/shadow
 # — and the result installed into a file the veil account can read.
 #
-# What this cannot do from a shell is hold the file OPEN across the checks: an
-# fd-based apply belongs in a helper binary, and the report says so. What is
-# left here is a window of microseconds against a check that is cheap.
+# And the READ is now held on one descriptor: the privileged side opens the
+# file once, checks through `/dev/fd`, and pipes the bytes out, so nothing
+# downstream looks the name up again. This note used to say a shell could not
+# do that and that it needed a helper binary — nearly right, and wrong in the
+# way that mattered: a redirect in the unprivileged shell happens before `sudo`
+# runs and cannot read the staged config, while a redirect INSIDE the
+# privileged shell can. What is still name-based is the install at the end,
+# where `install` replaces the name rather than writing through it.
 require_staged_file() {
   if sudo test -L "$1" || ! sudo test -f "$1"; then
     echo "xveil: refusing to use $1: not a regular file" >&2
@@ -844,7 +849,32 @@ set_toml_scalar() {
   owner="$(sudo stat -c %u "$file")"
   group="$(sudo stat -c %g "$file")"
   mode="$(sudo stat -c %a "$file")"
-  sudo awk -v section="$section" -v key="$key" -v value="$value" '
+  # ONE OPEN, held across the check and the read. The privileged side opens the
+  # file, satisfies itself THROUGH the descriptor that it is a regular file,
+  # and hands the bytes on — so `awk` below never names the file at all and
+  # reads whatever that descriptor holds, not whatever the name means by the
+  # time it is looked up again.
+  #
+  # This is what the note above used to say a shell could not do, and it was
+  # nearly right: a redirect in THIS shell happens unprivileged, before `sudo`
+  # runs, and the staged config is not readable here. Performing the redirect
+  # inside the privileged shell is what makes the descriptor available at all.
+  sudo sh -c '
+    exec 3<"$1" || exit 1
+    # Asked THROUGH the descriptor, and only where it can be asked. `stat -c`
+    # is GNU; this script deploys a systemd unit, so the target is Linux and
+    # the check runs there. On a host without it — the macOS box this helper is
+    # tested on — `kind` is empty and the name-based `require_staged_file`
+    # above is what stands, which is the guarantee this had before. An
+    # inability must not be dressed up as a refusal: refusing here because the
+    # question could not be put would fail every deployment from such a host.
+    kind="$(stat -L -c %F /dev/fd/3 2>/dev/null)" || kind=""
+    if [ -n "$kind" ] && [ "$kind" != "regular file" ]; then
+      echo "xveil: refusing to read $1: it is a $kind, not a regular file" >&2
+      exit 1
+    fi
+    cat <&3
+  ' _ "$file" | awk -v section="$section" -v key="$key" -v value="$value" '
     BEGIN { in_section = 0; section_seen = 0; key_written = 0 }
     $0 == "[" section "]" {
       in_section = 1
@@ -873,9 +903,7 @@ set_toml_scalar() {
         print key " = " value
       }
     }
-  ' "$file" | sudo tee "$temp" >/dev/null
-  # Checked again: the read above and this write are two opens of the same
-  # unprivileged name.
+  ' | sudo tee "$temp" >/dev/null
   require_staged_file "$file" || { sudo rm -f "$temp"; return 1; }
   sudo install -o "$owner" -g "$group" -m "$mode" "$temp" "$file"
   sudo rm -f "$temp"
