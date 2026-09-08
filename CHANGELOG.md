@@ -10,6 +10,33 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.51] — 2026-09-08
+
+### Security
+
+- A file you shared was looked up twice: once to check that it really was
+  inside a folder you granted, and again — by name — to read it. Between those
+  two lookups the name could be made to mean something else, and what left the
+  device would be a file you never granted. Sending now walks to the file one
+  directory at a time, each step opened relative to the one before it, and
+  reads through that descriptor alone: a link put into the path after the check
+  is refused rather than followed. This covers a single file, a file sent to a
+  group, and the temporary file folder sync creates while it downloads.
+
+- Provisioning a server read the node's config by name after checking that
+  name, in a directory the node's own service account is meant to write. The
+  privileged side now opens the file once and satisfies itself through that
+  descriptor, so what it reads is what it checked.
+
+### Changed
+
+- veil 0.11.24.
+
+  The walk itself lives there, and it exists on Windows too: Win32 has no
+  `openat`, but a name resolved against a directory handle can be told to
+  refuse a junction instead of walking through it. Those tests ran on a Windows
+  machine rather than under cross-compilation.
+
 ## [0.13.50] — 2026-09-08
 
 ### Fixed
