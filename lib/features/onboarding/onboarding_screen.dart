@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/clipboard_secret.dart';
 import '../../core/log.dart';
 import '../../core/secure_screen.dart';
 import '../../data/identity/veil_identity.dart';
@@ -556,23 +559,51 @@ class _Recovery extends StatefulWidget {
 ///     ([AppL10n.recoveryNumbered]), and the checkbox names the number it is
 ///     confirming.
 ///
-/// What deliberately did NOT change: there is still no "copy all 24 words"
-/// button. It was considered, because [SecureScreenGuard] blocks screenshots
-/// and the clipboard would be the only route off the device — and rejected.
-/// The clipboard is system-wide, survives the lock screen, and on both Apple
-/// and Windows syncs to other machines the container knows nothing about;
-/// bounding it to 45 seconds (see clipboard_secret.dart) makes an exposure
-/// that already exists smaller, it does not make the clipboard a place to put
-/// a master seed. It would also contradict the canon this file already states
-/// for a file-based backup: identity documents do not leave the container.
-/// So the answer to "all 24 must be readable" is layout, not export.
+/// Copying all 24 words IS offered here, and this note used to say the
+/// opposite — it was considered and rejected once, on grounds that still
+/// stand: the clipboard is system-wide, survives the lock screen, and on both
+/// Apple and Windows syncs to machines the container knows nothing about.
+/// Bounding it to 30 seconds (clipboard_secret.dart) makes that exposure
+/// smaller; it does not make the clipboard a good place for a master seed.
+///
+/// The owner of this project asked for it anyway (2026-09-08), and the reason
+/// is the one the old note did not weigh: a person who cannot get the words
+/// off the device by ANY means writes them down wrong, or photographs the
+/// screen with a second phone, and the failure that actually loses identities
+/// is a phrase transcribed with one word missing — not a clipboard read by a
+/// hostile app. So the button exists, and the interface says what it costs, in
+/// the same breath as the copy rather than in a settings note nobody reads.
+///
+/// Two things it does NOT do: it never offers to copy the placeholder words
+/// (copying twenty-four words that restore nothing is worse than not copying),
+/// and it does not weaken [SecureScreenGuard] — screenshots of this step stay
+/// blocked, because a screenshot is silent and permanent while this copy
+/// announces itself and expires.
 class _RecoveryState extends State<_Recovery> {
   final _scroll = ScrollController();
+
+  /// Whether the words were put on the clipboard during this visit — shown so
+  /// the person knows the 45-second window has started.
+  bool _copied = false;
 
   @override
   void dispose() {
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// Put the phrase on the clipboard and arm its removal.
+  ///
+  /// The words are joined with single spaces, which is the form
+  /// `validatePhrase` and the restore step accept — a copy that has to be
+  /// reformatted before it can be pasted back is not a backup.
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.phrase.join(' ')));
+    // Not awaited: it resolves 30 seconds from now, and it must happen even if
+    // the person leaves this screen — which is exactly when they will not
+    // clear it themselves.
+    unawaited(clearClipboardLater(after: kRecoveryPhraseClipboardLifetime));
+    if (mounted) setState(() => _copied = true);
   }
 
   @override
@@ -636,6 +667,37 @@ class _RecoveryState extends State<_Recovery> {
               ),
               const SizedBox(height: 12),
               _PhraseGrid(phrase: widget.phrase),
+              // Only for REAL words: the placeholder branch above already says
+              // these restore nothing, and a copy button under that warning
+              // would be an invitation to save them anyway.
+              if (widget.real) ...[
+                const SizedBox(height: 12),
+                Text(
+                  l.recoveryCopyCaution,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: _copy,
+                      icon: const Icon(Icons.copy_outlined),
+                      label: Text(l.recoveryCopy),
+                    ),
+                    if (_copied) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          l.recoveryCopied,
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
               const SizedBox(height: 8),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
