@@ -392,7 +392,15 @@ class ApiServerController extends Notifier<ApiConfig> {
       return 'invalid peer';
     }
     final messaging = ref.read(messagingServiceProvider);
-    final opened = await veilOpenPinnedSource(path, opener: debugSourceOpener);
+    // The roots this send was authorized against, so the open can walk from a
+    // descriptor on one of them instead of trusting the name a second time.
+    // `debugSourceOpener` is a test seam and takes precedence: a fake source
+    // has no filesystem to walk.
+    final opened = await veilOpenPinnedSource(
+      path,
+      opener: debugSourceOpener,
+      beneathRoots: roots,
+    );
     if (opened.refusal != null) return opened.refusal;
     final source = opened.source!;
     // Opening the file is the gap this closes. A's token authorized the path;
