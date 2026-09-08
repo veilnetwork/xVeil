@@ -94,6 +94,12 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     if (!mounted) return;
     final update = ref.read(appUpdateProvider);
     if (update == null) return;
+    // "Not now" is an answer about this banner and this session, so it is
+    // asked here rather than by clearing the offer — which is what used to
+    // happen, and made Settings claim "Up to date" (report4 UI-2).
+    if (ref.read(appUpdateProvider.notifier).bannerDismissedFor(update.tag)) {
+      return;
+    }
     final l = AppL10n.of(context);
     final messenger = ScaffoldMessenger.of(context);
     messenger.showMaterialBanner(
@@ -111,11 +117,32 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             child: Text(l.actionCancel),
           ),
           TextButton(
-            onPressed: () {
-              messenger.hideCurrentMaterialBanner();
+            onPressed: () async {
               final uri = Uri.tryParse(update.url);
+              // OPEN FIRST, hide after — and only if it opened. The banner
+              // used to be hidden before the launch and the launch was
+              // unawaited, so a failure left no banner, no error and no way
+              // back to the offer from this screen (report4 UI-3). The
+              // settings tile has always done it this way round.
+              var opened = false;
               if (uri != null) {
-                unawaited(launchUrl(uri, mode: LaunchMode.externalApplication));
+                try {
+                  opened = await launchUrl(
+                    uri,
+                    mode: LaunchMode.externalApplication,
+                  );
+                } catch (_) {
+                  opened = false;
+                }
+              }
+              if (!context.mounted) return;
+              if (opened) {
+                messenger.hideCurrentMaterialBanner();
+              } else {
+                messenger.hideCurrentMaterialBanner();
+                messenger.showSnackBar(
+                  SnackBar(content: Text(l.linkOpenFailed)),
+                );
               }
             },
             child: Text(l.updateOpenRelease),

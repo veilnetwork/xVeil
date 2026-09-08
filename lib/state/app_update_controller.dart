@@ -248,9 +248,29 @@ class AppUpdateController extends Notifier<AppUpdate?> {
     return found;
   }
 
-  /// Put the offer away without pretending the release does not exist: the
-  /// settings screen still shows it, and the next interval will find it again.
-  void dismiss() => state = null;
+  /// Put the BANNER away without pretending the release does not exist.
+  ///
+  /// This used to clear the state, and the sentence above it — that the
+  /// settings screen still shows the offer — was false the day it was written:
+  /// the tile watches this same provider, so dismissing the banner made
+  /// Settings answer "Up to date" while a newer, possibly security, release
+  /// was known, until the next daily check or a manual one (report4 UI-2).
+  ///
+  /// The offer stays; only the banner is hidden, and only for this session.
+  void dismiss() => _dismissedTag = state?.tag;
+
+  String? _dismissedTag;
+
+  /// Whether the home banner for [tag] has been put away in this session.
+  ///
+  /// Keyed on the TAG rather than a flag, so "not now" is an answer about the
+  /// version somebody was shown. A newer release that appears later in the
+  /// same session is a different offer and gets its own banner; a superseded
+  /// look answering late with the SAME one does not bring it back.
+  ///
+  /// The settings tile does not consult this at all: it reports whether an
+  /// update exists, which is not what the banner was asked.
+  bool bannerDismissedFor(String tag) => _dismissedTag == tag;
 }
 
 /// When anything last looked, or null when nothing ever has.

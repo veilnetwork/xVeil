@@ -72,6 +72,42 @@ bool shouldCheckForUpdate({
 ///
 /// The build metadata is dropped before comparing: the running version arrives
 /// as `0.13.3+11` from pubspec, and `+11` is not part of the ordering.
+/// The repository this app asks about, and the only one whose release page a
+/// banner may point at. Named once so the request and the check on its answer
+/// cannot come to disagree.
+const String kUpdateRepositoryOwner = 'veilnetwork';
+const String kUpdateRepositoryName = 'xVeil';
+
+/// Whether [url] is this project's own release page, and not merely https.
+///
+/// The banner is the one place the app tells somebody "there is a new version,
+/// here it is", and a person following it is following the app's word. The
+/// check used to be `startsWith('https://')`, which any https address passes:
+/// a manipulated API response — it needs GitHub, TLS or the API itself to be
+/// compromised, so this is a narrowing rather than a hole being closed — could
+/// point that trusted offer at an arbitrary page (report4 WIP-U3).
+///
+/// Bound to the host and to the path this app asks about, from the same
+/// repository constant the request uses, so the two cannot drift apart. The
+/// tag is not checked against [latestTag]: GitHub's `html_url` is the release
+/// page, whose last segment is the tag NAME, and a release may be renamed
+/// without the version changing.
+bool isOurReleasePage(String url) {
+  final uri = Uri.tryParse(url);
+  if (uri == null) return false;
+  if (uri.scheme != 'https') return false;
+  // Exactly the host, not a suffix of it: `evil-github.com` ends with
+  // `github.com`, and `github.com.example.net` starts with it.
+  if (uri.host != 'github.com') return false;
+  final segments = uri.pathSegments;
+  // /veilnetwork/xVeil/releases/tag/<tag>
+  return segments.length >= 4 &&
+      segments[0] == kUpdateRepositoryOwner &&
+      segments[1] == kUpdateRepositoryName &&
+      segments[2] == 'releases' &&
+      segments[3] == 'tag';
+}
+
 AppUpdate? newerRelease({
   required String running,
   required String latestTag,
@@ -83,7 +119,7 @@ AppUpdate? newerRelease({
   if (theirs == null) return null;
   if (theirs.compareTo(mine) <= 0) return null;
   final url = releaseUrl.trim();
-  if (!url.startsWith('https://')) return null;
+  if (!isOurReleasePage(url)) return null;
   return AppUpdate(tag: latestTag.trim(), url: url);
 }
 
@@ -103,7 +139,7 @@ class AppUpdateChecker {
 
   static final latestReleaseUri = Uri.https(
     'api.github.com',
-    '/repos/veilnetwork/xVeil/releases/latest',
+    '/repos/$kUpdateRepositoryOwner/$kUpdateRepositoryName/releases/latest',
   );
 
   /// The version of the build asking. See [newerRelease] for why a build that
