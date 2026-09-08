@@ -257,6 +257,13 @@ class AccountSettingsScreen extends ConsumerWidget {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.import_export),
+            title: Text(l.transferTitle),
+            subtitle: Text(l.settingsTransferHint),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/settings/transfer'),
+          ),
+          ListTile(
             leading: const Icon(Icons.person_add_alt_1_outlined),
             title: Text(l.settingsAddIdentity),
             trailing: const Icon(Icons.chevron_right),

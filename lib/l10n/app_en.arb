@@ -45,6 +45,9 @@
     "description": "Says how many words there are and which one proves the list is complete. The grid used to end flush with the container edge, so a phone that could not fit all 24 showed a list that looked finished at 21."
   },
   "recoveryConfirm": "I have written down all 24 words, ending with number 24",
+  "recoveryCopy": "Copy all 24 words",
+  "recoveryCopyCaution": "The clipboard is shared with every app on this device and, on Apple and Windows, may sync to your other machines. The copy is cleared after 30 seconds — paste it somewhere you trust before then.",
+  "recoveryCopied": "Copied. The clipboard will be cleared in 30 seconds.",
   "recoveryPlaceholderWarning": "These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.",
   "storageTitle": "How should we store your data?",
   "storageHiddenTitle": "Hidden space (recommended)",
@@ -3196,5 +3199,123 @@
   "meetingPointsNoneChosen": "No place chosen — this identity will find nothing by itself.",
   "@meetingPointsNoneChosen": {
     "description": "Shown when every meeting point is unticked."
-  }
+  },
+  "transferTitle": "Transfer data",
+  "transferIntro": "Write everything this identity holds to a file, and read it back on another device. Importing merges: what is missing is added, what is already here is left alone, and the newer of two versions wins.",
+  "transferExportTitle": "Export",
+  "transferContents": "{contacts} conversations, {messages} messages, {calls} calls",
+  "@transferContents": {
+    "placeholders": {
+      "contacts": {
+        "type": "int"
+      },
+      "messages": {
+        "type": "int"
+      },
+      "calls": {
+        "type": "int"
+      }
+    }
+  },
+  "transferIncludeFiles": "Include files",
+  "transferSizes": "Without files about {without} MB; with files about {with_} MB ({files} files)",
+  "@transferSizes": {
+    "placeholders": {
+      "without": {
+        "type": "String"
+      },
+      "with_": {
+        "type": "String"
+      },
+      "files": {
+        "type": "int"
+      }
+    }
+  },
+  "transferOversizeFiles": "{count} file(s) are larger than 64 MB and will be listed by name only.",
+  "@transferOversizeFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "transferIncludeIdentity": "Include the identity",
+  "transferIncludeIdentityHint": "A fresh install can become this device from the archive alone, without the recovery phrase.",
+  "transferIdentityWarning": "This file will BE your identity. Anyone who obtains it becomes you. Keep it as you would keep the 24 words — and prefer the password-protected export.",
+  "transferExportOpen": "Save open",
+  "transferExportSealed": "Save with a password",
+  "transferExportPasswordTitle": "Password for the archive",
+  "transferPasswordLabel": "Password",
+  "transferWorking": "Working…",
+  "transferProgress": "{done} of {total}",
+  "@transferProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "transferExportDone": "Written: {records} records, {files} files, {mb} MB.",
+  "@transferExportDone": {
+    "placeholders": {
+      "records": {
+        "type": "int"
+      },
+      "files": {
+        "type": "int"
+      },
+      "mb": {
+        "type": "String"
+      }
+    }
+  },
+  "transferImportTitle": "Import",
+  "transferImportBody": "Pick an archive written by this identity on another device. Nothing is applied until you confirm what is inside it.",
+  "transferImportPick": "Choose a file",
+  "transferImportPasswordTitle": "This archive is protected",
+  "transferImportConfirmTitle": "Merge this archive?",
+  "transferImportConfirmBody": "Identity {id}…, written {when}. It holds {messages} messages and {files} files. Existing data is kept; only what is missing is added.",
+  "@transferImportConfirmBody": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "when": {
+        "type": "String"
+      },
+      "messages": {
+        "type": "int"
+      },
+      "files": {
+        "type": "int"
+      }
+    }
+  },
+  "transferImportAction": "Merge",
+  "transferImportDone": "Merged: {events} entries, {files} files added, {settings} settings filled in.",
+  "@transferImportDone": {
+    "placeholders": {
+      "events": {
+        "type": "int"
+      },
+      "files": {
+        "type": "int"
+      },
+      "settings": {
+        "type": "int"
+      }
+    }
+  },
+  "transferRefusedOtherIdentity": "This archive belongs to a different identity. Merging it would attribute somebody else’s messages to you.",
+  "transferRefusedHasIdentity": "This archive carries an identity and this device already has one. Import it on a fresh install instead.",
+  "transferRefusedNotReady": "The app is not ready to merge yet — open a chat once and try again.",
+  "transferBadPassword": "Wrong password, or the archive was edited.",
+  "transferTruncated": "The archive is incomplete — the copy did not finish.",
+  "transferNotAnArchive": "That file is not an xVeil archive.",
+  "transferCorrupt": "The archive is damaged.",
+  "settingsTransferHint": "Move everything to another device through a file"
 }

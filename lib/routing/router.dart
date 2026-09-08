@@ -27,6 +27,7 @@ import '../features/settings/profile_screen.dart';
 import '../features/settings/chats_settings_screen.dart';
 import '../features/settings/devices_screen.dart';
 import '../features/settings/file_settings_screen.dart';
+import '../features/settings/data_transfer_screen.dart';
 import '../features/settings/nickname_screen.dart';
 import '../features/settings/p2p_selected_screen.dart';
 import '../features/settings/privacy_settings_screen.dart';
@@ -296,6 +297,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/nickname',
         builder: (_, _) => const NicknameScreen(),
+      ),
+      GoRoute(
+        path: '/settings/transfer',
+        builder: (_, _) => const DataTransferScreen(),
       ),
       GoRoute(
         path: '/settings/p2p-selected',

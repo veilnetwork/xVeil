@@ -351,6 +351,24 @@ abstract class AppL10n {
   /// **'I have written down all 24 words, ending with number 24'**
   String get recoveryConfirm;
 
+  /// No description provided for @recoveryCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy all 24 words'**
+  String get recoveryCopy;
+
+  /// No description provided for @recoveryCopyCaution.
+  ///
+  /// In en, this message translates to:
+  /// **'The clipboard is shared with every app on this device and, on Apple and Windows, may sync to your other machines. The copy is cleared after 30 seconds — paste it somewhere you trust before then.'**
+  String get recoveryCopyCaution;
+
+  /// No description provided for @recoveryCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied. The clipboard will be cleared in 30 seconds.'**
+  String get recoveryCopied;
+
   /// No description provided for @recoveryPlaceholderWarning.
   ///
   /// In en, this message translates to:
@@ -12109,6 +12127,209 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'No place chosen — this identity will find nothing by itself.'**
   String get meetingPointsNoneChosen;
+
+  /// No description provided for @transferTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Transfer data'**
+  String get transferTitle;
+
+  /// No description provided for @transferIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Write everything this identity holds to a file, and read it back on another device. Importing merges: what is missing is added, what is already here is left alone, and the newer of two versions wins.'**
+  String get transferIntro;
+
+  /// No description provided for @transferExportTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Export'**
+  String get transferExportTitle;
+
+  /// No description provided for @transferContents.
+  ///
+  /// In en, this message translates to:
+  /// **'{contacts} conversations, {messages} messages, {calls} calls'**
+  String transferContents(int contacts, int messages, int calls);
+
+  /// No description provided for @transferIncludeFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Include files'**
+  String get transferIncludeFiles;
+
+  /// No description provided for @transferSizes.
+  ///
+  /// In en, this message translates to:
+  /// **'Without files about {without} MB; with files about {with_} MB ({files} files)'**
+  String transferSizes(String without, String with_, int files);
+
+  /// No description provided for @transferOversizeFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} file(s) are larger than 64 MB and will be listed by name only.'**
+  String transferOversizeFiles(int count);
+
+  /// No description provided for @transferIncludeIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'Include the identity'**
+  String get transferIncludeIdentity;
+
+  /// No description provided for @transferIncludeIdentityHint.
+  ///
+  /// In en, this message translates to:
+  /// **'A fresh install can become this device from the archive alone, without the recovery phrase.'**
+  String get transferIncludeIdentityHint;
+
+  /// No description provided for @transferIdentityWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'This file will BE your identity. Anyone who obtains it becomes you. Keep it as you would keep the 24 words — and prefer the password-protected export.'**
+  String get transferIdentityWarning;
+
+  /// No description provided for @transferExportOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Save open'**
+  String get transferExportOpen;
+
+  /// No description provided for @transferExportSealed.
+  ///
+  /// In en, this message translates to:
+  /// **'Save with a password'**
+  String get transferExportSealed;
+
+  /// No description provided for @transferExportPasswordTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Password for the archive'**
+  String get transferExportPasswordTitle;
+
+  /// No description provided for @transferPasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get transferPasswordLabel;
+
+  /// No description provided for @transferWorking.
+  ///
+  /// In en, this message translates to:
+  /// **'Working…'**
+  String get transferWorking;
+
+  /// No description provided for @transferProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'{done} of {total}'**
+  String transferProgress(int done, int total);
+
+  /// No description provided for @transferExportDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Written: {records} records, {files} files, {mb} MB.'**
+  String transferExportDone(int records, int files, String mb);
+
+  /// No description provided for @transferImportTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Import'**
+  String get transferImportTitle;
+
+  /// No description provided for @transferImportBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick an archive written by this identity on another device. Nothing is applied until you confirm what is inside it.'**
+  String get transferImportBody;
+
+  /// No description provided for @transferImportPick.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a file'**
+  String get transferImportPick;
+
+  /// No description provided for @transferImportPasswordTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This archive is protected'**
+  String get transferImportPasswordTitle;
+
+  /// No description provided for @transferImportConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge this archive?'**
+  String get transferImportConfirmTitle;
+
+  /// No description provided for @transferImportConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity {id}…, written {when}. It holds {messages} messages and {files} files. Existing data is kept; only what is missing is added.'**
+  String transferImportConfirmBody(
+    String id,
+    String when,
+    int messages,
+    int files,
+  );
+
+  /// No description provided for @transferImportAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Merge'**
+  String get transferImportAction;
+
+  /// No description provided for @transferImportDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Merged: {events} entries, {files} files added, {settings} settings filled in.'**
+  String transferImportDone(int events, int files, int settings);
+
+  /// No description provided for @transferRefusedOtherIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'This archive belongs to a different identity. Merging it would attribute somebody else’s messages to you.'**
+  String get transferRefusedOtherIdentity;
+
+  /// No description provided for @transferRefusedHasIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'This archive carries an identity and this device already has one. Import it on a fresh install instead.'**
+  String get transferRefusedHasIdentity;
+
+  /// No description provided for @transferRefusedNotReady.
+  ///
+  /// In en, this message translates to:
+  /// **'The app is not ready to merge yet — open a chat once and try again.'**
+  String get transferRefusedNotReady;
+
+  /// No description provided for @transferBadPassword.
+  ///
+  /// In en, this message translates to:
+  /// **'Wrong password, or the archive was edited.'**
+  String get transferBadPassword;
+
+  /// No description provided for @transferTruncated.
+  ///
+  /// In en, this message translates to:
+  /// **'The archive is incomplete — the copy did not finish.'**
+  String get transferTruncated;
+
+  /// No description provided for @transferNotAnArchive.
+  ///
+  /// In en, this message translates to:
+  /// **'That file is not an xVeil archive.'**
+  String get transferNotAnArchive;
+
+  /// No description provided for @transferCorrupt.
+  ///
+  /// In en, this message translates to:
+  /// **'The archive is damaged.'**
+  String get transferCorrupt;
+
+  /// No description provided for @settingsTransferHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Move everything to another device through a file'**
+  String get settingsTransferHint;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
