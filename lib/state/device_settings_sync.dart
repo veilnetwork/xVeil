@@ -28,6 +28,15 @@ class DeviceSettingsSyncHub {
   final Map<String, DeviceSettingApply> _appliers = {};
   bool _applying = false;
 
+  /// The keys this hub carries between devices — which is to say the ones
+  /// something registered an applier for.
+  ///
+  /// Exposed rather than duplicated as a constant: the offline export has to
+  /// know which settings merge like a synced setting and which are local to a
+  /// machine, and a hand-written copy of that list would be right on the day
+  /// it was written. Registration is the allowlist; this reads it.
+  Iterable<String> get syncedKeys => _appliers.keys;
+
   /// Register the applier for [key] — this IS the allowlist entry.
   void register(String key, DeviceSettingApply apply) =>
       _appliers[key] = apply;

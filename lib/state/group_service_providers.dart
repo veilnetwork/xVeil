@@ -20,6 +20,7 @@ import '../domain/space_public_feed_transport.dart';
 import 'app_controller.dart';
 import 'cloud_capability_service.dart' show cloudProviderSlotFor;
 import 'cloud_document_providers.dart';
+import 'device_sync_appliers.dart';
 import 'group_epoch_service.dart';
 import 'group_crypto.dart';
 import 'group_service.dart';
@@ -392,6 +393,14 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       ),
     );
   }
+
+  // Reachable by an offline import too: a mirror out of an archive is the same
+  // event a sibling would have sent, and `applyMirroredMessage` is keyed by
+  // message id, so importing the same archive twice adds nothing the second
+  // time.
+  ref.onDispose(
+    ref.read(deviceSyncAppliersProvider).register(applyMirrorEvent),
+  );
 
   final deviceMirror = service.deviceIncoming.listen((message) {
     final event = DeviceSyncEvent.fromBody(message.body);
