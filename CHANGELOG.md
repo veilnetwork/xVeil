@@ -10,6 +10,30 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.52] — 2026-09-08
+
+### Fixed
+
+- 0.13.51 published nothing. Its Android build failed to compile, so the step
+  that draws up the release never ran and the tag stands with no bundles behind
+  it. The break was in veil: a file-mode comparison whose two sides are not the
+  same width on a 32-bit phone — which every check before that tag agreed with,
+  because not one of them ever built for that target.
+
+- The tool that builds the APKs was installed unpinned, so two runs of the same
+  commit could produce phone builds made by different tooling, changed with no
+  commit here to point at. It is pinned now, and a check in CI keeps it that
+  way: veil and hidden-volume already had that check, and this repository — the
+  one that actually ships the phone build — did not.
+
+### Changed
+
+- veil 0.11.25. Besides the build itself, a positional read on a 32-bit phone
+  used an offset that could wrap in silence: 4 GiB + 5 became 5, and the caller
+  was handed a different part of the file with a success code. Those reads use
+  the 64-bit calls now, and the 32-bit target is built on every push to `main`
+  rather than for the first time at a tag.
+
 ## [0.13.51] — 2026-09-08
 
 ### Security
