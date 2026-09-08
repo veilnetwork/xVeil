@@ -29,6 +29,7 @@ import '../domain/device_sync.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
 import 'device_settings_sync.dart';
+import 'device_sync_appliers.dart';
 import 'providers.dart' show realStackProvider;
 import 'group_service_providers.dart';
 import 'locale_controller.dart';
@@ -512,6 +513,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         break; // applied by CloudCapabilityService (contains secret registry)
     }
   }
+
+  // The same applier, reachable by an offline import: an archive carries the
+  // very events this stream carries, and they must land the same way.
+  ref.onDispose(ref.read(deviceSyncAppliersProvider).register(handleEvent));
 
   final sub = svc.deviceIncoming.listen((gm) {
     final e = DeviceSyncEvent.fromBody(gm.body);
