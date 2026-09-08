@@ -10,6 +10,46 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.50] — 2026-09-08
+
+### Fixed
+
+- A failed read of this identity's discovery settings re-enabled the ways of
+  finding peers that somebody had switched off — including the ones that hand a
+  stranger's server the address this device connects from. A silence that means
+  "we could not ask" is no longer read as "no preference": an unreadable space
+  looks on the local network and nowhere else, because widening somebody's
+  exposure is not a thing to do on a guess.
+
+- Settings claimed "Up to date" about a release it knew about. Dismissing the
+  home banner cleared the offer itself, and Settings reads the same thing — so
+  "not now" turned into "there is nothing newer", for up to a day. It is now an
+  answer about the banner, and about the version that banner named: a newer
+  release found later in the same session still gets one.
+
+- The update banner sent you somewhere it had not checked. Any `https://`
+  address passed; it must now be this project's own release page.
+
+- A release page that failed to open looked like one that had opened: the
+  banner went away, nothing was said, and there was no way back to the offer
+  from that screen.
+
+- One failed write silenced the diagnostic log for the rest of the session —
+  and the write that failed was most likely somebody copying the log to send
+  it, on Windows, where an ordinary copy stops the next write.
+
+### Changed
+
+- veil 0.11.23, hidden-volume 2.4.0.
+
+  hidden-volume fixes two things in its command-line tool: `put --value-stdin`
+  echoed the secret it was given, and a blank line meant an empty password at
+  the prompt while `repack` skipped it — so a space created with one was
+  silently left out of a repacked container.
+
+  veil corrects signing instructions that had been failing since the command
+  changed, and pins every tool its CI installs.
+
 ## [0.13.49] — 2026-09-07
 
 ### Added
