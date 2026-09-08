@@ -202,12 +202,10 @@ Future<VeilPinnedOpen> veilOpenPinnedSource(
   // no root (a local pick, a cache path) or a host without the native walk
   // gets the stamped open, unchanged.
   //
-  // Deliberately not a hard failure when the walk refuses: a refusal here is
-  // "not through the strong path", and the stamped open below still applies
-  // its own check. The one thing that must not happen is serving a file the
-  // strong path would have refused AS IF it had passed — so the fallback
-  // reports through the same stamp comparison it always did, and a caller that
-  // wants the strong guarantee asks [veilOpenBeneathAvailable] first.
+  // The fallback is for a host that CANNOT do the walk, not for a path it
+  // refused — see the note at the return below. Every platform this app ships
+  // to can do it now, Windows included; what is left for the fallback is a
+  // build whose library predates the symbols.
   if (beneathRoots.isNotEmpty && opener == null) {
     final strong = await _openBeneathAnyRoot(path, beneathRoots);
     if (strong.supported) {

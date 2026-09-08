@@ -201,4 +201,41 @@ void main() {
       );
     }
   });
+
+  // The finding: root read the staged config BY NAME, twice, behind a check
+  // that was also by name — so a `veil`-UID compromise during a deployment
+  // could swap the file between them and have `awk` read whatever it pointed
+  // at (report17 XV17-H1, report18 XV18-M5).
+  //
+  // Asserted over the generated script because the fix is a shape: the read
+  // happens through a descriptor the privileged shell opened, and `awk` never
+  // names the file. A run on this host cannot show that — `stat -c` is GNU and
+  // the deployment target is Linux — so what is checked is that nothing
+  // downstream of the open looks the name up again.
+  test('the config is read through a descriptor, not by name twice', () {
+    final body = helper();
+    final open = body.indexOf(r'exec 3<"$1"');
+    expect(open, isNot(-1), reason: 'the privileged open is gone');
+    final awkAt = body.indexOf('awk -v section=');
+    expect(awkAt, isNot(-1), reason: 'the editor is gone');
+    expect(
+      open,
+      lessThan(awkAt),
+      reason: 'the descriptor must be opened before the read that uses it',
+    );
+
+    // `awk` reads the PIPE. It used to take the filename as its last argument,
+    // which is a second lookup of the same name.
+    final awkTail = body.substring(awkAt, body.indexOf('| sudo tee', awkAt));
+    expect(
+      awkTail.contains(r'"$file"'),
+      isFalse,
+      reason: 'awk names the file again, so the descriptor above buys nothing',
+    );
+    expect(
+      body.contains('cat <&3'),
+      isTrue,
+      reason: 'nothing hands the descriptor\'s bytes on',
+    );
+  });
 }
