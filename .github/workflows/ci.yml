@@ -46,6 +46,21 @@ jobs:
           ./scripts/check-workflow-branches.sh --self-test
           ./scripts/check-workflow-branches.sh
 
+  pins:
+    name: every tool CI installs is pinned
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # The NDK helper was installed unpinned, taking whatever crates.io
+      # served at the moment the job ran — so the APKs a release ships could
+      # be built by tooling that changed with no commit here to point at.
+      # veil and hidden-volume gate this; this repository, the one that
+      # actually ships the phone build, did not.
+      #
+      # (The wording avoids the phrase the script greps for: it reads the
+      # workflows as text, and a comment quoting the command reddens it.)
+      - run: ./scripts/check-workflow-pins.sh
+
   checks:
     name: analyze + tests
     timeout-minutes: 30
