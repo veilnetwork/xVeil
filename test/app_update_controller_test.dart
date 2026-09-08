@@ -223,7 +223,16 @@ void main() {
       expect(container.read(appUpdateProvider), isNotNull);
 
       controller.dismiss();
-      expect(container.read(appUpdateProvider), isNull);
+      // The name of this test was already the intended behaviour; the
+      // assertion under it recorded the defect. `dismiss` cleared the state,
+      // and the settings tile watches that state — so Settings answered "Up
+      // to date" about a release it knew about (report4 UI-2).
+      expect(
+        container.read(appUpdateProvider),
+        isNotNull,
+        reason: 'the release was forgotten, not put away',
+      );
+      expect(controller.bannerDismissedFor('v9.9.9'), isTrue);
 
       // Pressing check-now finds it again: dismissing is not "never tell me".
       expect(
@@ -660,15 +669,15 @@ void main() {
     await controller.checkIfDue(checker: answering(body));
     expect(container.read(appUpdateProvider), isNotNull, reason: 'premise');
     controller.dismiss();
-    expect(container.read(appUpdateProvider), isNull, reason: 'premise');
+    expect(controller.bannerDismissedFor('v9.9.9'), isTrue, reason: 'premise');
 
     release.complete();
     await manual;
 
     expect(
-      container.read(appUpdateProvider),
-      isNull,
-      reason: 'a superseded look put back an offer that was dismissed after it',
+      controller.bannerDismissedFor('v9.9.9'),
+      isTrue,
+      reason: 'a superseded look put back a banner that was dismissed after it',
     );
   });
 
@@ -725,4 +734,5 @@ void main() {
       expect(controller.lastReached, isTrue);
     },
   );
+
 }

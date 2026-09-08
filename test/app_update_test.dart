@@ -264,4 +264,52 @@ void main() {
       expect(result.reached, isTrue);
     });
   });
+
+  // The banner is the one place the app says "there is a new version, here it
+  // is", and somebody following it is following the app's word. `https://` on
+  // its own is not that word: it is satisfied by every address on the web.
+  group('the offer points at this project and nowhere else', () {
+    AppUpdate? offer(String url) => newerRelease(
+      running: '0.1.0',
+      latestTag: '0.2.0',
+      releaseUrl: url,
+    );
+
+    test('this repository\'s release page is accepted', () {
+      expect(
+        offer('https://github.com/veilnetwork/xVeil/releases/tag/v0.2.0')?.url,
+        'https://github.com/veilnetwork/xVeil/releases/tag/v0.2.0',
+      );
+    });
+
+    test('another site is refused however https it is', () {
+      expect(offer('https://example.com/whatever'), isNull);
+      expect(offer('http://github.com/veilnetwork/xVeil/releases/tag/v1'), isNull);
+    });
+
+    test('a host that merely CONTAINS github.com is refused', () {
+      // The two shapes a prefix or suffix test lets through.
+      expect(
+        offer('https://evil-github.com/veilnetwork/xVeil/releases/tag/v1'),
+        isNull,
+      );
+      expect(
+        offer('https://github.com.example.net/veilnetwork/xVeil/releases/tag/v1'),
+        isNull,
+      );
+    });
+
+    test('another repository on the same host is refused', () {
+      expect(offer('https://github.com/someone/else/releases/tag/v1'), isNull);
+      expect(
+        offer('https://github.com/veilnetwork/other/releases/tag/v1'),
+        isNull,
+      );
+    });
+
+    test('and something that is not a release page is refused', () {
+      expect(offer('https://github.com/veilnetwork/xVeil'), isNull);
+      expect(offer('https://github.com/veilnetwork/xVeil/issues/1'), isNull);
+    });
+  });
 }
