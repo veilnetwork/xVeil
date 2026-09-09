@@ -136,12 +136,26 @@ class TranslateEngine {
   final Isolate? _isolate;
   final SendPort _requests;
 
-  /// How long the worker is given to release its model before it is killed.
+  /// How long [close] makes its CALLER wait for the worker's confirmation.
   ///
-  /// Long enough for a translation already in flight to finish — the shutdown
-  /// message queues behind it — and finite, because a wedged worker must not
-  /// hold the caller.
+  /// It used to be described as long enough for a translation already in
+  /// flight to finish, and it is not: a message may take [deadline], which is
+  /// two minutes, and this is five seconds. What happens after it is the part
+  /// that matters — see [close].
   final Duration shutdownGrace;
+
+  /// Whether the worker confirmed it released the native model.
+  ///
+  /// The one thing a caller cannot see from outside: killing an isolate frees
+  /// the Dart heap, and the CTranslate2 model is not on it.
+  @visibleForTesting
+  bool modelReleased = false;
+
+  /// The retirement a [close] left running, or null when the worker answered
+  /// inside the grace.
+  @visibleForTesting
+  Future<void>? get retiring => _retiring;
+  Future<void>? _retiring;
 
   /// How long one message may take before the engine is presumed lost.
   ///
@@ -245,17 +259,48 @@ class TranslateEngine {
     // repeated a few times on a large model walked RSS up to memory pressure
     // (report21 X21-M3).
     final done = ReceivePort();
+    // ONE subscription to the reply, awaited twice: the grace is what the
+    // CALLER waits, and the retirement below is what the MODEL gets.
+    final acknowledged = done.first;
     try {
       _requests.send(_Shutdown(done.sendPort));
-      await done.first.timeout(shutdownGrace);
-    } on Object {
-      // A worker that is gone, wedged, or was never really there. The kill
-      // below is then all there is, which is exactly what this used to do
-      // unconditionally.
-    } finally {
+      await acknowledged.timeout(shutdownGrace);
+      modelReleased = true;
       done.close();
+      _isolate?.kill(priority: Isolate.beforeNextEvent);
+      return;
+    } on Object {
+      // Silence inside the grace. WHICH silence it is cannot be asked: the
+      // answer would have to arrive on the same queue that is not moving.
     }
-    _isolate?.kill(priority: Isolate.beforeNextEvent);
+
+    // RETIRING, not killed — the half that was still leaking.
+    //
+    // A worker running a translation is single-threaded and synchronous inside
+    // that native call, so the shutdown sits behind it and cannot be answered
+    // until it returns. `beforeNextEvent` then means exactly "die before the
+    // message that frees the model" — an ordinary close during an ordinary
+    // translation with more than five seconds left to run, and the model stays
+    // in the process for its lifetime. Raising the grace shortens that window
+    // without closing it, and holding the UI for two minutes is not on offer
+    // (report24 MEDIA-2).
+    //
+    // So the caller is released now and the worker is left to finish and close
+    // itself. The wait is bounded by [deadline] because that is already this
+    // engine's promise about one message: past it the worker is not busy, it
+    // is lost, and the kill is the same last resort it always was.
+    _retiring = acknowledged
+        .timeout(deadline)
+        .then((_) => modelReleased = true)
+        .catchError((Object _) => false)
+        .whenComplete(() {
+          done.close();
+          _isolate?.kill(
+            priority: modelReleased
+                ? Isolate.beforeNextEvent
+                : Isolate.immediate,
+          );
+        });
   }
 }
 

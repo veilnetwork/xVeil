@@ -74,6 +74,20 @@ const int kTransferKdfIterations = 3;
 const int kTransferKdfParallelism = 4;
 const int kTransferKdfSaltBytes = 16;
 
+/// The most an archive may ask a reader to spend on its own KDF.
+///
+/// The seal's parameters come out of the file, and they are acted on BEFORE a
+/// single tag has been checked: a header saying `m = 8 GiB` is a header that
+/// allocates 8 GiB on a phone, from a file somebody sent. Bounded generously —
+/// four times the cost this build writes, so an archive from a later, more
+/// expensive build still opens — and refused past that (report24 CH-W2).
+const int kTransferKdfMaxMemoryKib = 4 * kTransferKdfMemoryKib;
+const int kTransferKdfMaxIterations = 16;
+const int kTransferKdfMaxParallelism = 16;
+
+/// And the same for the chunk size, which decides one allocation per chunk.
+const int kTransferMaxChunkBytes = 8 * 1024 * 1024;
+
 /// The largest payload one record may declare.
 ///
 /// The length comes out of the file, so it is an untrusted number that a
@@ -180,6 +194,15 @@ class TransferSeal {
       return null;
     }
     if (m <= 0 || t <= 0 || p <= 0 || chunk <= 0) return null;
+    // Refused rather than clamped: a clamped cost would derive a DIFFERENT key
+    // and report a wrong password for an archive that is merely too expensive,
+    // which is the least useful thing to tell somebody.
+    if (m > kTransferKdfMaxMemoryKib ||
+        t > kTransferKdfMaxIterations ||
+        p > kTransferKdfMaxParallelism ||
+        chunk > kTransferMaxChunkBytes) {
+      return null;
+    }
     final saltBytes = Uint8List.fromList(base64.decode(salt));
     if (saltBytes.isEmpty) return null;
     return TransferSeal(

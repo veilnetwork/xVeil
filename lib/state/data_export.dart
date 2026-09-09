@@ -148,7 +148,13 @@ class DataExporter {
     for (final c in conversations) {
       messages += (await _storage.loadMessages(c.id)).length;
     }
-    final settings = await _storage.settingsKeys();
+    // Only what will actually travel. Counting every key in the namespace made
+    // the preview promise settings the export then dropped in silence — and a
+    // count is exactly what a person checks the archive against afterwards
+    // (report24 CH-W1).
+    final settings = (await _storage.settingsKeys())
+        .where((k) => _syncedSettingKeys.contains(k) || isTransferableSetting(k))
+        .toList();
     final calls = await _storage.callLogEntries();
 
     var files = 0;
