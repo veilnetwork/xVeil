@@ -437,8 +437,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # PINNED, not `ubuntu-latest`. The bundle takes libc and libstdc++
+          # from the host it RUNS on, and which hosts those can be is decided
+          # by the machine it was BUILT on — so `ubuntu-latest` made the oldest
+          # supported Linux a property of whatever image GitHub pointed that
+          # label at this month. It pointed at 24.04, and v0.13.52 refused to
+          # start on 22.04, the LTS most desktops were on:
+          #
+          #   ./xveil: /lib/x86_64-linux-gnu/libstdc++.so.6: version
+          #   `GLIBCXX_3.4.32' not found (required by ./xveil)
+          #
+          # Measured on that published bundle, exactly two files were above
+          # 22.04: `xveil` at GLIBCXX_3.4.32 and `libveilclient_ffi.so` at
+          # GLIBC_2.39 — both built HERE. Everything prebuilt was already low
+          # (the call engine at GLIBC_2.17, whisper at GLIBCXX_3.4.29), so the
+          # floor was this label and nothing else. `check-linux-floor.py` below
+          # is what keeps it from drifting up again in silence.
           - arch: x64
-            runner: ubuntu-latest
+            runner: ubuntu-22.04
             engine_asset: libveil_media-linux-x64.so
           # arm64. Flutter publishes no arm64 SDK ARCHIVE — every entry in
           # releases_linux.json on every channel is dart_sdk_arch x64, which is
@@ -451,7 +467,9 @@ jobs:
           #
           # So the SDK is installed from git rather than from an archive.
           - arch: arm64
-            runner: ubuntu-24.04-arm
+            # The same floor decision as x64, on the arm64 image of the same
+            # Ubuntu release.
+            runner: ubuntu-22.04-arm
             engine_asset: libveil_media-linux-arm64.so
             flutter_from_git: true
     runs-on: ${{ matrix.runner }}
@@ -640,6 +658,26 @@ jobs:
           echo "  ok $psk"
           echo "  ok $engine"
 
+      # The oldest Linux this bundle can start on, asked of the BUNDLE.
+      #
+      # The musl bundle has had proof of this shape since it existed — its job
+      # starts the app inside Alpine and fails if it does not reach GTK. The
+      # glibc bundle had none, so its floor rose with the runner image and the
+      # first person to find out was a user on 22.04 whose app would not start.
+      # A runner cannot install an older glibc to try it on; it does not have
+      # to, because every ELF states the versions it needs.
+      #
+      # The ceilings are what an Ubuntu 22.04 host provides. Raising them is
+      # allowed and is a DECISION: it drops every user below the new number, so
+      # it belongs in this diff rather than in an image somebody else updated.
+      - name: The bundle starts on the oldest Linux we support
+        run: |
+          set -euo pipefail
+          python3 scripts/check-linux-floor.py --self-test
+          python3 scripts/check-linux-floor.py \
+            "build/linux/${{ matrix.arch }}/release/bundle" \
+            --max-glibc 2.35 --max-glibcxx 3.4.30
+
       # A Flutter desktop build is a directory; a Release asset is a file.
       - name: Archive
         run: |
@@ -681,6 +719,15 @@ jobs:
           grep -rql "xveil-debug.log" "$root" \
             || { echo "::error::the diagnostic bundle has no log sink in it"; exit 1; }
           echo "  ok the log sink is compiled in"
+
+      # Same question of the diagnostic twin: it is handed to the user whose
+      # machine already refused the release one.
+      - name: The diagnostic bundle starts there too
+        run: |
+          set -euo pipefail
+          python3 scripts/check-linux-floor.py \
+            "build/linux/${{ matrix.arch }}/release/bundle" \
+            --max-glibc 2.35 --max-glibcxx 3.4.30
 
       - name: Archive the diagnostic bundle
         run: |
