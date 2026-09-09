@@ -10,6 +10,94 @@ Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
 
+## [0.13.53] — 2026-09-09
+
+### Added
+
+- **Take everything to another device through a file.** Export in the clear or
+  under a password, and import that file on the other device. The import is a
+  MERGE, not a replacement: what is already here stays, what is missing is
+  filled, and what is stale loses — because every record that describes state
+  two devices can both have is handed to the same appliers a sibling device's
+  sync feeds. Merging two devices offline therefore means the same thing as
+  letting them see each other. Attachments are optional and the export screen
+  shows both sizes before you choose. The archive carries the identity itself,
+  so an import that would replace an identity already on the device is refused
+  rather than reconciled.
+
+- **The twenty-four recovery words can be copied.** The clipboard is cleared
+  thirty seconds later, and the screen says so before you tap.
+
+### Fixed
+
+- A refused operation in a Space could stop its author writing anything ever
+  again. Order between two authors comes from the edges the log carries, and
+  rows written before those edges existed carry none across authors — so a
+  promotion and the first operation of the author it promoted could be merged
+  the wrong way round. The operation was refused for a role its author already
+  had, the next row failed its chain check against a predecessor that was never
+  accepted, and the promoted admin was locked out for good. The refusal now
+  costs the operation and not the chain. It does not un-refuse the operation:
+  for those rows there is nothing in the signed bytes that says whether it was
+  written after the promotion or before it, and accepting it on a later grant
+  would revive every operation an author wrote too early.
+
+- A newly promoted admin's first protected channel carried no causal edge, so
+  the fold could place it before the promotion that authorised it.
+
+- The automation API never delivered a PUT body. The transport read one for
+  POST, PATCH and DELETE while the route table also dispatches on PUT, so
+  saving a Space draft answered 400 to a correct request for as long as that
+  route has existed. Handler-level tests could not see it: they build the body
+  themselves.
+
+- Closing a translation engine mid-translation leaked its model. The worker is
+  single-threaded, so the shutdown request queues behind the translation, and
+  the kill that followed the grace arrived before the message that frees the
+  model. The caller is still released after the grace; the worker is now left
+  retiring, bounded by the deadline one message already has.
+
+- An update whose `install` failed part-way could leave the node's binary
+  truncated. `install` writes its destination in place and fails under
+  `set -e`, several lines above the restore meant to catch exactly that — so
+  that shape had no rollback at all. Both update paths now write beside the
+  binary and rename onto it.
+
+- The export preview counted settings the export does not carry, and the
+  archive's own KDF parameters were acted on before a single tag had been
+  checked. They are bounded now, and refused rather than clamped: a clamped
+  cost derives a different key and reports a wrong password for an archive that
+  is merely too expensive.
+
+- Fifteen further findings from the same report, listed in the commits behind
+  this tag: a file served by descriptor rather than by name again, an attachment
+  download that could be pointed at internal storage keys, a folder mirror that
+  read its own hidden files as deletions and a download that recorded success it
+  had not achieved, a camera that kept capturing after the call it belonged to,
+  and an identity activation race that could leave the screen naming one person
+  while storage followed another.
+
+- The Linux bundle would not start on Ubuntu 22.04. It takes libc and libstdc++
+  from the host, so which hosts it can run on is decided by the machine it was
+  built on — and that machine was a moving label that moved to 24.04. Measured
+  on the published 0.13.52 bundle, exactly two files were above 22.04, and both
+  are built in that job. The build is pinned to 22.04 now, and a new check reads
+  the version requirements out of the finished bundle and refuses one above the
+  declared floor: the musl bundle has had proof of this shape since it existed,
+  and the glibc bundle had none.
+
+### Changed
+
+- veil 0.11.26 and hidden-volume 2.5.0. veil brings the DHT store gate that
+  binds a record to the key its own content derives, a route penalty that
+  survives a probe, an anti-rollback floor that cannot be lowered by a
+  concurrent update, discovery that publishes the port it is bound to right now
+  rather than the one it saw at startup, and a pre-decode bound on a received
+  keyframe's geometry. hidden-volume brings a commit history that reaches the
+  horizon it publishes rather than stopping 64 eras in, a log branch identified
+  by what it holds rather than where it put it, and two plaintext buffers that
+  are cleared on the paths that fail.
+
 ## [0.13.52] — 2026-09-08
 
 ### Fixed
