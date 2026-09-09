@@ -189,14 +189,29 @@ if [ -f "\$BIN" ]; then
   # From here until the install is confirmed, being killed must not leave half
   # an install. `systemctl stop` on a running oneshot sends TERM, and the
   # operator turning this off is exactly when that happens.
-  trap 'install -o root -g root -m 0755 "\$BIN.previous" "\$BIN" 2>/dev/null || true; \\
+  trap 'rm -f "\$BIN.incoming"; \\
+        install -o root -g root -m 0755 "\$BIN.previous" "\$BIN" 2>/dev/null || true; \\
         systemctl restart "\$UNIT" >/dev/null 2>&1 || true; exit 1' TERM INT
 else
   # Nothing to go back to. Drop any copy an older run left: restoring a binary
   # that was never the one running is not a rollback.
   rm -f "\$BIN.previous"
 fi
-install -o root -g root -m 0755 "\$stage/veil-cli" "\$BIN"
+# Beside the live binary, then a rename onto it. `install` writes in place, so
+# a failure part-way leaves the RUNNING binary truncated — and it fails under
+# `set -euo pipefail`, which ends this script above the restore below, so that
+# case had no rollback at all (report24 UPDATE-P4-M1). A rename replaces the
+# binary whole or leaves it exactly as it was.
+install -o root -g root -m 0755 "\$stage/veil-cli" "\$BIN.incoming" || {
+  rm -f "\$BIN.incoming"
+  echo "cannot write the new binary beside the old one — nothing was replaced" >&2
+  exit 1
+}
+mv -f "\$BIN.incoming" "\$BIN" || {
+  rm -f "\$BIN.incoming"
+  echo "cannot put the new binary in place — the old one is still there" >&2
+  exit 1
+}
 
 if [ "\$was_active" = 1 ]; then
   # A node that updated itself into silence is worse than one a version
