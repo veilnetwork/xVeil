@@ -233,6 +233,222 @@ void main() {
       );
     });
 
+    /// A checkpoint row, as the poster's own device writes one.
+    ControlEntry seal(
+      NodeId author,
+      int seq,
+      List<SpaceControlHead> heads, {
+      ControlEntry? previous,
+    }) => ControlEntry(
+      version: 4,
+      author: author,
+      seq: seq,
+      prevHash: previous == null ? '' : controlEntryHash(previous),
+      op: ControlOp.checkpoint,
+      target: null,
+      role: null,
+      controlCheckpoint: SpaceControlCheckpoint(heads),
+      policyVersion: 0,
+      createdAtMs: _t++,
+      signature: Uint8List(0),
+    );
+
+    SpaceControlHead head(ControlEntry entry) => SpaceControlHead(
+      author: entry.author,
+      seq: entry.seq,
+      hash: controlEntryHash(entry),
+    );
+
+    test('the owner can vouch for the prefix, and then the operation applies',
+        () {
+      // The repair, and the only evidence there can be for it. The operation
+      // itself says nothing about when it was written; a checkpoint written
+      // while it was still applied says the author's device had accepted it.
+      //
+      // From the OWNER that testimony grants nothing new — an owner can issue
+      // any operation in this Space, so vouching that one was applied is a
+      // power they already have.
+      final alice = promotedBeforeItsPromotion(_owner, 2);
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addAlice = chained(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: alice,
+        role: GroupRole.member,
+        previous: addBob,
+      );
+      final promote = chained(
+        _owner,
+        2,
+        ControlOp.setRole,
+        target: alice,
+        role: GroupRole.admin,
+        previous: addAlice,
+      );
+      final mute = chained(alice, 0, ControlOp.mute, target: _bob);
+      final sealed = seal(_owner, 3, [
+        // Sorted by author, which `isStructurallyValid` requires.
+        ...[head(promote), head(mute)]
+          ..sort((a, b) => a.author.hex.compareTo(b.author.hex)),
+      ], previous: promote);
+
+      final without = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addAlice, promote, mute],
+        verify: _ok,
+      );
+      expect(
+        without.state.members[_bob.hex]?.muted,
+        isFalse,
+        reason: 'premise: with no testimony the merge order refuses it',
+      );
+
+      final withSeal = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addAlice, promote, mute, sealed],
+        verify: _ok,
+      );
+      expect(
+        withSeal.state.members[_bob.hex]?.muted,
+        isTrue,
+        reason: 'the owner vouched for a row the ordering had refused, and it '
+            'is still refused',
+      );
+      expect(withSeal.accepted, contains(mute));
+    });
+
+    test('only the owner may vouch, and only for what the seal covers', () {
+      // An admin sealing their own refused row would be exactly the
+      // escalation this must not add.
+      final alice = promotedBeforeItsPromotion(_owner, 2);
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addAlice = chained(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: alice,
+        role: GroupRole.member,
+        previous: addBob,
+      );
+      final promote = chained(
+        _owner,
+        2,
+        ControlOp.setRole,
+        target: alice,
+        role: GroupRole.admin,
+        previous: addAlice,
+      );
+      final mute = chained(alice, 0, ControlOp.mute, target: _bob);
+      final selfSeal = seal(alice, 1, [
+        ...[head(promote), head(mute)]
+          ..sort((a, b) => a.author.hex.compareTo(b.author.hex)),
+      ], previous: mute);
+
+      final folded = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addAlice, promote, mute, selfSeal],
+        verify: _ok,
+      );
+      expect(
+        folded.state.members[_bob.hex]?.muted,
+        isFalse,
+        reason: 'an admin sealed their own refused row and it took effect',
+      );
+
+      // And a seal a forged signature carries is not testimony either.
+      final forged = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addAlice, promote, mute, seal(_owner, 3, [
+          ...[head(promote), head(mute)]
+            ..sort((a, b) => a.author.hex.compareTo(b.author.hex)),
+        ], previous: promote)],
+        verify: (entry) => entry.op != ControlOp.checkpoint,
+      );
+      expect(
+        forged.state.members[_bob.hex]?.muted,
+        isFalse,
+        reason: 'a checkpoint that does not verify was read as the owner\'s '
+            'word',
+      );
+    });
+
+    test('a seal does not outrank a boundary that came after it', () {
+      // The owner vouches for the prefix, and then withdraws the authority the
+      // prefix was written under. The withdrawal is the newer statement and it
+      // must win, or a seal would make a revocation unenforceable.
+      final alice = promotedBeforeItsPromotion(_owner, 2);
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addAlice = chained(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: alice,
+        role: GroupRole.member,
+        previous: addBob,
+      );
+      final promote = chained(
+        _owner,
+        2,
+        ControlOp.setRole,
+        target: alice,
+        role: GroupRole.admin,
+        previous: addAlice,
+      );
+      final mute = chained(alice, 0, ControlOp.mute, target: _bob);
+      final sealed = seal(_owner, 3, [
+        ...[head(promote), head(mute)]
+          ..sort((a, b) => a.author.hex.compareTo(b.author.hex)),
+      ], previous: promote);
+      final revoke = ControlEntry(
+        version: 22,
+        groupId: _id(77),
+        author: _owner,
+        seq: 4,
+        prevHash: controlEntryHash(sealed),
+        op: ControlOp.revokeAuthority,
+        target: alice,
+        role: null,
+        authorityBoundary: const SpaceAuthorityBoundary(
+          effectiveFromMs: 0,
+          fromSeq: -1,
+        ),
+        policyVersion: 0,
+        createdAtMs: _t++,
+        signature: Uint8List(0),
+      );
+
+      final folded = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addAlice, promote, mute, sealed, revoke],
+        verify: _ok,
+      );
+      expect(
+        folded.state.members[_bob.hex]?.muted,
+        isFalse,
+        reason: 'a seal kept a row alive that a later withdrawal took back',
+      );
+      expect(folded.withdrawn, contains(mute));
+    });
+
     test('the same missing edge decides it the other way, and that is why a '
         'refusal is not postponed', () {
       // The counter-example, kept because it is the reason this fix stops

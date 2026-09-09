@@ -8028,6 +8028,94 @@ class GroupService {
     ),
   );
 
+  /// Vouch, as the owner, for everything this log has applied so far.
+  ///
+  /// Order between two authors comes from the edges the log carries, and rows
+  /// written before it carried causal edges have none across authors — so
+  /// whether a promotion or the promoted author's first operation is merged
+  /// first is decided by a hash, and the answer is not recoverable from the
+  /// signed bytes. A `checkpoint` row records the heads its author had
+  /// accepted when they wrote it, and `foldControlLog` reads an OWNER's as
+  /// testimony: rows at or below those heads are not re-decided by the
+  /// ordering (report24 G3-1).
+  ///
+  /// Its own path never produced one reliably: a checkpoint is written as a
+  /// side effect of posting, and that path REUSES any recent checkpoint whose
+  /// historical state still grants the poster permission — which, for an
+  /// owner, is every one of them. So an owner could post for years and never
+  /// author the row that settles their Space's early history. This is that
+  /// row, asked for deliberately.
+  ///
+  /// What it settles is the prefix AS THIS DEVICE FOLDS IT NOW. It repairs
+  /// nothing by itself: where the ordering already refused an operation, this
+  /// device no longer has the state that would say otherwise, and a seal
+  /// cannot invent it. What it does is stop the question from being re-asked —
+  /// by a later rule, or by the next fold — and where the log already carries
+  /// an owner checkpoint from before the ordering changed, that one carries
+  /// the older answer and repairs it.
+  ///
+  /// Owner only, and that is what makes it safe rather than a privilege: an
+  /// owner can issue any operation in their Space, so vouching that one was
+  /// applied is a power they already hold. False when this device is not the
+  /// owner, when the log is too wide to check-point, or when the row it wrote
+  /// did not survive its own fold.
+  Future<bool> sealControlHistory(NodeId spaceId) =>
+      _serialized(spaceId, () => _sealControlHistory(spaceId));
+
+  Future<bool> _sealControlHistory(NodeId spaceId) async {
+    final bundle = await load(spaceId);
+    if (bundle == null) return false;
+    final folded = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: bundle.control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    );
+    if (folded.state.roleOf(_signer.selfId) != GroupRole.owner) return false;
+    final payload = _controlCheckpoint(folded.accepted);
+    if (payload == null) return false;
+    final link = _nextControlLink(
+      bundle.manifest,
+      bundle.control,
+      _signer.selfId,
+    );
+    if (link.blocked) return false;
+    final signed = _signer.signControl(
+      ControlEntry(
+        version: 4,
+        groupId: bundle.manifest.groupId,
+        author: _signer.selfId,
+        seq: link.seq,
+        prevHash: link.prevHash,
+        seen: link.seen,
+        op: ControlOp.checkpoint,
+        target: null,
+        role: null,
+        controlCheckpoint: payload,
+        policyVersion: folded.state.policyVersion,
+        createdAtMs: _now(),
+        signature: Uint8List(0),
+      ),
+    );
+    if (!_validControlFor(bundle.manifest, signed)) return false;
+    final control = [...bundle.control, signed];
+    // Its own fold has to accept it, or this would save a row that says
+    // nothing and report success for it.
+    final after = foldControlLog(
+      owner: bundle.manifest.owner,
+      entries: control,
+      verify: (entry) => _validControlFor(bundle.manifest, entry),
+      initialName: bundle.manifest.name,
+    );
+    final hash = controlEntryHash(signed);
+    if (!after.accepted.any((entry) => controlEntryHash(entry) == hash)) {
+      return false;
+    }
+    await _save(bundle.copyWith(control: control));
+    unawaited(broadcastDelta(spaceId, control: [signed]));
+    return true;
+  }
+
   /// Turn a still-live consent decision into membership under the same
   /// per-Space mutation queue as role, moderation and lifecycle changes.
   ///

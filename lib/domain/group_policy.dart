@@ -1478,6 +1478,60 @@ SpaceAuthorityBoundary? spaceAuthorityBoundaryAt(
 /// is still running. The set of boundaries only ever grows across passes and
 /// is bounded by the log, so this terminates, and it is a pure function of the
 /// same signed bytes on every device.
+/// The prefix the OWNER has attested to, as `author → last sealed seq`.
+///
+/// Order between two authors comes from the edges the log carries, and rows
+/// written before `seen` existed carry none across authors — so which of a
+/// promotion and the promoted author's first operation is merged first is
+/// decided by a hash. It cuts both ways: an honest operation refused for a
+/// role its author already had, or a premature one accepted because the
+/// promotion happened to sort first. For those rows the answer is not in the
+/// signed bytes, and no ordering rule can put it there (report24 G3-1).
+///
+/// What CAN be in the log is testimony. A `checkpoint` row carries the heads
+/// its author had accepted when they wrote it, and one written before the
+/// ordering changed carries the old answer. Taken from the OWNER, that
+/// testimony grants nothing new: an owner can issue any operation in this
+/// Space, so vouching that one was applied is a power they already have. From
+/// anybody else it would be exactly the escalation this must not add — an
+/// admin legitimising their own refused rows — so only the owner's seals.
+///
+/// A sealed row skips ONE gate: the authorization decision, which is the gate
+/// the merge order corrupts. Signature, chain, and a signed authority
+/// withdrawal all still apply — a seal is older than any boundary that revokes
+/// it, and must not outrank one.
+///
+/// Empty when the log carries no owner checkpoint, which is the common case:
+/// nothing changes for a Space that has none.
+Map<String, int> _ownerSealedHeads({
+  required NodeId owner,
+  required List<ControlEntry> entries,
+  required bool Function(ControlEntry entry) verify,
+}) {
+  ControlEntry? seal;
+  var ambiguous = false;
+  for (final entry in entries) {
+    if (entry.op != ControlOp.checkpoint || entry.author != owner) continue;
+    final checkpoint = entry.controlCheckpoint;
+    if (checkpoint == null || !checkpoint.isStructurallyValid) continue;
+    if (!verify(entry)) continue;
+    if (seal == null || entry.seq > seal.seq) {
+      seal = entry;
+      ambiguous = false;
+    } else if (entry.seq == seal.seq &&
+        controlEntryHash(entry) != controlEntryHash(seal)) {
+      // Two different rows at one seq is a forked chain, which the fold throws
+      // out below. Nothing here may act on either: a fork is the one shape
+      // where "the owner said" has two answers.
+      ambiguous = true;
+    }
+  }
+  if (seal == null || ambiguous) return const {};
+  return {
+    for (final head in seal.controlCheckpoint!.heads) head.author.hex: head.seq,
+  };
+}
+
 GroupFoldResult foldControlLog({
   required NodeId owner,
   required List<ControlEntry> entries,
@@ -1488,10 +1542,17 @@ GroupFoldResult foldControlLog({
   String? initialCoverContentId,
 }) {
   final withdrawals = <String, ControlEntry>{};
+  // Computed once, from the same verified rows both passes read.
+  final sealed = _ownerSealedHeads(
+    owner: owner,
+    entries: entries,
+    verify: verify,
+  );
   var result = _foldControlLogOnce(
     owner: owner,
     entries: entries,
     verify: verify,
+    sealedHeads: sealed,
     initialName: initialName,
     initialDescription: initialDescription,
     initialAvatarContentId: initialAvatarContentId,
@@ -1518,6 +1579,7 @@ GroupFoldResult foldControlLog({
       owner: owner,
       entries: entries,
       verify: verify,
+      sealedHeads: sealed,
       initialName: initialName,
       initialDescription: initialDescription,
       initialAvatarContentId: initialAvatarContentId,
@@ -1533,6 +1595,7 @@ GroupFoldResult _foldControlLogOnce({
   required List<ControlEntry> entries,
   required bool Function(ControlEntry entry) verify,
   required List<ControlEntry> withdrawals,
+  Map<String, int> sealedHeads = const {},
   String initialName = '',
   String initialDescription = '',
   String? initialAvatarContentId,
@@ -1912,7 +1975,14 @@ GroupFoldResult _foldControlLogOnce({
               }.contains(revocationRecord.action.kind) &&
               controlDecision.allowed
         : controlDecision.allowed;
-    if (!authorized) {
+    // The owner's attestation about this row's position — see
+    // [_ownerSealedHeads]. It answers the one question the merge order cannot
+    // answer for a row written before the log carried causal edges, and it
+    // answers it for that row only: everything above the sealed head is
+    // decided exactly as before.
+    final sealedHead = sealedHeads[e.author.hex];
+    final sealedByOwner = sealedHead != null && e.seq <= sealedHead;
+    if (!authorized && !sealedByOwner) {
       // VOID, and still at its place on the author's chain — see
       // [GroupFoldResult.unauthorized]. The row is applied to nothing; what it
       // keeps is the position its author's next row binds by hash, so a refusal
