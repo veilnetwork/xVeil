@@ -573,6 +573,10 @@ void main() {
       syncedSettingKeys: {'locale'},
     ).plan();
 
+    // Only the settings that actually travel: the space also holds
+    // `window_width`, which is this machine's, and the count used to include
+    // it (report24 CH-W1).
+    expect(plan.settings, 2, reason: 'locale (synced) + nickname:claimed');
     expect(plan.contacts, 1);
     expect(plan.messages, 2);
     expect(plan.callLogEntries, 1);

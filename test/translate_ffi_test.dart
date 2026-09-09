@@ -16,6 +16,7 @@
 // When they are unset the group is SKIPPED, and skipped is not passed — the
 // message says exactly what went unchecked. The pure-Dart group below always
 // runs.
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -144,6 +145,84 @@ void main() {
         lessThan(const Duration(seconds: 2)),
         reason: 'close waited out its grace even though the worker answered',
       );
+    });
+
+    test('a busy worker is retired, not killed mid-translation', () async {
+      // The half the first fix left open. A worker is single-threaded and the
+      // native translate call is synchronous inside its event, so a shutdown
+      // sent during one sits behind it — and `beforeNextEvent` used to mean
+      // "die before the message that frees the model". An ordinary close
+      // during an ordinary translation leaked the model for the life of the
+      // process (report24 MEDIA-2).
+      final worker = ReceivePort();
+      addTearDown(worker.close);
+      // Answers only after the caller's grace has long expired, which is what
+      // a translation with seconds left to run looks like from here.
+      worker.listen((message) {
+        Timer(
+          const Duration(seconds: 2),
+          () => (message as dynamic).reply.send(true),
+        );
+      });
+
+      final engine = TranslateEngine.overPort(
+        worker.sendPort,
+        shutdownGrace: const Duration(milliseconds: 100),
+        deadline: const Duration(seconds: 10),
+      );
+      final started = DateTime.now();
+      await engine.close();
+      final waited = DateTime.now().difference(started);
+
+      expect(
+        waited,
+        lessThan(const Duration(seconds: 1)),
+        reason: 'the caller waited $waited for an answer two seconds out — '
+            'the grace is the CALLER\'s bound, not the model\'s',
+      );
+      expect(
+        engine.modelReleased,
+        isFalse,
+        reason: 'nothing had answered yet when close() returned',
+      );
+
+      expect(engine.retiring, isNotNull, reason: 'the worker was abandoned');
+      await engine.retiring;
+      expect(
+        engine.modelReleased,
+        isTrue,
+        reason: 'the worker finished and released the model, and this engine '
+            'stopped listening before it could say so',
+      );
+    });
+
+    test('a worker that is truly lost is given up on, once', () async {
+      // And the other side of it: retiring must be BOUNDED. A worker that
+      // never answers is not busy, it is gone, and `deadline` is already this
+      // engine's promise about how long one message may take.
+      final silent = ReceivePort();
+      addTearDown(silent.close);
+      final engine = TranslateEngine.overPort(
+        silent.sendPort,
+        shutdownGrace: const Duration(milliseconds: 50),
+        deadline: const Duration(milliseconds: 200),
+      );
+
+      await engine.close();
+      expect(
+        engine.retiring,
+        isNotNull,
+        reason: 'a worker that said nothing was dropped rather than retired, '
+            'so nothing is left to release its model if it comes back',
+      );
+      final started = DateTime.now();
+      await engine.retiring;
+      expect(
+        DateTime.now().difference(started),
+        lessThan(const Duration(seconds: 2)),
+        reason: 'the retirement outlived the deadline it is bounded by',
+      );
+      expect(engine.modelReleased, isFalse);
     });
 
     test('a worker that never answers does not hold the caller', () async {

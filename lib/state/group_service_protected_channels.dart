@@ -149,6 +149,15 @@ class _ProtectedChannels {
           author: _owner._signer.selfId,
           seq: link.seq,
           prevHash: link.prevHash,
+          // The happens-before edge, which this path did not carry.
+          // `prevHash` binds this row to the author's OWN previous row and
+          // says nothing about anybody else's; `seen` is what names the newest
+          // row this author had applied, and without it the fold is free to
+          // place a freshly promoted admin's first channel BEFORE the
+          // promotion that authorised it — then reject it for a role its
+          // author already had. Every other authoring site passes it; this one
+          // was written beside them and missed it (report24 G3-2).
+          seen: link.seen,
           op: create ? ControlOp.createChannel : ControlOp.updateChannel,
           target: null,
           role: null,
@@ -186,6 +195,11 @@ class _ProtectedChannels {
             author: _owner._signer.selfId,
             seq: link.seq + 1,
             prevHash: controlEntryHash(signed),
+            // The same edge as the revision above. This row is already chained
+            // to it by `prevHash`, so it inherits that position — but the edge
+            // is what the author SAW, it is the same moment for both rows, and
+            // a row that names it can only ever be held back, never advanced.
+            seen: link.seen,
             op: ControlOp.setRetention,
             target: null,
             role: null,

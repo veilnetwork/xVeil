@@ -3962,6 +3962,78 @@ void main() {
     });
   });
 
+  // A body-bearing route is only reachable if the TRANSPORT reads a body for
+  // its method. The policy used to be a literal set inside `_onRequest`, and
+  // PUT was not in it: the one PUT route answered 400 to a correct request for
+  // as long as it has existed, while the handler-level tests passed — they
+  // build the body themselves and never ask the transport for one
+  // (report24 A4-2).
+  test('loopback API delivers a PUT body to the draft route', () async {
+    final server = ApiServer(make(), const Stream.empty());
+    final port = await server.start(0);
+    final client = HttpClient();
+    try {
+      final request = await client.openUrl(
+        'PUT',
+        Uri.parse('http://127.0.0.1:$port/v1/spaces/posts/draft'),
+      );
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer secret-token',
+      );
+      request.headers.contentType = ContentType.json;
+      request.write(
+        jsonEncode({
+          'space': 'aa',
+          'title': 'Socket draft',
+          'body': 'Parsed body',
+        }),
+      );
+      final response = await request.close();
+      final decoded =
+          jsonDecode(await utf8.decoder.bind(response).join()) as Map;
+      expect(
+        response.statusCode,
+        200,
+        reason: 'the transport must hand the PUT body to the route',
+      );
+      expect(decoded['ok'], isTrue);
+      expect(spacePostDraftWrites.single, (
+        'aa',
+        'Socket draft',
+        'Parsed body',
+        'post',
+      ));
+    } finally {
+      client.close(force: true);
+      await server.stop();
+    }
+  });
+
+  // The policy and the route table are two lists that have to agree, and they
+  // did not. This reads the dispatch and requires every method it routes on —
+  // GET excepted, whose routes take a query string — to be one the transport
+  // reads a body for. A new method-bearing route now has to decide.
+  test('every dispatched method is in the transport body policy', () {
+    final source = File('lib/api/api_server.dart').readAsStringSync();
+    final dispatched = RegExp(r"method == '([A-Z]+)'")
+        .allMatches(source)
+        .map((m) => m.group(1)!)
+        .toSet();
+    expect(
+      dispatched,
+      contains('PUT'),
+      reason: 'the guard reads the wrong file if it cannot see the PUT route',
+    );
+    expect(
+      dispatched.difference({'GET'}).difference(ApiHandler.bodyMethods),
+      isEmpty,
+      reason:
+          'a route dispatches on a method the transport reads no body for, so '
+          'its handler is called with null and refuses a correct request',
+    );
+  });
+
   test('loopback API parses PATCH JSON for signed Space post edits', () async {
     final server = ApiServer(make(), const Stream.empty());
     final port = await server.start(0);

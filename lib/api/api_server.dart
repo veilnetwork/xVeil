@@ -4659,6 +4659,22 @@ class ApiHandler {
   ///
   /// Returns 401 for no/unknown token, 403 for a token whose scope excludes
   /// [method], null when the request may be read.
+  /// Methods whose routes carry a request body.
+  ///
+  /// The transport reads and decodes a body for exactly these, and it used to
+  /// spell the set out for itself — `POST`, `PATCH`, `DELETE` — while the route
+  /// table below dispatches on `PUT` as well. The one PUT route
+  /// (`/v1/spaces/posts/draft`) therefore reached its handler with a null body
+  /// and answered 400 to a correct request, every time, for as long as the
+  /// route has existed. A handler-level test cannot see it: it builds the body
+  /// itself and never asks the transport for one (report24 A4-2).
+  ///
+  /// So the list lives beside the routes, and
+  /// `every_body_bearing_method_is_in_the_policy` in `api_server_test.dart`
+  /// reads the dispatch to check that no method has been added to one and not
+  /// the other. GET is deliberately absent: its routes take a query string.
+  static const Set<String> bodyMethods = {'POST', 'PUT', 'PATCH', 'DELETE'};
+
   int? preBodyRefusal(String? header, String method) {
     final auth = _matchHeader(header);
     if (auth == null) return 401;
@@ -7735,7 +7751,7 @@ class ApiServer {
     try {
       final auth = req.headers.value(HttpHeaders.authorizationHeader);
       Map<String, dynamic>? body;
-      if (const {'POST', 'PATCH', 'DELETE'}.contains(req.method)) {
+      if (ApiHandler.bodyMethods.contains(req.method)) {
         // AUTH AND SCOPE BEFORE BODY. The token check used to live inside
         // handle(), which runs after the body has been fully joined into one
         // string — so an unauthenticated local process could hold the request
