@@ -370,17 +370,37 @@ class AndroidCameraCapture {
     );
   }
 
+  /// How long [stop] will wait for a start that has not come back.
+  ///
+  /// A platform call that never answers is not hypothetical on Android: the
+  /// camera service can sit on `availableCameras`, on `initialize` or on
+  /// `startImageStream` for as long as it likes. Waiting for it without a
+  /// bound made HANGING UP wait for it too — the call ended on screen while
+  /// the audio engine, the media channel and the call slot stayed behind that
+  /// await (report24 MEDIA-1).
+  static const Duration stopStartGrace = Duration(seconds: 2);
+
   Future<void> stop() async {
     // END THE CURRENT START FIRST, before anything is torn down: a start still
     // walking its awaits has to learn it has been superseded before it can
     // publish a controller, and this is the only thing that tells it.
     _generation++;
+    // THE FENCE, and it is synchronous on purpose: from this line no frame can
+    // reach the engine, whatever the platform does afterwards. Everything else
+    // here is allowed to be slow because of it — a bounded wait that left the
+    // sinks attached would only move the crash to a disposed engine.
+    _sink = null;
+    _rawSink = null;
     final starting = _starting;
     if (starting != null) {
       // It will stop at its next check; waiting means the teardown below runs
-      // after it has released whatever it opened, instead of racing it.
+      // after it has released whatever it opened, instead of racing it. Bounded
+      // because "at its next check" needs the platform to answer, and it may
+      // not: a superseded start disposes whatever it opened by itself
+      // (`_startOnce` checks the generation after every await), so leaving it
+      // behind leaks nothing.
       try {
-        await starting;
+        await starting.timeout(stopStartGrace);
       } catch (_) {}
     }
     await _teardown();

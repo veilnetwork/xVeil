@@ -2923,5 +2923,7 @@
   "transferTruncated": "El archivo está incompleto: la copia no terminó.",
   "transferNotAnArchive": "Ese archivo no es un archivo de xVeil.",
   "transferCorrupt": "El archivo está dañado.",
-  "settingsTransferHint": "Mover todo a otro dispositivo mediante un archivo"
+  "settingsTransferHint": "Mover todo a otro dispositivo mediante un archivo",
+  "transferTooLarge": "El archivo describe un registro mucho mayor de lo que xVeil escribe, así que no se leyó.",
+  "cloudFolderShareRevokeFailed": "No se pudo revocar el enlace: puede seguir funcionando. Inténtalo de nuevo."
 }

@@ -67,7 +67,16 @@ abstract class FolderSyncDisk {
   /// Write a local file by pulling [source] in ranges. Still atomic — the
   /// bytes land in a sibling and are renamed into place — so a crash halfway
   /// cannot leave a truncated file that the next scan reads as a user edit.
-  Future<void> writeFrom(String root, String path, RangeSource source);
+  /// Write [source] to [path] under [root]. True ONLY when the bytes were
+  /// published under the real name.
+  ///
+  /// It used to return `void`, and the caller inferred success from a size
+  /// check against the file on disk — which the OLD file passes whenever the
+  /// new version happens to be the same length. The download then silently did
+  /// nothing while base recorded the new content id, so the next pass saw
+  /// nothing to do and the two copies stayed apart for good (report24
+  /// XV24-02). The writer knows whether it renamed; now it says so.
+  Future<bool> writeFrom(String root, String path, RangeSource source);
 
   Future<void> remove(String root, String path);
 
@@ -246,11 +255,20 @@ class FolderSyncEngine {
             if (id == null) continue;
             final source = await _cloud.openDownload(id);
             if (source == null) continue; // content not here yet; try next pass
+            bool published;
             try {
-              await _disk.writeFrom(pair.localPath, action.path, source);
+              published = await _disk.writeFrom(
+                pair.localPath,
+                action.path,
+                source,
+              );
             } finally {
               await source.dispose();
             }
+            // The writer's own verdict comes first: a refusal or a dead remote
+            // copy leaves the old file in place, and an old file of the same
+            // size satisfies every check that only looks at the size.
+            if (!published) continue;
             final stat = await _disk.stat(pair.localPath, action.path);
             // CONFIRMED, not assumed (audit XV-12). `writeFrom` returns
             // silently when it refuses a path or the remote copy stops being

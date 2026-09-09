@@ -304,6 +304,16 @@ FolderSyncPlan planFolderSync({
   }
 
   for (final path in paths.toList()..sort()) {
+    // A name the mirror does not carry is not a name that was DELETED.
+    //
+    // The scanner has always skipped hidden entries, OS junk and our own
+    // half-download suffix; the writer and the cloud listing did not ask the
+    // same question. So a cloud `.notes.txt` was downloaded, written, recorded
+    // in base — and then missed by the very next scan, which reads as "the
+    // user deleted it here" and propagates a delete of the cloud copy
+    // (report24 XV24-03). Asked here as well as at the edges, so a base row
+    // left by an older build cannot delete anything either.
+    if (folderMirrorSkipsPath(path)) continue;
     if (movedFrom.contains(path)) continue; // handled at the destination
     // A conflict the user has not answered yet. Left strictly alone: asking
     // again every pass is nagging, and picking a side while they think is the
@@ -403,3 +413,30 @@ FolderSyncPlan planFolderSync({
     ambiguous: ambiguous,
   );
 }
+
+/// The suffix a half-finished download carries, and never a user's name.
+const String kPartialSuffix = '.xveil-part';
+
+/// Names that belong to the operating system rather than to the user.
+const Set<String> kMirrorJunkNames = {
+  '.DS_Store',
+  'Thumbs.db',
+  'desktop.ini',
+  '.localized',
+};
+
+/// Whether the mirror carries a name at all.
+///
+/// ONE question, asked by the scanner, by the cloud listing, by the writer and
+/// by the plan above. It used to be asked only by the scanner, and the halves
+/// disagreed: what one side wrote, the other could not see, and "cannot see it"
+/// is indistinguishable from "it was deleted" unless somebody says otherwise.
+bool folderMirrorSkipsName(String name) =>
+    name.startsWith('.') ||
+    kMirrorJunkNames.contains(name) ||
+    name.endsWith(kPartialSuffix);
+
+/// The same question for a relative path: any component decides it.
+bool folderMirrorSkipsPath(String relativePath) => relativePath
+    .split('/')
+    .any((part) => part.isNotEmpty && folderMirrorSkipsName(part));

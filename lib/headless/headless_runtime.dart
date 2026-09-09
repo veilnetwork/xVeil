@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../api/api_server.dart';
+import '../api/attachment_downloads.dart';
 import '../api/blob_sources.dart';
 import '../api/direct_file_api.dart';
 import '../api/group_api_adapter.dart';
@@ -390,6 +391,7 @@ class HeadlessRuntime {
       if (webhookUrl?.isEmpty ?? false) webhookUrl = null;
       final events = _events(messaging, groups);
       webhookPump = WebhookPump(() => events);
+      final attachments = AttachmentDownloads(storage);
       final groupApi = GroupApiAdapter(
         groups,
         registerContentSource: messaging.registerGroupContentStreaming,
@@ -448,7 +450,9 @@ class HeadlessRuntime {
             _sendFile(messaging!, to, path, name, roots),
         fetchFile: (peer, messageId) =>
             fetchDirectFile(storage, messaging!, peer, messageId),
-        loadFile: (fileId) => storedBlobSource(storage, fileId),
+        // Gated the same way as the GUI: this route serves attachments, and
+        // the store also holds key material (report24 A4-1).
+        loadFile: attachments.open,
         placeCall: (_, _) async => 'calls unavailable in headless mode',
         callState: () => null,
         callAction: (_) async {},

@@ -232,6 +232,27 @@ void main() {
     expect(mirrors.map((e) => e.key).toSet(), {'m1', 'm2'});
     expect(mirrors.firstWhere((e) => e.key == 'm2').tsMs, 2000);
 
+    // Contacts travel under TWO keys — preferences under the peer's id and
+    // the relationship status under 's:<id>' — exactly as the live emit does,
+    // so an alias edit and a block cannot overwrite one another. Asserted by
+    // the KEY, because an event of the right KIND with the wrong key is the
+    // shape this got wrong: a literal 's:$peerHex' put every contact in one
+    // slot, where the fold keeps one of them.
+    final contactKeys = collector.events
+        .where((e) => e.kind == DeviceSyncKind.contactUp)
+        .map((e) => e.key)
+        .toSet();
+    final peerHex = hexOf(3);
+    expect(contactKeys, contains(peerHex));
+    expect(contactKeys, contains('s:$peerHex'));
+    for (final key in contactKeys) {
+      expect(
+        key,
+        isNot(contains(r'$')),
+        reason: 'a key that still holds a template is not a key',
+      );
+    }
+
     // The read mark carries the WATERMARK, not the export time.
     final mark = collector.events.firstWhere(
       (e) => e.kind == DeviceSyncKind.readMark,
@@ -247,7 +268,10 @@ void main() {
       ['locale'],
     );
     expect(target.settings['nickname:claimed'], contains('ann'));
-    expect(target.settings['window_width'], '900');
+    // A window size belongs to the machine it was measured on. It used to
+    // travel — every non-synced key did — and carrying it would point one
+    // device at another device's idea of its own screen.
+    expect(target.settings['window_width'], isNull);
 
     expect(target.files['file-1'], isNotNull);
     expect(utf8.decode(target.files['file-1']!), 'an attachment');
@@ -372,6 +396,140 @@ void main() {
 
     expect(report.identityAdopted, isTrue);
     expect(target.nodeConfig, contains('secret'));
+  });
+
+  group('the header is a preview, not an authority (report24 CH-W3/CH-W4)', () {
+    test('an identity record in a data-only archive is refused', () async {
+      // The header says keys:false; the body carries one anyway. Written by
+      // hand, because the exporter cannot produce this shape — which is the
+      // point: an archive is a file, and a file says what its author wrote.
+      final out = BytesBuilder();
+      final w = await DataTransferWriter.open(
+        sink: (b) async => out.add(b),
+        header: TransferHeader(
+          createdMs: 1,
+          nodeIdHex: hexOf(1),
+          includesIdentity: false,
+          includesFiles: false,
+        ),
+      );
+      await w.add(
+        TransferRecord(
+          kind: TransferRecordKind.identity,
+          payload: Uint8List.fromList(utf8.encode('[identity]\nkey = "theirs"')),
+        ),
+      );
+      await w.close();
+
+      final target = _Space(nodeConfig: '[identity]\nkey = "mine"');
+      await expectLater(
+        DataImporter(
+          storage: target,
+          appliers: _Collector().appliers,
+          selfNodeIdHex: hexOf(1),
+        ).run(bytes: Stream.value(out.takeBytes())),
+        throwsA(isA<ImportRefused>()),
+      );
+      expect(
+        target.nodeConfig,
+        contains('mine'),
+        reason: 'the identity in use may never be overwritten by a file',
+      );
+    });
+
+    test('a fresh device still refuses an identity the header did not declare',
+        () async {
+      final out = BytesBuilder();
+      final w = await DataTransferWriter.open(
+        sink: (b) async => out.add(b),
+        header: TransferHeader(
+          createdMs: 1,
+          nodeIdHex: hexOf(1),
+          includesIdentity: false, // the lie
+          includesFiles: false,
+        ),
+      );
+      await w.add(
+        TransferRecord(
+          kind: TransferRecordKind.identity,
+          payload: Uint8List.fromList(utf8.encode('[identity]\nkey = "x"')),
+        ),
+      );
+      await w.close();
+
+      final target = _Space(); // nothing here at all
+      await expectLater(
+        DataImporter(
+          storage: target,
+          appliers: _Collector().appliers,
+          selfNodeIdHex: '',
+        ).run(bytes: Stream.value(out.takeBytes())),
+        throwsA(isA<ImportRefused>()),
+      );
+      expect(target.nodeConfig, isNull);
+    });
+
+    test('a settings record cannot plant key material', () async {
+      final out = BytesBuilder();
+      final w = await DataTransferWriter.open(
+        sink: (b) async => out.add(b),
+        header: TransferHeader(
+          createdMs: 1,
+          nodeIdHex: hexOf(1),
+          includesIdentity: false,
+          includesFiles: false,
+        ),
+      );
+      // The key that holds base64 master signing material, absent locally —
+      // so no overwrite is needed, only a gap to fill.
+      await w.add(
+        const TransferRecord(
+          kind: TransferRecordKind.setting,
+          meta: {'key': 'node.master_key.v1', 'v': 'INJECTED'},
+        ),
+      );
+      await w.add(
+        const TransferRecord(
+          kind: TransferRecordKind.setting,
+          meta: {'key': 'ratchet.local_instance.v1', 'v': 'INJECTED'},
+        ),
+      );
+      await w.close();
+
+      final target = _Space();
+      final report = await DataImporter(
+        storage: target,
+        appliers: _Collector().appliers,
+        selfNodeIdHex: hexOf(1),
+      ).run(bytes: Stream.value(out.takeBytes()));
+
+      expect(target.settings['node.master_key.v1'], isNull);
+      expect(target.settings['ratchet.local_instance.v1'], isNull);
+      expect(report.settingsFilled, 0);
+      expect(report.settingsRefused, 2, reason: 'refused, and said so');
+    });
+
+    test('the exporter does not write what the importer would refuse', () async {
+      final space = _deviceWithHistory();
+      space.settings['node.master_key.v1'] = 'SECRET';
+      space.settings['ratchet.local_instance.v1'] = 'STATE';
+
+      final archive = await _exportOf(space);
+      final target = _Space();
+      final report = await DataImporter(
+        storage: target,
+        appliers: _Collector().appliers,
+        selfNodeIdHex: hexOf(1),
+      ).run(bytes: Stream.value(archive));
+
+      expect(
+        utf8.decode(archive, allowMalformed: true),
+        isNot(contains('SECRET')),
+        reason: 'key material must not be in the file at all',
+      );
+      expect(report.settingsRefused, 0, reason: 'nothing to refuse on arrival');
+      expect(target.settings['nickname:claimed'], isNotNull);
+    });
   });
 
   test('an import with nothing listening is refused, not reported as done', () async {

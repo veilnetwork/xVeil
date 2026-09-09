@@ -21,24 +21,58 @@
 // That is already true of the live path — the same event reaches all three
 // listeners — so this adds a door, not a rule.
 
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/device_sync.dart';
 
 /// A function that applies (or ignores) one event.
-typedef DeviceSyncApply = void Function(DeviceSyncEvent event);
+///
+/// May return a future. The live stream ignores it — nobody is waiting there —
+/// while an import awaits it, because a person is being told the merge is
+/// done.
+typedef DeviceSyncApply = FutureOr<void> Function(DeviceSyncEvent event);
+
+/// An applier's promise that the work it QUEUED has finished.
+///
+/// Separate from the apply itself because the appliers that matter here queue:
+/// [DeviceSyncApplyGate.offer] decides immediately and writes behind a
+/// per-slot chain. Waiting for `apply` to return would wait for the decision,
+/// which is not the thing the word "merged" claims.
+typedef DeviceSyncSettle = Future<void> Function();
 
 class DeviceSyncAppliers {
   final List<DeviceSyncApply> _handlers = [];
+  final Map<DeviceSyncApply, DeviceSyncSettle> _settles = {};
 
   /// Register [apply]; the returned callback removes it again.
+  ///
+  /// [settle], when given, is awaited by [settleAll] — that is how an applier
+  /// says "and my queued writes are done too". An applier without one is
+  /// counted in [unconfirmed], so a caller can say so rather than imply a
+  /// completeness nobody promised.
   ///
   /// Returning the remover rather than exposing an `unregister(fn)` keeps a
   /// provider's teardown honest: `ref.onDispose(appliers.register(...))` cannot
   /// be written in a way that removes somebody else's handler.
-  void Function() register(DeviceSyncApply apply) {
+  void Function() register(DeviceSyncApply apply, {DeviceSyncSettle? settle}) {
     _handlers.add(apply);
-    return () => _handlers.remove(apply);
+    if (settle != null) _settles[apply] = settle;
+    return () {
+      _handlers.remove(apply);
+      _settles.remove(apply);
+    };
+  }
+
+  /// Appliers that cannot report when their queued work is finished.
+  int get unconfirmed => _handlers.length - _settles.length;
+
+  /// Wait for every applier that can say so.
+  Future<void> settleAll() async {
+    for (final settle in List<DeviceSyncSettle>.of(_settles.values)) {
+      await settle();
+    }
   }
 
   /// How many appliers are listening.
@@ -48,13 +82,16 @@ class DeviceSyncAppliers {
   /// success, which is the failure mode this exists to make visible.
   int get count => _handlers.length;
 
-  /// Hand [event] to everyone.
+  /// Hand [event] to everyone, and wait for whatever they return.
   ///
   /// Iterates a copy: an applier that registers or removes one while handling
-  /// an event would otherwise mutate the list being walked.
-  void deliver(DeviceSyncEvent event) {
+  /// an event would otherwise mutate the list being walked. Awaiting the
+  /// returned futures is what keeps an import from racing ahead of the writes
+  /// it is asking for — [settleAll] then covers the work that was queued
+  /// rather than returned.
+  Future<void> deliver(DeviceSyncEvent event) async {
     for (final apply in List<DeviceSyncApply>.of(_handlers)) {
-      apply(event);
+      await apply(event);
     }
   }
 }

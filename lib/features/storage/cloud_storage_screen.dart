@@ -348,8 +348,19 @@ class _CloudStorageScreenState extends ConsumerState<CloudStorageScreen> {
           ),
         );
         if (action == 'revoke') {
-          await capabilities.revokeFolderShare(existing.shareId);
-          if (mounted) _notice(l.cloudFolderShareRevoked);
+          // The bool says whether the tombstone was durably recorded and the
+          // host stopped serving. It used to be ignored, so a transient
+          // storage failure produced "revoked" on screen while the link kept
+          // working (report24 G3-3) — the one message a person acts on and
+          // then stops worrying about.
+          final revoked = await capabilities.revokeFolderShare(
+            existing.shareId,
+          );
+          if (mounted) {
+            _notice(
+              revoked ? l.cloudFolderShareRevoked : l.cloudFolderShareRevokeFailed,
+            );
+          }
         } else if (action == 'refresh') {
           final entries = await cloud.buildFolderListingEntries(folder.id);
           if (entries != null) {
