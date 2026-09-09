@@ -20003,6 +20003,78 @@ void main() {
     },
   );
 
+  test('only the owner can seal the control history, and the row survives',
+      () async {
+    // The deliberate row. Its own path never produced one reliably: a
+    // checkpoint is a side effect of posting, and that path reuses any recent
+    // one whose historical state still grants the poster permission — which,
+    // for an owner, is every one of them (report24 G3-1).
+    final ownerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    final ownerSvc = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    addTearDown(ownerSvc.dispose);
+    final spaceId = await ownerSvc.createSpace('Sealed');
+    expect(
+      await ownerSvc.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.admin,
+      ),
+      isTrue,
+    );
+
+    expect(await ownerSvc.sealControlHistory(spaceId), isTrue);
+    final control = (await ownerSvc.load(spaceId))!.control;
+    final seal = control.lastWhere((e) => e.op == ControlOp.checkpoint);
+    expect(seal.author, owner, reason: 'the seal must be the owner\'s word');
+    expect(
+      seal.controlCheckpoint,
+      isNotNull,
+      reason: 'a seal with no heads settles nothing',
+    );
+    // And the fold keeps it: a row that does not survive its own fold would
+    // have been saved as testimony nobody reads.
+    final folded = foldControlLog(
+      owner: owner,
+      entries: control,
+      verify: (_) => true,
+    );
+    expect(folded.accepted, contains(seal));
+
+    // The admin cannot write one. An admin sealing a prefix would be the
+    // escalation the fold's owner-only rule exists to refuse, and refusing it
+    // here as well keeps the two from disagreeing about who may vouch.
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(
+      bobStorage,
+      _FakeSigner(bob),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    addTearDown(bobSvc.dispose);
+    expect(
+      await bobSvc.ingestSnapshot(
+        ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+      ),
+      isTrue,
+    );
+    expect(
+      await bobSvc.sealControlHistory(spaceId),
+      isFalse,
+      reason: 'an admin wrote a seal, which is the owner vouching for a '
+          'prefix — a power an admin does not have',
+    );
+  });
+
   test('the next-link predicate accounts for rows the merge found '
       'unauthorized', () {
     // The other half of report24 G3-1, where the fold's answer is READ.
