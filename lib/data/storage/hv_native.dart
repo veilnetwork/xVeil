@@ -17,7 +17,7 @@ bool ensureHiddenVolumeLoaded({String? dylibPath}) {
   if (dylibPath != null && dylibPath.isNotEmpty) {
     if (!File(dylibPath).existsSync()) return false;
     try {
-      DynamicLibrary.open(dylibPath);
+      rememberNativeLib('hidden_volume_ffi', DynamicLibrary.open(dylibPath));
       _loaded = true;
       return true;
     } catch (_) {
