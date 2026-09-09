@@ -60,7 +60,6 @@ class FolderSyncScheduler {
   void _touch(String pairId) {
     final schedule = _pairs[pairId];
     if (schedule == null) return;
-    schedule.pending = true;
     schedule.quiet?.cancel();
     schedule.quiet = Timer(_quietPeriod, () => unawaited(_fire(schedule)));
   }
@@ -82,7 +81,6 @@ class FolderSyncScheduler {
       return;
     }
     schedule.running = true;
-    schedule.pending = false;
     try {
       await _run(schedule.pair);
     } catch (_) {
@@ -112,7 +110,12 @@ class _PairSchedule {
   final FolderSyncPair pair;
   StreamSubscription<void>? subscription;
   Timer? quiet;
-  bool pending = false;
+  // No `pending` flag. There was one, set on every touch and cleared on every
+  // fire, and nothing ever read it: whether a pass is owed is decided by the
+  // quiet timer, and whether another is owed AFTER the one in flight is
+  // `again`. A field that only ever records is a second answer to a question
+  // this class already answers, waiting to disagree with the first
+  // (report24, dead-code table).
   bool running = false;
   bool again = false;
 
