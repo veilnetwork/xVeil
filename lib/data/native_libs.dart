@@ -143,7 +143,7 @@ bool loadNativeLib(String base, {String? envVar, String? devSubdir}) {
   }
   if (Platform.isAndroid) {
     try {
-      DynamicLibrary.open(nativeLibFileName(base)); // lib<base>.so
+      rememberNativeLib(base, DynamicLibrary.open(nativeLibFileName(base)));
       return true;
     } catch (_) {
       return false;
@@ -156,7 +156,7 @@ bool loadNativeLib(String base, {String? envVar, String? devSubdir}) {
   )) {
     if (!File(path).existsSync()) continue;
     try {
-      DynamicLibrary.open(path);
+      rememberNativeLib(base, DynamicLibrary.open(path));
       return true;
     } catch (_) {
       // Try the next candidate.
@@ -165,12 +165,81 @@ bool loadNativeLib(String base, {String? envVar, String? devSubdir}) {
   return false;
 }
 
+/// Handles this process has opened, by library base name.
+///
+/// The reason this exists is a platform difference that is invisible on the
+/// machine most of this is written on: `dlopen` defaults to `RTLD_GLOBAL` on
+/// macOS and to `RTLD_LOCAL` on glibc. So a library preloaded by
+/// [loadNativeLib] joins the process-wide symbol table on macOS and does NOT
+/// on Linux — and [processLibFor], which used to answer
+/// `DynamicLibrary.process()` for every desktop, was therefore right on one
+/// desktop and wrong on the other. Measured on the shipped 0.13.53 bundle:
+/// the handle answers `providesSymbol('veil_abi_contract_hash')` true while
+/// `DynamicLibrary.process()` answers false.
+///
+/// Remembering the handle is what makes the answer the same everywhere: the
+/// thing a caller wants is the library that was loaded, not the scope it
+/// happened to land in.
+final Map<String, DynamicLibrary> _openedLibs = {};
+
+/// Records [lib] as the handle for [base], so [processLibFor] returns it.
+///
+/// Public because two callers open a library by an explicit path of their own
+/// (`ensureVeilClientLoaded(dylibPath:)`, `ensureHiddenVolumeLoaded(dylibPath:)`)
+/// and a handle nobody recorded is a handle [processLibFor] cannot hand back.
+void rememberNativeLib(String base, DynamicLibrary lib) {
+  _openedLibs[base] = lib;
+}
+
+/// Forget every recorded handle. Tests only — a process cannot un-dlopen a
+/// library, and this does not try to; it only clears what [processLibFor]
+/// would answer with.
+void debugResetNativeLibHandles() => _openedLibs.clear();
+
 /// The `DynamicLibrary` to resolve [base]'s symbols against from app-side FFI
 /// (e.g. the embedded-node bindings, which don't go through the plugin's own
 /// loader). On Android `DynamicLibrary.open` returns a handle whose symbols are
 /// NOT placed in the global (`process()`) scope, so callers must use THIS
 /// handle; on iOS/desktop the symbols are process-global. Mirrors how the
 /// plugin bindings pick their handle per platform.
-DynamicLibrary processLibFor(String base) => Platform.isAndroid
-    ? DynamicLibrary.open(nativeLibFileName(base))
-    : DynamicLibrary.process();
+DynamicLibrary processLibFor(String base) {
+  // The handle this process actually opened, when there is one. On Linux this
+  // is the ONLY answer that works: the library is dlopen'd into a local scope
+  // and `DynamicLibrary.process()` cannot see a symbol in it — which is how a
+  // shipped Linux bundle refused its own veilclient library at startup, one
+  // symbol before any call could be made through it.
+  final opened = _openedLibs[base];
+  if (opened != null) return opened;
+
+  if (Platform.isAndroid) {
+    final lib = DynamicLibrary.open(nativeLibFileName(base));
+    rememberNativeLib(base, lib);
+    return lib;
+  }
+
+  if (Platform.isLinux) {
+    // Reached when nobody preloaded — the headless runtime and the worker
+    // isolates both come this way. Same candidate order as [loadNativeLib], so
+    // there is one set of rules about where a library may come from, then the
+    // soname for a system install.
+    for (final path in nativeLibCandidates(base)) {
+      if (!File(path).existsSync()) continue;
+      try {
+        final lib = DynamicLibrary.open(path);
+        rememberNativeLib(base, lib);
+        return lib;
+      } catch (_) {
+        // Try the next candidate.
+      }
+    }
+    try {
+      final lib = DynamicLibrary.open(nativeLibFileName(base));
+      rememberNativeLib(base, lib);
+      return lib;
+    } catch (_) {
+      // Fall through: a host that linked the symbols in still resolves below.
+    }
+  }
+
+  return DynamicLibrary.process();
+}
