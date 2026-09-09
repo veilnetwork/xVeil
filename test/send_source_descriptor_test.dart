@@ -90,7 +90,7 @@ void main() {
   });
   tearDown(() async {
     ApiServerController.debugBindPort = kApiPort;
-    ApiServerController.debugSourceOpener = veilOpenSourceForSend;
+    ApiServerController.debugSourceOpener = null;
     await workdir.delete(recursive: true);
   });
 
@@ -328,14 +328,23 @@ void main() {
       ),
     };
 
+    // The seam must be NULL in production. It used to default to the helper,
+    // and `veilOpenPinnedSource` takes the descriptor walk only when no opener
+    // is injected — so the GUI send handed over its granted roots and then
+    // went down the old name-based path anyway (report24 XV24-01). Asserted as
+    // a declaration without an initialiser, because that is the property: a
+    // seam nobody sets is a seam production does not take.
     expect(
       File('lib/state/api_server.dart')
           .readAsStringSync()
           .replaceAll(RegExp(r'\s+'), ' '),
-      contains('debugSourceOpener = veilOpenSourceForSend'),
+      contains(
+        'static Future<VeilOpenedSource?> Function(String path)? '
+        'debugSourceOpener;',
+      ),
       reason:
-          'the injectable opener no longer defaults to the single-descriptor '
-          'helper, so the guard below proves nothing about production',
+          'the injectable opener has a production default again, which puts '
+          'the GUI send back on the name-based path',
     );
     // The senders open through `veilOpenPinnedSource` now, which is a wrapper.
     // Without this the guard below would be satisfied by a wrapper that looked

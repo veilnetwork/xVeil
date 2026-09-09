@@ -7102,4 +7102,12 @@ class AppL10nRu extends AppL10n {
   @override
   String get settingsTransferHint =>
       'Перенести всё на другое устройство через файл';
+
+  @override
+  String get transferTooLarge =>
+      'Архив описывает запись гораздо большую, чем xVeil когда-либо пишет, поэтому он не прочитан.';
+
+  @override
+  String get cloudFolderShareRevokeFailed =>
+      'Не удалось отозвать ссылку — возможно, она ещё работает. Попробуйте снова.';
 }

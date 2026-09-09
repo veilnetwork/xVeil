@@ -358,7 +358,13 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // probe, and is never applied. Measured on the three-instance stand: C's
   // second message reached the master, the mirror event reached the sibling's
   // fold, and the sibling's conversation stayed one message short for good.
-  void applyMirrorEvent(DeviceSyncEvent event, {String? attachmentThumb}) {
+  // Returns the write rather than dropping it: the live stream still ignores
+  // the future (nobody is waiting there), while an offline import awaits it,
+  // so "merged" is said after the messages are actually stored.
+  Future<void> applyMirrorEvent(
+    DeviceSyncEvent event, {
+    String? attachmentThumb,
+  }) async {
     if (event.kind != DeviceSyncKind.msgMirror) return;
     final peerHex = event.payload['peer'];
     final body = event.payload['body'];
@@ -374,23 +380,21 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final fileName = event.payload['fname'];
     final fileSize = event.payload['fsize'];
     final customEmoji = parseInlineCustomEmoji(body, event.payload['ce']);
-    unawaited(
-      messaging.applyMirroredMessage(
-        peer: NodeId.fromHex(peerHex),
-        msgId: event.key,
-        direction: direction,
-        body: body,
-        tsMs: event.tsMs,
-        fileContentId: contentId is String && contentId.isNotEmpty
-            ? contentId
-            : null,
-        fileName: fileName is String ? fileName : null,
-        fileSize: fileSize is int ? fileSize : null,
-        thumb: attachmentThumb != null && attachmentThumb != 'AA=='
-            ? attachmentThumb
-            : null,
-        customEmoji: customEmoji,
-      ),
+    await messaging.applyMirroredMessage(
+      peer: NodeId.fromHex(peerHex),
+      msgId: event.key,
+      direction: direction,
+      body: body,
+      tsMs: event.tsMs,
+      fileContentId: contentId is String && contentId.isNotEmpty
+          ? contentId
+          : null,
+      fileName: fileName is String ? fileName : null,
+      fileSize: fileSize is int ? fileSize : null,
+      thumb: attachmentThumb != null && attachmentThumb != 'AA=='
+          ? attachmentThumb
+          : null,
+      customEmoji: customEmoji,
     );
   }
 
@@ -405,12 +409,14 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   final deviceMirror = service.deviceIncoming.listen((message) {
     final event = DeviceSyncEvent.fromBody(message.body);
     if (event == null) return;
-    applyMirrorEvent(event, attachmentThumb: message.attachment?.dataB64);
+    unawaited(
+      applyMirrorEvent(event, attachmentThumb: message.attachment?.dataB64),
+    );
   });
   unawaited(() async {
     final folded = await service.deviceSyncState();
     for (final event in folded.values) {
-      applyMirrorEvent(event);
+      await applyMirrorEvent(event);
     }
   }());
   ref.onDispose(() {

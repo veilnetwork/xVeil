@@ -10,6 +10,38 @@ import 'package:xveil/state/android_native_call_video.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('a camera start that never answers does not hold up the stop '
+      '(report24 MEDIA-1)', () async {
+    // The window: an Android platform call that has not come back. Hanging up
+    // awaited it, so the audio engine, the media channel and the call slot all
+    // waited behind a camera — the call was over on screen with the microphone
+    // still running.
+    final hung = Completer<List<CameraDescription>>();
+    final capture = AndroidCameraCapture(
+      listCameras: () => hung.future,
+    );
+
+    // Start, and leave it hanging inside `availableCameras`.
+    unawaited(capture.start((_, _, _, _, _) {}));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final watch = Stopwatch()..start();
+    await capture.stop();
+    watch.stop();
+
+    expect(
+      watch.elapsed,
+      lessThan(AndroidCameraCapture.stopStartGrace + const Duration(seconds: 1)),
+      reason: 'stop waited on a platform call that never answers',
+    );
+
+    // And the late start still cannot publish anything: the generation moved
+    // before the wait, so whatever comes back now is somebody else's.
+    hung.complete(const []);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(androidCallCameraPreviewController.value, isNull);
+  });
+
   test('camera FPS prefers an exact 60 Hz mode when supported', () {
     expect(preferredExactCameraFps([15, 24, 30, 60]), 60);
   });

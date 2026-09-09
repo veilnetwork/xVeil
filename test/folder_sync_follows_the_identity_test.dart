@@ -75,7 +75,7 @@ void main() {
       (await controller.addPair(
         localPath: '${dir.path}/elsewhere',
         id: 'stale',
-        owner: const IdentityLease('someone-else', 41),
+        owner: const IdentityLease('someone-else', 41, 0),
       ))?.code,
       FolderSyncRefusalCode.identityChanged,
       reason:

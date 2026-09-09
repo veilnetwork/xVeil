@@ -7041,4 +7041,12 @@ class AppL10nEn extends AppL10n {
   @override
   String get settingsTransferHint =>
       'Move everything to another device through a file';
+
+  @override
+  String get transferTooLarge =>
+      'The archive describes a record far larger than xVeil ever writes, so it was not read.';
+
+  @override
+  String get cloudFolderShareRevokeFailed =>
+      'Could not revoke the link — it may still work. Try again.';
 }

@@ -68,7 +68,7 @@ class PublicDirectoryService {
     required Future<void> Function(String key, String value) putSetting,
     required Future<String?> Function(String key) getSetting,
     required Future<NodeId?> Function(String nickname) resolveNickname,
-    Future<void> Function(String shareId)? revokeShare,
+    Future<bool> Function(String shareId)? revokeShare,
     DateTime Function()? now,
     Duration? republishEvery = const Duration(minutes: 90),
     Duration resolveTimeout = const Duration(seconds: 8),
@@ -105,7 +105,10 @@ class PublicDirectoryService {
   final Future<void> Function(String, String) _putSetting;
   final Future<String?> Function(String) _getSetting;
   final Future<NodeId?> Function(String) _resolveNickname;
-  final Future<void> Function(String shareId)? _revokeShare;
+  /// Revokes the capability behind a published link. Returns whether the
+  /// revocation actually landed — a false here used to be discarded, and the
+  /// directory then forgot the share it had failed to revoke (report24 G3-3).
+  final Future<bool> Function(String shareId)? _revokeShare;
   final DateTime Function() _now;
   final Duration? _republishEvery;
   final Duration _resolveTimeout;
@@ -233,13 +236,20 @@ class PublicDirectoryService {
 
   Future<PublicDirectoryStatus> _withdrawLocked() async {
     final previous = _status;
+    // REVOKE FIRST. Clearing the state and then revoking meant that a failed
+    // revocation left nothing behind to retry with: `withdrawIfFolder` no
+    // longer matched the folder, the ordinary withdraw no longer knew the
+    // share id, and the link kept working while every screen said it had been
+    // withdrawn (report24 G3-3).
+    if (previous.shareId != null && !await _revoke(previous.shareId!)) {
+      // Keep the published state exactly as it was: it is the only handle on
+      // a capability that is still live.
+      return previous;
+    }
     _timer?.cancel();
     _timer = null;
     _status = const PublicDirectoryStatus();
     await _persist();
-    if (previous.shareId != null) {
-      await _revoke(previous.shareId!);
-    }
     return previous;
   }
 
@@ -311,10 +321,19 @@ class PublicDirectoryService {
     }
   }
 
-  Future<void> _revoke(String shareId) async {
+  /// True when the capability is gone, or when there is nobody to ask.
+  ///
+  /// The "nobody to ask" case is deliberate: a directory wired without a
+  /// revoker publishes pointers and never held the capability, so it has
+  /// nothing to keep waiting for.
+  Future<bool> _revoke(String shareId) async {
+    final revoke = _revokeShare;
+    if (revoke == null) return true;
     try {
-      await _revokeShare?.call(shareId);
-    } catch (_) {}
+      return await revoke(shareId);
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> _publishRecord(PublicDirectoryStatus state) async {

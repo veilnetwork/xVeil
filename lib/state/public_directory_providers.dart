@@ -34,9 +34,10 @@ final publicDirectoryServiceProvider = Provider<PublicDirectoryService?>((ref) {
     getSetting: storage.getSetting,
     revokeShare: capabilities == null
         ? null
-        : (shareId) async {
-            await capabilities.revokeFolderShare(shareId);
-          },
+        // The bool is the whole point: it says whether the tombstone was
+        // durably recorded and the host stopped. Dropping it here is what let
+        // a failed revoke look like a finished one.
+        : (shareId) => capabilities.revokeFolderShare(shareId),
     resolveNickname: (nickname) async {
       final normalized = veil.normalizeNickname(nickname);
       if (normalized.isEmpty) return null;

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_server.dart';
+import '../api/attachment_downloads.dart';
 import '../api/blob_sources.dart';
 import '../api/cloud_api_adapter.dart';
 import '../api/direct_file_api.dart';
@@ -350,11 +351,21 @@ class ApiServerController extends Notifier<ApiConfig> {
         messageId,
       );
 
-  /// Opens the file a `POST /v1/files` send streams from. TESTS ONLY — the
-  /// production value is [veilOpenSourceForSend] and nothing else sets it.
+  /// Opens the file a `POST /v1/files` send streams from. TESTS ONLY.
+  ///
+  /// NULL in production, and that is the whole point. [veilOpenPinnedSource]
+  /// takes the descriptor walk — the one that opens each directory relative to
+  /// the last and refuses to follow a link — only when no opener is injected.
+  /// This used to default to [veilOpenSourceForSend], which is non-null, so
+  /// the GUI send passed its granted roots and then never used them: the walk
+  /// was written, wired, tested, and unreachable from the one path a person
+  /// actually sends files through (report24 XV24-01).
+  ///
+  /// The guard that was supposed to catch this asserted the default WAS the
+  /// helper — it was checking the spelling of the seam rather than which
+  /// branch production takes.
   @visibleForTesting
-  static Future<VeilOpenedSource?> Function(String path) debugSourceOpener =
-      veilOpenSourceForSend;
+  static Future<VeilOpenedSource?> Function(String path)? debugSourceOpener;
 
   /// Send the file at local [path] to [toHex] (streamed off disk, any size).
   /// Returns null on success or an error string.
@@ -464,8 +475,19 @@ class ApiServerController extends Notifier<ApiConfig> {
     return false;
   }
 
+  /// The direct-download route's blob opener.
+  ///
+  /// Through [AttachmentDownloads], not straight at the store: the store also
+  /// holds group epoch keys and the cloud capability registry, and this route
+  /// took any id it was given (report24 A4-1). The GROUP and CLOUD adapters
+  /// keep their own openers — each resolves an attachment through its own
+  /// membership and visibility checks before asking for bytes.
+  late final AttachmentDownloads _attachments = AttachmentDownloads(
+    ref.read(storageProvider),
+  );
+
   Future<ApiBlobSource?> _loadFile(String fileId) =>
-      storedBlobSource(ref.read(storageProvider), fileId);
+      _attachments.open(fileId);
 
   Future<String?> _placeCall(String toHex, String media) async {
     final NodeId peer;

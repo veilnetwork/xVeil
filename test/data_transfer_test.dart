@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -15,6 +16,12 @@ TransferSeal cheap() => TransferSeal(
   chunkBytes: 64 * 1024,
 );
 
+/// A node id shaped like a real one: the header refuses anything else, and a
+/// test that used a short stand-in would be testing a file the app cannot
+/// write.
+const kTestNodeId =
+    'aabbccdd00112233445566778899aabbccdd00112233445566778899aabbccdd';
+
 TransferHeader headerFor({
   bool keys = false,
   bool files = false,
@@ -22,7 +29,7 @@ TransferHeader headerFor({
   int fileBytes = 0,
 }) => TransferHeader(
   createdMs: 1757000000000,
-  nodeIdHex: 'aabbccdd',
+  nodeIdHex: kTestNodeId,
   includesIdentity: keys,
   includesFiles: files,
   counts: counts,
@@ -85,7 +92,7 @@ void main() {
       ], header: headerFor(keys: true, counts: {'sync': 12}, fileBytes: 99));
 
       final r = await DataTransferReader.open(Stream.value(archive));
-      expect(r.header.nodeIdHex, 'aabbccdd');
+      expect(r.header.nodeIdHex, kTestNodeId);
       expect(r.header.includesIdentity, isTrue);
       expect(r.header.counts['sync'], 12);
       expect(r.header.fileBytes, 99);
@@ -148,7 +155,7 @@ void main() {
         isNot(contains('the-quick-brown-fox')),
       );
       // The header, though, stays readable: that is the point of it.
-      expect(utf8.decode(archive, allowMalformed: true), contains('aabbccdd'));
+      expect(utf8.decode(archive, allowMalformed: true), contains(kTestNodeId));
     });
 
     test('a wrong password is named as such, not as damage', () async {
@@ -310,6 +317,77 @@ void main() {
         ),
       ),
     );
+  });
+
+  group('the reader owns what it opened (report24 XV24-W6/W7)', () {
+    test('the source is released when the read ends', () async {
+      var cancelled = false;
+      final archive = await write([
+        const TransferRecord(kind: TransferRecordKind.profile),
+      ]);
+      final controller = StreamController<List<int>>();
+      controller.onCancel = () => cancelled = true;
+      controller.add(archive);
+
+      final reader = await DataTransferReader.open(controller.stream);
+      await reader.records().toList();
+
+      expect(
+        cancelled,
+        isTrue,
+        reason: 'reaching the end is not the same as letting go of the file',
+      );
+    });
+
+    test('a preview releases the source too', () async {
+      var cancelled = false;
+      final archive = await write([
+        const TransferRecord(kind: TransferRecordKind.profile),
+      ]);
+      final controller = StreamController<List<int>>();
+      controller.onCancel = () => cancelled = true;
+      controller.add(archive);
+
+      final reader = await DataTransferReader.open(controller.stream);
+      expect(reader.header.nodeIdHex, kTestNodeId);
+      await reader.close();
+
+      expect(cancelled, isTrue);
+    });
+
+    test('a record declaring more than the ceiling is refused unread', () async {
+      final out = BytesBuilder()
+        ..add(utf8.encode('$kDataTransferMagic\n'))
+        ..add(utf8.encode('${jsonEncode(headerFor().toJson())}\n'))
+        // Half a gigabyte, declared by a file we did not write. Nothing is
+        // allocated for it: the length is an untrusted number.
+        ..add(utf8.encode('{"k":"file","id":"huge","n":536870912}\n'));
+
+      await expectLater(
+        read(out.takeBytes()),
+        throwsA(
+          isA<TransferException>().having(
+            (e) => e.failure,
+            'failure',
+            TransferFailure.recordTooLarge,
+          ),
+        ),
+      );
+    });
+
+    test('a header without a real node id is not an archive we trust', () async {
+      final head = Map<String, dynamic>.of(headerFor().toJson())
+        ..['node'] = 'short';
+      final out = BytesBuilder()
+        ..add(utf8.encode('$kDataTransferMagic\n'))
+        ..add(utf8.encode('${jsonEncode(head)}\n'))
+        ..add(utf8.encode('{"k":"end"}\n'));
+
+      await expectLater(
+        DataTransferReader.open(Stream.value(out.takeBytes())),
+        throwsA(isA<TransferException>()),
+      );
+    });
   });
 
   test('a record from a newer vocabulary is skipped, and the rest still reads',

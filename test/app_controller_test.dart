@@ -171,6 +171,46 @@ void main() {
   );
 
   test(
+    'a lease taken before a lock does not survive unlocking another space '
+    '(report24 CH-H1)',
+    () async {
+      final c = ProviderContainer();
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      await _settle(c);
+
+      await ctrl.completeOnboarding(
+        password: 'first-pw',
+        mode: StorageMode.hiddenSpace,
+      );
+
+      // What a screen does before handing control to a native picker.
+      final lease = ctrl.leaseIdentity();
+      expect(ctrl.holdsIdentity(lease), isTrue);
+
+      await ctrl.lock();
+      expect(
+        ctrl.holdsIdentity(lease),
+        isFalse,
+        reason: 'the session it was taken in has ended',
+      );
+
+      // A DIFFERENT space, opened with a different password. With a single
+      // identity the label is null on both sides and the epoch never moved, so
+      // the lease used to match — and the callback wrote into this space.
+      await ctrl.unlock('second-pw');
+      expect(
+        ctrl.holdsIdentity(lease),
+        isFalse,
+        reason: 'a null label is not an identifier of a space',
+      );
+
+      // The control: a lease taken NOW is valid now.
+      expect(ctrl.holdsIdentity(ctrl.leaseIdentity()), isTrue);
+    },
+  );
+
+  test(
     'eager conversations listener stays idle while locked and reloads on unlock',
     () async {
       final c = ProviderContainer();

@@ -516,7 +516,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
 
   // The same applier, reachable by an offline import: an archive carries the
   // very events this stream carries, and they must land the same way.
-  ref.onDispose(ref.read(deviceSyncAppliersProvider).register(handleEvent));
+  ref.onDispose(
+    ref
+        .read(deviceSyncAppliersProvider)
+        .register(handleEvent, settle: gate.settle),
+  );
 
   final sub = svc.deviceIncoming.listen((gm) {
     final e = DeviceSyncEvent.fromBody(gm.body);
