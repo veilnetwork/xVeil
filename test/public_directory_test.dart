@@ -200,7 +200,10 @@ void main() {
         return kv[k];
       },
       resolveNickname: (_) async => null,
-      revokeShare: (shareId) async => revoked.add(shareId),
+      revokeShare: (shareId) async {
+        revoked.add(shareId);
+        return true;
+      },
       now: () => DateTime.fromMillisecondsSinceEpoch(100000),
       republishEvery: null,
     );
@@ -255,7 +258,10 @@ void main() {
       putSetting: (k, v) async => kv[k] = v,
       getSetting: (k) async => kv[k],
       resolveNickname: (_) async => null,
-      revokeShare: (shareId) async => revoked.add(shareId),
+      revokeShare: (shareId) async {
+        revoked.add(shareId);
+        return true;
+      },
       now: () => DateTime.fromMillisecondsSinceEpoch(100000),
       republishEvery: null,
     );
@@ -316,6 +322,64 @@ void main() {
     expect(service.status.isPublished, isTrue);
   });
 
+  test('a revoke that failed keeps the share, so it can be revoked again '
+      '(report24 G3-3)', () async {
+    // The old order cleared the published state and then asked for the
+    // revocation. When that failed, the directory had already forgotten the
+    // share: `withdrawIfFolder` no longer matched the folder and the ordinary
+    // withdraw no longer knew the id, so the capability stayed live with
+    // nothing left to revoke it by — while every screen said it was withdrawn.
+    final owner = _FakeIdentity(7);
+    final transport = _FakeDiscoveryTransport();
+    final kv = <String, String>{};
+    final attempts = <String>[];
+    var revokeWorks = false;
+
+    final service = PublicDirectoryService(
+      transport: transport,
+      selfId: owner.nodeId,
+      selfPublicKey: owner.publicKey,
+      sign: owner.sign,
+      verify: _fakeVerify,
+      putSetting: (k, v) async => kv[k] = v,
+      getSetting: (k) async => kv[k],
+      resolveNickname: (_) async => null,
+      revokeShare: (shareId) async {
+        attempts.add(shareId);
+        return revokeWorks;
+      },
+      now: () => DateTime.fromMillisecondsSinceEpoch(100000),
+      republishEvery: null,
+    );
+
+    await service.start();
+    expect(
+      await service.publish(
+        folderId: 'folder-1',
+        shareId: 'share-1',
+        link: 'xveil://cloud/v1#folderlink',
+        title: 'Alice files',
+      ),
+      isTrue,
+    );
+
+    // The revocation fails.
+    await service.withdrawIfFolder('folder-1');
+    expect(attempts, ['share-1']);
+    expect(
+      service.status.isPublished,
+      isTrue,
+      reason: 'a share that is still live must still be known',
+    );
+    expect(service.status.shareId, 'share-1');
+
+    // And the retry reaches the same share.
+    revokeWorks = true;
+    await service.withdrawIfFolder('folder-1');
+    expect(attempts, ['share-1', 'share-1']);
+    expect(service.status.isPublished, isFalse);
+  });
+
   test('service publish → persist → restart republish → resolve', () async {
     final owner = _FakeIdentity(5);
     final transport = _FakeDiscoveryTransport();
@@ -331,7 +395,10 @@ void main() {
       putSetting: (k, v) async => kv[k] = v,
       getSetting: (k) async => kv[k],
       resolveNickname: (name) async => name == 'alice' ? owner.nodeId : null,
-      revokeShare: (shareId) async => revoked.add(shareId),
+      revokeShare: (shareId) async {
+        revoked.add(shareId);
+        return true;
+      },
       now: () => DateTime.fromMillisecondsSinceEpoch(clock),
       republishEvery: null, // deterministic: drive republish manually
     );

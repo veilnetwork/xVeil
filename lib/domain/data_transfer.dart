@@ -74,6 +74,15 @@ const int kTransferKdfIterations = 3;
 const int kTransferKdfParallelism = 4;
 const int kTransferKdfSaltBytes = 16;
 
+/// The largest payload one record may declare.
+///
+/// The length comes out of the file, so it is an untrusted number that a
+/// reader would otherwise allocate on sight. It matches the export ceiling
+/// ([kExportFileByteCeiling]) with room to spare rather than being a second
+/// policy: anything this side of it is a file we would have written, anything
+/// past it is a file describing something we never write.
+const int kTransferMaxRecordBytes = 80 * 1024 * 1024;
+
 /// What a record in the body is.
 enum TransferRecordKind {
   /// A [DeviceSyncEvent] body, verbatim. Everything that has to MERGE rather
@@ -163,7 +172,11 @@ class TransferSeal {
     if (raw['alg'] != 'chacha20-poly1305' || raw['kdf'] != 'argon2id') {
       return null;
     }
-    if (salt is! String || m is! int || t is! int || p is! int || chunk is! int) {
+    if (salt is! String ||
+        m is! int ||
+        t is! int ||
+        p is! int ||
+        chunk is! int) {
       return null;
     }
     if (m <= 0 || t <= 0 || p <= 0 || chunk <= 0) return null;
@@ -235,7 +248,12 @@ class TransferHeader {
     if (raw is! Map) return null;
     if (raw['v'] != 1) return null;
     final created = raw['created'], node = raw['node'];
-    if (created is! int || node is! String || node.isEmpty) return null;
+    if (created is! int || node is! String) return null;
+    // A node id, not "some non-empty string". The reader is the only place
+    // that can insist on this, and everything downstream assumes it: the
+    // import compares it against this device's id, and the screen shows its
+    // first eight characters — which a shorter one turned into a crash.
+    if (!_looksLikeNodeId(node)) return null;
     final counts = <String, int>{};
     final rawCounts = raw['counts'];
     if (rawCounts is Map) {
@@ -262,13 +280,35 @@ class TransferHeader {
   }
 }
 
+/// A 64-character lowercase hex node id, and nothing else.
+bool _looksLikeNodeId(String value) {
+  if (value.length != 64) return false;
+  for (final unit in value.codeUnits) {
+    final isDigit = unit >= 0x30 && unit <= 0x39;
+    final isLowerHex = unit >= 0x61 && unit <= 0x66;
+    if (!isDigit && !isLowerHex) return false;
+  }
+  return true;
+}
+
 /// Why an archive could not be read.
 ///
 /// Separate causes rather than one message, because the caller acts on them
 /// differently: a wrong password is worth asking again, a wrong file is not,
 /// and a truncated archive means "you have half a file", which the person
 /// needs to hear in those words.
-enum TransferFailure { notAnArchive, unsupportedVersion, badPassword, truncated, corrupt }
+enum TransferFailure {
+  notAnArchive,
+  unsupportedVersion,
+  badPassword,
+  truncated,
+  corrupt,
+
+  /// A record declared more bytes than [kTransferMaxRecordBytes]. Its own
+  /// outcome because "the file asks for a gigabyte" is a different thing to
+  /// tell a person than "the file is damaged".
+  recordTooLarge,
+}
 
 class TransferException implements Exception {
   const TransferException(this.failure, [this.detail]);
@@ -344,7 +384,8 @@ class DataTransferWriter {
     TransferSeal? seal;
     SecretKey? key;
     if (password != null) {
-      final salt = saltForTest ?? cost?.salt ?? _randomBytes(kTransferKdfSaltBytes);
+      final salt =
+          saltForTest ?? cost?.salt ?? _randomBytes(kTransferKdfSaltBytes);
       seal = TransferSeal(
         salt: salt,
         memoryKib: cost?.memoryKib ?? kTransferKdfMemoryKib,
@@ -522,6 +563,14 @@ class DataTransferReader {
   /// first chunk will not open — which is the honest reading: the header is
   /// authenticated as associated data, so a failure here means either the
   /// password is wrong or somebody edited the header.
+  /// Release the underlying stream.
+  ///
+  /// Reading to the end does not do this on its own: a `StreamIterator` that
+  /// ran out still holds its subscription, and a preview that read only the
+  /// header never asked for another byte. For a file that is an open handle
+  /// with nobody left to close it.
+  Future<void> close() => _feed.cancel();
+
   Stream<TransferRecord> records({String? password}) async* {
     final seal = header.seal;
     _ByteFeed body = _feed;
@@ -533,42 +582,60 @@ class DataTransferReader {
       body = _ByteFeed(_unsealed(_feed, key, seal));
     }
     var sawEnd = false;
-    while (true) {
-      final line = await body.line();
-      if (line == null) break;
-      if (line.isEmpty) continue;
-      Object? decoded;
-      try {
-        decoded = jsonDecode(line);
-      } catch (_) {
-        throw const TransferException(TransferFailure.corrupt, 'record header');
+    try {
+      while (true) {
+        final line = await body.line();
+        if (line == null) break;
+        if (line.isEmpty) continue;
+        Object? decoded;
+        try {
+          decoded = jsonDecode(line);
+        } catch (_) {
+          throw const TransferException(
+            TransferFailure.corrupt,
+            'record header',
+          );
+        }
+        if (decoded is! Map) {
+          throw const TransferException(
+            TransferFailure.corrupt,
+            'record header',
+          );
+        }
+        final kind = TransferRecordKind.fromName(decoded['k'] as String?);
+        final n = decoded['n'];
+        if (n is int && n > kTransferMaxRecordBytes) {
+          throw const TransferException(TransferFailure.recordTooLarge);
+        }
+        final length = n is int && n > 0 ? n : 0;
+        final payload = length == 0 ? null : await body.take(length);
+        if (length > 0 && payload == null) {
+          throw const TransferException(TransferFailure.truncated, 'payload');
+        }
+        if (kind == TransferRecordKind.end) {
+          sawEnd = true;
+          break;
+        }
+        // An unknown kind is skipped, not fatal: an archive from a later build
+        // should still give up everything this one understands. Its payload was
+        // consumed above, so the stream stays aligned.
+        if (kind == null) continue;
+        final meta = <String, dynamic>{};
+        decoded.forEach((k, v) {
+          if (k is String && k != 'k' && k != 'n') meta[k] = v;
+        });
+        yield TransferRecord(kind: kind, meta: meta, payload: payload);
       }
-      if (decoded is! Map) {
-        throw const TransferException(TransferFailure.corrupt, 'record header');
+      if (!sawEnd) {
+        throw const TransferException(
+          TransferFailure.truncated,
+          'no end marker',
+        );
       }
-      final kind = TransferRecordKind.fromName(decoded['k'] as String?);
-      final n = decoded['n'];
-      final length = n is int && n > 0 ? n : 0;
-      final payload = length == 0 ? null : await body.take(length);
-      if (length > 0 && payload == null) {
-        throw const TransferException(TransferFailure.truncated, 'payload');
-      }
-      if (kind == TransferRecordKind.end) {
-        sawEnd = true;
-        break;
-      }
-      // An unknown kind is skipped, not fatal: an archive from a later build
-      // should still give up everything this one understands. Its payload was
-      // consumed above, so the stream stays aligned.
-      if (kind == null) continue;
-      final meta = <String, dynamic>{};
-      decoded.forEach((k, v) {
-        if (k is String && k != 'k' && k != 'n') meta[k] = v;
-      });
-      yield TransferRecord(kind: kind, meta: meta, payload: payload);
-    }
-    if (!sawEnd) {
-      throw const TransferException(TransferFailure.truncated, 'no end marker');
+    } finally {
+      // However this ended — the end marker, a refusal, or a caller that
+      // stopped consuming — the file handle goes back.
+      await close();
     }
   }
 
@@ -614,24 +681,30 @@ class DataTransferReader {
 }
 
 /// Incremental reader over a byte stream: give me a line, give me N bytes.
+///
+/// A QUEUE of arriving chunks with a cursor, not one growing buffer. The first
+/// version concatenated everything held so far with each new chunk, so reading
+/// N bytes in c-sized pieces copied about N²/2c bytes — measured at 136 MB of
+/// copying for a 4 MiB record arriving in 64 KiB chunks. Nothing about that is
+/// visible in a small test; it turns into a phone that stalls on a real
+/// attachment.
 class _ByteFeed {
   _ByteFeed(Stream<List<int>> source) : _it = StreamIterator(source);
 
   final StreamIterator<List<int>> _it;
-  final BytesBuilder _buf = BytesBuilder(copy: false);
-  Uint8List _held = Uint8List(0);
-  bool _done = false;
 
-  Uint8List get _bytes {
-    if (_buf.length > 0) {
-      final more = _buf.takeBytes();
-      final joined = Uint8List(_held.length + more.length)
-        ..setRange(0, _held.length, _held)
-        ..setRange(_held.length, _held.length + more.length, more);
-      _held = joined;
-    }
-    return _held;
-  }
+  /// Arrived, unconsumed chunks. Bytes are copied ONCE, into whatever the
+  /// caller asked for.
+  final List<Uint8List> _chunks = [];
+
+  /// How far into `_chunks.first` the reader has already gone.
+  int _offset = 0;
+
+  /// Total unconsumed bytes across the queue.
+  int _available = 0;
+
+  bool _done = false;
+  bool _cancelled = false;
 
   Future<bool> _pull() async {
     if (_done) return false;
@@ -639,40 +712,85 @@ class _ByteFeed {
       _done = true;
       return false;
     }
-    _buf.add(_it.current);
+    final chunk = _it.current;
+    if (chunk.isEmpty) return true;
+    _chunks.add(chunk is Uint8List ? chunk : Uint8List.fromList(chunk));
+    _available += chunk.length;
     return true;
+  }
+
+  /// Release the source.
+  ///
+  /// Deliberately idempotent and safe to call after the stream ended: a reader
+  /// that is done, one that was abandoned after the header, and one that threw
+  /// all reach here, and only the first of those has already finished with the
+  /// iterator.
+  Future<void> cancel() async {
+    if (_cancelled) return;
+    _cancelled = true;
+    await _it.cancel();
+  }
+
+  /// Index of [byte] in the queued bytes, or -1.
+  int _indexOf(int byte) {
+    var seen = 0;
+    for (var i = 0; i < _chunks.length; i++) {
+      final chunk = _chunks[i];
+      final from = i == 0 ? _offset : 0;
+      final at = chunk.indexOf(byte, from);
+      if (at >= 0) return seen + (at - from);
+      seen += chunk.length - from;
+    }
+    return -1;
+  }
+
+  /// Remove and return the next [n] queued bytes. Caller has checked they are
+  /// there.
+  Uint8List _consume(int n) {
+    final out = Uint8List(n);
+    var written = 0;
+    while (written < n) {
+      final chunk = _chunks.first;
+      final from = _offset;
+      final take = chunk.length - from < n - written
+          ? chunk.length - from
+          : n - written;
+      out.setRange(written, written + take, chunk, from);
+      written += take;
+      _offset += take;
+      if (_offset >= chunk.length) {
+        _chunks.removeAt(0);
+        _offset = 0;
+      }
+    }
+    _available -= n;
+    return out;
   }
 
   /// Up to the next `\n`, decoded as UTF-8; null at end of stream.
   Future<String?> line() async {
     while (true) {
-      final b = _bytes;
-      final nl = b.indexOf(0x0a);
+      final nl = _indexOf(0x0a);
       if (nl >= 0) {
-        final out = utf8.decode(Uint8List.sublistView(b, 0, nl));
-        _held = Uint8List.sublistView(b, nl + 1);
+        final out = utf8.decode(_consume(nl));
+        _consume(1); // the newline itself
         return out;
       }
       if (!await _pull()) {
-        if (_bytes.isEmpty) return null;
+        if (_available == 0) return null;
         // A last line without its newline is still a line; refusing it would
         // turn a file some tool trimmed into "not an archive".
-        final out = utf8.decode(_bytes);
-        _held = Uint8List(0);
-        return out;
+        return utf8.decode(_consume(_available));
       }
     }
   }
 
   /// Exactly [n] bytes; null when the stream ends first.
   Future<Uint8List?> take(int n) async {
-    while (_bytes.length < n) {
+    while (_available < n) {
       if (!await _pull()) return null;
     }
-    final b = _bytes;
-    final out = Uint8List.fromList(Uint8List.sublistView(b, 0, n));
-    _held = Uint8List.sublistView(b, n);
-    return out;
+    return _consume(n);
   }
 }
 

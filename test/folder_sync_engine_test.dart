@@ -127,6 +127,11 @@ class _FakeDisk implements FolderSyncDisk {
   bool rootMissing = false;
   List<String> unreadable = const [];
 
+  /// Paths whose download refuses to publish — the real writer's behaviour
+  /// when the remote copy stops being readable or the name is refused: the
+  /// scratch file is dropped and the old file stays exactly as it was.
+  Set<String> refuseWrites = const {};
+
   @override
   Future<FolderScan> scan(String root) async => FolderScan(
     files: [
@@ -150,10 +155,15 @@ class _FakeDisk implements FolderSyncDisk {
   }
 
   @override
-  Future<void> writeFrom(String root, String path, RangeSource source) async {
+  Future<bool> writeFrom(String root, String path, RangeSource source) async {
     calls.add('write:$path');
+    if (refuseWrites.contains(path)) {
+      // Nothing is written and nothing is renamed: whatever was there stays.
+      return false;
+    }
     final bytes = await _drain(source.size, (o, l) async => (await source.read(o, l))!);
     files[path] = utf8.decode(bytes);
+    return true;
   }
 
   @override
@@ -204,6 +214,38 @@ void main() {
     expect(disk.files.keys, containsAll(['mine.txt', 'theirs.txt']));
     final base = (await store.state('p1')).base.map((f) => f.path).toSet();
     expect(base, {'mine.txt', 'theirs.txt'});
+  });
+
+  test('a download that did not publish leaves base alone, even at equal size',
+      () async {
+    // report24 XV24-02. The old check was `stat.size != source.size`, and the
+    // OLD file passes it whenever the new version happens to be the same
+    // length — which is ordinary, not contrived: three bytes replaced by three
+    // bytes. Base then recorded the NEW content id over unchanged bytes, and
+    // the next pass saw nothing to do, so the copies stayed apart for good.
+    disk.files['a.txt'] = 'old';
+    await engine.runOnce(pair);
+
+    cloud.seed('a.txt', 'NEW'); // same length, different content
+    disk.refuseWrites = {'a.txt'};
+
+    final report = await engine.runOnce(pair);
+
+    expect(disk.files['a.txt'], 'old', reason: 'nothing was published');
+    final base = (await store.state('p1')).base
+        .firstWhere((f) => f.path == 'a.txt');
+    expect(
+      base.contentId,
+      isNot(cloud.files['a.txt']?.contentId),
+      reason: 'base must not claim a version that never landed',
+    );
+    expect(report.applied.map((a) => a.kind), isNot(contains(SyncActionKind.download)));
+
+    // And the retry actually happens: with the writer working again, the next
+    // pass downloads it. A base that had moved would have skipped this.
+    disk.refuseWrites = const {};
+    await engine.runOnce(pair);
+    expect(disk.files['a.txt'], 'NEW');
   });
 
   test('a second pass with nothing changed does nothing at all', () async {

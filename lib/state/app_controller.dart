@@ -159,23 +159,40 @@ const _kStorageModeKey = 'storage_mode';
 /// is what separates those.
 @immutable
 class IdentityLease {
-  const IdentityLease(this.label, this.epoch);
+  const IdentityLease(this.label, this.epoch, this.lifecycle);
 
   /// The identity that was active, or null before any is.
+  ///
+  /// NOT an identifier of a space. With a single identity it is null before a
+  /// lock and null again after unlocking a DIFFERENT space with a different
+  /// password — same label, same epoch, another container entirely. That is
+  /// why [lifecycle] is part of the claim (report24 CH-H1).
   final String? label;
 
   /// Which activation of it — see `AppController._identityEpoch`.
   final int epoch;
 
+  /// Which session — see `AppController._lifecycle`.
+  ///
+  /// A lock bumps it at the top of the teardown, before the first await, so a
+  /// lease taken before a lock cannot survive it. Without this a callback held
+  /// across a native file picker — the picker is the window, no attacker
+  /// needed — wrote the file into whichever space had been unlocked since.
+  final int lifecycle;
+
   @override
   bool operator ==(Object other) =>
-      other is IdentityLease && other.label == label && other.epoch == epoch;
+      other is IdentityLease &&
+      other.label == label &&
+      other.epoch == epoch &&
+      other.lifecycle == lifecycle;
 
   @override
-  int get hashCode => Object.hash(label, epoch);
+  int get hashCode => Object.hash(label, epoch, lifecycle);
 
   @override
-  String toString() => 'IdentityLease($label, epoch $epoch)';
+  String toString() =>
+      'IdentityLease($label, epoch $epoch, lifecycle $lifecycle)';
 }
 
 class AppController extends Notifier<AppState> {
@@ -478,16 +495,38 @@ class AppController extends Notifier<AppState> {
   /// one after is always safe.
   int _identityEpoch = 0;
 
+  /// Which ACTIVATION of the all-online view this is.
+  ///
+  /// [_lifecycle] answers "did the session end" and [_identityEpoch] "did the
+  /// active identity change" — and neither catches two switches racing each
+  /// other. Both re-point the providers, then each finishes its own profile
+  /// read and publishes the state it captured: the LATER switch pointed
+  /// storage and messaging at C, and the earlier one's publish then named B on
+  /// screen. Not a passing frame — the final state, until something else moves
+  /// (report24 CH-H2).
+  ///
+  /// Taken before the first await and re-checked after every one: only the
+  /// newest activation may publish anything.
+  int _activation = 0;
+
   /// A claim on the identity that is active right now.
   ///
   /// Take one BEFORE the first await; ask [holdsIdentity] after every await
   /// that hands control back to the platform — a picker, a dialog, a native
   /// save sheet — and before any read, write, send or navigation.
-  IdentityLease leaseIdentity() => IdentityLease(_activeLabel, _identityEpoch);
+  IdentityLease leaseIdentity() =>
+      IdentityLease(_activeLabel, _identityEpoch, _lifecycle);
 
-  /// Whether `lease` still names the identity the app is showing.
+  /// Whether `lease` still names the identity the app is showing — AND the
+  /// session it was taken in.
+  ///
+  /// The label is not enough and never was: a single identity carries a null
+  /// label across a lock, so a lease taken in one space matched a completely
+  /// different space unlocked afterwards.
   bool holdsIdentity(IdentityLease lease) =>
-      lease.epoch == _identityEpoch && lease.label == _activeLabel;
+      lease.lifecycle == _lifecycle &&
+      lease.epoch == _identityEpoch &&
+      lease.label == _activeLabel;
 
   /// Test seam for the one dependency of [_ensureRealStack] a unit test cannot
   /// provide: the static [RealVeilStack.startDeniable], which boots a real
@@ -1360,6 +1399,10 @@ class AppController extends Notifier<AppState> {
     // itself, said nothing had superseded us, and let `ready` be published
     // over a lock screen the person had just raised (report18 XV18-M7).
     final gen = _lifecycle;
+    // And which activation this is. A second switch started while this one is
+    // reading a profile makes this one stale, and a stale activation must
+    // publish NOTHING — not the view, not the state.
+    final activation = ++_activation;
     // BEFORE the view is re-pointed: from here on, this identity is the one a
     // reply would be sent from, and no alert from the one being left behind
     // may still be on screen offering to send it.
@@ -1367,6 +1410,10 @@ class AppController extends Notifier<AppState> {
     await _dropPostedNotifications();
     if (_supersededSince(gen)) {
       devLog(() => 'xVeil[all-online]: locked mid-activate — staying locked');
+      return;
+    }
+    if (activation != _activation) {
+      devLog(() => 'xVeil[all-online]: superseded by a later switch');
       return;
     }
     // And the session may be gone with it. `!` here threw an unhandled
@@ -1410,6 +1457,14 @@ class AppController extends Notifier<AppState> {
       // Locked while the profile / node id was being read. `ready` here would
       // put the messenger back over a lock screen the user just raised.
       devLog(() => 'xVeil[all-online]: locked mid-activate — staying locked');
+      return;
+    }
+    if (activation != _activation) {
+      // Another switch overtook this one while the profile was being read. It
+      // has already pointed the providers at ITS identity; publishing here
+      // would leave the screen naming one identity while every write went to
+      // the other.
+      devLog(() => 'xVeil[all-online]: superseded before publish');
       return;
     }
     state = AppState(

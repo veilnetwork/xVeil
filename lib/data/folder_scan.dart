@@ -2,6 +2,8 @@ import 'dart:io';
 
 import '../domain/folder_sync.dart';
 
+export '../domain/folder_sync.dart' show kPartialSuffix;
+
 /// The result of walking one local folder.
 class FolderScan {
   const FolderScan({
@@ -34,12 +36,14 @@ class FolderScan {
 /// them is noise at best: .DS_Store in particular changes whenever a Finder
 /// window is resized, which would produce a stream of uploads describing
 /// nothing.
-const _junk = {'.DS_Store', 'Thumbs.db', 'desktop.ini', '.localized'};
+///
+/// The list itself now lives with the plan ([kMirrorJunkNames]), because the
+/// scanner is not the only side that has to agree about it.
 
-/// The suffix a half-finished download carries. It is OURS, never the user's,
-/// and a write that died before its rename leaves one behind: without this the
-/// next scan reads the debris as a new file and uploads it.
-const kPartialSuffix = '.xveil-part';
+// The half-download suffix and the junk list live with the PLAN
+// (`domain/folder_sync.dart`) and are re-exported at the top of this file:
+// two spellings of one suffix is how a writer and a scanner come to disagree
+// about what is debris.
 
 /// Walk [root] and describe every file it contains, relative to [root].
 ///
@@ -85,11 +89,7 @@ Future<FolderScan> scanFolder(
           .last;
       // Hidden entries are configuration, caches and version-control
       // internals. A mirror that carries .git across devices corrupts it.
-      if (name.startsWith('.') ||
-          _junk.contains(name) ||
-          name.endsWith(kPartialSuffix)) {
-        continue;
-      }
+      if (folderMirrorSkipsName(name)) continue;
       final relative = _relative(rootPath, entry.path);
       if (exclude?.call(relative) ?? false) continue;
       if (entry is Link) continue;
