@@ -3317,5 +3317,7 @@
   "transferTruncated": "The archive is incomplete — the copy did not finish.",
   "transferNotAnArchive": "That file is not an xVeil archive.",
   "transferCorrupt": "The archive is damaged.",
-  "settingsTransferHint": "Move everything to another device through a file"
+  "settingsTransferHint": "Move everything to another device through a file",
+  "transferTooLarge": "The archive describes a record far larger than xVeil ever writes, so it was not read.",
+  "cloudFolderShareRevokeFailed": "Could not revoke the link — it may still work. Try again."
 }

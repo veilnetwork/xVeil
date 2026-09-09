@@ -34,6 +34,7 @@ import '../domain/data_transfer.dart';
 import '../domain/device_sync.dart';
 import '../domain/identity.dart';
 import 'device_sync_appliers.dart';
+import 'transferable_settings.dart';
 
 /// Why an archive was refused before anything was applied.
 enum ImportRefusal {
@@ -67,9 +68,11 @@ class DataImportReport {
     required this.filesAlreadyHere,
     required this.settingsFilled,
     required this.settingsKept,
+    required this.settingsRefused,
     required this.identityAdopted,
     required this.profileFilled,
     required this.unknownRecords,
+    required this.unconfirmedAppliers,
   });
 
   /// Events handed to the appliers. Not the same as "changes": an event for
@@ -85,11 +88,20 @@ class DataImportReport {
   /// Settings this device had already, and kept.
   final int settingsKept;
 
+  /// Settings the archive carried that are not transferable — credentials,
+  /// key material, machine-local state. Counted rather than dropped in
+  /// silence: an archive holding these is worth knowing about.
+  final int settingsRefused;
+
   final bool identityAdopted;
   final bool profileFilled;
 
   /// Records from a newer vocabulary, skipped.
   final int unknownRecords;
+
+  /// Appliers that took events but cannot report when their writes finish.
+  /// Non-zero means part of the merge is still landing after this report.
+  final int unconfirmedAppliers;
 }
 
 /// Reads an archive into an open space.
@@ -111,8 +123,16 @@ class DataImporter {
 
   /// Read the header alone: whose archive this is, what is in it, and whether
   /// it needs a password. Nothing is applied.
-  static Future<TransferHeader> inspect(Stream<List<int>> bytes) async =>
-      (await DataTransferReader.open(bytes)).header;
+  static Future<TransferHeader> inspect(Stream<List<int>> bytes) async {
+    final reader = await DataTransferReader.open(bytes);
+    try {
+      return reader.header;
+    } finally {
+      // A preview borrows the file for one line. Without this the picker's
+      // read handle stays open for every archive the person looks at.
+      await reader.close();
+    }
+  }
 
   /// Merge [bytes] into the open space.
   ///
@@ -150,6 +170,7 @@ class DataImporter {
     var filesHere = 0;
     var settingsFilled = 0;
     var settingsKept = 0;
+    var settingsRefused = 0;
     var identityAdopted = false;
     var profileFilled = false;
     var unknown = 0;
@@ -173,10 +194,32 @@ class DataImporter {
             unknown++;
             break;
           }
-          _appliers.deliver(event);
+          await _appliers.deliver(event);
           syncEvents++;
 
         case TransferRecordKind.identity:
+          // The HEADER is a preview, never an authority. It said whether an
+          // identity was coming; this record is the identity actually arriving,
+          // and an archive whose header says `keys:false` can still carry one —
+          // the two are written by whoever made the file.
+          //
+          // So every condition is checked here, against storage rather than
+          // against the header's word: this device must hold no identity of its
+          // own, the header must have declared one (an undeclared identity is a
+          // file that lied, and is refused rather than quietly obeyed), and only
+          // ONE may land — a second record in the same archive is somebody
+          // trying again after the first was accepted.
+          if (identityAdopted) {
+            throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
+          }
+          if (self.isNotEmpty || !header.includesIdentity) {
+            throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
+          }
+          if ((await _storage.loadNodeConfig() ?? '').trim().isNotEmpty) {
+            // The device said it had none and the storage says otherwise:
+            // whichever is stale, overwriting is the one thing not to do.
+            throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
+          }
           final payload = record.payload;
           if (payload == null || payload.isEmpty) break;
           await _storage.saveNodeConfig(utf8.decode(payload));
@@ -203,6 +246,14 @@ class DataImporter {
           final key = record.meta['key'];
           final value = record.meta['v'];
           if (key is! String || value is! String) break;
+          // The exporter writes only transferable keys — but the archive is a
+          // file, and a file says whatever its author wrote. Checked again on
+          // arrival, because "the other side already filtered it" is not a
+          // property of an untrusted input.
+          if (!isTransferableSetting(key)) {
+            settingsRefused++;
+            break;
+          }
           final here = await _storage.getSetting(key);
           if (here != null && here.isNotEmpty) {
             settingsKept++;
@@ -228,15 +279,23 @@ class DataImporter {
       }
     }
 
+    // The appliers queue their writes behind per-slot chains; delivery only
+    // means "decided". Waiting here is what lets the screen say "merged" and
+    // have it be true — and [DeviceSyncAppliers.unconfirmed] is what stops it
+    // claiming that for appliers which cannot report at all.
+    await _appliers.settleAll();
+
     return DataImportReport(
       syncEvents: syncEvents,
       filesAdded: filesAdded,
       filesAlreadyHere: filesHere,
       settingsFilled: settingsFilled,
       settingsKept: settingsKept,
+      settingsRefused: settingsRefused,
       identityAdopted: identityAdopted,
       profileFilled: profileFilled,
       unknownRecords: unknown,
+      unconfirmedAppliers: _appliers.unconfirmed,
     );
   }
 }

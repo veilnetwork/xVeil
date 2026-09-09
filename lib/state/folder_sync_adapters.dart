@@ -105,9 +105,14 @@ class CloudServiceFolderSync implements FolderSyncCloud {
       if (cid == null) continue;
       final prefix = paths[item.folderId];
       if (prefix == null) continue; // outside this pair's subtree
+      final path = prefix.isEmpty ? item.name : '$prefix/${item.name}';
+      // A name the local scanner will never return. Listing it would have the
+      // plan download something the next pass cannot see, and a file the scan
+      // cannot see reads as one the user deleted (report24 XV24-03).
+      if (folderMirrorSkipsPath(path)) continue;
       files.add(
         RemoteFile(
-          path: prefix.isEmpty ? item.name : '$prefix/${item.name}',
+          path: path,
           itemId: item.id,
           contentId: cid,
           size: item.size,
@@ -268,13 +273,13 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
   /// faithfully upload the damage over the good copy in the cloud. The rename
   /// is atomic on every platform this runs on.
   @override
-  Future<void> writeFrom(String root, String path, RangeSource source) async {
+  Future<bool> writeFrom(String root, String path, RangeSource source) async {
     final resolved = mirrorPathWithin(root, path);
     if (resolved == null) {
       // Refuse rather than throw: one hostile name must not stop the pass from
       // mirroring every other file, and a throw here would be reported to the
       // user as "sync failed" with nothing they can act on.
-      return;
+      return false;
     }
     final file = File(resolved);
     await file.parent.create(recursive: true);
@@ -283,7 +288,7 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // `mirrorPathWithin` above and this open is refused rather than followed.
     // That is the residual this file has documented since it was written.
     final temp = await _openScratch(root, path, file);
-    if (temp == null) return;
+    if (temp == null) return false;
     final sink = temp.sink;
     var written = 0;
     try {
@@ -303,7 +308,7 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
       // pass retries. Renaming a short file would publish a truncated one that
       // the following scan reads as a deliberate user edit and faithfully
       // uploads over the good copy.
-      return;
+      return false;
     } finally {
       await sink.close();
     }
@@ -315,12 +320,14 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
     // dropping both turns them red.
     if (written == source.size) {
       await temp.file.rename(file.path);
+      return true;
     } else {
       // Nothing will rename it now; do not leave a scratch file behind under a
       // name the scanner does not recognise.
       try {
         await temp.file.delete();
       } catch (_) {}
+      return false;
     }
   }
 

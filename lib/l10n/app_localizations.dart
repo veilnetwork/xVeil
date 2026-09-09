@@ -12330,6 +12330,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Move everything to another device through a file'**
   String get settingsTransferHint;
+
+  /// No description provided for @transferTooLarge.
+  ///
+  /// In en, this message translates to:
+  /// **'The archive describes a record far larger than xVeil ever writes, so it was not read.'**
+  String get transferTooLarge;
+
+  /// No description provided for @cloudFolderShareRevokeFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not revoke the link — it may still work. Try again.'**
+  String get cloudFolderShareRevokeFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

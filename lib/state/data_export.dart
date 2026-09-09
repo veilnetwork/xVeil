@@ -33,6 +33,7 @@ import '../data/storage/storage.dart';
 import '../domain/chat.dart';
 import '../domain/data_transfer.dart';
 import '../domain/device_sync.dart';
+import 'transferable_settings.dart';
 import 'device_sync_bridge.dart' show contactPrefsPayload;
 
 /// Files larger than this are named in the archive but their bytes are not
@@ -279,7 +280,7 @@ class DataExporter {
             payload: {'v': value},
           ),
         );
-      } else {
+      } else if (isTransferableSetting(key)) {
         await writer.add(
           TransferRecord(
             kind: TransferRecordKind.setting,
@@ -288,6 +289,9 @@ class DataExporter {
         );
         records++;
       }
+      // Everything else stays: the settings namespace also holds credentials
+      // and machine-local state, and an archive is not how either of those
+      // moves. See transferable_settings.dart for what travels and why.
       step();
     }
 
@@ -309,7 +313,7 @@ class DataExporter {
         await emit(
           DeviceSyncEvent(
             kind: DeviceSyncKind.contactUp,
-            key: 's:\$peerHex',
+            key: 's:$peerHex',
             tsMs: _now(),
             payload: {'status': contact.status.name},
           ),

@@ -92,6 +92,9 @@ typedef _WriteDart =
       Pointer<Pointer<Utf8>>,
     );
 
+typedef _SyncNative = Bool Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
+typedef _SyncDart = bool Function(Pointer<Void>, Pointer<Pointer<Utf8>>);
+
 typedef _CloseNative = Void Function(Pointer<Void>);
 typedef _CloseDart = void Function(Pointer<Void>);
 
@@ -261,6 +264,7 @@ Future<VeilBeneathCreate> veilCreateBeneath(
   }
   final _CreateDart create;
   final _WriteDart write;
+  final _SyncDart sync;
   final _CloseDart close;
   final _FreeStrDart freeStr;
   try {
@@ -268,6 +272,7 @@ Future<VeilBeneathCreate> veilCreateBeneath(
       'veil_fs_create_beneath',
     );
     write = dl.lookupFunction<_WriteNative, _WriteDart>('veil_fs_write');
+    sync = dl.lookupFunction<_SyncNative, _SyncDart>('veil_fs_sync');
     close = dl.lookupFunction<_CloseNative, _CloseDart>('veil_fs_close');
     freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
       'veil_free_string',
@@ -333,9 +338,33 @@ Future<VeilBeneathCreate> veilCreateBeneath(
     }
   }
 
-  // Every write is a `pwrite` that has already reached the kernel, so there is
-  // nothing buffered here to push. Present because the caller's sink has it.
-  Future<void> flush() async {}
+  /// Put what was written on the DISK.
+  ///
+  /// This used to be empty, with a comment saying every write had already
+  /// reached the kernel — true, and not what a flush is for. The caller writes
+  /// a scratch file, flushes, and renames it over the real name; without a
+  /// barrier in between, a power loss can leave the new NAME pointing at
+  /// contents that were never written, which is exactly what the rename dance
+  /// exists to prevent. The Dart sink this replaced called
+  /// `RandomAccessFile.flush`, which does sync — so the barrier was not
+  /// missing by design, it was dropped in the move to descriptors
+  /// (report24 XV24-04).
+  Future<void> flushIt() async {
+    if (closed) return;
+    final err = calloc<Pointer<Utf8>>();
+    try {
+      if (sync(handle, err)) return;
+      final message = err.value == nullptr
+          ? 'sync refused'
+          : err.value.toDartString();
+      if (err.value != nullptr) freeStr(err.value);
+      // Raised, not swallowed: the caller renames after this, and a rename
+      // over unwritten contents is the failure being prevented.
+      throw FileSystemException('veil_fs_sync failed', message);
+    } finally {
+      calloc.free(err);
+    }
+  }
 
   Future<void> closeIt() async {
     if (closed) return;
@@ -344,7 +373,7 @@ Future<VeilBeneathCreate> veilCreateBeneath(
   }
 
   return (
-    sink: (writeFrom: writeChunk, flush: flush, close: closeIt),
+    sink: (writeFrom: writeChunk, flush: flushIt, close: closeIt),
     supported: true,
   );
 }

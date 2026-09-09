@@ -1128,20 +1128,20 @@ class VeilCallMediaController implements CallMediaController {
         await nativeCam.stop();
       } catch (_) {}
     }
+    // The camera and screen teardowns are STARTED here and awaited at the end.
+    //
+    // Both detach their sinks synchronously, so nothing can reach the engine
+    // from this line on — and both may then sit on a platform call that has
+    // not answered. Awaiting them here put the audio engine, the media channel
+    // and the call slot behind that wait: the call was over on screen while
+    // the microphone was still running (report24 MEDIA-1).
+    final closing = <Future<void>>[];
     final cam = _androidCam;
     _androidCam = null;
-    if (cam != null) {
-      try {
-        await cam.stop();
-      } catch (_) {}
-    }
+    if (cam != null) closing.add(cam.stop().catchError((Object _) {}));
     final screen = _androidScreen;
     _androidScreen = null;
-    if (screen != null) {
-      try {
-        await screen.stop();
-      } catch (_) {}
-    }
+    if (screen != null) closing.add(screen.stop().catchError((Object _) {}));
     final e = _engine;
     _engine = null;
     if (identical(_diagnosticMediaController, this)) {
@@ -1167,6 +1167,14 @@ class VeilCallMediaController implements CallMediaController {
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);
+      } catch (_) {}
+    }
+    // Now that the audio, the engine and the channel are gone, wait for the
+    // capture teardowns — they are bounded by their own grace, and nothing
+    // downstream depends on them any more.
+    if (closing.isNotEmpty) {
+      try {
+        await Future.wait(closing);
       } catch (_) {}
     }
     // A route repair tears down and recreates only the media session. Keep the

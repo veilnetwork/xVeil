@@ -132,6 +132,68 @@ void main() {
     expect(applied, ['dark', 'light']);
   });
 
+  test('a write that FAILED is not remembered as applied (report24 CH-M3)',
+      () async {
+    // The watermark is moved before the work runs — admission has to be one
+    // decision — and the old code left it there when the work threw. A re-fold
+    // or a re-import then offers the SAME event, which loses to the watermark
+    // its own failure left behind: one transient error froze that slot for the
+    // life of the gate while everything reported success.
+    const now = 1700000000000;
+    final gate = DeviceSyncApplyGate(nowMs: () => now);
+    final event = DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet,
+      key: 'theme',
+      tsMs: now - 1000,
+      payload: const {'v': 'dark'},
+    );
+
+    var attempts = 0;
+    expect(
+      gate.offer(event, () => () async {
+        attempts++;
+        throw StateError('the write failed');
+      }),
+      isTrue,
+    );
+    await gate.settle();
+    expect(attempts, 1);
+
+    var applied = 0;
+    final accepted = gate.offer(event, () => () async => applied++);
+    await gate.settle();
+
+    expect(accepted, isTrue, reason: 'a failed write must leave a retry open');
+    expect(applied, 1, reason: 'the retry must actually run');
+  });
+
+  test('a newer event that succeeded is not undone by an older failure',
+      () async {
+    // The rollback must not hand the slot back to an event that already lost:
+    // if something newer was admitted while the failing one was queued, the
+    // watermark belongs to the newer one.
+    const now = 1700000000000;
+    final gate = DeviceSyncApplyGate(nowMs: () => now);
+    DeviceSyncEvent at(int ts, String value) => DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'theme',
+          tsMs: ts,
+          payload: {'v': value},
+        );
+
+    gate.offer(at(now - 2000, 'old'), () => () async {
+      throw StateError('the write failed');
+    });
+    gate.offer(at(now - 1000, 'new'), () => () async {});
+    await gate.settle();
+
+    expect(
+      gate.offer(at(now - 2000, 'old'), () => () async {}),
+      isFalse,
+      reason: 'the older event lost to a newer one that did land',
+    );
+  });
+
   test('one key applies serially, different keys apply in parallel — deciding '
       'an order and then starting the work concurrently decides nothing '
       '(XV-12)', () async {

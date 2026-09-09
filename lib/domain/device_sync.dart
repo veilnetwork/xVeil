@@ -236,12 +236,31 @@ class DeviceSyncApplyGate {
     if (applied != null && !isNewerDeviceSync(event, applied)) return false;
     final run = plan();
     if (run == null) return false;
+    final previous = _applied[slot];
     _applied[slot] = event;
     final queued = (_chains[slot] ?? Future<void>.value())
         .then((_) => run())
-        // A failed apply must not poison the slot for everything behind it;
-        // the log still holds the row and a later re-fold retries the state.
-        .catchError((Object _) {});
+        // A failed apply must not poison the slot for everything behind it —
+        // and must not be REMEMBERED as applied either. The watermark is moved
+        // above, before the work runs, because admission has to be decided in
+        // one go; if the work then throws, this puts it back.
+        //
+        // The old comment claimed a later re-fold would retry. It does not:
+        // a re-fold offers the SAME event, which loses to the watermark this
+        // very failure left behind, so one transient write error froze that
+        // slot — a contact status, a setting, a read mark — for the life of
+        // the gate, while everything reported success (report24 CH-M3).
+        //
+        // Restored only if nothing NEWER was admitted meanwhile: rolling that
+        // back would let an older event win a race it already lost.
+        .catchError((Object _) {
+          if (!identical(_applied[slot], event)) return;
+          if (previous == null) {
+            _applied.remove(slot);
+          } else {
+            _applied[slot] = previous;
+          }
+        });
     _chains[slot] = queued;
     unawaited(
       queued.whenComplete(() {
@@ -257,4 +276,21 @@ class DeviceSyncApplyGate {
   /// zero — the chains are per key, so leaving them behind would grow a map
   /// entry per conversation, setting and journal row for the bridge's lifetime.
   int get pendingSlots => _chains.length;
+
+  /// Wait for everything admitted so far to finish.
+  ///
+  /// [offer] returns as soon as it has DECIDED — the write itself is queued
+  /// behind that slot's own chain. For the live stream that is the right
+  /// shape: nobody is waiting. An offline import is the other case: a person
+  /// is standing in front of a screen that will say "merged", and saying it
+  /// while the writes are still queued makes the word mean nothing.
+  ///
+  /// Loops because a chain may enqueue behind itself while being awaited; the
+  /// bound is there so a slot that somehow keeps refilling cannot hold the
+  /// caller forever.
+  Future<void> settle({int rounds = 64}) async {
+    for (var i = 0; i < rounds && _chains.isNotEmpty; i++) {
+      await Future.wait(List<Future<void>>.of(_chains.values));
+    }
+  }
 }

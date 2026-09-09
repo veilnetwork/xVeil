@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/fs_beneath.dart';
 import 'package:xveil/data/serve_source.dart';
+import 'package:xveil/state/api_server.dart';
 
 void main() {
   final dylib = Platform.environment['VEIL_FFI_DYLIB'];
@@ -106,6 +107,26 @@ void main() {
   // THE WIRING, not just the helper. Removing the strong path from
   // `veilOpenPinnedSource` left every test above green: they call the walk
   // directly, and nothing said the senders go through it.
+  test('a created file is flushed to disk before it is renamed', () async {
+    // report24 XV24-04: the sink's flush was empty, with a comment explaining
+    // that pwrite already reached the kernel — true, and not durability. The
+    // caller renames straight after this, so an unwritten file under the new
+    // name is exactly what the rename is meant to rule out.
+    final created = await veilCreateBeneath(root.path, 'synced.bin', lib: lib);
+    expect(created.supported, isTrue);
+    final sink = created.sink!;
+    await sink.writeFrom(List<int>.filled(4096, 0x5A));
+    // The assertion is that this REACHES the native sync and comes back
+    // without an error; a no-op would pass too, so the break-check for it is
+    // removing `veil_fs_sync` from the library, which fails the lookup above.
+    await sink.flush();
+    await sink.close();
+
+    final written = File('${root.path}/synced.bin');
+    expect(written.existsSync(), isTrue);
+    expect(written.lengthSync(), 4096);
+  }, skip: skip);
+
   group('the open the senders use takes the strong path', () {
     test('a component swapped for a symlink AFTER the check is refused',
         () async {
@@ -144,6 +165,45 @@ void main() {
         isNotNull,
         reason: 'refused without a reason, which the senders dereference',
       );
+    }, skip: skip);
+
+    test('with the GUI sender\'s own opener argument, still refused', () async {
+      // The test above passes no opener, and that is exactly how the defect
+      // hid: `veilOpenPinnedSource` takes the descriptor walk only when the
+      // opener is null, while the GUI send passed
+      // `ApiServerController.debugSourceOpener` — a seam that DEFAULTED to the
+      // name-based helper. Roots were handed over and ignored (report24
+      // XV24-01).
+      //
+      // So this repeats the same attack with the argument the sender actually
+      // passes, read from production rather than restated here. If the seam
+      // ever gets a non-null default again, this reddens where a spelling
+      // check could not.
+      final real = Directory('${root.path}/sub2')..createSync();
+      File('${real.path}/f.txt').writeAsStringSync('authorized');
+      final base = Directory(root.path).resolveSymbolicLinksSync();
+      final checked = File('$base/sub2/f.txt').resolveSymbolicLinksSync();
+
+      final outside = Directory.systemTemp.createTempSync('xveil-outside3-');
+      addTearDown(() => outside.deleteSync(recursive: true));
+      File('${outside.path}/f.txt').writeAsStringSync('substituted');
+      real.renameSync('$base/gone2');
+      Link('$base/sub2').createSync(outside.path);
+
+      final opened = await veilOpenPinnedSource(
+        checked,
+        opener: ApiServerController.debugSourceOpener,
+        beneathRoots: [base],
+      );
+      if (opened.source != null) {
+        final bytes = await opened.source!.read(0, 11);
+        await opened.source!.close();
+        fail(
+          'the GUI sender served through a swapped component: '
+          '${String.fromCharCodes(bytes)}',
+        );
+      }
+      expect(opened.refusal, isNotNull);
     }, skip: skip);
 
     test('and an ordinary file under the root is still served', () async {

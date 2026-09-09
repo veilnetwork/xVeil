@@ -90,9 +90,8 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       _result = null;
       _error = null;
     });
+    final handle = File(dest).openWrite();
     try {
-      final file = File(dest);
-      final handle = file.openWrite();
       final report = await DataExporter(
         storage: _storage,
         nodeIdHex: await _selfHex(),
@@ -109,7 +108,6 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         },
       );
       await handle.flush();
-      await handle.close();
       if (!mounted) return;
       setState(() {
         _busy = null;
@@ -127,6 +125,11 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
           _error = shownCause(e, kind: 'transfer');
         });
       }
+    } finally {
+      // The handle is closed on every road out, including the one where the
+      // export threw halfway: an open sink holds the file and leaves a
+      // half-written archive looking like a whole one.
+      await handle.close();
     }
   }
 
@@ -228,6 +231,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
           TransferFailure.notAnArchive ||
           TransferFailure.unsupportedVersion => l.transferNotAnArchive,
           TransferFailure.corrupt => l.transferCorrupt,
+          TransferFailure.recordTooLarge => l.transferTooLarge,
         };
       });
     } catch (e) {
