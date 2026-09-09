@@ -208,10 +208,33 @@ echo '${a.expectedSha256.trim().toLowerCase()}  '"$t" | sudo sha256sum -c -''';
         return "active_$key=0; sudo systemctl is-active --quiet '${unit(a)}' && active_$key=1 || true";
       })
       .join('\n');
+  // WRITTEN BESIDE THE LIVE BINARY AND MOVED ONTO IT, never through it.
+  //
+  // `install` writes its destination in place, so a failure part-way — a full
+  // disk, a medium error — leaves the RUNNING binary truncated. And it fails
+  // under `set -euo pipefail`, which ends this script on the spot: several
+  // lines above the restore, which therefore never ran for this case at all
+  // (report24 UPDATE-P4-M1). The same shape as the bare `systemctl restart`
+  // two blocks down, found the same way.
+  //
+  // The staged copy sits in the destination's own directory, so the move is a
+  // rename: the binary is replaced whole or not at all. A failure before it
+  // has not touched the live file, which is why this path needs no rollback
+  // of its own — there is nothing to roll back.
   final installs = artifacts
       .map((a) {
         final binary = a.component.binaryName;
-        return "sudo install -o root -g root -m 0755 ${temp(a)} '/usr/local/bin/$binary'";
+        final dest = '/usr/local/bin/$binary';
+        return '''sudo install -o root -g root -m 0755 ${temp(a)} '$dest.incoming' || {
+  sudo rm -f '$dest.incoming'
+  echo 'cannot write the new $binary beside the old one - nothing was replaced' >&2
+  exit 1
+}
+sudo mv -f '$dest.incoming' '$dest' || {
+  sudo rm -f '$dest.incoming'
+  echo 'cannot put the new $binary in place - the old one is still there' >&2
+  exit 1
+}''';
       })
       .join('\n');
   // The digest proves the bytes are the ones the release published. It says

@@ -32,6 +32,8 @@ void main() {
     int aliveChecks = 0,
     bool backupFails = false,
     bool binaryInstalled = true,
+    bool installFails = false,
+    void Function(Directory bin)? inspect,
   }) {
     final dir = Directory.systemTemp.createTempSync('xveil-rb');
     addTearDown(() => dir.deleteSync(recursive: true));
@@ -94,9 +96,30 @@ install() {
   local src="\${args[\${#args[@]}-2]}"
   local dst="\${args[\${#args[@]}-1]}"
   [ -e "\$src" ] || return 1
+  # A RESTORE is never the failure under test: it is the thing the failure is
+  # supposed to lead to.
+  case "\$src" in
+    *.previous) : > "\$dst"; return 0 ;;
+  esac
+  if [ ${installFails ? 1 : 0} -eq 1 ]; then
+    # The contract from the report: the command modifies its destination and
+    # THEN fails. Whatever it touched had better not be the live binary.
+    printf 'PARTIAL' > "\$dst"
+    return 1
+  fi
   : > "\$dst"
 }
-mv() { note "mv \$*"; return 0; }
+mv() {
+  note "mv \$*"
+  # Faithful, because the install now writes beside the binary and moves the
+  # result onto it: a stub that only logged would leave every test looking at
+  # a destination nothing had written.
+  local args=("\$@")
+  local src="\${args[\${#args[@]}-2]}"
+  local dst="\${args[\${#args[@]}-1]}"
+  [ -e "\$src" ] || return 1
+  cat "\$src" > "\$dst" && rm -f "\$src"
+}
 DEAD=$deadChecks
 ALIVE=$aliveChecks
 SEEN=0
@@ -156,6 +179,7 @@ flock() {
         '$harness\n${script.replaceAll('/usr/local/bin', bin.path)}',
       );
     Process.runSync('bash', [file.path]);
+    inspect?.call(bin);
     final f = File(log);
     return f.existsSync()
         ? f.readAsLinesSync().where((l) => l.isNotEmpty).toList()
@@ -190,6 +214,48 @@ flock() {
         restored(log),
         isTrue,
         reason: 'the previous binary was never put back',
+      );
+    });
+
+    test('an install that fails part-way leaves the live binary alone', () {
+      // `install` writes its destination IN PLACE, so a failure part-way — a
+      // full disk, a medium error — used to leave the running binary
+      // truncated. And it fails under `set -euo pipefail`, which ends the
+      // script on the spot, above every restore below it: the one failure
+      // shape with no rollback at all (report24 UPDATE-P4-M1).
+      String? after;
+      var leftover = true;
+      final log = runStubbed(
+        script,
+        installFails: true,
+        inspect: (bin) {
+          final live = File('${bin.path}/veil-cli');
+          after = live.existsSync() ? live.readAsStringSync() : null;
+          leftover = File('${live.path}.incoming').existsSync();
+        },
+      );
+
+      expect(
+        log.any((l) => l.startsWith('install ')),
+        isTrue,
+        reason: 'the install never ran, so this proves nothing',
+      );
+      expect(after, isNotNull, reason: 'the live binary is gone entirely');
+      expect(
+        after,
+        isNot(contains('PARTIAL')),
+        reason: 'a failed install left its half-written bytes in the binary '
+            'the node runs',
+      );
+      expect(
+        after,
+        contains('exit 0'),
+        reason: 'the live binary is no longer the one that was there',
+      );
+      expect(
+        leftover,
+        isFalse,
+        reason: 'the staged copy was left beside the binary',
       );
     });
 
@@ -244,7 +310,7 @@ flock() {
 
     /// The updater is written to a file by the outer script; the harness runs
     /// the outer one, so the inner never executes. Pull it out and run that.
-    String inner({bool withBinary = true}) {
+    String inner({bool withBinary = true, void Function(File bin)? binOut}) {
       final lines = script.split('\n');
       final from = lines.indexWhere((l) => l.contains("<<'XVEIL_UPDATER'"));
       final to = lines.indexWhere((l) => l == 'XVEIL_UPDATER', from);
@@ -257,6 +323,7 @@ flock() {
         bin.writeAsStringSync('#!/usr/bin/env bash\necho "veil-cli 0.1.0"\n');
         Process.runSync('chmod', ['+x', bin.path]);
       }
+      binOut?.call(bin);
       // The only substitution: the updater names an absolute path, and a
       // shell function cannot stand in for one. Everything else runs as
       // written.
@@ -268,6 +335,33 @@ flock() {
           // test is about.
           .replaceFirst(RegExp(r'LOCK=\S+'), 'LOCK=${dir.path}/lock');
     }
+
+    test('an install that fails part-way leaves the live binary alone', () {
+      // The same shape as the manual path, on the timer nobody is watching.
+      File? live;
+      final script = inner(binOut: (b) => live = b);
+      final log = runStubbed(script, installFails: true);
+
+      expect(
+        log.any((l) => l.startsWith('install ')),
+        isTrue,
+        reason: 'the install never ran, so this proves nothing',
+      );
+      final after = live!.existsSync() ? live!.readAsStringSync() : null;
+      expect(after, isNotNull, reason: 'the live binary is gone entirely');
+      expect(
+        after,
+        isNot(contains('PARTIAL')),
+        reason: 'a failed install left its half-written bytes in the binary '
+            'the node runs',
+      );
+      expect(after, contains('veil-cli 0.1.0'));
+      expect(
+        File('${live!.path}.incoming').existsSync(),
+        isFalse,
+        reason: 'the staged copy was left beside the binary',
+      );
+    });
 
     test('a restart that FAILS still rolls back', () {
       final log = runStubbed(inner(), restartFails: true);
@@ -519,8 +613,10 @@ flock() {
       final on = buildNodeAutoUpdateScript(enabled: true);
 
       // The restore trap by its own text: `trap ` alone matches the staging
-      // cleanup several lines above and compared the wrong pair.
-      const armed = "trap 'install -o root";
+      // cleanup several lines above and compared the wrong pair. It opens by
+      // clearing the copy staged beside the binary — the install writes there
+      // now and renames onto the live file — and then restores.
+      const armed = r'''trap 'rm -f "$BIN.incoming"''';
       expectBefore(on, r'cp -a "$BIN" "$BIN.previous"', armed);
       expectBefore(on, armed, 'trap - TERM INT');
     });
