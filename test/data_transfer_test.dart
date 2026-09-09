@@ -408,6 +408,31 @@ void main() {
     expect(utf8.decode(got.single.payload!), 'abc');
   });
 
+  test('a header may not ask for an unbounded KDF (report24 CH-W2)', () async {
+    // The seal's cost is acted on BEFORE any tag is checked: a file somebody
+    // sent decides how much memory the reader allocates. Refused, not clamped
+    // — a clamped cost derives a different key and would report a wrong
+    // password for an archive that is merely too expensive.
+    final archive = await write([
+      const TransferRecord(kind: TransferRecordKind.profile),
+    ], password: 'pw');
+
+    final text = utf8.decode(archive, allowMalformed: true);
+    final head = text.substring(text.indexOf('{'), text.indexOf('}\n') + 1);
+    final greedy = head.replaceFirst('"m":1024', '"m":8388608'); // 8 GiB
+    expect(greedy, isNot(head));
+
+    final bytes = BytesBuilder()
+      ..add(utf8.encode('$kDataTransferMagic\n'))
+      ..add(utf8.encode('$greedy\n'))
+      ..add(utf8.encode('{"k":"end"}\n'));
+
+    await expectLater(
+      DataTransferReader.open(Stream.value(bytes.takeBytes())),
+      throwsA(isA<TransferException>()),
+    );
+  });
+
   test('an archive carries the cost it was written with, so it still opens',
       () async {
     final archive = await write([

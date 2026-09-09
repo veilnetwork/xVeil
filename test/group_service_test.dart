@@ -19906,6 +19906,103 @@ void main() {
     },
   );
 
+  test(
+    'a freshly promoted admin names the promotion in the channel it creates',
+    () async {
+      // The causal edge, through the real service rather than a source scan.
+      //
+      // `prevHash` binds a row to its author's OWN previous row and says
+      // nothing about anybody else's, so the fold is otherwise free to order a
+      // new admin's first channel BEFORE the promotion that authorised it and
+      // then reject it for a role its author already had. Every other
+      // authoring path names what it had seen; the protected-channel one did
+      // not (report24 G3-2).
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Promotion');
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.setRole,
+          target: bob,
+          role: GroupRole.admin,
+        ),
+        isTrue,
+      );
+      final promotion = (await ownerSvc.load(spaceId))!.control.lastWhere(
+        (entry) => entry.op == ControlOp.setRole,
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(bobSvc.dispose);
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+        ),
+        isTrue,
+      );
+
+      final channelId = await bobSvc.createChannel(
+        spaceId,
+        name: 'admins only',
+        kind: SpaceChannelKind.text,
+        access: SpaceChannelAccess.restricted,
+      );
+      expect(channelId, isNotNull, reason: 'an admin may open a channel');
+      expect(
+        (await bobSvc.stateOf(spaceId))!.protectedChannels[channelId!.hex],
+        isNotNull,
+        reason: 'and the fold must accept the row they signed for it',
+      );
+
+      final created = (await bobSvc.load(spaceId))!.control.lastWhere(
+        (entry) => entry.author == bob && entry.op == ControlOp.createChannel,
+      );
+      final seen = created.seen;
+      expect(
+        seen,
+        isNotNull,
+        reason:
+            'the channel row carries no happens-before edge, so nothing puts '
+            'it after the promotion that authorised it',
+      );
+      final parts = seen!.split(':');
+      expect(parts.first, owner.hex, reason: 'the edge names an owner row');
+      expect(
+        int.parse(parts.last),
+        greaterThanOrEqualTo(promotion.seq),
+        reason:
+            'the edge names a row older than the promotion, which leaves the '
+            'fold free to place this one before it',
+      );
+    },
+  );
+
   test('permanentBan cuts the banned device off from every holder and from '
       'rotated epoch material', () async {
     final ownerStorage = FakeHvContainer().storage();
