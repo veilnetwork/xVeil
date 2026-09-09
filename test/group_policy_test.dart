@@ -54,6 +54,248 @@ GroupState _fold(
 void main() {
   setUp(() => _t = 1000);
 
+  group('a refusal by role costs the operation, not the author', () {
+    /// A v2 row: contiguous seq, and `prevHash` binding the exact previous row.
+    ControlEntry chained(
+      NodeId author,
+      int seq,
+      ControlOp op, {
+      NodeId? target,
+      GroupRole? role,
+      ControlEntry? previous,
+    }) => ControlEntry(
+      version: 2,
+      author: author,
+      seq: seq,
+      prevHash: previous == null ? '' : controlEntryHash(previous),
+      op: op,
+      target: target,
+      role: role,
+      policyVersion: 0,
+      createdAtMs: _t++,
+      signature: Uint8List(0),
+    );
+
+    /// An identity whose first row sorts BEFORE the owner row that promotes
+    /// it. Order between two authors with no happens-before edge is
+    /// `sha256(author:seq)`, so this is a search for an ordinary allowed id,
+    /// not a forged one — the same choice the report's fixture made.
+    NodeId promotedBeforeItsPromotion(NodeId owner, int promotionSeq) {
+      final promotion = controlSlotKey(
+        _e(owner, promotionSeq, ControlOp.setName),
+      );
+      for (var seed = 10; seed < 250; seed++) {
+        final candidate = _id(seed);
+        if (candidate.hex == owner.hex) continue;
+        if (controlSlotKey(_e(candidate, 0, ControlOp.setName))
+                .compareTo(promotion) <
+            0) {
+          return candidate;
+        }
+      }
+      fail('no candidate id sorts before the promotion; re-aim this fixture');
+    }
+
+    test('the operation is void, the chain and the author survive', () {
+      // Owner admits Bob, admits Alice as a member, promotes Alice to admin.
+      // Alice then mutes Bob and unmutes him. Every row is honest: real
+      // signatures, contiguous seqs, correct predecessors.
+      //
+      // Rows written before `seen` existed carry no edge between one author's
+      // rows and another's, so the promotion and the first operation of the
+      // author it promoted are merged in hash order — and for these ids that
+      // order is the wrong way round. The operation is refused for a role its
+      // author already had; that much cannot be undone without accepting an
+      // operation written BEFORE the promotion, which is the revival that must
+      // not happen (report24 G3-1).
+      //
+      // What must not follow is the rest of it: the next row failing its chain
+      // check against a predecessor that was never accepted.
+      final alice = promotedBeforeItsPromotion(_owner, 2);
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addAlice = chained(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: alice,
+        role: GroupRole.member,
+        previous: addBob,
+      );
+      final promote = chained(
+        _owner,
+        2,
+        ControlOp.setRole,
+        target: alice,
+        role: GroupRole.admin,
+        previous: addAlice,
+      );
+      final mute = chained(alice, 0, ControlOp.mute, target: _bob);
+      final unmute = chained(
+        alice,
+        1,
+        ControlOp.unmute,
+        target: _bob,
+        previous: mute,
+      );
+
+      expect(
+        controlSlotKey(mute).compareTo(controlSlotKey(promote)) < 0,
+        isTrue,
+        reason: 'premise: the merge reaches the operation before the promotion',
+      );
+
+      final folded = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addAlice, promote, mute, unmute],
+        verify: _ok,
+      );
+
+      // The refusal itself is unchanged.
+      expect(folded.rejected, contains(mute));
+      expect(
+        folded.unauthorized,
+        contains(mute),
+        reason: 'a row refused for its author\'s role is not reported as one, '
+            'so nothing downstream can tell it from a broken chain',
+      );
+      expect(
+        folded.state.members[_bob.hex]?.muted,
+        isFalse,
+        reason: 'a refused operation must not take effect',
+      );
+      expect(
+        folded.state.roleOf(alice),
+        GroupRole.admin,
+        reason: 'premise: the promotion itself is accepted',
+      );
+
+      // And the author is still on their own chain.
+      expect(
+        folded.accepted,
+        contains(unmute),
+        reason: 'the row after the refused one failed its chain check, so one '
+            'refusal took the whole rest of this author with it',
+      );
+      // The predicate `_nextControlLink` uses to decide whether an author may
+      // write again: the highest seq it can account for. A row it cannot
+      // account for reads as a fork and blocks the author for good.
+      final accountedFor =
+          [
+            ...folded.accepted,
+            ...folded.withdrawn,
+            ...folded.unauthorized,
+          ].where((entry) => entry.author.hex == alice.hex).map((e) => e.seq);
+      expect(
+        accountedFor,
+        containsAll([0, 1]),
+        reason: 'a signed row above everything the log can account for is read '
+            'as a fork, and the author is blocked from writing again',
+      );
+    });
+
+    test('an operation nobody ever authorised is still refused', () {
+      // The other side: this must not become "wait for a promotion that may
+      // come". Bob is a member, stays a member, and mutes somebody.
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addCarol = chained(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: _carol,
+        role: GroupRole.member,
+        previous: addBob,
+      );
+      final mute = chained(_bob, 0, ControlOp.mute, target: _carol);
+
+      final folded = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addCarol, mute],
+        verify: _ok,
+      );
+      expect(folded.rejected, contains(mute));
+      expect(folded.state.members[_carol.hex]?.muted, isFalse);
+      expect(
+        folded.accepted,
+        isNot(contains(mute)),
+        reason: 'a member was allowed to moderate',
+      );
+    });
+
+    test('the same missing edge decides it the other way, and that is why a '
+        'refusal is not postponed', () {
+      // The counter-example, kept because it is the reason this fix stops
+      // where it does.
+      //
+      // Bob mutes Carol while he is a member and is promoted afterwards. His
+      // row carries no `seen`, so nothing in the log says whether it was
+      // written before the promotion or after it — and here the hash puts the
+      // promotion FIRST, so by the time the merge reaches his row he is an
+      // admin and it applies. The identical shape one test up is refused,
+      // because the hash went the other way.
+      //
+      // That is the whole of report24 G3-1: for a row with no `seen` the
+      // question has no answer in the signed bytes. It is also why a refusal
+      // must not be postponed until a role arrives — the postponed row and the
+      // row that was genuinely written too early are the same row.
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addCarol = chained(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: _carol,
+        role: GroupRole.member,
+        previous: addBob,
+      );
+      final mute = chained(_bob, 0, ControlOp.mute, target: _carol);
+      final promote = chained(
+        _owner,
+        2,
+        ControlOp.setRole,
+        target: _bob,
+        role: GroupRole.admin,
+        previous: addCarol,
+      );
+
+      expect(
+        controlSlotKey(promote).compareTo(controlSlotKey(mute)) < 0,
+        isTrue,
+        reason: 'premise: for THESE ids the promotion is merged first',
+      );
+
+      final folded = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addCarol, mute, promote],
+        verify: _ok,
+      );
+      expect(folded.state.roleOf(_bob), GroupRole.admin);
+      expect(
+        folded.state.members[_carol.hex]?.muted,
+        isTrue,
+        reason: 'the merge reached the promotion first, so the row was '
+            'authorised when it was considered — `seen` is what closes this '
+            'for rows written since it existed',
+      );
+    });
+  });
+
   test('genesis: owner is the sole member', () {
     final s = _fold(const []);
     expect(s.roleOf(_owner), GroupRole.owner);
