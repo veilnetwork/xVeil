@@ -15,6 +15,11 @@ analyzer:
   exclude:
     - third_party/**
     - build/**
+    # Kept evidence, not code: reproductions and probes saved beside a
+    # finding. The bare `flutter analyze` CI runs walks the whole tree, so
+    # a ten-line probe script here turned the gate red for lints nobody
+    # wants applied to it.
+    - artifacts/**
 
 linter:
   # The lint rules applied to this project can be customized in the

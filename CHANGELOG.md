@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.54] — 2026-09-09
+
+### Fixed
+
+- **Linux could not start the app at all.** Every released Linux build died
+  before `runApp` with `VeilAbiContractMismatch ... library reports: <no
+  veil_abi_contract_hash symbol>` — and the symbol was there all along. The
+  shipped `lib/libveilclient_ffi.so` exports it and 162 other entry points;
+  what was missing was the SCOPE. `dlopen` puts a library in the global symbol
+  table on macOS and in a local one on glibc, and the loader here was written
+  from the first of those: preload the library, then ask
+  `DynamicLibrary.process()` for its symbols. Correct on macOS, empty on Linux
+  — and the ABI check asks first, so the app refused its own library one symbol
+  before any call could be made through it. Measured on real Linux against the
+  library 0.13.53 actually shipped: the handle answers `providesSymbol` true
+  and the process image answers false. The loader now hands back the handle it
+  opened, and a caller that never preloaded gets the same candidate search
+  rather than an empty process image. Guarded by a test that builds a
+  one-symbol library with `cc -shared` and goes through the same two calls
+  production does; it runs under `flutter test`, which CI runs on Linux — the
+  platform where the two answers differ.
+
+### Changed
+
+- Carries veil 0.11.27: twelve modules out of the three largest files, five
+  tests for the IPC bridges that had none, and two CI gates that were reading
+  the wrong thing. The FFI split reorders the generated C header, so the ABI
+  contract hash changes with it; the library and its bindings ship together,
+  so an installed build is unaffected.
+
 Each release pins the two projects it is built on. Those pins are part of the
 release: an app version means nothing without knowing which network and which
 storage it was built against.
