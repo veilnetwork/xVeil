@@ -4207,6 +4207,12 @@ class GroupService {
         [
             ...folded.accepted,
             ...folded.withdrawn,
+            // And rows the merge found unauthorized. They are void, and they
+            // are still real rows at real positions: continuing from the last
+            // row that SURVIVED would re-use a seq and fork the chain, which
+            // is what turned one refused operation into an author who could
+            // never write again (report24 G3-1).
+            ...folded.unauthorized,
           ].where((entry) => entry.author == author).toList()
           ..sort((left, right) => left.seq.compareTo(right.seq));
     final acceptedHeadSeq = authored.isEmpty ? -1 : authored.last.seq;

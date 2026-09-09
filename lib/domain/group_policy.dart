@@ -1306,6 +1306,7 @@ class GroupFoldResult {
     this.rejected, [
     this.accepted = const [],
     this.withdrawn = const [],
+    this.unauthorized = const [],
   ]);
   final GroupState state;
   final List<ControlEntry> rejected;
@@ -1321,6 +1322,32 @@ class GroupFoldResult {
   /// to write anything ever again, which would make returning their authority
   /// a promise the log cannot keep.
   final List<ControlEntry> withdrawn;
+
+  /// The subset of [rejected] that failed for one reason only: at the point
+  /// the merge reached them, their author did not hold the permission the
+  /// operation needs.
+  ///
+  /// Void, exactly as before — nothing here is applied, and no later row
+  /// revives it. What changed is that they keep their PLACE on their author's
+  /// chain, for the same reason [withdrawn] does: the row was really signed at
+  /// that position, and the author's next row binds it by hash.
+  ///
+  /// The order two authors' rows are merged in is a hash where the log carries
+  /// no happens-before edge between them, and rows written before `seen`
+  /// existed carry no such edge across authors at all. So a promotion and the
+  /// first operation of the author it promoted could be merged the wrong way
+  /// round: the operation was refused for a role its author already had, the
+  /// next row failed the chain check against a predecessor that was never
+  /// accepted, and `_nextControlLink` then read that signed suffix as a fork
+  /// and stopped the author writing anything ever again — a permanent lockout
+  /// over an ordering nobody chose (report24 G3-1).
+  ///
+  /// This does not restore the refused operation: for a row with no `seen`
+  /// there is nothing in the signed bytes that distinguishes "written after the
+  /// promotion" from "written before it and hoping", and accepting it on a
+  /// later grant is precisely the revival that must not happen. It ends the
+  /// part that outlives the mistake.
+  final List<ControlEntry> unauthorized;
 }
 
 /// Whether a retroactive authority boundary withdraws [entry], assuming the
@@ -1587,6 +1614,7 @@ GroupFoldResult _foldControlLogOnce({
 
   final accepted = <ControlEntry>[];
   final withdrawn = <ControlEntry>[];
+  final unauthorized = <ControlEntry>[];
 
   // Verify before fork selection: an invalid signature with a deliberately
   // small hash must never suppress the valid row for the same `(author,seq)`.
@@ -1885,7 +1913,14 @@ GroupFoldResult _foldControlLogOnce({
               controlDecision.allowed
         : controlDecision.allowed;
     if (!authorized) {
+      // VOID, and still at its place on the author's chain — see
+      // [GroupFoldResult.unauthorized]. The row is applied to nothing; what it
+      // keeps is the position its author's next row binds by hash, so a refusal
+      // here costs the operation and not the author's ability to write again.
       rejected.add(e);
+      unauthorized.add(e);
+      lastSeq[e.author.hex] = e.seq;
+      lastEntry[e.author.hex] = e;
       continue;
     }
     final isTextSetting =
@@ -2600,5 +2635,6 @@ GroupFoldResult _foldControlLogOnce({
     rejected,
     List.unmodifiable(accepted),
     List.unmodifiable(withdrawn),
+    List.unmodifiable(unauthorized),
   );
 }
