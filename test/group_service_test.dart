@@ -20003,6 +20003,35 @@ void main() {
     },
   );
 
+  test('the next-link predicate accounts for rows the merge found '
+      'unauthorized', () {
+    // The other half of report24 G3-1, where the fold's answer is READ.
+    //
+    // `foldControlLog` reports a row refused for its author's role separately
+    // now, and it keeps that row's place on the author's chain — the domain
+    // suite covers both. Here the question is whether the code that decides
+    // "may this author write again" counts it. If it does not, the row is a
+    // signed suffix above everything the log can account for, which reads as a
+    // fork, and the author is blocked for good.
+    //
+    // A source check: to reach that predicate through the API an author has to
+    // sign a row their own device believes is authorised and another device
+    // does not, which is two devices and a divergent view. The list it reads
+    // is exact and worth pinning on its own.
+    final source = File('lib/state/group_service.dart').readAsStringSync();
+    final at = source.indexOf('_nextControlLink(');
+    expect(at, isNot(-1), reason: 'the link builder is gone; re-aim this');
+    final body = source.substring(at, source.indexOf('hasRejectedSuffix', at));
+    for (final list in ['folded.accepted', 'folded.withdrawn', 'folded.unauthorized']) {
+      expect(
+        body,
+        contains(list),
+        reason: 'the head this author may continue from is computed without '
+            '$list, so a row in it reads as a fork of their own chain',
+      );
+    }
+  });
+
   test('permanentBan cuts the banned device off from every holder and from '
       'rotated epoch material', () async {
     final ownerStorage = FakeHvContainer().storage();
