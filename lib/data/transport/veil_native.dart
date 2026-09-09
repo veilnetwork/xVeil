@@ -14,7 +14,7 @@ bool ensureVeilClientLoaded({String? dylibPath}) {
   if (dylibPath != null && dylibPath.isNotEmpty) {
     if (!File(dylibPath).existsSync()) return false;
     try {
-      DynamicLibrary.open(dylibPath);
+      rememberNativeLib('veilclient_ffi', DynamicLibrary.open(dylibPath));
       _loaded = true;
       return true;
     } catch (_) {
