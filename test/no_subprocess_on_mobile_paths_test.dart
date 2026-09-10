@@ -45,9 +45,6 @@ void main() {
         'returns false unless Platform.isMacOS before it runs /usr/bin/open',
     'lib/data/vpn/linux_managed_vpn_backend.dart': 'Linux backend',
     'lib/data/vpn/windows_managed_vpn_backend.dart': 'Windows backend',
-    'lib/data/vpn/privileged_launch_guard.dart':
-        'the Process.run is inside WindowsPathSecurityProbe; the POSIX probe '
-            'reads its facts through libc lstat',
     'lib/data/node/veil_node.dart':
         'drives the veil-cli BINARY, which only exists on the desktop '
             'config-file dev path (XVEIL_VEIL_CLI); mobile boots the node '
