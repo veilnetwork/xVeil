@@ -33,10 +33,10 @@
 /// absolute path and checked before it is used.
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import '../../core/posix_file_facts.dart';
+import 'native_path_acl.dart';
 
 /// What a path is doing in the chain. It decides which rights are fatal — the
 /// masks genuinely differ, and using the strictest one everywhere would refuse
@@ -215,6 +215,25 @@ String? _parentOf(String path, bool windows) {
   if (head.isEmpty) return null;
   if (RegExp(r'^[A-Za-z]:$').hasMatch(head)) return '$head\\';
   return head;
+}
+
+/// Why the name asked about is not the object that answered, or null.
+///
+/// The handle resolves the whole name, so a junction ABOVE the leaf does not
+/// refuse — it silently answers about somewhere else. The final path is how
+/// that becomes visible: `C:\\src\\link\\System32` comes back as
+/// `C:\\Windows\\System32`, and the two not matching is the fact.
+///
+/// Kept pure and out of the probe so the comparison is exercised on any host,
+/// like every other decision in this file. Case-insensitive because Windows
+/// paths are; an 8.3 abbreviated name also lands here, and is named in the
+/// message rather than guessed at — refusing is the safe end of that.
+String? pathResolutionMismatch(String requested, Object? finalPath) {
+  if (finalPath is! String || finalPath.isEmpty) return null;
+  final resolved = stripExtendedLengthPrefix(finalPath);
+  if (resolved.toLowerCase() == requested.toLowerCase()) return null;
+  return 'it resolves to $resolved, so a component of it is a junction, a '
+      'symbolic link or an abbreviated name';
 }
 
 /// The decision for one path, given its facts.
@@ -574,129 +593,75 @@ Map<String, String> windowsCleanEnvironment({
   };
 }
 
-/// Reads owner + DACL through PowerShell at its absolute System32 path.
-/// Nothing but fact collection lives here.
+/// Reads owner + DACL from the HANDLE the path resolved to. Nothing but fact
+/// collection lives here.
 ///
-/// TEMPORARY, and named as such in the audit's own wording: the correct
-/// Windows answer is `CreateFile` + `GetFinalPathNameByHandle` +
-/// `GetNamedSecurityInfo` with reparse points refused, so that the ACL is read
-/// from the same handle the path resolved to. What is here instead removes the
-/// ORACLE — the absolute path plus a cleaned environment mean no
-/// `powershell.exe` planted in the application directory or anywhere in PATH
-/// can answer for the system one (audit C-01) — but it does not close the
-/// window between reading the ACL and using the path, and it does not detect a
-/// directory junction. Do not read this class as the fix; read it as the part
-/// of the fix that could be written without a Windows host to verify on.
+/// This used to shell out to PowerShell `Get-Acl`, and its own comment said
+/// what that was: the part of the fix that could be written without a Windows
+/// host to verify on. Reading by NAME left two holes — the window between
+/// reading permissions and using the path, and a junction whose target's
+/// permissions say nothing about who can repoint it (audit C-01).
+///
+/// Both are closed by `veil_path_security_facts`, which opens the path once
+/// and answers from that one handle: `CreateFileW` with
+/// `FILE_FLAG_OPEN_REPARSE_POINT` so a link is seen rather than followed,
+/// `GetFinalPathNameByHandleW` so a link ABOVE the leaf becomes visible as a
+/// path that does not match the one asked about, and `GetSecurityInfo` — the
+/// handle-based call, not its named twin, which would look the name up again.
+///
+/// Verified on a Windows 11 ARM64 host, not reasoned about: a real junction
+/// comes back refused, and a path THROUGH one comes back resolved to its
+/// target, which is the fact the comparison above reads. What is still not
+/// verified end to end is this Dart half on Windows — the FFI crate's
+/// BoringSSL dependency does not build on that host, so what ran there was the
+/// same Win32 code in a standalone harness.
 class WindowsPathSecurityProbe implements PathSecurityProbe {
   const WindowsPathSecurityProbe();
 
   @override
   Future<String?> canonicalize(String path) async {
-    try {
-      return File(path).resolveSymbolicLinksSync();
-    } on FileSystemException {
-      return null;
+    // From the same handle the permissions come from, so "what this name
+    // resolves to" and "whose permissions those are" cannot disagree.
+    final facts = veilPathSecurityFacts(path);
+    final finalPath = facts?['finalPath'];
+    if (finalPath is String && finalPath.isNotEmpty) {
+      return stripExtendedLengthPrefix(finalPath);
     }
+    return null;
   }
 
   @override
   Future<List<PathSecurityFacts>> inspect(
     List<PrivilegedPathStep> steps,
   ) async {
-    final powershell = windowsPowerShellPath();
-    if (!File(powershell).existsSync()) {
+    if (!veilPathSecurityFactsAvailable()) {
+      // Not a fallback to the old path-based read: that read is the hole.
       return [
         for (final step in steps)
           PathSecurityFacts.undetermined(
             step.path,
-            'Windows PowerShell is not at $powershell',
+            'this build cannot read permissions from a handle',
           ),
       ];
     }
-    ProcessResult result;
-    try {
-      result = await Process.run(
-        powershell,
-        <String>[
-          '-NoLogo',
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-Command',
-          buildWindowsAclScript(steps.map((step) => step.path).toList()),
-        ],
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
-        includeParentEnvironment: false,
-        environment: windowsCleanEnvironment(),
+    return [for (final step in steps) _factsFor(step.path)];
+  }
+
+  PathSecurityFacts _factsFor(String path) {
+    final decoded = veilPathSecurityFacts(path);
+    if (decoded == null) {
+      return PathSecurityFacts.undetermined(
+        path,
+        'the permissions could not be read from a handle',
       );
-    } on ProcessException catch (error) {
-      return [
-        for (final step in steps)
-          PathSecurityFacts.undetermined(
-            step.path,
-            'Get-Acl: ${error.message}',
-          ),
-      ];
     }
-    if (result.exitCode != 0) {
-      final detail = (result.stderr as String).trim();
-      return [
-        for (final step in steps)
-          PathSecurityFacts.undetermined(
-            step.path,
-            detail.isEmpty ? 'Get-Acl failed' : 'Get-Acl failed: $detail',
-          ),
-      ];
-    }
-    return decodeWindowsAclReport(
-      steps.map((step) => step.path).toList(),
-      result.stdout as String,
-    );
+    // A junction anywhere in the chain is caught twice: once at its own step,
+    // where the native side refuses to follow it, and once here, where the
+    // final path of a step BELOW it no longer matches the name asked about.
+    // Two nets because one of them is about the leaf and the other about
+    // everything above it.
+    final moved = pathResolutionMismatch(path, decoded['finalPath']);
+    if (moved != null) return PathSecurityFacts.undetermined(path, moved);
+    return windowsFactsFromAcl(path, decoded);
   }
-}
-
-/// Splits the JSON answer back out per path. Pure, so the parser is covered
-/// with recorded PowerShell output instead of a Windows host.
-List<PathSecurityFacts> decodeWindowsAclReport(
-  List<String> paths,
-  String stdout,
-) {
-  Object? decoded;
-  try {
-    decoded = jsonDecode(stdout.trim());
-  } on FormatException {
-    return [
-      for (final path in paths)
-        PathSecurityFacts.undetermined(path, 'Get-Acl returned no usable JSON'),
-    ];
-  }
-  // `ConvertTo-Json` collapses a one-element array to a bare object.
-  final entries = decoded is List ? decoded : [decoded];
-  final byPath = <String, Object?>{};
-  for (final entry in entries) {
-    if (entry is Map && entry['path'] is String) {
-      byPath[entry['path'] as String] = entry;
-    }
-  }
-  return [
-    for (final path in paths)
-      byPath.containsKey(path)
-          ? windowsFactsFromAcl(path, byPath[path])
-          : PathSecurityFacts.undetermined(path, 'Get-Acl skipped this path'),
-  ];
-}
-
-/// The PowerShell side is kept to fact collection and quoted the same way the
-/// elevation script is — single quotes, doubled inside, no interpolation of
-/// anything that came from outside.
-String buildWindowsAclScript(List<String> paths) {
-  String quote(String value) => "'${value.replaceAll("'", "''")}'";
-  final literal = paths.map(quote).join(',');
-  return '\$ErrorActionPreference = '
-      r"'Stop'"
-      '; '
-      '\$paths = @($literal); '
-      r'''$out = New-Object System.Collections.ArrayList; foreach ($p in $paths) { $entry = @{ path = $p }; try { $acl = Get-Acl -LiteralPath $p; $entry.owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value; $rules = New-Object System.Collections.ArrayList; foreach ($r in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) { [void]$rules.Add(@{ sid = $r.IdentityReference.Value; rights = [int]$r.FileSystemRights; allow = ($r.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow); inheritOnly = (($r.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) }) }; $entry.rules = $rules } catch { $entry.error = $_.Exception.Message }; [void]$out.Add($entry) }; ConvertTo-Json -InputObject @($out) -Depth 6 -Compress''';
 }

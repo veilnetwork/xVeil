@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +7,7 @@ import 'package:xveil/data/vpn/privileged_launch_guard.dart';
 import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 import 'package:xveil/data/vpn/windows_managed_vpn_backend.dart';
+import 'package:xveil/data/vpn/native_path_acl.dart';
 
 /// A stand-in platform: the test says what each path looks like, and the guard
 /// has to reach the same conclusion it would from a real DACL or `stat`.
@@ -443,29 +443,58 @@ void main() {
       expect(facts.undeterminedReason, contains('unauthorized'));
     });
 
-    test('unparsable PowerShell output leaves every path undetermined', () {
-      final facts = decodeWindowsAclReport([
-        r'C:\',
-        r'C:\x',
-      ], 'not json at all');
-      expect(facts, hasLength(2));
-      expect(facts.every((f) => f.undeterminedReason != null), isTrue);
-    });
+    // The PowerShell collector these used to cover is gone: permissions are
+    // read from a handle now, so there is no script to quote and no
+    // multi-path answer to split. What replaced them is the pair of facts the
+    // handle makes available, and both are pure — testable on any host, like
+    // every other decision in this file.
 
-    test('a single-path answer that PowerShell un-arrayed still decodes', () {
-      final facts = decodeWindowsAclReport(
-        [r'C:\'],
-        jsonEncode({'path': r'C:\', 'owner': 'S-1-5-18', 'rules': <Object>[]}),
+    test('a path that resolves to somewhere else is undetermined', () {
+      // The junction case measured on a real Windows host: asking about
+      // `C:\src\link\System32` answers about `C:\Windows\System32`, and
+      // the permissions returned are the target's. Nothing about them says
+      // who can repoint the link.
+      final reason = pathResolutionMismatch(
+        r'C:\src\link\System32',
+        r'\\?\C:\Windows\System32',
       );
-      expect(facts.single.undeterminedReason, isNull);
-      expect(facts.single.ownerIsPrivileged, isTrue);
+      expect(reason, isNotNull);
+      expect(reason, contains(r'C:\Windows\System32'));
+      expect(
+        refusalFor(
+          PathSecurityFacts.undetermined(r'C:\src\link\System32', reason!),
+          PrivilegedPathRole.ancestorDirectory,
+        ),
+        isNotNull,
+        reason: 'a path that moved must refuse the launch, not pass it',
+      );
     });
 
-    test('the ACL script quotes paths without interpolating them', () {
-      final script = buildWindowsAclScript([r"C:\x'veil", r'C:\Program Files']);
-      expect(script, contains(r"@('C:\x''veil','C:\Program Files')"));
-      expect(script, contains('Get-Acl -LiteralPath'));
-      expect(script, isNot(contains(r'$($')));
+    test('the same object under its own name is not a mismatch', () {
+      // The positive control. Without it the check above would also pass
+      // against a comparison that called everything a mismatch.
+      expect(
+        pathResolutionMismatch(r'C:\Program Files', r'\\?\C:\Program Files'),
+        isNull,
+      );
+      // Windows paths are case-insensitive, and the final path is normalized.
+      expect(
+        pathResolutionMismatch(r'c:\program files', r'\\?\C:\Program Files'),
+        isNull,
+      );
+      // Nothing to compare against is not a mismatch either.
+      expect(pathResolutionMismatch(r'C:\x', null), isNull);
+      expect(pathResolutionMismatch(r'C:\x', ''), isNull);
+    });
+
+    test('the extended-length prefix is stripped, both spellings', () {
+      expect(stripExtendedLengthPrefix(r'\\?\C:\x'), r'C:\x');
+      expect(
+        stripExtendedLengthPrefix(r'\\?\UNC\server\share\x'),
+        r'\\server\share\x',
+      );
+      // An ordinary path is left alone.
+      expect(stripExtendedLengthPrefix(r'C:\x'), r'C:\x');
     });
   });
 
