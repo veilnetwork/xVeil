@@ -12,6 +12,7 @@ import '../domain/chat.dart' show Conversation;
 import '../domain/chat_folder.dart' show folderUnreadCount, unreadBadgeText;
 import '../l10n/app_localizations.dart';
 import '../state/app_controller.dart';
+import '../state/locale_controller.dart';
 import '../state/close_to_tray_controller.dart';
 import '../state/messaging.dart' show conversationsProvider;
 
@@ -157,7 +158,7 @@ class _DesktopTrayHostState extends ConsumerState<DesktopTrayHost>
   /// scope), so AppL10n.of(context) here would throw and kill tray init.
   Future<void> _refreshMenu() async {
     if (!mounted) return;
-    final l = lookupAppL10n(PlatformDispatcher.instance.locale);
+    final l = l10nFor(PlatformDispatcher.instance.locale);
     final app = ref.read(appControllerProvider);
     _lastUnread = _totalUnread();
     try {

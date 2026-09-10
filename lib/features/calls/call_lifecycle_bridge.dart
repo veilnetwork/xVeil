@@ -282,7 +282,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       // Localizations in scope here (this is a listener, not a widget), so it
       // resolves the same way the desktop tray does: the chosen locale, or the
       // system one when the choice is "follow the system".
-      final l = lookupAppL10n(
+      final l = l10nFor(
         ref.read(localeProvider) ?? PlatformDispatcher.instance.locale,
       );
       final title = switch (call.status) {
@@ -312,7 +312,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     // foreground service: without it a backgrounded group call loses mic
     // capture and the process itself to the OS while the 1:1 path survives.
     final ringing = groupCall!.status == GroupCallStatus.ringing;
-    final groupL = lookupAppL10n(
+    final groupL = l10nFor(
       ref.read(localeProvider) ?? PlatformDispatcher.instance.locale,
     );
     await VeilBackground.start(
