@@ -6,6 +6,40 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.55] — 2026-09-10
+
+### Fixed
+
+- **A system language the app does not ship threw instead of falling back.**
+  `lookupAppL10n` refuses a language it has no translation for, and the app
+  ships three. Inside the widget tree that never shows — `MaterialApp` resolves
+  the OS locale first. Three places call the lookup from outside it, each
+  because it has no `Localizations` in scope, and the cost differs by site:
+  the desktop tray's menu refresh died, and a call threw BEFORE
+  `VeilBackground.start`, so the foreground service never came up — which, as
+  the comment at that site already said, means the OS takes the mic capture
+  and then the process. A backgrounded call on a German, French or Chinese
+  phone was losing its service. There is one door now (`l10nFor`), and the
+  test holds every production caller to it.
+
+- **The VPN launch guard read permissions from a path, not from a handle.** It
+  refuses to elevate xVeil when an ordinary user can rewrite the executable or
+  a directory above it, and on Windows it answered that through PowerShell
+  `Get-Acl` — the code's own comment called it the part of the fix writable
+  without a Windows host. Reading by name leaves the window between checking
+  and using, and follows a junction whose target's permissions say nothing
+  about who can repoint it. The probe now calls `veil_path_security_facts`,
+  which opens the path once and answers from that handle; a junction is
+  refused, and one above the leaf shows up as a resolved path that does not
+  match. When the native read is unavailable the answer is undetermined, which
+  refuses the launch — deliberately not a fallback to the read that was the
+  hole.
+
+### Changed
+
+- Carries veil 0.11.28. One fewer place in the app that starts a subprocess:
+  the allowlist noticed by itself that the launch guard no longer does.
+
 ## [0.13.54] — 2026-09-09
 
 ### Fixed
