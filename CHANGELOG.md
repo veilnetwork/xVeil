@@ -1,6 +1,12 @@
 # Changelog
 
-## v0.13.58 — 2026-09-11
+All notable changes to xVeil are documented here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
+bumps may change behaviour a user notices.
+
+## [0.13.58] — 2026-09-11
 
 *A backup you can actually keep.*
 
@@ -29,7 +35,7 @@ code is typed.
 
 analyze clean, 4562 tests green with 85 skipped.
 
-## v0.13.57 — 2026-09-11
+## [0.13.57] — 2026-09-11
 
 *The claim asked for a secret that did not exist, and offered the wrong key.*
 
@@ -53,7 +59,7 @@ words, in all three languages, instead of surfacing a StateError.
 
 analyze clean, 4561 tests green with 85 skipped.
 
-## v0.13.56 — 2026-09-11
+## [0.13.56] — 2026-09-11
 
 *A name you could never claim, on any device you could ever own.*
 
@@ -82,12 +88,6 @@ certificate is unlocked by a CODE and a bundle by the phrase.
 
 Carries veil 0.11.29. analyze clean, 4557 tests green with 85 skipped — the
 same counts as 0.13.55.
-
-All notable changes to xVeil are documented here.
-
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
-versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
-bumps may change behaviour a user notices.
 
 ## [0.13.55] — 2026-09-10
 
