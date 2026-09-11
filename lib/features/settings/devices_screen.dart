@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert' show base64Encode;
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -815,6 +816,43 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
     }
   }
 
+  /// Write the certificate out as a file.
+  ///
+  /// The CERTIFICATE only. The code that unlocks it is deliberately not in
+  /// here: the two together are the identity, and a backup that carries both
+  /// in one file is a backup of the whole capability. They are a pair to be
+  /// stored apart, which is the only reason the certificate may leave the
+  /// device at all.
+  ///
+  /// The text form is what is written — it carries its own
+  /// `xveil-recovery:v1:` prefix, so a file that has been renamed, pasted
+  /// through a chat or recovered from a backup still identifies itself, and
+  /// the import path parses exactly this.
+  Future<void> _saveCertificateToFile() async {
+    final l = AppL10n.of(context);
+    final certificate = _certificate;
+    final nodeId = _nodeId;
+    if (certificate == null || nodeId == null) return;
+    final suggested = 'xveil-recovery-${nodeId.hex.substring(0, 8)}.xvrc';
+    final dest = await FilePicker.saveFile(fileName: suggested);
+    if (dest == null || !mounted) return;
+    setState(() {
+      _busy = true;
+      _failed = false;
+    });
+    try {
+      await File(dest).writeAsString(certificate, flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l.devicesCertificateSaved)));
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -881,6 +919,11 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
                 value: () => _certificate!,
                 copiedMessage: l.devicesCertificateCopiedClears,
               ),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _saveCertificateToFile,
+                icon: const Icon(Icons.save_alt),
+                label: Text(l.devicesSaveCertificate),
+              ),
               const SizedBox(height: 8),
               SecretText(_code!),
               SecretCopyButton(
@@ -938,6 +981,36 @@ class _RecoveryImportSheetState extends State<_RecoveryImportSheet> {
     _code.clear();
     _code.dispose();
     super.dispose();
+  }
+
+  /// Fill the field from a saved certificate file.
+  ///
+  /// Into the FIELD and not straight into the recovery: the person sees what
+  /// was loaded and the node id it carries before anything is installed, and a
+  /// file picked by mistake is corrected by picking another. The code is asked
+  /// for separately because it is not in the file — by design.
+  Future<void> _loadCertificateFromFile() async {
+    final picked = await FilePicker.pickFiles(withReadStream: false);
+    final path = picked?.files.single.path;
+    if (path == null || !mounted) return;
+    setState(() {
+      _busy = true;
+      _failure = null;
+    });
+    try {
+      final text = await File(path).readAsString();
+      // Parse before showing it: a file that is not a certificate is said so
+      // here, rather than becoming an opaque failure after the code is typed.
+      SovereignRecoveryCertificate.parse(text);
+      if (!mounted) return;
+      _certificate.text = text.trim();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _failure = AppL10n.of(context).devicesOperationFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _recover() async {
@@ -1000,6 +1073,12 @@ class _RecoveryImportSheetState extends State<_RecoveryImportSheet> {
               labelText: l.devicesCertificate,
               helperText: l.devicesCertificateHint,
             ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _busy ? null : _loadCertificateFromFile,
+            icon: const Icon(Icons.folder_open),
+            label: Text(l.devicesLoadCertificate),
           ),
           const SizedBox(height: 12),
           TextField(

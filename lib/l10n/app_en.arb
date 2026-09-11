@@ -2443,6 +2443,9 @@
   "devicesCertificateReady": "Recovery certificate created",
   "devicesCertificateWarning": "Anyone with both values controls your sovereign device identity. Store the certificate and code separately. The code is shown only now.",
   "devicesCopyCertificate": "Copy certificate",
+  "devicesSaveCertificate": "Save to file",
+  "devicesCertificateSaved": "Saved. The code is NOT in the file — keep it somewhere else, or the file alone is the identity.",
+  "devicesLoadCertificate": "Load from file",
   "devicesCopyCode": "Copy recovery code",
   "devicesCertificateCopiedClears": "Certificate copied. The clipboard will be cleared in {seconds} seconds.",
   "@devicesCertificateCopiedClears": {
