@@ -5795,6 +5795,16 @@ class AppL10nRu extends AppL10n {
   String get devicesCopyCertificate => 'Копировать сертификат';
 
   @override
+  String get devicesSaveCertificate => 'Сохранить в файл';
+
+  @override
+  String get devicesCertificateSaved =>
+      'Сохранено. Кода в файле НЕТ — держите его отдельно, иначе один файл и есть личность.';
+
+  @override
+  String get devicesLoadCertificate => 'Загрузить из файла';
+
+  @override
   String get devicesCopyCode => 'Копировать код восстановления';
 
   @override
