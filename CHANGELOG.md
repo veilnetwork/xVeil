@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.13.57 — 2026-09-11
+
+*The claim asked for a secret that did not exist, and offered the wrong key.*
+
+0.13.56 prompted for the identity secret on every claim. On a fresh identity
+there is no stored credential yet, so the prompt ended in "Bad state: No local
+sovereign bundle" — reported from the app within the hour, and reproduced.
+
+The prompt was wrong twice over. A standalone identity's own node key IS its
+master, so there was nothing to unlock and no reason to ask. And the
+credential it would have opened is an Ed25519+Falcon-512 hybrid whose node id
+is BLAKE3 over 929 bytes, while an identity named by a bare ed25519 master is
+BLAKE3 over 32 — never equal, so the claim would have refused that key as
+belonging to another identity, after the mining was already spent. The second
+failure is the one worth naming: it would have looked like a broken key rather
+than a wrong question.
+
+The decision is now a named function taking the two ids, and the secret is
+asked for only when they differ — which is exactly when the master lives on
+another device. A device that then turns out to have no credential says so in
+words, in all three languages, instead of surfacing a StateError.
+
+analyze clean, 4561 tests green with 85 skipped.
+
 ## v0.13.56 — 2026-09-11
 
 *A name you could never claim, on any device you could ever own.*
