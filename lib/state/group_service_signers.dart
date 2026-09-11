@@ -105,6 +105,11 @@ final class NativeSovereignGroupSigner implements SovereignGroupSigner {
   Uint8List sign(Uint8List message) => _inner.sign(message);
   @override
   void close() => _inner.close();
+
+  /// The native handle as an address, for entry points that must sign on
+  /// another isolate (the nickname claim). No key material crosses; the
+  /// secret stays behind the handle, and the address dies with [close].
+  int get handleAddress => _inner.handleAddress;
 }
 
 /// Real signer: native ed25519 over the deniable identity TOML.
