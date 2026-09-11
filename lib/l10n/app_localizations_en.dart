@@ -5552,6 +5552,10 @@ class AppL10nEn extends AppL10n {
   String get nicknameClaim => 'Claim name';
 
   @override
+  String get nicknameNoIdentityKeyHere =>
+      'This device has no copy of the identity key, so it cannot claim a name for it. Claim from the device that holds the identity, or bring its recovery certificate here first.';
+
+  @override
   String get nicknameMiningLabel => 'Mining proof-of-work…';
 
   @override

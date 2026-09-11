@@ -5625,6 +5625,10 @@ class AppL10nEs extends AppL10n {
   String get nicknameClaim => 'Reservar el nombre';
 
   @override
+  String get nicknameNoIdentityKeyHere =>
+      'Este dispositivo no tiene copia de la clave de la identidad, así que no puede reclamar un nombre para ella. Recláma­lo desde el dispositivo que guarda la identidad, o trae aquí primero su certificado de recuperación.';
+
+  @override
   String get nicknameMiningLabel => 'Minando la prueba de trabajo…';
 
   @override
