@@ -9806,6 +9806,12 @@ abstract class AppL10n {
   /// **'Claim name'**
   String get nicknameClaim;
 
+  /// No description provided for @nicknameNoIdentityKeyHere.
+  ///
+  /// In en, this message translates to:
+  /// **'This device has no copy of the identity key, so it cannot claim a name for it. Claim from the device that holds the identity, or bring its recovery certificate here first.'**
+  String get nicknameNoIdentityKeyHere;
+
   /// No description provided for @nicknameMiningLabel.
   ///
   /// In en, this message translates to:

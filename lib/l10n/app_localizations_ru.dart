@@ -5597,6 +5597,10 @@ class AppL10nRu extends AppL10n {
   String get nicknameClaim => 'Занять имя';
 
   @override
+  String get nicknameNoIdentityKeyHere =>
+      'На этом устройстве нет копии ключа личности, поэтому занять имя для неё отсюда нельзя. Займите с устройства, которое держит личность, или сначала перенесите сюда её сертификат восстановления.';
+
+  @override
   String get nicknameMiningLabel => 'Майнинг доказательства работы…';
 
   @override
