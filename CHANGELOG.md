@@ -1,5 +1,35 @@
 # Changelog
 
+## v0.13.56 — 2026-09-11
+
+*A name you could never claim, on any device you could ever own.*
+
+"Занять имя" was offered to identities that could not use it. The refusal said
+"this device holds a multi-device subkey", which read like a second-device
+problem and was not one: every identity created through the master ceremony
+gets a random per-device subkey on its FIRST device, so the claim refused all
+of them everywhere. A name is the identity's — the design said so all along —
+so the identity's master signs it.
+
+The master is not in the process on any device but a standalone one, so the
+screen now asks for the secret at the moment of publishing, opens the
+credential for that one signature, and closes it. The mining run, which for a
+short name is hours, holds nothing. Declining the prompt keeps the mined seeds
+cached, so answering later resumes without re-mining.
+
+Mining moved to the identity's id as well. The proof-of-work is bound to the
+owner id, and the app mined under the node's own id — so on any identity whose
+master lives elsewhere the seeds proved nothing for the record that would be
+published, and the work was lost before the refusal was even reached.
+Ownership comparisons — "is this name still mine?" — move with it.
+
+The secret prompt already existed inside the devices screen; it is lifted into
+a shared widget rather than copied, so one place knows that a recovery
+certificate is unlocked by a CODE and a bundle by the phrase.
+
+Carries veil 0.11.29. analyze clean, 4557 tests green with 85 skipped — the
+same counts as 0.13.55.
+
 All notable changes to xVeil are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
