@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.13.58 — 2026-09-11
+
+*A backup you can actually keep.*
+
+The 24 words restore the node identity, and they do not restore the sovereign
+credential. Its Ed25519 half derives from the phrase; its Falcon-512 half is
+random, minted lazily on the first sovereign operation, and exists only in the
+local copy. That credential governs the device group and device revocation, so
+a device lost with only the words written down takes those with it — reported
+by a user who noticed the ritual offers 24 words and nothing else.
+
+The artifact that closes the gap already existed: the XVRC recovery
+certificate, encrypted under an independent 256-bit code. What it lacked was a
+way out of the app — it could be read off the screen or copied to a clipboard
+that clears itself after a minute. It can now be written to a file and picked
+back from one, in the devices screen, which is also how a new device adopts an
+existing identity.
+
+The CODE is not in the file, by design. The two together are the identity;
+apart, the certificate is useless, and that is the only reason it may leave the
+device at all. A test reads the writer and fails if it ever reaches for the
+code.
+
+Loading fills the field instead of recovering immediately, and the certificate
+is parsed before it is shown — so a file picked by mistake says so before a
+code is typed.
+
+analyze clean, 4562 tests green with 85 skipped.
+
 ## v0.13.57 — 2026-09-11
 
 *The claim asked for a secret that did not exist, and offered the wrong key.*
