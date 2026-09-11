@@ -10142,6 +10142,24 @@ abstract class AppL10n {
   /// **'Copy certificate'**
   String get devicesCopyCertificate;
 
+  /// No description provided for @devicesSaveCertificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Save to file'**
+  String get devicesSaveCertificate;
+
+  /// No description provided for @devicesCertificateSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved. The code is NOT in the file — keep it somewhere else, or the file alone is the identity.'**
+  String get devicesCertificateSaved;
+
+  /// No description provided for @devicesLoadCertificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Load from file'**
+  String get devicesLoadCertificate;
+
   /// No description provided for @devicesCopyCode.
   ///
   /// In en, this message translates to:

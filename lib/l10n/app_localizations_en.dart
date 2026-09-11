@@ -5747,6 +5747,16 @@ class AppL10nEn extends AppL10n {
   String get devicesCopyCertificate => 'Copy certificate';
 
   @override
+  String get devicesSaveCertificate => 'Save to file';
+
+  @override
+  String get devicesCertificateSaved =>
+      'Saved. The code is NOT in the file — keep it somewhere else, or the file alone is the identity.';
+
+  @override
+  String get devicesLoadCertificate => 'Load from file';
+
+  @override
   String get devicesCopyCode => 'Copy recovery code';
 
   @override
