@@ -34,6 +34,8 @@ import '../contacts/qr_scan_screen.dart';
 import '../common/relative_time.dart';
 import '../../core/secure_screen.dart';
 
+import 'sovereign_secret_dialog.dart';
+
 /// How long a device-group snapshot send is allowed to take before the person
 /// is told something instead of nothing.
 ///
@@ -414,7 +416,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     // State and cleared before it is disposed there.
     final words = await showDialog<String>(
       context: context,
-      builder: (dialog) => _RevokePhraseDialog(
+      builder: (dialog) => SovereignSecretDialog(
         title: l.devicesRevokeTitle(device.short),
         confirmLabel: l.devicesRevoke,
         fieldLabel: usesCertificate ? l.devicesRecoveryCode : l.devicesPhrase,
@@ -1573,68 +1575,6 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
             ),
         ],
       ),
-    );
-  }
-}
-
-/// Asks for the recovery phrase, and owns the controller that holds it.
-///
-/// The caller used to build the controller, await `showDialog`, then clear and
-/// dispose it on the next line. That await returns when `Navigator.pop` runs
-/// and the route stays mounted through its exit transition, so the obscured
-/// `TextField` went on using a disposed controller. Ownership here also means
-/// the secret is cleared by the widget that displayed it, at the moment that
-/// widget goes away, rather than by a caller that has already moved on.
-class _RevokePhraseDialog extends StatefulWidget {
-  const _RevokePhraseDialog({
-    required this.title,
-    required this.confirmLabel,
-    required this.fieldLabel,
-    required this.helperText,
-  });
-
-  final String title;
-  final String confirmLabel;
-  final String fieldLabel;
-  final String helperText;
-
-  @override
-  State<_RevokePhraseDialog> createState() => _RevokePhraseDialogState();
-}
-
-class _RevokePhraseDialogState extends State<_RevokePhraseDialog> {
-  final TextEditingController _phrase = TextEditingController();
-
-  @override
-  void dispose() {
-    _phrase.clear();
-    _phrase.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        controller: _phrase,
-        obscureText: true,
-        maxLines: 1,
-        decoration: InputDecoration(
-          labelText: widget.fieldLabel,
-          helperText: widget.helperText,
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(context, _phrase.text.trim()),
-          child: Text(widget.confirmLabel),
-        ),
-      ],
     );
   }
 }

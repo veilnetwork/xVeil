@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/nickname_controller.dart';
+import '../../state/group_service_providers.dart';
+import 'sovereign_secret_dialog.dart';
 
 /// Settings → Identities & account → Nickname: claim a public @name for the
 /// ACTIVE (sovereign) identity. Availability check → chunked PoW mining with
@@ -26,6 +28,35 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
   void dispose() {
     _field.dispose();
     super.dispose();
+  }
+
+  /// Unlock the identity's master key for the one signature a claim needs.
+  ///
+  /// A name belongs to the IDENTITY, so the identity's master signs it — no
+  /// device subkey can, on any device. The prompt is raised here, at the
+  /// moment of publishing, and the controller closes the signer straight
+  /// after: the secret is never held across the mining run.
+  Future<NativeSovereignGroupSigner?> _openSigner() async {
+    final l = AppL10n.of(context);
+    final svc = ref.read(groupServiceProvider);
+    if (svc == null) return null;
+    // Ask for the secret this identity actually uses: a certificate is
+    // unlocked by a CODE, not by the recovery phrase.
+    final usesCertificate = await svc.sovereignCredentialKind() == 'certificate';
+    if (!mounted) return null;
+    final secret = await showDialog<String>(
+      context: context,
+      builder: (dialog) => SovereignSecretDialog(
+        title: l.nicknameClaim,
+        confirmLabel: l.nicknameClaim,
+        fieldLabel: usesCertificate ? l.devicesRecoveryCode : l.devicesPhrase,
+        helperText: usesCertificate
+            ? l.devicesRecoveryCodeHint
+            : l.devicesPhraseHint,
+      ),
+    );
+    if (secret == null || secret.isEmpty || !mounted) return null;
+    return svc.openLocalSovereign(secret, createIfMissing: false);
   }
 
   @override
@@ -102,7 +133,7 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
                     trailing: st.busy
                         ? null
                         : TextButton(
-                            onPressed: ctrl.topUp,
+                            onPressed: () => ctrl.topUp(openSigner: _openSigner),
                             child: Text(l.nicknameTopUp),
                           ),
                   ),
@@ -153,7 +184,10 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
                 child: FilledButton.icon(
                   onPressed: st.busy
                       ? null
-                      : () => ctrl.startClaim(_field.text),
+                      : () => ctrl.startClaim(
+                          _field.text,
+                          openSigner: _openSigner,
+                        ),
                   icon: const Icon(Icons.gavel_outlined),
                   label: Text(l.nicknameClaim),
                 ),

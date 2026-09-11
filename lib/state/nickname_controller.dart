@@ -42,9 +42,18 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import '../core/ids.dart';
 import '../data/storage/storage.dart';
 import 'app_controller.dart';
+import 'group_service.dart';
 import 'nickname_seed_cache.dart';
 import 'messaging.dart';
 import 'providers.dart';
+
+/// Opens a signer holding the IDENTITY's master key, or returns null when the
+/// user declines to unlock.
+///
+/// The controller cannot prompt, and must not hold a secret; the screen owns
+/// both. Called once, immediately before publishing, and the controller closes
+/// what it is given.
+typedef SovereignSignerOpener = Future<NativeSovereignGroupSigner?> Function();
 
 /// Where the claim flow currently is.
 enum NicknamePhase { idle, checking, mining, publishing }
@@ -166,10 +175,20 @@ class NicknameController extends StateNotifier<NicknameState> {
 
   Storage get _storage => _ref.read(storageProvider);
 
+  /// This NODE's id — used to find the embedded node to talk to, nothing else.
   Future<Uint8List> _selfNodeId() async {
     final hex = await _ref.read(messagingServiceProvider).savedSelfHex();
     return NodeId.fromHex(hex).bytes;
   }
+
+  /// The IDENTITY's id — the owner a nickname belongs to.
+  ///
+  /// Not the same value as [_selfNodeId] on any device but one whose own key
+  /// is the identity's master, and the difference is the point: a name is the
+  /// identity's, so it must be mined and compared under the identity's id, or
+  /// the work proves nothing for the record that gets published.
+  Future<Uint8List> _ownerNodeId() async =>
+      veil.nicknameOwnerNodeId(await _selfNodeId());
 
   /// The claim flow is sovereign-only; anonymous identities are gated out in
   /// the UI too, but re-check here so no code path publishes a linkable name
@@ -228,13 +247,14 @@ class NicknameController extends StateNotifier<NicknameState> {
     if (name == null) return;
     try {
       final self = await _selfNodeId();
+      final owner = await _ownerNodeId();
       final resolved = await veil.resolveNicknameAsync(
         selfNodeId: self,
         name: name,
         timeoutMs: _netTimeoutMs,
       );
       if (_disposed || resolved == null || state.ownedName != name) return;
-      if (_sameBytes(resolved.ownerNodeId, self)) {
+      if (_sameBytes(resolved.ownerNodeId, owner)) {
         // Cumulative PoW weight only ever GROWS for a claim we still hold —
         // the whole ownership model is "strictly greater weight displaces". A
         // partial or stale DHT replica can still answer with a smaller number,
@@ -283,6 +303,7 @@ class NicknameController extends StateNotifier<NicknameState> {
     );
     try {
       final self = await _selfNodeId();
+      final owner = await _ownerNodeId();
       final resolved = await veil.resolveNicknameAsync(
         selfNodeId: self,
         name: norm,
@@ -295,7 +316,7 @@ class NicknameController extends StateNotifier<NicknameState> {
           availability: NicknameAvailability.free,
           takenWeight: 0,
         );
-      } else if (_sameBytes(resolved.ownerNodeId, self)) {
+      } else if (_sameBytes(resolved.ownerNodeId, owner)) {
         state = state.copyWith(
           phase: NicknamePhase.idle,
           availability: NicknameAvailability.mine,
@@ -320,7 +341,7 @@ class NicknameController extends StateNotifier<NicknameState> {
 
   /// Full claim flow: availability → chunked mining (resumable) → publish.
   /// No-op while busy. Displacing a taken name mines to 2× the incumbent.
-  Future<void> startClaim(String raw) async {
+  Future<void> startClaim(String raw, {required SovereignSignerOpener openSigner}) async {
     if (state.busy) return;
     if (_activeIsAnonymous) {
       state = state.copyWith(
@@ -345,6 +366,7 @@ class NicknameController extends StateNotifier<NicknameState> {
     );
     try {
       final self = await _selfNodeId();
+      final owner = await _ownerNodeId();
       // Current owner decides the target: free → the length floor; ours →
       // top-up to 2× our record; foreign → 2× theirs (strictly-greater is
       // the displacement rule; 2× buys a moat).
@@ -361,7 +383,7 @@ class NicknameController extends StateNotifier<NicknameState> {
       final target = resolved == null
           ? floor
           : (resolved.weight * 2).clamp(floor, double.maxFinite.toInt());
-      await _mineAndPublish(norm, self, target);
+      await _mineAndPublish(norm, self, owner, target, openSigner);
     } catch (e) {
       if (_disposed) return;
       state = state.copyWith(phase: NicknamePhase.idle, error: e.toString());
@@ -370,7 +392,7 @@ class NicknameController extends StateNotifier<NicknameState> {
 
   /// Top-up: mine the OWNED name to 2× its current weight and republish —
   /// raising the price of a takeover (the cumulative-PoW defense).
-  Future<void> topUp() async {
+  Future<void> topUp({required SovereignSignerOpener openSigner}) async {
     final owned = state.ownedName;
     if (owned == null || state.busy) return;
     _cancel = false;
@@ -383,8 +405,9 @@ class NicknameController extends StateNotifier<NicknameState> {
     );
     try {
       final self = await _selfNodeId();
+      final owner = await _ownerNodeId();
       final target = state.ownedWeight * 2;
-      await _mineAndPublish(owned, self, target);
+      await _mineAndPublish(owned, self, owner, target, openSigner);
     } catch (e) {
       if (_disposed) return;
       state = state.copyWith(phase: NicknamePhase.idle, error: e.toString());
@@ -397,7 +420,13 @@ class NicknameController extends StateNotifier<NicknameState> {
     _cancel = true;
   }
 
-  Future<void> _mineAndPublish(String norm, Uint8List self, int target) async {
+  Future<void> _mineAndPublish(
+    String norm,
+    Uint8List self,
+    Uint8List owner,
+    int target,
+    SovereignSignerOpener openSigner,
+  ) async {
     // Resume from the persisted seed cache when it matches this name.
     Uint8List seeds = await _seedCache.load(norm);
     var parts = 0;
@@ -414,7 +443,7 @@ class NicknameController extends StateNotifier<NicknameState> {
       final prior = seeds;
       final out = await veil.mineNicknameChunkAsync(
         name: norm,
-        ownerNodeId: self,
+        ownerNodeId: owner,
         targetWeight: target,
         maxHashes: _chunkHashes,
         priorSeeds: prior,
@@ -442,12 +471,33 @@ class NicknameController extends StateNotifier<NicknameState> {
     }
 
     state = state.copyWith(phase: NicknamePhase.publishing);
-    final published = await veil.claimNicknameAsync(
-      ownerNodeId: self,
-      name: norm,
-      seeds: seeds,
-      timeoutMs: _netTimeoutMs,
-    );
+    // The name is the IDENTITY's, so the identity's master signs it. The
+    // signer is opened HERE and not before mining: mining can run for hours,
+    // and holding an unlocked master key open for that long to spend it on
+    // one signature is not a trade worth making.
+    final signer = await openSigner();
+    if (_disposed) {
+      signer?.close();
+      return;
+    }
+    if (signer == null) {
+      // The user declined to unlock. The mined seeds stay cached, so
+      // answering the prompt later resumes without re-mining.
+      state = state.copyWith(phase: NicknamePhase.idle);
+      return;
+    }
+    final int published;
+    try {
+      published = await veil.claimNicknameAsync(
+        ownerNodeId: self,
+        name: norm,
+        seeds: seeds,
+        signerAddress: signer.handleAddress,
+        timeoutMs: _netTimeoutMs,
+      );
+    } finally {
+      signer.close();
+    }
     if (_disposed) return;
     await _persistClaim(norm, published);
     await _seedCache.clear(parts);
