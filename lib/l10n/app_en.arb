@@ -2353,6 +2353,7 @@
     }
   },
   "nicknameClaim": "Claim name",
+  "nicknameNoIdentityKeyHere": "This device has no copy of the identity key, so it cannot claim a name for it. Claim from the device that holds the identity, or bring its recovery certificate here first.",
   "nicknameMiningLabel": "Mining proof-of-work…",
   "nicknameMiningStats": "weight {weight} / {target} · {hashes} hashes",
   "@nicknameMiningStats": {

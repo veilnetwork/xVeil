@@ -56,7 +56,15 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
       ),
     );
     if (secret == null || secret.isEmpty || !mounted) return null;
-    return svc.openLocalSovereign(secret, createIfMissing: false);
+    try {
+      return await svc.openLocalSovereign(secret, createIfMissing: false);
+    } on StateError {
+      // No stored credential on a device that is not the master: there is
+      // nothing here to unlock, and minting one would mint a DIFFERENT key
+      // rather than the identity's. Say which of the two it is instead of
+      // letting "Bad state: No local sovereign bundle" reach the person.
+      throw Exception(l.nicknameNoIdentityKeyHere);
+    }
   }
 
   @override

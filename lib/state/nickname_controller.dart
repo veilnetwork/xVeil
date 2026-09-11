@@ -55,6 +55,26 @@ import 'providers.dart';
 /// what it is given.
 typedef SovereignSignerOpener = Future<NativeSovereignGroupSigner?> Function();
 
+/// Whether this node can sign a nickname claim itself, with no secret asked.
+///
+/// True exactly when the identity's id and the node's own id are the same
+/// value, which happens when the node's key IS the identity's master — both
+/// ids are blake3 of that one key.
+///
+/// The trap this exists to name: the credential the app stores for sovereign
+/// operations is a HYBRID, and its id is blake3 over 929 bytes (ed ‖ falcon)
+/// while an identity named by a bare ed25519 master is blake3 over 32. They
+/// are never equal, so offering that credential to sign for such an identity
+/// is offering the wrong key — the claim refuses it, after the mining is
+/// already spent.
+bool nodeSignsClaimItself(Uint8List identityNodeId, Uint8List nodeNodeId) {
+  if (identityNodeId.length != nodeNodeId.length) return false;
+  for (var i = 0; i < identityNodeId.length; i++) {
+    if (identityNodeId[i] != nodeNodeId[i]) return false;
+  }
+  return true;
+}
+
 /// Where the claim flow currently is.
 enum NicknamePhase { idle, checking, mining, publishing }
 
@@ -420,6 +440,22 @@ class NicknameController extends StateNotifier<NicknameState> {
     _cancel = true;
   }
 
+  /// The publish itself. One place, so the self-signing and the
+  /// credential-signing branch cannot drift apart in what they send.
+  Future<int> _publishWith(
+    String norm,
+    Uint8List self,
+    Uint8List seeds,
+    int signerAddress,
+  ) =>
+      veil.claimNicknameAsync(
+        ownerNodeId: self,
+        name: norm,
+        seeds: seeds,
+        signerAddress: signerAddress,
+        timeoutMs: _netTimeoutMs,
+      );
+
   Future<void> _mineAndPublish(
     String norm,
     Uint8List self,
@@ -471,32 +507,39 @@ class NicknameController extends StateNotifier<NicknameState> {
     }
 
     state = state.copyWith(phase: NicknamePhase.publishing);
-    // The name is the IDENTITY's, so the identity's master signs it. The
-    // signer is opened HERE and not before mining: mining can run for hours,
-    // and holding an unlocked master key open for that long to spend it on
-    // one signature is not a trade worth making.
-    final signer = await openSigner();
-    if (_disposed) {
-      signer?.close();
-      return;
-    }
-    if (signer == null) {
-      // The user declined to unlock. The mined seeds stay cached, so
-      // answering the prompt later resumes without re-mining.
-      state = state.copyWith(phase: NicknamePhase.idle);
-      return;
-    }
+    // The name is the IDENTITY's, so the identity's master signs it — but on
+    // most devices the node IS the master and can sign unaided. That is
+    // exactly when the identity's id equals this node's: both are blake3 of
+    // the same key. Asking for a secret there would be a prompt with nothing
+    // to unlock, and it would offer the WRONG key: the stored sovereign
+    // credential is a hybrid whose id is blake3 over 929 bytes, while such an
+    // identity is named by 32.
+    //
+    // When they differ the master lives elsewhere, and only then is the
+    // credential opened — HERE, not before mining: mining can run for hours,
+    // and holding an unlocked master open that long to spend it on one
+    // signature is not a trade worth making.
+    final selfSigns = nodeSignsClaimItself(owner, self);
     final int published;
-    try {
-      published = await veil.claimNicknameAsync(
-        ownerNodeId: self,
-        name: norm,
-        seeds: seeds,
-        signerAddress: signer.handleAddress,
-        timeoutMs: _netTimeoutMs,
-      );
-    } finally {
-      signer.close();
+    if (selfSigns) {
+      published = await _publishWith(norm, self, seeds, 0);
+    } else {
+      final signer = await openSigner();
+      if (_disposed) {
+        signer?.close();
+        return;
+      }
+      if (signer == null) {
+        // The user declined to unlock. The mined seeds stay cached, so
+        // answering the prompt later resumes without re-mining.
+        state = state.copyWith(phase: NicknamePhase.idle);
+        return;
+      }
+      try {
+        published = await _publishWith(norm, self, seeds, signer.handleAddress);
+      } finally {
+        signer.close();
+      }
     }
     if (_disposed) return;
     await _persistClaim(norm, published);
