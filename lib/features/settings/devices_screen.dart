@@ -144,6 +144,17 @@ bool shouldOpenJoinSheet({
   required bool alreadyOpened,
 }) => autoJoin && ready && !alreadyOpened;
 
+/// Same shape, same reason, for the recovery certificate an identity has just
+/// been created with and nobody has saved yet.
+///
+/// Separate one-shot from the join sheet because the two arrive by different
+/// routes and a single flag would let whichever fired first swallow the other.
+bool shouldOpenRecoverySheet({
+  required bool autoRecovery,
+  required bool ready,
+  required bool alreadyOpened,
+}) => autoRecovery && ready && !alreadyOpened;
+
 /// Whether link and revoke can run for a sovereign credential of this kind.
 ///
 /// Both take the document half through native calls that derive the master key
@@ -160,12 +171,20 @@ bool documentActionsAvailable(String? credentialKind) =>
     credentialKind != 'certificate';
 
 class DevicesScreen extends ConsumerStatefulWidget {
-  const DevicesScreen({super.key, this.autoJoin = false});
+  const DevicesScreen({
+    super.key,
+    this.autoJoin = false,
+    this.autoRecovery = false,
+  });
 
   /// Arrived here straight from the onboarding "link to a device you already
   /// use" path — open the join sheet as soon as the node is up, instead of
   /// making someone who just asked to link hunt for the same row by hand.
   final bool autoJoin;
+
+  /// Opened straight after an identity was CREATED: its certificate is the
+  /// only thing that restores it, and it has never been saved.
+  final bool autoRecovery;
 
   @override
   ConsumerState<DevicesScreen> createState() => _DevicesScreenState();
@@ -193,6 +212,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   static const _awayIsLong = Duration(days: 30);
   bool _loading = true;
   bool _hasSovereignBundle = false;
+  bool _certificateSaved = true;
   bool _hasDeviceGroup = false;
   String? _credentialKind;
 
@@ -210,6 +230,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   /// The auto-open has fired. Guards against re-opening the sheet on every
   /// rebuild, and against re-opening it after the user closes it.
   bool _autoJoinFired = false;
+  bool _autoRecoveryFired = false;
 
   /// A re-send is in flight. Separate from `_loading`, which is the initial
   /// member read: a re-send must not blank the list it was started from.
@@ -285,6 +306,9 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         : await svc?.stateOf(NodeId.fromHex(gidHex));
     final hasBundle = await svc?.localSovereignBundle() != null;
     final credentialKind = await svc?.sovereignCredentialKind();
+    // Defaults to "saved" while unknown: a reminder that appears because a
+    // read failed would be crying wolf, and this one must stay believable.
+    final certificateSaved = await svc?.hasSavedRecoveryCertificate() ?? true;
     final members = [...?state?.members.values.map((m) => m.nodeId)]
       ..sort((a, b) => a.hex.compareTo(b.hex));
     final storedIdentity = await ref
@@ -312,6 +336,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       _lastSeen = seen;
       _members = members;
       _hasSovereignBundle = hasBundle;
+      _certificateSaved = certificateSaved;
       _hasDeviceGroup = gidHex != null;
       _credentialKind = credentialKind;
       _myDevice = myDevice;
@@ -539,6 +564,16 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         if (mounted) _showTarget();
       });
     }
+    if (shouldOpenRecoverySheet(
+      autoRecovery: widget.autoRecovery,
+      ready: ready,
+      alreadyOpened: _autoRecoveryFired,
+    )) {
+      _autoRecoveryFired = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showRecoveryExport();
+      });
+    }
     return Scaffold(
       appBar: AppBar(
         leading: const RootedBackButton(),
@@ -546,6 +581,34 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       ),
       body: ListView(
         children: [
+          // The standing reminder. It does not go away on its own and it is
+          // the action, not a notice next to one: an identity whose
+          // certificate was never saved is one device failure from being
+          // gone, and the words alone restore a DIFFERENT identity.
+          if (!_loading && _hasSovereignBundle && !_certificateSaved)
+            Card(
+              margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: ListTile(
+                leading: Icon(
+                  Icons.warning_amber_outlined,
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                ),
+                title: Text(
+                  l.devicesNoBackupTitle,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+                subtitle: Text(
+                  l.devicesNoBackupBody,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+                onTap: _showRecoveryExport,
+              ),
+            ),
           if (_loading)
             const LinearProgressIndicator()
           else if (_members.isEmpty)
@@ -842,6 +905,15 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
     });
     try {
       await File(dest).writeAsString(certificate, flush: true);
+      // Read it back before calling it saved. A write that reported success
+      // and left nothing behind — a full disk, a sandbox that swallowed the
+      // path — would otherwise clear the reminder that is the only thing
+      // telling this person their identity has no copy.
+      final wrote = await File(dest).readAsString();
+      if (wrote.trim() != certificate.trim()) {
+        throw StateError('the certificate did not read back as written');
+      }
+      await widget.service.markRecoveryCertificateSaved();
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
