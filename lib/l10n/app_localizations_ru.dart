@@ -5798,6 +5798,13 @@ class AppL10nRu extends AppL10n {
   String get devicesSaveCertificate => 'Сохранить в файл';
 
   @override
+  String get devicesNoBackupTitle => 'У этой личности нет резервной копии';
+
+  @override
+  String get devicesNoBackupBody =>
+      'Её восстанавливает только сертификат восстановления — одни 24 слова восстановят другую личность. Сохраните его и держите отдельно от кода.';
+
+  @override
   String get devicesCertificateSaved =>
       'Сохранено. Кода в файле НЕТ — держите его отдельно, иначе один файл и есть личность.';
 

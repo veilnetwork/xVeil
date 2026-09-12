@@ -2444,6 +2444,8 @@
   "devicesCertificateWarning": "Anyone with both values controls your sovereign device identity. Store the certificate and code separately. The code is shown only now.",
   "devicesCopyCertificate": "Copy certificate",
   "devicesSaveCertificate": "Save to file",
+  "devicesNoBackupTitle": "This identity has no backup",
+  "devicesNoBackupBody": "Its recovery certificate is the only thing that restores it — the 24 words alone restore a different identity. Save it now and keep it apart from its code.",
   "devicesCertificateSaved": "Saved. The code is NOT in the file — keep it somewhere else, or the file alone is the identity.",
   "devicesLoadCertificate": "Load from file",
   "devicesCopyCode": "Copy recovery code",
