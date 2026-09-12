@@ -14,6 +14,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+
+import '../data/node/sovereign_identity_material.dart' as material;
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
@@ -17425,7 +17427,10 @@ class GroupService {
   /// list; the leading space cannot be produced through the create/rename
   /// dialogs (both trim their input).
   static const String kDeviceGroupName = ' xveil.devices';
-  static const String kSovereignBundleSetting = 'devices.sovereign.bundle.v1';
+  /// The one declaration lives in the data layer — see
+  /// `kSovereignBundleSetting` in `sovereign_identity_material.dart`. Kept as
+  /// a name here so every existing call site reads the same way.
+  static const String kSovereignBundleSetting = material.kSovereignBundleSetting;
   static const String kPendingDeviceAdoptionSetting =
       'devices.pending_adoption.v1';
 

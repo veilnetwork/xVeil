@@ -92,6 +92,15 @@ const kMasterConfigSetting = 'node.master_config.v1';
 /// corrupt copy of this one.
 const kSovereignIdentitySetting = 'node.sovereign_identity.v1';
 
+/// Where the identity's ENCRYPTED sovereign credential is stored.
+///
+/// Declared here, with the other identity material, rather than beside the
+/// code that writes it: the boot reads it to decide which identity a phrase
+/// names — a credential means the hybrid master, none means the classic
+/// Ed25519 one — and two copies of a storage key drift into two different
+/// keys, which here would mean silently provisioning the wrong identity.
+const kSovereignBundleSetting = 'devices.sovereign.bundle.v1';
+
 /// Whether [files] belong to the identity whose material is ALREADY laid out
 /// in [dir].
 ///
