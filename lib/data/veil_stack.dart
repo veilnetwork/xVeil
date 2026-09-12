@@ -1148,21 +1148,48 @@ class RealVeilStack {
       // nonce search burns CPU — still off the UI isolate like the mine.
       final phrase = identityPhrase;
       if (restoringIdentity) {
-        // BOTH at once. This device boots on a key of its own, and it still
-        // needs the master's key AND nonce to hand out an invite contacts can
-        // address the identity by. Sequentially that is two waits; in parallel
-        // it is about one on any machine with a spare core, which is what makes
-        // a second device cost what the first one did.
-        final mined = await Future.wait([
-          lib == null
-              ? Isolate.run(_mineConfigInIsolate)
-              : Future.value(EmbeddedNode.mineConfig(0, lib: lib)),
-          lib == null
-              ? Isolate.run(() => _configFromPhraseInIsolate(phrase))
-              : Future.value(EmbeddedNode.configFromPhrase(phrase, lib: lib)),
-        ]);
-        identityToml = mined[0];
-        await storage.putSetting(kMasterConfigSetting, mined[1]);
+        // BOTH at once, and only ONE of them is required.
+        //
+        // The device's own key is what makes this a second DEVICE rather than
+        // a second copy of the first, so its failure is the boot's failure.
+        //
+        // The master config is not. It exists to give the invite the
+        // identity's key and nonce — and the invite now takes its key from the
+        // DOCUMENT, which is what the network was told, so this is a fallback
+        // for the narrow case where provisioning leaves no document at all.
+        // It is also unobtainable for a secret that is not words: a recovery
+        // CERTIFICATE is opened by a high-entropy code, and
+        // `decode_master_seed_from_phrase` refuses one — measured, on a daemon
+        // handed a certificate: "master phrase must be 24 words, got 1", which
+        // took the whole boot down for a value the boot no longer needs.
+        //
+        // Still in parallel: two minings cost about what one costs on any
+        // machine with a spare core, which is what makes a second device cost
+        // what the first one did.
+        final deviceKey = lib == null
+            ? Isolate.run(_mineConfigInIsolate)
+            : Future.value(EmbeddedNode.mineConfig(0, lib: lib));
+        // `Future(...)` and not `Future.value(...)`: the latter evaluates the
+        // call SYNCHRONOUSLY, so a throw happens while the future is being
+        // built and `onError` never sees it — the boot died anyway. Caught by
+        // the test below on its first run.
+        final masterCfg =
+            (lib == null
+                    ? Isolate.run(() => _configFromPhraseInIsolate(phrase))
+                    : Future(() => EmbeddedNode.configFromPhrase(phrase, lib: lib)))
+                .then<String?>((toml) => toml)
+                .onError<Object>((e, _) {
+                  devLog(
+                    () =>
+                        'xVeil[identity]: no master config for this secret — '
+                        'it is not a 24-word phrase. The invite is named by '
+                        'the document instead ($e)',
+                  );
+                  return null;
+                });
+        identityToml = await deviceKey;
+        final cfg = await masterCfg;
+        if (cfg != null) await storage.putSetting(kMasterConfigSetting, cfg);
         origin = 'restored-device';
       } else {
         identityToml = lib == null
