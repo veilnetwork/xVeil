@@ -17512,6 +17512,22 @@ class GroupService {
     } catch (_) {}
   }
 
+  /// Record that this identity's recovery certificate has been written out.
+  ///
+  /// Called only after the file has been read back, so the flag means "a copy
+  /// exists" rather than "a write returned without error".
+  Future<void> markRecoveryCertificateSaved() =>
+      _storage.putSetting(material.kRecoveryCertificateSavedSetting, '1');
+
+  /// Whether this identity has a saved recovery certificate.
+  ///
+  /// False is the interesting answer: the identity is named by a master whose
+  /// Falcon half lives only in the credential, so until a copy exists the
+  /// identity is one device failure away from being gone.
+  Future<bool> hasSavedRecoveryCertificate() async =>
+      (await _storage.getSetting(material.kRecoveryCertificateSavedSetting)) ==
+      '1';
+
   Future<Uint8List?> localSovereignBundle() async =>
       (await _readSovereignCredential()).bundle;
 

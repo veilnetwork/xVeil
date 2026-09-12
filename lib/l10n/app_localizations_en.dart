@@ -5750,6 +5750,13 @@ class AppL10nEn extends AppL10n {
   String get devicesSaveCertificate => 'Save to file';
 
   @override
+  String get devicesNoBackupTitle => 'This identity has no backup';
+
+  @override
+  String get devicesNoBackupBody =>
+      'Its recovery certificate is the only thing that restores it — the 24 words alone restore a different identity. Save it now and keep it apart from its code.';
+
+  @override
   String get devicesCertificateSaved =>
       'Saved. The code is NOT in the file — keep it somewhere else, or the file alone is the identity.';
 
