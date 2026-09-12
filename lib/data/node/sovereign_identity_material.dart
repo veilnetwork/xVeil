@@ -193,6 +193,28 @@ Future<({Uint8List? bundle, bool corrupt})> readSovereignCredential(
   }
 }
 
+/// The wire name of a master algorithm byte, as an invite spells it.
+///
+/// One place, because the byte and the string are two spellings of one fact and
+/// they travel in different directions: veil writes the byte into the document,
+/// the invite carries the string, and `SovereignGroupSigner.algorithm` compares
+/// against the string. A mismatch would not fail loudly — it would produce an
+/// invite that parses and names the wrong thing.
+///
+/// The bytes are veil's (`veil-proto/src/identity_document.rs`), and Ed25519 is
+/// ZERO — not one. Taken from the error text next door on the first pass, which
+/// said "1 = Ed25519" and had been saying it for a while; the test below caught
+/// it on its first run. A guessed constant reads exactly like a known one.
+String sovereignMasterAlgoName(int algo) => switch (algo) {
+  0 => 'ed25519',
+  2 => 'falcon512',
+  3 => 'ed25519+falcon512',
+  4 => 'ed25519+falcon1024',
+  // Refused rather than guessed: an invite is a long-lived string, and a
+  // wrong algorithm in one is a contact who cannot verify anything it signs.
+  _ => throw ArgumentError.value(algo, 'algo', 'unknown master algorithm'),
+};
+
 /// Whether this credential is a recovery CERTIFICATE rather than a bundle.
 ///
 /// The two are unlocked by different secrets and it is not a detail: an XVSB is

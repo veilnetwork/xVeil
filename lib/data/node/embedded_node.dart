@@ -329,6 +329,28 @@ typedef _AdoptDocDart =
     );
 // int veil_identity_document_node_id(document*, len, out_node_id*, err_out**):
 //   0 on success, writing 32 bytes to out_node_id.
+// int veil_identity_document_master(document*, len, out_algo*, out_pubkey*,
+//     out_cap, out_len*, err_out**): 0 on success.
+typedef _DocMasterNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<IntPtr>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _DocMasterDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      int,
+      Pointer<IntPtr>,
+      Pointer<Pointer<Utf8>>,
+    );
 typedef _DocNodeIdNative =
     Int32 Function(
       Pointer<Uint8>,
@@ -1411,6 +1433,63 @@ class EmbeddedNode {
     } finally {
       calloc.free(docPtr);
       calloc.free(out);
+      calloc.free(errOut);
+    }
+  }
+
+  /// The MASTER this document is named by: its algorithm byte and public key.
+  ///
+  /// What an invite has to carry. Whoever redeems an invite computes
+  /// `BLAKE3(key)` to get the address, so the key must be the one the identity
+  /// is named by — 32 bytes for a classic master, 929 for a hybrid one. Read
+  /// from the DOCUMENT because that is what the network was told.
+  static ({int algo, Uint8List publicKey}) identityDocumentMaster(
+    Uint8List document, {
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final fn = dl.lookupFunction<_DocMasterNative, _DocMasterDart>(
+      'veil_identity_document_master',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final docPtr = calloc<Uint8>(document.isEmpty ? 1 : document.length);
+    // A hybrid master is 929 bytes; the ceiling is generous so a longer
+    // algorithm can be added without this refusing to read it.
+    const cap = 4096;
+    final algoOut = calloc<Uint8>();
+    final keyOut = calloc<Uint8>(cap);
+    final lenOut = calloc<IntPtr>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      if (document.isNotEmpty) {
+        docPtr.asTypedList(document.length).setAll(0, document);
+      }
+      final rc = fn(
+        docPtr,
+        document.length,
+        algoOut,
+        keyOut,
+        cap,
+        lenOut,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_identity_document_master failed: $msg');
+      }
+      return (
+        algo: algoOut.value,
+        publicKey: Uint8List.fromList(keyOut.asTypedList(lenOut.value)),
+      );
+    } finally {
+      calloc.free(docPtr);
+      calloc.free(algoOut);
+      calloc.free(keyOut);
+      calloc.free(lenOut);
       calloc.free(errOut);
     }
   }
