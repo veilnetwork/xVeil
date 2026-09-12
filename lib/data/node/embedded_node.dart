@@ -118,6 +118,35 @@ typedef _FreeStrDart = void Function(Pointer<Utf8>);
 //     instance_label*, instance_label_len, err_out**):
 //   0 on success. The phrase buffer is WRITABLE — the native side wipes it in
 //   place before returning, on every path.
+typedef _ProvisionHybridNative =
+    Int32 Function(
+      Pointer<Uint8>, // credential
+      IntPtr,
+      Pointer<Uint8>, // secret (wiped natively)
+      IntPtr,
+      Pointer<Uint8>, // veil_dir
+      IntPtr,
+      Pointer<Uint8>, // instance_label
+      IntPtr,
+      Pointer<Uint8>, // identity_toml (this device's node key)
+      IntPtr,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _ProvisionHybridDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Pointer<Utf8>>,
+    );
+
 typedef _RestoreIdentityWithKeyNative =
     Int32 Function(
       Pointer<Uint8>,
@@ -573,6 +602,80 @@ class EmbeddedNode {
         wipeNativeSecret(tomlC.cast<Uint8>(), tomlC.length);
         calloc.free(tomlC);
       }
+      calloc.free(dirC);
+      calloc.free(labelC);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Provision this device under a HYBRID sovereign identity, taking the
+  /// master from the identity's encrypted [credential].
+  ///
+  /// The identity this writes is named by the WHOLE master — `node_id` is
+  /// BLAKE3 over `ed25519 ‖ falcon512` — so it is NOT the identity the same
+  /// phrase produces on its own. That is the point: the Ed25519 half comes
+  /// from the words and the Falcon half exists nowhere but the credential, so
+  /// an identity rooted in both survives only if the certificate does.
+  ///
+  /// [secret] opens the credential: the phrase for an `XVSB`, the recovery
+  /// code for an `XVRC`. It is wiped natively on every path, and wiped here
+  /// too for the arguments rejected before the native side reads them.
+  ///
+  /// [nodeConfigToml] is THE KEY THIS DEVICE ALREADY RUNS ON — same reason as
+  /// [provisionSovereignIdentity]. Naming a different key leaves every
+  /// signature this device makes failing its own author binding, silently.
+  static void provisionHybridSovereignIdentity(
+    Uint8List credential,
+    String secret, {
+    required String veilDir,
+    required String instanceLabel,
+    required String nodeConfigToml,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final fn = dl.lookupFunction<_ProvisionHybridNative, _ProvisionHybridDart>(
+      'veil_provision_hybrid_identity_from_credential_zeroize',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final credC = calloc<Uint8>(credential.length);
+    final secretC = secret.toNativeUtf8();
+    final dirC = veilDir.toNativeUtf8();
+    final labelC = instanceLabel.toNativeUtf8();
+    final tomlC = nodeConfigToml.toNativeUtf8();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      credC.asTypedList(credential.length).setAll(0, credential);
+      final rc = fn(
+        credC,
+        credential.length,
+        secretC.cast<Uint8>(),
+        secretC.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        labelC.cast<Uint8>(),
+        labelC.length,
+        tomlC.cast<Uint8>(),
+        tomlC.length,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_provision_hybrid_identity failed: $msg');
+      }
+    } finally {
+      // Both of these are secrets and both are OURS to wipe: the native side
+      // wipes the secret only once it has read it, and it never owns the
+      // TOML's bytes at all — that copy carries this device's private key.
+      wipeNativeSecret(secretC.cast<Uint8>(), secretC.length);
+      calloc.free(secretC);
+      wipeNativeSecret(tomlC.cast<Uint8>(), tomlC.length);
+      calloc.free(tomlC);
+      // The credential is ciphertext, not a key — freed, not wiped.
+      calloc.free(credC);
       calloc.free(dirC);
       calloc.free(labelC);
       calloc.free(errOut);
