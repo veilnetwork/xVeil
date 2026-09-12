@@ -6529,7 +6529,23 @@ class GroupService {
     );
   }
 
+  /// The hourly pass. Never fatal, and never running after dispose.
+  ///
+  /// It is started with `unawaited`, so anything it throws is an UNHANDLED
+  /// exception — which on a daemon means the process dies. That is what
+  /// happened: the boot kicks a pass off immediately, the daemon was asked to
+  /// stop while it was still walking Spaces, the container closed underneath
+  /// it, and `Bad state: storage is locked — call open() first` took the whole
+  /// process down with exit 255 (measured 2026-09-12). Cancelling the timer in
+  /// `dispose` does not help: it stops the NEXT pass, not the one in flight.
+  ///
+  /// Nothing here is worth a crash. Every sweep is idempotent and hourly, so a
+  /// pass that dies half way is simply a pass that runs again in an hour — and
+  /// during shutdown it is not even a failure, it is the store going away on
+  /// schedule. That case is logged quietly and the rest loudly, because a
+  /// maintenance pass failing while the daemon is UP is worth knowing about.
   Future<void> _runSpaceDeletionMaintenance() async {
+    if (_disposed) return;
     if (_spaceDeletionMaintenanceRunning) return;
     _spaceDeletionMaintenanceRunning = true;
     try {
@@ -6562,6 +6578,19 @@ class GroupService {
       final collapsed = await sweepStateLogCompaction();
       if (collapsed > 0) {
         devLog(() => 'xVeil[compaction]: rows collapsed=$collapsed');
+      }
+    } on Object catch (e) {
+      // Disposed mid-pass is the ordinary shutdown race, not a fault: the
+      // store closes while this is between awaits. Said at all, because
+      // "silence during shutdown" is how a real failure would hide here too.
+      if (_disposed) {
+        devLog(
+          () =>
+              'xVeil[maintenance]: pass abandoned — the identity closed while '
+              'it was running ($e)',
+        );
+      } else {
+        devLog(() => 'xVeil[maintenance]: pass failed, retrying in an hour: $e');
       }
     } finally {
       _spaceDeletionMaintenanceRunning = false;
