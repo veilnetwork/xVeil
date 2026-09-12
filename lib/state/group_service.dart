@@ -14,8 +14,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 
 import '../data/node/sovereign_identity_material.dart' as material;
+import '../data/veil_stack.dart';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
@@ -17510,6 +17512,35 @@ class GroupService {
     try {
       await _storage.putSetting(kSovereignBundleSetting, '');
     } catch (_) {}
+  }
+
+  /// Renew THIS device's delegation while the credential is already open.
+  ///
+  /// The window is seven days and only the master can extend it, so a device
+  /// that nobody unlocks for a week goes quiet. This is the cheap half of
+  /// keeping that from happening: every time the secret is typed for some
+  /// other reason — linking a device, revoking one, exporting a certificate —
+  /// the delegation is carried forward too, and most people never see a prompt
+  /// about it at all.
+  ///
+  /// Quiet on the ordinary outcome. A window that is still fresh cannot move
+  /// forward and is not a failure; neither is a device with no sovereign
+  /// material. Nothing here is worth interrupting the operation the person
+  /// actually asked for.
+  Future<void> renewOwnDelegationQuietly(String secret) async {
+    if (_disposed || secret.isEmpty) return;
+    try {
+      final credential = await localSovereignBundle();
+      await RealVeilStack.renewOwnDelegation(
+        _storage,
+        secret: secret,
+        stagingBase: Directory.systemTemp.path,
+        credential: credential,
+      );
+    } catch (_) {
+      // Deliberately swallowed: this rides along with somebody else's
+      // operation and must never be the reason it reports a failure.
+    }
   }
 
   /// Record that this identity's recovery certificate has been written out.
