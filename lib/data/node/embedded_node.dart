@@ -118,6 +118,40 @@ typedef _FreeStrDart = void Function(Pointer<Utf8>);
 //     instance_label*, instance_label_len, err_out**):
 //   0 on success. The phrase buffer is WRITABLE — the native side wipes it in
 //   place before returning, on every path.
+typedef _ReissueDelegationNative =
+    Int32 Function(
+      Pointer<Uint8>, // credential (may be nullptr)
+      IntPtr,
+      Pointer<Uint8>, // secret (wiped natively)
+      IntPtr,
+      Pointer<Uint8>, // veil_dir
+      IntPtr,
+      Pointer<Uint8>, // device_pubkey (nullptr = this device)
+      IntPtr,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _ReissueDelegationDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _DelegationValidUntilNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint64>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _DelegationValidUntilDart =
+    int Function(Pointer<Uint8>, int, Pointer<Uint64>, Pointer<Pointer<Utf8>>);
+
 typedef _CreateHybridBundleNative =
     Int32 Function(
       Pointer<Uint8>, // phrase (wiped natively)
@@ -623,6 +657,104 @@ class EmbeddedNode {
       }
       calloc.free(dirC);
       calloc.free(labelC);
+      calloc.free(errOut);
+    }
+  }
+
+  /// When THIS device's delegation runs out, in Unix seconds. 0 when the
+  /// document does not name this device — a node with no sovereign identity
+  /// has no delegation to expire.
+  ///
+  /// Asked of veil rather than parsed here: the document's layout is veil's,
+  /// and a second reader of a wire format is a second thing to keep in step.
+  /// The symptom of letting that drift would be a device that goes quiet.
+  static int delegationValidUntil(String veilDir, {DynamicLibrary? lib}) {
+    final dl = lib ?? _veilLib();
+    final fn = dl
+        .lookupFunction<
+          _DelegationValidUntilNative,
+          _DelegationValidUntilDart
+        >('veil_device_delegation_valid_until');
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final dirC = veilDir.toNativeUtf8();
+    final out = calloc<Uint64>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final rc = fn(dirC.cast<Uint8>(), dirC.length, out, errOut);
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_device_delegation_valid_until failed: $msg');
+      }
+      return out.value;
+    } finally {
+      calloc.free(dirC);
+      calloc.free(out);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Move THIS device's delegation window forward, re-signed by the master.
+  ///
+  /// Not a re-enrolment: the device keeps its key, its `device_id` and its
+  /// address, and no other device has to be present. [credential] selects the
+  /// master the same way the boot does — present means the hybrid one, opened
+  /// with [secret]; null means the Ed25519 master [secret] gives as a phrase.
+  ///
+  /// Throws when the window would not move forward, which is what "already
+  /// fresh" looks like from here — the caller decides whether that is worth
+  /// reporting.
+  static void reissueOwnDelegation({
+    required String secret,
+    required String veilDir,
+    Uint8List? credential,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final fn = dl
+        .lookupFunction<_ReissueDelegationNative, _ReissueDelegationDart>(
+          'veil_reissue_device_delegation_zeroize',
+        );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final credC = credential == null || credential.isEmpty
+        ? nullptr
+        : calloc<Uint8>(credential.length);
+    final secretC = secret.toNativeUtf8();
+    final dirC = veilDir.toNativeUtf8();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      if (credC != nullptr) {
+        credC.asTypedList(credential!.length).setAll(0, credential);
+      }
+      final rc = fn(
+        credC,
+        credential?.length ?? 0,
+        secretC.cast<Uint8>(),
+        secretC.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        nullptr, // this device's own key, read natively from disk
+        0,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_reissue_device_delegation failed: $msg');
+      }
+    } finally {
+      // The native side wipes the secret once it reads it; an argument
+      // rejected before that leaves it in this buffer.
+      wipeNativeSecret(secretC.cast<Uint8>(), secretC.length);
+      calloc.free(secretC);
+      if (credC != nullptr) calloc.free(credC);
+      calloc.free(dirC);
       calloc.free(errOut);
     }
   }
