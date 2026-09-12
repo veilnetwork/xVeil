@@ -14,10 +14,13 @@ import '../core/ids.dart';
 
 import '../core/cleanup_legs.dart';
 import '../data/node/embedded_node.dart';
+import '../data/node/sovereign_identity_material.dart'
+    show kSovereignBundleSetting;
 import '../data/node/node_controller.dart';
 import '../data/node/space_discovery_transport.dart';
 import '../data/native_libs.dart';
 import '../data/serve_source.dart';
+import '../domain/sovereign_recovery.dart';
 import '../data/storage/async_kv_log_store.dart';
 import '../data/storage/hidden_volume_storage.dart';
 import '../data/transport/bootstrap_invite.dart';
@@ -76,6 +79,19 @@ class HeadlessRuntime {
     required String password,
     bool createIfMissing = false,
     String? identityPhrase,
+    /// The identity's recovery certificate (XVRC), when this daemon is JOINING
+    /// an identity that already exists rather than creating one.
+    ///
+    /// Without it a daemon handed a phrase does not join anything: it mints a
+    /// fresh credential, so a fresh Falcon half, so a DIFFERENT address — and
+    /// it derives its device key from the same phrase, so two such daemons
+    /// also share an `instance_id` and are one device to everything that
+    /// counts devices. Measured on two daemons from one phrase: addresses
+    /// 97acf899… and 236e2085…, instance 36244f90… on both (2026-09-12).
+    ///
+    /// With it, both halves come out right — the credential fixes the address
+    /// and `restoringIdentity` makes this device mine a key of its own.
+    String? identityCredential,
     String? apiToken,
     List<String> apiFileRoots = const <String>[],
     int? debugMetricsPort,
@@ -113,6 +129,28 @@ class HeadlessRuntime {
         // which is the wrong ask for a key that ships inside every APK.
         psk = await readSharedSecretFile(pskPath, 'obfs4 PSK');
       }
+      if (psk == null || psk.isEmpty) {
+        // SAID OUT LOUD, because the failure it precedes is invisible.
+        //
+        // Both deployment networks separate themselves by obfs4 PSK — that is
+        // what makes them different networks rather than two ports on one
+        // host. A node without the key still boots, still mines an identity,
+        // still finds peers at the rendezvous, and still prints `ready: true`
+        // — and then refuses every single one of them with "obfs4-tcp
+        // transport requires `obfs4_psk`". Measured on a daemon that looked
+        // perfectly healthy for an hour (2026-09-12).
+        //
+        // Not a refusal to start: a daemon given plain-transport peers by hand
+        // is a legitimate stand, and this call cannot know which kind it is.
+        // The operator can.
+        stderr.writeln(
+          'xveil: WARNING — no obfs4 PSK configured (obfs4_psk_file / '
+          'XVEIL_OBFS4_PSK_FILE). This daemon can FIND peers but cannot '
+          'complete an obfs4 handshake with any of them, so every deployment '
+          'seed will be refused. The key ships beside the seeds in the '
+          'bundle: see README.md.',
+        );
+      }
 
       // MINING TAKES MINUTES, and the daemon used to spend them in silence:
       // no output, no socket, no API — indistinguishable from a hang, and the
@@ -123,6 +161,25 @@ class HeadlessRuntime {
       // Asked of the container, not of `--create`: a store can exist while its
       // node config does not (a first start that was killed during exactly
       // this wait), and that second start mines too.
+      // BEFORE provisioning, because its presence is what the boot reads to
+      // decide which identity this phrase names. Stored the same way the app
+      // stores it, in the chunked file store, so the two agree on where an
+      // identity's credential lives.
+      final joining = identityCredential != null &&
+          identityCredential.trim().isNotEmpty;
+      if (joining) {
+        final cert = SovereignRecoveryCertificate.parse(identityCredential);
+        await storage.storeFile(
+          kSovereignBundleSetting,
+          cert.bytes,
+          name: 'sovereign-credential',
+        );
+        stderr.writeln(
+          'xveil: joining the identity this certificate names '
+          '(${cert.nodeId.hex.substring(0, 16)}…) rather than creating one.',
+        );
+      }
+
       if (await storage.loadNodeConfig() == null) {
         stderr.writeln(
           'xveil: mining this node\'s identity — it is proof-of-work and '
@@ -144,6 +201,10 @@ class HeadlessRuntime {
         udpReflectors: config.udpReflectors,
         obfs4Psk: psk,
         identityPhrase: identityPhrase,
+        // A certificate means this is a RESTORE, and the flag is what makes
+        // this device mine a key of its own instead of deriving one from the
+        // shared phrase. Both halves of "a second device" or neither.
+        restoringIdentity: joining,
         debugMetricsPort: debugMetricsPort,
         // What the config file said, and NULL when it said nothing — in which
         // case the boot reads the identity's own space and falls back to the

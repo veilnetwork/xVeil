@@ -1344,16 +1344,35 @@ class RealVeilStack {
           credential = await _mintSovereignCredential(storage, identityPhrase);
         }
         if (credential != null && nodeToml != null) {
-          // The identity is named by BOTH halves, and the credential is the
-          // only place the Falcon half exists.
-          EmbeddedNode.provisionHybridSovereignIdentity(
-            credential,
-            identityPhrase,
-            veilDir: staging,
-            instanceLabel: instanceLabel,
-            nodeConfigToml: nodeToml,
-            lib: lib,
-          );
+          // WHICH SECRET OPENS IT is decided by the credential's own magic, not
+          // by what the caller thinks it has. An XVSB is wrapped under the
+          // phrase; an XVRC is re-wrapped under a high-entropy code of its own,
+          // exactly so the exported file is not openable by the words. Handing
+          // the phrase to an XVRC does not provision a different identity — it
+          // fails, and the boot then fell through to no sovereign document at
+          // all, with the certificate sitting in the container. Measured
+          // against the real library on 2026-09-12.
+          if (isRecoveryCertificate(credential)) {
+            EmbeddedNode.provisionIdentityFromCertificate(
+              credential,
+              identityPhrase,
+              veilDir: staging,
+              instanceLabel: instanceLabel,
+              nodeConfigToml: nodeToml,
+              lib: lib,
+            );
+          } else {
+            // The identity is named by BOTH halves, and the credential is the
+            // only place the Falcon half exists.
+            EmbeddedNode.provisionHybridSovereignIdentity(
+              credential,
+              identityPhrase,
+              veilDir: staging,
+              instanceLabel: instanceLabel,
+              nodeConfigToml: nodeToml,
+              lib: lib,
+            );
+          }
         } else {
           if (restoringIdentity) {
             // Say it rather than let it be discovered later. Restoring a

@@ -73,6 +73,85 @@ does not have, and reading it would drag `package:shared_preferences` — and so
 That import is exactly what stopped this daemon building at all in `709f3b9`,
 with every app build and the Flutter-free gate still green.
 
+### Joining an identity that already exists
+
+`--identity-phrase-file` on its own **creates** an identity. It does not join
+one, and the difference is not visible until there are two daemons:
+
+| | address (`node_id`) | `instance_id` |
+|---|---|---|
+| daemon A, phrase only | `97acf899…` | `36244f90…` |
+| daemon B, same phrase | `236e2085…` | `36244f90…` |
+
+Both halves come out backwards. The **addresses differ**, because a daemon with
+no certificate mints a fresh credential — a fresh Falcon half, and the address
+is hashed over it. The **instance ids match**, because a created identity takes
+its device key from the phrase, and the same phrase gives the same key. Two such
+daemons are two different identities that believe they are the same device.
+
+`--identity-credential-file` is what makes a second daemon a second DEVICE:
+
+```bash
+xveil run --config /etc/xveil/dev2.json \
+  --password-file /etc/xveil/store.password \
+  --identity-phrase-file /etc/xveil/phrase.txt \
+  --identity-credential-file /etc/xveil/identity.xvrc --create
+```
+
+The file is the recovery certificate the app offers when an identity is created
+(Devices → save certificate). Given one, the daemon stores it as this
+identity's credential before provisioning, so the boot resolves the SAME
+address — and it mines a device key of its own, so the two daemons are told
+apart. It is read with the same checks as the phrase file (`chmod 600`, owner,
+not a symlink): together the two ARE the identity.
+
+**`--identity-phrase-file` then holds the certificate's recovery CODE**, not the
+twenty-four words. A certificate is re-wrapped under a code of its own — that is
+what stops the exported file being openable by the phrase — so the code is what
+unlocks it. The daemon does not need telling which it was given: the boot reads
+the credential's magic and opens it accordingly.
+
+`XVEIL_IDENTITY_CREDENTIAL_FILE` is the environment equivalent.
+
+### `obfs4_psk_file`: without it the daemon finds peers and talks to none
+
+**Set this, or the daemon is deaf.** Both deployment networks separate
+themselves by an obfs4 pre-shared key — that is what makes them two networks
+rather than two ports on one host — so a node without the key completes no
+handshake with any peer it meets.
+
+The failure gives almost no sign. The daemon boots, mines its identity, reaches
+the rendezvous, finds seed addresses, prints `{"ready":true,...}` — and then
+refuses each one:
+
+```
+peer.connect.attempt  peer_id=0x… transport=obfs4-tcp://…:5556
+peer.connect.failure  error=unsupported transport operation:
+                      obfs4-tcp transport requires `obfs4_psk` set in TransportContext
+```
+
+Nothing reports a problem, because from the node's side nothing is broken: it
+was never given the key. The daemon now prints a warning at startup when none
+is configured; the log line above is what it precedes.
+
+`scripts/build-headless.sh` copies the right key for the network it built into
+the bundle root, so:
+
+```json
+{ "obfs4_psk_file": "/opt/xveil/bundle/obfs4_psk.b64" }
+```
+
+`XVEIL_OBFS4_PSK_FILE` is the environment equivalent. The key is not a private
+secret — the same bytes ship inside every APK — so it is read with the relaxed
+check (regular file, bounded size) rather than the owner-only one the store
+password gets.
+
+The key and the seeds must be the SAME network. A bundle built for production
+carrying the testnet key is the mirrored-constant failure `veil-network.sh`
+exists to prevent, and its symptom is this exact log line. The build script
+takes both from the one rule, so use the file it produced rather than copying
+one from elsewhere.
+
 ### Secret files, and what they are checked for
 
 Omitting `--password-file` prompts for the password on the terminal with echo
