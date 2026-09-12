@@ -932,6 +932,82 @@ class EmbeddedNode {
     }
   }
 
+  /// Provision this device under the identity a RECOVERY CERTIFICATE names.
+  ///
+  /// What made the certificate a recovery medium rather than a keepsake. An
+  /// XVRC is re-wrapped under its own high-entropy [code] precisely so the
+  /// exported file is not openable by the words — and every provisioning path
+  /// opened credentials with the PHRASE, so a device holding a certificate
+  /// booted DEGENERATE: no sovereign document, the address gone, the
+  /// certificate sitting right there. Measured through this app's own boot on
+  /// 2026-09-12 (`material=NULL`).
+  ///
+  /// [code] is the certificate's own recovery code, not a phrase, and is wiped
+  /// natively. [nodeConfigToml] names the key THIS device signs with, so the
+  /// identity is the certificate's and the device is the host's.
+  ///
+  /// Writes no `master.enc`: a certificate carries the master KEY, and the seed
+  /// behind it cannot be recovered from one.
+  static void provisionIdentityFromCertificate(
+    Uint8List certificate,
+    String code, {
+    required String veilDir,
+    required String instanceLabel,
+    required String nodeConfigToml,
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    // Same eleven-argument shape as its phrase-taking sibling, so the same
+    // typedef describes both. What differs is which secret opens what.
+    final fn = dl.lookupFunction<_ProvisionHybridNative, _ProvisionHybridDart>(
+      'veil_provision_identity_from_certificate_zeroize',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final certC = calloc<Uint8>(certificate.length);
+    final codeC = code.toNativeUtf8();
+    final dirC = veilDir.toNativeUtf8();
+    final labelC = instanceLabel.toNativeUtf8();
+    final tomlC = nodeConfigToml.toNativeUtf8();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      certC.asTypedList(certificate.length).setAll(0, certificate);
+      final rc = fn(
+        certC,
+        certificate.length,
+        codeC.cast<Uint8>(),
+        codeC.length,
+        dirC.cast<Uint8>(),
+        dirC.length,
+        labelC.cast<Uint8>(),
+        labelC.length,
+        tomlC.cast<Uint8>(),
+        tomlC.length,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_provision_identity_from_certificate: $msg');
+      }
+    } finally {
+      // Same reasoning as the sibling: the code is wiped once the native side
+      // has read it, and the TOML is never the native side's to own — that
+      // copy carries this device's private key.
+      wipeNativeSecret(codeC.cast<Uint8>(), codeC.length);
+      calloc.free(codeC);
+      wipeNativeSecret(tomlC.cast<Uint8>(), tomlC.length);
+      calloc.free(tomlC);
+      // The certificate is ciphertext, not a key — freed, not wiped.
+      calloc.free(certC);
+      calloc.free(dirC);
+      calloc.free(labelC);
+      calloc.free(errOut);
+    }
+  }
+
   /// Admit a device to this identity: append its key to the signed document
   /// in [veilDir], under this identity's master.
   ///

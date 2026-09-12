@@ -64,6 +64,7 @@ Future<void> _run(List<String> args) async {
   String? configPath;
   String? passwordFile;
   String? phraseFile;
+  String? credentialFile;
   String? tokenFile;
   final fileRoots = <String>[];
   var create = false;
@@ -80,6 +81,11 @@ Future<void> _run(List<String> args) async {
         passwordFile = _next(args, ++i, '--password-file');
       case '--identity-phrase-file':
         phraseFile = _next(args, ++i, '--identity-phrase-file');
+      // JOIN an identity that already exists, rather than create one. Without
+      // it a daemon given a phrase MINTS a fresh credential and becomes a new
+      // identity at a new address — see HeadlessRuntime.start.
+      case '--identity-credential-file':
+        credentialFile = _next(args, ++i, '--identity-credential-file');
       case '--api-token-file':
         tokenFile = _next(args, ++i, '--api-token-file');
       // Repeatable. Without at least one, `POST /v1/files` is refused: the
@@ -96,6 +102,7 @@ Future<void> _run(List<String> args) async {
   configPath ??= Platform.environment['XVEIL_CONFIG'];
   passwordFile ??= Platform.environment['XVEIL_PASSWORD_FILE'];
   phraseFile ??= Platform.environment['XVEIL_IDENTITY_PHRASE_FILE'];
+  credentialFile ??= Platform.environment['XVEIL_IDENTITY_CREDENTIAL_FILE'];
   tokenFile ??= Platform.environment['XVEIL_API_TOKEN_FILE'];
   if (fileRoots.isEmpty) {
     final fromEnv = Platform.environment['XVEIL_API_FILE_ROOTS'];
@@ -130,6 +137,17 @@ Future<void> _run(List<String> args) async {
   final phrase = phraseFile == null
       ? null
       : await readSecret(phraseFile, 'identity phrase');
+  // Read with the SAME care as the phrase: the certificate carries the
+  // master's Falcon half, which exists nowhere else.
+  //
+  // Its secret is the certificate's own recovery CODE, supplied through
+  // --identity-phrase-file like any other identity secret — an XVRC is
+  // re-wrapped under that code precisely so the words do not open it. The
+  // daemon does not have to know which it was handed: the boot reads the
+  // credential's magic and opens it with whichever one it is.
+  final credential = credentialFile == null
+      ? null
+      : await readSecret(credentialFile, 'identity credential');
   final token = tokenFile == null
       ? null
       : await readSecret(tokenFile, 'API token');
@@ -139,6 +157,7 @@ Future<void> _run(List<String> args) async {
     password: password,
     createIfMissing: create,
     identityPhrase: phrase,
+    identityCredential: credential,
     apiToken: token,
     apiFileRoots: fileRoots,
   );
@@ -247,6 +266,7 @@ xVeil headless daemon
   xveil print-openapi
   xveil run --config PATH [--create]
             [--password-file PATH] [--identity-phrase-file PATH]
+            [--identity-credential-file PATH]
             [--api-token-file PATH] [--api-file-root DIR]...
             [--accept-unchecked-secret-files]
 

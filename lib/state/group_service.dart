@@ -17564,10 +17564,7 @@ class GroupService {
       await _writeSovereignCredential(bundle);
     }
     if (bundle == null) throw StateError('No local sovereign bundle');
-    final magic = bundle.length >= 4
-        ? ascii.decode(bundle.sublist(0, 4), allowInvalid: true)
-        : '';
-    return magic == 'XVRC'
+    return material.isRecoveryCertificate(bundle)
         ? NativeSovereignGroupSigner.openRecoveryCertificate(bundle, phrase)
         : NativeSovereignGroupSigner.openBundle(bundle, phrase);
   }
