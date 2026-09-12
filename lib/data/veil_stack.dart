@@ -1201,6 +1201,40 @@ class RealVeilStack {
   /// Returns null when there is nothing to provision (no phrase) — the caller
   /// boots exactly as before, which is what keeps this change additive for
   /// every identity already in the field.
+  /// Mint this identity's sovereign credential and store it.
+  ///
+  /// The Falcon half of the master is born here and is reproducible from
+  /// nothing: not from the phrase, not from the network, not from another
+  /// device. Everything that restores this identity afterwards restores it
+  /// from this blob, which is why the app offers it as a file and why losing
+  /// it loses the identity the address names.
+  ///
+  /// Returns null when minting fails, and the caller then provisions the
+  /// classic identity — a boot that refused to come up at all would be a
+  /// worse answer than one that comes up on the address the words alone give.
+  static Future<Uint8List?> _mintSovereignCredential(
+    Storage storage,
+    String phrase,
+  ) async {
+    try {
+      final bundle = EmbeddedNode.createHybridSovereignBundle(phrase);
+      await storage.storeFile(
+        kSovereignBundleSetting,
+        bundle,
+        name: 'sovereign-credential',
+      );
+      devLog(
+        () =>
+            'xVeil[identity]: sovereign credential minted — this identity is '
+            'named by both halves of its master',
+      );
+      return bundle;
+    } catch (e) {
+      devLog(() => 'xVeil[identity]: could not mint a credential: $e');
+      return null;
+    }
+  }
+
   /// The identity's encrypted sovereign credential, or null when it has none.
   ///
   /// Its PRESENCE is the decision: an identity with a credential is rooted in
@@ -1283,7 +1317,22 @@ class RealVeilStack {
         // yet, where the key comes from the phrase and there is nothing to
         // reconcile.
         final nodeToml = await storage.loadNodeConfig();
-        final credential = await _sovereignCredential(storage);
+        var credential = await _sovereignCredential(storage);
+        if (credential == null && !restoringIdentity && nodeToml != null) {
+          // CREATING, so there is nothing to be compatible with and the
+          // identity is hybrid. The credential has to exist before the
+          // identity is provisioned, because it IS the master: its Falcon half
+          // is minted here and exists nowhere else afterwards, so an identity
+          // provisioned before it would be named by a key this one does not
+          // hold.
+          //
+          // Made here rather than lazily, on the first operation that needs a
+          // signature, which is how it used to come into being. Lazily is too
+          // late once the credential decides the identity: the node would have
+          // already published the classic address, and the credential would
+          // then name a second identity nobody uses.
+          credential = await _mintSovereignCredential(storage, identityPhrase);
+        }
         if (credential != null && nodeToml != null) {
           // The identity is named by BOTH halves, and the credential is the
           // only place the Falcon half exists.

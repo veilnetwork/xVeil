@@ -118,6 +118,25 @@ typedef _FreeStrDart = void Function(Pointer<Utf8>);
 //     instance_label*, instance_label_len, err_out**):
 //   0 on success. The phrase buffer is WRITABLE — the native side wipes it in
 //   place before returning, on every path.
+typedef _CreateHybridBundleNative =
+    Int32 Function(
+      Pointer<Uint8>, // phrase (wiped natively)
+      IntPtr,
+      Pointer<Pointer<Uint8>>, // out_bundle
+      Pointer<IntPtr>, // out_bundle_len
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _CreateHybridBundleDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Pointer<Uint8>>,
+      Pointer<IntPtr>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _FreeBufNative = Void Function(Pointer<Uint8>, IntPtr);
+typedef _FreeBufDart = void Function(Pointer<Uint8>, int);
+
 typedef _ProvisionHybridNative =
     Int32 Function(
       Pointer<Uint8>, // credential
@@ -604,6 +623,71 @@ class EmbeddedNode {
       }
       calloc.free(dirC);
       calloc.free(labelC);
+      calloc.free(errOut);
+    }
+  }
+
+  /// Mint this identity's sovereign credential from [phrase].
+  ///
+  /// The Ed25519 half of the master derives from the words; the Falcon half is
+  /// generated HERE and is reproducible from nothing afterwards — not from the
+  /// phrase, not from the network, not from another device. This blob is its
+  /// only copy, which is what makes the recovery certificate the thing that
+  /// restores the identity.
+  ///
+  /// Raw FFI rather than the `veil_flutter` helper on purpose: this sits on
+  /// the headless daemon's import path, and reaching into Flutter from here is
+  /// what `headless_is_flutter_free_test` exists to refuse.
+  static Uint8List createHybridSovereignBundle(
+    String phrase, {
+    DynamicLibrary? lib,
+  }) {
+    final dl = lib ?? _veilLib();
+    final fn = dl
+        .lookupFunction<_CreateHybridBundleNative, _CreateHybridBundleDart>(
+          'veil_sovereign_bundle_create_hybrid512_zeroize',
+        );
+    final freeBuf = dl.lookupFunction<_FreeBufNative, _FreeBufDart>(
+      'veil_free_buf',
+    );
+    final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
+      'veil_free_string',
+    );
+    final phraseC = phrase.toNativeUtf8();
+    final outBuf = calloc<Pointer<Uint8>>();
+    final outLen = calloc<IntPtr>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final rc = fn(
+        phraseC.cast<Uint8>(),
+        phraseC.length,
+        outBuf,
+        outLen,
+        errOut,
+      );
+      if (rc != 0) {
+        final err = errOut.value;
+        final msg = err == nullptr ? 'unknown error' : err.toDartString();
+        if (err != nullptr) freeStr(err);
+        throw StateError('veil_sovereign_bundle_create_hybrid512 failed: $msg');
+      }
+      final ptr = outBuf.value;
+      if (ptr == nullptr || outLen.value <= 0) {
+        throw StateError('veil_sovereign_bundle_create_hybrid512 gave nothing');
+      }
+      // Copied out before the native buffer is released — the blob is
+      // ciphertext, so it is the LENGTH and the copy that matter here, not
+      // wiping.
+      final bundle = Uint8List.fromList(ptr.asTypedList(outLen.value));
+      freeBuf(ptr, outLen.value);
+      return bundle;
+    } finally {
+      // The native side wipes the phrase once it reads it; an argument
+      // rejected before that leaves the words in this buffer.
+      wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
+      calloc.free(phraseC);
+      calloc.free(outBuf);
+      calloc.free(outLen);
       calloc.free(errOut);
     }
   }
