@@ -489,8 +489,24 @@ class HeadlessRuntime {
           // see the startup warning.
           'reachableOffline': relayCount > 0,
           'phase': stack.controller.current.phase.name,
+          // THIS NODE, which is not the same thing as this identity.
+          //
+          // They coincide for a classic identity — the master IS the node's
+          // Ed25519 key — and that is why one field was enough for so long.
+          // For a hybrid identity the address is BLAKE3 over a 929-byte master
+          // and the two differ: measured on a daemon, nodeId 7950d395… while
+          // the identity was 2d3d8572… An operator answering "who is it?" with
+          // the first hands out the DEVICE, and mail sent there never arrives.
           'nodeId': nodeId.hex,
           'short': nodeId.short,
+          // WHAT CONTACTS ADDRESS. Null only when this daemon has no sovereign
+          // identity at all, where the node id is the whole answer.
+          'identity': switch (await RealVeilStack.sovereignReceiveAddress(
+            storage,
+          )) {
+            final Uint8List a => NodeId(a).hex,
+            null => null,
+          },
           'isMaster': false,
           'identities': const <String>[],
           'peerCount': stack.controller.current.peerCount,
