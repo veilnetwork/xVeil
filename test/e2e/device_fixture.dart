@@ -728,7 +728,7 @@ class E2eFleet {
       // measured as a half-ghost member.
       final outcome = await RealVeilStack.delegateDeviceIntoDocument(
         master.storage,
-        phrase: phrase,
+        secret: phrase,
         devicePubkey: link.device.publicKey,
         stagingBase: Directory.systemTemp.path,
       );
@@ -756,7 +756,7 @@ class E2eFleet {
           if (entry.key == link.device.nodeId) continue;
           delegated = await RealVeilStack.delegateDeviceIntoDocument(
                     master.storage,
-                    phrase: phrase,
+                    secret: phrase,
                     devicePubkey: entry.value,
                     stagingBase: Directory.systemTemp.path,
                   ) ==
