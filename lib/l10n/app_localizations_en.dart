@@ -5753,6 +5753,30 @@ class AppL10nEn extends AppL10n {
   String get devicesNoBackupTitle => 'This identity has no backup';
 
   @override
+  String get devicesDelegationExpiringTitle => 'This device needs renewing';
+
+  @override
+  String get devicesDelegationExpiringBody =>
+      'Its certificate of membership runs out soon. Enter your secret once and it is renewed — the device keeps its key and its address.';
+
+  @override
+  String get devicesDelegationLapsedTitle => 'This device has gone quiet';
+
+  @override
+  String get devicesDelegationLapsedBody =>
+      'Its certificate of membership has run out, so others can no longer reach it here. Enter your secret once to bring it back — nothing is lost and nothing is re-added.';
+
+  @override
+  String get devicesRenewNow => 'Renew';
+
+  @override
+  String get devicesRenewed => 'Renewed. This device is vouched for again.';
+
+  @override
+  String get devicesRenewFailed =>
+      'Could not renew. Check the secret and try again.';
+
+  @override
   String get devicesNoBackupBody =>
       'Its recovery certificate is the only thing that restores it — the 24 words alone restore a different identity. Save it now and keep it apart from its code.';
 

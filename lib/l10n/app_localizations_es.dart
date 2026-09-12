@@ -5832,6 +5832,33 @@ class AppL10nEs extends AppL10n {
       'Esta identidad no tiene copia de seguridad';
 
   @override
+  String get devicesDelegationExpiringTitle =>
+      'Este dispositivo necesita renovarse';
+
+  @override
+  String get devicesDelegationExpiringBody =>
+      'Su certificado de pertenencia caduca pronto. Introduce tu secreto una vez y se renueva: el dispositivo conserva su clave y su dirección.';
+
+  @override
+  String get devicesDelegationLapsedTitle =>
+      'Este dispositivo se ha quedado mudo';
+
+  @override
+  String get devicesDelegationLapsedBody =>
+      'Su certificado de pertenencia ha caducado, así que ya nadie puede alcanzarlo aquí. Introduce tu secreto una vez para recuperarlo: no se pierde nada y no se vuelve a añadir nada.';
+
+  @override
+  String get devicesRenewNow => 'Renovar';
+
+  @override
+  String get devicesRenewed =>
+      'Renovado. Se vuelve a responder por este dispositivo.';
+
+  @override
+  String get devicesRenewFailed =>
+      'No se pudo renovar. Comprueba el secreto e inténtalo de nuevo.';
+
+  @override
   String get devicesNoBackupBody =>
       'Solo su certificado de recuperación la restaura: las 24 palabras por sí solas restauran una identidad distinta. Guárdalo y mantenlo aparte de su código.';
 
