@@ -2728,6 +2728,8 @@ class RealVeilStack {
         listenScheme: listenScheme,
         ratchetState: ratchetState,
         masterConfig: await storage.getSetting(kMasterConfigSetting),
+        sovereignDocument: sovereign?[kIdentityDocumentFile],
+        lib: lib,
         embeddedNode: embeddedNode,
         identityDir: sovereign == null ? null : runtimeDir,
       );
@@ -2762,6 +2764,15 @@ class RealVeilStack {
     // Where the master's key and nonce live on a device that boots on a key of
     // its own. Null on every identity that boots on the phrase's own key.
     required String? masterConfig,
+    /// This identity's signed document, when it has one.
+    ///
+    /// The invite's key comes from HERE in preference to anything else: the
+    /// document is what the network was told, and the address a contact
+    /// derives is `BLAKE3(key in the invite)`.
+    required Uint8List? sovereignDocument,
+    /// The explicit library handle, when the caller has one (tests). Null lets
+    /// the binding resolve it the way every other call in this file does.
+    DynamicLibrary? lib,
     // The two things a post-boot document merge needs to reach the running
     // node — see [refreshSovereignIdentity]. Null on the paths that have no
     // in-process node or no sovereign material.
@@ -2797,10 +2808,40 @@ class RealVeilStack {
     // Absent for every identity that boots on the phrase's own key, which is
     // every one in the field: there the node's invite already names the
     // identity, and this falls through to it unchanged.
+    // THE DOCUMENT FIRST, because it is the only source that agrees with the
+    // address this identity actually collects mail at.
+    //
+    // A contact derives the address as BLAKE3 of the key in the invite. For a
+    // CLASSIC identity every source agrees: the master IS the 32-byte Ed25519
+    // key, so the node config, the master config and the document all give the
+    // same bytes. For a HYBRID identity the master is 929 bytes and none of the
+    // config sources can express it — the master config holds the Ed25519 half
+    // and a CREATED identity has no master config at all, so the invite fell
+    // through to this DEVICE's own key. Measured on one identity: contacts sent
+    // to e794a118…, the mailbox was registered at d7a78850… Nothing listens at
+    // the first, and nothing said so.
+    ({int algo, Uint8List publicKey})? documentMaster;
+    if (sovereignDocument != null && sovereignDocument.isNotEmpty) {
+      try {
+        documentMaster = EmbeddedNode.identityDocumentMaster(
+          sovereignDocument,
+          lib: lib,
+        );
+      } on Object catch (e) {
+        // Fall through rather than fail the boot: an unreadable document is
+        // already reported by the identity path, and an invite that names the
+        // device is better than a node that will not start.
+        devLog(
+          () =>
+              'xVeil[identity]: could not read the master from the document, '
+              'the invite falls back to a config key: $e',
+        );
+      }
+    }
     final masterFields = masterConfig == null
         ? null
         : identityConfigFields(masterConfig);
-    if (masterConfig != null && masterFields == null) {
+    if (documentMaster == null && masterConfig != null && masterFields == null) {
       devLog(
         () =>
             'xVeil[identity]: the stored master config carries no usable '
@@ -2809,9 +2850,23 @@ class RealVeilStack {
       );
     }
     final invite = BootstrapInvite(
-      publicKey: masterFields?.publicKey ?? veilInvite.publicKey,
-      nonce: masterFields?.nonce ?? veilInvite.nonce,
-      algo: masterFields?.algo ?? veilInvite.algo,
+      publicKey:
+          documentMaster?.publicKey ??
+          masterFields?.publicKey ??
+          veilInvite.publicKey,
+      // NO NONCE for a document-named invite, and that is honest rather than
+      // lazy: the nonce is the anti-sybil proof-of-work over the key beside it,
+      // and there is no such proof over a master — the document carries none.
+      // Pairing a master key with a node's nonce would put two things in one
+      // string that do not belong together, which is the shape that produced
+      // this defect in the first place. Nothing redeems a nonce on an
+      // identity-only invite: `addContact` returns before veil ever sees it.
+      nonce: documentMaster != null
+          ? Uint8List(0)
+          : (masterFields?.nonce ?? veilInvite.nonce),
+      algo: documentMaster != null
+          ? sovereignMasterAlgoName(documentMaster.algo)
+          : (masterFields?.algo ?? veilInvite.algo),
       transport: null,
     );
     devLog(() => 'xVeil[deniable]: connected + identity-only invite ready');
