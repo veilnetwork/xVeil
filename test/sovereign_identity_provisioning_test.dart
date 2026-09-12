@@ -74,7 +74,7 @@ void main() {
     );
     expect(rec.dirs, hasLength(1));
     expect(missingSovereignIdentityFiles(out!), isEmpty);
-    expect(storage.settings[kSovereignIdentitySetting], isNotNull);
+    expect(await readSovereignMaterial(storage), isNotNull);
   });
 
   // THE INVARIANT. A second boot must read, never re-mint.
@@ -87,7 +87,7 @@ void main() {
       identityPhrase: 'a master phrase',
       provision: first.fn,
     );
-    final stored = storage.settings[kSovereignIdentitySetting];
+    final stored = await readSovereignMaterial(storage);
 
     // Same phrase, same container, second boot — and a provisioner that would
     // mint a DIFFERENT key if it were reached, so a re-provision cannot hide
@@ -101,7 +101,7 @@ void main() {
     );
     expect(second.dirs, isEmpty, reason: 'the native call must not be reached');
     expect(out![kDeviceIdentitySkFile], everyElement(7));
-    expect(storage.settings[kSovereignIdentitySetting], stored);
+    expect(await readSovereignMaterial(storage), stored);
   });
 
   // A container entry that will not decode is NOT a licence to start over:
@@ -111,7 +111,7 @@ void main() {
     'a corrupt entry boots without a document rather than re-minting',
     () async {
       final storage = FakeSettingStorage();
-      storage.settings[kSovereignIdentitySetting] = 'not json at all';
+      await writeSovereignMaterial(storage, 'not json at all');
       final rec = recorder();
       final out = await RealVeilStack.ensureSovereignIdentity(
         storage,
@@ -121,16 +121,16 @@ void main() {
       );
       expect(out, isNull);
       expect(rec.dirs, isEmpty);
-      expect(storage.settings[kSovereignIdentitySetting], 'not json at all');
+      expect(await readSovereignMaterial(storage), 'not json at all');
     },
   );
 
   test('material missing a required file is treated the same way', () async {
     final storage = FakeSettingStorage();
     final partial = _material()..remove(kDeviceIdentitySkFile);
-    storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+    await writeSovereignMaterial(storage, encodeSovereignIdentity(
       partial,
-    );
+    ));
     final rec = recorder();
     final out = await RealVeilStack.ensureSovereignIdentity(
       storage,
@@ -175,7 +175,7 @@ void main() {
     );
     expect(rec.dirs, hasLength(1));
     expect(out, isNull);
-    expect(storage.settings[kSovereignIdentitySetting], isNull);
+    expect(await readSovereignMaterial(storage), isNull);
   });
 
   // The staging directory holds MASTER-derived material for as long as it
@@ -205,7 +205,7 @@ void main() {
       },
     );
     expect(await Directory(dirs.single).exists(), isFalse);
-    expect(storage2.settings[kSovereignIdentitySetting], isNull);
+    expect(await readSovereignMaterial(storage2), isNull);
   });
 
   // ── adopting another device's document ──────────────────────────────────
@@ -219,9 +219,9 @@ void main() {
   group('adoptSovereignDocument', () {
     Future<_ConfigStorage> provisioned({int keyByte = 7}) async {
       final storage = _ConfigStorage()..config = 'unused by the fake delegate';
-      storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+      await writeSovereignMaterial(storage, encodeSovereignIdentity(
         _material(keyByte: keyByte),
-      );
+      ));
       return storage;
     }
 
@@ -255,7 +255,7 @@ void main() {
     test('a document already held lets the ceremony go on', () async {
       final storage = await provisioned();
       final held = decodeSovereignIdentity(
-        storage.settings[kSovereignIdentitySetting]!,
+        (await readSovereignMaterial(storage))!,
       )!;
       final onward = await adoptCeremonyDocument(
         storage,
@@ -293,7 +293,7 @@ void main() {
       expect(ok, SovereignDocumentAdoption.adopted);
       expect(seen, hasLength(1));
       final kept = decodeSovereignIdentity(
-        storage.settings[kSovereignIdentitySetting]!,
+        (await readSovereignMaterial(storage))!,
       )!;
       expect(kept[kIdentityDocumentFile], hasLength(200));
     });
@@ -304,7 +304,7 @@ void main() {
     // network entirely.
     test('a refused document changes nothing', () async {
       final storage = await provisioned();
-      final before = storage.settings[kSovereignIdentitySetting];
+      final before = await readSovereignMaterial(storage);
       final ok = await RealVeilStack.adoptSovereignDocument(
         storage,
         document: Uint8List.fromList([9, 9]),
@@ -313,7 +313,7 @@ void main() {
             throw StateError('delegate_device: master does not match'),
       );
       expect(ok, SovereignDocumentAdoption.refused);
-      expect(storage.settings[kSovereignIdentitySetting], before);
+      expect(await readSovereignMaterial(storage), before);
     });
 
     test('the staging copy never outlives the call', () async {
@@ -351,7 +351,7 @@ void main() {
       expect(ok, SovereignDocumentAdoption.adopted);
       expect(mergeCalled, isFalse, reason: 'no master to merge under');
       expect(seen, hasLength(1));
-      expect(storage.settings[kSovereignIdentitySetting], isNotNull);
+      expect(await readSovereignMaterial(storage), isNotNull);
       expect(await Directory(seen.single).exists(), isFalse);
     });
 
@@ -383,7 +383,7 @@ void main() {
             throw StateError('document does not name this device'),
       );
       expect(ok, SovereignDocumentAdoption.refused);
-      expect(storage.settings[kSovereignIdentitySetting], isNull);
+      expect(await readSovereignMaterial(storage), isNull);
     });
 
     test(
@@ -400,15 +400,15 @@ void main() {
           },
         );
         expect(ok, SovereignDocumentAdoption.refused);
-        expect(storage.settings[kSovereignIdentitySetting], isNull);
+        expect(await readSovereignMaterial(storage), isNull);
       },
     );
 
     test('no config means no authority, and nothing is attempted', () async {
       final storage = _ConfigStorage();
-      storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+      await writeSovereignMaterial(storage, encodeSovereignIdentity(
         _material(),
-      );
+      ));
       var called = false;
       final ok = await RealVeilStack.adoptSovereignDocument(
         storage,
@@ -427,7 +427,7 @@ void main() {
       'a merge that produced nothing usable keeps the old material',
       () async {
         final storage = await provisioned();
-        final before = storage.settings[kSovereignIdentitySetting];
+        final before = await readSovereignMaterial(storage);
         final ok = await RealVeilStack.adoptSovereignDocument(
           storage,
           document: Uint8List.fromList([1, 2, 3, 4]),
@@ -439,7 +439,7 @@ void main() {
           },
         );
         expect(ok, SovereignDocumentAdoption.refused);
-        expect(storage.settings[kSovereignIdentitySetting], before);
+        expect(await readSovereignMaterial(storage), before);
       },
     );
 
@@ -451,7 +451,7 @@ void main() {
       'a merge that yields what we already hold reports no change',
       () async {
         final storage = await provisioned();
-        final before = storage.settings[kSovereignIdentitySetting];
+        final before = await readSovereignMaterial(storage);
         final ok = await RealVeilStack.adoptSovereignDocument(
           storage,
           document: Uint8List.fromList([1, 2, 3]),
@@ -466,7 +466,7 @@ void main() {
           SovereignDocumentAdoption.alreadyHeld,
           reason: 'nothing changed, so nothing to announce',
         );
-        expect(storage.settings[kSovereignIdentitySetting], before);
+        expect(await readSovereignMaterial(storage), before);
       },
     );
 
@@ -494,9 +494,9 @@ void main() {
   group('sovereignReceiveAddress', () {
     test('is the address the document names', () async {
       final storage = FakeSettingStorage();
-      storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+      await writeSovereignMaterial(storage, encodeSovereignIdentity(
         _material(),
-      );
+      ));
       final addr = await RealVeilStack.sovereignReceiveAddress(
         storage,
         readNodeId: (doc) => Uint8List.fromList(List.filled(32, 5)),
@@ -517,7 +517,7 @@ void main() {
 
     test('a corrupt entry falls back rather than guessing', () async {
       final storage = FakeSettingStorage();
-      storage.settings[kSovereignIdentitySetting] = 'not json at all';
+      await writeSovereignMaterial(storage, 'not json at all');
       expect(await RealVeilStack.sovereignReceiveAddress(storage), isNull);
     });
 
@@ -526,9 +526,9 @@ void main() {
     // without a document uses anyway.
     test('a document that cannot be read falls back', () async {
       final storage = FakeSettingStorage();
-      storage.settings[kSovereignIdentitySetting] = encodeSovereignIdentity(
+      await writeSovereignMaterial(storage, encodeSovereignIdentity(
         _material(),
-      );
+      ));
       final addr = await RealVeilStack.sovereignReceiveAddress(
         storage,
         readNodeId: (doc) => throw StateError('decode failed'),
@@ -560,5 +560,39 @@ void main() {
             'anything else keeps two devices trading identical documents',
       );
     }
+  });
+
+  // A HYBRID identity's material is past what one setting record holds, and
+  // that is the ordinary case now, not an edge: the master public key alone is
+  // 929 bytes (Ed25519 + Falcon-512) and every delegation carries a hybrid
+  // certificate. Stored as a setting it throws `PayloadTooLarge` at
+  // provisioning time, the node falls back to a degenerate document, and the
+  // identity quietly becomes the classic one — which is exactly what happened
+  // on a live daemon on 2026-09-12, with the whole suite green.
+  //
+  // The fake enforces the real per-setting cap, so a regression that routes
+  // this back through `putSetting` fails HERE rather than on somebody's phone.
+  test('material the size of a hybrid identity survives a round trip', () async {
+    final storage = FakeSettingStorage();
+    final big = {
+      kIdentityDocumentFile: Uint8List.fromList(List.filled(6000, 3)),
+      kDeviceIdentitySkFile: Uint8List.fromList(List.filled(32, 7)),
+      kInstanceIdFile: Uint8List.fromList([9, 9]),
+    };
+    final encoded = encodeSovereignIdentity(big);
+    expect(
+      encoded.length,
+      greaterThan(kFakeSettingCap),
+      reason: 'the fixture has to be past the cap or this test proves nothing',
+    );
+
+    await writeSovereignMaterial(storage, encoded);
+
+    expect(await readSovereignMaterial(storage), encoded);
+    expect(
+      storage.files[kSovereignIdentitySetting],
+      isNotNull,
+      reason: 'the file store is the carrier — a setting cannot hold this',
+    );
   });
 }

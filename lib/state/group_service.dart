@@ -17472,31 +17472,13 @@ class GroupService {
   /// store that does not enforce the record cap). The legacy settings key
   /// is still read as a fallback so a store that did persist a credential
   /// there keeps opening it.
-  Future<({Uint8List? bundle, bool corrupt})> _readSovereignCredential() async {
-    Uint8List? file;
-    try {
-      file = await _storage.loadFile(kSovereignBundleSetting);
-    } catch (_) {
-      return (bundle: null, corrupt: true);
-    }
-    if (file != null) {
-      if (file.isEmpty || file.length > 16 * 1024) {
-        return (bundle: null, corrupt: true);
-      }
-      return (bundle: Uint8List.fromList(file), corrupt: false);
-    }
-    final raw = await _storage.getSetting(kSovereignBundleSetting);
-    if (raw == null || raw.isEmpty) return (bundle: null, corrupt: false);
-    try {
-      final value = Uint8List.fromList(base64Decode(raw));
-      if (value.isEmpty || value.length > 16 * 1024) {
-        return (bundle: null, corrupt: true);
-      }
-      return (bundle: value, corrupt: false);
-    } catch (_) {
-      return (bundle: null, corrupt: true);
-    }
-  }
+  ///
+  /// The body moved to `sovereign_identity_material.readSovereignCredential`
+  /// when the BOOT turned out to have a second, shorter reader of its own that
+  /// skipped the legacy settings fallback — and the boot is where the answer
+  /// decides which identity a phrase names.
+  Future<({Uint8List? bundle, bool corrupt})> _readSovereignCredential() =>
+      material.readSovereignCredential(_storage);
 
   Future<void> _writeSovereignCredential(Uint8List bundle) =>
       _storage.storeFile(

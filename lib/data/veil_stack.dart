@@ -1242,15 +1242,22 @@ class RealVeilStack {
   /// classic Ed25519 identity. Read as bytes and never opened here — this only
   /// asks whether it exists.
   static Future<Uint8List?> _sovereignCredential(Storage storage) async {
-    try {
-      return await storage.loadFile(kSovereignBundleSetting);
-    } catch (_) {
+    // Through the SHARED reader: this one used to look only in the file store,
+    // so a credential left in the legacy settings key by an old build read as
+    // "this identity has none" — and that is not a failure, it is a boot that
+    // provisions the classic identity at a different address.
+    final read = await readSovereignCredential(storage);
+    if (read.corrupt) {
       // Unreadable is not "absent": treating a damaged credential as no
       // credential would provision the OTHER identity and quietly change the
       // address. Refusing to guess means booting without a document, which
       // the caller already handles.
-      rethrow;
+      throw StateError(
+        'the sovereign credential is present but unreadable — refusing to '
+        'guess which identity this phrase names',
+      );
     }
+    return read.bundle;
   }
 
   static Future<Map<String, Uint8List>?> ensureSovereignIdentity(
@@ -1273,7 +1280,7 @@ class RealVeilStack {
     // key and orphans the document already published for this identity.
     Future<void> Function(String phrase, String veilDir)? provision,
   }) async {
-    final stored = await storage.getSetting(kSovereignIdentitySetting);
+    final stored = await readSovereignMaterial(storage);
     if (stored != null) {
       final decoded = decodeSovereignIdentity(stored);
       // A stored entry that will not decode is NOT a reason to provision a
@@ -1378,10 +1385,7 @@ class RealVeilStack {
         );
         return null;
       }
-      await storage.putSetting(
-        kSovereignIdentitySetting,
-        encodeSovereignIdentity(files),
-      );
+      await writeSovereignMaterial(storage, encodeSovereignIdentity(files));
       // The master, kept apart from the node config. Admitting a further device
       // needs it long after the phrase is gone, and the config only carries it
       // while the config IS the master — which stops being true the moment a
@@ -1444,7 +1448,7 @@ class RealVeilStack {
     DynamicLibrary? lib,
     Uint8List Function(Uint8List document)? readNodeId,
   }) async {
-    final raw = await storage.getSetting(kSovereignIdentitySetting);
+    final raw = await readSovereignMaterial(storage);
     if (raw == null) return null;
     final files = decodeSovereignIdentity(raw);
     final doc = files?[kIdentityDocumentFile];
@@ -1468,7 +1472,7 @@ class RealVeilStack {
   /// out with the device-link invite and back with the link token — and two
   /// copies of "where the document lives" is one copy too many.
   static Future<Uint8List?> storedSovereignDocument(Storage storage) async {
-    final raw = await storage.getSetting(kSovereignIdentitySetting);
+    final raw = await readSovereignMaterial(storage);
     if (raw == null) return null;
     final doc = decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
     return (doc == null || doc.isEmpty) ? null : doc;
@@ -1519,7 +1523,7 @@ class RealVeilStack {
     final node = embeddedNode;
     final dir = identityDir;
     if (node == null || dir == null) return false;
-    final raw = await storage.getSetting(kSovereignIdentitySetting);
+    final raw = await readSovereignMaterial(storage);
     if (raw == null) return false;
     final files = decodeSovereignIdentity(raw);
     if (files == null || missingSovereignIdentityFiles(files).isNotEmpty) {
@@ -1576,15 +1580,23 @@ class RealVeilStack {
   /// happily admit the id, and "false" here reads as "no change needed".
   static Future<DeviceDelegation> delegateDeviceIntoDocument(
     Storage storage, {
-    required String phrase,
+    required String secret,
     required Uint8List devicePubkey,
     required String stagingBase,
     DynamicLibrary? lib,
   }) async {
-    if (phrase.isEmpty || devicePubkey.length != 32) {
+    if (secret.isEmpty || devicePubkey.length != 32) {
       return DeviceDelegation.failed;
     }
-    final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
+    // WHICH master signs the new subkey's certificate, read here rather than
+    // asked of the caller: every call site had the secret and none had the
+    // credential, so all of them delegated with the Ed25519 master a phrase
+    // gives — which a HYBRID identity's document does not name. Its refusal
+    // (`UnsupportedMasterAlgo`) was correct and total: a hybrid identity, the
+    // kind this app now creates by default, could not admit a second device at
+    // all. Found by standing up two daemons on 2026-09-12.
+    final credential = (await readSovereignCredential(storage)).bundle;
+    final storedRaw = await readSovereignMaterial(storage);
     if (storedRaw == null) return DeviceDelegation.failed;
     final stored = decodeSovereignIdentity(storedRaw);
     if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
@@ -1599,8 +1611,9 @@ class RealVeilStack {
         '$stagingBase/xveil-iddelegate-${Random.secure().nextInt(1 << 32)}';
     try {
       await materialiseSovereignIdentity(staging, stored);
-      EmbeddedNode.delegateDeviceFromPhrase(
-        phrase,
+      EmbeddedNode.delegateDevice(
+        secret: secret,
+        credential: credential,
         veilDir: staging,
         devicePubkey: devicePubkey,
         lib: lib,
@@ -1611,7 +1624,7 @@ class RealVeilStack {
       }
       final encoded = encodeSovereignIdentity(amended);
       if (encoded == storedRaw) return DeviceDelegation.failed;
-      await storage.putSetting(kSovereignIdentitySetting, encoded);
+      await writeSovereignMaterial(storage, encoded);
       devLog(
         () =>
             'xVeil[identity]: delegated a device subkey into the document — '
@@ -1676,7 +1689,7 @@ class RealVeilStack {
     DynamicLibrary? lib,
   }) async {
     if (secret.isEmpty) return false;
-    final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
+    final storedRaw = await readSovereignMaterial(storage);
     if (storedRaw == null) return false;
     final stored = decodeSovereignIdentity(storedRaw);
     if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
@@ -1711,7 +1724,7 @@ class RealVeilStack {
       // Byte-identical means the renewal produced nothing, and storing it
       // would be a write that claims a change it did not make.
       if (encoded == storedRaw) return false;
-      await storage.putSetting(kSovereignIdentitySetting, encoded);
+      await writeSovereignMaterial(storage, encoded);
       devLog(
         () =>
             'xVeil[identity]: this device\'s delegation was renewed — the '
@@ -1751,15 +1764,19 @@ class RealVeilStack {
   /// delegation).
   static Future<DocumentRevocation> revokeDeviceFromDocument(
     Storage storage, {
-    required String phrase,
+    required String secret,
     required Uint8List deviceId,
     required String stagingBase,
     DynamicLibrary? lib,
   }) async {
-    if (phrase.isEmpty || deviceId.length != 32) {
+    if (secret.isEmpty || deviceId.length != 32) {
       return DocumentRevocation.failed;
     }
-    final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
+    // Same reason as [delegateDeviceIntoDocument], and it matters more here:
+    // revoking a stolen device is the operation an identity can least afford
+    // to refuse, and on a hybrid identity it did.
+    final credential = (await readSovereignCredential(storage)).bundle;
+    final storedRaw = await readSovereignMaterial(storage);
     if (storedRaw == null) return DocumentRevocation.failed;
     final stored = decodeSovereignIdentity(storedRaw);
     if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
@@ -1774,8 +1791,9 @@ class RealVeilStack {
         '$stagingBase/xveil-idrevoke-${Random.secure().nextInt(1 << 32)}';
     try {
       await materialiseSovereignIdentity(staging, stored);
-      final changed = EmbeddedNode.revokeIdentityDeviceFromPhrase(
-        phrase,
+      final changed = EmbeddedNode.revokeIdentityDevice(
+        secret: secret,
+        credential: credential,
         veilDir: staging,
         deviceId: deviceId,
         lib: lib,
@@ -1793,7 +1811,7 @@ class RealVeilStack {
       }
       final encoded = encodeSovereignIdentity(amended);
       if (encoded == storedRaw) return DocumentRevocation.failed;
-      await storage.putSetting(kSovereignIdentitySetting, encoded);
+      await writeSovereignMaterial(storage, encoded);
       devLog(
         () =>
             'xVeil[identity]: revoked a device key from the document — a '
@@ -1872,7 +1890,7 @@ class RealVeilStack {
     adoptNamed,
   }) async {
     if (document.isEmpty) return SovereignDocumentAdoption.nothingOffered;
-    final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
+    final storedRaw = await readSovereignMaterial(storage);
     if (storedRaw == null) {
       // No sovereign material at all — the mined-identity case: no master, no
       // phrase, nothing to delegate under. What CAN save this device is a
@@ -1913,10 +1931,7 @@ class RealVeilStack {
           );
           return SovereignDocumentAdoption.refused;
         }
-        await storage.putSetting(
-          kSovereignIdentitySetting,
-          encodeSovereignIdentity(adopted),
-        );
+        await writeSovereignMaterial(storage, encodeSovereignIdentity(adopted));
         devLog(
           () =>
               'xVeil[identity]: adopted the family document that names this '
@@ -1949,6 +1964,16 @@ class RealVeilStack {
     // The master authority, preferring the key kept for exactly this over the
     // node config. The config answers only while it IS the master; the stored
     // key answers either way.
+    //
+    // NO CREDENTIAL PATH HERE, and that is a measured conclusion rather than
+    // an omission. A hybrid master cannot authorise this — neither 32 raw
+    // Ed25519 bytes nor a node config is one — so a credential-taking adopt
+    // was written and wired, and a break-check showed the test passing with it
+    // disabled: the NAMED adopt already unions the two key sets, and every key
+    // in either document arrived carrying its own master-signed certificate.
+    // The master is only ever needed to certify a key that has none, and a
+    // provisioned device never has none. Two devices restored from one
+    // certificate therefore converge with no master at all.
     final masterRaw = await storage.getSetting(kMasterKeySetting);
     final identityToml = await storage.loadNodeConfig();
     if (masterRaw == null && identityToml == null) {
@@ -2035,7 +2060,7 @@ class RealVeilStack {
       // answer is `adopted` — the one outcome a caller announces onward. The
       // comment above used to be repeated here, over the opposite branch,
       // which read as if this path were also the quiet one (report17 XV17-L5).
-      await storage.putSetting(kSovereignIdentitySetting, encoded);
+      await writeSovereignMaterial(storage, encoded);
       devLog(
         () =>
             'xVeil[identity]: adopted a document from another device of this '

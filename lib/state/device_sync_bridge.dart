@@ -148,7 +148,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   NodeId? announceDevice;
 
   Future<void> announceIdentityDocument() async {
-    final raw = await svc.storage.getSetting(kSovereignIdentitySetting);
+    final raw = await readSovereignMaterial(svc.storage);
     if (raw == null) return; // mined identity, or nothing provisioned
     final files = decodeSovereignIdentity(raw);
     final doc = files?[kIdentityDocumentFile];
