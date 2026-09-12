@@ -6,6 +6,8 @@ import 'dart:math';
 import 'package:xveil/api/api_server.dart' show ApiCapabilities, openApiSpec;
 import 'package:xveil/headless/headless_config.dart';
 import 'package:xveil/headless/headless_runtime.dart';
+import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/headless/secret_file.dart';
 
 Future<void> main(List<String> args) async {
@@ -161,11 +163,19 @@ Future<void> _run(List<String> args) async {
     apiToken: token,
     apiFileRoots: fileRoots,
   );
+  // TWO IDS, because they are two things and only one of them is an address
+  // somebody else can use. `node` is this daemon's own transport id; `identity`
+  // is what contacts address. They coincide for a classic identity — the master
+  // IS the node's Ed25519 key — which is why one of them looked like enough.
+  // For a hybrid identity they differ, and a line offering only the first
+  // invites an operator to hand out the DEVICE.
+  final identity = await RealVeilStack.sovereignReceiveAddress(runtime.storage);
   stdout.writeln(
     jsonEncode({
       'ready': true,
       'api': 'http://127.0.0.1:${runtime.api.port}/v1',
       'node': (await runtime.stack.transport.nodeId()).hex,
+      if (identity != null) 'identity': NodeId(identity).hex,
     }),
   );
 

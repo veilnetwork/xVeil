@@ -113,6 +113,29 @@ the credential's magic and opens it accordingly.
 
 `XVEIL_IDENTITY_CREDENTIAL_FILE` is the environment equivalent.
 
+### Two ids, and only one of them is an address
+
+The startup line carries both:
+
+```json
+{"ready":true,"api":"http://127.0.0.1:8787/v1",
+ "node":"7950d395…","identity":"2d3d8572…"}
+```
+
+* **`identity`** — what contacts address, and what the identity collects mail
+  at. This is the one to hand out.
+* **`node`** — this daemon's own transport id, for logs and diagnostics.
+
+They are the same value for a classic identity, because there the master IS the
+node's Ed25519 key. For a hybrid identity the address is BLAKE3 over a 929-byte
+master and the two differ — measured on a daemon that reported `node`
+7950d395… while its identity was 2d3d8572… A line offering only the first
+invites an operator to hand out the device, and mail sent to a device id never
+arrives.
+
+`identity` is absent only when the daemon has no sovereign identity at all,
+where the node id is the whole answer.
+
 ### `obfs4_psk_file`: without it the daemon finds peers and talks to none
 
 **Set this, or the daemon is deaf.** Both deployment networks separate
@@ -207,6 +230,9 @@ The rest is the ordinary contact and group flow:
 
 ```sh
 # 1. who is it?  (also: reachableOffline)
+#    `identity` is the address contacts use. `nodeId` is this daemon's own
+#    transport id — the two are the SAME for a classic identity and DIFFER for
+#    a hybrid one, so hand out `identity`, never `nodeId`.
 curl -sH "Authorization: Bearer $TOKEN" localhost:8787/v1/account
 
 # 2. what do I add?
