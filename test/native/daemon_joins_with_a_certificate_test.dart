@@ -20,7 +20,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 import 'package:xveil/data/identity/veil_identity.dart';
-import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/identity_config_fields.dart';
 import 'package:xveil/data/node/sovereign_identity_material.dart';
 import 'package:xveil/data/storage/storage.dart';
