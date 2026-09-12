@@ -193,6 +193,26 @@ Future<({Uint8List? bundle, bool corrupt})> readSovereignCredential(
   }
 }
 
+/// Whether this credential is a recovery CERTIFICATE rather than a bundle.
+///
+/// The two are unlocked by different secrets and it is not a detail: an XVSB is
+/// wrapped under the identity's phrase, an XVRC is re-wrapped under a
+/// high-entropy code of its own — deliberately, so the file someone exports and
+/// carries is not openable by the twenty-four words. Every place that opens a
+/// credential has to ask this first, and the ones that did not simply failed:
+/// a device holding a certificate provisioned NOTHING and booted without a
+/// sovereign document (measured 2026-09-12).
+///
+/// One function because there were three copies of the same four-byte compare
+/// and the fourth was about to be written.
+bool isRecoveryCertificate(Uint8List credential) {
+  if (credential.length < 4) return false;
+  return credential[0] == 0x58 && // X
+      credential[1] == 0x56 && // V
+      credential[2] == 0x52 && // R
+      credential[3] == 0x43; //  C
+}
+
 /// A sovereign credential past this is not one. A hybrid bundle is ~2.3 KiB
 /// raw; the margin is for a format that grows, not for a file that is really
 /// something else.

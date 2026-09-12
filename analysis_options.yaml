@@ -20,6 +20,16 @@ analyzer:
     # a ten-line probe script here turned the gate red for lints nobody
     # wants applied to it.
     - artifacts/**
+    # Audit checkouts: whole copies of the veil / hidden-volume trees, dropped
+    # here so a finding can be reproduced against the tree it was found in.
+    # Same reason as `artifacts/**` above and the same symptom — the bare
+    # `flutter analyze` the gate runs walks the whole tree, and a vendored
+    # example app in one of them (which never resolves outside its own
+    # package) put EIGHT errors in front of anyone running the gate locally.
+    # Untracked, so CI never saw them and the gate was green there while red
+    # on the machine doing the work.
+    - _audit/**
+    - _audit_copy/**
 
 linter:
   # The lint rules applied to this project can be customized in the
