@@ -90,6 +90,35 @@ void main() {
     );
   });
 
+  test('creating mints the credential BEFORE the identity is provisioned', () {
+    final body = provisioningBody();
+    final mint = body.indexOf('_mintSovereignCredential');
+    expect(
+      mint,
+      isNot(-1),
+      reason:
+          'creating must mint the credential here: lazily is too late once '
+          'the credential decides the identity — the node would already have '
+          'published the classic address',
+    );
+    final provisionHybrid = body.indexOf('provisionHybridSovereignIdentity');
+    expect(
+      mint,
+      lessThan(provisionHybrid),
+      reason:
+          'the credential IS the master: an identity provisioned before it '
+          'exists is named by a key the credential does not hold',
+    );
+    // And only when creating. Minting on a restore would manufacture a NEW
+    // master and a new address for someone who came to recover an old one.
+    final beforeMint = body.substring(0, mint);
+    expect(
+      beforeMint.contains('!restoringIdentity'),
+      isTrue,
+      reason: 'minting must be gated on creating, not reached on a restore',
+    );
+  });
+
   test('an unreadable credential is not treated as an absent one', () {
     // Absent means "classic identity". Damaged must not mean that too, or a
     // corrupted file silently moves the address.
