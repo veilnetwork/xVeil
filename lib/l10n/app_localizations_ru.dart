@@ -5801,6 +5801,30 @@ class AppL10nRu extends AppL10n {
   String get devicesNoBackupTitle => 'У этой личности нет резервной копии';
 
   @override
+  String get devicesDelegationExpiringTitle => 'Это устройство пора продлить';
+
+  @override
+  String get devicesDelegationExpiringBody =>
+      'Его свидетельство о принадлежности скоро истечёт. Введите секрет один раз — устройство сохранит и ключ, и адрес.';
+
+  @override
+  String get devicesDelegationLapsedTitle => 'Это устройство замолчало';
+
+  @override
+  String get devicesDelegationLapsedBody =>
+      'Его свидетельство о принадлежности истекло, и другие больше не могут до него достучаться. Введите секрет один раз, чтобы вернуть его: ничего не теряется и ничего не добавляется заново.';
+
+  @override
+  String get devicesRenewNow => 'Продлить';
+
+  @override
+  String get devicesRenewed => 'Продлено. За устройство снова ручаются.';
+
+  @override
+  String get devicesRenewFailed =>
+      'Продлить не удалось. Проверьте секрет и попробуйте ещё раз.';
+
+  @override
   String get devicesNoBackupBody =>
       'Её восстанавливает только сертификат восстановления — одни 24 слова восстановят другую личность. Сохраните его и держите отдельно от кода.';
 

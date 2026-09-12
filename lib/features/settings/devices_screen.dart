@@ -144,6 +144,39 @@ bool shouldOpenJoinSheet({
   required bool alreadyOpened,
 }) => autoJoin && ready && !alreadyOpened;
 
+/// What to say about this device's delegation, if anything.
+///
+/// A pure decision on two numbers, so the rule can be checked without a node,
+/// a clock or a widget — and so it is one rule rather than a condition spread
+/// through a build method.
+///
+/// `0` means "unknown", NOT "expired": the window is read from the running
+/// node and a failed read must not raise an alarm. A warning that appears
+/// because something could not be read is the fastest way to make the real one
+/// unbelievable.
+///
+/// The warning starts at half the window, which is where the runtime's own
+/// self-renewal starts for a standalone device. Earlier would nag; later
+/// leaves no room to act.
+enum DelegationNotice { none, expiring, lapsed }
+
+DelegationNotice delegationNotice({
+  required int validUntilUnix,
+  required int nowUnix,
+  required int windowSecs,
+}) {
+  if (validUntilUnix == 0) return DelegationNotice.none;
+  if (nowUnix >= validUntilUnix) return DelegationNotice.lapsed;
+  final remaining = validUntilUnix - nowUnix;
+  return remaining <= windowSecs ~/ 2
+      ? DelegationNotice.expiring
+      : DelegationNotice.none;
+}
+
+/// The delegation window veil issues, in seconds. Mirrored here only to decide
+/// WHEN to warn; the authority on the window itself is the document.
+const kDelegationWindowSecs = 7 * 24 * 60 * 60;
+
 /// Same shape, same reason, for the recovery certificate an identity has just
 /// been created with and nobody has saved yet.
 ///
@@ -213,6 +246,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   bool _loading = true;
   bool _hasSovereignBundle = false;
   bool _certificateSaved = true;
+  int _delegationValidUntil = 0;
   bool _hasDeviceGroup = false;
   String? _credentialKind;
 
@@ -309,6 +343,8 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     // Defaults to "saved" while unknown: a reminder that appears because a
     // read failed would be crying wolf, and this one must stay believable.
     final certificateSaved = await svc?.hasSavedRecoveryCertificate() ?? true;
+    final validUntil =
+        ref.read(realStackProvider)?.ownDelegationValidUntil() ?? 0;
     final members = [...?state?.members.values.map((m) => m.nodeId)]
       ..sort((a, b) => a.hex.compareTo(b.hex));
     final storedIdentity = await ref
@@ -337,6 +373,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       _members = members;
       _hasSovereignBundle = hasBundle;
       _certificateSaved = certificateSaved;
+      _delegationValidUntil = validUntil;
       _hasDeviceGroup = gidHex != null;
       _credentialKind = credentialKind;
       _myDevice = myDevice;
@@ -361,6 +398,37 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       ),
     );
     if (changed == true) await _reload();
+  }
+
+  /// Renew this device's delegation: one secret, and the window moves.
+  ///
+  /// Deliberate, unlike the ride-along, so the outcome is reported either way.
+  Future<void> _renewDelegation() async {
+    final l = AppL10n.of(context);
+    final svc = ref.read(groupServiceProvider);
+    if (svc == null) return;
+    final usesCertificate = await svc.sovereignCredentialKind() == 'certificate';
+    if (!mounted) return;
+    final secret = await showDialog<String>(
+      context: context,
+      builder: (dialog) => SovereignSecretDialog(
+        title: l.devicesRenewNow,
+        confirmLabel: l.devicesRenewNow,
+        fieldLabel: usesCertificate ? l.devicesRecoveryCode : l.devicesPhrase,
+        helperText: usesCertificate
+            ? l.devicesRecoveryCodeHint
+            : l.devicesPhraseHint,
+      ),
+    );
+    if (secret == null || secret.isEmpty || !mounted) return;
+    final renewed = await svc.renewOwnDelegationQuietly(secret);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(renewed ? l.devicesRenewed : l.devicesRenewFailed),
+      ),
+    );
+    await _reload();
   }
 
   Future<void> _showRecoveryExport() async {
@@ -609,6 +677,57 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                 ),
                 onTap: _showRecoveryExport,
               ),
+            ),
+          if (!_loading)
+            Builder(
+              builder: (context) {
+                final notice = delegationNotice(
+                  validUntilUnix: _delegationValidUntil,
+                  nowUnix: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                  windowSecs: kDelegationWindowSecs,
+                );
+                if (notice == DelegationNotice.none) {
+                  return const SizedBox.shrink();
+                }
+                final lapsed = notice == DelegationNotice.lapsed;
+                final scheme = Theme.of(context).colorScheme;
+                // Lapsed is already costing something — others cannot reach
+                // this device — so it wears the error colour. Expiring is a
+                // reminder, not a fault.
+                final bg = lapsed
+                    ? scheme.errorContainer
+                    : scheme.secondaryContainer;
+                final fg = lapsed
+                    ? scheme.onErrorContainer
+                    : scheme.onSecondaryContainer;
+                return Card(
+                  margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                  color: bg,
+                  child: ListTile(
+                    leading: Icon(
+                      lapsed ? Icons.cloud_off : Icons.schedule,
+                      color: fg,
+                    ),
+                    title: Text(
+                      lapsed
+                          ? l.devicesDelegationLapsedTitle
+                          : l.devicesDelegationExpiringTitle,
+                      style: TextStyle(color: fg),
+                    ),
+                    subtitle: Text(
+                      lapsed
+                          ? l.devicesDelegationLapsedBody
+                          : l.devicesDelegationExpiringBody,
+                      style: TextStyle(color: fg),
+                    ),
+                    trailing: TextButton(
+                      onPressed: _renewDelegation,
+                      child: Text(l.devicesRenewNow),
+                    ),
+                    onTap: _renewDelegation,
+                  ),
+                );
+              },
             ),
           if (_loading)
             const LinearProgressIndicator()
