@@ -181,6 +181,44 @@ void main() {
   // The staging directory holds MASTER-derived material for as long as it
   // exists. It is this call's to create and this call's to remove — on the
   // failure paths too, which is where a leftover would otherwise sit.
+  // The staging directory is PRIVATE while it exists, not merely short-lived.
+  //
+  // What is written into it is `device_identity_sk.bin` — this device's
+  // signing key, in the clear, for as long as the call runs. The renewal path
+  // was given `createTemp` (mkdtemp, 0700) and the other five built their path
+  // by hand and created it with the ordinary call, so the mode was whatever
+  // the umask said: on a host with a permissive umask, any local user could
+  // read the key out of it. A fix applied at one site instead of to the
+  // operation.
+  //
+  // Checked from INSIDE the provisioner, because the directory is gone by the
+  // time the call returns — which is exactly why this went unnoticed.
+  test('the staging directory is private while the key is in it', () async {
+    if (Platform.isWindows) {
+      markTestSkipped('POSIX modes do not apply');
+      return;
+    }
+    final storage = FakeSettingStorage();
+    int? mode;
+    await RealVeilStack.ensureSovereignIdentity(
+      storage,
+      stagingBase: tmp.path,
+      identityPhrase: 'a master phrase',
+      provision: (phrase, dir) async {
+        mode = Directory(dir).statSync().mode & 0x1FF; // 0777
+        await materialiseSovereignIdentity(dir, _material());
+      },
+    );
+    expect(mode, isNotNull, reason: 'the provisioner must have run');
+    expect(
+      mode! & 0x3F, // group and other bits
+      0,
+      reason:
+          'the directory holding this device\'s signing key must be owner-only '
+          '(got ${mode!.toRadixString(8)})',
+    );
+  });
+
   test('the staging directory never outlives the call', () async {
     final storage = FakeSettingStorage();
     final rec = recorder();
