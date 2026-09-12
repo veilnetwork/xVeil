@@ -10148,6 +10148,18 @@ abstract class AppL10n {
   /// **'Save to file'**
   String get devicesSaveCertificate;
 
+  /// No description provided for @devicesNoBackupTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This identity has no backup'**
+  String get devicesNoBackupTitle;
+
+  /// No description provided for @devicesNoBackupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Its recovery certificate is the only thing that restores it — the 24 words alone restore a different identity. Save it now and keep it apart from its code.'**
+  String get devicesNoBackupBody;
+
   /// No description provided for @devicesCertificateSaved.
   ///
   /// In en, this message translates to:

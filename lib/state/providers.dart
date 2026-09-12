@@ -285,6 +285,21 @@ final realStackProvider = StateProvider<RealVeilStack?>((ref) => null);
 /// process would keep hijacking every launch.
 final pendingDeviceLinkProvider = StateProvider<bool>((ref) => false);
 
+/// Set when an identity was just CREATED and its recovery certificate has
+/// never been saved anywhere.
+///
+/// Consumed on the transition to `ready`, the same one-shot shape as
+/// [pendingDeviceLinkProvider] and for the same reason: the certificate step
+/// cannot live inside the onboarding wizard, because the credential it exports
+/// does not exist until the container does and the node has booted, and by
+/// then the router has taken over.
+///
+/// Why it matters more than a nicety: the identity is named by a master whose
+/// Falcon half exists only inside that credential. The 24 words restore the
+/// classic identity, not this one. Between creating and saving the
+/// certificate, the identity is one device failure away from being gone.
+final pendingRecoveryCertificateProvider = StateProvider<bool>((ref) => false);
+
 /// HONEST boot status of the REAL node, when a real node is expected (a packaged
 /// build / armed deniable boot) but the stack isn't up yet. Non-null ⇒ the UI
 /// must show THIS (e.g. `starting`, or `error`/`offline` with a message) rather

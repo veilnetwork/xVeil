@@ -5828,6 +5828,14 @@ class AppL10nEs extends AppL10n {
   String get devicesSaveCertificate => 'Guardar en un archivo';
 
   @override
+  String get devicesNoBackupTitle =>
+      'Esta identidad no tiene copia de seguridad';
+
+  @override
+  String get devicesNoBackupBody =>
+      'Solo su certificado de recuperación la restaura: las 24 palabras por sí solas restauran una identidad distinta. Guárdalo y mantenlo aparte de su código.';
+
+  @override
   String get devicesCertificateSaved =>
       'Guardado. El código NO está en el archivo: guárdalo en otro sitio, o el archivo por sí solo es la identidad.';
 

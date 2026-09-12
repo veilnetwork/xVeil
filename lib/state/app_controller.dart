@@ -331,6 +331,16 @@ class AppController extends Notifier<AppState> {
     // the router consumes the flag on that transition. Setting it afterwards
     // would race the redirect and drop the user on chats.
     ref.read(pendingDeviceLinkProvider.notifier).state = joinExisting;
+    // Same timing, same reason: set before the session opens, because the
+    // router consumes it on the flip to ready. A CREATED identity has a
+    // credential nobody has saved yet; a restored or linked one does not need
+    // the step — it either already has its certificate or is joining a device
+    // group that holds one.
+    ref.read(pendingRecoveryCertificateProvider.notifier).state =
+        identityPhrase != null &&
+        identityPhrase.isNotEmpty &&
+        !restoringIdentity &&
+        !joinExisting;
     // Show the "setting up" screen up front and let it paint a frame BEFORE the
     // CPU-heavy work begins — creating the container (Argon2id KDF) and
     // provisioning the node identity both block briefly, and without this the

@@ -148,6 +148,23 @@ final routerProvider = Provider<GoRouter>((ref) {
         });
         return '/home';
       }
+      // An identity was just created, and the certificate that restores it has
+      // never been saved. Pushed on top of home, same as the device-link step
+      // and for the same reason: a redirect replaces the stack and leaves the
+      // back arrow nowhere to go.
+      if (phase == AppPhase.ready &&
+          ref.read(pendingRecoveryCertificateProvider)) {
+        ref.read(pendingRecoveryCertificateProvider.notifier).state = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          try {
+            router.push('/settings/devices?recovery=1');
+          } catch (_) {
+            // Router torn down between redirect and frame. The standing
+            // reminder still shows, so the step is not lost — only deferred.
+          }
+        });
+        return '/home';
+      }
       if (phase == AppPhase.ready && location == '/preparing') {
         final resume = resumeAfterPrepare;
         resumeAfterPrepare = null; // consumed (or defaulted to /home)
@@ -288,7 +305,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/devices',
         builder: (_, state) =>
-            DevicesScreen(autoJoin: state.uri.queryParameters['link'] == '1'),
+            DevicesScreen(
+              autoJoin: state.uri.queryParameters['link'] == '1',
+              autoRecovery: state.uri.queryParameters['recovery'] == '1',
+            ),
       ),
       GoRoute(
         path: '/settings/privacy',

@@ -2395,6 +2395,8 @@
   "devicesCertificateWarning": "Quien tenga ambos valores controla tu identidad soberana de dispositivo. Guarda el certificado y el código por separado. El código solo se muestra ahora.",
   "devicesCopyCertificate": "Copiar certificado",
   "devicesSaveCertificate": "Guardar en un archivo",
+  "devicesNoBackupTitle": "Esta identidad no tiene copia de seguridad",
+  "devicesNoBackupBody": "Solo su certificado de recuperación la restaura: las 24 palabras por sí solas restauran una identidad distinta. Guárdalo y mantenlo aparte de su código.",
   "devicesCertificateSaved": "Guardado. El código NO está en el archivo: guárdalo en otro sitio, o el archivo por sí solo es la identidad.",
   "devicesLoadCertificate": "Cargar desde un archivo",
   "devicesCopyCode": "Copiar código de recuperación",
