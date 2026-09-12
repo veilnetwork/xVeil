@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:xveil/core/posix_file_facts.dart' show posixChmod;
+import 'package:xveil/data/storage/storage.dart';
 
 /// The per-device sovereign identity material: what `identity restore` writes
 /// into a node directory, and what has to survive a restart.
@@ -100,6 +101,102 @@ const kSovereignIdentitySetting = 'node.sovereign_identity.v1';
 /// Ed25519 one — and two copies of a storage key drift into two different
 /// keys, which here would mean silently provisioning the wrong identity.
 const kSovereignBundleSetting = 'devices.sovereign.bundle.v1';
+
+/// Read this device's sovereign material, wherever it lives.
+///
+/// It lives in the CHUNKED FILE STORE, not in a setting, and the difference is
+/// not cosmetic: a single setting record holds about 2-3 KiB, and a hybrid
+/// identity's material is past that — its master public key alone is 929 bytes
+/// and every delegation carries a hybrid certificate. Stored as a setting it
+/// throws `PayloadTooLarge` at provisioning time, the node falls back to a
+/// degenerate document, and the identity quietly becomes the classic one.
+///
+/// This project has been bitten by that limit four times now, and every time
+/// the closed-loop tests were green: the in-memory store enforces no cap, so
+/// the failure only exists against a real container. It was found here by
+/// running a real daemon, not by a test.
+///
+/// The setting is still read as a fallback, because material written by an
+/// earlier build lives there and an identity must not lose its device key to
+/// an upgrade.
+Future<String?> readSovereignMaterial(Storage storage) async {
+  try {
+    final bytes = await storage.loadFile(kSovereignIdentitySetting);
+    if (bytes != null && bytes.isNotEmpty) return utf8.decode(bytes);
+  } catch (_) {
+    // Fall through to the legacy home rather than fail: a missing or
+    // unreadable file is exactly the pre-upgrade state.
+  }
+  return storage.getSetting(kSovereignIdentitySetting);
+}
+
+/// Write this device's sovereign material.
+///
+/// To the file store, always — the size that broke this is the ordinary size
+/// of a hybrid identity, not an edge case. The legacy setting is cleared in
+/// the same breath so there is ONE copy: two, with a reader that prefers the
+/// file, is a stale record that still looks authoritative.
+Future<void> writeSovereignMaterial(Storage storage, String encoded) async {
+  await storage.storeFile(
+    kSovereignIdentitySetting,
+    Uint8List.fromList(utf8.encode(encoded)),
+    name: 'sovereign-identity',
+  );
+  try {
+    await storage.putSetting(kSovereignIdentitySetting, '');
+  } catch (_) {
+    // Best effort: an uncleared legacy record is dead weight, not a fault.
+  }
+}
+
+/// The identity's encrypted sovereign credential, wherever it lives.
+///
+/// ONE reader, because the two that existed did not agree. The credential's
+/// PRESENCE is what decides which identity a phrase names — hybrid with one,
+/// classic without — so a reader that misses a copy does not fail, it
+/// provisions a DIFFERENT identity under a different address, silently.
+///
+/// It lives in the chunked file store for the same reason the material does:
+/// the hybrid blob is ~3.1 KiB base64 and a single settings record holds about
+/// 4 KiB, so the settings path threw `PayloadTooLarge` on every store (found
+/// live 2026-07-25, on the first real link ceremony). The legacy settings key
+/// is still read, base64-decoded, so a store that DID persist a credential
+/// there keeps opening it.
+///
+/// `corrupt` is not `bundle == null`: an unreadable or absurdly sized
+/// credential must never be taken for "this identity has none".
+Future<({Uint8List? bundle, bool corrupt})> readSovereignCredential(
+  Storage storage,
+) async {
+  Uint8List? file;
+  try {
+    file = await storage.loadFile(kSovereignBundleSetting);
+  } catch (_) {
+    return (bundle: null, corrupt: true);
+  }
+  if (file != null) {
+    if (file.isEmpty || file.length > kMaxSovereignCredentialBytes) {
+      return (bundle: null, corrupt: true);
+    }
+    return (bundle: Uint8List.fromList(file), corrupt: false);
+  }
+  final raw = await storage.getSetting(kSovereignBundleSetting);
+  if (raw == null || raw.isEmpty) return (bundle: null, corrupt: false);
+  try {
+    final value = Uint8List.fromList(base64Decode(raw));
+    if (value.isEmpty || value.length > kMaxSovereignCredentialBytes) {
+      return (bundle: null, corrupt: true);
+    }
+    return (bundle: value, corrupt: false);
+  } catch (_) {
+    return (bundle: null, corrupt: true);
+  }
+}
+
+/// A sovereign credential past this is not one. A hybrid bundle is ~2.3 KiB
+/// raw; the margin is for a format that grows, not for a file that is really
+/// something else.
+const int kMaxSovereignCredentialBytes = 16 * 1024;
 
 /// Set once this identity's recovery certificate has been written to a file.
 ///

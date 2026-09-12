@@ -118,7 +118,12 @@ typedef _FreeStrDart = void Function(Pointer<Utf8>);
 //     instance_label*, instance_label_len, err_out**):
 //   0 on success. The phrase buffer is WRITABLE — the native side wipes it in
 //   place before returning, on every path.
-typedef _ReissueDelegationNative =
+// Shared by the two calls that AMEND a document under the master and name a
+// device by its public key — `veil_reissue_device_delegation_zeroize` and
+// `veil_delegate_device_zeroize`. One shape on purpose: they take the same
+// arguments for the same reasons, and the credential is what decides which
+// master signs (none = the Ed25519 one the secret gives as a phrase).
+typedef _MasterDeviceCallNative =
     Int32 Function(
       Pointer<Uint8>, // credential (may be nullptr)
       IntPtr,
@@ -130,7 +135,7 @@ typedef _ReissueDelegationNative =
       IntPtr,
       Pointer<Pointer<Utf8>>,
     );
-typedef _ReissueDelegationDart =
+typedef _MasterDeviceCallDart =
     int Function(
       Pointer<Uint8>,
       int,
@@ -140,6 +145,35 @@ typedef _ReissueDelegationDart =
       int,
       Pointer<Uint8>,
       int,
+      Pointer<Pointer<Utf8>>,
+    );
+// int veil_revoke_identity_device_zeroize(
+//     credential* /* NULL = the classic identity */, credential_len,
+//     secret*, secret_len, veil_dir*, veil_dir_len,
+//     device_id* /* 32 bytes */, changed_out*, err_out**): 0 on success.
+// The secret buffer is wiped in place.
+typedef _RevokeDeviceNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _RevokeDeviceDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _DelegationValidUntilNative =
@@ -715,7 +749,7 @@ class EmbeddedNode {
   }) {
     final dl = lib ?? _veilLib();
     final fn = dl
-        .lookupFunction<_ReissueDelegationNative, _ReissueDelegationDart>(
+        .lookupFunction<_MasterDeviceCallNative, _MasterDeviceCallDart>(
           'veil_reissue_device_delegation_zeroize',
         );
     final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
@@ -899,7 +933,15 @@ class EmbeddedNode {
   }
 
   /// Admit a device to this identity: append its key to the signed document
-  /// in [veilDir], under the master derived from [phrase].
+  /// in [veilDir], under this identity's master.
+  ///
+  /// [credential] picks WHICH master, the same way the boot picks which
+  /// identity a secret names: present means the HYBRID master, opened with
+  /// [secret]; null means the Ed25519 master [secret] gives as a phrase. This
+  /// used to be phrase-only, and a hybrid identity — what xVeil creates by
+  /// default now — could therefore never gain a second device: the native side
+  /// hashed 32 bytes where the document names 929 and refused with
+  /// `UnsupportedMasterAlgo`.
   ///
   /// What makes one identity hold several devices, and the alternative is not
   /// "a document each". `node_id` is BLAKE3 of the master key, so two devices
@@ -917,27 +959,34 @@ class EmbeddedNode {
   ///
   /// Refuses, rather than guesses, when the phrase belongs to a different
   /// identity than the document does.
-  static void delegateDeviceFromPhrase(
-    String phrase, {
+  static void delegateDevice({
+    required String secret,
     required String veilDir,
+    Uint8List? credential,
     Uint8List? devicePubkey,
     DynamicLibrary? lib,
   }) {
     final dl = lib ?? _veilLib();
     final delegateFn = dl
-        .lookupFunction<_DelegateDeviceNative, _DelegateDeviceDart>(
-          'veil_delegate_device_from_phrase_zeroize',
+        .lookupFunction<_MasterDeviceCallNative, _MasterDeviceCallDart>(
+          'veil_delegate_device_zeroize',
         );
     final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
       'veil_free_string',
     );
-    final phraseC = phrase.toNativeUtf8();
+    final credC = credential == null || credential.isEmpty
+        ? nullptr
+        : calloc<Uint8>(credential.length);
+    final secretC = secret.toNativeUtf8();
     final dirC = veilDir.toNativeUtf8();
     final pkPtr = devicePubkey == null
         ? nullptr
         : calloc<Uint8>(devicePubkey.length);
     final errOut = calloc<Pointer<Utf8>>();
     try {
+      if (credC != nullptr) {
+        credC.asTypedList(credential!.length).setAll(0, credential);
+      }
       if (devicePubkey != null) {
         pkPtr
             .cast<Uint8>()
@@ -945,8 +994,10 @@ class EmbeddedNode {
             .setAll(0, devicePubkey);
       }
       final rc = delegateFn(
-        phraseC.cast<Uint8>(),
-        phraseC.length,
+        credC,
+        credential?.length ?? 0,
+        secretC.cast<Uint8>(),
+        secretC.length,
         dirC.cast<Uint8>(),
         dirC.length,
         pkPtr.cast<Uint8>(),
@@ -957,14 +1008,16 @@ class EmbeddedNode {
         final err = errOut.value;
         final msg = err == nullptr ? 'unknown error' : err.toDartString();
         if (err != nullptr) freeStr(err);
-        throw StateError('veil_delegate_device_from_phrase failed: $msg');
+        throw StateError('veil_delegate_device failed: $msg');
       }
     } finally {
-      // Same reasoning as the other phrase entry points: the native side wipes
-      // the buffer, but only once it has read it (audit XV-22). The public key
-      // and the directory are not secret.
-      wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
-      calloc.free(phraseC);
+      // Same reasoning as the other secret-taking entry points: the native side
+      // wipes the buffer, but only once it has read it (audit XV-22). The
+      // credential, the public key and the directory are not secret on their
+      // own — the credential is encrypted and useless without [secret].
+      wipeNativeSecret(secretC.cast<Uint8>(), secretC.length);
+      calloc.free(secretC);
+      if (credC != nullptr) calloc.free(credC);
       calloc.free(dirC);
       if (pkPtr != nullptr) calloc.free(pkPtr);
       calloc.free(errOut);
@@ -972,57 +1025,53 @@ class EmbeddedNode {
   }
 
   /// Retire [deviceId]'s key from the identity document in [veilDir],
-  /// permanently, with the master derived from [phrase].
+  /// permanently, under this identity's master.
   ///
   /// The cryptographic half of revocation: the group stops listing the
   /// device elsewhere, and THIS removes the document's vouching for its key
   /// — plus a master-signed tombstone the document merge can never
   /// resurrect. Returns true when the document changed, false when the
   /// device was already tombstoned.
-  static bool revokeIdentityDeviceFromPhrase(
-    String phrase, {
+  ///
+  /// [credential] picks which master signs the tombstone, exactly as in
+  /// [delegateDevice]. It was phrase-only, which made a stolen device
+  /// unrevokable on a hybrid identity — the operation such an identity can
+  /// least afford to refuse.
+  static bool revokeIdentityDevice({
+    required String secret,
     required String veilDir,
     required Uint8List deviceId,
+    Uint8List? credential,
     DynamicLibrary? lib,
   }) {
     if (deviceId.length != 32) {
       throw ArgumentError('deviceId must be 32 bytes, got ${deviceId.length}');
     }
     final dl = lib ?? _veilLib();
-    final revokeFn = dl
-        .lookupFunction<
-          Int32 Function(
-            Pointer<Uint8>,
-            UintPtr,
-            Pointer<Uint8>,
-            UintPtr,
-            Pointer<Uint8>,
-            Pointer<Uint8>,
-            Pointer<Pointer<Utf8>>,
-          ),
-          int Function(
-            Pointer<Uint8>,
-            int,
-            Pointer<Uint8>,
-            int,
-            Pointer<Uint8>,
-            Pointer<Uint8>,
-            Pointer<Pointer<Utf8>>,
-          )
-        >('veil_revoke_identity_device_from_phrase_zeroize');
+    final revokeFn = dl.lookupFunction<_RevokeDeviceNative, _RevokeDeviceDart>(
+      'veil_revoke_identity_device_zeroize',
+    );
     final freeStr = dl.lookupFunction<_FreeStrNative, _FreeStrDart>(
       'veil_free_string',
     );
-    final phraseC = phrase.toNativeUtf8();
+    final credC = credential == null || credential.isEmpty
+        ? nullptr
+        : calloc<Uint8>(credential.length);
+    final secretC = secret.toNativeUtf8();
     final dirC = veilDir.toNativeUtf8();
     final idPtr = calloc<Uint8>(32);
     final changedOut = calloc<Uint8>();
     final errOut = calloc<Pointer<Utf8>>();
     try {
+      if (credC != nullptr) {
+        credC.asTypedList(credential!.length).setAll(0, credential);
+      }
       idPtr.asTypedList(32).setAll(0, deviceId);
       final rc = revokeFn(
-        phraseC.cast<Uint8>(),
-        phraseC.length,
+        credC,
+        credential?.length ?? 0,
+        secretC.cast<Uint8>(),
+        secretC.length,
         dirC.cast<Uint8>(),
         dirC.length,
         idPtr,
@@ -1037,8 +1086,9 @@ class EmbeddedNode {
       }
       return changedOut.value != 0;
     } finally {
-      wipeNativeSecret(phraseC.cast<Uint8>(), phraseC.length);
-      calloc.free(phraseC);
+      wipeNativeSecret(secretC.cast<Uint8>(), secretC.length);
+      calloc.free(secretC);
+      if (credC != nullptr) calloc.free(credC);
       calloc.free(dirC);
       calloc.free(idPtr);
       calloc.free(changedOut);

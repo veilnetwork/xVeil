@@ -38,7 +38,7 @@ import '../data/node/sovereign_identity_material.dart'
         kIdentityDocumentFile,
         kInstanceIdFile,
         kMasterConfigSetting,
-        kSovereignIdentitySetting;
+        readSovereignMaterial;
 import '../data/storage/storage.dart'
     show OutboxFrame, Storage, kIdentityOriginSetting;
 import '../data/storage/storage_write_census.dart';
@@ -2185,7 +2185,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final receiveBytes = await RealVeilStack.sovereignReceiveAddress(storage);
     final receive = receiveBytes == null ? null : NodeId(receiveBytes).hex;
 
-    final raw = await storage.getSetting(kSovereignIdentitySetting);
+    final raw = await readSovereignMaterial(storage);
     final files = raw == null ? null : decodeSovereignIdentity(raw);
     final doc = files?[kIdentityDocumentFile];
     final instance = files?[kInstanceIdFile];
@@ -2305,7 +2305,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       try {
         final outcome = await RealVeilStack.delegateDeviceIntoDocument(
           ref.read(storageProvider),
-          phrase: phrase.trim(),
+          secret: phrase.trim(),
           devicePubkey: target.publicKey,
           stagingBase: Directory.systemTemp.path,
         );
@@ -2345,7 +2345,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           delegated =
               await RealVeilStack.delegateDeviceIntoDocument(
                     ref.read(storageProvider),
-                    phrase: phrase.trim(),
+                    secret: phrase.trim(),
                     devicePubkey: entry.value,
                     stagingBase: Directory.systemTemp.path,
                   ) ==
@@ -2634,7 +2634,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // half — and it used to be reported as a successful revoke.
       final revocation = await RealVeilStack.revokeDeviceFromDocument(
         ref.read(storageProvider),
-        phrase: phrase.trim(),
+        secret: phrase.trim(),
         deviceId: NodeId.fromHex(peer).bytes,
         stagingBase: Directory.systemTemp.path,
       );
@@ -2657,9 +2657,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           if (stack != null) {
             await stack.refreshSovereignIdentity(ref.read(storageProvider));
           }
-          final raw = await ref
-              .read(storageProvider)
-              .getSetting(kSovereignIdentitySetting);
+          final raw = await readSovereignMaterial(ref.read(storageProvider));
           final doc = raw == null
               ? null
               : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];

@@ -126,8 +126,13 @@ void main() {
       source.indexOf('static Future<Uint8List?> _sovereignCredential('),
     );
     final body = reader.substring(0, reader.indexOf('\n  static '));
+    // Anchored on the BEHAVIOUR, not on one keyword: this guard was written
+    // around `rethrow` and went red the day the reader moved to the shared
+    // `readSovereignCredential`, which reports damage as a flag rather than an
+    // exception. What has to hold is that damage LEAVES this function loudly —
+    // not which statement does it.
     expect(
-      body.contains('rethrow'),
+      RegExp(r'rethrow|throw ').hasMatch(body),
       isTrue,
       reason:
           'swallowing a read error would provision the OTHER identity and '

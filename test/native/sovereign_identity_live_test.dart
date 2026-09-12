@@ -27,6 +27,12 @@ import 'package:xveil/data/veil_stack.dart';
 /// Env-gated on VEIL_FFI_DYLIB, like the other live tests here.
 class _MemStorage implements Storage {
   final settings = <String, String>{};
+
+  /// The chunked file store, because that is where the sovereign material and
+  /// the credential actually live. A fake that answered only settings made
+  /// this whole file test a storage shape nothing uses: hybrid material is
+  /// past what one setting record holds, which is why it moved.
+  final files = <String, Uint8List>{};
   String? config;
 
   @override
@@ -42,6 +48,20 @@ class _MemStorage implements Storage {
   Future<String?> getSetting(String key) async => settings[key];
 
   @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+    files[fileId] = Uint8List.fromList(bytes);
+  }
+
+  @override
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async =>
+      files[fileId];
+
+  @override
+  Future<void> deleteStoredFile(String fileId) async {
+    files.remove(fileId);
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -54,6 +74,20 @@ class _MemStorage implements Storage {
 /// equality of two devices' copies is therefore no longer an invariant —
 /// what converges is the header (magic through master_pubkey) and the
 /// identity_keys/revoked_devices sections, compared here in wire order.
+/// How many devices a document certifies.
+///
+/// The same walk as [canonicalDocParts], stopped one field in: the count is
+/// the byte after issued_at / valid_until / sig_key_idx. Separate rather than
+/// returned from that one because the question is different — "do both devices
+/// see both keys" is about the group, not about convergence.
+int identityDocumentKeyCount(Uint8List d) {
+  var pos = 2 + 1 + 32 + 1; // magic, version, node_id, master_algo
+  final mlen = (d[pos] << 8) | d[pos + 1];
+  pos += 2 + mlen;
+  pos += 8 + 8 + 2; // issued_at, valid_until, sig_key_idx
+  return d[pos];
+}
+
 ({List<int> header, List<int> body}) canonicalDocParts(Uint8List d) {
   var pos = 2 + 1 + 32 + 1; // magic, version, node_id, master_algo
   final mlen = (d[pos] << 8) | d[pos + 1];
@@ -137,7 +171,7 @@ void main() {
     // cannot be a handful of bytes. This is a floor, not a format check.
     expect(files[kIdentityDocumentFile]!.length, greaterThan(64));
     expect(files[kInstanceIdFile], isNotEmpty);
-    expect(storage.settings[kSovereignIdentitySetting], isNotNull);
+    expect(await readSovereignMaterial(storage), isNotNull);
   }, skip: skip);
 
   test('two devices on one phrase get different keys', () async {
@@ -218,7 +252,7 @@ void main() {
       reason: 'the sibling joins our document',
     );
     final grown = decodeSovereignIdentity(
-      storage.settings[kSovereignIdentitySetting]!,
+      (await readSovereignMaterial(storage))!,
     )![kIdentityDocumentFile]!;
 
     final before = grown.length;
@@ -233,7 +267,7 @@ void main() {
     final phantomId = Uint8List.fromList(List.filled(32, 7));
     final changed = await RealVeilStack.revokeDeviceFromDocument(
       storage,
-      phrase: phrase,
+      secret: phrase,
       deviceId: phantomId,
       stagingBase: tmp.path,
       lib: lib,
@@ -244,14 +278,14 @@ void main() {
       reason: 'a tombstone is written even preemptively',
     );
     final after = decodeSovereignIdentity(
-      storage.settings[kSovereignIdentitySetting]!,
+      (await readSovereignMaterial(storage))!,
     )![kIdentityDocumentFile]!;
     expect(after.length, greaterThan(before), reason: 'tombstone appended');
 
     // Idempotent: the same id again changes nothing.
     final again = await RealVeilStack.revokeDeviceFromDocument(
       storage,
-      phrase: phrase,
+      secret: phrase,
       deviceId: phantomId,
       stagingBase: tmp.path,
       lib: lib,
@@ -266,7 +300,7 @@ void main() {
     // And the tombstoned id can never be delegated: the wrapper refuses.
     final relink = await RealVeilStack.delegateDeviceIntoDocument(
       storage,
-      phrase: phrase,
+      secret: phrase,
       devicePubkey: Uint8List.fromList(List.filled(32, 9)),
       stagingBase: tmp.path,
       lib: lib,
@@ -299,11 +333,11 @@ void main() {
       ),
       isNotNull,
     );
-    final before = storage.settings[kSovereignIdentitySetting];
+    final before = await readSovereignMaterial(storage);
 
     final wrong = await RealVeilStack.revokeDeviceFromDocument(
       storage,
-      phrase: veilGeneratePhrase()!,
+      secret: veilGeneratePhrase()!,
       deviceId: Uint8List.fromList(List.filled(32, 5)),
       stagingBase: tmp.path,
       lib: lib,
@@ -315,7 +349,7 @@ void main() {
       reason: 'the caller must not report a revocation',
     );
     expect(
-      storage.settings[kSovereignIdentitySetting],
+      await readSovereignMaterial(storage),
       before,
       reason: 'a refused revocation leaves the document exactly as it was',
     );
@@ -345,7 +379,7 @@ void main() {
     expect(
       await RealVeilStack.delegateDeviceIntoDocument(
         storage,
-        phrase: phrase,
+        secret: phrase,
         devicePubkey: pubkey,
         stagingBase: tmp.path,
         lib: lib,
@@ -359,7 +393,7 @@ void main() {
     expect(
       await RealVeilStack.delegateDeviceIntoDocument(
         storage,
-        phrase: phrase,
+        secret: phrase,
         devicePubkey: pubkey,
         stagingBase: tmp.path,
         lib: lib,
@@ -369,7 +403,7 @@ void main() {
     expect(
       await RealVeilStack.delegateDeviceIntoDocument(
         storage,
-        phrase: veilGeneratePhrase()!,
+        secret: veilGeneratePhrase()!,
         devicePubkey: Uint8List.fromList(List.generate(32, (i) => i + 3)),
         stagingBase: tmp.path,
         lib: lib,
@@ -382,7 +416,7 @@ void main() {
     // 32 bytes after our pubkey ARE the id the tombstone must name — no
     // native decode API needed.
     final doc = decodeSovereignIdentity(
-      storage.settings[kSovereignIdentitySetting]!,
+      (await readSovereignMaterial(storage))!,
     )![kIdentityDocumentFile]!;
     var at = -1;
     for (var i = 0; i + 64 <= doc.length; i++) {
@@ -404,7 +438,7 @@ void main() {
     expect(
       await RealVeilStack.revokeDeviceFromDocument(
         storage,
-        phrase: phrase,
+        secret: phrase,
         deviceId: deviceId,
         stagingBase: tmp.path,
         lib: lib,
@@ -415,7 +449,7 @@ void main() {
     await expectLater(
       RealVeilStack.delegateDeviceIntoDocument(
         storage,
-        phrase: phrase,
+        secret: phrase,
         devicePubkey: pubkey,
         stagingBase: tmp.path,
         lib: lib,
@@ -455,7 +489,7 @@ void main() {
       // B receives A's document over the linking channel and adopts it, then
       // adds itself. It cannot sign with A's subkey — that secret is on A.
       await File('$b/$kIdentityDocumentFile').writeAsBytes(aDoc, flush: true);
-      EmbeddedNode.delegateDeviceFromPhrase(phrase, veilDir: b, lib: lib);
+      EmbeddedNode.delegateDevice(secret: phrase, veilDir: b, lib: lib);
 
       final merged = await File('$b/$kIdentityDocumentFile').readAsBytes();
       // A second delegated key is roughly a pubkey, a device id, two timestamps
@@ -486,8 +520,8 @@ void main() {
     );
     final before = await File('$dir/$kIdentityDocumentFile').readAsBytes();
     expect(
-      () => EmbeddedNode.delegateDeviceFromPhrase(
-        stranger,
+      () => EmbeddedNode.delegateDevice(
+        secret: stranger,
         veilDir: dir,
         devicePubkey: Uint8List.fromList(List.filled(32, 3)),
         lib: lib,
@@ -587,16 +621,33 @@ void main() {
       // never share a transport key. With no config the phone takes the
       // first-run path and mints a fresh random device key.
       final phone = _MemStorage();
+      // BOTH RESTORING, and the flag needs saying out loud. Creating now mints
+      // a recovery certificate and the identity becomes the HYBRID one, named
+      // by a Falcon half that exists only in that certificate — so two devices
+      // that both "create" from one phrase mint two different Falcon halves and
+      // land at two different addresses. That is the design, not a defect: the
+      // certificate is what restores the address, which is the whole reason it
+      // is offered at creation.
+      //
+      // This test is about the CLASSIC pair, which is still a supported shape:
+      // a phrase and no certificate gives the Ed25519 identity, deterministic
+      // from the words alone. Without the flag the desktop went hybrid (it has
+      // a node config, so it minted) while the phone went classic (no config,
+      // no mint), and the adopt below refused two genuinely different
+      // identities — correctly, and for a reason that had nothing to do with
+      // what this test is checking.
       final deskMat = await RealVeilStack.ensureSovereignIdentity(
         desktop,
         stagingBase: tmp.path,
         identityPhrase: phrase,
+        restoringIdentity: true,
         lib: lib,
       );
       final phoneMat = await RealVeilStack.ensureSovereignIdentity(
         phone,
         stagingBase: tmp.path,
         identityPhrase: phrase,
+        restoringIdentity: true,
         lib: lib,
       );
       expect(deskMat, isNotNull);
@@ -624,7 +675,7 @@ void main() {
       // it, so there is nothing to append — but it MUST record its own subkey
       // index, or it signs with the phone's key and comes up with no identity.
       final phoneNow = decodeSovereignIdentity(
-        phone.settings[kSovereignIdentitySetting]!,
+        (await readSovereignMaterial(phone))!,
       )!;
       final adopted = await RealVeilStack.adoptSovereignDocument(
         desktop,
@@ -642,7 +693,7 @@ void main() {
       );
 
       final deskNow = decodeSovereignIdentity(
-        desktop.settings[kSovereignIdentitySetting]!,
+        (await readSovereignMaterial(desktop))!,
       )!;
       // One document, held by both — canonically: each copy is re-signed by
       // its own device, so the stamps, the signer index and the signature
@@ -678,7 +729,7 @@ void main() {
         identityPhrase: minePhrase!,
         lib: lib,
       );
-      final before = mine.settings[kSovereignIdentitySetting];
+      final before = await readSovereignMaterial(mine);
 
       final stranger = _MemStorage()..config = strangerToml!;
       final strangerMat = await RealVeilStack.ensureSovereignIdentity(
@@ -698,7 +749,7 @@ void main() {
       // `alreadyHeld` are also not-adopted and would be wrong answers here —
       // a stranger's document was offered and this device is not in it.
       expect(ok, SovereignDocumentAdoption.refused);
-      expect(mine.settings[kSovereignIdentitySetting], before);
+      expect(await readSovereignMaterial(mine), before);
     },
     skip: skip,
   );
@@ -862,8 +913,177 @@ void main() {
       lib: lib,
     );
     expect(files, isNull);
-    expect(storage.settings[kSovereignIdentitySetting], isNull);
+    expect(await readSovereignMaterial(storage), isNull);
     // And nothing was left lying about under the base.
     expect(await tmp.list().isEmpty, isTrue);
+  }, skip: skip);
+
+  /// TWO DEVICES, ONE ADDRESS, on a HYBRID identity — the whole point of the
+  /// sovereign identity, end to end against the real library.
+  ///
+  /// Every piece of this was green in isolation and the whole was impossible.
+  /// The identity is named by BLAKE3 over its 929-byte Ed25519+Falcon-512
+  /// master, and the three calls that amend a document under that master —
+  /// admit a device, merge two documents, revoke a device — each built their
+  /// master from the WORDS alone, which reproduce 32 of those 929 bytes. Every
+  /// one refused, correctly and permanently: a hybrid identity could hold
+  /// exactly one device for as long as that was true, and xVeil creates hybrid
+  /// identities by default.
+  ///
+  /// What this asserts is the property the mechanism exists for, not the calls:
+  /// two devices, two different device keys, ONE node_id, one document that
+  /// names both and verifies.
+  test('a hybrid identity holds two devices at one address', () async {
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = veilGeneratePhrase()!;
+
+    // The credential is where the Falcon half comes into being, and its only
+    // copy. Minted once and used by BOTH devices — which is exactly what the
+    // recovery certificate is for.
+    final credential = EmbeddedNode.createHybridSovereignBundle(
+      phrase,
+      lib: lib,
+    );
+
+    // Device A. Its node config is the mined one; the identity it provisions
+    // is named by the credential, not by the config.
+    final a = _MemStorage()..config = mineToml;
+    await a.storeFile(kSovereignBundleSetting, credential);
+    final aDir = '${tmp.path}/a';
+    await Directory(aDir).create(recursive: true);
+    EmbeddedNode.provisionHybridSovereignIdentity(
+      credential,
+      phrase,
+      veilDir: aDir,
+      instanceLabel: 'device-a',
+      nodeConfigToml: mineToml!,
+      lib: lib,
+    );
+    final aFiles = await collectSovereignIdentity(aDir);
+    expect(missingSovereignIdentityFiles(aFiles), isEmpty);
+    await writeSovereignMaterial(a, encodeSovereignIdentity(aFiles));
+
+    // Device B, from the SAME phrase and the SAME credential — a restore, the
+    // way a second phone joins. Its own node config, so its device key is its
+    // own; anything else would make the two devices one node.
+    final b = _MemStorage()..config = strangerToml;
+    await b.storeFile(kSovereignBundleSetting, credential);
+    final bDir = '${tmp.path}/b';
+    await Directory(bDir).create(recursive: true);
+    EmbeddedNode.provisionHybridSovereignIdentity(
+      credential,
+      phrase,
+      veilDir: bDir,
+      instanceLabel: 'device-b',
+      nodeConfigToml: strangerToml!,
+      lib: lib,
+    );
+    final bFiles = await collectSovereignIdentity(bDir);
+    expect(missingSovereignIdentityFiles(bFiles), isEmpty);
+    await writeSovereignMaterial(b, encodeSovereignIdentity(bFiles));
+
+    // ONE ADDRESS. This is the user-visible promise: the address a contact
+    // writes down does not change because a second device appeared, and it is
+    // the same on both.
+    final aDoc = aFiles[kIdentityDocumentFile]!;
+    final bDoc = bFiles[kIdentityDocumentFile]!;
+    final aId = EmbeddedNode.identityDocumentNodeId(aDoc, lib: lib);
+    final bId = EmbeddedNode.identityDocumentNodeId(bDoc, lib: lib);
+    expect(
+      bId,
+      orderedEquals(aId),
+      reason:
+          'two devices of one identity must publish under ONE node_id — the '
+          'whole reason the credential restores the address and the words '
+          'alone do not',
+    );
+    // ...and DIFFERENT device keys, or they are one node with two names.
+    expect(
+      bFiles[kDeviceIdentitySkFile],
+      isNot(orderedEquals(aFiles[kDeviceIdentitySkFile]!)),
+      reason: 'a shared device key is the defect this mechanism replaced',
+    );
+
+    // B takes in A's document, having never heard of A — two devices restored
+    // from the same certificate, meeting.
+    //
+    // NO MASTER IS INVOLVED, and that is worth pinning rather than assuming.
+    // A credential-taking adopt was written for this on the reasoning that
+    // merging two documents needs a master signature; a break-check with it
+    // disabled stayed green and disproved that. Each key arrived carrying its
+    // own master-signed certificate, minted when its device was provisioned,
+    // so the union of the two key sets needs nothing further — the master is
+    // only ever needed to certify a key that has NONE. The credential-taking
+    // adopt was removed rather than shipped unused.
+    final adoption = await RealVeilStack.adoptSovereignDocument(
+      b,
+      document: aDoc,
+      stagingBase: tmp.path,
+      lib: lib,
+    );
+    expect(
+      adoption,
+      SovereignDocumentAdoption.adopted,
+      reason:
+          'the second device must end up holding a document that names both, '
+          'or the link is one-directional and it seals for nobody',
+    );
+
+    // And back the other way, so the convergence is mutual rather than a
+    // one-directional link in which A still publishes a registry of itself.
+    final grown = decodeSovereignIdentity(
+      (await readSovereignMaterial(b))!,
+    )![kIdentityDocumentFile]!;
+    expect(
+      await RealVeilStack.adoptSovereignDocument(
+        a,
+        document: grown,
+        stagingBase: tmp.path,
+        lib: lib,
+      ),
+      SovereignDocumentAdoption.adopted,
+      reason: 'both devices have to converge, not just the one that asked',
+    );
+
+    // Admission by DELEGATION is the other half, and THIS is the one the
+    // master signs: a key that arrives with no certificate of its own has to
+    // be given one. It is what the link ceremony does to a device being
+    // admitted, and it is what a hybrid identity could not do at all. No
+    // second mined config is needed — any Ed25519 public key stands in for the
+    // device being admitted.
+    final third = Uint8List.fromList(List.generate(32, (i) => (i * 7 + 3) & 0xff));
+    final admitted = await RealVeilStack.delegateDeviceIntoDocument(
+      a,
+      secret: phrase,
+      devicePubkey: third,
+      stagingBase: tmp.path,
+      lib: lib,
+    );
+    expect(
+      admitted,
+      DeviceDelegation.delegated,
+      reason:
+          'a hybrid master must be able to admit a device; before the '
+          'credential reached this call it could not, ever',
+    );
+
+    // Both devices hold a document naming BOTH of them, still at the one
+    // address — A's also names the third key it just admitted.
+    for (final (who, storage, expected) in [('A', a, 3), ('B', b, 2)]) {
+      final held = decodeSovereignIdentity(
+        (await readSovereignMaterial(storage))!,
+      )![kIdentityDocumentFile]!;
+      expect(
+        EmbeddedNode.identityDocumentNodeId(held, lib: lib),
+        orderedEquals(aId),
+        reason: '$who moved address while gaining a sibling',
+      );
+      final keys = identityDocumentKeyCount(held);
+      expect(
+        keys,
+        expected,
+        reason: '$who holds a document naming $keys device(s), not $expected',
+      );
+    }
   }, skip: skip);
 }

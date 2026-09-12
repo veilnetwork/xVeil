@@ -21,7 +21,7 @@ import '../../data/node/sovereign_identity_material.dart'
     show
         decodeSovereignIdentity,
         kIdentityDocumentFile,
-        kSovereignIdentitySetting;
+        readSovereignMaterial;
 import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/device_link.dart';
 import '../../domain/device_sync.dart' show DeviceSyncEvent, DeviceSyncKind;
@@ -188,21 +188,6 @@ bool shouldOpenRecoverySheet({
   required bool alreadyOpened,
 }) => autoRecovery && ready && !alreadyOpened;
 
-/// Whether link and revoke can run for a sovereign credential of this kind.
-///
-/// Both take the document half through native calls that derive the master key
-/// from a PHRASE — `revokeIdentityDeviceFromPhrase`,
-/// `delegateDeviceIntoDocument`. A recovery certificate's code is not a phrase
-/// and cannot be decoded as one, so those calls fail: correctly, and with
-/// nothing half-applied, but only after the person has typed the one secret
-/// that unlocks their identity into a dialog that could never use it.
-///
-/// Refused up front instead. The capability is not implemented for this
-/// credential rather than broken by it, and saying so is the honest state of
-/// the feature until the native side takes either secret (report12 X-M6).
-bool documentActionsAvailable(String? credentialKind) =>
-    credentialKind != 'certificate';
-
 class DevicesScreen extends ConsumerStatefulWidget {
   const DevicesScreen({
     super.key,
@@ -347,9 +332,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         ref.read(realStackProvider)?.ownDelegationValidUntil() ?? 0;
     final members = [...?state?.members.values.map((m) => m.nodeId)]
       ..sort((a, b) => a.hex.compareTo(b.hex));
-    final storedIdentity = await ref
-        .read(storageProvider)
-        .getSetting(kSovereignIdentitySetting);
+    final storedIdentity = await readSovereignMaterial(ref.read(storageProvider));
     final myDocument = storedIdentity == null
         ? null
         : decodeSovereignIdentity(storedIdentity)?[kIdentityDocumentFile];
@@ -498,12 +481,6 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
 
   Future<void> _revoke(NodeId device) async {
     final l = AppL10n.of(context);
-    if (!documentActionsAvailable(_credentialKind)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(l.devicesCertificateNoDocumentActions)),
-      );
-      return;
-    }
     final usesCertificate = _credentialKind == 'certificate';
     // The dialog returns the WORDS, not a bool, so the secret never outlives
     // the widget that held it: the controller is owned by the dialog's own
@@ -542,7 +519,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         final storage = ref.read(storageProvider);
         final revocation = await RealVeilStack.revokeDeviceFromDocument(
           storage,
-          phrase: words,
+          secret: words,
           deviceId: device.bytes,
           stagingBase: Directory.systemTemp.path,
         );
@@ -553,7 +530,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
             if (stack != null) {
               await stack.refreshSovereignIdentity(storage);
             }
-            final raw = await storage.getSetting(kSovereignIdentitySetting);
+            final raw = await readSovereignMaterial(storage);
             final doc = raw == null
                 ? null
                 : decodeSovereignIdentity(raw)?[kIdentityDocumentFile];
@@ -1356,10 +1333,6 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
 
   Future<void> _prepare() async {
     final l = AppL10n.of(context);
-    if (!documentActionsAvailable(widget.credentialKind)) {
-      setState(() => _error = l.devicesCertificateNoDocumentActions);
-      return;
-    }
     setState(() {
       _busy = true;
       _error = null;
@@ -1374,6 +1347,11 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       )) {
         throw const FormatException('self device');
       }
+      // Read BEFORE the merge, because the merge may need it: a hybrid
+      // master's Falcon half lives only inside the credential, and the first
+      // union of two documents that have never met is signed by the master.
+      final words = _phrase.text.trim();
+      _phrase.clear();
       // MERGE FIRST. Until this device's document names the one being linked,
       // the registry it publishes lists a single instance and everything sent
       // afterwards is sealed for nobody.
@@ -1393,8 +1371,6 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
           await widget.stack.refreshSovereignIdentity(widget.service.storage);
         }
       }
-      final words = _phrase.text.trim();
-      _phrase.clear();
       await widget.stack.addContact(target);
       // THE DOCUMENT HALF of the same admission, FIRST. The group membership
       // is what the identity's own devices see; the DOCUMENT is what the
@@ -1408,7 +1384,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       // idempotent.
       final targetDelegation = await RealVeilStack.delegateDeviceIntoDocument(
         widget.service.storage,
-        phrase: words,
+        secret: words,
         devicePubkey: target.publicKey,
         stagingBase: Directory.systemTemp.path,
       );
@@ -1439,7 +1415,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
           delegated =
               await RealVeilStack.delegateDeviceIntoDocument(
                     widget.service.storage,
-                    phrase: words,
+                    secret: words,
                     devicePubkey: entry.value,
                     stagingBase: Directory.systemTemp.path,
                   ) ==
