@@ -1306,10 +1306,13 @@ class RealVeilStack {
     // directory this call creates and removes, under the app's own runtime
     // base rather than a shared temp — and the bytes reach the container
     // before the directory goes away.
-    final staging =
-        '$stagingBase/xveil-idprov-${Random.secure().nextInt(1 << 32)}';
+    // `createTemp` is mkdtemp: the directory arrives 0700, owned by this
+    // process. The ordinary call left it at whatever the umask says, and this
+    // is the directory the native provisioner writes
+    // `device_identity_sk.bin` into.
+    final stagingDir = await Directory(stagingBase).createTemp('xveil-idprov-');
+    final staging = stagingDir.path;
     try {
-      await Directory(staging).create(recursive: true);
       if (provision != null) {
         await provision(identityPhrase, staging);
       } else {
@@ -1417,7 +1420,7 @@ class RealVeilStack {
       return null;
     } finally {
       try {
-        await Directory(staging).delete(recursive: true);
+        await stagingDir.delete(recursive: true);
       } on FileSystemException {
         // Nothing was created, or it is already gone.
       }
@@ -1607,8 +1610,17 @@ class RealVeilStack {
       );
       return DeviceDelegation.failed;
     }
-    final staging =
-        '$stagingBase/xveil-iddelegate-${Random.secure().nextInt(1 << 32)}';
+    // `createTemp` is mkdtemp: the directory arrives 0700, owned by this
+    // process. Built by hand until now, and created with the ordinary call,
+    // so its permissions were whatever the umask said — while what gets
+    // written inside is `device_identity_sk.bin`, this device's signing key.
+    // The renewal path had already been given the safer call; the other four
+    // had not, which is the shape of a fix applied at one site instead of to
+    // the operation.
+    final stagingDir = await Directory(
+      stagingBase,
+    ).createTemp('xveil-iddelegate-');
+    final staging = stagingDir.path;
     try {
       await materialiseSovereignIdentity(staging, stored);
       EmbeddedNode.delegateDevice(
@@ -1655,7 +1667,7 @@ class RealVeilStack {
       return DeviceDelegation.failed;
     } finally {
       try {
-        await Directory(staging).delete(recursive: true);
+        await stagingDir.delete(recursive: true);
       } on FileSystemException {
         // Never created, or already gone.
       }
@@ -1787,8 +1799,17 @@ class RealVeilStack {
       );
       return DocumentRevocation.failed;
     }
-    final staging =
-        '$stagingBase/xveil-idrevoke-${Random.secure().nextInt(1 << 32)}';
+    // `createTemp` is mkdtemp: the directory arrives 0700, owned by this
+    // process. Built by hand until now, and created with the ordinary call,
+    // so its permissions were whatever the umask said — while what gets
+    // written inside is `device_identity_sk.bin`, this device's signing key.
+    // The renewal path had already been given the safer call; the other four
+    // had not, which is the shape of a fix applied at one site instead of to
+    // the operation.
+    final stagingDir = await Directory(
+      stagingBase,
+    ).createTemp('xveil-idrevoke-');
+    final staging = stagingDir.path;
     try {
       await materialiseSovereignIdentity(staging, stored);
       final changed = EmbeddedNode.revokeIdentityDevice(
@@ -1828,7 +1849,7 @@ class RealVeilStack {
       return DocumentRevocation.failed;
     } finally {
       try {
-        await Directory(staging).delete(recursive: true);
+        await stagingDir.delete(recursive: true);
       } on FileSystemException {
         // Never created, or already gone.
       }
@@ -1908,8 +1929,17 @@ class RealVeilStack {
         );
         return SovereignDocumentAdoption.refused;
       }
-      final staging =
-          '$stagingBase/xveil-idadopt-${Random.secure().nextInt(1 << 32)}';
+      // `createTemp` is mkdtemp: the directory arrives 0700, owned by this
+      // process. Built by hand until now, and created with the ordinary call,
+      // so its permissions were whatever the umask said — while what gets
+      // written inside is `device_identity_sk.bin`, this device's signing key.
+      // The renewal path had already been given the safer call; the other four
+      // had not, which is the shape of a fix applied at one site instead of to
+      // the operation.
+      final stagingDir = await Directory(
+        stagingBase,
+      ).createTemp('xveil-idadopt-');
+      final staging = stagingDir.path;
       try {
         if (adoptNamed != null) {
           await adoptNamed(identityToml, staging, document);
@@ -1946,7 +1976,7 @@ class RealVeilStack {
         return SovereignDocumentAdoption.refused;
       } finally {
         try {
-          await Directory(staging).delete(recursive: true);
+          await stagingDir.delete(recursive: true);
         } on FileSystemException {
           // Never created, or already gone.
         }
@@ -1980,8 +2010,17 @@ class RealVeilStack {
       return SovereignDocumentAdoption.refused;
     }
 
-    final staging =
-        '$stagingBase/xveil-idmerge-${Random.secure().nextInt(1 << 32)}';
+    // `createTemp` is mkdtemp: the directory arrives 0700, owned by this
+    // process. Built by hand until now, and created with the ordinary call,
+    // so its permissions were whatever the umask said — while what gets
+    // written inside is `device_identity_sk.bin`, this device's signing key.
+    // The renewal path had already been given the safer call; the other four
+    // had not, which is the shape of a fix applied at one site instead of to
+    // the operation.
+    final stagingDir = await Directory(
+      stagingBase,
+    ).createTemp('xveil-idmerge-');
+    final staging = stagingDir.path;
     try {
       // The merge happens on a COPY. A delegation that fails half way — a
       // document from another identity, a truncated transfer — must not leave
@@ -2075,7 +2114,7 @@ class RealVeilStack {
       return SovereignDocumentAdoption.refused;
     } finally {
       try {
-        await Directory(staging).delete(recursive: true);
+        await stagingDir.delete(recursive: true);
       } on FileSystemException {
         // Never created, or already gone.
       }
