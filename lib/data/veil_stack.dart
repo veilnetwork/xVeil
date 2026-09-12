@@ -1629,6 +1629,97 @@ class RealVeilStack {
     }
   }
 
+  /// Move THIS device's delegation window forward in the stored document.
+  ///
+  /// Same copy-first staging as [delegateDeviceIntoDocument], and for the same
+  /// reason: a renewal that fails half way must not leave this device holding
+  /// a document it cannot sign with.
+  ///
+  /// Not a re-enrolment. The device keeps its key, its `device_id` and its
+  /// address; the window and the master's certificate over it are all that
+  /// move. No other device has to be present and the network is not needed —
+  /// which is the point, because the device that needs this is the one that
+  /// has been away.
+  ///
+  /// [credential] picks the master the same way the boot picks the identity:
+  /// present means the hybrid one, opened with [secret]; null means the
+  /// Ed25519 master [secret] gives as a phrase.
+  ///
+  /// Returns false when nothing changed — including the ordinary case of a
+  /// window that is already fresh, which is what an opportunistic caller will
+  /// hit most of the time and should not report as a failure.
+  static Future<bool> renewOwnDelegation(
+    Storage storage, {
+    required String secret,
+    required String stagingBase,
+    Uint8List? credential,
+    DynamicLibrary? lib,
+  }) async {
+    if (secret.isEmpty) return false;
+    final storedRaw = await storage.getSetting(kSovereignIdentitySetting);
+    if (storedRaw == null) return false;
+    final stored = decodeSovereignIdentity(storedRaw);
+    if (stored == null || missingSovereignIdentityFiles(stored).isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[identity]: cannot renew — this device has no usable '
+            'sovereign material',
+      );
+      return false;
+    }
+    // `createTemp` is mkdtemp: the directory arrives 0700, owned by this
+    // process. The neighbouring device operations build their staging path by
+    // hand and create it with the ordinary call, so its permissions are
+    // whatever the umask says — and what gets written there is
+    // `device_identity_sk.bin`, this device's signing key. Not a difference
+    // worth repeating in a new path.
+    final stagingDir = await Directory(
+      stagingBase,
+    ).createTemp('xveil-idrenew-');
+    final staging = stagingDir.path;
+    try {
+      await materialiseSovereignIdentity(staging, stored);
+      EmbeddedNode.reissueOwnDelegation(
+        secret: secret,
+        veilDir: staging,
+        credential: credential,
+        lib: lib,
+      );
+      final amended = await collectSovereignIdentity(staging);
+      if (missingSovereignIdentityFiles(amended).isNotEmpty) return false;
+      final encoded = encodeSovereignIdentity(amended);
+      // Byte-identical means the renewal produced nothing, and storing it
+      // would be a write that claims a change it did not make.
+      if (encoded == storedRaw) return false;
+      await storage.putSetting(kSovereignIdentitySetting, encoded);
+      devLog(
+        () =>
+            'xVeil[identity]: this device\'s delegation was renewed — the '
+            'document now vouches for it again',
+      );
+      return true;
+    } on Object catch (e) {
+      // "Already fresh" arrives here as a throw, because the native side
+      // refuses a window that would not move forward. It is the ordinary
+      // outcome of an opportunistic renewal, not a fault, and it is told apart
+      // from a real failure so a caller can stay quiet about it.
+      if ('$e'.contains('must move the window forward')) {
+        devLog(
+          () => 'xVeil[identity]: delegation already fresh — nothing to renew',
+        );
+        return false;
+      }
+      devLog(() => 'xVeil[identity]: could not renew the delegation: $e');
+      return false;
+    } finally {
+      try {
+        await stagingDir.delete(recursive: true);
+      } on FileSystemException {
+        // Already gone.
+      }
+    }
+  }
+
   /// Retire a revoked device's key from the stored identity document — the
   /// cryptographic half of revocation, run right after the group-membership
   /// half succeeds.
