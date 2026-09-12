@@ -1201,12 +1201,38 @@ class RealVeilStack {
   /// Returns null when there is nothing to provision (no phrase) — the caller
   /// boots exactly as before, which is what keeps this change additive for
   /// every identity already in the field.
+  /// The identity's encrypted sovereign credential, or null when it has none.
+  ///
+  /// Its PRESENCE is the decision: an identity with a credential is rooted in
+  /// a hybrid master and named by all 929 bytes of it; one without is the
+  /// classic Ed25519 identity. Read as bytes and never opened here — this only
+  /// asks whether it exists.
+  static Future<Uint8List?> _sovereignCredential(Storage storage) async {
+    try {
+      return await storage.loadFile(kSovereignBundleSetting);
+    } catch (_) {
+      // Unreadable is not "absent": treating a damaged credential as no
+      // credential would provision the OTHER identity and quietly change the
+      // address. Refusing to guess means booting without a document, which
+      // the caller already handles.
+      rethrow;
+    }
+  }
+
   static Future<Map<String, Uint8List>?> ensureSovereignIdentity(
     Storage storage, {
     required String stagingBase,
     String? identityPhrase,
     DynamicLibrary? lib,
     String instanceLabel = 'xveil',
+    // Which identity the phrase names, and it is not derivable from the phrase.
+    //
+    // The Ed25519 half of a hybrid master comes from these same words, so one
+    // phrase names TWO identities — `BLAKE3(ed)` and `BLAKE3(ed ‖ falcon)` —
+    // and only the credential distinguishes them. The rule: a stored
+    // credential means the hybrid one; none means the classic one. Creating is
+    // always hybrid, because there is nothing to be compatible with yet.
+    bool restoringIdentity = false,
     // The native call, as an argument, so that "this never provisions twice"
     // is checkable by counting rather than by hoping a dylib fails to load.
     // The invariant is worth that: a second provisioning mints a second device
@@ -1256,13 +1282,42 @@ class RealVeilStack {
         // the phrase and the restore paths. Null on a first run that has none
         // yet, where the key comes from the phrase and there is nothing to
         // reconcile.
-        EmbeddedNode.provisionSovereignIdentity(
-          identityPhrase,
-          veilDir: staging,
-          instanceLabel: instanceLabel,
-          nodeConfigToml: await storage.loadNodeConfig(),
-          lib: lib,
-        );
+        final nodeToml = await storage.loadNodeConfig();
+        final credential = await _sovereignCredential(storage);
+        if (credential != null && nodeToml != null) {
+          // The identity is named by BOTH halves, and the credential is the
+          // only place the Falcon half exists.
+          EmbeddedNode.provisionHybridSovereignIdentity(
+            credential,
+            identityPhrase,
+            veilDir: staging,
+            instanceLabel: instanceLabel,
+            nodeConfigToml: nodeToml,
+            lib: lib,
+          );
+        } else {
+          if (restoringIdentity) {
+            // Say it rather than let it be discovered later. Restoring a
+            // hybrid identity without its certificate does not fail — it
+            // succeeds into a DIFFERENT identity, with a different address,
+            // and everything works except that nobody can reach you at the
+            // one your contacts hold.
+            devLog(
+              () =>
+                  'xVeil[identity]: restoring WITHOUT a recovery certificate '
+                  '— this produces the classic Ed25519 identity. If this '
+                  'identity was created with a certificate, its address is a '
+                  'different one and the certificate is what restores it.',
+            );
+          }
+          EmbeddedNode.provisionSovereignIdentity(
+            identityPhrase,
+            veilDir: staging,
+            instanceLabel: instanceLabel,
+            nodeConfigToml: nodeToml,
+            lib: lib,
+          );
+        }
       }
       final files = await collectSovereignIdentity(staging);
       final missing = missingSovereignIdentityFiles(files);
@@ -1978,6 +2033,7 @@ class RealVeilStack {
       stagingBase: runtimeDirBase,
       identityPhrase: identityPhrase,
       lib: lib,
+      restoringIdentity: restoringIdentity,
     );
 
     // 2. Ephemeral, identity-free runtime endpoints, in a directory this boot
