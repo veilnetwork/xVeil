@@ -458,6 +458,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     try {
       final svc = ref.read(groupServiceProvider);
       signer = await svc?.openLocalSovereign(words);
+      await svc?.renewOwnDelegationQuietly(words);
       if (svc != null && signer != null) {
         // THE TOMBSTONE FIRST, and the membership only after it.
         //
@@ -859,6 +860,10 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
     });
     try {
       final exported = await widget.service.exportRecoveryCertificate(secret);
+      // The secret is in hand for this operation anyway. Carrying the
+      // delegation forward with it is the difference between a person who
+      // never sees a renewal prompt and one who is asked again in a week.
+      await widget.service.renewOwnDelegationQuietly(secret);
       if (exported == null) throw StateError('credential unavailable');
       final certificate = SovereignRecoveryCertificate.fromBytes(
         exported.certificate,
@@ -1298,6 +1303,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       }
       final delegatedTarget = targetDelegation == DeviceDelegation.delegated;
       signer = await widget.service.openLocalSovereign(words);
+      await widget.service.renewOwnDelegationQuietly(words);
       final linked = await widget.service.linkDevice(
         target.nodeId,
         sovereign: signer,
