@@ -10154,6 +10154,48 @@ abstract class AppL10n {
   /// **'This identity has no backup'**
   String get devicesNoBackupTitle;
 
+  /// No description provided for @devicesDelegationExpiringTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This device needs renewing'**
+  String get devicesDelegationExpiringTitle;
+
+  /// No description provided for @devicesDelegationExpiringBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Its certificate of membership runs out soon. Enter your secret once and it is renewed — the device keeps its key and its address.'**
+  String get devicesDelegationExpiringBody;
+
+  /// No description provided for @devicesDelegationLapsedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This device has gone quiet'**
+  String get devicesDelegationLapsedTitle;
+
+  /// No description provided for @devicesDelegationLapsedBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Its certificate of membership has run out, so others can no longer reach it here. Enter your secret once to bring it back — nothing is lost and nothing is re-added.'**
+  String get devicesDelegationLapsedBody;
+
+  /// No description provided for @devicesRenewNow.
+  ///
+  /// In en, this message translates to:
+  /// **'Renew'**
+  String get devicesRenewNow;
+
+  /// No description provided for @devicesRenewed.
+  ///
+  /// In en, this message translates to:
+  /// **'Renewed. This device is vouched for again.'**
+  String get devicesRenewed;
+
+  /// No description provided for @devicesRenewFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not renew. Check the secret and try again.'**
+  String get devicesRenewFailed;
+
   /// No description provided for @devicesNoBackupBody.
   ///
   /// In en, this message translates to:

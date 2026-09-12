@@ -1474,6 +1474,26 @@ class RealVeilStack {
     return (doc == null || doc.isEmpty) ? null : doc;
   }
 
+  /// When THIS device's delegation runs out, in Unix seconds — 0 when it has
+  /// none, and 0 when the node is not up.
+  ///
+  /// An instance method because the answer depends on the runtime directory
+  /// this stack owns, and handing that path out to the interface would put a
+  /// directory holding a device's signing key into every caller's reach for
+  /// the sake of one number.
+  int ownDelegationValidUntil({DynamicLibrary? lib}) {
+    final dir = identityDir;
+    if (dir == null) return 0;
+    try {
+      return EmbeddedNode.delegationValidUntil(dir, lib: lib);
+    } catch (e) {
+      // Unknown, not "expired". A warning raised because a read failed is the
+      // fastest way to make the real one unbelievable.
+      devLog(() => 'xVeil[identity]: could not read the delegation window: $e');
+      return 0;
+    }
+  }
+
   /// Hand a document merged AFTER the boot to the running node.
   ///
   /// The node reads `identity_document.bin` when a config is applied, and

@@ -51,11 +51,12 @@ void main() {
   });
 
   test('the ride-along never fails the operation it rides on', () {
-    final start = service.indexOf(
-      'Future<void> renewOwnDelegationQuietly(String secret) async {',
-    );
+    // Anchored on the NAME, not the signature: the return type changed once
+    // already (void -> bool, so a deliberate caller can report the outcome)
+    // and took this guard's anchor with it.
+    final start = service.indexOf('renewOwnDelegationQuietly(String secret)');
     expect(start, isNot(-1), reason: 'the ride-along was renamed or removed');
-    final open = service.indexOf('{', start);
+    final open = service.indexOf('async {', start) + 'async '.length;
     var depth = 0;
     var end = service.length;
     for (var i = open; i < service.length; i++) {

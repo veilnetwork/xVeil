@@ -17527,11 +17527,11 @@ class GroupService {
   /// forward and is not a failure; neither is a device with no sovereign
   /// material. Nothing here is worth interrupting the operation the person
   /// actually asked for.
-  Future<void> renewOwnDelegationQuietly(String secret) async {
-    if (_disposed || secret.isEmpty) return;
+  Future<bool> renewOwnDelegationQuietly(String secret) async {
+    if (_disposed || secret.isEmpty) return false;
     try {
       final credential = await localSovereignBundle();
-      await RealVeilStack.renewOwnDelegation(
+      return await RealVeilStack.renewOwnDelegation(
         _storage,
         secret: secret,
         stagingBase: Directory.systemTemp.path,
@@ -17539,7 +17539,9 @@ class GroupService {
       );
     } catch (_) {
       // Deliberately swallowed: this rides along with somebody else's
-      // operation and must never be the reason it reports a failure.
+      // operation and must never be the reason it reports a failure. The
+      // bool is for a caller that asked for the renewal on purpose.
+      return false;
     }
   }
 
