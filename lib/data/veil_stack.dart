@@ -295,6 +295,20 @@ bool _createExclusiveDir(String path) {
 /// EXCLUSIVE, like that one: a name that already exists belongs to somebody
 /// else and is never adopted, so a planted directory cannot be handed the key.
 Directory _createPrivateStagingDir(String base, String prefix) {
+  // The BASE may not be there yet — the node boot hands its runtime directory
+  // in, and provisioning can run before anything has claimed it. `mkdir` does
+  // not make parents, so without this the whole boot ends on ENOENT with a
+  // message about a staging directory. Creating the base is safe to do here:
+  // what must be private is the CHILD, which is created below with its mode
+  // stated outright, and the base is a container the caller already named.
+  //
+  // Not a symlink, for the same reason `claimRuntimeDirUnder` checks: `create`
+  // follows one, and a link planted here would relocate the key material.
+  if (FileSystemEntity.typeSync(base, followLinks: false) ==
+      FileSystemEntityType.link) {
+    throw FileSystemException('staging base is a symlink', base);
+  }
+  Directory(base).createSync(recursive: true);
   for (var attempt = 0; attempt < 8; attempt++) {
     final path = '$base/${_randomName(prefix)}';
     if (_createExclusiveDir(path)) return Directory(path);

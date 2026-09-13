@@ -193,6 +193,42 @@ void main() {
   //
   // Checked from INSIDE the provisioner, because the directory is gone by the
   // time the call returns — which is exactly why this went unnoticed.
+  /// The base may not exist yet, and that must not end the boot.
+  ///
+  /// The node hands its runtime directory in as the staging base, and
+  /// provisioning can run before anything has claimed it. `mkdir` does not
+  /// make parents, so the first version of the private-staging helper ended a
+  /// whole boot on ENOENT — reported from the app as
+  /// `node failed to start: could not create a private staging directory`.
+  /// The child is still created with its mode stated outright; the base is a
+  /// container.
+  test('a staging base that does not exist yet is created, not fatal', () async {
+    if (Platform.isWindows) {
+      markTestSkipped('POSIX modes do not apply');
+      return;
+    }
+    final storage = FakeSettingStorage();
+    final missing = '${tmp.path}/not-yet/claimed-at-boot';
+    expect(Directory(missing).existsSync(), isFalse, reason: 'fixture');
+
+    int? mode;
+    await RealVeilStack.ensureSovereignIdentity(
+      storage,
+      stagingBase: missing,
+      identityPhrase: 'a master phrase',
+      provision: (phrase, dir) async {
+        mode = Directory(dir).statSync().mode & 0x1FF;
+        await materialiseSovereignIdentity(dir, _material());
+      },
+    );
+    expect(mode, isNotNull, reason: 'the provisioner must have run');
+    expect(
+      mode! & 0x3F,
+      0,
+      reason: 'and the directory it ran in is still owner-only',
+    );
+  });
+
   test('the staging directory is private while the key is in it', () async {
     if (Platform.isWindows) {
       markTestSkipped('POSIX modes do not apply');
