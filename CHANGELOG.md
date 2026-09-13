@@ -6,6 +6,52 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.59] — 2026-09-13
+
+*An identity you can actually own on more than one device.*
+
+The sovereign identity was a name the app could create and then not use. This
+release is the epic that makes it work, and almost every part of it was found
+by measuring against real devices rather than by reading the code — three
+stands, two daemons on the production network, and a simulation where the code
+reading turned out to be wrong about three steps out of four.
+
+**A hybrid identity could hold exactly one device.** Adding or revoking a
+device rebuilt the master from the 24 words, which reproduce the Ed25519 half
+and nothing else, so a hybrid master never matched its own document and every
+device operation was refused. Creation now mints the credential FIRST, so the
+identity is hybrid from the start; the credential decides which identity a
+phrase names; a device whose delegation is running out says so in the devices
+screen and renews it with the secret already being typed; and a recovery
+certificate provisions a new device without the phrase at all. Verified live:
+two daemons, one certificate, one address — `2d3d8572…` on both, with their own
+device keys and open circuits.
+
+**An invite pointed where nobody listens.** For a hybrid identity the invite
+carried the device key, so a contact derived an address the identity does not
+answer at. It now names the identity, taken from the document. The same defect
+had a second home: the daemon's ready line and `/v1/account` printed the
+transport node id under a heading that asks "who is it?", which is the value an
+operator copies and hands out.
+
+**The directory holding this device's signing key was world-readable.** Six
+staging directories were created under the process umask — measured 0755 — and
+one of them holds the device signing key between provisioning steps. They are
+created 0700 now.
+
+Two daemon defects found on the stand: an hourly maintenance pass could kill
+the daemon outright during shutdown, and a daemon joining an identity with a
+stored certificate died on a value it no longer needs.
+
+Under the app, veil 0.11.30 closes what none of the above could: a receiver is
+now findable at the address its contacts hold, so the live sub-second path
+reaches a hybrid identity and not only the 8-10 second mailbox. Store-and-
+forward was never affected, which this release measured before changing
+anything — the deposit names the identity and the fetch proves the asker, and a
+test now holds that second half in place.
+
+analyze clean, 4588 tests green with 96 skipped.
+
 ## [0.13.58] — 2026-09-11
 
 *A backup you can actually keep.*
