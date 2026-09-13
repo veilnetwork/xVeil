@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.61] — 2026-09-13
+
+*A node was posting what it would itself refuse.*
+
+Found on the production seeds hours after 0.13.60 went out, and it is the app's
+defect too: every node republishes the DHT records it holds, and the filter
+deciding what to re-send asked whether the record TYPE is self-authenticating —
+never whether THIS record would be accepted.
+
+One stale `NicknameRecord` from before the format gained a version was enough.
+Each holder re-fanned it; each recipient refused it as an invalid store,
+counted the refusal as a session violation, and auto-banned the sender — 5
+seconds at first, 60 seconds an hour later, the duration escalating with the
+count. On the seeds that showed up as four honest nodes making each other look
+like attackers; in the app it is the same code, with a user's phone in the
+sender's place.
+
+veil 0.11.31 applies the receiver's own rule before sending, so a record this
+node would refuse on arrival does not go out. Measured on the seeds: violations
+stopped dead at the rollout — the counters have not moved since, against ~7 per
+minute before it.
+
+analyze clean, 4588 tests green with 96 skipped.
+
 ## [0.13.60] — 2026-09-13
 
 *An identity you can actually own on more than one device.*
