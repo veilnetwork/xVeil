@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
-## [0.13.59] — 2026-09-13
+## [0.13.60] — 2026-09-13
 
 *An identity you can actually own on more than one device.*
 
@@ -49,6 +49,21 @@ reaches a hybrid identity and not only the 8-10 second mailbox. Store-and-
 forward was never affected, which this release measured before changing
 anything — the deposit names the identity and the fetch proves the asker, and a
 test now holds that second half in place.
+
+**Tagged as 0.13.59 first, and that tag published nothing.** Its release run
+found the permission defect below on Linux, where this repository's own guard
+had been passing on macOS for a platform-specific reason — which is the whole
+argument for running the gate somewhere other than the machine that wrote the
+code.
+
+The staging directory holding `device_identity_sk.bin` was fixed here twice.
+The first attempt moved five call sites to `createTemp`, on the grounds that
+mkdtemp is specified to create 0700; the Linux runner measured 0755 on exactly
+that directory. The mode is now this call's own — `posixMkdir(path, 0700)`,
+the same call the runtime directory already used — and the name is claimed
+exclusively, so a planted directory is never handed the key. And a transfer
+test's recovery bound went from twenty seconds to sixty: it is a failure
+bound, not a delay, and twenty was sized against a quieter machine.
 
 analyze clean, 4588 tests green with 96 skipped.
 

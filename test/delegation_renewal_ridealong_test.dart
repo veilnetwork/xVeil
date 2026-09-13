@@ -103,11 +103,14 @@ void main() {
     expect(start, isNot(-1));
     final body = stack.substring(start, start + 3000);
     expect(
-      body.contains('createTemp('),
+      body.contains('_createPrivateStagingDir('),
       isTrue,
       reason:
           'what is written there is device_identity_sk.bin — this device\'s '
-          'signing key — and a path built by hand gets whatever the umask says',
+          'signing key — and a path built by hand gets whatever the umask says. '
+          'The needle was createTemp until a Linux CI runner measured 0755 on a '
+          'directory mkdtemp is specified to create 0700: the mode has to be '
+          'this call\'s own, not the platform\'s',
     );
   });
 }
