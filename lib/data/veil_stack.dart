@@ -282,6 +282,26 @@ bool _createExclusiveDir(String path) {
   }
 }
 
+/// A staging directory that is 0700 because THIS call said so.
+///
+/// `createTemp` is mkdtemp, and mkdtemp is specified to create 0700 — which is
+/// what the five call sites below relied on, and what a Linux CI runner
+/// disproved: the same code that measures 0700 on macOS measured 0755 there,
+/// on the directory the native provisioner writes `device_identity_sk.bin`
+/// into. Whatever the platform does with mkdtemp, an explicit mode does not
+/// depend on it. `posixMkdir` is the same call `_createExclusiveDir` makes for
+/// the runtime directory, for the same reason.
+///
+/// EXCLUSIVE, like that one: a name that already exists belongs to somebody
+/// else and is never adopted, so a planted directory cannot be handed the key.
+Directory _createPrivateStagingDir(String base, String prefix) {
+  for (var attempt = 0; attempt < 8; attempt++) {
+    final path = '$base/${_randomName(prefix)}';
+    if (_createExclusiveDir(path)) return Directory(path);
+  }
+  throw FileSystemException('could not create a private staging directory', base);
+}
+
 String _randomName(String prefix) {
   final random = Random.secure();
   final bytes = List<int>.generate(4, (_) => random.nextInt(256));
@@ -1337,7 +1357,7 @@ class RealVeilStack {
     // process. The ordinary call left it at whatever the umask says, and this
     // is the directory the native provisioner writes
     // `device_identity_sk.bin` into.
-    final stagingDir = await Directory(stagingBase).createTemp('xveil-idprov-');
+    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idprov');
     final staging = stagingDir.path;
     try {
       if (provision != null) {
@@ -1663,9 +1683,7 @@ class RealVeilStack {
     // The renewal path had already been given the safer call; the other four
     // had not, which is the shape of a fix applied at one site instead of to
     // the operation.
-    final stagingDir = await Directory(
-      stagingBase,
-    ).createTemp('xveil-iddelegate-');
+    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-iddelegate');
     final staging = stagingDir.path;
     try {
       await materialiseSovereignIdentity(staging, stored);
@@ -1764,9 +1782,7 @@ class RealVeilStack {
     // whatever the umask says — and what gets written there is
     // `device_identity_sk.bin`, this device's signing key. Not a difference
     // worth repeating in a new path.
-    final stagingDir = await Directory(
-      stagingBase,
-    ).createTemp('xveil-idrenew-');
+    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idrenew');
     final staging = stagingDir.path;
     try {
       await materialiseSovereignIdentity(staging, stored);
@@ -1852,9 +1868,7 @@ class RealVeilStack {
     // The renewal path had already been given the safer call; the other four
     // had not, which is the shape of a fix applied at one site instead of to
     // the operation.
-    final stagingDir = await Directory(
-      stagingBase,
-    ).createTemp('xveil-idrevoke-');
+    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idrevoke');
     final staging = stagingDir.path;
     try {
       await materialiseSovereignIdentity(staging, stored);
@@ -1982,9 +1996,7 @@ class RealVeilStack {
       // The renewal path had already been given the safer call; the other four
       // had not, which is the shape of a fix applied at one site instead of to
       // the operation.
-      final stagingDir = await Directory(
-        stagingBase,
-      ).createTemp('xveil-idadopt-');
+      final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idadopt');
       final staging = stagingDir.path;
       try {
         if (adoptNamed != null) {
@@ -2063,9 +2075,7 @@ class RealVeilStack {
     // The renewal path had already been given the safer call; the other four
     // had not, which is the shape of a fix applied at one site instead of to
     // the operation.
-    final stagingDir = await Directory(
-      stagingBase,
-    ).createTemp('xveil-idmerge-');
+    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idmerge');
     final staging = stagingDir.path;
     try {
       // The merge happens on a COPY. A delegation that fails half way — a
