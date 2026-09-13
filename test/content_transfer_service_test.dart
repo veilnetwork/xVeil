@@ -289,7 +289,16 @@ void main() {
       // 300 KB multi-piece transfer plus a retry on a machine running the
       // whole suite at once, and the assertion is about recovery happening.
       // The sibling test below already allows twenty for the same reason.
-      final received = await got.timeout(const Duration(seconds: 20));
+      //
+      // Twenty was not enough either — on the Linux CI runner, on the release
+      // tag, where this was the only failure in 4565 tests and the sibling
+      // transfers in this same file passed. It is a FAILURE bound, not a
+      // delay: the await returns the moment recovery happens, so a healthy run
+      // pays nothing for a large number here, and the cost of a small one is a
+      // red gate that says "slow machine" in the vocabulary of "transfer
+      // broken". Raised a second time rather than left to fail on somebody
+      // else's change.
+      final received = await got.timeout(const Duration(seconds: 60));
       expect(
         await sB.loadFile(received.contentId),
         data,
