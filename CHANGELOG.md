@@ -6,6 +6,39 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.65] — 2026-09-14
+
+*Two ways back into an identity that had none.*
+
+**A recovery certificate could not be used to recover anything.** It was only
+accepted from Settings → Devices, which needs an identity to open — so by the
+time you could hand it over, the app had already started as a different
+identity, the one the 24 words alone produce. The words fix half of the key;
+the other half exists only in the certificate. Restoring is now offered on the
+first screen, before anything is created: choose the certificate file, type the
+code you stored apart from it, and this install becomes the identity the
+certificate names, at the address your contacts hold.
+
+**An archive that carried your identity had nowhere to go either.** The export
+screen promised that a clean install could become this device from one archive;
+the app applied such an archive only to a device with no identity, and its
+importer lived behind a setup you had to finish first. A closed circle, with
+you outside it holding the file. The first screen now takes the archive too: it
+says whose identity it holds and when it was written, tells a password-protected
+archive from a damaged one, and adopts the identity before the node starts.
+
+Your conversations do not arrive with it — they cannot, because the machinery
+that merges them needs the identity that is still being fetched. The screen
+says so, and says where to finish: Settings → Account → Data transfer → Import,
+the same file.
+
+Also: the rule that stops one device taking another device's key now compares
+keys instead of merely noticing that one exists. The clone it guards against is
+refused exactly as before; an archive carrying the key this device already runs
+on is no longer mistaken for one.
+
+analyze clean, 4608 tests green with 113 skipped.
+
 ## [0.13.64] — 2026-09-14
 
 *Reaching the network was a coin toss, and the way back out was a file that named nobody.*
