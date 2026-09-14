@@ -5815,6 +5815,45 @@ class AppL10nRu extends AppL10n {
   String get onboardRestoreWithPhrase => 'Восстановить по 24 словам';
 
   @override
+  String get onboardRestoreFromArchive => 'Восстановить из архива';
+
+  @override
+  String get onboardRestoreFromArchiveSub =>
+      'Файл, записанный этой личностью на другом устройстве, вместе с личностью';
+
+  @override
+  String get onboardArchiveTitle => 'Снова стать этим устройством';
+
+  @override
+  String get onboardArchiveBody =>
+      'Выберите архив, записанный с галочкой «Включить личность». Личность эта установка возьмёт из него сейчас; переписка и файлы вольются потом, из того же файла.';
+
+  @override
+  String get onboardArchivePick => 'Выбрать архив';
+
+  @override
+  String onboardArchiveChosen(String id, String when) {
+    return 'Личность $id…, записан $when';
+  }
+
+  @override
+  String get onboardArchiveNoIdentity =>
+      'В этом архиве нет личности. Восстановитесь сертификатом или 24 словами, а затем влейте этот файл в Настройках → Перенос данных.';
+
+  @override
+  String get onboardArchiveBad => 'Этот файл не архив xVeil или повреждён.';
+
+  @override
+  String get onboardArchivePasswordLabel => 'Пароль архива';
+
+  @override
+  String get onboardArchiveContinue => 'Взять личность из этого архива';
+
+  @override
+  String get onboardArchiveMergeLater =>
+      'Переписки здесь пока нет. Откройте Настройки → Аккаунт → Перенос данных → Импорт и выберите тот же архив, чтобы влить её.';
+
+  @override
   String devicesRevokeTitle(String device) {
     return 'Отозвать $device?';
   }

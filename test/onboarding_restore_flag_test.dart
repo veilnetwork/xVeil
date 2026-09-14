@@ -63,6 +63,7 @@ class _SpyController extends AppController {
     bool recoveryCertificateOffered = false,
     bool recoveryCertificateSaved = false,
     Uint8List? sovereignCredential,
+    String? nodeConfigToml,
   }) {
     seenRestoring = restoringIdentity;
     seenPhrase = identityPhrase;
@@ -76,6 +77,7 @@ class _SpyController extends AppController {
       recoveryCertificateOffered: recoveryCertificateOffered,
       recoveryCertificateSaved: recoveryCertificateSaved,
       sovereignCredential: sovereignCredential,
+      nodeConfigToml: nodeConfigToml,
     );
   }
 }

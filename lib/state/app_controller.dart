@@ -347,6 +347,16 @@ class AppController extends Notifier<AppState> {
     /// believes restores them, and nothing would say so until the day it was
     /// needed.
     Uint8List? sovereignCredential,
+    /// The node identity a transfer archive carried, to be adopted as this
+    /// install's.
+    ///
+    /// Written before the session for the same reason the credential is: the
+    /// node provisions from what the container holds, so an identity that
+    /// arrives after the boot is one the boot was decided without. The rest of
+    /// that archive — the conversations, the files — cannot come with it: the
+    /// appliers that merge them are registered by the group service, which
+    /// needs a signer, which needs this identity.
+    String? nodeConfigToml,
   }) async {
     _pendingIdentityPhrase = identityPhrase;
     _pendingRestoringIdentity = restoringIdentity;
@@ -435,6 +445,9 @@ class AppController extends Notifier<AppState> {
       }
       // BEFORE the session, so nothing can reach `openLocalSovereign` and mint
       // a second credential first. Whichever one is stored is the identity.
+      if (nodeConfigToml != null && nodeConfigToml.trim().isNotEmpty) {
+        await storage.saveNodeConfig(nodeConfigToml);
+      }
       if (sovereignCredential != null) {
         await storage.storeFile(
           kSovereignBundleSetting,

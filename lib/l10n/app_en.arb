@@ -2443,6 +2443,18 @@
   "onboardRestoreCertificateSubmit": "Restore from the certificate",
   "onboardRestoreCertificateBad": "That file is not an xVeil recovery certificate, or it is damaged.",
   "onboardRestoreWithPhrase": "Restore with the 24 words",
+  "onboardRestoreFromArchive": "Restore from an archive",
+  "onboardRestoreFromArchiveSub": "A file this identity wrote on another device, with the identity inside",
+  "onboardArchiveTitle": "Become this device again",
+  "onboardArchiveBody": "Choose the archive you exported with “Include identity”. This install takes the identity from it now; the conversations and files are merged afterwards, from the same file.",
+  "onboardArchivePick": "Choose the archive",
+  "onboardArchiveChosen": "Identity {id}…, written {when}",
+  "@onboardArchiveChosen": {"placeholders": {"id": {"type": "String"}, "when": {"type": "String"}}},
+  "onboardArchiveNoIdentity": "This archive carries no identity. Restore with your certificate or your 24 words first, then merge this file from Settings → Data transfer.",
+  "onboardArchiveBad": "That file is not an xVeil archive, or it is damaged.",
+  "onboardArchivePasswordLabel": "Archive password",
+  "onboardArchiveContinue": "Take the identity from this archive",
+  "onboardArchiveMergeLater": "Your conversations are not here yet. Open Settings → Account → Data transfer → Import and choose the same archive to merge them in.",
   "devicesRevokeTitle": "Revoke {device}?",
   "@devicesRevokeTitle": {
     "placeholders": {

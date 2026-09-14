@@ -134,6 +134,42 @@ class DataImporter {
     }
   }
 
+  /// The node identity an archive carries, and nothing else.
+  ///
+  /// For the one moment the ordinary import cannot serve: a clean install that
+  /// has no container yet, and therefore no appliers, no signer and no session
+  /// — the state in which an identity-bearing archive is the only thing that
+  /// can decide who this device becomes. The caller stores this before the
+  /// node boots, exactly as it would a recovery certificate, and merges the
+  /// rest of the archive afterwards when there is something to merge into.
+  ///
+  /// Reads only as far as the identity record, which the writer puts second,
+  /// before settings and before any message. Nothing is applied and nothing is
+  /// written: this answers a question.
+  ///
+  /// Null when the archive carries no identity — which is the ordinary case
+  /// for an archive exported without one, and not an error.
+  static Future<String?> readIdentity(
+    Stream<List<int>> bytes, {
+    String? password,
+  }) async {
+    final reader = await DataTransferReader.open(bytes);
+    try {
+      if (!reader.header.includesIdentity) return null;
+      await for (final record in reader.records(password: password)) {
+        if (record.kind != TransferRecordKind.identity) continue;
+        final payload = record.payload;
+        if (payload == null || payload.isEmpty) return null;
+        return utf8.decode(payload).trim();
+      }
+      // The header said one was coming and none arrived. A file that lied is
+      // refused rather than quietly obeyed, the same way the merge refuses it.
+      throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
+    } finally {
+      await reader.close();
+    }
+  }
+
   /// Merge [bytes] into the open space.
   ///
   /// Refuses before applying anything when the archive is not this identity's,
@@ -153,14 +189,13 @@ class DataImporter {
         archiveNodeId: header.nodeIdHex,
       );
     }
-    if (header.includesIdentity && self.isNotEmpty) {
-      // Not a merge that can be reasoned about: this device's messages are
-      // encrypted to the keys it already holds.
-      throw ImportRefused(
-        ImportRefusal.identityWouldBeReplaced,
-        archiveNodeId: header.nodeIdHex,
-      );
-    }
+    // The pre-flight no longer refuses on the mere PRESENCE of an identity
+    // here. What it protected against — taking another device's node key — is
+    // a comparison the record itself can make, byte against byte, and making
+    // it here on the header's word refused the one arrangement that restores
+    // an identity from an archive: adopt the key first, merge the rest after,
+    // from the same file. The clone is still refused, at the record, where the
+    // bytes are.
     if (_appliers.count == 0) {
       throw const ImportRefused(ImportRefusal.noAppliers);
     }
@@ -212,17 +247,33 @@ class DataImporter {
           if (identityAdopted) {
             throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
           }
-          if (self.isNotEmpty || !header.includesIdentity) {
-            throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
-          }
-          if ((await _storage.loadNodeConfig() ?? '').trim().isNotEmpty) {
-            // The device said it had none and the storage says otherwise:
-            // whichever is stale, overwriting is the one thing not to do.
+          if (!header.includesIdentity) {
             throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
           }
           final payload = record.payload;
           if (payload == null || payload.isEmpty) break;
-          await _storage.saveNodeConfig(utf8.decode(payload));
+          final incoming = utf8.decode(payload).trim();
+          final held = (await _storage.loadNodeConfig() ?? '').trim();
+          // WHAT IS BEING REPLACED, not merely whether something is there.
+          //
+          // The refusal exists to stop one device taking ANOTHER device's node
+          // key: two devices of one identity are one node, and the second one
+          // to sign proves nothing. That is a comparison, and it used to be a
+          // presence check — so an archive that carries the very key this
+          // device already runs on was refused as if it were a clone, and the
+          // only route the app offers for restoring an identity from an
+          // archive (adopt it first, merge the rest after) could never take
+          // its second step.
+          //
+          // Byte-equal is the whole of the licence. Anything else, including a
+          // config that merely names the same identity, is the clone this
+          // refuses.
+          if (held.isNotEmpty && held != incoming) {
+            throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
+          }
+          if (held.isEmpty) {
+            await _storage.saveNodeConfig(incoming);
+          }
           identityAdopted = true;
 
         case TransferRecordKind.profile:
