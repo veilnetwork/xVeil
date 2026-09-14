@@ -15,6 +15,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/providers.dart';
 import 'bundled_seeds_choice.dart';
+import 'certificate_restore_input.dart';
 import 'recovery_certificate_step.dart';
 import 'recovery_phrase_input.dart';
 
@@ -96,6 +97,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// random Falcon half, rename the identity, and leave a certificate already
   /// written to disk naming an identity that will never exist.
   MintedRecovery? _minted;
+
+  /// A recovery certificate the person handed in on the restore path, and the
+  /// code that opens it.
+  ///
+  /// It has to be stored BEFORE the node boots: the node provisions from the
+  /// credential the container holds, so a certificate that arrives afterwards
+  /// is a certificate the identity was already decided without. That is the
+  /// whole reason this lives here and not in a settings screen — and the code
+  /// travels with it because an XVRC is opened by the code, never by the
+  /// words.
+  Uint8List? _restoreCertificate;
+  String _restoreCode = '';
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _busy = false;
@@ -176,6 +189,27 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _phrase = phrase.split(' ');
     _realPhrase = true;
     _joinExisting = false;
+    _restoreCertificate = null;
+    _restoreCode = '';
+    _go(3);
+  }
+
+  /// The other way back, and the only one that returns the SAME address.
+  ///
+  /// The words restore a different identity — they fix the Ed25519 half of the
+  /// hybrid master and the Falcon half was drawn at random — so a person who
+  /// has their certificate should never be sent down the phrase path.
+  void _restoreWithCertificate(Uint8List certificate, String code) {
+    _restoring = true;
+    _restoreCertificate = certificate;
+    _restoreCode = code;
+    // No words on this path: the credential carries the master key, and the
+    // secret that opens it is the code. `_realPhrase` stays false so the
+    // certificate ceremony step is skipped — there is nothing to mint for an
+    // identity that already exists.
+    _phrase = const [];
+    _realPhrase = false;
+    _joinExisting = false;
     _go(3);
   }
 
@@ -218,9 +252,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // node's to produce.
             password: _passwordCtrl.text,
             mode: _mode,
-            // The REAL phrase drives the deterministic identity derivation on
-            // the first node boot; the placeholder never leaves this screen.
-            identityPhrase: _realPhrase ? _phrase.join(' ') : null,
+            // WHICHEVER SECRET OPENS WHAT THIS DEVICE WILL HOLD. For a phrase
+            // identity that is the words; for a certificate restore it is the
+            // certificate's own code, because an XVRC is re-wrapped under a
+            // high-entropy code exactly so the exported file is not openable
+            // by the words. Handing the phrase to a certificate does not
+            // provision a different identity — it fails, and the boot then
+            // falls through to no sovereign document at all.
+            identityPhrase: _restoreCertificate != null
+                ? _restoreCode
+                : (_realPhrase ? _phrase.join(' ') : null),
             // A RESTORE, not a first mint: this device gets a node key of its
             // own under the phrase's identity.
             restoringIdentity: _restoring,
@@ -236,7 +277,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // KEPT is the identity, and the certificate the person just saved
             // certifies this one. Letting the app mint its own later would
             // rename them behind a file they believe restores them.
-            sovereignCredential: _minted?.credential,
+            // The certificate a restore brought in, or the credential the
+            // ceremony minted — never both, and either way it is stored before
+            // the node boots so the node provisions as the identity it names.
+            sovereignCredential: _restoreCertificate ?? _minted?.credential,
           );
       // Router redirect takes over once phase flips to ready.
     } catch (e) {
@@ -285,6 +329,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             5 => _RestoreStep(
               validate: widget.validatePhrase,
               onSubmit: _restoreWith,
+              onCertificate: _restoreWithCertificate,
             ),
             6 => _LinkStep(onNext: () => _go(3)),
             2 => _Recovery(
@@ -477,13 +522,37 @@ class _LinkStep extends StatelessWidget {
   }
 }
 
-class _RestoreStep extends StatelessWidget {
-  const _RestoreStep({required this.validate, required this.onSubmit});
+/// Two ways back, and they do not return the same thing.
+///
+/// The certificate is offered FIRST and on equal footing, because it is the
+/// one that restores this identity. The words restore a different one — they
+/// fix the Ed25519 half of the hybrid master and the Falcon half was drawn at
+/// random — and a screen that offers only them tells someone holding their
+/// certificate that there is nowhere to put it.
+class _RestoreStep extends StatefulWidget {
+  const _RestoreStep({
+    required this.validate,
+    required this.onSubmit,
+    required this.onCertificate,
+  });
   final bool Function(String phrase) validate;
   final ValueChanged<String> onSubmit;
+  final void Function(Uint8List certificate, String code) onCertificate;
+
+  @override
+  State<_RestoreStep> createState() => _RestoreStepState();
+}
+
+class _RestoreStepState extends State<_RestoreStep> {
+  /// Which way this person is taking. The certificate is the default: someone
+  /// who has one should not have to find it behind a toggle, and someone who
+  /// does not loses one tap.
+  bool _byCertificate = true;
 
   @override
   Widget build(BuildContext context) {
+    final validate = widget.validate;
+    final onSubmit = widget.onSubmit;
     final l = AppL10n.of(context);
     // Typing the phrase in puts it on screen exactly as showing it does — the
     // field is not obscured, deliberately, because a mistyped word here costs
@@ -504,11 +573,30 @@ class _RestoreStep extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            RecoveryPhraseInput(
-              validate: validate,
-              onSubmit: onSubmit,
-              submitLabel: l.onboardRestoreSubmit,
+            SegmentedButton<bool>(
+              segments: [
+                ButtonSegment(
+                  value: true,
+                  label: Text(l.onboardRestoreWithCertificate),
+                ),
+                ButtonSegment(
+                  value: false,
+                  label: Text(l.onboardRestoreWithPhrase),
+                ),
+              ],
+              selected: {_byCertificate},
+              onSelectionChanged: (v) =>
+                  setState(() => _byCertificate = v.first),
             ),
+            const SizedBox(height: 16),
+            if (_byCertificate)
+              CertificateRestoreInput(onSubmit: widget.onCertificate)
+            else
+              RecoveryPhraseInput(
+                validate: validate,
+                onSubmit: onSubmit,
+                submitLabel: l.onboardRestoreSubmit,
+              ),
           ],
         ),
       ),

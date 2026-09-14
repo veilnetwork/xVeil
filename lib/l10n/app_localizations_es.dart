@@ -5813,6 +5813,41 @@ class AppL10nEs extends AppL10n {
       'Guarda el archivo antes de continuar. Solo existe en esta pantalla y es la única copia de la mitad de tu clave.';
 
   @override
+  String get onboardRestoreWithCertificate =>
+      'Tengo un certificado de recuperación';
+
+  @override
+  String get onboardRestoreCertificateBody =>
+      'El certificado recupera la dirección que tienen tus contactos. Las 24 palabras por sí solas restauran otra identidad: úsalas solo si esta identidad nunca tuvo certificado.';
+
+  @override
+  String get onboardRestorePickCertificate =>
+      'Elegir el archivo del certificado';
+
+  @override
+  String onboardRestoreCertificateChosen(String id) {
+    return 'Certificado de la identidad $id…';
+  }
+
+  @override
+  String get onboardRestoreCodeLabel => 'Código de recuperación';
+
+  @override
+  String get onboardRestoreCodeHint =>
+      'El código que guardaste aparte del archivo. Empieza por xvrc-.';
+
+  @override
+  String get onboardRestoreCertificateSubmit =>
+      'Restaurar desde el certificado';
+
+  @override
+  String get onboardRestoreCertificateBad =>
+      'Ese archivo no es un certificado de recuperación de xVeil, o está dañado.';
+
+  @override
+  String get onboardRestoreWithPhrase => 'Restaurar con las 24 palabras';
+
+  @override
   String devicesRevokeTitle(String device) {
     return 'Revoke $device?';
   }

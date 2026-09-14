@@ -163,6 +163,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(l(tester).onboardRestoreIdentity));
     await tester.pumpAndSettle();
+    await chooseRestoreByPhrase(tester);
     final words = List.generate(24, (i) => 'w$i').join(' ');
     await tester.enterText(find.byType(TextField), words);
     await tester.pumpAndSettle();
