@@ -5848,6 +5848,46 @@ class AppL10nEs extends AppL10n {
   String get onboardRestoreWithPhrase => 'Restaurar con las 24 palabras';
 
   @override
+  String get onboardRestoreFromArchive => 'Restaurar desde un archivo';
+
+  @override
+  String get onboardRestoreFromArchiveSub =>
+      'Un archivo que esta identidad escribió en otro dispositivo, con la identidad dentro';
+
+  @override
+  String get onboardArchiveTitle => 'Volver a ser este dispositivo';
+
+  @override
+  String get onboardArchiveBody =>
+      'Elige el archivo que exportaste con «Incluir identidad». Esta instalación toma la identidad ahora; las conversaciones y los archivos se fusionan después, desde el mismo archivo.';
+
+  @override
+  String get onboardArchivePick => 'Elegir el archivo';
+
+  @override
+  String onboardArchiveChosen(String id, String when) {
+    return 'Identidad $id…, escrito el $when';
+  }
+
+  @override
+  String get onboardArchiveNoIdentity =>
+      'Este archivo no lleva identidad. Restaura con tu certificado o tus 24 palabras y luego fusiona este archivo en Ajustes → Transferencia de datos.';
+
+  @override
+  String get onboardArchiveBad =>
+      'Ese archivo no es un archivo de xVeil, o está dañado.';
+
+  @override
+  String get onboardArchivePasswordLabel => 'Contraseña del archivo';
+
+  @override
+  String get onboardArchiveContinue => 'Tomar la identidad de este archivo';
+
+  @override
+  String get onboardArchiveMergeLater =>
+      'Tus conversaciones aún no están aquí. Abre Ajustes → Cuenta → Transferencia de datos → Importar y elige el mismo archivo para fusionarlas.';
+
+  @override
   String devicesRevokeTitle(String device) {
     return 'Revoke $device?';
   }

@@ -2394,6 +2394,18 @@
   "onboardRestoreCertificateSubmit": "Restaurar desde el certificado",
   "onboardRestoreCertificateBad": "Ese archivo no es un certificado de recuperación de xVeil, o está dañado.",
   "onboardRestoreWithPhrase": "Restaurar con las 24 palabras",
+  "onboardRestoreFromArchive": "Restaurar desde un archivo",
+  "onboardRestoreFromArchiveSub": "Un archivo que esta identidad escribió en otro dispositivo, con la identidad dentro",
+  "onboardArchiveTitle": "Volver a ser este dispositivo",
+  "onboardArchiveBody": "Elige el archivo que exportaste con «Incluir identidad». Esta instalación toma la identidad ahora; las conversaciones y los archivos se fusionan después, desde el mismo archivo.",
+  "onboardArchivePick": "Elegir el archivo",
+  "onboardArchiveChosen": "Identidad {id}…, escrito el {when}",
+  "@onboardArchiveChosen": {"placeholders": {"id": {"type": "String"}, "when": {"type": "String"}}},
+  "onboardArchiveNoIdentity": "Este archivo no lleva identidad. Restaura con tu certificado o tus 24 palabras y luego fusiona este archivo en Ajustes → Transferencia de datos.",
+  "onboardArchiveBad": "Ese archivo no es un archivo de xVeil, o está dañado.",
+  "onboardArchivePasswordLabel": "Contraseña del archivo",
+  "onboardArchiveContinue": "Tomar la identidad de este archivo",
+  "onboardArchiveMergeLater": "Tus conversaciones aún no están aquí. Abre Ajustes → Cuenta → Transferencia de datos → Importar y elige el mismo archivo para fusionarlas.",
   "devicesRevokeTitle": "Revoke {device}?",
   "@devicesRevokeTitle": {
     "placeholders": {
