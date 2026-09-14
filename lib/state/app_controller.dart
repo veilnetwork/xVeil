@@ -9,7 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import '../data/node/sovereign_identity_material.dart'
-    show kRecoveryCertificateSavedSetting;
+    show kRecoveryCertificateSavedSetting, kSovereignBundleSetting;
 import '../data/native_libs.dart';
 
 import '../data/node/bundled_seeds.dart' show IdentitySeedPlan;
@@ -335,6 +335,18 @@ class AppController extends Notifier<AppState> {
     /// ...and whether a copy actually reached a file. Read back after writing,
     /// so this means "a copy exists" rather than "a write returned".
     bool recoveryCertificateSaved = false,
+    /// The sovereign credential the ceremony minted, to be stored as THIS
+    /// install's.
+    ///
+    /// Not an optimisation. A phrase fixes only the ed25519 half of the hybrid
+    /// master — `create_hybrid512` draws the Falcon half at random — so two
+    /// credentials made from one phrase name two different identities
+    /// (measured: 20fbea6e… and ba5974ee…). The certificate the ceremony just
+    /// offered certifies THIS credential; letting `openLocalSovereign` mint
+    /// its own later would rename the identity behind a file the person
+    /// believes restores them, and nothing would say so until the day it was
+    /// needed.
+    Uint8List? sovereignCredential,
   }) async {
     _pendingIdentityPhrase = identityPhrase;
     _pendingRestoringIdentity = restoringIdentity;
@@ -420,6 +432,15 @@ class AppController extends Notifier<AppState> {
       // the settled answer on its first load rather than a stale false.
       if (recoveryCertificateSaved) {
         await storage.putSetting(kRecoveryCertificateSavedSetting, '1');
+      }
+      // BEFORE the session, so nothing can reach `openLocalSovereign` and mint
+      // a second credential first. Whichever one is stored is the identity.
+      if (sovereignCredential != null) {
+        await storage.storeFile(
+          kSovereignBundleSetting,
+          Uint8List.fromList(sovereignCredential),
+          name: 'sovereign-credential',
+        );
       }
       await _enterSession(profile);
     } catch (e, st) {
@@ -2696,7 +2717,18 @@ class AppController extends Notifier<AppState> {
           .timeout(const Duration(seconds: 3));
       // A backend can report `error` without throwing, and that used to pass
       // unnoticed: the tunnel stays up and nothing in the log says so.
-      if (phase != VpnBackendPhase.stopped) {
+      //
+      // `unsupported` is NOT that case, and treating it as one was its own
+      // defect. It means the boundary found no packet engine to talk to —
+      // there is no tunnel on this platform, which is the strongest form of
+      // "nothing is running" a stop can return. Counting it as a survivor put
+      // "the tunnel or the node may be running" on the wipe screen of every
+      // build that ships without the tunnel extension, including every ad-hoc
+      // macOS one (reported from the field, 2026-09-14). Frightening someone
+      // about a tunnel their machine cannot run is not caution; it is a false
+      // alarm on the one screen that must be believed.
+      if (phase != VpnBackendPhase.stopped &&
+          phase != VpnBackendPhase.unsupported) {
         incomplete = 'the backend answered ${phase.name}';
       }
     } catch (e) {

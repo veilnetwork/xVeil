@@ -5777,15 +5777,15 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get onboardCertWhy =>
-      'Tu identidad la nombra una clave que solo vive en tus dispositivos. La frase que acabas de anotar puede reconstruirla, y también un certificado de recuperación: un archivo que puedes guardar en un lugar seguro. Créalo ahora, mientras nada ha fallado.';
+      'Esta identidad la nombra una clave de dos mitades. Tus 24 palabras fijan una; la otra se sortea al azar y solo existe en el certificado de recuperación. Las palabras por sí solas NO devuelven esta dirección: restaurar sin el certificado da otra identidad, y nadie que te conozca podrá alcanzarla. Crea el certificado ahora.';
 
   @override
   String get onboardCertRolePhrase =>
-      'Las 24 palabras son la identidad misma. Quien las lea se convierte en ti: guárdalas sin conexión, en papel.';
+      'Las 24 palabras son la mitad de la clave y la contraseña del certificado. Por sí solas restauran OTRA identidad, no esta.';
 
   @override
   String get onboardCertRoleFile =>
-      'El certificado es un archivo que restaura esta identidad. Inútil por sí solo: lo bloquea el código de abajo.';
+      'El certificado es la única copia completa de la clave. Solo él recupera la dirección que tienen tus contactos.';
 
   @override
   String get onboardCertRoleCode =>
@@ -5802,7 +5802,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get onboardCertLater =>
-      'Puedes hacerlo más tarde en Ajustes → Dispositivos → «Crear certificado de recuperación». Te pedirá las 24 palabras que acabas de guardar, así que tenlas a mano.';
+      'Puedes hacerlo más tarde en Ajustes → Dispositivos → «Crear certificado de recuperación». Te pedirá las 24 palabras que guardaste. Mientras no exista un certificado, perder todos los dispositivos pierde esta identidad: las palabras solas no la recuperan.';
 
   @override
   String get onboardCertFailed =>
@@ -5810,7 +5810,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get onboardCertNotSavedYet =>
-      'Guarda el archivo antes de continuar: solo existe en esta pantalla.';
+      'Guarda el archivo antes de continuar. Solo existe en esta pantalla y es la única copia de la mitad de tu clave.';
 
   @override
   String devicesRevokeTitle(String device) {
