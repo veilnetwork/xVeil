@@ -139,6 +139,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l().onboardRestoreIdentity));
       await tester.pumpAndSettle();
+      await chooseRestoreByPhrase(tester);
 
       // 5 restore: 23 words keep the button disabled even if the validator
       // would pass; 24 words that fail validation stay disabled too.
@@ -535,6 +536,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(l().onboardRestoreIdentity));
     await tester.pumpAndSettle();
+    await chooseRestoreByPhrase(tester);
     await tester.enterText(
       find.byType(TextField),
       List.generate(24, (i) => 'w$i').join(' '),
@@ -637,6 +639,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text(l(tester).onboardRestoreIdentity));
       await tester.pumpAndSettle();
+      await chooseRestoreByPhrase(tester);
       expect(secureCalls, [true]);
 
       await tester.enterText(
@@ -689,6 +692,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(l().onboardRestoreIdentity));
     await tester.pumpAndSettle();
+    await chooseRestoreByPhrase(tester);
 
     final field = find.byType(TextField);
     for (final count in [1, 12, 23, 25]) {
