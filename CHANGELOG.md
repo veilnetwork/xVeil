@@ -6,6 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.62] — 2026-09-14
+
+*Whether the app could reach the network at all was a coin toss on the identity you made.*
+
+Reported as "0 nodes connected" after creating a fresh identity. My first
+reading was that the network held only its seeds and the zero was honest; the
+owner said clients used to find the bootstrap nodes and stay connected, and the
+measurement agreed with the owner, not with me.
+
+The rule that decides which side of a pair makes the lasting dial compares the
+two node ids. It cancels one of the two dials and relies on the far side making
+the one it cancelled — but a seed found at a public meeting point holds no row
+for the client that found it, because the app only READS that index and
+announces nothing there. So the dial it waited for did not exist, and an app
+whose identity sorted after every seed sat at zero sessions for good. Roughly
+one identity in five, drawn fresh each time one is created, which is why it
+looked like it had worked before.
+
+Measured on the production network with the same config and a clean state,
+only the binary differing: an identity minted to sort after all three seeds
+went from 0 sessions to 3, and a control between them from 2 to 3. veil
+0.11.32 carries the fix.
+
+Also in this release: a node could fail to boot with "could not create a
+private staging directory" when the container's tmp had been swept — the
+staging base is now created rather than assumed.
+
+analyze clean, tests green.
+
 ## [0.13.61] — 2026-09-13
 
 *A node was posting what it would itself refuse.*
