@@ -87,6 +87,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// thirty seconds is nagging, and the standing reminder on that screen is
   /// what keeps the matter open for them.
   bool _certificateSaved = false;
+
+  /// What the certificate step minted — the credential AND the pair that
+  /// restores it.
+  ///
+  /// Kept on THIS screen rather than inside the step so that stepping back to
+  /// the words and forward again reuses it. Minting twice would draw a second
+  /// random Falcon half, rename the identity, and leave a certificate already
+  /// written to disk naming an identity that will never exist.
+  MintedRecovery? _minted;
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _busy = false;
@@ -221,6 +230,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // end-of-onboarding push has nothing left to add.
             recoveryCertificateOffered: _realPhrase && _step >= 3,
             recoveryCertificateSaved: _certificateSaved,
+            // THE credential, not A credential. The phrase fixes only the
+            // ed25519 half of the hybrid master; the Falcon half is drawn at
+            // random inside `create_hybrid512`. So whichever credential is
+            // KEPT is the identity, and the certificate the person just saved
+            // certifies this one. Letting the app mint its own later would
+            // rename them behind a file they believe restores them.
+            sovereignCredential: _minted?.credential,
           );
       // Router redirect takes over once phase flips to ready.
     } catch (e) {
@@ -285,10 +301,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             ),
             8 => RecoveryCertificateStep(
               phrase: _phrase.join(' '),
-              onDone: ({required bool saved}) {
+              already: _minted,
+              onDone: ({required bool saved, Uint8List? credential}) {
                 _certificateSaved = saved;
                 _go(3);
               },
+              onMinted: (minted) => _minted = minted,
             ),
             3 => _StorageChoice(
               mode: _mode,

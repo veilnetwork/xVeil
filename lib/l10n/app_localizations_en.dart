@@ -5699,15 +5699,15 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onboardCertWhy =>
-      'Your identity is named by a key that lives only on your devices. The phrase you just wrote down can rebuild it — and so can a recovery certificate, which is a file you can keep in a safe place. Make it now, while nothing has gone wrong.';
+      'This identity is named by a key in two halves. Your 24 words fix one of them; the other is drawn at random and exists only in the recovery certificate. The words alone will NOT bring this address back — restoring without the certificate gives a different identity, and nobody who knows you can reach the new one. Make the certificate now.';
 
   @override
   String get onboardCertRolePhrase =>
-      'The 24 words are the identity itself. Anyone who reads them becomes you — keep them offline, on paper.';
+      'The 24 words are half of the key, and the password to the certificate. On their own they restore a DIFFERENT identity — not this one.';
 
   @override
   String get onboardCertRoleFile =>
-      'The certificate is a file that restores this identity. Useless on its own — it is locked by the code below.';
+      'The certificate is the only complete copy of the key. Only it brings back the address your contacts hold.';
 
   @override
   String get onboardCertRoleCode =>
@@ -5724,7 +5724,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onboardCertLater =>
-      'You can do this later in Settings → Devices → “Create recovery certificate”. It will ask for the 24-word phrase you just saved, so keep it where you can reach it.';
+      'You can do this later in Settings → Devices → “Create recovery certificate”. It will ask for the 24 words you just saved. Until a certificate exists, losing every device loses this identity — the words cannot bring it back on their own.';
 
   @override
   String get onboardCertFailed =>
@@ -5732,7 +5732,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onboardCertNotSavedYet =>
-      'Save the file before moving on — it exists only on this screen.';
+      'Save the file before moving on. It exists only on this screen, and it is the only copy of half your key.';
 
   @override
   String devicesRevokeTitle(String device) {

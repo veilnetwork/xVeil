@@ -7,6 +7,8 @@
 // that quietly put a text field back would restore the defect it was built to
 // remove.
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
@@ -20,13 +22,14 @@ const _phrase =
     'act action actor actress actual';
 
 MintedRecovery _fakeMint(String phrase) => MintedRecovery(
+  credential: Uint8List.fromList([1, 2, 3]),
   certificate: 'xveil-recovery:v1:$phrase',
   code: 'xvrc-TESTCODE_Aa09',
   nodeId: NodeId.fromHex('ab' * 32),
 );
 
 Widget _host({
-  required void Function({required bool saved}) onDone,
+  required void Function({required bool saved, Uint8List? credential}) onDone,
   MintedRecovery Function(String)? mint,
 }) => MaterialApp(
   locale: const Locale('en'),
@@ -43,7 +46,7 @@ Widget _host({
 
 void main() {
   testWidgets('the step never asks for the phrase back', (tester) async {
-    await tester.pumpWidget(_host(onDone: ({required saved}) {}));
+    await tester.pumpWidget(_host(onDone: ({required saved, credential}) {}));
     await tester.pumpAndSettle();
 
     // Before minting.
@@ -61,7 +64,7 @@ void main() {
   });
 
   testWidgets('it says where to go when the offer is declined', (tester) async {
-    await tester.pumpWidget(_host(onDone: ({required saved}) {}));
+    await tester.pumpWidget(_host(onDone: ({required saved, credential}) {}));
     await tester.pumpAndSettle();
     final l = AppL10nEn();
     // The instruction is on screen BEFORE the decline, not after it: someone
@@ -74,7 +77,7 @@ void main() {
   testWidgets('declining reports that nothing was saved', (tester) async {
     bool? seen;
     await tester.pumpWidget(
-      _host(onDone: ({required bool saved}) => seen = saved),
+      _host(onDone: ({required bool saved, Uint8List? credential}) => seen = saved),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text(AppL10nEn().onboardCertSkip));
@@ -90,7 +93,7 @@ void main() {
     tester,
   ) async {
     var done = 0;
-    await tester.pumpWidget(_host(onDone: ({required saved}) => done++));
+    await tester.pumpWidget(_host(onDone: ({required saved, credential}) => done++));
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.verified_user_outlined));
     await tester.pumpAndSettle();
@@ -119,7 +122,7 @@ void main() {
   testWidgets('a mint that throws says so instead of hanging', (tester) async {
     await tester.pumpWidget(
       _host(
-        onDone: ({required saved}) {},
+        onDone: ({required saved, credential}) {},
         mint: (_) => throw StateError('no native library here'),
       ),
     );
