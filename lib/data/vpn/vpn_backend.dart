@@ -279,6 +279,20 @@ class MethodChannelVpnBackend implements VpnBackend {
           ? native
           : VpnBackendState(native.phase, detail: engineError);
     }
+    // A PLATFORM WITH NO TUNNEL HAS NOT FAILED TO STOP ONE. `unsupported` is
+    // what the boundary answers when there is no packet engine to talk to at
+    // all — a missing plugin, or a build that ships without the tunnel
+    // extension, which is every ad-hoc macOS build. Folding that into `error`
+    // made the strongest possible "nothing is running here" indistinguishable
+    // from "the tunnel refused to go down", and the wipe screen then told
+    // people their tunnel might still be up on a machine that cannot run one
+    // (reported from the field, 2026-09-14).
+    //
+    // Only when the engine itself complained is there something to report:
+    // that is a real refusal on a platform that really has an engine.
+    if (native.phase == VpnBackendPhase.unsupported && engineError == null) {
+      return native;
+    }
     final details = [engineError, native.detail].whereType<String>().toList();
     return VpnBackendState(
       VpnBackendPhase.error,

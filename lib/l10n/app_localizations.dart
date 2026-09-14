@@ -10061,19 +10061,19 @@ abstract class AppL10n {
   /// No description provided for @onboardCertWhy.
   ///
   /// In en, this message translates to:
-  /// **'Your identity is named by a key that lives only on your devices. The phrase you just wrote down can rebuild it — and so can a recovery certificate, which is a file you can keep in a safe place. Make it now, while nothing has gone wrong.'**
+  /// **'This identity is named by a key in two halves. Your 24 words fix one of them; the other is drawn at random and exists only in the recovery certificate. The words alone will NOT bring this address back — restoring without the certificate gives a different identity, and nobody who knows you can reach the new one. Make the certificate now.'**
   String get onboardCertWhy;
 
   /// No description provided for @onboardCertRolePhrase.
   ///
   /// In en, this message translates to:
-  /// **'The 24 words are the identity itself. Anyone who reads them becomes you — keep them offline, on paper.'**
+  /// **'The 24 words are half of the key, and the password to the certificate. On their own they restore a DIFFERENT identity — not this one.'**
   String get onboardCertRolePhrase;
 
   /// No description provided for @onboardCertRoleFile.
   ///
   /// In en, this message translates to:
-  /// **'The certificate is a file that restores this identity. Useless on its own — it is locked by the code below.'**
+  /// **'The certificate is the only complete copy of the key. Only it brings back the address your contacts hold.'**
   String get onboardCertRoleFile;
 
   /// No description provided for @onboardCertRoleCode.
@@ -10103,7 +10103,7 @@ abstract class AppL10n {
   /// No description provided for @onboardCertLater.
   ///
   /// In en, this message translates to:
-  /// **'You can do this later in Settings → Devices → “Create recovery certificate”. It will ask for the 24-word phrase you just saved, so keep it where you can reach it.'**
+  /// **'You can do this later in Settings → Devices → “Create recovery certificate”. It will ask for the 24 words you just saved. Until a certificate exists, losing every device loses this identity — the words cannot bring it back on their own.'**
   String get onboardCertLater;
 
   /// No description provided for @onboardCertFailed.
@@ -10115,7 +10115,7 @@ abstract class AppL10n {
   /// No description provided for @onboardCertNotSavedYet.
   ///
   /// In en, this message translates to:
-  /// **'Save the file before moving on — it exists only on this screen.'**
+  /// **'Save the file before moving on. It exists only on this screen, and it is the only copy of half your key.'**
   String get onboardCertNotSavedYet;
 
   /// No description provided for @devicesRevokeTitle.

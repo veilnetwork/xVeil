@@ -11,15 +11,26 @@
 // Here the phrase is in hand. Nothing is asked for, and nothing can be
 // mistyped: the ceremony already generated these words and is showing them.
 //
-// WHY THIS CAN BE MINTED BEFORE THE IDENTITY EXISTS. The hybrid master is
-// derived from the phrase alone — `decode_master_seed_from_phrase` →
-// `derive_master_sk_ed25519` → `hybrid512_keypair_from_ed25519_seed`, with
-// randomness only in the encryption salt. So the credential built here holds
-// the same key, and names the same node id, as the one the first node boot
-// will derive. A certificate made now restores exactly the identity that is
-// about to exist; it does not need the container, the node, or a group.
+// WHAT THE PHRASE DOES AND DOES NOT DETERMINE. The 24 words decide the
+// ed25519 half of the hybrid master and NOTHING else: inside
+// `hybrid512_keypair_from_ed25519_seed` the Falcon half comes from
+// `falcon512::keypair()`, which is random. Measured — two credentials built
+// from one phrase named two different identities:
+//
+//   20fbea6eb62956b5b26a4c71ce68ef1f45fe72e0b63b9b92c0b1f22341d5be56
+//   ba5974ee43992bc0d3c374b3ac3a11190287d4518ed54c9c6e2848a047248f5d
+//
+// So a certificate minted from a credential nobody keeps names an identity
+// that will never exist. The first shape of this step did exactly that, and
+// the failure is silent: the file looks right and is useless on the day it is
+// needed.
+//
+// The credential minted here is therefore the identity — it is handed back and
+// stored as this install's sovereign credential before anything can lazily
+// create a different one. Mint once, keep what was minted, certify that.
 
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -31,13 +42,19 @@ import '../../core/secure_screen.dart';
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
 
-/// What minting produced, held only for as long as this step is on screen.
+/// What minting produced: the credential that IS the identity, and the pair
+/// that restores it.
 class MintedRecovery {
   const MintedRecovery({
+    required this.credential,
     required this.certificate,
     required this.code,
     required this.nodeId,
   });
+
+  /// The XVSB bundle. It must be stored as this install's sovereign
+  /// credential, or the certificate beside it names an identity nobody has.
+  final Uint8List credential;
 
   /// The `xveil-recovery:v1:` text form — what is written to the file, and
   /// what the import path parses.
@@ -53,16 +70,16 @@ class MintedRecovery {
 /// Mint a certificate and its code from the phrase, with no container in play.
 ///
 /// Separate from the widget because it is the part worth testing and the part
-/// that must not drift: it is the only place in the app that builds a
-/// sovereign credential from a phrase the person has not yet been asked to
-/// type, and getting the order wrong (code after export, say) would hand back
-/// a code that unlocks nothing.
+/// that must not drift: the credential it returns becomes the identity, and
+/// certifying a DIFFERENT credential than the one that is kept is the defect
+/// this function exists to make impossible to write by accident.
 MintedRecovery mintRecoveryFromPhrase(String phrase) {
   final bundle = veil.createHybrid512SovereignBundle(phrase);
   final code = veil.generateSovereignRecoveryCode();
   final bytes = veil.exportSovereignRecoveryCertificate(bundle, phrase, code);
   final certificate = SovereignRecoveryCertificate.fromBytes(bytes);
   return MintedRecovery(
+    credential: bundle,
     certificate: certificate.toText(),
     code: code,
     nodeId: certificate.nodeId,
@@ -76,6 +93,8 @@ class RecoveryCertificateStep extends StatefulWidget {
     super.key,
     required this.phrase,
     required this.onDone,
+    this.already,
+    this.onMinted,
     this.mint = mintRecoveryFromPhrase,
   });
 
@@ -83,10 +102,28 @@ class RecoveryCertificateStep extends StatefulWidget {
   /// generated rather than typed.
   final String phrase;
 
-  /// Leaves the step. `saved` is whether a copy of the certificate actually
-  /// reached a file — read back after writing, not merely written — so the
-  /// standing reminder can stay up for someone who declined.
-  final void Function({required bool saved}) onDone;
+  /// Leaves the step.
+  ///
+  /// `saved` is whether a copy of the certificate actually reached a file —
+  /// read back after writing, not merely written — so the standing reminder
+  /// can stay up for someone who declined.
+  ///
+  /// `credential` is what was minted, or null if nothing was. It must be
+  /// stored as this install's sovereign credential: minting again would draw a
+  /// different Falcon half and rename the identity, leaving the certificate
+  /// just saved pointing at nobody.
+  final void Function({required bool saved, Uint8List? credential}) onDone;
+
+  /// A mint from an earlier visit to this step, so stepping back and forward
+  /// does not silently rename the identity under a certificate already saved.
+  final MintedRecovery? already;
+
+  /// Told the moment a mint exists, not on the way out.
+  ///
+  /// The credential IS the identity from that instant, and someone who backs
+  /// out of the ceremony here and returns must meet the same one. Reporting it
+  /// only via [onDone] would lose it on every route that is not "done".
+  final void Function(MintedRecovery minted)? onMinted;
 
   /// Injectable so a widget test can exercise the screen without the native
   /// library, which is not loaded in the test host.
@@ -98,7 +135,7 @@ class RecoveryCertificateStep extends StatefulWidget {
 }
 
 class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
-  MintedRecovery? _minted;
+  late MintedRecovery? _minted = widget.already;
   bool _busy = false;
   bool _failed = false;
   bool _saved = false;
@@ -117,6 +154,7 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
       // crash.
       await Future<void>.delayed(Duration.zero);
       final minted = widget.mint(widget.phrase);
+      widget.onMinted?.call(minted);
       if (!mounted) return;
       setState(() => _minted = minted);
     } catch (_) {
@@ -168,7 +206,7 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
       setState(() => _nagged = true);
       return;
     }
-    widget.onDone(saved: _saved);
+    widget.onDone(saved: _saved, credential: _minted?.credential);
   }
 
   @override
@@ -200,7 +238,12 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
               ),
               const SizedBox(height: 8),
               TextButton(
-                onPressed: _busy ? null : () => widget.onDone(saved: false),
+                onPressed: _busy
+                    ? null
+                    : () => widget.onDone(
+                        saved: false,
+                        credential: _minted?.credential,
+                      ),
                 child: Text(l.onboardCertSkip),
               ),
               const SizedBox(height: 8),
