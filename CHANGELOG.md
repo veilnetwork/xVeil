@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.64] — 2026-09-14
+
+*A certificate that names the identity you actually keep.*
+
+The recovery certificate offered during setup in 0.13.63 certified a key that
+was then thrown away: the app minted its own on first boot. That looks
+harmless only if the recovery phrase decides the whole master key. It does
+not. The master is a hybrid of two signatures, and while the 24 words fix the
+Ed25519 half, the Falcon half is drawn at random — one phrase, run twice,
+produces two different identities. So the file looked correct and restored
+nobody, and nothing would have said so until the day every device was gone.
+
+The certificate and the identity are now the same thing by construction: the
+key is made once, during setup, and kept. Going back a step and forward again
+reuses it rather than quietly renaming you underneath a file already saved.
+
+The wording changed with it, because the wording was wrong in the same way. It
+said the 24 words were your identity. They are half of the key and the
+password to the certificate; on their own they restore a DIFFERENT identity,
+at an address none of your contacts hold. The certificate is the only complete
+copy of the key, and the code that unlocks it belongs somewhere else.
+
+Also: wiping every trace on macOS ended by warning that the tunnel might still
+be running. There is no tunnel in this build — the macOS packet extension is
+not shipped — and the app was reading "there is no tunnel here" as "the tunnel
+would not stop". A false alarm on the one screen that has to be believed. A
+tunnel that really refuses to stop is still reported.
+
+analyze clean, 4614 tests green with 94 skipped.
+
 ## [0.13.63] — 2026-09-14
 
 *The certificate is offered while the phrase is still in your hands.*
