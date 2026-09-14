@@ -2384,6 +2384,16 @@
   "onboardCertLater": "Puedes hacerlo más tarde en Ajustes → Dispositivos → «Crear certificado de recuperación». Te pedirá las 24 palabras que guardaste. Mientras no exista un certificado, perder todos los dispositivos pierde esta identidad: las palabras solas no la recuperan.",
   "onboardCertFailed": "No se pudo crear el certificado. Puedes crear uno más tarde en Ajustes → Dispositivos.",
   "onboardCertNotSavedYet": "Guarda el archivo antes de continuar. Solo existe en esta pantalla y es la única copia de la mitad de tu clave.",
+  "onboardRestoreWithCertificate": "Tengo un certificado de recuperación",
+  "onboardRestoreCertificateBody": "El certificado recupera la dirección que tienen tus contactos. Las 24 palabras por sí solas restauran otra identidad: úsalas solo si esta identidad nunca tuvo certificado.",
+  "onboardRestorePickCertificate": "Elegir el archivo del certificado",
+  "onboardRestoreCertificateChosen": "Certificado de la identidad {id}…",
+  "@onboardRestoreCertificateChosen": {"placeholders": {"id": {"type": "String"}}},
+  "onboardRestoreCodeLabel": "Código de recuperación",
+  "onboardRestoreCodeHint": "El código que guardaste aparte del archivo. Empieza por xvrc-.",
+  "onboardRestoreCertificateSubmit": "Restaurar desde el certificado",
+  "onboardRestoreCertificateBad": "Ese archivo no es un certificado de recuperación de xVeil, o está dañado.",
+  "onboardRestoreWithPhrase": "Restaurar con las 24 palabras",
   "devicesRevokeTitle": "Revoke {device}?",
   "@devicesRevokeTitle": {
     "placeholders": {

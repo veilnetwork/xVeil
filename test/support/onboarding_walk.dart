@@ -31,6 +31,24 @@ Future<void> confirmRecoveryPhrase(
   await declineRecoveryCertificate(tester);
 }
 
+/// Switch the restore step onto the 24-word branch.
+///
+/// The step opens on the CERTIFICATE, deliberately: the words alone restore a
+/// different identity, so someone holding their certificate must not have to
+/// find it behind a toggle. A walk that means to type words therefore says so,
+/// the way a person does.
+///
+/// Tolerant of the segment being absent, so the helper still serves a build
+/// whose restore step has only one way in.
+Future<void> chooseRestoreByPhrase(WidgetTester tester) async {
+  final words = find.text(AppL10nEn().onboardRestoreWithPhrase);
+  if (words.evaluate().isEmpty) return;
+  await tester.ensureVisible(words);
+  await tester.pumpAndSettle();
+  await tester.tap(words);
+  await tester.pumpAndSettle();
+}
+
 /// Step past the recovery-certificate offer that now follows the phrase.
 ///
 /// It follows the phrase because that is the only moment the app HOLDS the

@@ -2377,6 +2377,16 @@
   "onboardCertLater": "Это можно сделать позже: Настройки → Устройства → «Создать сертификат восстановления». Там спросят те 24 слова, которые вы сохранили. Пока сертификата нет, потеря всех устройств — это потеря этой личности — одни слова её не вернут.",
   "onboardCertFailed": "Сертификат создать не удалось. Его можно сделать позже: Настройки → Устройства.",
   "onboardCertNotSavedYet": "Сохраните файл, прежде чем идти дальше. Он существует только на этом экране, и это единственная копия половины вашего ключа.",
+  "onboardRestoreWithCertificate": "У меня есть сертификат восстановления",
+  "onboardRestoreCertificateBody": "Сертификат возвращает тот адрес, который есть у ваших контактов. Одни 24 слова восстанавливают другую личность — берите их только если у этой личности сертификата никогда не было.",
+  "onboardRestorePickCertificate": "Выбрать файл сертификата",
+  "onboardRestoreCertificateChosen": "Сертификат личности {id}…",
+  "@onboardRestoreCertificateChosen": {"placeholders": {"id": {"type": "String"}}},
+  "onboardRestoreCodeLabel": "Код восстановления",
+  "onboardRestoreCodeHint": "Код, который вы хранили отдельно от файла. Он начинается с xvrc-.",
+  "onboardRestoreCertificateSubmit": "Восстановить по сертификату",
+  "onboardRestoreCertificateBad": "Этот файл не сертификат восстановления xVeil или повреждён.",
+  "onboardRestoreWithPhrase": "Восстановить по 24 словам",
   "devicesRevokeTitle": "Отозвать {device}?",
   "@devicesRevokeTitle": {
     "placeholders": {

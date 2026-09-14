@@ -5782,6 +5782,39 @@ class AppL10nRu extends AppL10n {
       'Сохраните файл, прежде чем идти дальше. Он существует только на этом экране, и это единственная копия половины вашего ключа.';
 
   @override
+  String get onboardRestoreWithCertificate =>
+      'У меня есть сертификат восстановления';
+
+  @override
+  String get onboardRestoreCertificateBody =>
+      'Сертификат возвращает тот адрес, который есть у ваших контактов. Одни 24 слова восстанавливают другую личность — берите их только если у этой личности сертификата никогда не было.';
+
+  @override
+  String get onboardRestorePickCertificate => 'Выбрать файл сертификата';
+
+  @override
+  String onboardRestoreCertificateChosen(String id) {
+    return 'Сертификат личности $id…';
+  }
+
+  @override
+  String get onboardRestoreCodeLabel => 'Код восстановления';
+
+  @override
+  String get onboardRestoreCodeHint =>
+      'Код, который вы хранили отдельно от файла. Он начинается с xvrc-.';
+
+  @override
+  String get onboardRestoreCertificateSubmit => 'Восстановить по сертификату';
+
+  @override
+  String get onboardRestoreCertificateBad =>
+      'Этот файл не сертификат восстановления xVeil или повреждён.';
+
+  @override
+  String get onboardRestoreWithPhrase => 'Восстановить по 24 словам';
+
+  @override
   String devicesRevokeTitle(String device) {
     return 'Отозвать $device?';
   }

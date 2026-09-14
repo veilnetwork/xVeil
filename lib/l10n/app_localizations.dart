@@ -10118,6 +10118,60 @@ abstract class AppL10n {
   /// **'Save the file before moving on. It exists only on this screen, and it is the only copy of half your key.'**
   String get onboardCertNotSavedYet;
 
+  /// No description provided for @onboardRestoreWithCertificate.
+  ///
+  /// In en, this message translates to:
+  /// **'I have a recovery certificate'**
+  String get onboardRestoreWithCertificate;
+
+  /// No description provided for @onboardRestoreCertificateBody.
+  ///
+  /// In en, this message translates to:
+  /// **'The certificate is what brings back the address your contacts hold. The 24 words alone restore a different identity — use them only if this identity never had a certificate.'**
+  String get onboardRestoreCertificateBody;
+
+  /// No description provided for @onboardRestorePickCertificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the certificate file'**
+  String get onboardRestorePickCertificate;
+
+  /// No description provided for @onboardRestoreCertificateChosen.
+  ///
+  /// In en, this message translates to:
+  /// **'Certificate for identity {id}…'**
+  String onboardRestoreCertificateChosen(String id);
+
+  /// No description provided for @onboardRestoreCodeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Recovery code'**
+  String get onboardRestoreCodeLabel;
+
+  /// No description provided for @onboardRestoreCodeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The code you stored apart from the file. It starts with xvrc-.'**
+  String get onboardRestoreCodeHint;
+
+  /// No description provided for @onboardRestoreCertificateSubmit.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore from the certificate'**
+  String get onboardRestoreCertificateSubmit;
+
+  /// No description provided for @onboardRestoreCertificateBad.
+  ///
+  /// In en, this message translates to:
+  /// **'That file is not an xVeil recovery certificate, or it is damaged.'**
+  String get onboardRestoreCertificateBad;
+
+  /// No description provided for @onboardRestoreWithPhrase.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore with the 24 words'**
+  String get onboardRestoreWithPhrase;
+
   /// No description provided for @devicesRevokeTitle.
   ///
   /// In en, this message translates to:
