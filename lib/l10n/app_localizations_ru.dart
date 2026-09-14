@@ -5733,6 +5733,55 @@ class AppL10nRu extends AppL10n {
   String get devicesRevoke => 'Отозвать устройство';
 
   @override
+  String get devicesSecretDidNotFit =>
+      'Этот секрет не открыл личность. Проверьте, не пропущено ли слово и нет ли опечатки — пробелы и заглавные буквы значения не имеют.';
+
+  @override
+  String devicesPhraseWordCount(int count, int total) {
+    return '$count из $total слов';
+  }
+
+  @override
+  String get onboardCertTitle => 'Путь назад, если потеряны все устройства';
+
+  @override
+  String get onboardCertWhy =>
+      'Ваша личность названа ключом, который живёт только на ваших устройствах. Восстановить её может записанная вами фраза — и сертификат восстановления: файл, который можно положить в надёжное место. Сделайте его сейчас, пока ничего не случилось.';
+
+  @override
+  String get onboardCertRolePhrase =>
+      '24 слова — это и есть личность. Кто их прочтёт, тот станет вами: держите их не в сети, на бумаге.';
+
+  @override
+  String get onboardCertRoleFile =>
+      'Сертификат — файл, восстанавливающий эту личность. Сам по себе бесполезен: его запирает код ниже.';
+
+  @override
+  String get onboardCertRoleCode =>
+      'Код отпирает сертификат. Храните его ОТДЕЛЬНО от файла: вместе они — вся личность целиком.';
+
+  @override
+  String get onboardCertCreate => 'Создать сертификат';
+
+  @override
+  String get onboardCertSkip => 'Не сейчас';
+
+  @override
+  String get onboardCertContinue => 'Готово — дальше';
+
+  @override
+  String get onboardCertLater =>
+      'Это можно сделать позже: Настройки → Устройства → «Создать сертификат восстановления». Там спросят те самые 24 слова, которые вы только что сохранили, — держите их под рукой.';
+
+  @override
+  String get onboardCertFailed =>
+      'Сертификат создать не удалось. Его можно сделать позже: Настройки → Устройства.';
+
+  @override
+  String get onboardCertNotSavedYet =>
+      'Сохраните файл, прежде чем идти дальше: он существует только на этом экране.';
+
+  @override
   String devicesRevokeTitle(String device) {
     return 'Отозвать $device?';
   }

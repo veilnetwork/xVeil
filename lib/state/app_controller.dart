@@ -8,6 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
+import '../data/node/sovereign_identity_material.dart'
+    show kRecoveryCertificateSavedSetting;
 import '../data/native_libs.dart';
 
 import '../data/node/bundled_seeds.dart' show IdentitySeedPlan;
@@ -324,6 +326,15 @@ class AppController extends Notifier<AppState> {
     // to reach the network so an existing one can approve it, and the session
     // this opens should land on the device-link screen instead of chats.
     bool joinExisting = false,
+    /// The ceremony already offered the recovery certificate, with the phrase
+    /// on screen and nothing to retype. When it did, the end-of-onboarding
+    /// push has nothing to add — asking a second time inside a minute is
+    /// nagging, and the standing reminder on the devices screen is what keeps
+    /// the matter open for someone who declined.
+    bool recoveryCertificateOffered = false,
+    /// ...and whether a copy actually reached a file. Read back after writing,
+    /// so this means "a copy exists" rather than "a write returned".
+    bool recoveryCertificateSaved = false,
   }) async {
     _pendingIdentityPhrase = identityPhrase;
     _pendingRestoringIdentity = restoringIdentity;
@@ -340,7 +351,8 @@ class AppController extends Notifier<AppState> {
         identityPhrase != null &&
         identityPhrase.isNotEmpty &&
         !restoringIdentity &&
-        !joinExisting;
+        !joinExisting &&
+        !recoveryCertificateOffered;
     // Show the "setting up" screen up front and let it paint a frame BEFORE the
     // CPU-heavy work begins — creating the container (Argon2id KDF) and
     // provisioning the node identity both block briefly, and without this the
@@ -400,6 +412,15 @@ class AppController extends Notifier<AppState> {
         throw StateError('preference store refused the storage mode');
       }
 
+      // The ceremony already wrote the certificate to a file and read it back.
+      // Recording it HERE, against the container that has just opened, is what
+      // retires the standing "your identity has no copy" reminder — the flag
+      // lives in the container, and during the ceremony there was no container
+      // to put it in. Written before the session so the devices screen reads
+      // the settled answer on its first load rather than a stale false.
+      if (recoveryCertificateSaved) {
+        await storage.putSetting(kRecoveryCertificateSavedSetting, '1');
+      }
       await _enterSession(profile);
     } catch (e, st) {
       devLog(() => 'xVeil[onboarding]: FAILED, rolling back: $e\n$st');

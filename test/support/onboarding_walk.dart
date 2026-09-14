@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/l10n/app_localizations_en.dart';
 
 /// Tick "I have written down all 24 words" and move on.
 ///
@@ -26,5 +27,27 @@ Future<void> confirmRecoveryPhrase(
   await tester.ensureVisible(find.text(continueLabel));
   await tester.pumpAndSettle();
   await tester.tap(find.text(continueLabel));
+  await tester.pumpAndSettle();
+  await declineRecoveryCertificate(tester);
+}
+
+/// Step past the recovery-certificate offer that now follows the phrase.
+///
+/// It follows the phrase because that is the only moment the app HOLDS the
+/// words and can mint the certificate without asking for them back — which is
+/// the whole point of the step. A walk through the wizard therefore has one
+/// more screen to cross, and declining is the right way for a test to cross
+/// it: taking the offer calls into the native library, which is not loaded in
+/// the test host.
+///
+/// Tolerant of the step being absent so the helper still serves a build whose
+/// phrase generator returned nothing — there is no certificate to offer for a
+/// phrase that was never made.
+Future<void> declineRecoveryCertificate(WidgetTester tester) async {
+  final skip = find.text(AppL10nEn().onboardCertSkip);
+  if (skip.evaluate().isEmpty) return;
+  await tester.ensureVisible(skip);
+  await tester.pumpAndSettle();
+  await tester.tap(skip);
   await tester.pumpAndSettle();
 }

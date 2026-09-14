@@ -7,10 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:veil_flutter/veil_flutter.dart' show VeilException;
 
 import '../../core/log.dart';
 
-import '../../core/clipboard_secret.dart';
+import '../../core/secret_display.dart';
+export '../../core/secret_display.dart' show SecretCopyButton, SecretText;
 import '../../core/ids.dart';
 import '../../core/qr_payload.dart';
 import '../../state/messaging_providers.dart';
@@ -24,6 +26,7 @@ import '../../data/node/sovereign_identity_material.dart'
         readSovereignMaterial;
 import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/device_link.dart';
+import '../../domain/sovereign_secret.dart';
 import '../../domain/device_sync.dart' show DeviceSyncEvent, DeviceSyncKind;
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
@@ -401,6 +404,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         helperText: usesCertificate
             ? l.devicesRecoveryCodeHint
             : l.devicesPhraseHint,
+        isRecoveryCode: usesCertificate,
       ),
     );
     if (secret == null || secret.isEmpty || !mounted) return;
@@ -494,6 +498,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         helperText: usesCertificate
             ? l.devicesRecoveryCodeHint
             : l.devicesPhraseHint,
+        isRecoveryCode: usesCertificate,
       ),
     );
     if (words == null || words.isEmpty || !mounted) return;
@@ -809,115 +814,6 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   }
 }
 
-/// A copy control for a credential, with the clipboard's lifetime attached.
-///
-/// Three secrets on this screen went onto the system-wide clipboard and stayed
-/// there for as long as the person did not copy something else: the recovery
-/// CERTIFICATE, the recovery CODE, and the device-adoption TOKEN. The
-/// certificate and the code TOGETHER are a whole recovery capability for this
-/// identity — the sheet's own warning says as much — and the token adopts a
-/// device into the group. That is the same credential class as the API token,
-/// which was bounded first, and strictly more dangerous: the API token is
-/// revocable from the same screen, a sovereign recovery capability is not.
-///
-/// Why the clear is UNCONDITIONAL rather than compare-then-clear is argued in
-/// clipboard_secret.dart and is not repeated here: reading the clipboard back
-/// on iOS 16+ raises a "pasted from xVeil" banner, so the check would announce
-/// itself every time. The honest price of clearing blind is telling the person
-/// the window exists before it starts — which is what [copiedMessage] is for,
-/// and why it takes the number of seconds rather than hard-coding one that can
-/// drift away from [kClipboardSecretLifetime].
-class SecretCopyButton extends StatelessWidget {
-  const SecretCopyButton({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.copiedMessage,
-    this.schedule = clearClipboardLater,
-  });
-
-  /// Text on the button.
-  final String label;
-
-  /// Read at TAP time, not captured at build time: these sheets rebuild around
-  /// the secret as it is produced, and a stale capture would copy the value
-  /// from a previous frame.
-  final String Function() value;
-
-  /// The localised "copied, cleared in N seconds" line, taking the window.
-  /// The generated getter is passed directly so the number the person is told
-  /// and the number the timer waits are one value.
-  final String Function(int seconds) copiedMessage;
-
-  /// Injectable so a test can watch the scheduling without waiting 45 s.
-  final Future<void> Function() schedule;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextButton.icon(
-      onPressed: () async {
-        await Clipboard.setData(ClipboardData(text: value()));
-        // Fire and forget, deliberately: the clear must happen even when this
-        // sheet is closed a second later, which is the case where the person
-        // is least likely to clear it themselves.
-        unawaited(schedule());
-        if (!context.mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(copiedMessage(kClipboardSecretLifetime.inSeconds)),
-          ),
-        );
-      },
-      icon: const Icon(Icons.copy),
-      label: Text(label),
-    );
-  }
-}
-
-/// A credential put on screen, and put there ONLY — the copy control beside it
-/// is the single route off it.
-///
-/// The three secrets on this screen were displayed in [SelectableText], which
-/// is an `EditableText` in read-only clothes. Long-press → Copy on a phone and
-/// Ctrl/Cmd-C on a desktop both land in `Clipboard.setData` inside the
-/// framework: no timer, no snackbar, no bound. So beside the [SecretCopyButton]
-/// that schedules the clear and states the window, each of the certificate, the
-/// code and the adoption token also had a second, unbounded route onto a
-/// clipboard every app can read — on the one sheet the app wraps in
-/// [SecureScreenGuard] precisely because a capture of it reconstructs the
-/// signer.
-///
-/// Hiding the toolbar item was NOT the fix: `copySelection` is reached by the
-/// keyboard shortcut with no toolbar ever built, so a `contextMenuBuilder` that
-/// drops "Copy" is a lid laid over the hole. The text has to stop being
-/// selectable.
-///
-/// [SelectionContainer.disabled] is not redundant with plain [Text]. There is
-/// no ancestor `SelectionArea` on this screen today, and this is what stops
-/// that from being a fact somebody has to keep remembering: wrap a sheet in one
-/// tomorrow and every other line becomes selectable while these three do not.
-class SecretText extends StatelessWidget {
-  const SecretText(this.secret, {super.key, this.maxLines, this.fontSize});
-
-  /// The credential itself.
-  final String secret;
-
-  /// Clipped past this many lines, as the certificate was before.
-  final int? maxLines;
-
-  /// Null keeps the surrounding text size; the long values ask for 10.
-  final double? fontSize;
-
-  @override
-  Widget build(BuildContext context) => SelectionContainer.disabled(
-    child: Text(
-      secret,
-      maxLines: maxLines,
-      style: TextStyle(fontFamily: 'monospace', fontSize: fontSize),
-    ),
-  );
-}
-
 class _RecoveryExportSheet extends StatefulWidget {
   const _RecoveryExportSheet({
     required this.service,
@@ -939,6 +835,18 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
   bool _busy = false;
   bool _failed = false;
 
+  /// A refusal the person can act on, told apart from one they cannot.
+  ///
+  /// Every failure here used to arrive as one sentence about "the operation",
+  /// because the whole body sat under `catch (_)`. The overwhelmingly common
+  /// cause is a secret that does not open this identity — a dropped word, a
+  /// typo — and that is the one case where saying so turns a dead end into a
+  /// second attempt. Anything else keeps the generic message: guessing at a
+  /// cause is worse than admitting there is none.
+  bool _secretDidNotFit = false;
+
+
+
   @override
   void dispose() {
     _secret.clear();
@@ -947,12 +855,22 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
   }
 
   Future<void> _create() async {
-    final secret = _secret.text.trim();
+    // Read by the SAME rule the phrase was written by. The native side
+    // normalizes nothing — the secret goes into the KDF as raw bytes — so a
+    // pasted phrase carrying a newline between two lines, a double space after
+    // a wrap, or capitals from a notes app is simply the wrong key, and the
+    // only symptom is a refusal. A recovery code is left alone: it is
+    // base64url, where case is content.
+    final secret = normalizeSovereignSecret(
+      _secret.text,
+      isRecoveryCode: widget.credentialKind == 'certificate',
+    );
     _secret.clear();
     if (secret.isEmpty) return;
     setState(() {
       _busy = true;
       _failed = false;
+      _secretDidNotFit = false;
     });
     try {
       final exported = await widget.service.exportRecoveryCertificate(secret);
@@ -973,6 +891,15 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
         _code = exported.code;
         _nodeId = exported.nodeId;
       });
+    } on VeilException {
+      // The native layer refused to open the credential with this secret.
+      // That is the answer the person needs: try the phrase again.
+      if (mounted) {
+        setState(() {
+          _failed = true;
+          _secretDidNotFit = true;
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _failed = true);
     } finally {
@@ -1061,7 +988,16 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
             if (_certificate == null) ...[
               TextField(
                 controller: _secret,
+                // Masked, and staying masked. A reveal toggle would read the
+                // secret back onto the screen, and `ssh_private_key_field_test`
+                // holds the invariant that a secret input either carries
+                // `obscureText: true` or goes through the widget that brings
+                // the screenshot guard with it. The word count below is the
+                // signal a bad paste actually needs, and it costs nothing.
                 obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   labelText: usesCertificate
                       ? l.devicesRecoveryCode
@@ -1072,6 +1008,20 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
                 ),
                 onSubmitted: _busy ? null : (_) => _create(),
               ),
+              // The one signal a masked field can honestly give. A phrase
+              // pasted with a stray line break counts 25 against 24, and a
+              // dropped word counts 23 — both invisible in a row of dots, and
+              // both the whole of what went wrong.
+              if (!usesCertificate) ...[
+                const SizedBox(height: 8),
+                Text(
+                  l.devicesPhraseWordCount(
+                    sovereignPhraseWordCount(_secret.text),
+                    kSovereignPhraseWords,
+                  ),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
               const SizedBox(height: 16),
               FilledButton.icon(
                 onPressed: _busy ? null : _create,
@@ -1114,7 +1064,9 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
-                  l.devicesOperationFailed,
+                  _secretDidNotFit
+                      ? l.devicesSecretDidNotFit
+                      : l.devicesOperationFailed,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
