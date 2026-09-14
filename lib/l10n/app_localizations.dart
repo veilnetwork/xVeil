@@ -10172,6 +10172,72 @@ abstract class AppL10n {
   /// **'Restore with the 24 words'**
   String get onboardRestoreWithPhrase;
 
+  /// No description provided for @onboardRestoreFromArchive.
+  ///
+  /// In en, this message translates to:
+  /// **'Restore from an archive'**
+  String get onboardRestoreFromArchive;
+
+  /// No description provided for @onboardRestoreFromArchiveSub.
+  ///
+  /// In en, this message translates to:
+  /// **'A file this identity wrote on another device, with the identity inside'**
+  String get onboardRestoreFromArchiveSub;
+
+  /// No description provided for @onboardArchiveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Become this device again'**
+  String get onboardArchiveTitle;
+
+  /// No description provided for @onboardArchiveBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the archive you exported with “Include identity”. This install takes the identity from it now; the conversations and files are merged afterwards, from the same file.'**
+  String get onboardArchiveBody;
+
+  /// No description provided for @onboardArchivePick.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose the archive'**
+  String get onboardArchivePick;
+
+  /// No description provided for @onboardArchiveChosen.
+  ///
+  /// In en, this message translates to:
+  /// **'Identity {id}…, written {when}'**
+  String onboardArchiveChosen(String id, String when);
+
+  /// No description provided for @onboardArchiveNoIdentity.
+  ///
+  /// In en, this message translates to:
+  /// **'This archive carries no identity. Restore with your certificate or your 24 words first, then merge this file from Settings → Data transfer.'**
+  String get onboardArchiveNoIdentity;
+
+  /// No description provided for @onboardArchiveBad.
+  ///
+  /// In en, this message translates to:
+  /// **'That file is not an xVeil archive, or it is damaged.'**
+  String get onboardArchiveBad;
+
+  /// No description provided for @onboardArchivePasswordLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Archive password'**
+  String get onboardArchivePasswordLabel;
+
+  /// No description provided for @onboardArchiveContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Take the identity from this archive'**
+  String get onboardArchiveContinue;
+
+  /// No description provided for @onboardArchiveMergeLater.
+  ///
+  /// In en, this message translates to:
+  /// **'Your conversations are not here yet. Open Settings → Account → Data transfer → Import and choose the same archive to merge them in.'**
+  String get onboardArchiveMergeLater;
+
   /// No description provided for @devicesRevokeTitle.
   ///
   /// In en, this message translates to:

@@ -5767,6 +5767,46 @@ class AppL10nEn extends AppL10n {
   String get onboardRestoreWithPhrase => 'Restore with the 24 words';
 
   @override
+  String get onboardRestoreFromArchive => 'Restore from an archive';
+
+  @override
+  String get onboardRestoreFromArchiveSub =>
+      'A file this identity wrote on another device, with the identity inside';
+
+  @override
+  String get onboardArchiveTitle => 'Become this device again';
+
+  @override
+  String get onboardArchiveBody =>
+      'Choose the archive you exported with “Include identity”. This install takes the identity from it now; the conversations and files are merged afterwards, from the same file.';
+
+  @override
+  String get onboardArchivePick => 'Choose the archive';
+
+  @override
+  String onboardArchiveChosen(String id, String when) {
+    return 'Identity $id…, written $when';
+  }
+
+  @override
+  String get onboardArchiveNoIdentity =>
+      'This archive carries no identity. Restore with your certificate or your 24 words first, then merge this file from Settings → Data transfer.';
+
+  @override
+  String get onboardArchiveBad =>
+      'That file is not an xVeil archive, or it is damaged.';
+
+  @override
+  String get onboardArchivePasswordLabel => 'Archive password';
+
+  @override
+  String get onboardArchiveContinue => 'Take the identity from this archive';
+
+  @override
+  String get onboardArchiveMergeLater =>
+      'Your conversations are not here yet. Open Settings → Account → Data transfer → Import and choose the same archive to merge them in.';
+
+  @override
   String devicesRevokeTitle(String device) {
     return 'Revoke $device?';
   }

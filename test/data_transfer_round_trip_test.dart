@@ -398,6 +398,105 @@ void main() {
     expect(target.nodeConfig, contains('secret'));
   });
 
+  group('what an identity may replace', () {
+    // The refusal stands for one rule: an archive must never put ANOTHER
+    // device's node key onto this one, because two devices of an identity
+    // sharing a key are one node. It used to enforce that by counting — any
+    // stored identity refused any archive carrying one — which is stricter
+    // than the rule and strict enough to break the only route the app has for
+    // restoring an identity from an archive: adopt the key on a clean install,
+    // then merge the rest of the SAME file once there is a session. The second
+    // step met its own first step and called it a clone.
+    const toml = '[identity]\nkey = "mine"';
+
+    Future<Uint8List> identityArchive() async {
+      final out = BytesBuilder();
+      final w = await DataTransferWriter.open(
+        sink: (b) async => out.add(b),
+        header: TransferHeader(
+          createdMs: 1,
+          nodeIdHex: hexOf(1),
+          includesIdentity: true,
+          includesFiles: false,
+        ),
+      );
+      await w.add(
+        TransferRecord(
+          kind: TransferRecordKind.identity,
+          payload: Uint8List.fromList(utf8.encode(toml)),
+        ),
+      );
+      await w.close();
+      return out.toBytes();
+    }
+
+    test('the key this device already runs on is adopted again as a no-op', () async {
+      final bytes = await identityArchive();
+      final target = _Space(nodeConfig: toml);
+      final report = await DataImporter(
+        storage: target,
+        appliers: DeviceSyncAppliers()..register((_, {attachmentThumb}) async {}),
+        selfNodeIdHex: hexOf(1),
+      ).run(bytes: Stream.value(bytes));
+      expect(report.identityAdopted, isTrue);
+      expect(
+        target.nodeConfig,
+        toml,
+        reason: 'nothing was replaced, so nothing may have changed',
+      );
+    });
+
+    test('a DIFFERENT key for the same identity is still refused', () async {
+      // The clone this guard exists for: same identity, another device's key.
+      final bytes = await identityArchive();
+      final target = _Space(nodeConfig: '[identity]\nkey = "another device"');
+      await expectLater(
+        DataImporter(
+          storage: target,
+          appliers: DeviceSyncAppliers()
+            ..register((_, {attachmentThumb}) async {}),
+          selfNodeIdHex: hexOf(1),
+        ).run(bytes: Stream.value(bytes)),
+        throwsA(
+          isA<ImportRefused>().having(
+            (e) => e.reason,
+            'reason',
+            ImportRefusal.identityWouldBeReplaced,
+          ),
+        ),
+      );
+      expect(target.nodeConfig, '[identity]\nkey = "another device"');
+    });
+
+    test('the identity can be read out without applying anything', () async {
+      // What a clean install needs before it has a container: the key, with
+      // nothing written and nothing merged.
+      final bytes = await identityArchive();
+      expect(
+        await DataImporter.readIdentity(Stream.value(bytes)),
+        toml,
+      );
+    });
+
+    test('an archive with no identity reads as none, not as a failure', () async {
+      final out = BytesBuilder();
+      final w = await DataTransferWriter.open(
+        sink: (b) async => out.add(b),
+        header: TransferHeader(
+          createdMs: 1,
+          nodeIdHex: hexOf(1),
+          includesIdentity: false,
+          includesFiles: false,
+        ),
+      );
+      await w.close();
+      expect(
+        await DataImporter.readIdentity(Stream.value(out.toBytes())),
+        isNull,
+      );
+    });
+  });
+
   group('the header is a preview, not an authority (report24 CH-W3/CH-W4)', () {
     test('an identity record in a data-only archive is refused', () async {
       // The header says keys:false; the body carries one anyway. Written by

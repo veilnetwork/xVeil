@@ -1,5 +1,8 @@
 import 'dart:async';
 
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,6 +18,8 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/providers.dart';
 import 'bundled_seeds_choice.dart';
+import '../../state/data_import.dart';
+import 'archive_restore_step.dart';
 import 'certificate_restore_input.dart';
 import 'recovery_certificate_step.dart';
 import 'recovery_phrase_input.dart';
@@ -109,6 +114,13 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// words.
   Uint8List? _restoreCertificate;
   String _restoreCode = '';
+
+  /// The node config an archive carried, taken before this install has one.
+  ///
+  /// Stored by the ceremony before the node boots, exactly as a certificate
+  /// is: the node provisions from what the container holds, so an identity
+  /// that arrives afterwards is one the boot was already decided without.
+  String? _restoreNodeConfig;
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _busy = false;
@@ -191,6 +203,48 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _joinExisting = false;
     _restoreCertificate = null;
     _restoreCode = '';
+    _go(3);
+  }
+
+  /// Pick an archive and read what it says about itself.
+  ///
+  /// The reading lives here rather than in the step for one reason: real file
+  /// IO inside `testWidgets` does not fail, it HANGS — stream events are never
+  /// delivered in fake time. The widget is handed what was read.
+  Future<ArchivePreview?> _openArchive({required String? password}) async {
+    final picked = await FilePicker.pickFiles(withReadStream: false);
+    final path = picked?.files.single.path;
+    if (path == null) return null;
+    final file = File(path);
+    final header = await DataImporter.inspect(file.openRead());
+    final identity = header.includesIdentity
+        ? await DataImporter.readIdentity(file.openRead(), password: password)
+        : null;
+    return ArchivePreview(
+      nodeIdHex: header.nodeIdHex,
+      createdMs: header.createdMs,
+      includesIdentity: header.includesIdentity,
+      sealed: header.seal != null,
+      identityToml: identity,
+    );
+  }
+
+  /// Take the identity an archive carries, and nothing else yet.
+  ///
+  /// The conversations cannot come with it: they are applied by the
+  /// device-sync appliers, which the group service registers, which needs a
+  /// signer, which needs the identity this step is still fetching. So the
+  /// merge is the second half, from the same file, once there is something to
+  /// merge into — and the finished app says so rather than leaving the person
+  /// to wonder where their chats went.
+  void _restoreFromArchive(String identityToml) {
+    _restoring = true;
+    _restoreNodeConfig = identityToml;
+    _restoreCertificate = null;
+    _restoreCode = '';
+    _phrase = const [];
+    _realPhrase = false;
+    _joinExisting = false;
     _go(3);
   }
 
@@ -281,6 +335,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // ceremony minted — never both, and either way it is stored before
             // the node boots so the node provisions as the identity it names.
             sovereignCredential: _restoreCertificate ?? _minted?.credential,
+            // The identity an archive carried. Written before the node boots,
+            // for the same reason the credential is.
+            nodeConfigToml: _restoreNodeConfig,
           );
       // Router redirect takes over once phase flips to ready.
     } catch (e) {
@@ -324,7 +381,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onCreate: _startCreate,
               onRestore: () => _go(5),
               onLink: _startLink,
+              onArchive: () => _go(9),
               refused: _createRefusal != null,
+            ),
+            9 => ArchiveRestoreStep(
+              open: _openArchive,
+              onIdentity: _restoreFromArchive,
             ),
             5 => _RestoreStep(
               validate: widget.validatePhrase,
@@ -416,11 +478,18 @@ class _ChoosePath extends StatelessWidget {
     required this.onCreate,
     required this.onRestore,
     required this.onLink,
+    required this.onArchive,
     this.refused = false,
   });
   final VoidCallback onCreate;
   final VoidCallback onRestore;
   final VoidCallback onLink;
+
+  /// The way back for someone who kept a transfer archive rather than — or as
+  /// well as — a certificate. It is last of the four because it is the least
+  /// common, not because it is a lesser answer: an archive that carries the
+  /// identity restores the conversations with it.
+  final VoidCallback onArchive;
 
   /// This device could not produce a recovery phrase, so nothing was created.
   final bool refused;
@@ -483,6 +552,12 @@ class _ChoosePath extends StatelessWidget {
             title: l.onboardLinkDevice,
             subtitle: l.onboardLinkDeviceSub,
             onTap: onLink,
+          ),
+          _OptionCard(
+            icon: Icons.unarchive_outlined,
+            title: l.onboardRestoreFromArchive,
+            subtitle: l.onboardRestoreFromArchiveSub,
+            onTap: onArchive,
           ),
         ],
       ),
