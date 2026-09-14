@@ -15,6 +15,8 @@
 // restored_device_key_test.dart and the live suite. This is the wiring between
 // them, which nothing else touches.
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -60,6 +62,7 @@ class _SpyController extends AppController {
     bool joinExisting = false,
     bool recoveryCertificateOffered = false,
     bool recoveryCertificateSaved = false,
+    Uint8List? sovereignCredential,
   }) {
     seenRestoring = restoringIdentity;
     seenPhrase = identityPhrase;
@@ -72,6 +75,7 @@ class _SpyController extends AppController {
       joinExisting: joinExisting,
       recoveryCertificateOffered: recoveryCertificateOffered,
       recoveryCertificateSaved: recoveryCertificateSaved,
+      sovereignCredential: sovereignCredential,
     );
   }
 }

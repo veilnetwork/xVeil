@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.63] — 2026-09-14
+
+*The certificate is offered while the phrase is still in your hands.*
+
+Saving a recovery certificate used to happen after setup finished: the app
+took you to Devices and asked you to type back the 24 words you had written on
+paper a minute earlier. It now comes right after the phrase, as part of making
+the identity, and asks for nothing — the words are on screen, so the
+certificate is made from them directly.
+
+The step also says what each thing is for, which nothing did before: the words
+are the identity, the certificate is the file that restores it, and the code
+unlocks that file and is kept apart from it. Declining is a proper answer, and
+it names where to go later and what will be asked for there.
+
+The defect behind all this: a phrase pasted into the old sheet was refused with
+no reason given, and the phrase was correct. Nothing below the app normalizes
+that secret — it goes into the key derivation as raw bytes — and of the four
+places that ask for it, only one collapsed spacing and capitals. A paste
+carrying a line break was therefore the wrong key. One rule now serves all
+four, and it knows a recovery CODE is not words: its capitals are content.
+The sheet counts the words as you type, and says when it was the secret that
+did not fit rather than "could not complete".
+
+analyze clean, 4605 tests green with 96 skipped.
+
 ## [0.13.62] — 2026-09-14
 
 *Whether the app could reach the network at all was a coin toss on the identity you made.*
