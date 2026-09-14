@@ -8,88 +8,55 @@ bumps may change behaviour a user notices.
 
 ## [0.13.64] — 2026-09-14
 
-*A certificate that names the identity you actually keep.*
+*Reaching the network was a coin toss, and the way back out was a file that named nobody.*
 
-The recovery certificate offered during setup in 0.13.63 certified a key that
-was then thrown away: the app minted its own on first boot. That looks
-harmless only if the recovery phrase decides the whole master key. It does
-not. The master is a hybrid of two signatures, and while the 24 words fix the
-Ed25519 half, the Falcon half is drawn at random — one phrase, run twice,
-produces two different identities. So the file looked correct and restored
-nobody, and nothing would have said so until the day every device was gone.
+**You could not get onto the network at all, and it depended on your name.**
+Reported as "0 nodes connected" on a fresh identity. The rule that decides
+which side of a pair makes the lasting dial compares the two node ids: it
+cancels one dial and relies on the far side making the other. A seed found at
+a public meeting point holds no row for the client that found it — the app
+only reads that index and announces nothing there — so the cancelled dial
+never happened, and an identity sorting after every seed sat at zero sessions
+for good. Roughly one in five, redrawn with every identity, which is why it
+looked like it had worked before. Measured on the production network with the
+same config and a clean state, only the binary differing: an identity minted
+to sort after all three seeds went from 0 sessions to 3. veil 0.11.32 carries
+the fix.
 
-The certificate and the identity are now the same thing by construction: the
-key is made once, during setup, and kept. Going back a step and forward again
-reuses it rather than quietly renaming you underneath a file already saved.
+**The recovery certificate is now offered while the phrase is still in your
+hands** — right after the 24 words, as part of making the identity, instead of
+afterwards on a screen that asked you to type them back in.
 
-The wording changed with it, because the wording was wrong in the same way. It
-said the 24 words were your identity. They are half of the key and the
-password to the certificate; on their own they restore a DIFFERENT identity,
-at an address none of your contacts hold. The certificate is the only complete
-copy of the key, and the code that unlocks it belongs somewhere else.
+It also says what each thing is for, which nothing did: the words are half of
+the key and the password to the certificate; the certificate is the only
+complete copy of the key; the code unlocks it and belongs somewhere else. That
+wording is not a simplification of the old one, it is a correction. The master
+is a hybrid of two signatures, and while the 24 words fix the Ed25519 half,
+the Falcon half is drawn at random — one phrase, run twice, produces two
+different identities. So the words alone restore a DIFFERENT identity, at an
+address none of your contacts hold, and the certificate is what brings the
+real one back. Declining is a proper answer, and it names where to go later.
 
-Also: wiping every trace on macOS ended by warning that the tunnel might still
-be running. There is no tunnel in this build — the macOS packet extension is
-not shipped — and the app was reading "there is no tunnel here" as "the tunnel
-would not stop". A false alarm on the one screen that has to be believed. A
-tunnel that really refuses to stop is still reported.
+**A phrase you pasted was refused, and the phrase was correct.** Nothing below
+the app normalizes that secret — it goes into the key derivation as raw bytes
+— and of the four places that ask for it, only one collapsed spacing and
+capitals. A paste carrying a line break was therefore the wrong key, reported
+as "could not complete" with no cause. One rule now serves all four, and it
+knows a recovery CODE is not words: its capitals are content. The sheet counts
+the words as you type, and says when it was the secret that did not fit.
+
+**Wiping every trace warned that the tunnel might still be running.** There is
+no tunnel in the macOS build — the packet extension is not shipped — and the
+app was reading "there is no tunnel here" as "the tunnel would not stop". A
+false alarm on the one screen that has to be believed. A tunnel that really
+refuses to stop is still reported.
+
+**Also:** a node could fail to boot with "could not create a private staging
+directory" when the container's tmp had been swept — the staging base is now
+created rather than assumed.
 
 analyze clean, 4614 tests green with 94 skipped.
 
-## [0.13.63] — 2026-09-14
-
-*The certificate is offered while the phrase is still in your hands.*
-
-Saving a recovery certificate used to happen after setup finished: the app
-took you to Devices and asked you to type back the 24 words you had written on
-paper a minute earlier. It now comes right after the phrase, as part of making
-the identity, and asks for nothing — the words are on screen, so the
-certificate is made from them directly.
-
-The step also says what each thing is for, which nothing did before: the words
-are the identity, the certificate is the file that restores it, and the code
-unlocks that file and is kept apart from it. Declining is a proper answer, and
-it names where to go later and what will be asked for there.
-
-The defect behind all this: a phrase pasted into the old sheet was refused with
-no reason given, and the phrase was correct. Nothing below the app normalizes
-that secret — it goes into the key derivation as raw bytes — and of the four
-places that ask for it, only one collapsed spacing and capitals. A paste
-carrying a line break was therefore the wrong key. One rule now serves all
-four, and it knows a recovery CODE is not words: its capitals are content.
-The sheet counts the words as you type, and says when it was the secret that
-did not fit rather than "could not complete".
-
-analyze clean, 4605 tests green with 96 skipped.
-
-## [0.13.62] — 2026-09-14
-
-*Whether the app could reach the network at all was a coin toss on the identity you made.*
-
-Reported as "0 nodes connected" after creating a fresh identity. My first
-reading was that the network held only its seeds and the zero was honest; the
-owner said clients used to find the bootstrap nodes and stay connected, and the
-measurement agreed with the owner, not with me.
-
-The rule that decides which side of a pair makes the lasting dial compares the
-two node ids. It cancels one of the two dials and relies on the far side making
-the one it cancelled — but a seed found at a public meeting point holds no row
-for the client that found it, because the app only READS that index and
-announces nothing there. So the dial it waited for did not exist, and an app
-whose identity sorted after every seed sat at zero sessions for good. Roughly
-one identity in five, drawn fresh each time one is created, which is why it
-looked like it had worked before.
-
-Measured on the production network with the same config and a clean state,
-only the binary differing: an identity minted to sort after all three seeds
-went from 0 sessions to 3, and a control between them from 2 to 3. veil
-0.11.32 carries the fix.
-
-Also in this release: a node could fail to boot with "could not create a
-private staging directory" when the container's tmp had been swept — the
-staging base is now created rather than assumed.
-
-analyze clean, tests green.
 
 ## [0.13.61] — 2026-09-13
 
