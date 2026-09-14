@@ -53,6 +53,7 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
         helperText: usesCertificate
             ? l.devicesRecoveryCodeHint
             : l.devicesPhraseHint,
+        isRecoveryCode: usesCertificate,
       ),
     );
     if (secret == null || secret.isEmpty || !mounted) return null;

@@ -58,6 +58,8 @@ class _SpyController extends AppController {
     String? identityPhrase,
     bool restoringIdentity = false,
     bool joinExisting = false,
+    bool recoveryCertificateOffered = false,
+    bool recoveryCertificateSaved = false,
   }) {
     seenRestoring = restoringIdentity;
     seenPhrase = identityPhrase;
@@ -68,6 +70,8 @@ class _SpyController extends AppController {
       identityPhrase: identityPhrase,
       restoringIdentity: restoringIdentity,
       joinExisting: joinExisting,
+      recoveryCertificateOffered: recoveryCertificateOffered,
+      recoveryCertificateSaved: recoveryCertificateSaved,
     );
   }
 }

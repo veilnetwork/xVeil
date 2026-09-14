@@ -15,6 +15,7 @@ import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/providers.dart';
 import 'bundled_seeds_choice.dart';
+import 'recovery_certificate_step.dart';
 import 'recovery_phrase_input.dart';
 
 /// First-launch wizard. Steps:
@@ -76,6 +77,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// there was a question — so someone who walks through without reading has
   /// the app that works, and only a deliberate tap takes it off the network.
   bool _useBundledSeeds = kBundledSeedsDefault;
+
+  /// Whether the ceremony's certificate step actually put a copy on disk.
+  ///
+  /// Not "whether it was offered" and not "whether one was minted": the file
+  /// is read back before this turns true. It decides one thing — whether the
+  /// router still pushes the devices screen at the end to ask again. Someone
+  /// who declined has just been asked and told where to go; asking twice in
+  /// thirty seconds is nagging, and the standing reminder on that screen is
+  /// what keeps the matter open for them.
+  bool _certificateSaved = false;
   final _passwordCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _busy = false;
@@ -205,6 +216,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // own under the phrase's identity.
             restoringIdentity: _restoring,
             joinExisting: _joinExisting,
+            // The ceremony already put this question to them, with the phrase
+            // in hand and nothing to retype. Whatever they answered, the
+            // end-of-onboarding push has nothing left to add.
+            recoveryCertificateOffered: _realPhrase && _step >= 3,
+            recoveryCertificateSaved: _certificateSaved,
           );
       // Router redirect takes over once phase flips to ready.
     } catch (e) {
@@ -232,6 +248,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 onPressed: () => _go(switch (_step) {
                   4 => 7,
                   7 => 3,
+                  3 => _realPhrase ? 8 : 2,
+                  8 => 2,
                   2 || 5 || 6 => 1,
                   _ => 0,
                 }),
@@ -258,7 +276,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               real: _realPhrase,
               confirmed: _phraseConfirmed,
               onConfirmedChanged: (v) => setState(() => _phraseConfirmed = v),
-              onNext: () => _go(3),
+              // The certificate comes NEXT, while these words are still on
+              // screen — the whole reason it can be made without asking for
+              // them back. A placeholder phrase (loopback/test builds with no
+              // native library) mints nothing, so that path keeps the old
+              // route straight to storage.
+              onNext: () => _go(_realPhrase ? 8 : 3),
+            ),
+            8 => RecoveryCertificateStep(
+              phrase: _phrase.join(' '),
+              onDone: ({required bool saved}) {
+                _certificateSaved = saved;
+                _go(3);
+              },
             ),
             3 => _StorageChoice(
               mode: _mode,

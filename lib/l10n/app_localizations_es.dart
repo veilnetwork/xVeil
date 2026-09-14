@@ -5763,6 +5763,56 @@ class AppL10nEs extends AppL10n {
   String get devicesRevoke => 'Revocar dispositivo';
 
   @override
+  String get devicesSecretDidNotFit =>
+      'Ese secreto no abrió esta identidad. Comprueba si falta o sobra una palabra y si hay una errata: los espacios y las mayúsculas no importan.';
+
+  @override
+  String devicesPhraseWordCount(int count, int total) {
+    return '$count de $total palabras';
+  }
+
+  @override
+  String get onboardCertTitle =>
+      'Una forma de volver si pierdes todos los dispositivos';
+
+  @override
+  String get onboardCertWhy =>
+      'Tu identidad la nombra una clave que solo vive en tus dispositivos. La frase que acabas de anotar puede reconstruirla, y también un certificado de recuperación: un archivo que puedes guardar en un lugar seguro. Créalo ahora, mientras nada ha fallado.';
+
+  @override
+  String get onboardCertRolePhrase =>
+      'Las 24 palabras son la identidad misma. Quien las lea se convierte en ti: guárdalas sin conexión, en papel.';
+
+  @override
+  String get onboardCertRoleFile =>
+      'El certificado es un archivo que restaura esta identidad. Inútil por sí solo: lo bloquea el código de abajo.';
+
+  @override
+  String get onboardCertRoleCode =>
+      'El código desbloquea el certificado. Guárdalo APARTE del archivo: juntos son la identidad entera.';
+
+  @override
+  String get onboardCertCreate => 'Crear el certificado';
+
+  @override
+  String get onboardCertSkip => 'Ahora no';
+
+  @override
+  String get onboardCertContinue => 'Listo: continuar';
+
+  @override
+  String get onboardCertLater =>
+      'Puedes hacerlo más tarde en Ajustes → Dispositivos → «Crear certificado de recuperación». Te pedirá las 24 palabras que acabas de guardar, así que tenlas a mano.';
+
+  @override
+  String get onboardCertFailed =>
+      'No se pudo crear el certificado. Puedes crear uno más tarde en Ajustes → Dispositivos.';
+
+  @override
+  String get onboardCertNotSavedYet =>
+      'Guarda el archivo antes de continuar: solo existe en esta pantalla.';
+
+  @override
   String devicesRevokeTitle(String device) {
     return 'Revoke $device?';
   }
