@@ -2387,6 +2387,18 @@
   "onboardRestoreCertificateSubmit": "Восстановить по сертификату",
   "onboardRestoreCertificateBad": "Этот файл не сертификат восстановления xVeil или повреждён.",
   "onboardRestoreWithPhrase": "Восстановить по 24 словам",
+  "onboardRestoreFromArchive": "Восстановить из архива",
+  "onboardRestoreFromArchiveSub": "Файл, записанный этой личностью на другом устройстве, вместе с личностью",
+  "onboardArchiveTitle": "Снова стать этим устройством",
+  "onboardArchiveBody": "Выберите архив, записанный с галочкой «Включить личность». Личность эта установка возьмёт из него сейчас; переписка и файлы вольются потом, из того же файла.",
+  "onboardArchivePick": "Выбрать архив",
+  "onboardArchiveChosen": "Личность {id}…, записан {when}",
+  "@onboardArchiveChosen": {"placeholders": {"id": {"type": "String"}, "when": {"type": "String"}}},
+  "onboardArchiveNoIdentity": "В этом архиве нет личности. Восстановитесь сертификатом или 24 словами, а затем влейте этот файл в Настройках → Перенос данных.",
+  "onboardArchiveBad": "Этот файл не архив xVeil или повреждён.",
+  "onboardArchivePasswordLabel": "Пароль архива",
+  "onboardArchiveContinue": "Взять личность из этого архива",
+  "onboardArchiveMergeLater": "Переписки здесь пока нет. Откройте Настройки → Аккаунт → Перенос данных → Импорт и выберите тот же архив, чтобы влить её.",
   "devicesRevokeTitle": "Отозвать {device}?",
   "@devicesRevokeTitle": {
     "placeholders": {
