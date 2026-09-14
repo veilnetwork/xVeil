@@ -2433,6 +2433,16 @@
   "onboardCertLater": "You can do this later in Settings → Devices → “Create recovery certificate”. It will ask for the 24 words you just saved. Until a certificate exists, losing every device loses this identity — the words cannot bring it back on their own.",
   "onboardCertFailed": "The certificate could not be created. You can make one later from Settings → Devices.",
   "onboardCertNotSavedYet": "Save the file before moving on. It exists only on this screen, and it is the only copy of half your key.",
+  "onboardRestoreWithCertificate": "I have a recovery certificate",
+  "onboardRestoreCertificateBody": "The certificate is what brings back the address your contacts hold. The 24 words alone restore a different identity — use them only if this identity never had a certificate.",
+  "onboardRestorePickCertificate": "Choose the certificate file",
+  "onboardRestoreCertificateChosen": "Certificate for identity {id}…",
+  "@onboardRestoreCertificateChosen": {"placeholders": {"id": {"type": "String"}}},
+  "onboardRestoreCodeLabel": "Recovery code",
+  "onboardRestoreCodeHint": "The code you stored apart from the file. It starts with xvrc-.",
+  "onboardRestoreCertificateSubmit": "Restore from the certificate",
+  "onboardRestoreCertificateBad": "That file is not an xVeil recovery certificate, or it is damaged.",
+  "onboardRestoreWithPhrase": "Restore with the 24 words",
   "devicesRevokeTitle": "Revoke {device}?",
   "@devicesRevokeTitle": {
     "placeholders": {
