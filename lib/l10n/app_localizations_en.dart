@@ -5686,6 +5686,55 @@ class AppL10nEn extends AppL10n {
   String get devicesRevoke => 'Revoke device';
 
   @override
+  String get devicesSecretDidNotFit =>
+      'That secret did not open this identity. Check for a missing or extra word, and for a typo — spacing and capitals do not matter.';
+
+  @override
+  String devicesPhraseWordCount(int count, int total) {
+    return '$count of $total words';
+  }
+
+  @override
+  String get onboardCertTitle => 'A way back if every device is lost';
+
+  @override
+  String get onboardCertWhy =>
+      'Your identity is named by a key that lives only on your devices. The phrase you just wrote down can rebuild it — and so can a recovery certificate, which is a file you can keep in a safe place. Make it now, while nothing has gone wrong.';
+
+  @override
+  String get onboardCertRolePhrase =>
+      'The 24 words are the identity itself. Anyone who reads them becomes you — keep them offline, on paper.';
+
+  @override
+  String get onboardCertRoleFile =>
+      'The certificate is a file that restores this identity. Useless on its own — it is locked by the code below.';
+
+  @override
+  String get onboardCertRoleCode =>
+      'The code unlocks the certificate. Store it APART from the file — together they are the whole identity.';
+
+  @override
+  String get onboardCertCreate => 'Create the certificate';
+
+  @override
+  String get onboardCertSkip => 'Not now';
+
+  @override
+  String get onboardCertContinue => 'Done — continue';
+
+  @override
+  String get onboardCertLater =>
+      'You can do this later in Settings → Devices → “Create recovery certificate”. It will ask for the 24-word phrase you just saved, so keep it where you can reach it.';
+
+  @override
+  String get onboardCertFailed =>
+      'The certificate could not be created. You can make one later from Settings → Devices.';
+
+  @override
+  String get onboardCertNotSavedYet =>
+      'Save the file before moving on — it exists only on this screen.';
+
+  @override
   String devicesRevokeTitle(String device) {
     return 'Revoke $device?';
   }

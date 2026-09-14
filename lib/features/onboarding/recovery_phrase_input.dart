@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../domain/sovereign_secret.dart';
 import '../../l10n/app_localizations.dart';
 
 /// Recovery-phrase entry with live validity feedback. The validator is
@@ -28,10 +29,15 @@ class _RecoveryPhraseInputState extends State<RecoveryPhraseInput> {
   final _ctrl = TextEditingController();
 
   /// Collapse whitespace + lowercase so paste/extra spaces don't break it.
+  ///
+  /// The rule itself lives in `normalizeSovereignSecret`, because this widget
+  /// was the only one of four entry points that had it. The other three
+  /// trimmed the ends and handed the rest straight to a KDF that normalizes
+  /// nothing — so the same pasted phrase worked here and was refused there.
   String get _normalized =>
-      _ctrl.text.trim().toLowerCase().split(RegExp(r'\s+')).join(' ');
+      normalizeSovereignSecret(_ctrl.text, isRecoveryCode: false);
 
-  int get _words => _normalized.isEmpty ? 0 : _normalized.split(' ').length;
+  int get _words => sovereignPhraseWordCount(_ctrl.text);
 
   bool get _valid => _words == widget.wordCount && widget.validate(_normalized);
 
