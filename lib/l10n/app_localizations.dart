@@ -10040,6 +10040,84 @@ abstract class AppL10n {
   /// **'Revoke device'**
   String get devicesRevoke;
 
+  /// No description provided for @devicesSecretDidNotFit.
+  ///
+  /// In en, this message translates to:
+  /// **'That secret did not open this identity. Check for a missing or extra word, and for a typo — spacing and capitals do not matter.'**
+  String get devicesSecretDidNotFit;
+
+  /// No description provided for @devicesPhraseWordCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} of {total} words'**
+  String devicesPhraseWordCount(int count, int total);
+
+  /// No description provided for @onboardCertTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'A way back if every device is lost'**
+  String get onboardCertTitle;
+
+  /// No description provided for @onboardCertWhy.
+  ///
+  /// In en, this message translates to:
+  /// **'Your identity is named by a key that lives only on your devices. The phrase you just wrote down can rebuild it — and so can a recovery certificate, which is a file you can keep in a safe place. Make it now, while nothing has gone wrong.'**
+  String get onboardCertWhy;
+
+  /// No description provided for @onboardCertRolePhrase.
+  ///
+  /// In en, this message translates to:
+  /// **'The 24 words are the identity itself. Anyone who reads them becomes you — keep them offline, on paper.'**
+  String get onboardCertRolePhrase;
+
+  /// No description provided for @onboardCertRoleFile.
+  ///
+  /// In en, this message translates to:
+  /// **'The certificate is a file that restores this identity. Useless on its own — it is locked by the code below.'**
+  String get onboardCertRoleFile;
+
+  /// No description provided for @onboardCertRoleCode.
+  ///
+  /// In en, this message translates to:
+  /// **'The code unlocks the certificate. Store it APART from the file — together they are the whole identity.'**
+  String get onboardCertRoleCode;
+
+  /// No description provided for @onboardCertCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create the certificate'**
+  String get onboardCertCreate;
+
+  /// No description provided for @onboardCertSkip.
+  ///
+  /// In en, this message translates to:
+  /// **'Not now'**
+  String get onboardCertSkip;
+
+  /// No description provided for @onboardCertContinue.
+  ///
+  /// In en, this message translates to:
+  /// **'Done — continue'**
+  String get onboardCertContinue;
+
+  /// No description provided for @onboardCertLater.
+  ///
+  /// In en, this message translates to:
+  /// **'You can do this later in Settings → Devices → “Create recovery certificate”. It will ask for the 24-word phrase you just saved, so keep it where you can reach it.'**
+  String get onboardCertLater;
+
+  /// No description provided for @onboardCertFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'The certificate could not be created. You can make one later from Settings → Devices.'**
+  String get onboardCertFailed;
+
+  /// No description provided for @onboardCertNotSavedYet.
+  ///
+  /// In en, this message translates to:
+  /// **'Save the file before moving on — it exists only on this screen.'**
+  String get onboardCertNotSavedYet;
+
   /// No description provided for @devicesRevokeTitle.
   ///
   /// In en, this message translates to:

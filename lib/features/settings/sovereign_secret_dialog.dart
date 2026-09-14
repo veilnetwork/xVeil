@@ -12,6 +12,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../domain/sovereign_secret.dart';
+
 /// Asks for the secret, and owns the controller that holds it.
 ///
 /// The caller used to build the controller, await `showDialog`, then clear and
@@ -27,6 +29,7 @@ class SovereignSecretDialog extends StatefulWidget {
     required this.confirmLabel,
     required this.fieldLabel,
     required this.helperText,
+    required this.isRecoveryCode,
   });
 
   final String title;
@@ -38,6 +41,13 @@ class SovereignSecretDialog extends StatefulWidget {
   /// (`sovereignCredentialKind`) rather than guessing.
   final String fieldLabel;
   final String helperText;
+
+  /// Which secret is being asked for, so the answer is read back by the right
+  /// rule. A phrase is words — case and run-length of whitespace carry no
+  /// meaning, and a pasted one routinely has both wrong. A recovery code is
+  /// base64url, where case IS content. Passing the wrong one here silently
+  /// destroys a correct code, so it is required rather than defaulted.
+  final bool isRecoveryCode;
 
   @override
   State<SovereignSecretDialog> createState() => _SovereignSecretDialogState();
@@ -72,7 +82,13 @@ class _SovereignSecretDialogState extends State<SovereignSecretDialog> {
           child: Text(MaterialLocalizations.of(context).cancelButtonLabel),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, _secret.text.trim()),
+          onPressed: () => Navigator.pop(
+            context,
+            normalizeSovereignSecret(
+              _secret.text,
+              isRecoveryCode: widget.isRecoveryCode,
+            ),
+          ),
           child: Text(widget.confirmLabel),
         ),
       ],
