@@ -12,6 +12,8 @@
 // service, which needs a signer, which needs the identity — so the step says
 // where the second half happens rather than pretending it already did.
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/features/onboarding/archive_restore_step.dart';
@@ -118,6 +120,31 @@ void main() {
     await tester.pumpAndSettle();
     await pick(tester);
     expect(find.text(AppL10nEn().onboardArchiveBad), findsOneWidget);
+  });
+
+  testWidgets('the refusal says WHY, not just that it was refused', (
+    tester,
+  ) async {
+    // Reported from the field: an archive this app's own reader opens
+    // correctly — header parsed, identity extracted — was refused here as
+    // "damaged", and "damaged" was the only thing anyone could see. One
+    // opaque sentence is the difference between a defect somebody can find
+    // and a person concluding their backup is ruined.
+    await tester.pumpWidget(
+      host(
+        open: ({required password}) async =>
+            throw const FileSystemException('operation not permitted', '/x'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await pick(tester);
+
+    expect(find.text(AppL10nEn().onboardArchiveBad), findsOneWidget);
+    expect(
+      find.textContaining('operation not permitted'),
+      findsOneWidget,
+      reason: 'the reason is what makes the report actionable',
+    );
   });
 
   testWidgets('a sealed archive asks for its password rather than blaming the file', (

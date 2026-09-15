@@ -20,6 +20,7 @@
 
 import 'package:flutter/material.dart';
 
+import '../../core/log.dart';
 import '../../l10n/app_localizations.dart';
 
 /// What an archive says about itself, as far as this step needs it.
@@ -72,6 +73,9 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
   final _password = TextEditingController();
   ArchivePreview? _preview;
   bool _bad = false;
+
+  /// Why it would not open, shown under the plain refusal.
+  String? _badReason;
   bool _needsPassword = false;
   bool _busy = false;
 
@@ -87,6 +91,7 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
     setState(() {
       _busy = true;
       _bad = false;
+      _badReason = null;
     });
     try {
       final preview = await widget.open(
@@ -100,11 +105,25 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
         // between someone typing their password and someone giving up.
         _needsPassword = preview != null && preview.sealed && _password.text.isEmpty;
       });
-    } catch (_) {
+    } catch (e) {
+      // WHAT WENT WRONG, not just that something did.
+      //
+      // Reported from the field: an archive that this app's own reader opens
+      // correctly — header parsed, identity extracted, 883 bytes of it — was
+      // refused here as "damaged". So the failure is not in the parsing, and
+      // "damaged" was the only thing anyone could see. A single opaque
+      // sentence is the reason that report could not be acted on.
+      //
+      // The reason is shown small and last, under the plain message. It is a
+      // path or an exception type and it costs the person nothing to ignore,
+      // while being the whole difference between "my backup is ruined" and a
+      // defect somebody can find.
+      devLog(() => 'xVeil[onboard-archive]: could not open the archive: $e');
       if (mounted) {
         setState(() {
           _preview = null;
           _bad = true;
+          _badReason = e.toString();
         });
       }
     } finally {
@@ -183,6 +202,13 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
           if (_bad) ...[
             const SizedBox(height: 8),
             Text(l.onboardArchiveBad, style: TextStyle(color: scheme.error)),
+            if (_badReason != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                _badReason!,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
           const SizedBox(height: 16),
           // Said BEFORE the step is taken, not after. Someone who presses the
