@@ -5840,6 +5840,10 @@ class AppL10nEn extends AppL10n {
       'The archive carries the identity key locked. This is the secret that opens it — not the archive password, which only unwraps the file.';
 
   @override
+  String get onboardArchiveNoCredential =>
+      'This archive was written before archives carried the identity key. It restores the transport key and the conversations, but the identity will be a DIFFERENT one — at an address your contacts do not hold. Export a fresh archive from the device that still has this identity, or restore from the recovery certificate instead.';
+
+  @override
   String get onboardArchiveContinue => 'Take the identity from this archive';
 
   @override
