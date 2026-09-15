@@ -7,7 +7,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/clipboard_secret.dart';
 import '../../core/log.dart';
 import '../../core/secure_screen.dart';
 import '../../data/identity/veil_identity.dart';
@@ -47,6 +46,8 @@ class OnboardingScreen extends ConsumerStatefulWidget {
     super.key,
     this.validatePhrase = veilPhraseValid,
     this.generatePhrase = veilGeneratePhrase,
+    this.mintIdentity = mintSovereignIdentity,
+    this.saveCertificate,
   });
 
   /// Injectable so widget tests can drive the restore path without the
@@ -62,6 +63,16 @@ class OnboardingScreen extends ConsumerStatefulWidget {
   /// choose. A path this important is worth being able to ask for.
   final String? Function() generatePhrase;
 
+  /// Mints the identity on the create path. Injectable for the same reason as
+  /// the two above: it runs two Argon2 passes through the native library,
+  /// which the test host does not load.
+  final MintedRecovery Function() mintIdentity;
+
+  /// Writes the certificate out. Injectable because the real one opens a file
+  /// dialog and touches the disk; null means the real one.
+  final Future<bool> Function(String certificate, String suggestedName)?
+  saveCertificate;
+
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
 }
@@ -69,7 +80,6 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   int _step = 0;
   List<String> _phrase = const [];
-  bool _phraseConfirmed = false;
 
   /// The user chose to join an existing device group rather than own an
   /// identity. Reset by BOTH other paths: a user who backs out of the link
@@ -152,30 +162,27 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
   void _startCreate() {
     _restoring = false;
-    final real = widget.generatePhrase();
-    // FAIL CLOSED (report17, onboarding fallback).
+    // NO WORDS ON THIS PATH ANY MORE.
     //
-    // When the native generator has nothing to give, this used to hand over 24
-    // words drawn from a list of 28 kept in this file, show a warning, and let
-    // the person carry on. They wrote down something that looks exactly like a
-    // recovery phrase, confirmed it, and got an identity those words restore
-    // NOTHING of — the one failure a recovery phrase exists to prevent, made
-    // to look like the ordinary path. The warning was in the same screen as
-    // the words, so it competed with them.
+    // They were never a backup of this identity: the phrase fixes the Ed25519
+    // half of the hybrid master and the Falcon half is drawn at random, so the
+    // words restore a DIFFERENT identity at an address nobody holds. Asked
+    // from the field once the app finally said so: "зачем теперь 24 слова
+    // записывать при создании личности?" — and there was no good answer.
+    // Writing down a secret that cannot restore anything is worse than writing
+    // down nothing, because it is a backup someone believes in.
     //
-    // An identity is not created at all now. There is nothing useful to do
-    // with a phraseless one, and the person can try again once whatever kept
-    // the generator from answering is dealt with.
-    if (real == null) {
-      setState(() => _createRefusal = 'no-phrase');
-      return;
-    }
-    _realPhrase = true;
-    _phrase = real.split(' ');
-    _phraseConfirmed = false;
+    // The identity is minted on the certificate step instead, and the code it
+    // hands over is the ONLY secret it will ever have — for restoring, for
+    // linking a device, for claiming a nickname, for reissuing the
+    // certificate. One secret, one file, and no question about which of two
+    // things is the backup.
+    _realPhrase = false;
+    _phrase = const [];
     _joinExisting = false;
-    _go(2);
+    _go(8);
   }
+
 
   /// Join an existing device group: no phrase is generated and none is asked
   /// for. The identity minted at the end is temporary — it carries this device
@@ -188,7 +195,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _restoring = false;
     _realPhrase = false;
     _phrase = const [];
-    _phraseConfirmed = false;
     _joinExisting = true;
     _go(6);
   }
@@ -389,9 +395,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // by the words. Handing the phrase to a certificate does not
             // provision a different identity — it fails, and the boot then
             // falls through to no sovereign document at all.
+            // WHICHEVER SECRET OPENS WHAT THIS CONTAINER WILL HOLD. A restore
+            // brought its own credential and the secret that opens it; a
+            // create just minted one, and an XVRC is opened by its code. Only
+            // a phrase-born identity — a restore by words — uses the words.
             identityPhrase: _restoreCertificate != null
                 ? _restoreCode
-                : (_realPhrase ? _phrase.join(' ') : null),
+                : (_minted != null
+                      ? _minted!.code
+                      : (_realPhrase ? _phrase.join(' ') : null)),
             // A RESTORE, not a first mint: this device gets a node key of its
             // own under the phrase's identity.
             restoringIdentity: _restoring,
@@ -399,7 +411,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             // The ceremony already put this question to them, with the phrase
             // in hand and nothing to retype. Whatever they answered, the
             // end-of-onboarding push has nothing left to add.
-            recoveryCertificateOffered: _realPhrase && _step >= 3,
+            // Offered AND taken: the create path cannot leave that step
+            // without the file on disk, so there is nothing left to push.
+            recoveryCertificateOffered: _minted != null,
             recoveryCertificateSaved: _certificateSaved,
             // THE credential, not A credential. The phrase fixes only the
             // ed25519 half of the hybrid master; the Falcon half is drawn at
@@ -450,8 +464,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 onPressed: () => _go(switch (_step) {
                   4 => 7,
                   7 => 3,
-                  3 => _realPhrase ? 8 : 2,
-                  8 => 2,
+                  3 => 8,
+                  // Back from the certificate goes to the choice: on the
+                  // create path there is no words step behind it any more.
+                  8 => _realPhrase ? 2 : 1,
                   // Every step reached FROM the choice goes back to it. The
                   // archive step used to land on the welcome screen instead,
                   // which is a step backwards out of the decision rather than
@@ -492,20 +508,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onCertificate: _restoreWithCertificate,
             ),
             6 => _LinkStep(onNext: () => _go(3)),
-            2 => _Recovery(
-              phrase: _phrase,
-              real: _realPhrase,
-              confirmed: _phraseConfirmed,
-              onConfirmedChanged: (v) => setState(() => _phraseConfirmed = v),
-              // The certificate comes NEXT, while these words are still on
-              // screen — the whole reason it can be made without asking for
-              // them back. A placeholder phrase (loopback/test builds with no
-              // native library) mints nothing, so that path keeps the old
-              // route straight to storage.
-              onNext: () => _go(_realPhrase ? 8 : 3),
-            ),
             8 => RecoveryCertificateStep(
-              phrase: _phrase.join(' '),
+              mintFresh: widget.mintIdentity,
+              save: widget.saveCertificate,
+              // Empty on the create path, which is now every create: the step
+              // mints the identity itself and its code is the only secret.
+              phrase: _realPhrase ? _phrase.join(' ') : '',
               already: _minted,
               onDone: ({required bool saved, Uint8List? credential}) {
                 _certificateSaved = saved;
@@ -895,295 +903,6 @@ class _OptionCard extends StatelessWidget {
         subtitle: Text(subtitle),
         onTap: onTap,
       ),
-    );
-  }
-}
-
-/// Finds the row carrying word [index] (0-based) of the recovery phrase.
-///
-/// The words repeat — the placeholder generator draws WITH replacement, and a
-/// real BIP-39 phrase may repeat too — so a test cannot find word 24 by its
-/// text. It has to ask for the twenty-fourth ROW, which is exactly what the
-/// layout gate needs: the defect was widgets that existed and were off-screen.
-Key recoveryWordKey(int index) => ValueKey('recovery-word-$index');
-
-class _Recovery extends StatefulWidget {
-  const _Recovery({
-    required this.phrase,
-    required this.real,
-    required this.confirmed,
-    required this.onConfirmedChanged,
-    required this.onNext,
-  });
-  final List<String> phrase;
-
-  /// False when the native generator was unavailable and [phrase] is the
-  /// placeholder. `veilGeneratePhrase()` returns null precisely so callers can
-  /// degrade HONESTLY; showing these words with the ordinary "write them down"
-  /// copy told the user to back up 24 words that restore nothing, while the
-  /// identity was minted at random.
-  final bool real;
-  final bool confirmed;
-  final ValueChanged<bool> onConfirmedChanged;
-  final VoidCallback onNext;
-
-  @override
-  State<_Recovery> createState() => _RecoveryState();
-}
-
-/// The 24 words, laid out so that a person can copy ALL of them.
-///
-/// What was here before was a `Wrap` of chips inside its own
-/// `Expanded(SingleChildScrollView(...))`, with the confirm checkbox and the
-/// Continue button pinned OUTSIDE that scroll. On an iPhone 17 Pro (402x874)
-/// ten of the twenty-four chips were fully on screen and the rest were below
-/// the fold; the inner scroll clipped flush with the chip above it, so there
-/// was no partial row and no cue that anything followed. Worse, the confirm
-/// checkbox — the control that says "I have written them down" — was reachable
-/// without the later words ever having been rendered on screen. At 360x640 the
-/// column overflowed outright and NOT ONE word was on screen. Someone who
-/// copied what they saw lost the identity, and found out the first time they
-/// tried to restore it, which may be years later.
-///
-/// Three things changed, and the order matters:
-///
-///  1. Chips are gone. A chip is a pill sized to its own text, so 24 of them
-///     wrap into a ragged block whose height depends on the words that were
-///     drawn — the layout could not be reasoned about, let alone asserted.
-///     They are a fixed TWO-COLUMN numbered list now, 1–12 beside 13–24, which
-///     is the shape of a paper backup sheet and costs a predictable twelve
-///     rows regardless of which words came up — roughly 310 logical pixels at
-///     the default text size, which leaves the prose and the confirmation
-///     room to share an 874 pt screen instead of competing with it.
-///  2. The step scrolls as ONE page, and the checkbox and button live inside
-///     that scroll, below word 24. So when the words do not fit — large system
-///     text, a shorter screen — the person cannot reach the control that
-///     confirms the backup without word 24 having passed under their finger,
-///     and an always-visible scrollbar says there is more.
-///  3. The count is stated in words as well as in geometry
-///     ([AppL10n.recoveryNumbered]), and the checkbox names the number it is
-///     confirming.
-///
-/// Copying all 24 words IS offered here, and this note used to say the
-/// opposite — it was considered and rejected once, on grounds that still
-/// stand: the clipboard is system-wide, survives the lock screen, and on both
-/// Apple and Windows syncs to machines the container knows nothing about.
-/// Bounding it to 30 seconds (clipboard_secret.dart) makes that exposure
-/// smaller; it does not make the clipboard a good place for a master seed.
-///
-/// The owner of this project asked for it anyway (2026-09-08), and the reason
-/// is the one the old note did not weigh: a person who cannot get the words
-/// off the device by ANY means writes them down wrong, or photographs the
-/// screen with a second phone, and the failure that actually loses identities
-/// is a phrase transcribed with one word missing — not a clipboard read by a
-/// hostile app. So the button exists, and the interface says what it costs, in
-/// the same breath as the copy rather than in a settings note nobody reads.
-///
-/// Two things it does NOT do: it never offers to copy the placeholder words
-/// (copying twenty-four words that restore nothing is worse than not copying),
-/// and it does not weaken [SecureScreenGuard] — screenshots of this step stay
-/// blocked, because a screenshot is silent and permanent while this copy
-/// announces itself and expires.
-class _RecoveryState extends State<_Recovery> {
-  final _scroll = ScrollController();
-
-  /// Whether the words were put on the clipboard during this visit — shown so
-  /// the person knows the 45-second window has started.
-  bool _copied = false;
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  /// Put the phrase on the clipboard and arm its removal.
-  ///
-  /// The words are joined with single spaces, which is the form
-  /// `validatePhrase` and the restore step accept — a copy that has to be
-  /// reformatted before it can be pasted back is not a backup.
-  Future<void> _copy() async {
-    await Clipboard.setData(ClipboardData(text: widget.phrase.join(' ')));
-    // Not awaited: it resolves 30 seconds from now, and it must happen even if
-    // the person leaves this screen — which is exactly when they will not
-    // clear it themselves.
-    unawaited(clearClipboardLater(after: kRecoveryPhraseClipboardLifetime));
-    if (mounted) setState(() => _copied = true);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l = AppL10n.of(context);
-    final theme = Theme.of(context);
-    // The one screen in the app that shows, in plain words, everything needed
-    // to become this person. A screenshot of it — taken by the user for
-    // convenience, by a recording app, or by whatever is on the device — is the
-    // identity itself (audit X-11). Scoped to this step so screen sharing keeps
-    // working everywhere else.
-    return SecureScreenGuard(
-      child: Scrollbar(
-        controller: _scroll,
-        // Not "when scrolling": a cue that appears only once the person has
-        // already scrolled cannot tell them that scrolling is needed. This is
-        // the affordance the old layout had none of.
-        thumbVisibility: true,
-        child: SingleChildScrollView(
-          controller: _scroll,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(l.recoveryTitle, style: theme.textTheme.headlineSmall),
-              const SizedBox(height: 12),
-              Text(l.recoveryBody, style: theme.textTheme.bodyMedium),
-              if (!widget.real) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(
-                        Icons.warning_amber_outlined,
-                        color: theme.colorScheme.onErrorContainer,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          l.recoveryPlaceholderWarning,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onErrorContainer,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-              const SizedBox(height: 16),
-              Text(
-                l.recoveryNumbered,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _PhraseGrid(phrase: widget.phrase),
-              // Only for REAL words: the placeholder branch above already says
-              // these restore nothing, and a copy button under that warning
-              // would be an invitation to save them anyway.
-              if (widget.real) ...[
-                const SizedBox(height: 12),
-                Text(
-                  l.recoveryCopyCaution,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _copy,
-                      icon: const Icon(Icons.copy_outlined),
-                      label: Text(l.recoveryCopy),
-                    ),
-                    if (_copied) ...[
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          l.recoveryCopied,
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ],
-              const SizedBox(height: 8),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                value: widget.confirmed,
-                onChanged: (v) => widget.onConfirmedChanged(v ?? false),
-                title: Text(l.recoveryConfirm),
-              ),
-              FilledButton(
-                onPressed: widget.confirmed ? widget.onNext : null,
-                child: Text(l.actionContinue),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Twelve rows of two numbered words, the way a backup sheet is printed.
-///
-/// Down the left column then down the right, so the numbers a person reads
-/// while writing run 1…12, 13…24 without jumping across the page. The number
-/// gutter is a fixed width so the words line up in a column of their own —
-/// with a ragged left edge, "did I already write that one?" has no answer.
-class _PhraseGrid extends StatelessWidget {
-  const _PhraseGrid({required this.phrase});
-
-  final List<String> phrase;
-
-  @override
-  Widget build(BuildContext context) {
-    final half = (phrase.length + 1) ~/ 2;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(child: _column(context, 0, half)),
-        const SizedBox(width: 16),
-        Expanded(child: _column(context, half, phrase.length)),
-      ],
-    );
-  }
-
-  Widget _column(BuildContext context, int from, int to) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = from; i < to; i++)
-          Padding(
-            key: recoveryWordKey(i),
-            padding: const EdgeInsets.symmetric(vertical: 3),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                SizedBox(
-                  width: 22,
-                  child: Text(
-                    '${i + 1}',
-                    textAlign: TextAlign.right,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    phrase[i],
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
     );
   }
 }

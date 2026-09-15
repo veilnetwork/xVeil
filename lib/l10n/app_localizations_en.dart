@@ -142,36 +142,6 @@ class AppL10nEn extends AppL10n {
       'Close xVeil and open it again. If it keeps happening, reinstall it from the release page.';
 
   @override
-  String get recoveryTitle => 'Save your recovery phrase';
-
-  @override
-  String get recoveryBody =>
-      'These 24 words are HALF of your identity key, and the password to your recovery certificate. They are not the whole of it: the other half was drawn at random when this identity was made and exists only in that certificate, so the words alone bring back a DIFFERENT identity at an address nobody who knows you holds. Write them on paper and keep them safe — the certificate comes next, and that is the copy that restores this identity. Never keep either online, and never photograph them.';
-
-  @override
-  String get recoveryNumbered =>
-      'The words are numbered 1 to 24. Do not continue until you have written down number 24.';
-
-  @override
-  String get recoveryConfirm =>
-      'I have written down all 24 words, ending with number 24';
-
-  @override
-  String get recoveryCopy => 'Copy all 24 words';
-
-  @override
-  String get recoveryCopyCaution =>
-      'The clipboard is shared with every app on this device and, on Apple and Windows, may sync to your other machines. The copy is cleared after 30 seconds — paste it somewhere you trust before then.';
-
-  @override
-  String get recoveryCopied =>
-      'Copied. The clipboard will be cleared in 30 seconds.';
-
-  @override
-  String get recoveryPlaceholderWarning =>
-      'These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.';
-
-  @override
   String get storageTitle => 'How should we store your data?';
 
   @override
@@ -5693,6 +5663,17 @@ class AppL10nEn extends AppL10n {
   String devicesPhraseWordCount(int count, int total) {
     return '$count of $total words';
   }
+
+  @override
+  String get onboardCertFreshTitle => 'Your identity and the one key to it';
+
+  @override
+  String get onboardCertFreshWhy =>
+      'This identity has just been made. Its key exists in one place — the certificate below — and is opened by one secret: the code beside it. There are no 24 words to write down: the words a wallet would give you fix half of this key, and the other half is drawn at random, so they would restore a different identity. Save both, apart from each other, before going on.';
+
+  @override
+  String get onboardCertFreshMustSave =>
+      'Save the certificate to a file first. It exists only on this screen, and nothing else can restore this identity.';
 
   @override
   String get onboardCertTitle => 'A way back if every device is lost';

@@ -11,6 +11,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:xveil/core/cleanup_legs.dart';
 import 'package:xveil/core/secret_wipe.dart' show wipeSecretBytes;
 import 'package:xveil/core/posix_file_facts.dart';
+import 'package:xveil/domain/sovereign_secret.dart';
 
 import 'native_libs.dart' show openEnvLib, processLibFor;
 // The DECISION only, never `bundled_seeds_prefs.dart`: the preference store is
@@ -1239,6 +1240,29 @@ class RealVeilStack {
         final cfg = await masterCfg;
         if (cfg != null) await storage.putSetting(kMasterConfigSetting, cfg);
         origin = 'restored-device';
+      } else if (sovereignPhraseWordCount(phrase) != kSovereignPhraseWords) {
+        // A SECRET THAT IS NOT WORDS CANNOT DERIVE A CONFIG, and that is now
+        // an ordinary first run rather than a broken one.
+        //
+        // An identity created by the current ceremony has exactly one secret:
+        // its recovery code. `decode_master_seed_from_phrase` refuses anything
+        // that is not twenty-four words — measured on a daemon handed a
+        // certificate, "master phrase must be 24 words, got 1" — and that
+        // refusal used to take the whole boot down here, on the one path where
+        // no phrase exists by design.
+        //
+        // Mining is the right answer and not a fallback: with a hybrid master
+        // the identity is the CREDENTIAL, and the config key is this device's
+        // own. It is what a second device does already.
+        devLog(
+          () =>
+              'xVeil[deniable]: the secret is not a 24-word phrase — mining '
+              'this device a node identity of its own (first run)…',
+        );
+        identityToml = lib == null
+            ? await Isolate.run(_mineConfigInIsolate)
+            : EmbeddedNode.mineConfig(0, lib: lib);
+        origin = 'mined';
       } else {
         identityToml = lib == null
             ? await Isolate.run(() => _configFromPhraseInIsolate(phrase))

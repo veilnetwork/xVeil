@@ -327,54 +327,6 @@ abstract class AppL10n {
   /// **'Close xVeil and open it again. If it keeps happening, reinstall it from the release page.'**
   String get startupFailedAction;
 
-  /// No description provided for @recoveryTitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Save your recovery phrase'**
-  String get recoveryTitle;
-
-  /// No description provided for @recoveryBody.
-  ///
-  /// In en, this message translates to:
-  /// **'These 24 words are HALF of your identity key, and the password to your recovery certificate. They are not the whole of it: the other half was drawn at random when this identity was made and exists only in that certificate, so the words alone bring back a DIFFERENT identity at an address nobody who knows you holds. Write them on paper and keep them safe — the certificate comes next, and that is the copy that restores this identity. Never keep either online, and never photograph them.'**
-  String get recoveryBody;
-
-  /// Says how many words there are and which one proves the list is complete. The grid used to end flush with the container edge, so a phone that could not fit all 24 showed a list that looked finished at 21.
-  ///
-  /// In en, this message translates to:
-  /// **'The words are numbered 1 to 24. Do not continue until you have written down number 24.'**
-  String get recoveryNumbered;
-
-  /// No description provided for @recoveryConfirm.
-  ///
-  /// In en, this message translates to:
-  /// **'I have written down all 24 words, ending with number 24'**
-  String get recoveryConfirm;
-
-  /// No description provided for @recoveryCopy.
-  ///
-  /// In en, this message translates to:
-  /// **'Copy all 24 words'**
-  String get recoveryCopy;
-
-  /// No description provided for @recoveryCopyCaution.
-  ///
-  /// In en, this message translates to:
-  /// **'The clipboard is shared with every app on this device and, on Apple and Windows, may sync to your other machines. The copy is cleared after 30 seconds — paste it somewhere you trust before then.'**
-  String get recoveryCopyCaution;
-
-  /// No description provided for @recoveryCopied.
-  ///
-  /// In en, this message translates to:
-  /// **'Copied. The clipboard will be cleared in 30 seconds.'**
-  String get recoveryCopied;
-
-  /// No description provided for @recoveryPlaceholderWarning.
-  ///
-  /// In en, this message translates to:
-  /// **'These are PLACEHOLDER words. The identity generator is unavailable in this build, so the identity is being minted randomly and these words restore nothing. Do not write them down as a backup.'**
-  String get recoveryPlaceholderWarning;
-
   /// No description provided for @storageTitle.
   ///
   /// In en, this message translates to:
@@ -10051,6 +10003,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'{count} of {total} words'**
   String devicesPhraseWordCount(int count, int total);
+
+  /// No description provided for @onboardCertFreshTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Your identity and the one key to it'**
+  String get onboardCertFreshTitle;
+
+  /// No description provided for @onboardCertFreshWhy.
+  ///
+  /// In en, this message translates to:
+  /// **'This identity has just been made. Its key exists in one place — the certificate below — and is opened by one secret: the code beside it. There are no 24 words to write down: the words a wallet would give you fix half of this key, and the other half is drawn at random, so they would restore a different identity. Save both, apart from each other, before going on.'**
+  String get onboardCertFreshWhy;
+
+  /// No description provided for @onboardCertFreshMustSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Save the certificate to a file first. It exists only on this screen, and nothing else can restore this identity.'**
+  String get onboardCertFreshMustSave;
 
   /// No description provided for @onboardCertTitle.
   ///
