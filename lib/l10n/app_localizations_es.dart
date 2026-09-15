@@ -72,15 +72,15 @@ class AppL10nEs extends AppL10n {
       'Este dispositivo no pudo generar una frase de recuperación, así que no se creó ninguna identidad. Sin ella, una identidad nunca podría restaurarse: inténtelo de nuevo o restaure una identidad existente.';
 
   @override
-  String get onboardRestoreIdentity => 'Restaurar con la frase de recuperación';
+  String get onboardRestoreIdentity => 'Restaurar una identidad';
 
   @override
   String get onboardRestoreIdentitySub =>
-      'Usa tu frase de 24 palabras para recuperar una identidad existente';
+      'Con su certificado de recuperación, o con las 24 palabras';
 
   @override
   String get onboardRestoreBody =>
-      'Introduce la frase de recuperación de 24 palabras que anotaste al crear la identidad. Se recreará la misma identidad en este dispositivo.';
+      'Dos caminos de vuelta, y no traen lo mismo. El certificado restaura ESTA identidad: la dirección que tienen tus contactos. Las 24 palabras por sí solas restauran otra distinta: fijan la mitad de la clave de identidad, y la otra mitad se sorteó al crearla y solo existe en el certificado.';
 
   @override
   String get onboardRestoreSubmit => 'Restaurar';
@@ -147,7 +147,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get recoveryBody =>
-      'Estas 24 palabras SON tu identidad. Quien las tenga la controla; si las pierdes, se pierde para siempre. Escríbelas en papel y guárdalas en un lugar seguro. Nunca las guardes en internet ni les hagas una foto.';
+      'Estas 24 palabras son LA MITAD de la clave de tu identidad, y la contraseña de tu certificado de recuperación. No son la identidad entera: la otra mitad se sorteó al crearla y solo existe en ese certificado, así que las palabras por sí solas devuelven una identidad DISTINTA, en una dirección que nadie que te conozca tiene. Anótalas en papel y guárdalas bien — a continuación viene el certificado, y esa es la copia que restaura esta identidad. No guardes ninguna de las dos en línea ni les hagas fotos.';
 
   @override
   String get recoveryNumbered =>

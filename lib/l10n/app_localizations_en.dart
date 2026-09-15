@@ -72,15 +72,15 @@ class AppL10nEn extends AppL10n {
       'This device could not produce a recovery phrase, so no identity was created. Without one, an identity could never be restored — try again, or restore an existing identity instead.';
 
   @override
-  String get onboardRestoreIdentity => 'Restore from recovery phrase';
+  String get onboardRestoreIdentity => 'Restore an identity';
 
   @override
   String get onboardRestoreIdentitySub =>
-      'Use your 24-word phrase to recover an existing identity';
+      'With its recovery certificate, or with the 24 words';
 
   @override
   String get onboardRestoreBody =>
-      'Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.';
+      'Two ways back, and they do not bring back the same thing. The certificate restores THIS identity — the address your contacts hold. The 24 words alone restore a different one: they fix half of the identity key, and the other half was drawn at random when the identity was made and exists only in the certificate.';
 
   @override
   String get onboardRestoreSubmit => 'Restore';
@@ -146,7 +146,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get recoveryBody =>
-      'These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.';
+      'These 24 words are HALF of your identity key, and the password to your recovery certificate. They are not the whole of it: the other half was drawn at random when this identity was made and exists only in that certificate, so the words alone bring back a DIFFERENT identity at an address nobody who knows you holds. Write them on paper and keep them safe — the certificate comes next, and that is the copy that restores this identity. Never keep either online, and never photograph them.';
 
   @override
   String get recoveryNumbered =>
