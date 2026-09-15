@@ -254,6 +254,20 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
               ),
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            // AN ARCHIVE FROM BEFORE THE CREDENTIAL TRAVELLED. It restores
+            // the transport key and the conversations and lands on a
+            // DIFFERENT identity, which is the exact failure the credential
+            // record was added for. Taking it is still allowed — the
+            // conversations are real and the person may have nothing else —
+            // but never silently, because silence here is indistinguishable
+            // from success.
+            if (preview.includesIdentity && preview.credential == null) ...[
+              const SizedBox(height: 8),
+              Text(
+                l.onboardArchiveNoCredential,
+                style: TextStyle(color: scheme.error),
+              ),
+            ],
             // An archive without an identity is not a failure of this file — it
             // is the wrong door. Say which door, rather than refusing flatly.
             if (!preview.includesIdentity) ...[

@@ -257,6 +257,36 @@ void main() {
       expect(find.text(AppL10nEn().onboardRestoreCodeRefused), findsOneWidget);
     });
 
+    testWidgets('an archive from before the credential says so, loudly', (
+      tester,
+    ) async {
+      // Taking it is allowed — the conversations are real. Taking it in
+      // silence is not: that is the failure the credential record exists for,
+      // arriving again through the one file that cannot carry the fix.
+      await tester.pumpWidget(
+        host(open: ({required password}) async => _withIdentity()),
+      );
+      await tester.pumpAndSettle();
+      await pick(tester);
+      expect(
+        find.text(AppL10nEn().onboardArchiveNoCredential),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a current archive does not carry that warning', (
+      tester,
+    ) async {
+      // The control: a warning shown on every archive would be noise, and
+      // noise is not a warning.
+      await tester.pumpWidget(
+        host(open: ({required password}) async => withCredential()),
+      );
+      await tester.pumpAndSettle();
+      await pick(tester);
+      expect(find.text(AppL10nEn().onboardArchiveNoCredential), findsNothing);
+    });
+
     testWidgets('an archive with no credential is still taken', (tester) async {
       // The control, and a real case: every archive written before the
       // exporter carried a credential. It restores the transport key, which is
