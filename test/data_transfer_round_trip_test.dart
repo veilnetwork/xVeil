@@ -17,6 +17,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/node/sovereign_identity_material.dart'
+    show kSovereignBundleSetting;
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/chat.dart';
@@ -109,6 +111,14 @@ class _Space implements Storage {
   @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async =>
       files[fileId] = bytes;
+
+  // Present because the sovereign credential is read through it. Without the
+  // override `noSuchMethod` throws, the credential reader catches that as "no
+  // credential", and a test asserting the credential travels would have been
+  // measuring the fixture.
+  @override
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async =>
+      files[fileId];
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -682,5 +692,77 @@ void main() {
     expect(plan.files, 1);
     expect(plan.fileBytes, 13);
     expect(plan.estimatedBytesWithFiles, greaterThan(plan.estimatedBytesWithoutFiles));
+  });
+
+  group('the credential travels with the identity', () {
+    // THE THIRD PLACE THE SAME ROOT SHOWED UP. The exporter wrote the node
+    // config and the header called it "keys". But the address a person's
+    // contacts hold comes from the hybrid master in the sovereign credential,
+    // whose Falcon half is reproducible from nothing at all — so an archive
+    // without it restored a device that talks on the right wire key and
+    // answers where nobody writes. Measured in the field: "восстановилась
+    // другая личность (другой node_id)".
+    Uint8List credentialBytes() =>
+        Uint8List.fromList(ascii.encode('XVSB') + List<int>.filled(120, 3));
+
+    _Space deviceWithCredential() {
+      final space = _deviceWithHistory();
+      space.files[kSovereignBundleSetting] = credentialBytes();
+      return space;
+    }
+
+    test('an identity export carries it, and a fresh device takes it', () async {
+      final archive = await _exportOf(
+        deviceWithCredential(),
+        includeIdentity: true,
+      );
+      expect(
+        await DataImporter.readCredential(Stream.value(archive)),
+        credentialBytes(),
+        reason: 'the archive has to hold the key the identity is named by',
+      );
+
+      final target = _Space();
+      final report = await DataImporter(
+        storage: target,
+        appliers: _Collector().appliers,
+        selfNodeIdHex: '',
+      ).run(bytes: Stream.value(archive));
+
+      expect(report.credentialAdopted, isTrue);
+      expect(target.files[kSovereignBundleSetting], credentialBytes());
+    });
+
+    test('an export without the identity carries no credential', () async {
+      // The control. `includeIdentity: false` is a person choosing to hand
+      // over their conversations and not their identity, and the credential is
+      // the most identity-shaped thing in the container.
+      final archive = await _exportOf(deviceWithCredential());
+      expect(await DataImporter.readCredential(Stream.value(archive)), isNull);
+    });
+
+    test('another identity credential is refused, not adopted over', () async {
+      final archive = await _exportOf(
+        deviceWithCredential(),
+        includeIdentity: true,
+      );
+      final target = _Space();
+      target.files[kSovereignBundleSetting] = Uint8List.fromList(
+        ascii.encode('XVSB') + List<int>.filled(120, 9),
+      );
+      await expectLater(
+        DataImporter(
+          storage: target,
+          appliers: _Collector().appliers,
+          selfNodeIdHex: '',
+        ).run(bytes: Stream.value(archive)),
+        throwsA(isA<ImportRefused>()),
+      );
+      expect(
+        target.files[kSovereignBundleSetting]!.last,
+        9,
+        reason: 'the credential this device runs on must survive the refusal',
+      );
+    });
   });
 }

@@ -5881,6 +5881,13 @@ class AppL10nRu extends AppL10n {
   String get onboardArchivePasswordLabel => 'Пароль архива';
 
   @override
+  String get onboardArchiveSecretPhrase => '24 слова этой личности';
+
+  @override
+  String get onboardArchiveSecretWhy =>
+      'Архив везёт ключ личности запертым. Это секрет, который его открывает, — не пароль архива: тот распаковывает только файл.';
+
+  @override
   String get onboardArchiveContinue => 'Взять личность из этого архива';
 
   @override

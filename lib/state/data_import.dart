@@ -28,7 +28,10 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import '../data/node/sovereign_identity_material.dart'
+    show kSovereignBundleSetting, readSovereignCredential;
 import '../data/storage/storage.dart';
 import '../domain/data_transfer.dart';
 import '../domain/device_sync.dart';
@@ -70,6 +73,7 @@ class DataImportReport {
     required this.settingsKept,
     required this.settingsRefused,
     required this.identityAdopted,
+    this.credentialAdopted = false,
     required this.profileFilled,
     required this.unknownRecords,
     required this.unconfirmedAppliers,
@@ -81,6 +85,15 @@ class DataImportReport {
 
   final int filesAdded;
   final int filesAlreadyHere;
+
+  /// Whether the sovereign credential came from the archive.
+  ///
+  /// Separate from [identityAdopted] because they are different keys doing
+  /// different jobs: the node config is what a peer authenticates against, the
+  /// credential is what the identity is NAMED by. An archive can carry one
+  /// without the other, and a restore that takes only the first lands at an
+  /// address nobody writes to.
+  final bool credentialAdopted;
 
   /// Settings this device did not have, taken from the archive.
   final int settingsFilled;
@@ -105,6 +118,14 @@ class DataImportReport {
 }
 
 /// Reads an archive into an open space.
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 class DataImporter {
   DataImporter({
     required Storage storage,
@@ -170,6 +191,37 @@ class DataImporter {
     }
   }
 
+  /// The sovereign credential an archive carries, or null when it carries none.
+  ///
+  /// Read for the same reason [readIdentity] is: the onboarding ceremony has
+  /// to put BOTH into the container before the node boots. The node config
+  /// decides what this device speaks on the wire; this decides who it IS, and
+  /// a restore that takes only the first produces a working install at an
+  /// address the person's contacts do not hold.
+  ///
+  /// Comes back encrypted, exactly as the archive holds it. Which secret opens
+  /// it is decided by its own magic — XVSB by the 24 words, XVRC by its code —
+  /// and neither is in the file.
+  static Future<Uint8List?> readCredential(
+    Stream<List<int>> bytes, {
+    String? password,
+  }) async {
+    final reader = await DataTransferReader.open(bytes);
+    try {
+      await for (final record in reader.records(password: password)) {
+        if (record.kind != TransferRecordKind.credential) continue;
+        final payload = record.payload;
+        if (payload == null || payload.isEmpty) return null;
+        return Uint8List.fromList(payload);
+      }
+      // Absent is ordinary: every archive written before this record existed,
+      // and every archive exported without the identity.
+      return null;
+    } finally {
+      await reader.close();
+    }
+  }
+
   /// Merge [bytes] into the open space.
   ///
   /// Refuses before applying anything when the archive is not this identity's,
@@ -207,6 +259,7 @@ class DataImporter {
     var settingsKept = 0;
     var settingsRefused = 0;
     var identityAdopted = false;
+    var credentialAdopted = false;
     var profileFilled = false;
     var unknown = 0;
     var seen = 0;
@@ -276,6 +329,41 @@ class DataImporter {
           }
           identityAdopted = true;
 
+        case TransferRecordKind.credential:
+          // THE SAME RULE AS THE NODE KEY, for the same reason.
+          //
+          // This is the hybrid master the identity is named by, so adopting it
+          // over a different one would rename this device to an address its
+          // contacts do not hold — the mirror of the clone the identity record
+          // refuses. Byte-equal is the whole of the licence: the archive this
+          // device itself wrote is welcome, another identity's is not.
+          //
+          // Filled only into a gap. A device that already holds a credential
+          // keeps it, and one that holds none takes this — which is the
+          // arrangement that makes an archive restore an identity rather than
+          // a lookalike.
+          final bundle = record.payload;
+          if (bundle == null || bundle.isEmpty) break;
+          final heldCredential = await readSovereignCredential(_storage);
+          final mine = heldCredential.bundle;
+          if (mine != null && mine.isNotEmpty) {
+            if (!_sameBytes(mine, bundle)) {
+              throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
+            }
+            break;
+          }
+          if (heldCredential.corrupt) {
+            // Unreadable is not absent. Writing over it would decide, on a
+            // guess, which of two identities this device is.
+            throw const ImportRefused(ImportRefusal.identityWouldBeReplaced);
+          }
+          await _storage.storeFile(
+            kSovereignBundleSetting,
+            Uint8List.fromList(bundle),
+            name: 'sovereign-credential',
+          );
+          credentialAdopted = true;
+
         case TransferRecordKind.profile:
           final existing = await _storage.loadProfile();
           final hasName = (existing?.displayName ?? '').isNotEmpty;
@@ -344,6 +432,7 @@ class DataImporter {
       settingsKept: settingsKept,
       settingsRefused: settingsRefused,
       identityAdopted: identityAdopted,
+      credentialAdopted: credentialAdopted,
       profileFilled: profileFilled,
       unknownRecords: unknown,
       unconfirmedAppliers: _appliers.unconfirmed,
