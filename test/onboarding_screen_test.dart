@@ -54,7 +54,11 @@ void main() {
             return MaterialApp(
               localizationsDelegates: AppL10n.localizationsDelegates,
               supportedLocales: AppL10n.supportedLocales,
-              home: OnboardingScreen(generatePhrase: _phraseOf24),
+              home: OnboardingScreen(
+                generatePhrase: _phraseOf24,
+                mintIdentity: fakeMintedIdentity,
+                saveCertificate: fakeSaveCertificate,
+              ),
             );
           },
         ),
@@ -112,6 +116,8 @@ void main() {
                 localizationsDelegates: AppL10n.localizationsDelegates,
                 supportedLocales: AppL10n.supportedLocales,
                 home: OnboardingScreen(
+                  mintIdentity: fakeMintedIdentity,
+                  saveCertificate: fakeSaveCertificate,
                   // Fake validator (the real one is FFI): any 24 words pass.
                   validatePhrase: (p) {
                     validated.add(p);
@@ -194,7 +200,11 @@ void main() {
               return MaterialApp(
                 localizationsDelegates: AppL10n.localizationsDelegates,
                 supportedLocales: AppL10n.supportedLocales,
-                home: OnboardingScreen(generatePhrase: _phraseOf24),
+                home: OnboardingScreen(
+                generatePhrase: _phraseOf24,
+                mintIdentity: fakeMintedIdentity,
+                saveCertificate: fakeSaveCertificate,
+              ),
               );
             },
           ),
@@ -220,14 +230,14 @@ void main() {
       await tester.tap(find.text(l(tester).onboardLinkDevice));
       await tester.pumpAndSettle();
 
-      // The explanation step, NOT the recovery step.
+      // The explanation step, NOT the create ceremony.
       expect(find.text(l(tester).onboardLinkDeviceBody), findsOneWidget);
       expect(
-        find.text(l(tester).recoveryTitle),
+        find.text(l(tester).onboardCertFreshTitle),
         findsNothing,
         reason:
-            'a device being adopted must never be told to back up words '
-            'that restore an identity it will not own',
+            'a device being adopted must never be handed a recovery capability '
+            'for an identity it will not own',
       );
       expect(find.byType(Checkbox), findsNothing);
 
@@ -349,7 +359,11 @@ void main() {
               return MaterialApp(
                 localizationsDelegates: AppL10n.localizationsDelegates,
                 supportedLocales: AppL10n.supportedLocales,
-                home: OnboardingScreen(generatePhrase: _phraseOf24),
+                home: OnboardingScreen(
+                generatePhrase: _phraseOf24,
+                mintIdentity: fakeMintedIdentity,
+                saveCertificate: fakeSaveCertificate,
+              ),
               );
             },
           ),
@@ -466,18 +480,31 @@ void main() {
     await tester.tap(find.text(l().onboardCreateIdentity));
     await tester.pumpAndSettle();
 
+    // WHERE THE REFUSAL LIVES NOW. The ceremony no longer shows words, so
+    // there is no phrase step to be kept away from — the mint itself refuses
+    // when the generator has nothing to give, and the step says so and offers
+    // no way past. The invariant is the same one: a device that cannot make a
+    // real key does not get an identity.
+    expect(find.text(l().onboardCertFailed), findsOneWidget);
     expect(
-      find.text(l().recoveryTitle),
+      find.text(l().devicesSaveCertificate),
       findsNothing,
-      reason: 'the wizard advanced to hand over a phrase that restores nothing',
+      reason:
+          'nothing was minted, so there is nothing to offer for saving — the '
+          'step explains itself either way, which is why the explanation is '
+          'not what tells these two apart',
     );
-    expect(
-      find.text(l().onboardNoRecoveryPhrase),
-      findsOneWidget,
-      reason: 'nothing on screen says why the identity was not created',
-    );
-    // Still on the choice step, so the person can try again or restore.
-    expect(find.text(l().onboardCreateIdentity), findsOneWidget);
+
+    // And there is no way onward. Pressing whatever is there must not reach
+    // storage: an identity nothing can restore is not one to walk past.
+    final onward = find.text(l().onboardCertContinue);
+    if (onward.evaluate().isNotEmpty) {
+      await tester.ensureVisible(onward);
+      await tester.pumpAndSettle();
+      await tester.tap(onward, warnIfMissed: false);
+      await tester.pumpAndSettle();
+    }
+    expect(find.text(l().storageTitle), findsNothing);
   });
 
   testWidgets('CONTROL: with a generator the same tap goes on to the phrase', (
@@ -494,6 +521,8 @@ void main() {
           home: OnboardingScreen(
             validatePhrase: (_) => true,
             generatePhrase: _phraseOf24,
+            mintIdentity: fakeMintedIdentity,
+            saveCertificate: fakeSaveCertificate,
           ),
         ),
       ),
@@ -506,9 +535,16 @@ void main() {
     await tester.tap(find.text(l().onboardCreateIdentity));
     await tester.pumpAndSettle();
 
-    expect(find.text(l().recoveryTitle), findsOneWidget);
-    expect(find.text(l().onboardNoRecoveryPhrase), findsNothing);
-    expect(find.text('word1'), findsOneWidget, reason: 'the REAL phrase shows');
+    // Vacuity guard for the test above: with a working mint the same tap
+    // arrives at a certificate that can be saved. A screen that refused every
+    // create would satisfy the refusal assertions and make the app unusable.
+    expect(find.text(l().onboardCertFreshTitle), findsOneWidget);
+    expect(find.text(l().onboardCertFailed), findsNothing);
+    expect(
+      find.text(l().devicesSaveCertificate),
+      findsOneWidget,
+      reason: 'the identity was minted and its only copy can be kept',
+    );
   });
 
   testWidgets('a restored phrase carries no placeholder warning', (
@@ -544,7 +580,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(l().onboardRestoreSubmit));
     await tester.pumpAndSettle();
-    expect(find.text(l().recoveryPlaceholderWarning), findsNothing);
+    // A phrase the person supplied IS real, and the restore goes straight on
+    // to storage rather than through any ceremony of its own.
+    expect(find.text(l().storageTitle), findsOneWidget);
   });
 
   group('the 24 words are kept off any screenshot', () {
@@ -590,6 +628,8 @@ void main() {
             home: OnboardingScreen(
               validatePhrase: (_) => true,
               generatePhrase: _phraseOf24,
+              mintIdentity: fakeMintedIdentity,
+              saveCertificate: fakeSaveCertificate,
             ),
           ),
         ),
@@ -616,10 +656,13 @@ void main() {
 
         await tester.tap(find.text(l(tester).onboardCreateIdentity));
         await tester.pumpAndSettle();
-        expect(find.text(l(tester).recoveryTitle), findsOneWidget);
+        // The certificate step, which is where creating an identity goes now.
+        // It shows a whole recovery capability at once — the file and the code
+        // that opens it — so it is the screen that must not reach a recording.
+        expect(find.text(l(tester).onboardCertFreshTitle), findsOneWidget);
         expect(secureCalls, [
           true,
-        ], reason: 'the words are on screen unprotected');
+        ], reason: 'the certificate and its code are on screen unprotected');
 
         // Off the step -> the flag goes back, so sharing works again.
         await confirmRecoveryPhrase(
