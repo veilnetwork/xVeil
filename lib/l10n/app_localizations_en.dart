@@ -5778,6 +5778,28 @@ class AppL10nEn extends AppL10n {
   String get onboardRestoreWithPhrase => 'Restore with the 24 words';
 
   @override
+  String get onboardContainerInUse =>
+      'This password opens a container that is already on this device, with an identity in it. Go back and choose \"Open a container already on this device\" — setting up over it would replace that identity, and it cannot be brought back.';
+
+  @override
+  String get onboardOpenExisting => 'Open a container already on this device';
+
+  @override
+  String get onboardOpenExistingSub =>
+      'If setup was started over, the data is still here and its password still opens it';
+
+  @override
+  String get onboardOpenExistingBody =>
+      'Starting over forgets that this device was set up; it does not delete anything. Enter the password of the container that is already here and it opens as it was. If there is nothing here, the password simply opens nothing — this screen does not say which.';
+
+  @override
+  String get onboardOpenExistingSubmit => 'Open';
+
+  @override
+  String get onboardOpenExistingFailed =>
+      'That password opened nothing on this device.';
+
+  @override
   String get onboardRestoreFromArchive => 'Restore from an archive';
 
   @override

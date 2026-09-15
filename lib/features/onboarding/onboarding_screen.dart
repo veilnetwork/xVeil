@@ -267,6 +267,43 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _go(3);
   }
 
+  /// Set when a password typed on the "open what is already here" step opened
+  /// nothing. Deliberately the same message whether the container is absent or
+  /// the password is wrong — telling those apart is telling someone whether
+  /// this device has anything on it.
+  String? _openError;
+
+  /// Open the container this device already has, instead of making another.
+  ///
+  /// The path back from "Начать заново", which forgets that setup happened and
+  /// leaves the container untouched — and, until this existed, left no way to
+  /// reach it: the four other cards all end in a NEW identity.
+  Future<void> _openExisting(String password) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _openError = null;
+    });
+    try {
+      final opened = await ref
+          .read(appControllerProvider.notifier)
+          .reopenExistingContainer(password);
+      if (!mounted) return;
+      if (!opened) {
+        setState(() => _openError = AppL10n.of(context).onboardOpenExistingFailed);
+      }
+      // Opened: the router follows the phase out of onboarding, exactly as it
+      // does after an unlock.
+    } catch (e) {
+      devLog(() => 'xVeil[onboarding]: reopen failed: $e');
+      if (mounted) {
+        setState(() => _openError = AppL10n.of(context).onboardOpenExistingFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   /// Set when the container could not be created. Kept on screen instead of a
   /// snackbar: this is the last step, the button is disabled while it runs, and
   /// a message that slides away leaves the user pressing a dead control.
@@ -347,7 +384,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       // way on was to kill the app.
       devLog(() => 'xVeil[onboarding]: completeOnboarding failed: $e');
       if (mounted) {
-        setState(() => _finishError = AppL10n.of(context).onboardSetupFailed);
+        // One failure here is not a failure at all: the password opened a
+        // container that already holds an identity, and setup declined to
+        // write over it. Saying "setup failed" would send that person back to
+        // try harder at the exact thing that must not succeed.
+        final l = AppL10n.of(context);
+        setState(
+          () => _finishError = e is ContainerAlreadyHasAnIdentity
+              ? l.onboardContainerInUse
+              : l.onboardSetupFailed,
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -367,7 +413,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                   7 => 3,
                   3 => _realPhrase ? 8 : 2,
                   8 => 2,
-                  2 || 5 || 6 => 1,
+                  // Every step reached FROM the choice goes back to it. The
+                  // archive step used to land on the welcome screen instead,
+                  // which is a step backwards out of the decision rather than
+                  // back into it.
+                  2 || 5 || 6 || 9 || 10 => 1,
                   _ => 0,
                 }),
               ),
@@ -382,7 +432,16 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               onRestore: () => _go(5),
               onLink: _startLink,
               onArchive: () => _go(9),
+              onOpenExisting: () => setState(() {
+                _openError = null;
+                _step = 10;
+              }),
               refused: _createRefusal != null,
+            ),
+            10 => _OpenExistingStep(
+              busy: _busy,
+              error: _openError,
+              onSubmit: _openExisting,
             ),
             9 => ArchiveRestoreStep(
               open: _openArchive,
@@ -479,6 +538,7 @@ class _ChoosePath extends StatelessWidget {
     required this.onRestore,
     required this.onLink,
     required this.onArchive,
+    required this.onOpenExisting,
     this.refused = false,
   });
   final VoidCallback onCreate;
@@ -490,6 +550,11 @@ class _ChoosePath extends StatelessWidget {
   /// common, not because it is a lesser answer: an archive that carries the
   /// identity restores the conversations with it.
   final VoidCallback onArchive;
+
+  /// The door back into a container this device already holds — the one
+  /// "Начать заново" quietly closes. It offers to TRY a password; it says
+  /// nothing about whether there is anything here to open.
+  final VoidCallback onOpenExisting;
 
   /// This device could not produce a recovery phrase, so nothing was created.
   final bool refused;
@@ -558,6 +623,16 @@ class _ChoosePath extends StatelessWidget {
             title: l.onboardRestoreFromArchive,
             subtitle: l.onboardRestoreFromArchiveSub,
             onTap: onArchive,
+          ),
+          // LAST, and present unconditionally. Showing it only when a
+          // container exists would be the leak — the card itself has to say
+          // nothing about what is on this device, which is why it is worded as
+          // an offer to try a password rather than as a fact about one.
+          _OptionCard(
+            icon: Icons.lock_open,
+            title: l.onboardOpenExisting,
+            subtitle: l.onboardOpenExistingSub,
+            onTap: onOpenExisting,
           ),
         ],
       ),
@@ -674,6 +749,86 @@ class _RestoreStepState extends State<_RestoreStep> {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Take a password and try it against whatever is already on this device.
+///
+/// No file is looked for and nothing is reported about what is here. The
+/// answer to "is there a container" and the answer to "is that the password"
+/// are deliberately the same answer, because the first one is the one that
+/// must never be given.
+class _OpenExistingStep extends StatefulWidget {
+  const _OpenExistingStep({
+    required this.busy,
+    required this.error,
+    required this.onSubmit,
+  });
+
+  final bool busy;
+  final String? error;
+  final Future<void> Function(String password) onSubmit;
+
+  @override
+  State<_OpenExistingStep> createState() => _OpenExistingStepState();
+}
+
+class _OpenExistingStepState extends State<_OpenExistingStep> {
+  final _password = TextEditingController();
+
+  @override
+  void dispose() {
+    _password.clear();
+    _password.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            l.onboardOpenExisting,
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 12),
+          Text(l.onboardOpenExistingBody),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _password,
+            obscureText: true,
+            autocorrect: false,
+            enableSuggestions: false,
+            onChanged: (_) => setState(() {}),
+            onSubmitted: widget.busy || _password.text.isEmpty
+                ? null
+                : (value) => widget.onSubmit(value),
+            decoration: InputDecoration(labelText: l.lockPasswordHint),
+          ),
+          if (widget.error != null) ...[
+            const SizedBox(height: 8),
+            Text(widget.error!, style: TextStyle(color: scheme.error)),
+          ],
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: widget.busy || _password.text.isEmpty
+                ? null
+                : () => widget.onSubmit(_password.text),
+            child: Text(l.onboardOpenExistingSubmit),
+          ),
+          if (widget.busy)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: LinearProgressIndicator(),
+            ),
+        ],
       ),
     );
   }

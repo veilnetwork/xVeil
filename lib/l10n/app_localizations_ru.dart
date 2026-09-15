@@ -5826,6 +5826,29 @@ class AppL10nRu extends AppL10n {
   String get onboardRestoreWithPhrase => 'Восстановить по 24 словам';
 
   @override
+  String get onboardContainerInUse =>
+      'Этот пароль открывает контейнер, который уже есть на этом устройстве, и в нём есть личность. Вернитесь и выберите «Открыть контейнер, который уже на этом устройстве» — настройка поверх заменила бы эту личность, и вернуть её было бы нельзя.';
+
+  @override
+  String get onboardOpenExisting =>
+      'Открыть контейнер, который уже на этом устройстве';
+
+  @override
+  String get onboardOpenExistingSub =>
+      'Если настройка была начата заново, данные никуда не делись и открываются своим паролем';
+
+  @override
+  String get onboardOpenExistingBody =>
+      '«Начать заново» забывает, что устройство было настроено, но ничего не удаляет. Введите пароль контейнера, который уже здесь, — он откроется как был. Если здесь ничего нет, пароль просто ничего не откроет: этот экран не говорит, что именно.';
+
+  @override
+  String get onboardOpenExistingSubmit => 'Открыть';
+
+  @override
+  String get onboardOpenExistingFailed =>
+      'Этот пароль ничего не открыл на этом устройстве.';
+
+  @override
   String get onboardRestoreFromArchive => 'Восстановить из архива';
 
   @override
