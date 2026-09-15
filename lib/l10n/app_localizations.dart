@@ -10154,6 +10154,24 @@ abstract class AppL10n {
   /// **'The code you stored apart from the file. It starts with xvrc-.'**
   String get onboardRestoreCodeHint;
 
+  /// No description provided for @onboardRestorePasteCertificate.
+  ///
+  /// In en, this message translates to:
+  /// **'Or paste the certificate'**
+  String get onboardRestorePasteCertificate;
+
+  /// No description provided for @onboardRestorePasteCertificateHint.
+  ///
+  /// In en, this message translates to:
+  /// **'The text that starts with xveil-recovery:v1: — line breaks and a label in front of it are fine.'**
+  String get onboardRestorePasteCertificateHint;
+
+  /// No description provided for @onboardRestoreCodeRefused.
+  ///
+  /// In en, this message translates to:
+  /// **'This code does not open this certificate. Check that it is the code for this file, and that nothing was lost from either.'**
+  String get onboardRestoreCodeRefused;
+
   /// No description provided for @onboardRestoreCertificateSubmit.
   ///
   /// In en, this message translates to:

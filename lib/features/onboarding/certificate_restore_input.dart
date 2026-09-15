@@ -19,20 +19,70 @@
 // own high-entropy code precisely so the exported file is not openable by the
 // words. Asking for the phrase here would fail on a correct certificate, which
 // is how someone concludes their backup is worthless.
+//
+// AND THE CODE IS CHECKED HERE, AGAINST THE CERTIFICATE. Reported from the
+// field: "код восстановления могу ввести любой (первый раз ввел фразу и
+// получил другую личность)". That was exactly what happened. Nothing on this
+// screen opened the certificate, so any non-empty string walked through; the
+// wrong one then failed deep in the boot, where the failure was swallowed —
+// `ensureSovereignIdentity` returns null on a provisioning error, and the node
+// comes up on the device key it had just mined. A working app, a new address,
+// and not a word about it. The code is Argon2id-wrapped, so checking it means
+// actually opening the certificate, which is why this is the only place it can
+// be done before anything is committed.
 
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../../core/ids.dart';
+import '../../core/log.dart';
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
 
+/// Whether [code] actually opens [certificate].
+///
+/// Injectable because the real one is Argon2id over a native handle: a widget
+/// test cannot run it, and a widget test that skipped it would be asserting
+/// the very thing this screen exists to stop.
+typedef RecoveryCodeCheck =
+    Future<bool> Function(Uint8List certificate, String code);
+
+/// The real check: open the certificate with the code and throw away the
+/// signer. Nothing is kept — the question is only whether it opens.
+Future<bool> nativeRecoveryCodeOpens(
+  Uint8List certificate,
+  String code,
+) async {
+  try {
+    final signer = veil.VeilSovereignSigner.openRecoveryCertificate(
+      certificate,
+      code,
+    );
+    signer.close();
+    return true;
+  } on Object catch (e) {
+    // Every way this fails is the same answer to the person in front of it:
+    // this code does not open this certificate. The reason is not theirs to
+    // debug, and the message must not vary with it — a wrong code and a
+    // tampered file are indistinguishable by design (ChaCha20-Poly1305 over
+    // an AAD that binds the node id).
+    devLog(() => 'xVeil[restore]: the code did not open the certificate: $e');
+    return false;
+  }
+}
+
 /// Reads a certificate file and its code, and hands both back.
 class CertificateRestoreInput extends StatefulWidget {
-  const CertificateRestoreInput({super.key, required this.onSubmit, this.pick});
+  const CertificateRestoreInput({
+    super.key,
+    required this.onSubmit,
+    this.pick,
+    this.check = nativeRecoveryCodeOpens,
+  });
 
   /// The certificate bytes and the code that opens it. The caller stores the
   /// credential before the node boots and passes the code as the boot secret.
@@ -47,6 +97,9 @@ class CertificateRestoreInput extends StatefulWidget {
   /// reading belongs outside, where a test can hand over a string.
   final Future<String?> Function()? pick;
 
+  /// Proves the code before the install commits to it.
+  final RecoveryCodeCheck check;
+
   @override
   State<CertificateRestoreInput> createState() =>
       _CertificateRestoreInputState();
@@ -54,13 +107,18 @@ class CertificateRestoreInput extends StatefulWidget {
 
 class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
   final _code = TextEditingController();
+  final _pasted = TextEditingController();
   SovereignRecoveryCertificate? _certificate;
   bool _bad = false;
+  bool _codeRefused = false;
+  bool _checking = false;
 
   @override
   void dispose() {
     _code.clear();
     _code.dispose();
+    _pasted.clear();
+    _pasted.dispose();
     super.dispose();
   }
 
@@ -89,7 +147,19 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
       return;
     }
     if (text == null || !mounted) return;
-    setState(() => _bad = false);
+    _accept(text);
+  }
+
+  /// One road in for both ways of holding a certificate.
+  ///
+  /// A copy and a download are the same artefact — the export sheet offers a
+  /// copy button beside the save button — so they must not have different
+  /// fates here. `parse` carries the tolerance for how a copy arrives.
+  void _accept(String text) {
+    setState(() {
+      _bad = false;
+      _codeRefused = false;
+    });
     try {
       // The file holds the TEXT form — it carries its own
       // `xveil-recovery:v1:` prefix, so a copy that was renamed or pasted
@@ -112,12 +182,34 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
   /// folding it the way a phrase is folded destroys a correct code.
   String get _typedCode => _code.text.trim();
 
+  Future<void> _submit(SovereignRecoveryCertificate certificate) async {
+    if (_checking) return;
+    setState(() {
+      _checking = true;
+      _codeRefused = false;
+    });
+    final code = _typedCode;
+    final opens = await widget.check(certificate.bytes, code);
+    if (!mounted) return;
+    setState(() => _checking = false);
+    if (!opens) {
+      // STOPS HERE. Letting a refused code through is not a smaller failure
+      // than refusing a good one — it is the larger one: the boot mints a
+      // device key, the node comes up at an address nobody holds, and the
+      // certificate that would have restored the real identity is now sitting
+      // beside an install that looks finished.
+      setState(() => _codeRefused = true);
+      return;
+    }
+    widget.onSubmit(certificate.bytes, code);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final certificate = _certificate;
-    final ready = certificate != null && _typedCode.isNotEmpty;
+    final ready = certificate != null && _typedCode.isNotEmpty && !_checking;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
@@ -125,18 +217,46 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
         Text(l.onboardRestoreCertificateBody),
         const SizedBox(height: 12),
         OutlinedButton.icon(
-          onPressed: _choose,
+          onPressed: _checking ? null : _choose,
           icon: const Icon(Icons.folder_open),
           label: Text(l.onboardRestorePickCertificate),
+        ),
+        const SizedBox(height: 12),
+        // The other half of how people actually hold this. The sheet that
+        // creates a certificate offers a copy button, and what is copied gets
+        // pasted — into a password manager, a note, a message to oneself. A
+        // screen that only takes files tells those people, wrongly, that they
+        // have nothing.
+        TextField(
+          controller: _pasted,
+          minLines: 2,
+          maxLines: 4,
+          autocorrect: false,
+          enableSuggestions: false,
+          onChanged: (value) {
+            final text = value.trim();
+            if (text.isEmpty) {
+              setState(() {
+                _certificate = null;
+                _bad = false;
+                _codeRefused = false;
+              });
+              return;
+            }
+            _accept(text);
+          },
+          decoration: InputDecoration(
+            labelText: l.onboardRestorePasteCertificate,
+            helperText: l.onboardRestorePasteCertificateHint,
+            helperMaxLines: 3,
+          ),
         ),
         if (certificate != null) ...[
           const SizedBox(height: 8),
           // The address it names, so a person with two certificates can tell
           // which one they just chose before they commit to it.
           Text(
-            l.onboardRestoreCertificateChosen(
-              _shortId(certificate.nodeId),
-            ),
+            l.onboardRestoreCertificateChosen(_shortId(certificate.nodeId)),
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -153,19 +273,29 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
           obscureText: true,
           autocorrect: false,
           enableSuggestions: false,
-          onChanged: (_) => setState(() {}),
+          onChanged: (_) => setState(() => _codeRefused = false),
           decoration: InputDecoration(
             labelText: l.onboardRestoreCodeLabel,
             helperText: l.onboardRestoreCodeHint,
           ),
         ),
+        if (_codeRefused) ...[
+          const SizedBox(height: 8),
+          Text(
+            l.onboardRestoreCodeRefused,
+            style: TextStyle(color: scheme.error),
+          ),
+        ],
         const SizedBox(height: 16),
         FilledButton(
-          onPressed: ready
-              ? () => widget.onSubmit(certificate.bytes, _typedCode)
-              : null,
+          onPressed: ready ? () => _submit(certificate) : null,
           child: Text(l.onboardRestoreCertificateSubmit),
         ),
+        if (_checking)
+          const Padding(
+            padding: EdgeInsets.only(top: 12),
+            child: LinearProgressIndicator(),
+          ),
       ],
     );
   }

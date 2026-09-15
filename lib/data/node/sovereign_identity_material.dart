@@ -235,6 +235,28 @@ bool isRecoveryCertificate(Uint8List credential) {
       credential[3] == 0x43; //  C
 }
 
+/// A restore that was told WHICH identity to come back as, and could not.
+///
+/// Thrown rather than swallowed, and only for a recovery certificate. Every
+/// other provisioning failure leaves a device that still works — the
+/// one-device case, which is what it was before any of this existed. A
+/// certificate failure does not: the boot has already mined a device key, so
+/// carrying on produces a running app at a BRAND NEW address, with the
+/// certificate that would have restored the real identity sitting beside an
+/// install that looks finished. Reported from the field as "код восстановления
+/// могу ввести любой (первый раз ввел фразу и получил другую личность)".
+///
+/// Reachable only while a secret is in hand, which is one boot: the onboarding
+/// code is spent by `takePendingIdentityPhrase`, and a later boot without one
+/// returns before provisioning is attempted. So this fails the ceremony —
+/// which rolls the container back — and cannot wedge an installed app.
+class SovereignRestoreRefused implements Exception {
+  const SovereignRestoreRefused(this.message);
+  final String message;
+  @override
+  String toString() => 'SovereignRestoreRefused: $message';
+}
+
 /// A sovereign credential past this is not one. A hybrid bundle is ~2.3 KiB
 /// raw; the margin is for a format that grows, not for a file that is really
 /// something else.

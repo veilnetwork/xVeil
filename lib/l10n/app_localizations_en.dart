@@ -5757,6 +5757,17 @@ class AppL10nEn extends AppL10n {
       'The code you stored apart from the file. It starts with xvrc-.';
 
   @override
+  String get onboardRestorePasteCertificate => 'Or paste the certificate';
+
+  @override
+  String get onboardRestorePasteCertificateHint =>
+      'The text that starts with xveil-recovery:v1: — line breaks and a label in front of it are fine.';
+
+  @override
+  String get onboardRestoreCodeRefused =>
+      'This code does not open this certificate. Check that it is the code for this file, and that nothing was lost from either.';
+
+  @override
   String get onboardRestoreCertificateSubmit => 'Restore from the certificate';
 
   @override
