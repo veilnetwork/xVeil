@@ -104,6 +104,8 @@ void main() {
               localizationsDelegates: AppL10n.localizationsDelegates,
               supportedLocales: AppL10n.supportedLocales,
               home: OnboardingScreen(
+                mintIdentity: fakeMintedIdentity,
+                saveCertificate: fakeSaveCertificate,
                 // The real validator is FFI; any 24 words pass here.
                 validatePhrase: (p) => p.split(' ').length == 24,
                 // And the real generator is FFI too. Named, because the screen
