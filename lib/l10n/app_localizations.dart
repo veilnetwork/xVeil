@@ -10190,6 +10190,42 @@ abstract class AppL10n {
   /// **'Restore with the 24 words'**
   String get onboardRestoreWithPhrase;
 
+  /// No description provided for @onboardContainerInUse.
+  ///
+  /// In en, this message translates to:
+  /// **'This password opens a container that is already on this device, with an identity in it. Go back and choose \"Open a container already on this device\" — setting up over it would replace that identity, and it cannot be brought back.'**
+  String get onboardContainerInUse;
+
+  /// No description provided for @onboardOpenExisting.
+  ///
+  /// In en, this message translates to:
+  /// **'Open a container already on this device'**
+  String get onboardOpenExisting;
+
+  /// No description provided for @onboardOpenExistingSub.
+  ///
+  /// In en, this message translates to:
+  /// **'If setup was started over, the data is still here and its password still opens it'**
+  String get onboardOpenExistingSub;
+
+  /// No description provided for @onboardOpenExistingBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Starting over forgets that this device was set up; it does not delete anything. Enter the password of the container that is already here and it opens as it was. If there is nothing here, the password simply opens nothing — this screen does not say which.'**
+  String get onboardOpenExistingBody;
+
+  /// No description provided for @onboardOpenExistingSubmit.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get onboardOpenExistingSubmit;
+
+  /// No description provided for @onboardOpenExistingFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'That password opened nothing on this device.'**
+  String get onboardOpenExistingFailed;
+
   /// No description provided for @onboardRestoreFromArchive.
   ///
   /// In en, this message translates to:
