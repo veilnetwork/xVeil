@@ -2464,6 +2464,7 @@
   "onboardArchivePasswordLabel": "Archive password",
   "onboardArchiveSecretPhrase": "The 24 words of this identity",
   "onboardArchiveSecretWhy": "The archive carries the identity key locked. This is the secret that opens it — not the archive password, which only unwraps the file.",
+  "onboardArchiveNoCredential": "This archive was written before archives carried the identity key. It restores the transport key and the conversations, but the identity will be a DIFFERENT one — at an address your contacts do not hold. Export a fresh archive from the device that still has this identity, or restore from the recovery certificate instead.",
   "onboardArchiveContinue": "Take the identity from this archive",
   "onboardArchiveMergeLater": "Your conversations are not here yet. Open Settings → Account → Data transfer → Import and choose the same archive to merge them in.",
   "devicesRevokeTitle": "Revoke {device}?",
