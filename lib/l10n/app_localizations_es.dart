@@ -143,36 +143,6 @@ class AppL10nEs extends AppL10n {
       'Cierra xVeil y vuelve a abrirlo. Si sigue ocurriendo, reinstálalo desde la página de descargas.';
 
   @override
-  String get recoveryTitle => 'Guarda tu frase de recuperación';
-
-  @override
-  String get recoveryBody =>
-      'Estas 24 palabras son LA MITAD de la clave de tu identidad, y la contraseña de tu certificado de recuperación. No son la identidad entera: la otra mitad se sorteó al crearla y solo existe en ese certificado, así que las palabras por sí solas devuelven una identidad DISTINTA, en una dirección que nadie que te conozca tiene. Anótalas en papel y guárdalas bien — a continuación viene el certificado, y esa es la copia que restaura esta identidad. No guardes ninguna de las dos en línea ni les hagas fotos.';
-
-  @override
-  String get recoveryNumbered =>
-      'Las palabras están numeradas del 1 al 24. No continúes hasta haber anotado la número 24.';
-
-  @override
-  String get recoveryConfirm =>
-      'He anotado las 24 palabras, hasta la número 24';
-
-  @override
-  String get recoveryCopy => 'Copiar las 24 palabras';
-
-  @override
-  String get recoveryCopyCaution =>
-      'El portapapeles es compartido por todas las apps del dispositivo y, en Apple y Windows, puede sincronizarse con tus otros equipos. La copia se borra a los 30 segundos: pégala antes en un lugar de confianza.';
-
-  @override
-  String get recoveryCopied =>
-      'Copiado. El portapapeles se borrará en 30 segundos.';
-
-  @override
-  String get recoveryPlaceholderWarning =>
-      'Estas palabras son de RELLENO. El generador de identidades no está disponible en esta versión, así que la identidad se está creando al azar y estas palabras no restauran nada. No las anotes como copia de seguridad.';
-
-  @override
   String get storageTitle => '¿Cómo quieres guardar tus datos?';
 
   @override
@@ -5770,6 +5740,18 @@ class AppL10nEs extends AppL10n {
   String devicesPhraseWordCount(int count, int total) {
     return '$count de $total palabras';
   }
+
+  @override
+  String get onboardCertFreshTitle =>
+      'Tu identidad y la única llave que la abre';
+
+  @override
+  String get onboardCertFreshWhy =>
+      'Esta identidad acaba de crearse. Su clave existe en un solo sitio, el certificado de abajo, y la abre un solo secreto: el código que lo acompaña. No hay 24 palabras que anotar: fijarían solo la mitad de esta clave y la otra mitad se sortea, así que restaurarían otra identidad. Guarda ambos, por separado, antes de continuar.';
+
+  @override
+  String get onboardCertFreshMustSave =>
+      'Guarda primero el certificado en un fichero. Solo existe en esta pantalla, y nada más puede restaurar esta identidad.';
 
   @override
   String get onboardCertTitle =>

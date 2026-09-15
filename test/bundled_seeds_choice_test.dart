@@ -1318,7 +1318,11 @@ void main() {
           child: MaterialApp(
             localizationsDelegates: AppL10n.localizationsDelegates,
             supportedLocales: AppL10n.supportedLocales,
-            home: OnboardingScreen(generatePhrase: phraseOf24),
+            home: OnboardingScreen(
+              generatePhrase: phraseOf24,
+              mintIdentity: fakeMintedIdentity,
+              saveCertificate: fakeSaveCertificate,
+            ),
           ),
         ),
       );
