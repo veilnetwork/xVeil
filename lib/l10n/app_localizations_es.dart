@@ -7250,7 +7250,15 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get transferIncludeIdentityHint =>
-      'Una instalación nueva puede convertirse en este dispositivo solo con el archivo, sin la frase de recuperación.';
+      'Una instalación limpia se convierte en este dispositivo desde un solo archivo. La clave de identidad viaja cerrada: restaurarla necesita el secreto que la abre.';
+
+  @override
+  String get transferIdentityNeedsCode =>
+      'Para restaurar la identidad desde este archivo necesitarás TU CÓDIGO DE RECUPERACIÓN, el que guardaste junto al certificado. No está en el fichero y no es la contraseña del archivo. Sin él, este archivo restaura las conversaciones y una identidad distinta.';
+
+  @override
+  String get transferIdentityNeedsPhrase =>
+      'Para restaurar la identidad desde este archivo necesitarás TUS 24 PALABRAS. No están en el fichero y no son la contraseña del archivo. Sin ellas, este archivo restaura las conversaciones y una identidad distinta.';
 
   @override
   String get transferIdentityWarning =>

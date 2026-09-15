@@ -29,6 +29,7 @@ import '../common/shown_cause.dart';
 import '../../state/data_export.dart';
 import '../../state/data_import.dart';
 import '../../state/device_settings_sync.dart';
+import '../../state/group_service_providers.dart';
 import '../../state/device_sync_appliers.dart';
 import '../../state/messaging.dart';
 import '../../state/providers.dart';
@@ -42,6 +43,14 @@ class DataTransferScreen extends ConsumerStatefulWidget {
 
 class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   DataExportPlan? _plan;
+
+  /// Which secret opens the credential this archive will carry — 'phrase',
+  /// 'certificate', or null when this identity has no credential at all.
+  ///
+  /// Asked rather than assumed. An identity restored from a certificate holds
+  /// an XVRC, and an XVRC is opened by its CODE: telling such a person to keep
+  /// their 24 words ready is telling them to keep the wrong thing.
+  String? _credentialKind;
   bool _includeFiles = true;
   bool _includeIdentity = false;
   String? _busy;
@@ -52,9 +61,22 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   void initState() {
     super.initState();
     unawaited(_loadPlan());
+    unawaited(_loadCredentialKind());
   }
 
   Storage get _storage => ref.read(storageProvider);
+
+  Future<void> _loadCredentialKind() async {
+    final svc = ref.read(groupServiceProvider);
+    if (svc == null) return;
+    try {
+      final kind = await svc.sovereignCredentialKind();
+      if (mounted) setState(() => _credentialKind = kind);
+    } catch (_) {
+      // Unknown stays unknown: a wrong instruction here is worse than none,
+      // because the person acts on it and finds out a year later.
+    }
+  }
 
   Future<String> _selfHex() =>
       ref.read(messagingServiceProvider).savedSelfHex();
@@ -311,6 +333,28 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
               title: Text(l.transferIncludeIdentity),
               subtitle: Text(l.transferIncludeIdentityHint),
             ),
+            // WHICH SECRET THE FUTURE RESTORE WILL ASK FOR, said while the
+            // person can still go and find it.
+            //
+            // The archive carries the identity key LOCKED, and the key to that
+            // lock is not in the file and is not the archive password. Someone
+            // who exports with the identity and never kept their code has a
+            // backup that restores their conversations and somebody else's
+            // address — and learns it on the day they need it. Reported from
+            // the field: "при экспорте даже не пишет, что нужно код
+            // восстановления сохранить".
+            if (_includeIdentity && _credentialKind != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  _credentialKind == 'certificate'
+                      ? l.transferIdentityNeedsCode
+                      : l.transferIdentityNeedsPhrase,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
             if (_includeIdentity)
               Container(
                 padding: const EdgeInsets.all(12),
