@@ -216,19 +216,19 @@ abstract class AppL10n {
   /// No description provided for @onboardRestoreIdentity.
   ///
   /// In en, this message translates to:
-  /// **'Restore from recovery phrase'**
+  /// **'Restore an identity'**
   String get onboardRestoreIdentity;
 
   /// No description provided for @onboardRestoreIdentitySub.
   ///
   /// In en, this message translates to:
-  /// **'Use your 24-word phrase to recover an existing identity'**
+  /// **'With its recovery certificate, or with the 24 words'**
   String get onboardRestoreIdentitySub;
 
   /// No description provided for @onboardRestoreBody.
   ///
   /// In en, this message translates to:
-  /// **'Enter the 24-word recovery phrase you wrote down when the identity was created. The same identity will be recreated on this device.'**
+  /// **'Two ways back, and they do not bring back the same thing. The certificate restores THIS identity — the address your contacts hold. The 24 words alone restore a different one: they fix half of the identity key, and the other half was drawn at random when the identity was made and exists only in the certificate.'**
   String get onboardRestoreBody;
 
   /// No description provided for @onboardRestoreSubmit.
@@ -336,7 +336,7 @@ abstract class AppL10n {
   /// No description provided for @recoveryBody.
   ///
   /// In en, this message translates to:
-  /// **'These 24 words ARE your identity. Anyone with them controls it; lose them and it is gone forever. Write them on paper and store them somewhere safe. Never store them online or photograph them.'**
+  /// **'These 24 words are HALF of your identity key, and the password to your recovery certificate. They are not the whole of it: the other half was drawn at random when this identity was made and exists only in that certificate, so the words alone bring back a DIFFERENT identity at an address nobody who knows you holds. Write them on paper and keep them safe — the certificate comes next, and that is the copy that restores this identity. Never keep either online, and never photograph them.'**
   String get recoveryBody;
 
   /// Says how many words there are and which one proves the list is complete. The grid used to end flush with the container edge, so a phone that could not fit all 24 showed a list that looked finished at 21.
