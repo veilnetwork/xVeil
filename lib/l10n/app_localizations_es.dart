@@ -5922,6 +5922,10 @@ class AppL10nEs extends AppL10n {
       'El archivo lleva la clave de identidad cerrada. Este es el secreto que la abre, no la contraseña del archivo, que solo desenvuelve el fichero.';
 
   @override
+  String get onboardArchiveNoCredential =>
+      'Este archivo se escribió antes de que los archivos llevaran la clave de identidad. Restaura la clave de transporte y las conversaciones, pero la identidad será OTRA, en una dirección que tus contactos no tienen. Exporta un archivo nuevo desde el dispositivo que aún tiene esta identidad, o restaura desde el certificado.';
+
+  @override
   String get onboardArchiveContinue => 'Tomar la identidad de este archivo';
 
   @override
