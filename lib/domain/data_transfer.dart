@@ -120,6 +120,24 @@ enum TransferRecordKind {
   /// an archive does not get to decide that this device's value was wrong.
   setting,
 
+  /// The sovereign credential — the master key this identity is NAMED by.
+  ///
+  /// Not the same thing as [identity], and the difference is the whole reason
+  /// this exists. [identity] is the node config: the transport key a peer
+  /// authenticates against. The credential is the hybrid master, and the
+  /// address a person's contacts hold is `BLAKE3(ed25519 ‖ falcon512)` out of
+  /// it. The Falcon half is drawn at random when the credential is minted and
+  /// is reproducible from nothing — not from the phrase, not from the config.
+  ///
+  /// Without it an archive restores a device that talks on the right wire key
+  /// and answers at an address nobody writes to. Measured in the field: "ещё
+  /// проблема: восстановилась другая личность (другой node_id)".
+  ///
+  /// Still encrypted, exactly as it sits in the container: an XVSB opens with
+  /// the 24 words, an XVRC with its own code. The archive carries the locked
+  /// box, never the key to it.
+  credential,
+
   /// One stored file's bytes.
   file,
 

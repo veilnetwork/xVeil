@@ -18,9 +18,14 @@
 // No file is read here. Real IO inside `testWidgets` does not fail, it hangs,
 // so the reading is the caller's and this widget is handed what was read.
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../../core/log.dart';
+import '../../data/node/sovereign_identity_material.dart'
+    show isRecoveryCertificate;
+import 'credential_check.dart';
 import '../../l10n/app_localizations.dart';
 
 /// What an archive says about itself, as far as this step needs it.
@@ -31,6 +36,7 @@ class ArchivePreview {
     required this.includesIdentity,
     required this.sealed,
     required this.identityToml,
+    this.credential,
   });
 
   final String nodeIdHex;
@@ -43,6 +49,21 @@ class ArchivePreview {
   /// The node config it carries, or null when it carries none. Read by the
   /// caller, which owns the file.
   final String? identityToml;
+
+  /// The sovereign credential it carries, still encrypted.
+  ///
+  /// This is the half that is actually the identity. Null for every archive
+  /// written before the exporter carried one — those restore the transport
+  /// key and nothing else, which is exactly the report this field exists to
+  /// answer: "восстановилась другая личность (другой node_id)".
+  final Uint8List? credential;
+
+  /// Which secret opens [credential] — decided by its own magic, not by what
+  /// the screen assumes. An XVSB was wrapped under the 24 words; an XVRC was
+  /// re-wrapped under a high-entropy code precisely so the words do not open
+  /// it. Asking for the wrong one fails on a perfectly good archive.
+  bool get credentialIsCertificate =>
+      credential != null && isRecoveryCertificate(credential!);
 }
 
 /// Picks an archive, reads its header and its identity, or reports why not.
@@ -54,6 +75,7 @@ class ArchiveRestoreStep extends StatefulWidget {
     super.key,
     required this.open,
     required this.onIdentity,
+    this.check = nativeCredentialOpens,
   });
 
   /// Asks for a file and reads it. Null means nothing was chosen. Throwing
@@ -61,9 +83,17 @@ class ArchiveRestoreStep extends StatefulWidget {
   /// than swallows.
   final ArchiveOpener open;
 
-  /// The node config the archive carried. The ceremony stores it before the
-  /// node boots, which is the whole point of doing this here.
-  final void Function(String identityToml) onIdentity;
+  /// What the archive carried, and the secret that opens the credential.
+  ///
+  /// Both halves, because they are two different keys doing two different
+  /// jobs: the node config is what a peer authenticates against, the
+  /// credential is what the identity is NAMED by. The ceremony stores both
+  /// before the node boots, which is the whole point of doing this here.
+  final void Function(String identityToml, Uint8List? credential, String secret)
+  onIdentity;
+
+  /// Proves the secret before the install commits to it.
+  final CredentialSecretCheck check;
 
   @override
   State<ArchiveRestoreStep> createState() => _ArchiveRestoreStepState();
@@ -76,6 +106,14 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
 
   /// Why it would not open, shown under the plain refusal.
   String? _badReason;
+
+  /// The secret that opens the archive's credential — the 24 words, or the
+  /// certificate's own code. Not the archive password: that one unwraps the
+  /// FILE, this one unwraps the identity inside it, and they are different
+  /// secrets protecting different things.
+  final _secret = TextEditingController();
+  bool _secretRefused = false;
+  bool _checking = false;
   bool _needsPassword = false;
   bool _busy = false;
 
@@ -83,6 +121,8 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
   void dispose() {
     _password.clear();
     _password.dispose();
+    _secret.clear();
+    _secret.dispose();
     super.dispose();
   }
 
@@ -131,13 +171,45 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
     }
   }
 
+  Future<void> _take(ArchivePreview preview) async {
+    final credential = preview.credential;
+    if (credential == null) {
+      // An older archive: the node config is all it has. Taken as before, and
+      // the ceremony says plainly that the identity is not in it.
+      widget.onIdentity(preview.identityToml!, null, '');
+      return;
+    }
+    setState(() {
+      _checking = true;
+      _secretRefused = false;
+    });
+    final secret = _secret.text.trim();
+    final opens = await widget.check(credential, secret);
+    if (!mounted) return;
+    setState(() => _checking = false);
+    if (!opens) {
+      // STOPS HERE. Letting a refused secret through takes the node config
+      // without the identity, which is a working install at an address nobody
+      // writes to — the failure this whole step was reported for.
+      setState(() => _secretRefused = true);
+      return;
+    }
+    widget.onIdentity(preview.identityToml!, credential, secret);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final preview = _preview;
-    final usable = preview != null && preview.includesIdentity &&
-        (preview.identityToml ?? '').isNotEmpty;
+    final usable =
+        preview != null &&
+        preview.includesIdentity &&
+        (preview.identityToml ?? '').isNotEmpty &&
+        // An archive that carries the credential cannot be taken without the
+        // secret that opens it. Taking the node config alone is exactly the
+        // half-restore this step exists to stop.
+        (preview.credential == null || _secret.text.trim().isNotEmpty);
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -210,6 +282,33 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
               ),
             ],
           ],
+          if (preview?.credential != null) ...[
+            const SizedBox(height: 16),
+            // WHICH secret, named by the credential rather than guessed. An
+            // XVRC is opened by its code and an XVSB by the words, and asking
+            // for the wrong one fails on a perfectly good archive.
+            TextField(
+              controller: _secret,
+              obscureText: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              onChanged: (_) => setState(() => _secretRefused = false),
+              decoration: InputDecoration(
+                labelText: preview!.credentialIsCertificate
+                    ? l.onboardRestoreCodeLabel
+                    : l.onboardArchiveSecretPhrase,
+                helperText: l.onboardArchiveSecretWhy,
+                helperMaxLines: 3,
+              ),
+            ),
+            if (_secretRefused) ...[
+              const SizedBox(height: 8),
+              Text(
+                l.onboardRestoreCodeRefused,
+                style: TextStyle(color: scheme.error),
+              ),
+            ],
+          ],
           const SizedBox(height: 16),
           // Said BEFORE the step is taken, not after. Someone who presses the
           // button is gone from here, and a sentence shown to a screen they
@@ -221,8 +320,8 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
           ),
           const SizedBox(height: 12),
           FilledButton(
-            onPressed: usable && !_busy
-                ? () => widget.onIdentity(preview.identityToml!)
+            onPressed: usable && !_busy && !_checking
+                ? () => _take(preview)
                 : null,
             child: Text(l.onboardArchiveContinue),
           ),

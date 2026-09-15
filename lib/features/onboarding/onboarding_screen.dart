@@ -235,12 +235,21 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final identity = header.includesIdentity
         ? await DataImporter.readIdentity(file.openRead(), password: password)
         : null;
+    // BOTH KEYS, because they are two different things. The config above is
+    // what this device speaks on the wire; the credential is what the identity
+    // is NAMED by, and an archive written before the exporter carried one
+    // answers null — those restore the transport key alone, which is the
+    // half-restore the field measured as "другой node_id".
+    final credential = header.includesIdentity
+        ? await DataImporter.readCredential(file.openRead(), password: password)
+        : null;
     return ArchivePreview(
       nodeIdHex: header.nodeIdHex,
       createdMs: header.createdMs,
       includesIdentity: header.includesIdentity,
       sealed: header.seal != null,
       identityToml: identity,
+      credential: credential,
     );
   }
 
@@ -252,11 +261,26 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// merge is the second half, from the same file, once there is something to
   /// merge into — and the finished app says so rather than leaving the person
   /// to wonder where their chats went.
-  void _restoreFromArchive(String identityToml) {
+  void _restoreFromArchive(
+    String identityToml,
+    Uint8List? credential,
+    String secret,
+  ) {
     _restoring = true;
     _restoreNodeConfig = identityToml;
-    _restoreCertificate = null;
-    _restoreCode = '';
+    // THE CREDENTIAL TRAVELS WITH THE CONFIG, or the restore is a half of one.
+    //
+    // The node config is the transport key; the credential is the hybrid
+    // master the identity is NAMED by. An archive written before the exporter
+    // carried the credential hands over null here, and that restore lands on
+    // the transport key alone — a working install at an address the person's
+    // contacts do not hold. Measured in the field before this existed.
+    //
+    // The secret rides along because the credential is encrypted and the boot
+    // needs to open it: the words for an XVSB, the code for an XVRC. It was
+    // already proved against this credential on the step that collected it.
+    _restoreCertificate = credential;
+    _restoreCode = secret;
     _phrase = const [];
     _realPhrase = false;
     _joinExisting = false;

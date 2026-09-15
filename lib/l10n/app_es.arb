@@ -2413,6 +2413,8 @@
   "onboardArchiveNoIdentity": "Este archivo no lleva identidad. Restaura con tu certificado o tus 24 palabras y luego fusiona este archivo en Ajustes → Transferencia de datos.",
   "onboardArchiveBad": "Ese archivo no es un archivo de xVeil, o está dañado.",
   "onboardArchivePasswordLabel": "Contraseña del archivo",
+  "onboardArchiveSecretPhrase": "Las 24 palabras de esta identidad",
+  "onboardArchiveSecretWhy": "El archivo lleva la clave de identidad cerrada. Este es el secreto que la abre, no la contraseña del archivo, que solo desenvuelve el fichero.",
   "onboardArchiveContinue": "Tomar la identidad de este archivo",
   "onboardArchiveMergeLater": "Tus conversaciones aún no están aquí. Abre Ajustes → Cuenta → Transferencia de datos → Importar y elige el mismo archivo para fusionarlas.",
   "devicesRevokeTitle": "Revoke {device}?",
