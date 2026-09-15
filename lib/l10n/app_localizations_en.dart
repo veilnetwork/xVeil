@@ -7153,7 +7153,15 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get transferIncludeIdentityHint =>
-      'A fresh install can become this device from the archive alone, without the recovery phrase.';
+      'A clean install becomes this device from one archive. The identity key travels locked: restoring it needs the secret that opens it.';
+
+  @override
+  String get transferIdentityNeedsCode =>
+      'To restore the identity from this archive you will need YOUR RECOVERY CODE — the one you kept beside the certificate. It is not in the file and it is not the archive password. Without it this archive restores the conversations and a different identity.';
+
+  @override
+  String get transferIdentityNeedsPhrase =>
+      'To restore the identity from this archive you will need YOUR 24 WORDS. They are not in the file and they are not the archive password. Without them this archive restores the conversations and a different identity.';
 
   @override
   String get transferIdentityWarning =>
