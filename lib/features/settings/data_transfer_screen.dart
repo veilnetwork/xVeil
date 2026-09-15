@@ -350,8 +350,16 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
                   _credentialKind == 'certificate'
                       ? l.transferIdentityNeedsCode
                       : l.transferIdentityNeedsPhrase,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.primary,
+                  // BOLD AND IN THE ERROR COLOUR, asked for in as many words:
+                  // "а вообще не видна". It was `bodySmall` in the primary
+                  // colour, which on this screen is the same teal as every
+                  // ordinary label — so the one sentence that decides whether
+                  // a backup is worth anything read as a caption. This is not
+                  // a caption: someone who exports without their code has a
+                  // file that restores somebody else's address.
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.error,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
