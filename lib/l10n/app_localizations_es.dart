@@ -5859,6 +5859,29 @@ class AppL10nEs extends AppL10n {
   String get onboardRestoreWithPhrase => 'Restaurar con las 24 palabras';
 
   @override
+  String get onboardContainerInUse =>
+      'Esta contraseña abre un contenedor que ya está en este dispositivo, con una identidad dentro. Vuelve y elige «Abrir un contenedor que ya está en este dispositivo»: configurar encima reemplazaría esa identidad y no se podría recuperar.';
+
+  @override
+  String get onboardOpenExisting =>
+      'Abrir un contenedor que ya está en este dispositivo';
+
+  @override
+  String get onboardOpenExistingSub =>
+      'Si la configuración se empezó de cero, los datos siguen aquí y su contraseña sigue abriéndolos';
+
+  @override
+  String get onboardOpenExistingBody =>
+      'Empezar de cero olvida que este dispositivo fue configurado; no borra nada. Escribe la contraseña del contenedor que ya está aquí y se abrirá como estaba. Si no hay nada, la contraseña simplemente no abre nada: esta pantalla no dice cuál de las dos cosas.';
+
+  @override
+  String get onboardOpenExistingSubmit => 'Abrir';
+
+  @override
+  String get onboardOpenExistingFailed =>
+      'Esa contraseña no abrió nada en este dispositivo.';
+
+  @override
   String get onboardRestoreFromArchive => 'Restaurar desde un archivo';
 
   @override
