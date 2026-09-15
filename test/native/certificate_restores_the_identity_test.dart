@@ -111,6 +111,19 @@ void main() {
       lib: lib,
     );
 
+    // AND IT IS THE ADDRESS THE FILE NAMES. Bytes 6..38 of an XVRC are the
+    // node id in the clear — that is what a person compares the file against,
+    // and what the restore has to land on. Asserting it here and not only
+    // against a second provisioning is the difference between "the two agree"
+    // and "the two agree with what was promised".
+    expect(
+      restoredId,
+      orderedEquals(certificate.sublist(6, 38)),
+      reason:
+          'the certificate header names the address; a restore that lands '
+          'anywhere else is a lookalike',
+    );
+
     // The same identity provisioned the ordinary way, to compare against.
     final origin = _Mem()..config = toml;
     await origin.storeFile(kSovereignBundleSetting, bundle);
@@ -167,5 +180,60 @@ void main() {
           'the words must not open a certificate: if they did, the code it is '
           'wrapped under would be protecting nothing',
     );
+  }, skip: skip);
+
+  test('a code that does not open the certificate fails the boot, loudly', () async {
+    // The second field report: "код восстановления могу ввести любой (первый
+    // раз ввел фразу и получил другую личность)". The screen accepted any
+    // string, the native side refused it here — and `ensureSovereignIdentity`
+    // answered null, which the caller reads as "no master behind this
+    // identity". The node then came up on the device key mined a few lines
+    // earlier: a working app, a brand new address, and nothing said.
+    //
+    // Null is the right answer for an identity nobody was trying to
+    // reproduce. It is the wrong one when a CERTIFICATE named which identity
+    // this is supposed to be.
+    final lib = DynamicLibrary.open(dylib!);
+    final phrase = veilGeneratePhrase()!;
+    final toml = EmbeddedNode.configFromPhrase(phrase, lib: lib);
+    final bundle = EmbeddedNode.createHybridSovereignBundle(phrase, lib: lib);
+    final code = veil.generateSovereignRecoveryCode();
+    final certificate = veil.exportSovereignRecoveryCertificate(
+      bundle,
+      phrase,
+      code,
+    );
+
+    final held = _Mem()..config = toml;
+    await held.storeFile(kSovereignBundleSetting, certificate);
+    await expectLater(
+      RealVeilStack.ensureSovereignIdentity(
+        held,
+        stagingBase: tmp.path,
+        // The words, where the code belongs — long enough to clear the
+        // native length floor, so this reaches the AEAD and is refused there.
+        identityPhrase: phrase,
+        lib: lib,
+        restoringIdentity: true,
+      ),
+      throwsA(isA<SovereignRestoreRefused>()),
+      reason:
+          'a refused certificate must take the ceremony down with it — '
+          'continuing produces a different identity at a different address',
+    );
+
+    // The vacuity guard: the same call with the RIGHT code still succeeds, so
+    // the assertion above is about the code and not about the path being dead.
+    final ok = _Mem()..config = toml;
+    await ok.storeFile(kSovereignBundleSetting, certificate);
+    final files = await RealVeilStack.ensureSovereignIdentity(
+      ok,
+      stagingBase: tmp.path,
+      identityPhrase: code,
+      lib: lib,
+      restoringIdentity: true,
+    );
+    expect(files, isNotNull);
+    expect(missingSovereignIdentityFiles(files!), isEmpty);
   }, skip: skip);
 }

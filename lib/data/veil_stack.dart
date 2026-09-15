@@ -328,6 +328,20 @@ String _randomSecret() {
   return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }
 
+String _hex(List<int> bytes) =>
+    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
+/// Plain equality, not a constant-time compare: both sides are node ids, which
+/// are public — the certificate carries one in the clear and the document
+/// publishes the other.
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// Name of the file that marks a directory as one xVeil created and may delete.
 ///
 /// The runtime base comes from `XVEIL_RUNTIME_DIR` when set, and teardown
@@ -1373,6 +1387,10 @@ class RealVeilStack {
     // `device_identity_sk.bin` into.
     final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-idprov');
     final staging = stagingDir.path;
+    // The address the certificate NAMES, kept so the address that comes out
+    // can be checked against it. Null on every path where nothing was
+    // promised — a first mint, a phrase restore, an injected provisioner.
+    Uint8List? promisedNodeId;
     try {
       if (provision != null) {
         await provision(identityPhrase, staging);
@@ -1414,14 +1432,33 @@ class RealVeilStack {
           // all, with the certificate sitting in the container. Measured
           // against the real library on 2026-09-12.
           if (isRecoveryCertificate(credential)) {
-            EmbeddedNode.provisionIdentityFromCertificate(
-              credential,
-              identityPhrase,
-              veilDir: staging,
-              instanceLabel: instanceLabel,
-              nodeConfigToml: nodeToml,
-              lib: lib,
-            );
+            // Bytes 6..38 of an XVRC are the node id, in the clear, bound into
+            // the AEAD's AAD. That is the whole promise of the file: THIS
+            // identity comes back, at THIS address.
+            if (credential.length >= 38) {
+              promisedNodeId = Uint8List.fromList(credential.sublist(6, 38));
+            }
+            try {
+              EmbeddedNode.provisionIdentityFromCertificate(
+                credential,
+                identityPhrase,
+                veilDir: staging,
+                instanceLabel: instanceLabel,
+                nodeConfigToml: nodeToml,
+                lib: lib,
+              );
+            } on Object catch (e) {
+              // NOT the "a device that cannot provision still has a working
+              // node" case. That reasoning holds for an identity nobody was
+              // trying to reproduce; here the certificate NAMED one, the node
+              // config was already mined a few lines up, and continuing gives
+              // a working app at an address nobody holds — silently. The
+              // wrong code and the truncated file both land here.
+              throw SovereignRestoreRefused(
+                'the certificate did not open with the secret given — this '
+                'boot would have produced a different identity: $e',
+              );
+            }
           } else {
             // The identity is named by BOTH halves, and the credential is the
             // only place the Falcon half exists.
@@ -1468,6 +1505,40 @@ class RealVeilStack {
         );
         return null;
       }
+      // THE ADDRESS THAT CAME OUT IS THE ADDRESS THAT WAS PROMISED, or this
+      // was not a restore.
+      //
+      // Everything upstream is a reason to BELIEVE that holds — the native
+      // open refuses a certificate whose material does not hash to the header
+      // node id, the code is checked before the ceremony commits — and none
+      // of them is the thing itself. What the person was promised is an
+      // address their contacts already hold; the only way to know they got it
+      // is to read it off the document that was just written and compare.
+      //
+      // Cheap, and it closes the whole family at once: a provisioner that
+      // mints its own key, a document built against the device key instead of
+      // the master, a future change that reorders the two. Each of those
+      // produces a working install at an address nobody can reach, which is
+      // indistinguishable from success from the inside.
+      final promised = promisedNodeId;
+      if (promised != null) {
+        final got = EmbeddedNode.identityDocumentNodeId(
+          files[kIdentityDocumentFile]!,
+          lib: lib,
+        );
+        if (!_sameBytes(promised, got)) {
+          throw SovereignRestoreRefused(
+            'the certificate names ${_hex(promised)} and provisioning produced '
+            '${_hex(got)} — restoring to a lookalike is what makes keeping a '
+            'certificate pointless',
+          );
+        }
+        devLog(
+          () =>
+              'xVeil[identity]: restored the address the certificate names '
+              '(${_hex(promised).substring(0, 16)}…)',
+        );
+      }
       await writeSovereignMaterial(storage, encodeSovereignIdentity(files));
       // The master, kept apart from the node config. Admitting a further device
       // needs it long after the phrase is gone, and the config only carries it
@@ -1491,6 +1562,10 @@ class RealVeilStack {
             '(${files.length} files, this device has its own key)',
       );
       return files;
+    } on SovereignRestoreRefused {
+      // Loud, on purpose. Onboarding rolls the container back and says setup
+      // failed, which is recoverable; a silent new identity is not.
+      rethrow;
     } on Object catch (e) {
       // A device that cannot provision still has a working node — it is the
       // one-device case, which is what it was before this existed.
