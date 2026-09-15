@@ -2462,6 +2462,8 @@
   "onboardArchiveNoIdentity": "This archive carries no identity. Restore with your certificate or your 24 words first, then merge this file from Settings → Data transfer.",
   "onboardArchiveBad": "That file is not an xVeil archive, or it is damaged.",
   "onboardArchivePasswordLabel": "Archive password",
+  "onboardArchiveSecretPhrase": "The 24 words of this identity",
+  "onboardArchiveSecretWhy": "The archive carries the identity key locked. This is the secret that opens it — not the archive password, which only unwraps the file.",
   "onboardArchiveContinue": "Take the identity from this archive",
   "onboardArchiveMergeLater": "Your conversations are not here yet. Open Settings → Account → Data transfer → Import and choose the same archive to merge them in.",
   "devicesRevokeTitle": "Revoke {device}?",

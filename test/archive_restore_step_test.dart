@@ -16,7 +16,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:xveil/features/onboarding/archive_restore_step.dart';
+import 'package:xveil/features/onboarding/credential_check.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/l10n/app_localizations_en.dart';
 
@@ -33,7 +37,8 @@ ArchivePreview _withIdentity({bool sealed = false}) => ArchivePreview(
 void main() {
   Widget host({
     required ArchiveOpener open,
-    void Function(String)? onIdentity,
+    void Function(String, Uint8List?, String)? onIdentity,
+    CredentialSecretCheck? check,
   }) => MaterialApp(
     locale: const Locale('en'),
     localizationsDelegates: AppL10n.localizationsDelegates,
@@ -41,7 +46,8 @@ void main() {
     home: Scaffold(
       body: ArchiveRestoreStep(
         open: open,
-        onIdentity: onIdentity ?? (_) {},
+        onIdentity: onIdentity ?? (_, _, _) {},
+        check: check ?? (_, _) async => true,
       ),
     ),
   );
@@ -61,7 +67,7 @@ void main() {
     await tester.pumpWidget(
       host(
         open: ({required password}) async => _withIdentity(),
-        onIdentity: (toml) => got = toml,
+        onIdentity: (toml, _, _) => got = toml,
       ),
     );
     await tester.pumpAndSettle();
@@ -159,5 +165,118 @@ void main() {
     // someone concluding their backup is ruined.
     expect(find.text(AppL10nEn().transferImportPasswordTitle), findsOneWidget);
     expect(find.text(AppL10nEn().onboardArchiveBad), findsNothing);
+  });
+
+  group('an archive that carries the identity key', () {
+    // The third place the same root defect surfaced: the export wrote the node
+    // config and called it the identity. The address a person's contacts hold
+    // comes from the hybrid master, whose Falcon half is reproducible from
+    // nothing — so an archive without it restored a device that talks on the
+    // right wire key and answers where nobody writes. Reported as
+    // "восстановилась другая личность (другой node_id)".
+    final credential = Uint8List.fromList(
+      ascii.encode('XVSB') + List<int>.filled(60, 7),
+    );
+
+    ArchivePreview withCredential() => ArchivePreview(
+      nodeIdHex: 'ab' * 32,
+      createdMs: 1700000000000,
+      includesIdentity: true,
+      sealed: false,
+      identityToml: _toml,
+      credential: credential,
+    );
+
+    Future<void> typeSecret(WidgetTester tester, String secret) async {
+      final field = find.byType(TextField).last;
+      await tester.ensureVisible(field);
+      await tester.pumpAndSettle();
+      await tester.enterText(field, secret);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the credential leaves the step with its config', (
+      tester,
+    ) async {
+      Uint8List? gotCredential;
+      String? gotSecret;
+      await tester.pumpWidget(
+        host(
+          open: ({required password}) async => withCredential(),
+          onIdentity: (_, c, secret) {
+            gotCredential = c;
+            gotSecret = secret;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await pick(tester);
+      await typeSecret(tester, 'twenty four words go here');
+
+      final go = find.text(AppL10nEn().onboardArchiveContinue);
+      await tester.ensureVisible(go);
+      await tester.pumpAndSettle();
+      await tester.tap(go);
+      await tester.pumpAndSettle();
+
+      expect(gotCredential, credential);
+      expect(gotSecret, 'twenty four words go here');
+    });
+
+    testWidgets('nothing is taken until the secret is given', (tester) async {
+      await tester.pumpWidget(
+        host(open: ({required password}) async => withCredential()),
+      );
+      await tester.pumpAndSettle();
+      await pick(tester);
+      expect(
+        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+        isNull,
+        reason:
+            'taking the config without the credential is the half-restore this '
+            'step exists to stop',
+      );
+    });
+
+    testWidgets('a secret that does not open it takes nothing', (tester) async {
+      var taken = false;
+      await tester.pumpWidget(
+        host(
+          open: ({required password}) async => withCredential(),
+          onIdentity: (_, _, _) => taken = true,
+          check: (_, secret) async => secret == 'the right one',
+        ),
+      );
+      await tester.pumpAndSettle();
+      await pick(tester);
+      await typeSecret(tester, 'not the right one');
+      await tester.tap(find.text(AppL10nEn().onboardArchiveContinue));
+      await tester.pumpAndSettle();
+
+      expect(taken, isFalse);
+      expect(find.text(AppL10nEn().onboardRestoreCodeRefused), findsOneWidget);
+    });
+
+    testWidgets('an archive with no credential is still taken', (tester) async {
+      // The control, and a real case: every archive written before the
+      // exporter carried a credential. It restores the transport key, which is
+      // what it has, and the ceremony must not refuse it for missing what it
+      // never held.
+      var taken = false;
+      await tester.pumpWidget(
+        host(
+          open: ({required password}) async => _withIdentity(),
+          onIdentity: (_, c, _) => taken = c == null,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await pick(tester);
+      final go = find.text(AppL10nEn().onboardArchiveContinue);
+      await tester.ensureVisible(go);
+      await tester.pumpAndSettle();
+      await tester.tap(go);
+      await tester.pumpAndSettle();
+      expect(taken, isTrue);
+    });
   });
 }

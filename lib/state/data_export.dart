@@ -29,6 +29,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../data/node/sovereign_identity_material.dart'
+    show readSovereignCredential;
 import '../data/storage/storage.dart';
 import '../domain/chat.dart';
 import '../domain/data_transfer.dart';
@@ -266,6 +268,30 @@ class DataExporter {
         final payload = Uint8List.fromList(utf8.encode(toml));
         await writer.add(
           TransferRecord(kind: TransferRecordKind.identity, payload: payload),
+        );
+        records++;
+      }
+      // AND THE CREDENTIAL, which is the part that is actually the identity.
+      //
+      // The node config above is the transport key. The address a person's
+      // contacts hold comes from the hybrid master in here, and its Falcon
+      // half is reproducible from nothing at all — not from the phrase, not
+      // from the config, not from the network. An archive without it restores
+      // a device that talks on the right wire key and answers where nobody
+      // writes; reported as "восстановилась другая личность (другой node_id)".
+      //
+      // It travels ENCRYPTED, byte for byte as the container holds it. The
+      // archive carries a locked box: an XVSB still needs the 24 words and an
+      // XVRC still needs its code, so an archive alone is not the identity
+      // even when it is not sealed.
+      final credential = await readSovereignCredential(_storage);
+      final bundle = credential.bundle;
+      if (bundle != null && bundle.isNotEmpty) {
+        await writer.add(
+          TransferRecord(
+            kind: TransferRecordKind.credential,
+            payload: Uint8List.fromList(bundle),
+          ),
         );
         records++;
       }
