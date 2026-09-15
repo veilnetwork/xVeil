@@ -5833,6 +5833,13 @@ class AppL10nEn extends AppL10n {
   String get onboardArchivePasswordLabel => 'Archive password';
 
   @override
+  String get onboardArchiveSecretPhrase => 'The 24 words of this identity';
+
+  @override
+  String get onboardArchiveSecretWhy =>
+      'The archive carries the identity key locked. This is the secret that opens it — not the archive password, which only unwraps the file.';
+
+  @override
   String get onboardArchiveContinue => 'Take the identity from this archive';
 
   @override

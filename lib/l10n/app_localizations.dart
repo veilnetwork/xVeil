@@ -10280,6 +10280,18 @@ abstract class AppL10n {
   /// **'Archive password'**
   String get onboardArchivePasswordLabel;
 
+  /// No description provided for @onboardArchiveSecretPhrase.
+  ///
+  /// In en, this message translates to:
+  /// **'The 24 words of this identity'**
+  String get onboardArchiveSecretPhrase;
+
+  /// No description provided for @onboardArchiveSecretWhy.
+  ///
+  /// In en, this message translates to:
+  /// **'The archive carries the identity key locked. This is the secret that opens it — not the archive password, which only unwraps the file.'**
+  String get onboardArchiveSecretWhy;
+
   /// No description provided for @onboardArchiveContinue.
   ///
   /// In en, this message translates to:

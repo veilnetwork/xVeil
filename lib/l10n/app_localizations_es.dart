@@ -5915,6 +5915,13 @@ class AppL10nEs extends AppL10n {
   String get onboardArchivePasswordLabel => 'Contraseña del archivo';
 
   @override
+  String get onboardArchiveSecretPhrase => 'Las 24 palabras de esta identidad';
+
+  @override
+  String get onboardArchiveSecretWhy =>
+      'El archivo lleva la clave de identidad cerrada. Este es el secreto que la abre, no la contraseña del archivo, que solo desenvuelve el fichero.';
+
+  @override
   String get onboardArchiveContinue => 'Tomar la identidad de este archivo';
 
   @override
