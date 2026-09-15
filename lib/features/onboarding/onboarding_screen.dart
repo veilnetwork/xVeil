@@ -213,9 +213,24 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// delivered in fake time. The widget is handed what was read.
   Future<ArchivePreview?> _openArchive({required String? password}) async {
     final picked = await FilePicker.pickFiles(withReadStream: false);
-    final path = picked?.files.single.path;
+    // `.single` THROWS on an empty list, and the step reads any throw from here
+    // as "this file is damaged". A picker that answers with a result carrying
+    // no files — which is how some platforms report a cancelled dialog — was
+    // therefore indistinguishable from a ruined backup. Cancelling is not an
+    // error and must never be reported as one.
+    final files = picked?.files ?? const [];
+    if (files.isEmpty) return null;
+    final path = files.first.path;
     if (path == null) return null;
     final file = File(path);
+    // NAMED IN THE FAILURE. Everything below can throw, and the one thing that
+    // makes such a throw actionable is which file it was about: a sandboxed
+    // build reaches the chosen file through the picker's grant, so "cannot
+    // read /Users/…/x.xveilbk" and "this is not an archive" are different
+    // defects that used to print the same sentence.
+    if (!await file.exists()) {
+      throw FileSystemException('the chosen file is not there', path);
+    }
     final header = await DataImporter.inspect(file.openRead());
     final identity = header.includesIdentity
         ? await DataImporter.readIdentity(file.openRead(), password: password)
