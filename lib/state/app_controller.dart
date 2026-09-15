@@ -9,7 +9,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 
 import '../data/node/sovereign_identity_material.dart'
-    show kRecoveryCertificateSavedSetting, kSovereignBundleSetting;
+    show
+        kRecoveryCertificateSavedSetting,
+        kSovereignBundleSetting,
+        readSovereignCredential;
 import '../data/native_libs.dart';
 
 import '../data/node/bundled_seeds.dart' show IdentitySeedPlan;
@@ -134,6 +137,19 @@ class AppState {
 /// started at the lock screen with no container to unlock and could never be
 /// opened at all. Separation now comes from the per-profile preference file
 /// rather than from the key name (audit XV-16); see [identityScopedPrefKey].
+/// The password typed during setup opened a container that is already in use.
+///
+/// Not an error in the ordinary sense — it is the app declining to overwrite an
+/// identity. Typed rather than a StateError so the screen can say which door to
+/// use instead of "setup failed".
+class ContainerAlreadyHasAnIdentity implements Exception {
+  const ContainerAlreadyHasAnIdentity();
+  @override
+  String toString() =>
+      'ContainerAlreadyHasAnIdentity: this password opens a container that '
+      'already holds an identity; open it instead of setting up over it';
+}
+
 String _onboardedKey() => identityScopedPrefKey('onboarded');
 const _kStorageModeKey = 'storage_mode';
 
@@ -416,6 +432,29 @@ class AppController extends Notifier<AppState> {
       // first session had nothing to check a typed password against, so the
       // screen lock could not engage at all until the app was restarted
       // (IF-01): `_lock` refuses to put up a prompt nobody can answer.
+      // THIS CONTAINER IS ALREADY SOMEBODY'S.
+      //
+      // `open` was called with createIfMissing, so a password that matches a
+      // container already here OPENS it instead of making one — and everything
+      // below then writes a new identity over the old one. The profile is
+      // overwritten, and then `storeFile` replaces the sovereign credential,
+      // which is the identity itself: the phrase fixes only the Ed25519 half,
+      // the Falcon half exists NOWHERE else, and a fresh one renames the
+      // identity to an address none of that person's contacts hold. There is
+      // no undo and nothing on screen would have said anything.
+      //
+      // Reachable by an ordinary mistake, and made likelier by the very
+      // situation this release fixes: someone who pressed "start over" and
+      // could not find their way back would reasonably try "create a new
+      // identity" with the password they know. So this refuses and names the
+      // door that does what they meant.
+      final heldConfig = await storage.loadNodeConfig();
+      final heldCredential = await readSovereignCredential(storage);
+      if (heldConfig != null ||
+          (heldCredential.bundle?.isNotEmpty ?? false) ||
+          heldCredential.corrupt) {
+        throw const ContainerAlreadyHasAnIdentity();
+      }
       ref.read(screenLockProvider.notifier).rememberPassword(password);
       final profile = UserProfile(displayName: displayName);
       await storage.saveProfile(profile);
@@ -3112,6 +3151,44 @@ class AppController extends Notifier<AppState> {
     }
     _lastTeardown = TeardownOutcome(List.unmodifiable(_incomplete));
     state = const AppState(AppPhase.onboarding);
+  }
+
+  /// The way back in, for a device that already has a container.
+  ///
+  /// [startOver] is a ONE-WAY DOOR without this, and it does not say so. It
+  /// promises "your existing data is not deleted, but you will need its
+  /// password to reach it again" and then removes the only screen that takes
+  /// that password: the onboarded flag is gone, so the next boot lands on
+  /// onboarding, and onboarding offers create, restore, link and archive —
+  /// four ways to make a NEW identity and none to open the one that is here.
+  /// Reported from the field, by someone who pressed it to look: "начать всё
+  /// заново → дошел до 24 слов → вернулся и теперь не могу открыть контейнер".
+  ///
+  /// Nothing was lost. The container file was never touched, and this is the
+  /// screen it was always waiting for.
+  ///
+  /// Deniability is not weakened. A person who types a password here learns
+  /// exactly what they learn on the lock screen — whether that password opens
+  /// something — and an install with nothing on it answers no, at the same
+  /// cost. What would have leaked is the opposite: an entry that appeared only
+  /// when a container existed.
+  ///
+  /// Returns false when the password opened nothing; the flag is rolled back
+  /// so a refused attempt leaves no trace of having been made.
+  Future<bool> reopenExistingContainer(String password) async {
+    final prefs = await ref.read(prefsProvider.future);
+    // Set BEFORE the attempt, because `unlock` is written for a device that
+    // has already been through setup — and rolled back after a refusal, so
+    // this cannot mark an empty install as onboarded.
+    final marked = await prefs.setBool(_onboardedKey(), true);
+    await unlock(password);
+    if (!ref.mounted) return marked;
+    if (state.phase == AppPhase.locked && state.unlockError) {
+      if (marked) await prefs.remove(_onboardedKey());
+      state = const AppState(AppPhase.onboarding);
+      return false;
+    }
+    return marked;
   }
 
   /// IRREVERSIBLE WIPE: delete the on-disk container, destroying EVERY identity
