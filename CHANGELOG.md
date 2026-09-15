@@ -6,6 +6,46 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.66] — 2026-09-15
+
+*A recovery code nobody checked, a certificate that had to be a file, and a
+door that closed behind you.*
+
+### Fixed
+
+- **The recovery code was never checked.** Reported from the field: any string
+  was accepted where the certificate's code belongs, and typing the 24 words
+  there produced a DIFFERENT identity. Four links, all of them ours: the screen
+  checked nothing; the native refusal was swallowed and answered "no master
+  behind this identity", which is the honest answer for a mined one; and the
+  node had already minted a device key, so it came up at a brand new address
+  without a word. The code is now proved against the certificate before the
+  container exists, and a certificate that will not open fails setup instead of
+  substituting an identity.
+- **The restored address is checked against the one promised.** Bytes 6..38 of a
+  recovery certificate are the node id in the clear. Everything upstream is a
+  reason to believe the restore lands there; the document that was written is
+  now read back and compared.
+- **A certificate that was copied, not downloaded.** The export sheet offers a
+  copy button, and the restore screen took files only. It now takes a paste,
+  and tolerates how a copy comes back — wrapped across lines, with a label in
+  front. The certificate's own header says where it ends, so a sentence typed
+  after it can no longer be glued onto the body into a silently wrong file.
+- **"Start over" closed the only door back.** It forgets that this device was
+  set up and leaves the container untouched — and removed the one screen that
+  takes that container's password. Setup now offers "open a container already
+  on this device", shown whether or not one is there.
+- **Setting up over a container that already holds an identity is refused.**
+  The password that made a container opens it, and the ceremony would have
+  written a fresh sovereign credential over the old one — which IS the
+  identity, since its Falcon half exists nowhere else.
+
+### Changed
+
+- veil 0.11.33: the rendezvous no longer dials whoever the public index listed
+  first. The order is the node's own, drawn fresh each pass and never from its
+  identity. Carries rustls 0.23.45 for RUSTSEC-2026-0285.
+
 ## [0.13.65] — 2026-09-14
 
 *Two ways back into an identity that had none.*
