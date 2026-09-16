@@ -15,6 +15,7 @@
 // roster names every child, so "did I remember them all?" is a question the
 // app can answer instead of asking.
 
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -27,11 +28,34 @@ import 'package:xveil/domain/storage_compaction_policy.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/features/settings/compaction_offer_dialog.dart';
 import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
 
 List<int> _keys(int seed) => List<int>.generate(64, (i) => (seed + i) & 0xff);
+
+/// A storage whose close takes long enough for the tree to rebuild.
+///
+/// The real teardown tears down a session, a node and a store, and frames are
+/// rendered while it does — which is what lets the router's redirect unmount
+/// the screen that asked for the compaction BEFORE the collection opens. A
+/// fake that closes within the same microtask never gives the redirect a
+/// chance, so the test cannot see the defect (report27 X28).
+class _SlowClose extends HiddenVolumeStorage {
+  _SlowClose(super.opener, {required this.gate, super.keysOpener});
+
+  /// Held until the test says so, so the teardown is PAUSED at the point the
+  /// router's redirect has already happened. A delay would race the frame; a
+  /// gate does not.
+  final Future<void> gate;
+
+  @override
+  Future<void> close() async {
+    await gate;
+    return super.close();
+  }
+}
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -281,6 +305,108 @@ void main() {
   });
 
   group('the screen the person actually sees', () {
+    /// The collection survives the screen that started it going away.
+    ///
+    /// `beginCompactionCollection` moves the app to `preparingNode`, and the
+    /// router sends `/home` and the settings routes to `/preparing` when it
+    /// sees that — so the screen this was called from is unmounted while the
+    /// teardown is still awaiting. The old code then found its context gone,
+    /// cancelled the collection it had just opened, and returned null: the
+    /// person asked to compact and was handed back nothing, never having seen
+    /// the dialog that collects the passwords (report27 X28).
+    ///
+    /// The MaterialApp in the test below never redirects, which is why this
+    /// went unnoticed. Here the calling widget is replaced the moment the
+    /// phase changes, which is what the real router does.
+    testWidgets('the dialog opens even when its caller is unmounted', (
+      tester,
+    ) async {
+      final container = FakeHvContainer();
+      final master = container.storage();
+      await master.open(password: 'm', createIfMissing: true);
+      await master.saveProfile(const UserProfile(displayName: 'Master'));
+      await master.close();
+
+      late AppL10n l;
+      final gate = Completer<void>();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            storageProvider.overrideWith(
+              (ref) => _SlowClose(
+                container.passwordOpener,
+                gate: gate.future,
+                keysOpener: container.keysOpener,
+              ),
+            ),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: Consumer(
+              builder: (context, ref, _) {
+                l = AppL10n.of(context);
+                // What the router does: the phase decides which screen is
+                // mounted, so the caller goes away mid-teardown.
+                final phase = ref.watch(
+                  appControllerProvider.select((s) => s.phase),
+                );
+                if (phase == AppPhase.preparingNode) {
+                  return const Scaffold(body: Text('preparing'));
+                }
+                // The caller's context belongs to a widget INSIDE the branch
+                // that goes away — which is what a route replacement does.
+                // Passing the Consumer's own context would not reproduce it:
+                // that element stays mounted at its position and only its
+                // child subtree changes.
+                return Scaffold(
+                  body: Builder(
+                    builder: (callerContext) => TextButton(
+                      onPressed: () => showCompactionOffer(
+                        callerContext,
+                        ref,
+                        estimate: const CompactionEstimate(
+                          fileBytes: 4 << 30,
+                          liveBytes: 1 << 28,
+                          identitiesCounted: 1,
+                          identitiesKnown: 1,
+                        ),
+                        currentPassword: 'm',
+                      ),
+                      child: const Text('open'),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      // One frame: the phase is already `preparingNode`, so the router's
+      // stand-in has replaced the screen that asked — while the teardown is
+      // still inside `close`.
+      await tester.pump();
+      expect(
+        find.text('preparing'),
+        findsOneWidget,
+        reason: 'premise: the phase change really did replace the caller',
+      );
+
+      // Only now does the teardown finish and the collection open.
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(
+        find.text(l.compactOfferKeeping),
+        findsOneWidget,
+        reason:
+            'the collection dialog never opened — the screen that asked for '
+            'it was gone by the time the teardown finished, and the request '
+            'was dropped',
+      );
+    });
+
+
     testWidgets('the master password alone cannot start a compaction', (
       tester,
     ) async {
