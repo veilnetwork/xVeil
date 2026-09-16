@@ -251,6 +251,29 @@ class DataImporter {
     bool Function()? stillOurs,
   }) async {
     final reader = await DataTransferReader.open(bytes);
+    try {
+      return await _runOn(
+        reader,
+        password: password,
+        onProgress: onProgress,
+        stillOurs: stillOurs,
+      );
+    } finally {
+      // FROM THE MOMENT THE READER EXISTS. Every refusal below — a different
+      // identity, no appliers, and whatever the record loop throws — used to
+      // leave with the subscription still held, and for a file that is an
+      // open handle nobody is coming back for (report27 X09). A `close` after
+      // a successful run is idempotent.
+      await reader.close();
+    }
+  }
+
+  Future<DataImportReport> _runOn(
+    DataTransferReader reader, {
+    String? password,
+    void Function(int records)? onProgress,
+    bool Function()? stillOurs,
+  }) async {
     final header = reader.header;
 
     final self = _selfNodeIdHex.trim();

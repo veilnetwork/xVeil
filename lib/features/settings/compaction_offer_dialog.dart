@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -123,7 +125,16 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     // space twice.
     final added = _roster.addUnlocked(
       '$name#${_found.length}',
-      passwordBytes: password.codeUnits,
+      // UTF-8, the same boundary `probeCompactionIdentity` just opened the
+      // space through. `codeUnits` is UTF-16, which is only the same thing
+      // for ASCII: a Cyrillic character is one code unit above 255, and the
+      // `Uint8List.fromList` these bytes pass through on the way to
+      // `compact_known` TRUNCATES it. So a non-ASCII password that opened the
+      // space at the probe reached the repack as different bytes — normally
+      // AuthFailed before the rename, with the source container intact, but
+      // the roster had already ticked that identity off as covered
+      // (report27 X29).
+      passwordBytes: utf8.encode(password),
       // The space this password opened — what ticks it off a master's list.
       spaceKeys: probe.spaceKeys,
     );
