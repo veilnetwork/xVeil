@@ -3910,6 +3910,55 @@ class AppL10nEs extends AppL10n {
       'Ejecuta a la vez el nodo de cada identidad, así cambiar es instantáneo y ninguna se queda sin conexión (opción predeterminada). Desactívalo para una desvinculación estricta: quien observe puede relacionar las identidades siempre activas por el dispositivo que comparten. Marca las identidades sensibles para que se enruten de forma anónima.';
 
   @override
+  String get themeTitle => 'Apariencia';
+
+  @override
+  String get themeSubtitle => 'Elige un aspecto o trae el tuyo';
+
+  @override
+  String get themeBuiltIn => 'Incluidos con xVeil';
+
+  @override
+  String get themeYours => 'Tuyos';
+
+  @override
+  String get themeImport => 'Añadir un tema que te enviaron';
+
+  @override
+  String get themeImportHint => 'Pega el texto que empieza por xveil-theme:v1:';
+
+  @override
+  String get themeImportBad => 'Eso no es un tema de xVeil.';
+
+  @override
+  String get themeShare => 'Copiar este tema para compartirlo';
+
+  @override
+  String get themeShared => 'Copiado. Quien lo reciba puede pegarlo aquí.';
+
+  @override
+  String get themeMake => 'Crear uno';
+
+  @override
+  String get themeMakeName => 'Nombre';
+
+  @override
+  String get themeMakeDark => 'Oscuro';
+
+  @override
+  String get themeMakeColour => 'Color';
+
+  @override
+  String get themeMakeSave => 'Usar este tema';
+
+  @override
+  String get themeRemove => 'Quitar';
+
+  @override
+  String get themeSafety =>
+      'Un tema elige un color y claro u oscuro, y nada más. No puede decidir cómo se ve una advertencia: los demás colores se derivan del tuyo, así que un tema de un desconocido puede hacer que la aplicación resulte extraña, pero no engañosa.';
+
+  @override
   String get settingsRecoveryTitle => 'Restaurar esta identidad';
 
   @override
