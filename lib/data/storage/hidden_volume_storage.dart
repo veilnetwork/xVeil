@@ -520,7 +520,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     final existingContact = await _as.get(Ns.contacts, contact.nodeId.bytes);
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
-    final index = await _contactIndex();
+    final (index, hadShards) = await _contactIndexShards();
     final oldIndexJson = jsonEncode(index);
     if (!index.contains(contact.nodeId.hex)) index.add(contact.nodeId.hex);
     final indexJson = jsonEncode(index);
@@ -530,14 +530,77 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     }
     await _as.commit([
       PutOp(Ns.contacts, contact.nodeId.bytes, contactBytes),
-      PutOp(Ns.settings, _sk('contacts:index'), _sk(indexJson)),
+      ..._contactIndexOps(index, hadShards),
     ]);
   }
 
-  Future<List<String>> _contactIndex() async {
-    final raw = await _as.get(Ns.settings, _sk('contacts:index'));
-    if (raw == null) return [];
-    return (jsonDecode(utf8.decode(raw)) as List).cast<String>();
+  /// The key of index shard `k`. Shard 0 keeps the original name, so a
+  /// container written before this existed reads back as a one-shard index.
+  static String _contactIndexKey(int shard) =>
+      shard == 0 ? 'contacts:index' : 'contacts:index/$shard';
+
+  /// How many contact ids go in one shard.
+  ///
+  /// A container settings value is capped at 2048 bytes, and an id costs 67 of
+  /// them inside a JSON list — 64 hex characters, two quotes, a comma. The
+  /// whole index was ONE value, so the thirty-first contact encoded to 2078
+  /// bytes and the commit that carried it was refused: the contact and the
+  /// index travel in one transaction, so the refusal took the contact with it
+  /// and a container simply stopped accepting new contacts at thirty
+  /// (report27 X25).
+  ///
+  /// Sharded rather than moved to the file store — which is what the master
+  /// roster does a few methods up — precisely BECAUSE of that transaction. A
+  /// file write is not part of the commit, so above the threshold the contact
+  /// would land and its index entry might not. Twenty-five ids is 1676 bytes,
+  /// well inside the cap with room for the record around it.
+  static const int _contactIdsPerIndexShard = 25;
+
+  /// Every id in the index, in order, across however many shards it takes.
+  ///
+  /// Stops at the first shard that is absent or empty: a write clears the
+  /// shard after the last one it used, so an empty shard IS the end.
+  Future<List<String>> _contactIndex() async => (await _contactIndexShards()).$1;
+
+  /// The ids, and how many shards were actually read — the second is what a
+  /// write needs in order to clear the ones it no longer fills.
+  Future<(List<String>, int)> _contactIndexShards() async {
+    final ids = <String>[];
+    var shard = 0;
+    while (true) {
+      final raw = await _as.get(Ns.settings, _sk(_contactIndexKey(shard)));
+      if (raw == null) break;
+      final decoded = (jsonDecode(utf8.decode(raw)) as List).cast<String>();
+      if (decoded.isEmpty) break;
+      ids.addAll(decoded);
+      shard += 1;
+    }
+    return (ids, shard);
+  }
+
+  /// The writes that put `ids` back, and clear whatever shards they no longer
+  /// fill. `hadShards` is what [`_contactIndexShards`] reported when the list
+  /// was read.
+  List<PutOp> _contactIndexOps(List<String> ids, int hadShards) {
+    final ops = <PutOp>[];
+    var shard = 0;
+    for (var at = 0; at < ids.length; at += _contactIdsPerIndexShard) {
+      final slice = ids.sublist(
+        at,
+        (at + _contactIdsPerIndexShard).clamp(0, ids.length),
+      );
+      ops.add(
+        PutOp(Ns.settings, _sk(_contactIndexKey(shard)), _sk(jsonEncode(slice))),
+      );
+      shard += 1;
+    }
+    // The terminator, and the cleanup: an empty shard stops the reader, and
+    // every shard the old index used past this point has to stop looking
+    // authoritative.
+    for (var stale = shard; stale <= hadShards; stale += 1) {
+      ops.add(PutOp(Ns.settings, _sk(_contactIndexKey(stale)), _sk('[]')));
+    }
+    return ops;
   }
 
   @override
@@ -2190,10 +2253,10 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   Future<void> removeConversation(NodeId peer) async {
     final blobNames = <String>[];
     final ops = await _tombstoneAllOps(peer, blobNamesOut: blobNames);
-    final index = await _contactIndex();
+    final (index, hadShards) = await _contactIndexShards();
     index.remove(peer.hex);
     ops.add(DeleteOp(Ns.contacts, peer.bytes));
-    ops.add(PutOp(Ns.settings, _sk('contacts:index'), _sk(jsonEncode(index))));
+    ops.addAll(_contactIndexOps(index, hadShards));
     await _commitBatched(ops);
     // Whole conversation is gone — scrub the orphaned chunks for forensic erasure
     // and drop the warm fold (scrubDeleted invalidates it) so a later read can't

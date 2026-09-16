@@ -16,6 +16,8 @@ import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:meta/meta.dart';
+
 import '../data/node/sovereign_identity_material.dart' as material;
 import '../data/veil_stack.dart';
 import 'dart:math';
@@ -676,6 +678,68 @@ class GroupService {
   static const int _kPublicSubscriptionIndexMaxBytes = 512 * 1024;
   static const String _publicFeedCacheIndexSetting =
       'space.public-feed-cache.index.v1';
+
+  /// Where that index lives once it outgrew a settings value.
+  ///
+  /// A container caps one settings value at 2048 bytes, and an entry costs
+  /// about 183 of them — a 64-character space id, a content-id manifest hash,
+  /// a timestamp and their keys. So the index stopped being WRITABLE at twelve
+  /// entries while promising to retain sixty-four, and the write that failed
+  /// was the last step of caching a feed package that had already been stored:
+  /// the file was on disk with nothing listing it, and the next sweep had no
+  /// reason to retain or remove it (report27 X33).
+  ///
+  /// The file store, which is where the packages it indexes already live. The
+  /// master roster answers the same problem the same way.
+  static const String _publicFeedCacheIndexFile = 'public-feed-cache.index.v1';
+
+  /// The index as stored, or an empty string when there is none.
+  ///
+  /// Reads the file first and falls back to the setting, so a container
+  /// written before the index moved is read exactly as it was.
+  Future<String> _readPublicFeedCacheIndex() async {
+    try {
+      final bytes = await _storage.loadFile(_publicFeedCacheIndexFile);
+      if (bytes != null && bytes.isNotEmpty) return utf8.decode(bytes);
+    } catch (_) {
+      // Fall through to the setting: an unreadable file is not a reason to
+      // lose an index that may still be in the old place.
+    }
+    return await _storage.getSetting(_publicFeedCacheIndexSetting) ?? '';
+  }
+
+  /// Publish the index, and clear whatever the old home still holds.
+  Future<void> _writePublicFeedCacheIndex(String json) async {
+    await _storage.storeFile(
+      _publicFeedCacheIndexFile,
+      Uint8List.fromList(utf8.encode(json)),
+    );
+    try {
+      await _storage.putSetting(_publicFeedCacheIndexSetting, '');
+    } catch (_) {
+      // Best effort: the reader prefers the file, and the stale setting can
+      // only be a shorter prefix of what the file already says.
+    }
+  }
+
+  /// The index round-trip, for a test that has no way to reach it otherwise.
+  ///
+  /// What this exists to make checkable is the SIZE: the index promises to
+  /// retain `_kMaxDurablePublicFeedPackages` entries and its old home could
+  /// hold eleven (report27 X33).
+  @visibleForTesting
+  Future<String> debugReadPublicFeedCacheIndex() =>
+      _readPublicFeedCacheIndex();
+
+  @visibleForTesting
+  Future<void> debugWritePublicFeedCacheIndex(String json) =>
+      _writePublicFeedCacheIndex(json);
+
+  /// How many packages the durable cache retains — the number the index has
+  /// to be able to hold.
+  @visibleForTesting
+  static int get debugMaxDurablePublicFeedPackages =>
+      _kMaxDurablePublicFeedPackages;
   static const String _publicSubscriptionIndexFileId =
       'space.public-subscriptions.index.v1';
   final Map<String, _PendingSpaceReceipt> _pendingSpaceReceipts =
@@ -1744,8 +1808,8 @@ class GroupService {
       final retained =
           <({NodeId spaceId, String manifestHash, int retainUntilMs})>[];
       final discard = <({NodeId spaceId, String manifestHash})>[];
-      final raw = await _storage.getSetting(_publicFeedCacheIndexSetting);
-      if (raw != null && raw.isNotEmpty) {
+      final raw = await _readPublicFeedCacheIndex();
+      if (raw.isNotEmpty) {
         try {
           final decoded = jsonDecode(raw);
           if (decoded is List) {
@@ -1834,8 +1898,7 @@ class GroupService {
       if (durable != null && !await _storage.hasFile(fileId)) {
         await _storage.storeFile(fileId, durable);
       }
-      await _storage.putSetting(
-        _publicFeedCacheIndexSetting,
+      await _writePublicFeedCacheIndex(
         jsonEncode([
           for (final item in keep)
             {
@@ -1852,8 +1915,8 @@ class GroupService {
     NodeId spaceId,
     String manifestHash,
   ) async {
-    final raw = await _storage.getSetting(_publicFeedCacheIndexSetting);
-    if (raw == null || raw.isEmpty) return null;
+    final raw = await _readPublicFeedCacheIndex();
+    if (raw.isEmpty) return null;
     try {
       final decoded = jsonDecode(raw);
       if (decoded is! List) return null;
@@ -17465,6 +17528,20 @@ class GroupService {
   static const String kPendingDeviceAdoptionSetting =
       'devices.pending_adoption.v1';
 
+  /// Where that admission lives, because it does not fit a settings value.
+  ///
+  /// The token carries the source's invite URI and its identity document, and
+  /// an ordinary hybrid invite's base64 master key alone is 1240 characters
+  /// with the document carrying the same key again — so two of the token's
+  /// fields are already past the container's 2048-byte cap for one settings
+  /// value. The write came AFTER the contact and the document had been
+  /// adopted, so it failed with everything else already done: no pending
+  /// admission, a generic error on screen, and a ceremony that could not be
+  /// completed (report27 X32).
+  ///
+  /// The file store, as for the master roster and the durable-feed index.
+  static const String kPendingDeviceAdoptionFile = 'device-adoption.pending.v1';
+
   String? _deviceGidCache;
 
   /// My device group's id (hex), or null before the first link/adopt.
@@ -17707,9 +17784,22 @@ class GroupService {
   /// comes.
   static const Duration kDeviceAdoptionAdmissionGrace = Duration(days: 7);
 
+  /// The pending admission as stored, preferring the file and falling back to
+  /// the setting a container written before the move may still hold.
+  Future<String> _readPendingDeviceAdoption() async {
+    try {
+      final bytes = await _storage.loadFile(kPendingDeviceAdoptionFile);
+      if (bytes != null && bytes.isNotEmpty) return utf8.decode(bytes);
+    } catch (_) {
+      // An unreadable file is not a reason to ignore an admission that may
+      // still be in the old place.
+    }
+    return await _storage.getSetting(kPendingDeviceAdoptionSetting) ?? '';
+  }
+
   Future<DeviceLinkToken?> pendingDeviceAdoption() async {
-    final raw = await _storage.getSetting(kPendingDeviceAdoptionSetting);
-    if (raw == null || raw.isEmpty) return null;
+    final raw = await _readPendingDeviceAdoption();
+    if (raw.isEmpty) return null;
     try {
       final token = DeviceLinkToken.fromJson(jsonDecode(raw));
       // [_clockNowMs], not [_now]: this is read per incoming sync chunk and
@@ -17759,15 +17849,30 @@ class GroupService {
     // this method is reached from a ceremony that has already awaited, and
     // the write below is the durable half.
     if (_disposed) return false;
-    await _storage.putSetting(
-      kPendingDeviceAdoptionSetting,
-      jsonEncode(token.toJson()),
+    await _storage.storeFile(
+      kPendingDeviceAdoptionFile,
+      Uint8List.fromList(utf8.encode(jsonEncode(token.toJson()))),
     );
+    try {
+      await _storage.putSetting(kPendingDeviceAdoptionSetting, '');
+    } catch (_) {
+      // Best effort: the reader prefers the file, and an empty setting is not
+      // an admission.
+    }
     return true;
   }
 
-  Future<void> cancelPendingDeviceAdoption() =>
-      _storage.putSetting(kPendingDeviceAdoptionSetting, '');
+  Future<void> cancelPendingDeviceAdoption() async {
+    // BOTH homes. A cancel that clears one leaves the other admitting a
+    // source for seven days.
+    try {
+      await _storage.storeFile(
+        kPendingDeviceAdoptionFile,
+        Uint8List(0),
+      );
+    } catch (_) {}
+    await _storage.putSetting(kPendingDeviceAdoptionSetting, '');
+  }
 
   /// Build the short QR token after the source has sovereign-signed the target
   /// into the local registry but before it broadcasts the encrypted snapshot.
