@@ -324,6 +324,102 @@ void main() {
       expect(withSeal.accepted, contains(mute));
     });
 
+    test('the seal vouches for a ROW, not for a position', () {
+      // The heads carry `(author, seq, hash)` and the exemption was keyed on
+      // `author → seq` alone, so a DIFFERENT row at the sealed position — a
+      // fork the owner never saw — took the exemption granted to the one they
+      // did (report27 X15).
+      final alice = promotedBeforeItsPromotion(_owner, 2);
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addAlice = chained(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: alice,
+        role: GroupRole.member,
+        previous: addBob,
+      );
+      final promote = chained(
+        _owner,
+        2,
+        ControlOp.setRole,
+        target: alice,
+        role: GroupRole.admin,
+        previous: addAlice,
+      );
+      // What the owner sealed, and what actually arrives at that position.
+      final vouched = chained(alice, 0, ControlOp.mute, target: _bob);
+      final substituted = chained(alice, 0, ControlOp.ban, target: _bob);
+      expect(
+        controlEntryHash(substituted),
+        isNot(controlEntryHash(vouched)),
+        reason: 'premise: these are two different rows at one position',
+      );
+      final sealed = seal(_owner, 3, [
+        ...[head(promote), head(vouched)]
+          ..sort((a, b) => a.author.hex.compareTo(b.author.hex)),
+      ], previous: promote);
+
+      final folded = foldControlLog(
+        owner: _owner,
+        entries: [addBob, addAlice, promote, substituted, sealed],
+        verify: _ok,
+      );
+      expect(
+        folded.accepted,
+        isNot(contains(substituted)),
+        reason: 'a row the owner never sealed was applied on their testimony',
+      );
+      expect(folded.state.members[_bob.hex], isNotNull);
+    });
+
+    test('a refused row under a sealed head stays refused', () {
+      // An unauthorized row keeps its place on its author's chain — that is
+      // deliberate, so the author's next row can bind it by hash. The seal
+      // then covered the whole sequence prefix under a later accepted head,
+      // which turned that refusal into an acceptance (report27 X16). A chain
+      // proves what was WRITTEN, never what was applied.
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      // Bob is a plain member: muting somebody is not his to do.
+      final refusedMute = chained(_bob, 0, ControlOp.mute, target: _owner);
+      // ...and his next row is something a member MAY do, so it is accepted
+      // and becomes his head.
+      final allowed = chained(
+        _bob,
+        1,
+        ControlOp.acceptRules,
+        previous: refusedMute,
+      );
+      final sealed = seal(_owner, 1, [
+        ...[head(addBob), head(allowed)]
+          ..sort((a, b) => a.author.hex.compareTo(b.author.hex)),
+      ], previous: addBob);
+
+      final folded = foldControlLog(
+        owner: _owner,
+        entries: [addBob, refusedMute, allowed, sealed],
+        verify: _ok,
+      );
+      expect(
+        folded.state.members[_owner.hex]?.muted ?? false,
+        isFalse,
+        reason: "a member's refused mute was applied on the owner's seal",
+      );
+      expect(folded.accepted, isNot(contains(refusedMute)));
+    });
+
     test('only the owner may vouch, and only for what the seal covers', () {
       // An admin sealing their own refused row would be exactly the
       // escalation this must not add.

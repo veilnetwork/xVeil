@@ -143,14 +143,26 @@ void main() {
       ),
     );
     final lines = script.split('\n');
+    // It is no longer the veil-writable name that gets installed: root takes
+    // its own snapshot through a checked descriptor, validates THAT, and
+    // installs THAT (report27 X13). The old shape — install straight from
+    // `$XVEIL_TMP/cfg` with a name-based check one line above — left the
+    // validated bytes and the installed bytes as two separate opens.
     final install = lines.indexWhere(
-      (l) => l.contains(r'$XVEIL_TMP/cfg/xveil-node.toml /var/lib/veil/'),
+      (l) => l.contains('/xveil-node.toml /var/lib/veil/'),
     );
     expect(install, isNot(-1), reason: 'the install moved');
     expect(
-      lines[install - 1],
-      contains(r'require_staged_file $XVEIL_TMP/cfg/xveil-node.toml'),
-      reason: 'root installs a name the veil account can replace, unchecked',
+      lines[install],
+      contains('root-cfg/xveil-node.toml'),
+      reason: 'root installs a name the veil account can replace',
+    );
+    final copied = lines.indexWhere((l) => l.contains('head -c 262144'));
+    expect(copied, isNot(-1), reason: 'no bounded root-owned copy is taken');
+    expect(
+      copied,
+      lessThan(install),
+      reason: 'the snapshot is taken after the file it protects is installed',
     );
   });
 }
