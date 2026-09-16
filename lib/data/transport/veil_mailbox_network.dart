@@ -861,6 +861,20 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
                   'via self-resolve(fallback) — no KEM key',
             );
           }
+          // MARKED BEFORE THE SEND, not after it.
+          //
+          // `asked` is what the reply handler checks before accepting an
+          // answer, and it was filled once the send RETURNED. The send is a
+          // real await — the request goes out inside it — so a relay that
+          // answers quickly could have its reply delivered while this drain
+          // had not yet written the relay down, and the handler dropped it as
+          // unsolicited. The pass then waited out its timeout for an answer it
+          // had already been given (report27 X34).
+          //
+          // Removed again if the send throws, so a relay that never heard the
+          // question is not counted as one that did.
+          final askedHex = NodeId(relayId).hex;
+          final wasAsked = asked.add(askedHex);
           try {
             if (viaKeyGiven) {
               // KEM-key-given mailbox FETCH: straight to (relayId, relayKemPk).
@@ -883,8 +897,8 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
               );
             }
             expected++;
-            asked.add(NodeId(relayId).hex);
           } catch (e) {
+            if (wasAsked) asked.remove(askedHex);
             // Send itself failed — that relay contributes no reply this drain.
             // Do NOT evict the relay's KEM key here: a fetch failure is a
             // TRANSPORT hiccup (session churn, a busy relay, a lost onion cell),
