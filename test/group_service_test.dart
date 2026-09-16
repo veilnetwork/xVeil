@@ -5983,6 +5983,76 @@ void main() {
     },
   );
 
+  /// A real hybrid admission does not fit a settings value, and must be
+  /// stored anyway.
+  ///
+  /// The token carries the source's invite URI and its signed identity
+  /// document, and an ordinary hybrid invite's base64 master key alone is
+  /// 1240 characters with the document carrying the same key again: two of
+  /// the token's fields are already past the container's 2048-byte cap for one
+  /// settings value. The write is the LAST step of the ceremony — the contact
+  /// and the document are adopted before it — so it failed with everything
+  /// else already done, and the person saw a generic error on a link that
+  /// could never complete (report27 X32).
+  test('a device admission larger than one settings value is kept', () async {
+    final sourceInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 41)),
+      nonce: Uint8List.fromList([9, 8, 7, 6]),
+    );
+    final targetInvite = BootstrapInvite(
+      publicKey: Uint8List.fromList(List.filled(32, 42)),
+      nonce: Uint8List.fromList([6, 7, 8, 9]),
+    );
+    final targetStorage = FakeHvContainer().storage();
+    await targetStorage.open(password: 'pw', createIfMissing: true);
+    final target = GroupService(
+      targetStorage,
+      _FakeSigner(targetInvite.nodeId),
+    );
+
+    // A document the size a hybrid identity really carries.
+    final token = DeviceLinkToken(
+      groupId: _id(31),
+      // The binding the token validates on: the source IS the invite's node.
+      source: sourceInvite.nodeId,
+      manifestHash: Uint8List(32),
+      sourceInvite: sourceInvite,
+      expiresAtMs: DateTime.now().millisecondsSinceEpoch + 60000,
+      sourceDevice: _id(33),
+      document: Uint8List.fromList(List.generate(1600, (i) => i & 0xFF)),
+    );
+    expect(
+      jsonEncode(token.toJson()).length,
+      greaterThan(2048),
+      reason:
+          'premise: this admission has to be bigger than one settings value '
+          'or the test proves nothing',
+    );
+
+    expect(
+      await target.prepareDeviceAdoption(token),
+      isTrue,
+      reason:
+          'the admission could not be written, and it is the last step of a '
+          'ceremony whose earlier steps have already been applied',
+    );
+    final pending = await target.pendingDeviceAdoption();
+    expect(
+      pending?.groupId.hex,
+      token.groupId.hex,
+      reason: 'the admission was not read back',
+    );
+    expect(pending?.document, token.document);
+
+    // And cancelling really cancels it, from wherever it was kept.
+    await target.cancelPendingDeviceAdoption();
+    expect(
+      await target.pendingDeviceAdoption(),
+      isNull,
+      reason: 'a cancelled admission still admits its source for seven days',
+    );
+  });
+
   test('an admission outlives its token until the snapshot arrives', () async {
     // The token's expiry is an ACCEPT-time freshness check; the admission it
     // creates is durable consent. Measured live 2026-08-17: a device that
