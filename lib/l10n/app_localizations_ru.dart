@@ -7401,6 +7401,16 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String transferImportInterrupted(
+    String reason,
+    int events,
+    int files,
+    int settings,
+  ) {
+    return 'Архив оборвался на полпути: $reason До этого объединено: $events записей, файлов $files, настроек $settings. Ничего не потеряно — повторное объединение того же архива безопасно и доберёт остальное.';
+  }
+
+  @override
   String get transferRefusedOtherIdentity =>
       'Архив принадлежит другой личности. Слияние приписало бы вам чужие сообщения.';
 

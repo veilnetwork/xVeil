@@ -7433,6 +7433,16 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String transferImportInterrupted(
+    String reason,
+    int events,
+    int files,
+    int settings,
+  ) {
+    return 'El archivo se interrumpió a medias: $reason Antes de eso se fusionaron: $events entradas, $files archivos, $settings ajustes. No se pierde nada: volver a fusionar el mismo archivo es seguro y recoge lo que falta.';
+  }
+
+  @override
   String get transferRefusedOtherIdentity =>
       'Este archivo pertenece a otra identidad. Fusionarlo te atribuiría mensajes ajenos.';
 

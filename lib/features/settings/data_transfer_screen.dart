@@ -299,6 +299,29 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
           ImportRefusal.noAppliers => l.transferRefusedNotReady,
         };
       });
+    } on ImportInterrupted catch (e) {
+      // NOT THE SAME AS A FILE THAT NEVER OPENED. A streaming import applies as
+      // it reads, so a truncated archive leaves real changes behind — and
+      // saying only "the archive is incomplete" hides both that and the fact
+      // that trying again is safe (report27 X10).
+      if (!mounted) return;
+      final why = switch (e.cause) {
+        TransferException(failure: TransferFailure.truncated) =>
+          l.transferTruncated,
+        TransferException(failure: TransferFailure.corrupt) => l.transferCorrupt,
+        TransferException(failure: TransferFailure.badPassword) =>
+          l.transferBadPassword,
+        _ => l.transferNotAnArchive,
+      };
+      setState(() {
+        _busy = null;
+        _error = l.transferImportInterrupted(
+          why,
+          e.partial.syncEvents,
+          e.partial.filesAdded,
+          e.partial.settingsFilled,
+        );
+      });
     } on TransferException catch (e) {
       if (!mounted) return;
       setState(() {
