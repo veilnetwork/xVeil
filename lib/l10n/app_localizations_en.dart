@@ -3889,7 +3889,8 @@ class AppL10nEn extends AppL10n {
   String get themeShare => 'Copy this theme to share it';
 
   @override
-  String get themeShared => 'Copied. Anyone you send it to can paste it here.';
+  String get themeShared =>
+      'Copied. Paste it into a chat and it arrives as a theme, ready to put on with one tap.';
 
   @override
   String get themeMake => 'Make one';
@@ -3907,11 +3908,43 @@ class AppL10nEn extends AppL10n {
   String get themeMakeSave => 'Use this theme';
 
   @override
+  String get themeMakeBackground => 'Background';
+
+  @override
+  String get themeMakeBackgroundFromSeed => 'From the colour';
+
+  @override
+  String get themeBackgroundSafety =>
+      'Pick any background you like. Text and warnings are moved as little as they must be to stay readable on it — that part is not yours or anyone else’s to set.';
+
+  @override
   String get themeRemove => 'Remove';
 
   @override
   String get themeSafety =>
       'A theme chooses a colour and light or dark, and nothing else. It cannot decide what a warning looks like — the colours of everything else are derived from yours, so a theme from a stranger can make the app unfamiliar but not misleading.';
+
+  @override
+  String get themeInChat => 'A theme';
+
+  @override
+  String get themeInChatUse => 'Use this theme';
+
+  @override
+  String get themeInChatInUse => 'In use now';
+
+  @override
+  String get themeInChatSafety =>
+      'Colours only. A theme cannot change what a warning looks like.';
+
+  @override
+  String get themeInChatSampleTheirs => 'How does this look?';
+
+  @override
+  String get themeInChatSampleMine => 'Like this.';
+
+  @override
+  String get themeInChatSampleWarning => 'A warning looks like this';
 
   @override
   String get settingsRecoveryTitle => 'Restoring this identity';

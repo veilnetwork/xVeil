@@ -42,6 +42,7 @@ class ThemeSpec {
     required this.name,
     required this.seed,
     required this.dark,
+    this.background,
   });
 
   /// Stable across renames — what a stored choice points at.
@@ -54,6 +55,17 @@ class ThemeSpec {
 
   final bool dark;
 
+  /// The surface everything is drawn on, when this theme chose one.
+  ///
+  /// Null means "whatever the seed gives", which is what every theme did
+  /// before this field existed and what all seven built-ins still do.
+  ///
+  /// Choosing it is the most dangerous thing a theme can do — it is the colour
+  /// the warnings have to be legible against — and it is safe only because the
+  /// repair happens on the FOREGROUNDS: see `AppTheme.of`, where the error and
+  /// text colours are moved until they can be read on whatever arrived here.
+  final Color? background;
+
   Map<String, Object?> toJson() => {
     'id': id,
     'n': name,
@@ -62,6 +74,10 @@ class ThemeSpec {
     // a colour that looks wrong in a list.
     'c': (seed.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0'),
     'd': dark,
+    if (background != null)
+      'b': (background!.toARGB32() & 0xFFFFFF)
+          .toRadixString(16)
+          .padLeft(6, '0'),
   };
 
   /// The carried form: `xveil-theme:v1:<base64url>`.
@@ -73,27 +89,137 @@ class ThemeSpec {
   /// Null rather than throwing, and clamped rather than refused where clamping
   /// is honest: a theme is a preference, and the worst outcome of a damaged one
   /// should be the default look, never a screen that will not build.
-  static ThemeSpec? parse(String raw) {
+  static ThemeSpec? parse(String raw) => locate(raw)?.spec;
+
+  /// Find a theme inside whatever it arrived in, and say what surrounded it.
+  ///
+  /// A theme travels in a chat message, so it arrives wrapped across lines and
+  /// usually with words on either side ("try this one" / "made it last
+  /// night"). Both have to survive: the theme must still be readable, and the
+  /// sender's own sentence must still be shown as a sentence.
+  ///
+  /// Where the encoded part ENDS is decided by the decoded JSON, not by where
+  /// the base64 alphabet happens to stop. Ordinary prose after a theme is made
+  /// of base64url characters too — "enjoy" is a valid run — so a parser that
+  /// took the longest run would swallow the next word and refuse a theme that
+  /// is perfectly good. (The recovery certificate learned this the hard way,
+  /// where the same paste glued trailing prose onto the ciphertext.)
+  static ThemeInText? locate(String raw) {
     if (raw.length > kMaxThemeTextBytes) return null;
     final start = raw.indexOf(kThemePrefix);
     if (start < 0) return null;
-    // Whitespace only: a theme copied through a chat comes back wrapped, and
-    // the base64url run below is what decides where it ends.
-    final body = raw
-        .substring(start + kThemePrefix.length)
-        .replaceAll(RegExp(r'\s'), '');
-    final run = RegExp(r'^[A-Za-z0-9_-]+').firstMatch(body);
-    if (run == null) return null;
-    final encoded = run.group(0)!;
+    final tail = raw.substring(start + kThemePrefix.length);
+
+    // The base64url characters, in order, remembering where each one sat so
+    // the end of the theme can be pointed at in the ORIGINAL text. Whitespace
+    // is stepped over rather than ending the run: a chat wraps a long line
+    // wherever it likes.
+    final chars = StringBuffer();
+    final at = <int>[];
+    for (var i = 0; i < tail.length; i++) {
+      final c = tail.codeUnitAt(i);
+      final space = c == 0x20 || c == 0x09 || c == 0x0a || c == 0x0d;
+      if (space) continue;
+      final b64 =
+          (c >= 0x41 && c <= 0x5a) ||
+          (c >= 0x61 && c <= 0x7a) ||
+          (c >= 0x30 && c <= 0x39) ||
+          c == 0x2d ||
+          c == 0x5f;
+      if (!b64) break;
+      chars.writeCharCode(c);
+      at.add(i);
+    }
+    final encoded = chars.toString();
+    if (encoded.length < 4) return null;
+
+    // Two attempts, because the run's END is not known yet. As it stands it
+    // may be the theme exactly (a length that needs padding), or the theme
+    // plus the beginning of a sentence — and padding a run that was cut
+    // mid-word is a format error, not a short read. Falling back to whole
+    // four-character groups always decodes, and the JSON inside decides where
+    // the theme really ended.
+    List<int>? bytes;
+    for (final candidate in [
+      encoded,
+      encoded.substring(0, encoded.length ~/ 4 * 4),
+    ]) {
+      if (candidate.length < 4) continue;
+      try {
+        bytes = base64Url.decode(
+          candidate.padRight((candidate.length + 3) ~/ 4 * 4, '='),
+        );
+        break;
+      } catch (_) {
+        // The next candidate, or nothing.
+      }
+    }
+    if (bytes == null) return null;
+
     try {
-      final padded = encoded.padRight((encoded.length + 3) ~/ 4 * 4, '=');
-      final decoded = jsonDecode(utf8.decode(base64Url.decode(padded)));
+      final end = _objectEnd(bytes);
+      if (end < 0) return null;
+      final decoded = jsonDecode(utf8.decode(bytes.sublist(0, end)));
       if (decoded is! Map) return null;
-      return fromJson(decoded);
+      final spec = fromJson(decoded);
+      if (spec == null) return null;
+      final used = _base64Length(end);
+      final after = used <= at.length ? at[used - 1] + 1 : tail.length;
+      return ThemeInText(
+        spec: spec,
+        before: raw.substring(0, start),
+        after: tail.substring(after),
+      );
     } catch (_) {
       return null;
     }
   }
+
+  /// One past the closing brace of the JSON object these bytes start with, or
+  /// -1 if they do not start with one. Braces, brackets and quotes are ASCII
+  /// and every byte of a multi-byte character is >= 0x80, so scanning bytes is
+  /// as correct as scanning characters and costs nothing.
+  static int _objectEnd(List<int> bytes) {
+    var i = 0;
+    while (i < bytes.length &&
+        (bytes[i] == 0x20 ||
+            bytes[i] == 0x09 ||
+            bytes[i] == 0x0a ||
+            bytes[i] == 0x0d)) {
+      i++;
+    }
+    if (i >= bytes.length || bytes[i] != 0x7b) return -1;
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    for (; i < bytes.length; i++) {
+      final b = bytes[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (b == 0x5c) {
+          escaped = true;
+        } else if (b == 0x22) {
+          inString = false;
+        }
+        continue;
+      }
+      if (b == 0x22) {
+        inString = true;
+      } else if (b == 0x7b || b == 0x5b) {
+        depth++;
+      } else if (b == 0x7d || b == 0x5d) {
+        depth--;
+        if (depth == 0) return i + 1;
+        if (depth < 0) return -1;
+      }
+    }
+    return -1;
+  }
+
+  /// How many base64 characters carry [bytes] bytes, unpadded.
+  static int _base64Length(int bytes) =>
+      bytes ~/ 3 * 4 + const [0, 2, 3][bytes % 3];
 
   static ThemeSpec? fromJson(Map<dynamic, dynamic> raw) {
     final hex = raw['c'];
@@ -112,7 +238,16 @@ class ThemeSpec {
       // Alpha is ours, never the sender's.
       seed: Color(0xFF000000 | (value & 0xFFFFFF)),
       dark: raw['d'] != false,
+      background: _colour(raw['b']),
     );
+  }
+
+  /// A colour from somebody else, opaque, or nothing.
+  static Color? _colour(Object? raw) {
+    if (raw is! String) return null;
+    final value = int.tryParse(raw.replaceAll('#', ''), radix: 16);
+    if (value == null) return null;
+    return Color(0xFF000000 | (value & 0xFFFFFF));
   }
 
   /// Names arrive from other people. Control characters and newlines would let
@@ -138,10 +273,36 @@ class ThemeSpec {
       other.id == id &&
       other.name == name &&
       other.seed.toARGB32() == seed.toARGB32() &&
-      other.dark == dark;
+      other.dark == dark &&
+      other.background?.toARGB32() == background?.toARGB32();
 
   @override
-  int get hashCode => Object.hash(id, name, seed.toARGB32(), dark);
+  int get hashCode =>
+      Object.hash(id, name, seed.toARGB32(), dark, background?.toARGB32());
+}
+
+/// A theme as it arrived: the look itself, and the words it came wrapped in.
+///
+/// A chat needs both. Showing only the card would eat the sentence somebody
+/// wrote; showing only the text would print sixty characters of base64 at a
+/// person who was sent a colour.
+@immutable
+class ThemeInText {
+  const ThemeInText({
+    required this.spec,
+    required this.before,
+    required this.after,
+  });
+
+  final ThemeSpec spec;
+
+  /// What the sender wrote before the encoded theme, and after it.
+  final String before;
+  final String after;
+
+  /// The sender's own words, with the machine-readable part taken out.
+  String get words =>
+      [before.trim(), after.trim()].where((s) => s.isNotEmpty).join('\n');
 }
 
 /// The looks that ship with the app.
@@ -150,12 +311,7 @@ class ThemeSpec {
 /// first and stays the default, because a person who never opens this screen
 /// must not have their app change under them.
 const List<ThemeSpec> kBuiltInThemes = [
-  ThemeSpec(
-    id: 'veil-dark',
-    name: 'Veil',
-    seed: Color(0xFF1E8A7B),
-    dark: true,
-  ),
+  ThemeSpec(id: 'veil-dark', name: 'Veil', seed: Color(0xFF1E8A7B), dark: true),
   ThemeSpec(
     id: 'veil-light',
     name: 'Veil light',
