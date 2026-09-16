@@ -3,9 +3,10 @@
 // Mining a name accumulates 32-byte proof seeds until the target weight is
 // reached; the set is saved after every chunk so a restart resumes instead of
 // starting over. It used to be saved as ONE settings value, and a settings
-// value must fit a single hidden-volume chunk — 4096 bytes less nonce and tag
-// leaves 4068 of plaintext, and base64 adds a third on top, so one value holds
-// roughly ninety seeds.
+// value is capped at MAX_VALUE_LEN — 2048 BYTES, checked by `Tx::put` before
+// the commit. That is not the AEAD chunk's plaintext size, which is what this
+// comment used to quote: base64 adds a third on top, so one value holds
+// forty-eight seeds, not ninety (report27 X24).
 //
 // Past that, every save threw `PayloadTooLarge`, and the throw came out of the
 // mining loop and killed the claim: the person watched the work finish and got
@@ -24,16 +25,24 @@ import 'dart:typed_data';
 
 /// base64 characters per part.
 ///
-/// A settings value has to fit one 4068-byte chunk, and the record's own key
-/// and framing eat into that; 2048 leaves room to spare rather than sitting
-/// against a ceiling whose exact overhead lives in another repository. Each
-/// part carries 1536 bytes — 48 seeds.
+/// A settings value is capped at MAX_VALUE_LEN = 2048 bytes, and base64 is
+/// ASCII, so 2048 characters is exactly 2048 bytes: this sits ON the ceiling
+/// rather than under it, which is worth knowing before anyone raises it. Each
+/// part carries 1536 raw bytes — 48 seeds.
+///
+/// The comment here used to say 4068 with "room to spare", which is the AEAD
+/// chunk's plaintext size and a different number from the KV value cap
+/// (report27 X24). Raising this to 3000 would have looked safe against the
+/// test fakes of the time and been refused by a real container.
 const int kSeedPartChars = 2048;
 
 /// How many parts the cache may use before it gives up on resuming.
 ///
-/// Sixty-four parts is a little over three thousand seeds, far past what a
-/// claim mines in practice. The bound exists so a runaway set fills neither
+/// Sixty-four parts is a little over three thousand seeds. The native miner
+/// returns at most SIXTY-FOUR seeds — `veil-crypto`'s `MAX_NICKNAME_SEEDS` —
+/// which is two parts, so this bound is defensive headroom for a generic
+/// cache rather than a size any real claim reaches. It is still needed: the
+/// full set is 2732 base64 characters and does not fit one value. The bound exists so a runaway set fills neither
 /// the container nor the settings namespace; past it, mining continues with no
 /// resume point, which is the correct trade — it is only a cache.
 const int kMaxSeedParts = 64;

@@ -3,6 +3,7 @@
 // Kept to that, deliberately: anything else a test reaches for through this
 // hits noSuchMethod and fails loudly, rather than quietly returning a default
 // that makes the test pass for a reason nobody chose.
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:xveil/data/storage/storage.dart';
@@ -17,7 +18,16 @@ import 'package:xveil/data/storage/storage.dart';
 /// sovereign identity material, whose hybrid master public key alone is 929
 /// bytes (found by running a daemon, 2026-09-12). A fake that cannot fail the
 /// way the real thing fails is a fake that certifies the wrong design.
-const int kFakeSettingCap = 4000;
+/// The container's real number: `MAX_VALUE_LEN` in hidden-volume's
+/// `space/index.rs`, checked by `Tx::put` before the commit.
+///
+/// It read 4000 and was measured in Dart CODE UNITS. Both were wrong in the
+/// permissive direction: the real cap is 2048, and what it counts is UTF-8
+/// BYTES — a multibyte character costs two or three of them and one code unit
+/// here (report27 X24). A fake that admits what the container refuses is a
+/// fake that certifies the wrong design, which is the whole reason this file
+/// exists.
+const int kFakeSettingCap = 2048;
 
 class FakeSettingStorage implements Storage {
   final settings = <String, String>{};
@@ -29,11 +39,14 @@ class FakeSettingStorage implements Storage {
 
   @override
   Future<void> putSetting(String key, String value) async {
-    if (value.length > kFakeSettingCap) {
+    // BYTES, not code units: `putSetting` hands the string to `utf8.encode`
+    // and the container counts what comes out.
+    final bytes = utf8.encode(value).length;
+    if (bytes > kFakeSettingCap) {
       throw StateError(
-        'PayloadTooLarge: payload exceeds chunk capacity — a setting holds at '
-        'most $kFakeSettingCap bytes and $key was given ${value.length}. Put '
-        'it in the file store (storeFile/loadFile).',
+        'PayloadTooLarge: a setting holds at most $kFakeSettingCap bytes and '
+        '$key was given $bytes. Put it in the file store '
+        '(storeFile/loadFile).',
       );
     }
     settings[key] = value;
