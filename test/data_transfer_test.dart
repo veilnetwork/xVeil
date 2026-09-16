@@ -454,6 +454,83 @@ void main() {
       );
     });
 
+    /// A frame length out of the file is bounded from above, not just below.
+    ///
+    /// It is a uint32 — up to four gibibytes — and only the floor was checked,
+    /// so the reader accumulated whatever the file declared before the AEAD
+    /// could say a word about it. The header already declares `chunkBytes`,
+    /// validated when it was parsed, and the writer seals at most that much:
+    /// the ceiling was available all along (report27 X03).
+    test('a frame declaring more than the header allows is refused', () async {
+      const password = 'open sesame';
+      final archive = await write([
+        const TransferRecord(kind: TransferRecordKind.profile),
+      ], password: password);
+
+      // Past the magic and the header line, the body is `[len32][sealed]`.
+      final firstNl = archive.indexOf(0x0a);
+      final secondNl = archive.indexOf(0x0a, firstNl + 1);
+      final bodyAt = secondNl + 1;
+      final tampered = Uint8List.fromList(archive);
+      ByteData.sublistView(tampered, bodyAt, bodyAt + 4)
+          .setUint32(0, 0xFFFFFFFF, Endian.little);
+
+      final reader = await DataTransferReader.open(Stream.value(tampered));
+      await expectLater(
+        reader.records(password: password).toList(),
+        throwsA(
+          isA<TransferException>().having(
+            (e) => e.failure,
+            'failure',
+            TransferFailure.corrupt,
+          ),
+        ),
+        reason:
+            'a four-gibibyte frame was accepted as a length to go and read',
+      );
+      await reader.close();
+    });
+
+    /// A file with no newline is not read until it runs out of memory.
+    ///
+    /// Every line in this format is small JSON — the magic, the header, one
+    /// metadata object per record — and the reader had no bound at all: it
+    /// pulled until it found a newline or the stream ended, holding everything
+    /// it had seen. Pointing the importer at a large file that happens to
+    /// contain no newline accumulates the whole of it before anything can
+    /// judge it, and the file is chosen BEFORE the password is asked for
+    /// (report27 X03).
+    test('a file with no newline is refused rather than accumulated', () async {
+      var delivered = 0;
+      // Two mebibytes with no newline anywhere, arriving in 64 KiB pieces,
+      // and nothing ever closes the stream — exactly what a large binary file
+      // looks like to this reader.
+      final source = () async* {
+        for (var i = 0; i < 64; i++) {
+          delivered += 1;
+          yield Uint8List(32 * 1024)..fillRange(0, 32 * 1024, 0x41);
+        }
+        // Past the ceiling the reader must already have refused; if it gets
+        // here it has held everything above.
+        for (var i = 0; i < 4096; i++) {
+          delivered += 1;
+          yield Uint8List(32 * 1024)..fillRange(0, 32 * 1024, 0x41);
+        }
+      }();
+
+      await expectLater(
+        DataTransferReader.open(source),
+        throwsA(isA<TransferException>()),
+      );
+      expect(
+        delivered * 32 * 1024,
+        lessThanOrEqualTo(kTransferMaxLineBytes + 64 * 1024),
+        reason:
+            'the reader took ${delivered * 32 * 1024} bytes before refusing — '
+            'it is accumulating the file rather than judging it',
+      );
+    });
+
     test('a record declaring more than the ceiling is refused unread', () async {
       final out = BytesBuilder()
         ..add(utf8.encode('$kDataTransferMagic\n'))
