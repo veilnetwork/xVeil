@@ -2040,14 +2040,19 @@ void main() {
         entry.id,
       );
       expect(fetched, isNotNull);
-      // The return endpoint the chunks come back to must offer a SECOND
-      // introduction point. With one, a chunk big enough to fragment can only
-      // survive its relay by paying redundancy for every fragment, which is
-      // what keeps the chunk small; with two, the host round-robins instead.
+      // ONE introduction point, which is what the layer below can give.
+      //
+      // This used to assert a SECOND one, on the reasoning that a host with
+      // two relays could round-robin a fragmented chunk instead of paying
+      // redundancy per fragment. The call that would have registered it could
+      // not: `registerEphemeralOnionService` ZEROES the seed it is handed, so
+      // the second call asked for an all-zero identity rather than this
+      // service's, and the native side refuses one identity in a second slot
+      // regardless (report27 X37). The assertion pinned a promise nothing
+      // kept.
       expect(
-        net.hostedExtraSlots.last,
-        1,
-        reason: 'the member-fetch return endpoint asks for a second relay',
+        net.hostedSlots, isNotEmpty,
+        reason: 'premise: the member fetch hosts a return endpoint',
       );
       expect(editorFiles.files[manifest.contentId], bytes);
       expect(editorFiles.files.containsKey('mf:${manifest.contentId}'), isTrue);
@@ -2434,7 +2439,6 @@ class _MemberNet implements CloudCapabilityNetworkPort {
   /// derive the same seed and alias, so this is the only field that tells two
   /// of them apart on the wire.
   final hostedSlots = <int>[];
-  final hostedExtraSlots = <int>[];
 
   static Uint8List _appIdFor(String alias) =>
       Uint8List.fromList(sha256.convert(utf8.encode('cap-app:$alias')).bytes);
@@ -2446,10 +2450,8 @@ class _MemberNet implements CloudCapabilityNetworkPort {
     required int endpointId,
     required int providerSlot,
     bool transient = false,
-    int extraProviderSlots = 0,
   }) async {
     hostedSlots.add(providerSlot);
-    hostedExtraSlots.add(extraProviderSlots);
     final hold = holdHost;
     if (hold != null) {
       final entered = enteredHost;
@@ -2533,7 +2535,6 @@ class _MemberNetDevice implements CloudCapabilityNetworkPort {
     required int endpointId,
     required int providerSlot,
     bool transient = false,
-    int extraProviderSlots = 0,
   }) async {
     if (!bound.add(endpointId)) {
       throw StateError('bind failed: endpoint $endpointId is already bound');
@@ -2544,7 +2545,6 @@ class _MemberNetDevice implements CloudCapabilityNetworkPort {
       endpointId: endpointId,
       providerSlot: providerSlot,
       transient: transient,
-      extraProviderSlots: extraProviderSlots,
     );
     return _UnbindingEndpoint(endpoint, () => bound.remove(endpointId));
   }
