@@ -6,6 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.69] — 2026-09-16
+
+*The look is yours, and a theme can be handed to somebody.*
+
+### Added
+
+- **Themes.** Seven to choose from, and a way to make your own: a colour, light
+  or dark, and — new here — the background everything is drawn on. The choice
+  belongs to the profile, so a decoy does not open in the look the real one
+  wears.
+- **A theme can be sent in a chat.** Copy it, paste it into a conversation, and
+  it arrives on the other side as a miniature of the app in the colours it
+  would take — not as sixty characters of base64. One tap puts it on. Whatever
+  you wrote around it is still shown as words.
+- **Nothing a theme brings can hide a warning.** This app writes what a person
+  cannot afford to miss in the error colour, and a background is the one field
+  that could make those unreadable without ever naming them. The chosen
+  background is honoured exactly; every colour that carries text is moved as
+  little as it must be to stay readable on it, on the background and on every
+  panel, bubble, chip and button raised above it. Against any colour there is,
+  black or white reaches a contrast of 4.58, so the repair always succeeds and
+  never refuses what somebody asked for. Proved against 100+ backgrounds chosen
+  to break it, including the reds a red warning would vanish into.
+
+### Fixed
+
+- **An outgoing bubble's text belongs to the bubble.** It inherited the page's
+  text colour, which matched only while the page and the bubble happened to be
+  similar — a theme that brings its own background is free not to be.
+
 ## [0.13.68] — 2026-09-16
 
 *A restart no longer starts from nothing.*
