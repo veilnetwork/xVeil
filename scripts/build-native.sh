@@ -71,9 +71,14 @@ case "$(uname -s)" in
 esac
 
 echo
+# The paths CARGO used, which are not the paths a checkout usually has:
+# `CARGO_TARGET_DIR` puts every crate's output in one shared directory, and
+# printing the conventional path there names files that do not exist.
+OUT_HV="${CARGO_TARGET_DIR:-$HV/target}/$PROFILE"
+OUT_VEIL="${CARGO_TARGET_DIR:-$VEIL/target}/$PROFILE"
 echo "Artifacts:"
-echo "  HV_FFI=$HV/target/$PROFILE/libhidden_volume_ffi.$EXT"
-echo "  VEIL_FFI=$VEIL/target/$PROFILE/libveilclient_ffi.$EXT"
+echo "  HV_FFI=$OUT_HV/libhidden_volume_ffi.$EXT"
+echo "  VEIL_FFI=$OUT_VEIL/libveilclient_ffi.$EXT"
 if [[ "$BUILD_CLI" == true ]]; then
-  echo "  VEIL_CLI=$VEIL/target/$PROFILE/veil-cli"
+  echo "  VEIL_CLI=$OUT_VEIL/veil-cli"
 fi
