@@ -47,6 +47,8 @@ class OnboardingScreen extends ConsumerStatefulWidget {
     this.generatePhrase = veilGeneratePhrase,
     this.mintIdentity = mintSovereignIdentity,
     this.saveCertificate,
+    this.restoreCheck = nativeRecoveryCodeOpens,
+    this.pickCertificate,
   });
 
   /// Injectable so widget tests can drive the restore path without the
@@ -71,6 +73,18 @@ class OnboardingScreen extends ConsumerStatefulWidget {
   /// dialog and touches the disk; null means the real one.
   final Future<bool> Function(String certificate, String suggestedName)?
   saveCertificate;
+
+  /// Proves a recovery code against a certificate on the RESTORE path.
+  ///
+  /// Injectable for the same reason as the three above — it is two Argon2
+  /// passes through the native library — and because the walk it gates is the
+  /// one a test needs to reach the choice screen from: restore, back, create
+  /// (report27 X18).
+  final RecoveryCodeCheck restoreCheck;
+
+  /// Picks the certificate file on the restore path. Null means the real one,
+  /// which opens a file dialog.
+  final Future<String?> Function()? pickCertificate;
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -159,7 +173,29 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// was created. Shown on the choice step, where the person still is.
   String? _createRefusal;
 
+  /// Everything one path collected, dropped before another one starts.
+  ///
+  /// The paths share this State, and Back is an ordinary navigation: restore a
+  /// certificate, go back to the choice, pick Create — and `_finish` still
+  /// preferred the certificate the restore had accepted
+  /// (`_restoreCertificate ?? _minted?.credential`). The ceremony then showed
+  /// and saved certificate A while the container was given identity B: a
+  /// backup for an identity this install does not have (report27 X18).
+  ///
+  /// Called at the ENTRY of each path rather than on Back, because Back is not
+  /// the only way in: an error, a retry and the archive→certificate hop all
+  /// arrive here too.
+  void _forgetOtherPaths() {
+    _restoreCertificate = null;
+    _restoreCode = '';
+    _restoreNodeConfig = null;
+    _minted = null;
+    _phrase = const [];
+    _realPhrase = false;
+  }
+
   void _startCreate() {
+    _forgetOtherPaths();
     _restoring = false;
     // NO WORDS ON THIS PATH ANY MORE.
     //
@@ -176,8 +212,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     // linking a device, for claiming a nickname, for reissuing the
     // certificate. One secret, one file, and no question about which of two
     // things is the backup.
-    _realPhrase = false;
-    _phrase = const [];
     _joinExisting = false;
     _go(8);
   }
@@ -191,9 +225,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     // restore step would otherwise carry `_restoring` here, and a device that
     // links has no phrase at all — the flag is inert today only because the
     // derivation it steers sits behind a "phrase is not empty" guard.
+    _forgetOtherPaths();
     _restoring = false;
-    _realPhrase = false;
-    _phrase = const [];
     _joinExisting = true;
     _go(6);
   }
@@ -275,6 +308,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     Uint8List? credential,
     String secret,
   ) {
+    _forgetOtherPaths();
     _restoring = true;
     _restoreNodeConfig = identityToml;
     // THE CREDENTIAL TRAVELS WITH THE CONFIG, or the restore is a half of one.
@@ -302,6 +336,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// hybrid master and the Falcon half was drawn at random — so a person who
   /// has their certificate should never be sent down the phrase path.
   void _restoreWithCertificate(Uint8List certificate, String code) {
+    _forgetOtherPaths();
     _restoring = true;
     _restoreCertificate = certificate;
     _restoreCode = code;
@@ -505,7 +540,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               open: _openArchive,
               onIdentity: _restoreFromArchive,
             ),
-            5 => _RestoreStep(onCertificate: _restoreWithCertificate),
+            5 => _RestoreStep(
+              onCertificate: _restoreWithCertificate,
+              check: widget.restoreCheck,
+              pick: widget.pickCertificate,
+            ),
             6 => _LinkStep(onNext: () => _go(3)),
             8 => RecoveryCertificateStep(
               mintFresh: widget.mintIdentity,
@@ -740,9 +779,15 @@ class _LinkStep extends StatelessWidget {
 /// credential at all IS restored exactly by its words, and those people lose
 /// this door. Every identity this app has created for months is hybrid.
 class _RestoreStep extends StatelessWidget {
-  const _RestoreStep({required this.onCertificate});
+  const _RestoreStep({
+    required this.onCertificate,
+    required this.check,
+    this.pick,
+  });
 
   final void Function(Uint8List certificate, String code) onCertificate;
+  final RecoveryCodeCheck check;
+  final Future<String?> Function()? pick;
 
   @override
   Widget build(BuildContext context) {
@@ -765,7 +810,11 @@ class _RestoreStep extends StatelessWidget {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            CertificateRestoreInput(onSubmit: onCertificate),
+            CertificateRestoreInput(
+              onSubmit: onCertificate,
+              check: check,
+              pick: pick,
+            ),
           ],
         ),
       ),

@@ -32,6 +32,8 @@ import '../../state/device_settings_sync.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/device_sync_appliers.dart';
 import '../../state/messaging.dart';
+import '../../state/app_controller.dart' show IdentityLease;
+import '../../state/identity_guard.dart';
 import '../../state/providers.dart';
 
 class DataTransferScreen extends ConsumerStatefulWidget {
@@ -66,6 +68,36 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
 
   Storage get _storage => ref.read(storageProvider);
 
+  /// The identity this operation belongs to, and everything it needs, taken
+  /// ONCE before the first await.
+  ///
+  /// The screen used to re-read `storageProvider`, the self id and the
+  /// appliers after the password dialog and the file picker — both of which a
+  /// person can leave open while they switch identity. The header check then
+  /// proved something about the identity that STARTED the transfer while the
+  /// records went to whichever one was active when each was applied
+  /// (report27 X02). `mounted` does not answer this: the widget is still
+  /// mounted, which is why the continuation runs at all.
+  Future<({IdentityLease lease, Storage storage, String selfHex})>
+  _operationOwner() async => (
+    lease: ref.leaseIdentity(),
+    storage: ref.read(storageProvider),
+    selfHex: await _selfHex(),
+  );
+
+  /// Whether the identity the operation belongs to is still the active one.
+  /// Shows the refusal itself, so every caller reads the same way.
+  bool _stillOurs(IdentityLease lease, AppL10n l) {
+    if (ref.holdsIdentity(lease)) return true;
+    if (mounted) {
+      setState(() {
+        _busy = null;
+        _error = l.transferIdentitySwitched;
+      });
+    }
+    return false;
+  }
+
   Future<void> _loadCredentialKind() async {
     final svc = ref.read(groupServiceProvider);
     if (svc == null) return;
@@ -97,15 +129,18 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
 
   Future<void> _export({required bool sealed}) async {
     final l = AppL10n.of(context);
+    final owner = await _operationOwner();
     String? password;
     if (sealed) {
       password = await _askPassword(title: l.transferExportPasswordTitle);
       if (password == null || password.isEmpty) return;
     }
+    if (!_stillOurs(owner.lease, l)) return;
     final name =
         'xveil-${DateTime.now().toIso8601String().split('T').first}.xveilbk';
     final dest = await FilePicker.saveFile(fileName: name);
     if (dest == null) return;
+    if (!_stillOurs(owner.lease, l)) return;
 
     setState(() {
       _busy = l.transferWorking;
@@ -115,8 +150,8 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     final handle = File(dest).openWrite();
     try {
       final report = await DataExporter(
-        storage: _storage,
-        nodeIdHex: await _selfHex(),
+        storage: owner.storage,
+        nodeIdHex: owner.selfHex,
         syncedSettingKeys:
             ref.read(deviceSettingsSyncHubProvider).syncedKeys.toSet(),
       ).run(
@@ -157,6 +192,9 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
 
   Future<void> _import() async {
     final l = AppL10n.of(context);
+    // Taken BEFORE the file picker and the password dialog — both of which a
+    // person can leave open while they switch identity (report27 X02).
+    final owner = await _operationOwner();
     final picked = await FilePicker.pickFiles(withReadStream: false);
     final path = picked?.files.single.path;
     if (path == null) return;
@@ -178,6 +216,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     }
 
     if (!mounted) return;
+    if (!_stillOurs(owner.lease, l)) return;
     final go = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -205,6 +244,9 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       ),
     );
     if (go != true) return;
+    // The confirmation named THIS identity's container; applying the records
+    // into another one is not what was agreed to.
+    if (!_stillOurs(owner.lease, l)) return;
 
     setState(() {
       _busy = l.transferWorking;
@@ -213,12 +255,15 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     });
     try {
       final report = await DataImporter(
-        storage: _storage,
+        storage: owner.storage,
         appliers: ref.read(deviceSyncAppliersProvider),
-        selfNodeIdHex: await _selfHex(),
+        selfNodeIdHex: owner.selfHex,
       ).run(
         bytes: file.openRead(),
         password: password,
+        // Asked before every record: a switch halfway through must not send
+        // the rest of this archive into another identity (report27 X02).
+        stillOurs: () => ref.holdsIdentity(owner.lease),
         onProgress: (records) {
           if (!mounted) return;
           setState(() => _busy = l.transferProgress(records, 0));

@@ -22,10 +22,36 @@ class FakeHvContainer {
   String _hex(Uint8List b) =>
       b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
+  /// The container's salt. Real space keys are derived from the password AND
+  /// this, which is why a repack — which writes a fresh salt — leaves the same
+  /// password deriving DIFFERENT keys (hidden-volume documents it as a
+  /// defensive property). Modelled here so a test can compact.
+  int _salt = 0;
+
   Uint8List _keysFor(String pw) {
     final base = utf8.encode(pw);
     return Uint8List.fromList(
-        List.generate(64, (i) => (base[i % base.length] + i) & 0xff));
+        List.generate(64, (i) => (base[i % base.length] + i + _salt) & 0xff));
+  }
+
+  /// What a repack does to every space: same passwords, new salt, new keys.
+  ///
+  /// The spaces and their contents survive; only the keys that name them
+  /// change. Anything holding a space by KEYS — a master's roster — is stale
+  /// afterwards, which is the whole of report27 X27.
+  void rotateSalt() {
+    _salt += 1;
+    final rekeyed = <String, FakeKvLogStore>{};
+    for (final entry in _pwToKeyHex.entries) {
+      final store = _byKeys[entry.value];
+      if (store == null) continue;
+      final keys = _keysFor(entry.key);
+      rekeyed[_hex(keys)] = store.withKeys(keys);
+      _pwToKeyHex[entry.key] = _hex(keys);
+    }
+    _byKeys
+      ..clear()
+      ..addAll(rekeyed);
   }
 
   KvLogStore _acquire(FakeKvLogStore store) {

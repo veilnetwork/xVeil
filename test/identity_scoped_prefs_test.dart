@@ -60,6 +60,11 @@ void main() {
     expect(kIdentityPosturePrefKeys, contains('proxy_routing'));
     expect(kIdentityPosturePrefKeys, contains('vpn_routing_policy'));
     expect(kIdentityPosturePrefKeys, contains('signature_policy'));
+    // A custom theme's NAME is text a person typed or a friend sent, kept in
+    // prefs so the look is right before any password is. Left off this list it
+    // outlives "clear all data" in plaintext (report27 X11).
+    expect(kIdentityPosturePrefKeys, contains('theme_chosen'));
+    expect(kIdentityPosturePrefKeys, contains('theme_custom'));
   });
 
   test('the default profile keeps the bare key', () {

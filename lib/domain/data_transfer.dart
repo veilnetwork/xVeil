@@ -460,7 +460,14 @@ class DataTransferWriter {
       throw StateError('the archive is closed');
     }
     final meta = <String, dynamic>{'k': record.kind.name, ...record.meta};
-    if (record.payloadLength > 0) meta['n'] = record.payloadLength;
+    // PRESENT MEANS "HAS A PAYLOAD", including an empty one.
+    //
+    // Omitting `n` for a zero-length payload made an empty file
+    // indistinguishable from a record that carries nothing at all: the reader
+    // answered null, the importer skipped it, and a file the export had
+    // already counted was simply not restored (report27 X04). An archive from
+    // an older build still omits the key and still reads as it did.
+    if (record.payload != null) meta['n'] = record.payloadLength;
     await _body(utf8.encode('${jsonEncode(meta)}\n'));
     final payload = record.payload;
     if (payload != null && payload.isNotEmpty) await _body(payload);
@@ -484,7 +491,9 @@ class DataTransferWriter {
       throw StateError('the archive is closed');
     }
     final head = <String, dynamic>{'k': kind.name, ...meta};
-    if (length > 0) head['n'] = length;
+    // Always, for the reason in [add]: a streamed record HAS a payload, and a
+    // zero-byte one is a file that exists and is empty.
+    head['n'] = length;
     await _body(utf8.encode('${jsonEncode(head)}\n'));
     var written = 0;
     await for (final chunk in payload) {
@@ -648,8 +657,18 @@ class DataTransferReader {
         if (n is int && n > kTransferMaxRecordBytes) {
           throw const TransferException(TransferFailure.recordTooLarge);
         }
-        final length = n is int && n > 0 ? n : 0;
-        final payload = length == 0 ? null : await body.take(length);
+        // `n` present at all is what says this record carries a payload; its
+        // value is how long. Zero is an empty payload, not a missing one.
+        final declared = n is int && n > 0 ? n : 0;
+        final Uint8List? payload;
+        if (n is! int) {
+          payload = null;
+        } else if (declared == 0) {
+          payload = Uint8List(0);
+        } else {
+          payload = await body.take(declared);
+        }
+        final length = declared;
         if (length > 0 && payload == null) {
           throw const TransferException(TransferFailure.truncated, 'payload');
         }
