@@ -76,14 +76,11 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get onboardRestoreIdentitySub =>
-      'Con su certificado de recuperación, o con las 24 palabras';
+      'Con el certificado de recuperación que guardaste para ella';
 
   @override
   String get onboardRestoreBody =>
-      'Dos caminos de vuelta, y no traen lo mismo. El certificado restaura ESTA identidad: la dirección que tienen tus contactos. Las 24 palabras por sí solas restauran otra distinta: fijan la mitad de la clave de identidad, y la otra mitad se sorteó al crearla y solo existe en el certificado.';
-
-  @override
-  String get onboardRestoreSubmit => 'Restaurar';
+      'El certificado es lo que devuelve esta identidad: la misma dirección que tienen tus contactos. Elige el fichero e introduce el código que guardaste aparte.';
 
   @override
   String get onboardLinkDevice => 'Vincular a un dispositivo que ya usas';
@@ -5326,10 +5323,6 @@ class AppL10nEs extends AppL10n {
   String get onboardPasswordMismatch => 'Las contraseñas no coinciden';
 
   @override
-  String get recoveryPhraseHint =>
-      'Escribe tu frase de recuperación, con las palabras separadas por espacios';
-
-  @override
   String get securityCenterTooltip => 'Seguridad';
 
   @override
@@ -5799,16 +5792,18 @@ class AppL10nEs extends AppL10n {
       'Guarda el archivo antes de continuar. Solo existe en esta pantalla y es la única copia de la mitad de tu clave.';
 
   @override
-  String get onboardRestoreWithCertificate =>
-      'Tengo un certificado de recuperación';
-
-  @override
   String get onboardRestoreCertificateBody =>
       'El certificado recupera la dirección que tienen tus contactos. Las 24 palabras por sí solas restauran otra identidad: úsalas solo si esta identidad nunca tuvo certificado.';
 
   @override
   String get onboardRestorePickCertificate =>
       'Elegir el archivo del certificado';
+
+  @override
+  String get onboardRestoreCertificateFromFile => 'Elegido de un fichero';
+
+  @override
+  String get onboardRestoreCertificateAnother => 'Elegir otro';
 
   @override
   String onboardRestoreCertificateChosen(String id) {
@@ -5840,9 +5835,6 @@ class AppL10nEs extends AppL10n {
   @override
   String get onboardRestoreCertificateBad =>
       'Ese archivo no es un certificado de recuperación de xVeil, o está dañado.';
-
-  @override
-  String get onboardRestoreWithPhrase => 'Restaurar con las 24 palabras';
 
   @override
   String get onboardContainerInUse =>
@@ -5910,6 +5902,9 @@ class AppL10nEs extends AppL10n {
   @override
   String get onboardArchiveNoCredential =>
       'Este archivo se escribió antes de que los archivos llevaran la clave de identidad. Restaura la clave de transporte y las conversaciones, pero la identidad será OTRA, en una dirección que tus contactos no tienen. Exporta un archivo nuevo desde el dispositivo que aún tiene esta identidad, o restaura desde el certificado.';
+
+  @override
+  String get onboardArchiveUnlock => 'Abrir este archivo';
 
   @override
   String get onboardArchiveContinue => 'Tomar la identidad de este archivo';
