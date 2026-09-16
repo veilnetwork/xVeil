@@ -15,12 +15,14 @@
 //   every chunk — so a restart RESUMES instead of restarting, and cancel is
 //   just "stop looping".
 //
-//   That cache used to be ONE settings value, and the set it holds has no
-//   ceiling: seeds are 32 bytes each and accumulate until the target weight is
-//   reached, while a settings value must fit a single hidden-volume chunk
-//   (4096 bytes less nonce and tag = 4068 of plaintext), with base64 adding a
-//   third on top. So a value held about ninety seeds, and a name that needed
-//   more failed EVERY persist from that point on — and the exception came out
+//   That cache used to be ONE settings value, while a settings value is capped
+//   at MAX_VALUE_LEN — 2048 BYTES, which `Tx::put` checks before the commit.
+//   Seeds are 32 bytes each and base64 adds a third on top, so a value held
+//   FORTY-EIGHT of them. (This used to say "no ceiling" and quote 4068, which
+//   is the AEAD chunk's plaintext size and a different number; the native
+//   miner's own maximum is 64 seeds — `MAX_NICKNAME_SEEDS` — which is 2732
+//   base64 characters and still does not fit one value, report27 X24.) A name
+//   that needed more failed EVERY persist from that point on — and the exception came out
 //   of the mining loop and killed the claim itself. Reported live on
 //   2026-09-08: "HvException.PayloadTooLarge: payload exceeds chunk capacity"
 //   while claiming @HateError, with the mining already done.
