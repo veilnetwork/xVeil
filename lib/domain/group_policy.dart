@@ -1503,7 +1503,12 @@ SpaceAuthorityBoundary? spaceAuthorityBoundaryAt(
 ///
 /// Empty when the log carries no owner checkpoint, which is the common case:
 /// nothing changes for a Space that has none.
-Map<String, int> _ownerSealedHeads({
+/// What the owner actually sealed: the row at that position, by hash.
+///
+/// Keyed by author, so a lookup is one map read on the fold's hot path.
+typedef _SealedHead = ({int seq, String hash});
+
+Map<String, _SealedHead> _ownerSealedHeads({
   required NodeId owner,
   required List<ControlEntry> entries,
   required bool Function(ControlEntry entry) verify,
@@ -1527,8 +1532,16 @@ Map<String, int> _ownerSealedHeads({
     }
   }
   if (seal == null || ambiguous) return const {};
+  // THE HASH TRAVELS WITH THE POSITION.
+  //
+  // Dropping it left the exemption keyed on `author → seq`, and a sequence
+  // number is not a row: a DIFFERENT row at the same position — a fork the
+  // owner never saw — took the exemption the owner granted to the one they
+  // did (report27 X15). The heads carry the hash precisely so "the owner said"
+  // can name one row.
   return {
-    for (final head in seal.controlCheckpoint!.heads) head.author.hex: head.seq,
+    for (final head in seal.controlCheckpoint!.heads)
+      head.author.hex: (seq: head.seq, hash: head.hash),
   };
 }
 
@@ -1595,7 +1608,7 @@ GroupFoldResult _foldControlLogOnce({
   required List<ControlEntry> entries,
   required bool Function(ControlEntry entry) verify,
   required List<ControlEntry> withdrawals,
-  Map<String, int> sealedHeads = const {},
+  Map<String, _SealedHead> sealedHeads = const {},
   String initialName = '',
   String initialDescription = '',
   String? initialAvatarContentId,
@@ -1981,7 +1994,20 @@ GroupFoldResult _foldControlLogOnce({
     // answers it for that row only: everything above the sealed head is
     // decided exactly as before.
     final sealedHead = sealedHeads[e.author.hex];
-    final sealedByOwner = sealedHead != null && e.seq <= sealedHead;
+    // THE ROWS THE OWNER NAMED, and no others.
+    //
+    // Two things went wrong with "everything at or below the sealed seq". A
+    // different row at the sealed position took the exemption granted to the
+    // one the owner saw (report27 X15) — hence the hash. And a row REJECTED as
+    // unauthorized keeps its place on its author's chain on purpose, so the
+    // prefix under a later accepted head still contains it: the seal then
+    // turned that refusal into an acceptance, and a member's refused rename
+    // was applied (report27 X16). A chain proves what was WRITTEN, never what
+    // was applied, so the prefix cannot carry this and the heads must.
+    final sealedByOwner =
+        sealedHead != null &&
+        e.seq == sealedHead.seq &&
+        controlEntryHash(e) == sealedHead.hash;
     if (!authorized && !sealedByOwner) {
       // VOID, and still at its place on the author's chain — see
       // [GroupFoldResult.unauthorized]. The row is applied to nothing; what it
