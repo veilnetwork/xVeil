@@ -153,9 +153,26 @@ set devLogDirectoryOverride(String? dir) {
 String? debugNodeLogPath() {
   if (_productMode && !_releaseDiagnosticLog) return null;
   for (final dir in _logDirCandidates()) {
-    final probe = io.File('$dir${io.Platform.pathSeparator}.xveil-write-probe');
+    // A NAME THIS PROCESS OWNS, created exclusively.
+    //
+    // The probe used to be a fixed `.xveil-write-probe`, written with
+    // `writeAsStringSync('')` and then deleted. Writing an empty string to a
+    // name that already exists TRUNCATES it, and the delete then removes it:
+    // asking whether a directory is writable destroyed whatever was at that
+    // name, which this process had not created and knew nothing about
+    // (report27 X23). A check does not get to do that.
+    //
+    // Unique per attempt as well as exclusive, so a probe left behind by a
+    // crash cannot make a writable directory look unwritable for ever.
+    final unique =
+        '${io.pid}-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
+    final probe = io.File(
+      '$dir${io.Platform.pathSeparator}.xveil-write-probe.$unique',
+    );
     try {
-      probe.writeAsStringSync('');
+      // Refuses if the name exists, so nothing that was already there is
+      // touched — and what is deleted below is only ever what this line made.
+      probe.createSync(exclusive: true);
       probe.deleteSync();
       return '$dir${io.Platform.pathSeparator}xveil-node-debug.log';
     } catch (_) {
