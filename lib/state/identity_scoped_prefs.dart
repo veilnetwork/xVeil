@@ -80,6 +80,12 @@ const kIdentityPosturePrefKeys = <String>[
   'signature_policy',
   'locale',
   'show_reactions',
+  // The look this profile wears, and the themes it was given. Not posture in
+  // the routing sense, but the NAME of a custom theme is text a person typed
+  // or was sent — it survives a wipe in plaintext prefs otherwise, which is
+  // exactly what "clear all data" promised it would not (report27 X11).
+  'theme_chosen',
+  'theme_custom',
 ];
 
 /// Whether this profile has agreed to the speech model being fetched on its

@@ -895,6 +895,9 @@ class AppController extends Notifier<AppState> {
         for (final bytes in roster.passwords()) Uint8List.fromList(bytes),
       ],
       reopenWith: reopenWith,
+      // What each password opened before the repack — the only way back from
+      // a roster that names its children by keys the repack has just changed.
+      credentials: roster.credentials(),
     );
   }
 
@@ -1003,9 +1006,105 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  /// Put the space keys of a compacted container back into the rosters that
+  /// name them.
+  ///
+  /// A repack writes its destination with a FRESH SALT — hidden-volume says so
+  /// in `Container::repack`'s own documentation, and it is a defensive
+  /// property worth keeping: forensics on a backup of the source finds no help
+  /// in the result. What it also means is that the same password derives
+  /// different space keys on the other side, so every stored reference to a
+  /// space BY KEYS is stale the moment the rename lands. A master's roster is
+  /// exactly such a reference: after a compaction that kept every identity,
+  /// the master would open and none of its children would (report27 X27) —
+  /// they stay reachable by their own passwords, but the master that names
+  /// them stops working.
+  ///
+  /// This runs in the ONE window where the repair is possible: the container is
+  /// closed, and every password is in hand because the compaction just used
+  /// them. [credentials] pairs each password with the keys it derived BEFORE
+  /// the repack, which is the only thing that can say which roster label it
+  /// belongs to.
+  ///
+  /// Returns the labels it could not remap. Every space that carries a roster
+  /// is repaired, not just the one being used: a decoy master names the same
+  /// children and would break the same way.
+  Future<List<String>> remapRostersAfterCompaction(
+    List<({List<int> password, List<int> oldSpaceKeys})> credentials,
+  ) async {
+    if (credentials.isEmpty) return const [];
+    final storage = ref.read(storageProvider);
+    String hex(List<int> b) =>
+        b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+    // old keys -> new keys, learned by opening each space with the password
+    // that opened it before.
+    final moved = <String, Uint8List>{};
+    final rosterHolders = <List<int>>[];
+    final failed = <String>[];
+    for (final credential in credentials) {
+      final password = utf8.decode(credential.password, allowMalformed: true);
+      try {
+        if (!await storage.open(password: password)) {
+          failed.add(hex(credential.oldSpaceKeys).substring(0, 8));
+          continue;
+        }
+        moved[hex(credential.oldSpaceKeys)] = await storage.exportSpaceKeys();
+        if (await storage.loadRoster() != null) {
+          rosterHolders.add(credential.password);
+        }
+      } catch (e) {
+        failed.add(hex(credential.oldSpaceKeys).substring(0, 8));
+        devLog(() => 'xVeil[storage]: remap probe failed: $e');
+      } finally {
+        try {
+          await storage.close();
+        } catch (_) {}
+      }
+    }
+
+    for (final holder in rosterHolders) {
+      final password = utf8.decode(holder, allowMalformed: true);
+      try {
+        if (!await storage.open(password: password)) continue;
+        final roster = await storage.loadRoster();
+        if (roster == null) continue;
+        final repaired = <RosterEntry>[];
+        for (final entry in roster) {
+          final next = moved[hex(entry.spaceKeys)];
+          if (next == null) {
+            // An identity whose password nobody typed cannot be remapped —
+            // and it is not in the compacted container either, because the
+            // compaction kept only what it was given. Dropping it from the
+            // roster is the honest record of what the container now holds.
+            failed.add(entry.label);
+            continue;
+          }
+          repaired.add(entry.copyWith(spaceKeys: next));
+        }
+        await storage.saveRoster(repaired);
+        devLog(
+          () =>
+              'xVeil[storage]: roster remapped after compaction '
+              '(${repaired.length} identities)',
+        );
+      } catch (e) {
+        failed.add('roster');
+        devLog(() => 'xVeil[storage]: roster remap failed: $e');
+      } finally {
+        try {
+          await storage.close();
+        } catch (_) {}
+      }
+    }
+    return failed;
+  }
+
   Future<({int before, int after})> _compactKeeping({
     required List<Uint8List> passwords,
     required String reopenWith,
+    List<({List<int> password, List<int> oldSpaceKeys})> credentials =
+        const [],
   }) async {
     final path = ref.read(deniableBootProvider)!.storePath!;
     final before = await File(path).length();
@@ -1033,6 +1132,17 @@ class AppController extends Notifier<AppState> {
         );
       }
       await hv.compactKnownAsync(path, passwords, dylibPath: _hvDylibPath());
+      // BEFORE the session comes back, while the container is closed and every
+      // password is still here: a repack gave every space new keys, and the
+      // rosters that name them by keys are now pointing at nothing.
+      final stale = await remapRostersAfterCompaction(credentials);
+      if (stale.isNotEmpty) {
+        devLog(
+          () =>
+              'xVeil[storage]: roster entries left stale after compaction: '
+              '${stale.join(", ")}',
+        );
+      }
     } finally {
       await unlock(reopenWith); // always reopen
     }
@@ -1239,7 +1349,20 @@ class AppController extends Notifier<AppState> {
           '${ref.read(deniableBootProvider)?.storePath ?? ''}';
       final prefs = await ref.read(prefsProvider.future);
       if (prefs.getBool(key) ?? false) return;
-      await revokeAutoCompactAcross(roster);
+      final unsettled = await revokeAutoCompactAcross(roster);
+      if (unsettled.isNotEmpty) {
+        // NOT marked. A migration that skipped a space is not a migration that
+        // ran: marking it here would make the next unlock skip the retry, and
+        // the space that was missed is exactly the one that can still compact
+        // its siblings away. Left unmarked, the next master unlock tries again
+        // — which costs a few keys-opens once the transient reason is gone.
+        devLog(
+          () =>
+              'xVeil[storage]: auto-compact sweep incomplete, will retry — '
+              '${unsettled.join(", ")}',
+        );
+        return;
+      }
       await prefs.setBool(key, true);
     } catch (e) {
       devLog(() => 'xVeil[storage]: auto-compact sweep skipped: $e');
@@ -1254,14 +1377,24 @@ class AppController extends Notifier<AppState> {
   /// of the deniability story. Written only when it is not already off, so a
   /// container that has nothing to revoke is not rewritten for it.
   ///
-  /// Best-effort per space: one that will not open leaves its own setting alone
-  /// rather than failing the identity operation around it. The container must
-  /// be CLOSED on entry; it is closed on the way out.
-  Future<void> revokeAutoCompactAcross(Iterable<RosterEntry> spaces) async {
+  /// One space that will not open must not fail the identity operation around
+  /// it — but it must not pass for a revoked one either. The labels it could
+  /// NOT settle come back, so a caller that records a migration as finished
+  /// can tell whether it actually finished. The container must be CLOSED on
+  /// entry; it is closed on the way out.
+  Future<List<String>> revokeAutoCompactAcross(
+    Iterable<RosterEntry> spaces,
+  ) async {
     final storage = ref.read(storageProvider);
+    final unsettled = <String>[];
     for (final entry in spaces) {
       try {
-        if (!await storage.openWithKeys(entry.spaceKeys)) continue;
+        if (!await storage.openWithKeys(entry.spaceKeys)) {
+          // The space did not open. Whatever it holds, this call did not read
+          // it — which is not the same as "it holds nothing to revoke".
+          unsettled.add(entry.label);
+          continue;
+        }
         if (await storage.getSetting(_autoCompactKey) == '1') {
           await storage.putSetting(_autoCompactKey, '0');
           devLog(
@@ -1271,6 +1404,7 @@ class AppController extends Notifier<AppState> {
           );
         }
       } catch (e) {
+        unsettled.add(entry.label);
         devLog(() => 'xVeil[storage]: auto-compact revoke failed: $e');
       } finally {
         try {
@@ -1278,6 +1412,7 @@ class AppController extends Notifier<AppState> {
         } catch (_) {}
       }
     }
+    return unsettled;
   }
 
   // ── The compaction OFFER: when to interrupt, and how much is worth it ──────
@@ -2033,8 +2168,6 @@ class AppController extends Notifier<AppState> {
       ];
       await storage.saveRoster(updated);
       await storage.close();
-      // The identity just bound now shares its container with this master.
-      await revokeAutoCompactAcross(updated);
       _setPendingRoster(updated);
       _bumpAnonymityRevision();
 
@@ -2272,6 +2405,12 @@ class AppController extends Notifier<AppState> {
       final updated = [...onDisk, RosterEntry(label: label, spaceKeys: keys)];
       await storage.saveRoster(updated);
       await storage.close();
+      // The identity just bound now shares its container with this master and
+      // its siblings, so it may no longer claim to be alone here. THIS is the
+      // path that adds a space to a container somebody else's attestation was
+      // given for — an earlier version of this revocation landed in
+      // `setIdentityAnonymous`, which adds nothing (report27 X26).
+      await revokeAutoCompactAcross(updated);
       _setPendingRoster(updated);
 
       await _reEnterAfterRosterEdit(updated, prevActive, hadSession);

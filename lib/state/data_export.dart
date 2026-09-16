@@ -235,6 +235,24 @@ class DataExporter {
       onProgress?.call(written, total);
     }
 
+    // THE ARCHIVE'S EVENTS ARE OLDER THAN ANYTHING A LIVE DEVICE KNOWS.
+    //
+    // They used to be stamped `now` — the moment of EXPORT — so importing an
+    // archive taken from a device that had been offline for a month made every
+    // stale value the newest one the fold had ever seen: an `accepted` contact
+    // could be put back to `blocked`, a setting could be rolled back, and
+    // nothing said so (report27 X05). Nothing in the container records when a
+    // contact's status was actually decided, so there is no honest "when" to
+    // carry.
+    //
+    // A counter instead: relative order INSIDE the archive is preserved, and
+    // against any real event (milliseconds since 1970) every one of these
+    // loses. That makes an archive what it can honestly be — a way to fill
+    // what a device does not have, never a way to overwrite what it does.
+    // Restoring onto a fresh device is unaffected: there is nothing to lose to.
+    var archiveOrder = 0;
+    int nextArchiveStamp() => ++archiveOrder;
+
     Future<void> emit(DeviceSyncEvent e) async {
       await writer.add(
         TransferRecord(
@@ -308,7 +326,7 @@ class DataExporter {
           DeviceSyncEvent(
             kind: DeviceSyncKind.settingSet,
             key: key,
-            tsMs: _now(),
+            tsMs: nextArchiveStamp(),
             payload: {'v': value},
           ),
         );
@@ -336,7 +354,7 @@ class DataExporter {
           DeviceSyncEvent(
             kind: DeviceSyncKind.contactUp,
             key: peerHex,
-            tsMs: _now(),
+            tsMs: nextArchiveStamp(),
             payload: contactPrefsPayload(contact),
           ),
         );
@@ -346,7 +364,7 @@ class DataExporter {
           DeviceSyncEvent(
             kind: DeviceSyncKind.contactUp,
             key: 's:$peerHex',
-            tsMs: _now(),
+            tsMs: nextArchiveStamp(),
             payload: {'status': contact.status.name},
           ),
         );

@@ -228,7 +228,7 @@ class ThemeSpec {
     if (value == null) return null;
     final name = raw['n'];
     final id = raw['id'];
-    return ThemeSpec(
+    final spec = ThemeSpec(
       id: id is String && id.isNotEmpty ? _tidy(id, 64) : 'imported',
       // A theme with no name is not broken — it is a theme somebody did not
       // name, and the list can say so.
@@ -240,6 +240,33 @@ class ThemeSpec {
       dark: raw['d'] != false,
       background: _colour(raw['b']),
     );
+    return _outOfTheBuiltInNamespace(spec);
+  }
+
+  /// A theme from somebody else may not take a built-in's NAME IN THE STORE.
+  ///
+  /// The chosen theme is remembered by id and looked up in
+  /// `[...kBuiltInThemes, ...custom]`, so a custom entry calling itself
+  /// `veil-dark` loses that lookup to the real one: the app wears the sent
+  /// theme now and the built-in after the next restart, with two ticks in the
+  /// picker meanwhile (report27 X12).
+  ///
+  /// A theme that IS the built-in keeps its id — a friend forwarding the one
+  /// this app ships must still be recognised as that one rather than kept as a
+  /// copy of it. Only an impostor is moved aside.
+  static ThemeSpec _outOfTheBuiltInNamespace(ThemeSpec spec) {
+    for (final builtIn in kBuiltInThemes) {
+      if (builtIn.id != spec.id) continue;
+      if (builtIn == spec) return spec;
+      return ThemeSpec(
+        id: 'sent-${spec.id}',
+        name: spec.name,
+        seed: spec.seed,
+        dark: spec.dark,
+        background: spec.background,
+      );
+    }
+    return spec;
   }
 
   /// A colour from somebody else, opaque, or nothing.

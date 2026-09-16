@@ -86,6 +86,41 @@ void main() {
       expect(utf8.decode(got[1].payload!), 'hello file');
     });
 
+    test('an EMPTY file is a file, and comes back as one', () async {
+      // The export counts it and the writer wrote it; the reader turned a
+      // zero-length payload into null and the importer skipped every record
+      // with a null payload — so an empty file was exported and never
+      // restored (report27 X04).
+      final archive = await write([
+        TransferRecord(
+          kind: TransferRecordKind.file,
+          meta: const {'id': 'empty', 'name': 'nothing.txt'},
+          payload: Uint8List(0),
+        ),
+      ]);
+
+      final got = await read(archive);
+      expect(got, hasLength(1));
+      expect(got.single.meta['id'], 'empty');
+      expect(
+        got.single.payload,
+        isNotNull,
+        reason: 'a file that exists and is empty is not a missing payload',
+      );
+      expect(got.single.payload, isEmpty);
+    });
+
+    test('a record with NO payload still reads as having none', () async {
+      final archive = await write([
+        const TransferRecord(
+          kind: TransferRecordKind.profile,
+          meta: {'displayName': 'Me'},
+        ),
+      ]);
+      final got = await read(archive);
+      expect(got.single.payload, isNull);
+    });
+
     test('the header is readable without reading the body', () async {
       final archive = await write([
         const TransferRecord(kind: TransferRecordKind.profile, meta: {'n': 1}),

@@ -669,4 +669,48 @@ void main() {
       reason: 'the file store is the carrier — a setting cannot hold this',
     );
   });
+
+  group('an identity that has a certificate is not a legacy identity', () {
+    test('no material and no secret REFUSES rather than taking another address',
+        () async {
+      // The restore refused, the one-shot secret was already spent, and the
+      // next boot had a container holding a recovery certificate and no
+      // material to go with it. Reading that as "an identity without a
+      // sovereign document" brought the node up on its TRANSPORT key — a
+      // different address, wearing the same profile, with nothing said
+      // (report27 X19).
+      final storage = FakeSettingStorage();
+      await storage.storeFile(
+        kSovereignBundleSetting,
+        Uint8List.fromList(List.filled(96, 0x5A)),
+        name: 'sovereign-credential',
+      );
+      final rec = recorder();
+
+      await expectLater(
+        RealVeilStack.ensureSovereignIdentity(
+          storage,
+          stagingBase: tmp.path,
+          identityPhrase: null,
+          provision: rec.fn,
+        ),
+        throwsA(isA<SovereignRestoreRefused>()),
+      );
+      expect(rec.dirs, isEmpty, reason: 'nothing may be minted here');
+    });
+
+    test('an identity that never had one still boots as it always did',
+        () async {
+      // The other half of the same rule: no certificate, no material, no
+      // secret is a classic identity, and it must keep starting.
+      final storage = FakeSettingStorage();
+      final out = await RealVeilStack.ensureSovereignIdentity(
+        storage,
+        stagingBase: tmp.path,
+        identityPhrase: null,
+        provision: recorder().fn,
+      );
+      expect(out, isNull);
+    });
+  });
 }

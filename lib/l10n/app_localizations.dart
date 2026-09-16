@@ -12740,6 +12740,12 @@ abstract class AppL10n {
   /// **'Working…'**
   String get transferWorking;
 
+  /// No description provided for @transferIdentitySwitched.
+  ///
+  /// In en, this message translates to:
+  /// **'You switched identity, so this was not carried out — it belongs to the identity it was started from.'**
+  String get transferIdentitySwitched;
+
   /// No description provided for @transferProgress.
   ///
   /// In en, this message translates to:

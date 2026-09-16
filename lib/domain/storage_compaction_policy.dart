@@ -235,7 +235,12 @@ class CompactionRoster {
     List<int>? spaceKeys,
   }) {
     if (spaceKeys != null) coverSpace(spaceKeys);
-    return _add(nodeId, passwordBytes: passwordBytes, viaMaster: null);
+    return _add(
+      nodeId,
+      passwordBytes: passwordBytes,
+      viaMaster: null,
+      spaceKeys: spaceKeys,
+    );
   }
 
   /// Add a subordinate that a master brought with it.
@@ -249,12 +254,30 @@ class CompactionRoster {
     String nodeId, {
     required List<int> passwordBytes,
     required String? viaMaster,
+    List<int>? spaceKeys,
   }) {
     if (nodeId.isEmpty) return false;
     if (_byNodeId.containsKey(nodeId)) return false;
-    _byNodeId[nodeId] = _RosterEntry(passwordBytes, viaMaster);
+    _byNodeId[nodeId] = _RosterEntry(passwordBytes, viaMaster, spaceKeys);
     return true;
   }
+
+  /// What each supplied password opened BEFORE the compaction: its own bytes
+  /// and the space keys it derived.
+  ///
+  /// A repack writes a destination with a fresh salt, so the same password
+  /// derives DIFFERENT space keys on the other side — hidden-volume documents
+  /// this as a defensive property, and it is. What it breaks is every stored
+  /// reference to a space BY KEYS: a master's roster names its children that
+  /// way, so after a compaction the master opens and none of its children do
+  /// (report27 X27). The old keys are the only thing that can say which label
+  /// each password belongs to, so they are carried here rather than recomputed
+  /// from a container that no longer exists.
+  List<({List<int> password, List<int> oldSpaceKeys})> credentials() => [
+    for (final e in _byNodeId.values)
+      if (e.spaceKeys != null)
+        (password: e.password, oldSpaceKeys: e.spaceKeys!),
+  ];
 
   /// The passwords to hand to `compact_known`, deduplicated.
   ///
@@ -273,7 +296,10 @@ class CompactionRoster {
 }
 
 class _RosterEntry {
-  const _RosterEntry(this.password, this.viaMaster);
+  const _RosterEntry(this.password, this.viaMaster, [this.spaceKeys]);
   final List<int> password;
   final String? viaMaster;
+
+  /// The space this password opened before the compaction, when it was probed.
+  final List<int>? spaceKeys;
 }

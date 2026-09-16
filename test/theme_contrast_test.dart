@@ -145,6 +145,10 @@ void main() {
             'text': scheme.onSurface,
             'secondary text': scheme.onSurfaceVariant,
             'warning': scheme.error,
+            // Not a border in this app: hints, timestamps and icons are drawn
+            // in it on a dozen screens (report27 X30).
+            'outline': scheme.outline,
+            'outline variant': scheme.outlineVariant,
           }.entries) {
             expect(
               contrastRatio(fg.value, entry.value),

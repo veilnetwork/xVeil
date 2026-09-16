@@ -7,6 +7,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/api_server.dart';
 import 'package:xveil/state/app_controller.dart';
@@ -108,6 +109,82 @@ void main() {
       expect(
         container.read(apiServerControllerProvider.notifier).running,
         isFalse,
+      );
+    },
+  );
+
+  test(
+    'the download route follows the identity, not the one it started on',
+    () async {
+      // Riverpod keeps a Notifier across rebuilds, and `storageProvider`
+      // resolves per identity — so a downloader captured in a `late final`
+      // went on reading the FIRST identity's store after a switch: identity
+      // B's token, identity A's attachments and provenance (report27 X01).
+      final fileA = 'aa' * 32;
+      final fileB = 'bb' * 32;
+      final first = await _storageWithToken('token-a');
+      final second = await _storageWithToken('token-b');
+      addTearDown(first.close);
+      addTearDown(second.close);
+
+      for (final (storage, cid) in [(first, fileA), (second, fileB)]) {
+        await storage.appendMessage(
+          Message(
+            id: 'm-$cid',
+            conversationId: '33' * 32,
+            direction: MessageDirection.incoming,
+            body: 'here is a file',
+            timestamp: DateTime(2026, 9, 16, 12),
+            fileName: 'note.txt',
+            fileContentId: cid,
+          ),
+        );
+        await storage.storeFile(cid, Uint8List.fromList([1, 2, 3]));
+      }
+
+      _activeStorage = first;
+      _initialIdentity = Identity(
+        nodeId: NodeId.fromHex('11' * 32),
+        displayName: 'A',
+      );
+      final container = ProviderContainer(
+        overrides: [
+          appControllerProvider.overrideWith(_SwitchingAppController.new),
+          storageProvider.overrideWith((ref) => _activeStorage),
+          groupServiceProvider.overrideWithValue(null),
+        ],
+      );
+      addTearDown(container.dispose);
+      final api = container.read(apiServerControllerProvider.notifier);
+      await _waitForToken(container, 'token-a');
+
+      expect(
+        await api.loadFileForTest(fileA),
+        isNotNull,
+        reason: "identity A cannot download its own attachment",
+      );
+      expect(await api.loadFileForTest(fileB), isNull);
+
+      final app =
+          container.read(appControllerProvider.notifier)
+              as _SwitchingAppController;
+      app.expose(
+        Identity(nodeId: NodeId.fromHex('22' * 32), displayName: 'B'),
+        second,
+      );
+      await _waitForToken(container, 'token-b');
+
+      expect(
+        await api.loadFileForTest(fileB),
+        isNotNull,
+        reason: "identity B's own attachment is not served to identity B",
+      );
+      expect(
+        await api.loadFileForTest(fileA),
+        isNull,
+        reason:
+            "identity B's token reached identity A's attachment — the "
+            'isolation between identities is the whole of this API',
       );
     },
   );

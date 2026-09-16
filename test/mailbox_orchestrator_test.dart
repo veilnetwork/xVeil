@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -925,11 +926,42 @@ void main() {
         expect(await reg.contains(_cid(0)), isFalse);
         expect(await reg.contains(_cid(79)), isTrue);
         await reg.flush();
-        // Oldest evicted, newest kept (cap = 64).
+        // Oldest evicted, newest kept — and the whole list has to FIT: the
+        // container refuses a settings value over 2048 bytes, and a cap of 64
+        // hex ids produced ~4.3 KB that was never persisted at all
+        // (report27 X36).
         final stored = settings['mailbox.poisoned.v1']!;
-        expect(RegExp('"').allMatches(stored).length ~/ 2, 64);
+        expect(RegExp('"').allMatches(stored).length ~/ 2, 30);
+        expect(
+          utf8.encode(stored).length,
+          lessThanOrEqualTo(2048),
+          reason: 'this value is refused by the container, so nothing persists',
+        );
       },
     );
+
+    test('a flush that could not land is tried again', () async {
+      // Clearing the dirty mark before the write meant one transient failure
+      // cost every later flush in the session: nothing was dirty any more, so
+      // nothing was written (report27 X36).
+      var allow = false;
+      var writes = 0;
+      final reg = PoisonedBlobRegistry(
+        getSetting: (k) async => settings[k],
+        putSetting: (k, v) async {
+          if (!allow) throw StateError('the container refused this write');
+          writes++;
+          settings[k] = v;
+        },
+      );
+      await reg.add(_cid(1));
+      await reg.flush();
+      expect(writes, 0);
+
+      allow = true;
+      await reg.flush();
+      expect(writes, 1, reason: 'the pass that failed was never retried');
+    });
 
     test('a pass of junk costs one container write, not one per blob', () {
       // Each write lands in the deniable container, so the write RATE is the

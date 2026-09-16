@@ -3329,6 +3329,7 @@
   "transferExportPasswordTitle": "Password for the archive",
   "transferPasswordLabel": "Password",
   "transferWorking": "Working…",
+  "transferIdentitySwitched": "You switched identity, so this was not carried out — it belongs to the identity it was started from.",
   "transferProgress": "{done} of {total}",
   "@transferProgress": {
     "placeholders": {

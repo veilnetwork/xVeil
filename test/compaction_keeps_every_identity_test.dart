@@ -427,4 +427,87 @@ void main() {
       await probe.close();
     });
   });
+
+  group('what a compaction does to the master that names the children', () {
+    test('a roster survives the fresh keys a repack gives every space', () async {
+      // A repack writes its destination with a FRESH SALT — hidden-volume's
+      // own documentation says the same password then derives different keys,
+      // and that is a property worth keeping. What it breaks is every stored
+      // reference to a space BY KEYS, and a master's roster is exactly that:
+      // after a compaction that kept every identity, the master opened and
+      // none of its children did (report27 X27).
+      //
+      // The fake container models the real rule: keys are derived from the
+      // password AND the container's salt, so "compacting" it re-derives them.
+      final container = FakeHvContainer();
+      final childPasswords = {'me': 'pw-me', 'work': 'pw-work'};
+      final roster = CompactionRoster();
+
+      final before = <String, Uint8List>{};
+      for (final entry in childPasswords.entries) {
+        final space = container.storage();
+        await space.open(password: entry.value, createIfMissing: true);
+        await space.saveProfile(UserProfile(displayName: entry.key));
+        before[entry.key] = await space.exportSpaceKeys();
+        await space.close();
+      }
+      final master = container.storage();
+      await master.open(password: 'm', createIfMissing: true);
+      await master.saveRoster([
+        for (final e in before.entries)
+          RosterEntry(label: e.key, spaceKeys: e.value),
+      ]);
+      final masterKeys = await master.exportSpaceKeys();
+      await master.close();
+
+      roster.addUnlocked('master',
+          passwordBytes: 'm'.codeUnits, spaceKeys: masterKeys);
+      for (final entry in childPasswords.entries) {
+        roster.addUnlocked(entry.key,
+            passwordBytes: entry.value.codeUnits,
+            spaceKeys: before[entry.key]);
+      }
+
+      // Every password the compaction would be given comes with the space it
+      // opened — that pair is the only thing that can say which label a
+      // password belongs to once the keys have changed.
+      final credentials = roster.credentials();
+      expect(credentials, hasLength(3));
+      expect(
+        credentials.map((c) => c.oldSpaceKeys).toSet(),
+        {masterKeys, ...before.values},
+      );
+
+      // The repack: same passwords, new salt, so every space keys differently.
+      container.rotateSalt();
+
+      final c = ProviderContainer(
+        overrides: [storageProvider.overrideWith((ref) => container.storage())],
+      );
+      addTearDown(c.dispose);
+      final stale = await c
+          .read(appControllerProvider.notifier)
+          .remapRostersAfterCompaction(credentials);
+      expect(stale, isEmpty);
+
+      // The master now names its children by keys that open them.
+      final reopened = container.storage();
+      expect(await reopened.open(password: 'm'), isTrue);
+      final repaired = await reopened.loadRoster();
+      await reopened.close();
+      expect(repaired, isNotNull);
+      expect(repaired!.map((e) => e.label), ['me', 'work']);
+      for (final entry in repaired) {
+        final child = container.storage();
+        expect(
+          await child.openWithKeys(entry.spaceKeys),
+          isTrue,
+          reason:
+              '"${entry.label}" is named by keys nothing in this container '
+              'has any more — the master that names it stopped working',
+        );
+        await child.close();
+      }
+    });
+  });
 }

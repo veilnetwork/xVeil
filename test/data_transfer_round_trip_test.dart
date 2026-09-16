@@ -216,6 +216,81 @@ Future<Uint8List> _exportOf(
 }
 
 void main() {
+  test('an import stops when the identity it belongs to is switched away', () async {
+    // The appliers are an app-wide registry that a switch re-populates, so an
+    // import that ran on past one sent the REST of somebody's archive into the
+    // identity they had just moved to (report27 X02).
+    final archive = await _exportOf(_deviceWithHistory());
+    final target = _Space();
+    final collector = _Collector();
+
+    // What a full import applies, for comparison.
+    final wholeTarget = _Space();
+    final wholeCollector = _Collector();
+    final whole = await DataImporter(
+      storage: wholeTarget,
+      appliers: wholeCollector.appliers,
+      selfNodeIdHex: hexOf(1),
+    ).run(bytes: Stream.value(archive));
+    expect(whole.syncEvents, greaterThan(3), reason: 'nothing to cut short');
+
+    var records = 0;
+    final report = await DataImporter(
+      storage: target,
+      appliers: collector.appliers,
+      selfNodeIdHex: hexOf(1),
+    ).run(
+      bytes: Stream.value(archive),
+      // Ours for the first three records, somebody else's after that.
+      stillOurs: () => ++records <= 3,
+    );
+
+    expect(
+      report.syncEvents,
+      lessThan(whole.syncEvents),
+      reason: 'the rest of the archive went into the identity switched TO',
+    );
+    expect(report.syncEvents, lessThanOrEqualTo(3));
+    expect(
+      collector.events.length,
+      lessThan(wholeCollector.events.length),
+      reason: 'the appliers kept receiving records after the switch',
+    );
+  });
+
+  test('an archive never outranks what a live device already decided', () async {
+    // The exporter stamped mirrored settings and contact status with the
+    // moment of EXPORT, so importing an archive from a device that had been
+    // offline for a month made every stale value the newest the fold had seen:
+    // `accepted` could go back to `blocked`, with nothing said (report27 X05).
+    // Nothing records when a status was actually decided, so the archive's
+    // events carry an order, not a clock — and lose to every real one.
+    final archive = await _exportOf(_deviceWithHistory());
+    final reader = await DataTransferReader.open(Stream.value(archive));
+    final stamps = <int>[];
+    await for (final record in reader.records()) {
+      if (record.kind != TransferRecordKind.sync) continue;
+      final body = jsonDecode(record.meta['b'] as String) as Map;
+      final kind = body['k'];
+      if (kind != 'settingSet' && kind != 'contactUp') continue;
+      stamps.add(body['ts'] as int);
+    }
+
+    expect(stamps, isNotEmpty, reason: 'nothing was exported to check');
+    // 5000 is this harness's export clock; a real device stamps in
+    // milliseconds since 1970. Either would outrank a live decision.
+    expect(
+      stamps.every((ts) => ts < 5000),
+      isTrue,
+      reason:
+          'an archived setting or contact status can overwrite a newer one '
+          'on the device it is imported into',
+    );
+    // And the order WITHIN the archive still holds, or two events about one
+    // key fold in the wrong order.
+    expect(stamps, equals([...stamps]..sort()));
+  });
+
   test('everything the device holds leaves as events the other side knows', () async {
     final archive = await _exportOf(_deviceWithHistory());
 

@@ -245,6 +245,23 @@ void devLog(String Function() message) {
     if (_echoToStdout) {
       io.stdout.writeln('xVeil: $stamped');
     }
+    // ANDROID HAS NOWHERE ELSE TO PUT IT.
+    //
+    // `developer.log` reaches a VM service nobody is attached to; the log file
+    // lands in the app's private directory, which a release-signed APK does
+    // not let `run-as` read; and the debug hook that serves the ring is
+    // compiled out of every release build. So a diagnostic build on a phone
+    // produced a node log (the Rust side logs to logcat itself) and not one
+    // line of the app's own reasoning — which is the half that says WHY the
+    // node it just started was stopped again.
+    //
+    // `print` is what reaches logcat, under the `flutter` tag. Only in the
+    // builds that already opted into the trace: a distribution build does not
+    // reach this function at all.
+    if (io.Platform.isAndroid) {
+      // ignore: avoid_print
+      print('xVeil: $stamped');
+    }
     _writeLogFile(stamped);
     _devLogRing.addLast(stamped);
     if (_devLogRing.length > _devLogRingCapacity) {
