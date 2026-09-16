@@ -23,6 +23,7 @@ import '../features/onboarding/onboarding_screen.dart';
 import '../features/preparing/preparing_screen.dart';
 import '../features/settings/account_settings_screen.dart';
 import '../features/settings/appearance_settings_screen.dart';
+import '../features/settings/theme_picker_screen.dart';
 import '../features/settings/profile_screen.dart';
 import '../features/settings/chats_settings_screen.dart';
 import '../features/settings/devices_screen.dart';
@@ -337,6 +338,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/appearance',
         builder: (_, _) => const AppearanceSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/settings/appearance/theme',
+        builder: (_, _) => const ThemePickerScreen(),
       ),
       GoRoute(
         path: '/settings/profiles',

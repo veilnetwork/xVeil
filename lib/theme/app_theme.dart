@@ -1,16 +1,29 @@
 import 'package:flutter/material.dart';
 
+import '../domain/theme_spec.dart';
+
 /// Visual identity. Material 3, seeded from a deep veil-teal. Dark is the
 /// default — calmer for a privacy tool and the expected look for the audience.
 class AppTheme {
   static const _seed = Color(0xFF1E8A7B);
 
-  static ThemeData light() => _build(Brightness.light);
-  static ThemeData dark() => _build(Brightness.dark);
+  static ThemeData light() => _build(Brightness.light, _seed);
+  static ThemeData dark() => _build(Brightness.dark, _seed);
 
-  static ThemeData _build(Brightness brightness) {
+  /// The look a chosen theme asks for.
+  ///
+  /// EVERYTHING comes from the seed, which is the whole of the safety story:
+  /// a theme travels between people, and one that could name colours directly
+  /// could name the error colour — the one this app writes its warnings in.
+  /// `ColorScheme.fromSeed` derives the roles with its own contrast rules, so
+  /// a shared theme chooses the character of the interface and cannot choose
+  /// whether a warning looks like one.
+  static ThemeData of(ThemeSpec spec) =>
+      _build(spec.dark ? Brightness.dark : Brightness.light, spec.seed);
+
+  static ThemeData _build(Brightness brightness, Color seed) {
     final scheme = ColorScheme.fromSeed(
-      seedColor: _seed,
+      seedColor: seed,
       brightness: brightness,
     );
     return ThemeData(
