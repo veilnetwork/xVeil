@@ -6,6 +6,41 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.68] — 2026-09-16
+
+*A restart no longer starts from nothing.*
+
+### Fixed
+
+- **Peers found at a meeting point were forgotten on every restart.** They
+  lived in the node's memory and nowhere else, so each launch paid the whole
+  discovery round again — reported from the field, and true in the code: no
+  discovery path ever wrote them down. The app now keeps a bounded set of the
+  addresses it reached in its container and hands them back on the next boot.
+  Addresses only: no key, no claim about who is there, dialled exactly as an
+  address found at a meeting point is.
+- **Copying the recovery certificate now counts as keeping it.** The create
+  step let nobody past until it had been written to a file, though copying it
+  into a password manager is how a great many people keep a secret. It does not
+  count as *saved* — that clipboard clears itself — so the standing reminder
+  stays.
+- **A chosen certificate file looks chosen.** The paste box stayed on screen
+  beside it, so nothing said the file had been taken.
+- **The archive password is asked only when the archive has one.** It used to
+  be put to everyone, including the majority whose archive is not sealed.
+
+### Changed
+
+- **Restoring by 24 words is gone**, and the mention of them with it. For every
+  identity this app has made in months the words restore a different one. An
+  identity old enough to have no sovereign credential at all is restored
+  exactly by its words, and those people lose this door — said plainly because
+  it is a real cost.
+- veil 0.11.34: a seed can choose when to be findable. Four seeds on eight-hour
+  UTC shifts show an index-watcher one or two addresses at a time instead of
+  four, and not the same ones tomorrow. A seed outside its window still
+  accepts, still relays and still serves everyone who knows it.
+
 ## [0.13.67] — 2026-09-16
 
 *The words were never the backup, so the app stopped handing them out.*
