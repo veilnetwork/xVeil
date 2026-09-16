@@ -76,14 +76,11 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get onboardRestoreIdentitySub =>
-      'Сертификатом восстановления или фразой из 24 слов';
+      'По сертификату восстановления, который вы для неё сохранили';
 
   @override
   String get onboardRestoreBody =>
-      'Два пути назад, и возвращают они разное. Сертификат восстанавливает ИМЕННО эту личность — тот адрес, который есть у ваших собеседников. Фраза из 24 слов сама по себе восстанавливает другую: она задаёт половину ключа личности, а вторая половина была выбрана случайно при создании и существует только в сертификате.';
-
-  @override
-  String get onboardRestoreSubmit => 'Восстановить';
+      'Именно сертификат возвращает эту личность — тот же адрес, который есть у ваших собеседников. Выберите файл и введите код, который хранили отдельно от него.';
 
   @override
   String get onboardLinkDevice =>
@@ -5300,10 +5297,6 @@ class AppL10nRu extends AppL10n {
   String get onboardPasswordMismatch => 'Пароли не совпадают';
 
   @override
-  String get recoveryPhraseHint =>
-      'Введите фразу восстановления, слова через пробел';
-
-  @override
   String get securityCenterTooltip => 'Безопасность';
 
   @override
@@ -5767,15 +5760,17 @@ class AppL10nRu extends AppL10n {
       'Сохраните файл, прежде чем идти дальше. Он существует только на этом экране, и это единственная копия половины вашего ключа.';
 
   @override
-  String get onboardRestoreWithCertificate =>
-      'У меня есть сертификат восстановления';
-
-  @override
   String get onboardRestoreCertificateBody =>
       'Сертификат возвращает тот адрес, который есть у ваших контактов. Одни 24 слова восстанавливают другую личность — берите их только если у этой личности сертификата никогда не было.';
 
   @override
   String get onboardRestorePickCertificate => 'Выбрать файл сертификата';
+
+  @override
+  String get onboardRestoreCertificateFromFile => 'Выбран из файла';
+
+  @override
+  String get onboardRestoreCertificateAnother => 'Выбрать другой';
 
   @override
   String onboardRestoreCertificateChosen(String id) {
@@ -5806,9 +5801,6 @@ class AppL10nRu extends AppL10n {
   @override
   String get onboardRestoreCertificateBad =>
       'Этот файл не сертификат восстановления xVeil или повреждён.';
-
-  @override
-  String get onboardRestoreWithPhrase => 'Восстановить по 24 словам';
 
   @override
   String get onboardContainerInUse =>
@@ -5875,6 +5867,9 @@ class AppL10nRu extends AppL10n {
   @override
   String get onboardArchiveNoCredential =>
       'Этот архив написан до того, как архивы стали везти ключ личности. Он восстановит транспортный ключ и переписку, но личность будет ДРУГОЙ — по адресу, которого нет у ваших собеседников. Выгрузите свежий архив с устройства, где эта личность ещё есть, либо восстанавливайтесь из сертификата.';
+
+  @override
+  String get onboardArchiveUnlock => 'Открыть этот архив';
 
   @override
   String get onboardArchiveContinue => 'Взять личность из этого архива';

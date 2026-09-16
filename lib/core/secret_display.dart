@@ -39,6 +39,7 @@ class SecretCopyButton extends StatelessWidget {
     required this.value,
     required this.copiedMessage,
     this.schedule = clearClipboardLater,
+    this.onCopied,
   });
 
   /// Text on the button.
@@ -57,6 +58,15 @@ class SecretCopyButton extends StatelessWidget {
   /// Injectable so a test can watch the scheduling without waiting 45 s.
   final Future<void> Function() schedule;
 
+  /// Told that the value left the screen this way.
+  ///
+  /// A caller that gates on the secret having been kept needs to know: copying
+  /// IS how people keep things — into a password manager, into a note — and a
+  /// screen that only counts files tells someone holding their certificate
+  /// that they are holding nothing. What the caller must NOT do is record it
+  /// as a durable copy: this clipboard clears itself.
+  final VoidCallback? onCopied;
+
   @override
   Widget build(BuildContext context) {
     return TextButton.icon(
@@ -66,6 +76,7 @@ class SecretCopyButton extends StatelessWidget {
         // sheet is closed a second later, which is the case where the person
         // is least likely to clear it themselves.
         unawaited(schedule());
+        onCopied?.call();
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

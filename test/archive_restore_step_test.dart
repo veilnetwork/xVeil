@@ -66,7 +66,7 @@ void main() {
     String? got;
     await tester.pumpWidget(
       host(
-        open: ({required password}) async => _withIdentity(),
+        open: ({required password, reuseLast = false}) async => _withIdentity(),
         onIdentity: (toml, _, _) => got = toml,
       ),
     );
@@ -84,7 +84,7 @@ void main() {
   testWidgets('nothing can be taken before an archive is chosen', (
     tester,
   ) async {
-    await tester.pumpWidget(host(open: ({required password}) async => null));
+    await tester.pumpWidget(host(open: ({required password, reuseLast = false}) async => null));
     await tester.pumpAndSettle();
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
@@ -97,7 +97,7 @@ void main() {
   ) async {
     await tester.pumpWidget(
       host(
-        open: ({required password}) async => const ArchivePreview(
+        open: ({required password, reuseLast = false}) async => const ArchivePreview(
           nodeIdHex: 'cd',
           createdMs: 1700000000000,
           includesIdentity: false,
@@ -121,7 +121,7 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      host(open: ({required password}) async => throw const FormatException()),
+      host(open: ({required password, reuseLast = false}) async => throw const FormatException()),
     );
     await tester.pumpAndSettle();
     await pick(tester);
@@ -138,7 +138,7 @@ void main() {
     // and a person concluding their backup is ruined.
     await tester.pumpWidget(
       host(
-        open: ({required password}) async =>
+        open: ({required password, reuseLast = false}) async =>
             throw const FileSystemException('operation not permitted', '/x'),
       ),
     );
@@ -157,14 +157,37 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      host(open: ({required password}) async => _withIdentity(sealed: true)),
+      host(open: ({required password, reuseLast = false}) async => _withIdentity(sealed: true)),
     );
     await tester.pumpAndSettle();
     await pick(tester);
     // Not "damaged": the difference between someone typing their password and
-    // someone concluding their backup is ruined.
-    expect(find.text(AppL10nEn().transferImportPasswordTitle), findsOneWidget);
+    // someone concluding their backup is ruined. And the box appears only NOW,
+    // for the archive that turned out to have one — everyone else is never
+    // asked.
+    expect(find.text(AppL10nEn().onboardArchiveUnlock), findsOneWidget);
     expect(find.text(AppL10nEn().onboardArchiveBad), findsNothing);
+  });
+
+
+  testWidgets('an archive with no password is never asked for one', (
+    tester,
+  ) async {
+    // The other half, and the one that was reported: the box used to stand
+    // above the picker and be put to everyone, including the majority whose
+    // archive is not sealed.
+    await tester.pumpWidget(
+      host(open: ({required password, reuseLast = false}) async => _withIdentity()),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text(AppL10nEn().onboardArchivePasswordLabel),
+      findsNothing,
+      reason: 'nothing has been chosen yet, so there is nothing to unlock',
+    );
+    await pick(tester);
+    expect(find.text(AppL10nEn().onboardArchivePasswordLabel), findsNothing);
+    expect(find.text(AppL10nEn().onboardArchiveUnlock), findsNothing);
   });
 
   group('an archive that carries the identity key', () {
@@ -202,7 +225,7 @@ void main() {
       String? gotSecret;
       await tester.pumpWidget(
         host(
-          open: ({required password}) async => withCredential(),
+          open: ({required password, reuseLast = false}) async => withCredential(),
           onIdentity: (_, c, secret) {
             gotCredential = c;
             gotSecret = secret;
@@ -225,7 +248,7 @@ void main() {
 
     testWidgets('nothing is taken until the secret is given', (tester) async {
       await tester.pumpWidget(
-        host(open: ({required password}) async => withCredential()),
+        host(open: ({required password, reuseLast = false}) async => withCredential()),
       );
       await tester.pumpAndSettle();
       await pick(tester);
@@ -242,7 +265,7 @@ void main() {
       var taken = false;
       await tester.pumpWidget(
         host(
-          open: ({required password}) async => withCredential(),
+          open: ({required password, reuseLast = false}) async => withCredential(),
           onIdentity: (_, _, _) => taken = true,
           check: (_, secret) async => secret == 'the right one',
         ),
@@ -264,7 +287,7 @@ void main() {
       // silence is not: that is the failure the credential record exists for,
       // arriving again through the one file that cannot carry the fix.
       await tester.pumpWidget(
-        host(open: ({required password}) async => _withIdentity()),
+        host(open: ({required password, reuseLast = false}) async => _withIdentity()),
       );
       await tester.pumpAndSettle();
       await pick(tester);
@@ -280,7 +303,7 @@ void main() {
       // The control: a warning shown on every archive would be noise, and
       // noise is not a warning.
       await tester.pumpWidget(
-        host(open: ({required password}) async => withCredential()),
+        host(open: ({required password, reuseLast = false}) async => withCredential()),
       );
       await tester.pumpAndSettle();
       await pick(tester);
@@ -295,7 +318,7 @@ void main() {
       var taken = false;
       await tester.pumpWidget(
         host(
-          open: ({required password}) async => _withIdentity(),
+          open: ({required password, reuseLast = false}) async => _withIdentity(),
           onIdentity: (_, c, _) => taken = c == null,
         ),
       );

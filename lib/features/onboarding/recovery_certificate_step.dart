@@ -199,6 +199,22 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
   bool _busy = false;
   bool _failed = false;
   bool _saved = false;
+
+  /// The certificate left this screen on the clipboard.
+  ///
+  /// Separate from [_saved] on purpose. Copying is how a great many people
+  /// keep a secret — into a password manager, into a note — and reported from
+  /// the field as the gap this gate had: "скопировал сертификат и не пускает
+  /// дальше, пустило только если сохранить". So it opens the way on.
+  ///
+  /// It does NOT become `saved`, because this clipboard clears itself in
+  /// forty-five seconds. The app cannot see where the paste landed, and
+  /// claiming a durable copy it has no evidence of would retire the one
+  /// standing reminder that says otherwise.
+  bool _copied = false;
+
+  /// Whether the pair has left this screen at all, by either route.
+  bool get _kept => _saved || _copied;
   bool _nagged = false;
 
   /// Nothing came before this step: the identity is made HERE, and its code is
@@ -297,11 +313,11 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
     // that choice knowingly on the strength of one warning they have not read
     // yet. The phrase path keeps its single nag — those people still hold
     // words that open their credential.
-    if (_fresh && !_saved) {
+    if (_fresh && !_kept) {
       setState(() => _nagged = true);
       return;
     }
-    if (_minted != null && !_saved && !_nagged) {
+    if (_minted != null && !_kept && !_nagged) {
       setState(() => _nagged = true);
       return;
     }
@@ -382,6 +398,7 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
                 label: l.devicesCopyCertificate,
                 value: () => minted.certificate,
                 copiedMessage: l.devicesCertificateCopiedClears,
+                onCopied: () => setState(() => _copied = true),
               ),
               OutlinedButton.icon(
                 onPressed: _busy ? null : _save,
@@ -396,7 +413,7 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
                 copiedMessage: l.devicesCodeCopiedClears,
               ),
               const SizedBox(height: 12),
-              if (_nagged && !_saved)
+              if (_nagged && !_kept)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
