@@ -139,19 +139,19 @@ Future<int> cloudProviderSlot(CloudCapabilitySyncPort? sync) async {
 }
 
 abstract interface class CloudCapabilityNetworkPort {
-  /// [extraProviderSlots] asks for that many ADDITIONAL introduction points to
-  /// this same node, each on its own rendezvous relay. A sender can then
-  /// round-robin a FRAGMENTED reply across them instead of funnelling
-  /// redundant copies of every fragment through one relay. Each costs a
-  /// circuit build, so only a caller expecting BULK replies should ask.
-  /// Honoured on the transient path only.
+  /// ONE introduction point per hosted endpoint.
+  ///
+  /// This used to describe an `extraProviderSlots` count for several
+  /// introduction points to one node, and the layer below could not give it:
+  /// the register call ZEROES the seed it is handed, so every call after the
+  /// first asked for an all-zero identity, and the native side refuses one
+  /// identity in a second slot regardless (report27 X37).
   Future<CloudCapabilityEndpointPort> host({
     required Uint8List identitySeed,
     required String alias,
     required int endpointId,
     required int providerSlot,
     bool transient = false,
-    int extraProviderSlots = 0,
   });
 
   /// The capability appId for [alias] WITHOUT hosting or registering
@@ -174,7 +174,6 @@ class VeilCloudCapabilityNetwork implements CloudCapabilityNetworkPort {
     required int endpointId,
     required int providerSlot,
     bool transient = false,
-    int extraProviderSlots = 0,
   }) async => _VeilCapabilityEndpointPort(
     await (transient
         ? _transport.hostTransientCapabilityEndpoint(
@@ -182,7 +181,6 @@ class VeilCloudCapabilityNetwork implements CloudCapabilityNetworkPort {
             name: alias,
             endpointId: endpointId,
             providerSlot: providerSlot,
-            extraProviderSlots: extraProviderSlots,
           )
         : _transport.hostCapabilityEndpoint(
             identitySeed: identitySeed,
