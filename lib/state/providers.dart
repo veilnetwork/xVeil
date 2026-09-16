@@ -27,6 +27,7 @@ import '../data/transport/fail_closed_transport.dart';
 import '../data/transport/loopback_transport.dart';
 import '../data/transport/veil_transport.dart';
 import '../data/veil_stack.dart';
+import 'group_service_providers.dart';
 import 'multi_identity_session.dart';
 
 /// --- Infrastructure providers -------------------------------------------
@@ -148,6 +149,59 @@ final identityOriginProvider = FutureProvider.autoDispose<String?>((ref) async {
     return null; // unreadable — show nothing rather than a wrong claim
   }
 });
+
+/// What actually brings this identity back, as opposed to what it was made
+/// from.
+///
+/// The screen used to ask only [identityOriginProvider] — "was the node config
+/// derived from a phrase" — and say "created without a recovery phrase, protect
+/// your data by other means" for everything else. Since creating an identity
+/// stopped handing out words, that is every new identity, and the sentence is
+/// wrong twice over: it announces an absence where a recovery certificate
+/// exists, and it tells the person to improvise a backup while holding one.
+///
+/// Four honest answers, and the credential decides three of them:
+///
+///  * `certificate` — an XVRC in the container. The certificate and its code
+///    bring this identity back; words do nothing.
+///  * `bundleNoCopy` — an XVSB. The phrase opens the credential, but the
+///    Falcon half of the master lives only inside it, so nothing off this
+///    device restores the identity until a certificate is exported.
+///  * `phraseOnly` — no credential at all and a phrase-derived config: the
+///    classic identity, which its words DO restore exactly.
+///  * `nothing` — no credential and no phrase behind it.
+enum IdentityRecoveryState { certificate, bundleNoCopy, phraseOnly, nothing }
+
+final identityRecoveryProvider =
+    FutureProvider.autoDispose<({IdentityRecoveryState state, bool saved})?>((
+      ref,
+    ) async {
+      final storage = ref.watch(storageProvider);
+      if (!storage.isOpen) return null;
+      final service = ref.watch(groupServiceProvider);
+      try {
+        final kind = await service?.sovereignCredentialKind();
+        final bool saved =
+            await service?.hasSavedRecoveryCertificate() ?? false;
+        if (kind == 'certificate') {
+          return (state: IdentityRecoveryState.certificate, saved: saved);
+        }
+        if (kind == 'phrase') {
+          return (state: IdentityRecoveryState.bundleNoCopy, saved: saved);
+        }
+        final origin = await storage.getSetting(kIdentityOriginSetting);
+        return (
+          state: origin == 'phrase'
+              ? IdentityRecoveryState.phraseOnly
+              : IdentityRecoveryState.nothing,
+          saved: saved,
+        );
+      } catch (_) {
+        // Unreadable: show nothing rather than a wrong claim about the one
+        // thing a person cannot check for themselves.
+        return null;
+      }
+    });
 
 /// Bumped whenever an identity's anonymity preference changes. The flags
 /// themselves live on [AppController] — the master roster's `anonymous` entry

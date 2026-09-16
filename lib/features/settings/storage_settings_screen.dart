@@ -201,14 +201,42 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
     );
     if (pw == null || pw.isEmpty) return;
     if (!mounted) return;
-    // Capture the ROOT messenger BEFORE the await — compactStorage tears the
+    // THROUGH THE ROSTER, not with the one password that was typed.
+    //
+    // `compact_known` keeps exactly the spaces whose passwords it is given and
+    // drops every other one, and this app CANNOT enumerate the others — a
+    // deniable container is built so that it cannot. So a compaction with one
+    // password is a deletion of whatever else is in there, and the only way to
+    // keep a second identity is for the person to name it. The machinery for
+    // that already existed and this button did not use it; reported from the
+    // field as "сейчас сжатие другие личности стирает".
+    //
+    // The warning that stood in its place was honest and useless: it told
+    // people what they were about to lose without offering the way to keep it.
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final offer = await ctrl.compactionOffer();
+    if (!mounted) return;
+    final size = await ctrl.containerSizeBytes();
+    if (!mounted) return;
+    // Capture the ROOT messenger BEFORE the await — compaction tears the
     // session down and re-opens (navigating away), so this context may be
     // unmounted by the time the result is ready.
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final r = await ref
-          .read(appControllerProvider.notifier)
-          .compactStorage(pw);
+      final r = await showCompactionOffer(
+        context,
+        ref,
+        estimate:
+            offer?.estimate ??
+            CompactionEstimate(
+              fileBytes: size ?? 0,
+              liveBytes: 0,
+              identitiesCounted: 1,
+              identitiesKnown: 1,
+            ),
+        currentPassword: pw,
+      );
+      if (r == null) return;
       messenger.showSnackBar(
         SnackBar(
           content: Text(

@@ -133,28 +133,57 @@ class AccountSettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
-          // Honest recovery-phrase status of the ACTIVE identity (phrase epic
-          // P4). 'phrase' = derived from the phrase, so it restores it; 'mined'
-          // or a legacy space without the marker = created without a phrase —
-          // say so instead of letting the user assume their old written-down
-          // words restore anything. Informational, not tappable.
+          // WHAT BRINGS THIS IDENTITY BACK, which is not the same question as
+          // what it was made from.
+          //
+          // This row used to read only the config's origin and say "created
+          // without a recovery phrase — protect your data by other means" for
+          // anything that was not phrase-derived. Since creating an identity
+          // stopped handing out words that is every new identity, and the
+          // sentence is wrong twice: it announces an absence where a recovery
+          // certificate exists, and tells the person to improvise a backup
+          // while they are holding one. Asked from the field in as many words:
+          // "зачем теперь эта информация?"
+          //
+          // Informational, not tappable — the actions live on the devices
+          // screen, and this row's job is to be true.
           ref
-              .watch(identityOriginProvider)
+              .watch(identityRecoveryProvider)
               .maybeWhen(
-                data: (origin) {
-                  final backed = origin == 'phrase';
+                data: (recovery) {
+                  if (recovery == null) return const SizedBox.shrink();
                   final scheme = Theme.of(context).colorScheme;
+                  final (icon, colour, text) = switch (recovery.state) {
+                    IdentityRecoveryState.certificate => (
+                      recovery.saved
+                          ? Icons.verified_user_outlined
+                          : Icons.shield_outlined,
+                      recovery.saved ? scheme.primary : Colors.amber,
+                      recovery.saved
+                          ? l.settingsRecoveryByCertificate
+                          : '${l.settingsRecoveryByCertificate} '
+                                '${l.settingsRecoveryCertificateMissing}',
+                    ),
+                    IdentityRecoveryState.bundleNoCopy => (
+                      Icons.shield_outlined,
+                      Colors.amber,
+                      l.settingsRecoveryBundleNoCopy,
+                    ),
+                    IdentityRecoveryState.phraseOnly => (
+                      Icons.password_outlined,
+                      scheme.primary,
+                      l.settingsRecoveryPhraseOnly,
+                    ),
+                    IdentityRecoveryState.nothing => (
+                      Icons.key_off_outlined,
+                      Colors.amber,
+                      l.settingsRecoveryNothing,
+                    ),
+                  };
                   return ListTile(
-                    leading: Icon(
-                      backed ? Icons.password_outlined : Icons.key_off_outlined,
-                      color: backed ? scheme.primary : Colors.amber,
-                    ),
-                    title: Text(l.settingsPhraseStatusTitle),
-                    subtitle: Text(
-                      backed
-                          ? l.settingsPhraseBackedHint
-                          : l.settingsPhraseNoneHint,
-                    ),
+                    leading: Icon(icon, color: colour),
+                    title: Text(l.settingsRecoveryTitle),
+                    subtitle: Text(text),
                     isThreeLine: true,
                   );
                 },
