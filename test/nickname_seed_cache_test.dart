@@ -14,8 +14,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/nickname_seed_cache.dart';
 
 /// A settings store that refuses an oversized value, like the container.
+///
+/// 2048 is `MAX_VALUE_LEN`, which `Tx::put` checks before the commit. The
+/// default here was 4068 — the AEAD chunk's plaintext size, a different number
+/// — so a part size the real container refuses passed this test (report27
+/// X24).
 class _CappedStore {
-  _CappedStore({this.cap = 4068});
+  _CappedStore({this.cap = 2048});
 
   final int cap;
   final Map<String, String> values = {};
@@ -48,13 +53,75 @@ NicknameSeedCache _cacheOn(_CappedStore store) => NicknameSeedCache(
 );
 
 void main() {
+  /// The store refuses exactly where the container does: 2048 UTF-8 BYTES.
+  ///
+  /// The fake's cap read 4068 — the AEAD chunk's plaintext size, which is a
+  /// different number from `MAX_VALUE_LEN` — so a part size the real container
+  /// refuses passed here, and raising `kSeedPartChars` to 3000 would have
+  /// looked safe (report27 X24).
+  test('the ceiling is 2048 bytes, and it is bytes', () async {
+    final store = _CappedStore();
+
+    await store.put('at', 'a' * 2048);
+    expect(store.refusals, 0, reason: 'exactly the cap must be accepted');
+
+    await expectLater(
+      store.put('past', 'a' * 2049),
+      throwsA(isA<StateError>()),
+      reason: 'one byte past the cap must be refused',
+    );
+
+    // Multibyte: 1024 two-byte characters is 1024 code units and 2048 bytes,
+    // and one more is past the cap while still looking small to `length`.
+    await store.put('multibyte-at', 'д' * 1024);
+    await expectLater(
+      store.put('multibyte-past', 'д' * 1025),
+      throwsA(isA<StateError>()),
+      reason:
+          'a cap measured in code units admits 2050 bytes, which the container '
+          'refuses',
+    );
+  });
+
+  /// The set the native miner really produces still needs two parts.
+  ///
+  /// `veil-crypto`'s `MAX_NICKNAME_SEEDS` is 64, not the "unbounded" the
+  /// controller's comment claimed and not the ninety the cache's did. Sixty-
+  /// four seeds is 2048 raw bytes and 2732 base64 characters, so the chunking
+  /// this cache exists for is load-bearing at the real maximum, not only for
+  /// the synthetic sets the other tests use (report27 X24).
+  test('the real 64-seed maximum does not fit one value', () async {
+    final store = _CappedStore();
+    final cache = _cacheOn(store);
+
+    final mined = seeds(64);
+    expect(mined.length, 2048, reason: 'premise: 64 seeds is 2048 raw bytes');
+    expect(
+      base64.encode(mined).length,
+      greaterThan(2048),
+      reason: 'premise: base64 puts the real maximum past one value',
+    );
+
+    final parts = await cache.save('hateerror', mined, 0);
+    expect(
+      parts,
+      2,
+      reason:
+          'the miner\'s own maximum takes $parts part(s) — one would mean the '
+          'chunking is never exercised by anything real',
+    );
+    expect(store.refusals, 0);
+    expect(await cache.load('hateerror'), equals(mined));
+  });
+
   test('a set far past one value round-trips', () async {
     final store = _CappedStore();
     final cache = _cacheOn(store);
 
-    // 1200 seeds is 38 400 bytes — over nine times what a single value holds,
-    // and the size at which the old single-value cache had been failing for a
-    // thousand seeds already.
+    // 1200 seeds is 38 400 bytes. SYNTHETIC: the native miner returns at most
+    // 64 (`MAX_NICKNAME_SEEDS`), and this is a stress input for the cache
+    // rather than a set anything produces. The real maximum is covered above
+    // (report27 X24).
     final mined = seeds(1200);
     final parts = await cache.save('hateerror', mined, 0);
 
