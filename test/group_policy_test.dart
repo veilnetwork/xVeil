@@ -324,6 +324,116 @@ void main() {
       expect(withSeal.accepted, contains(mute));
     });
 
+    test('after a transfer, the seal belongs to the new owner', () {
+      // Ownership moves — `transferOwnership` is an operation this log has —
+      // and the seal was looked up against the MANIFEST's owner, which is the
+      // genesis one for the life of the Space. After a transfer that was wrong
+      // twice over: the successor's checkpoint sealed nothing, and the
+      // checkpoint of the previous owner, by then an admin, went on granting
+      // exemptions they no longer had the authority to grant (report27 X17).
+      //
+      // The observable is a RENAME rather than a mute: a mute needs its target
+      // to be a member by the time the merge reaches it, and whether the
+      // admin's row sorts before or after the row that adds one is the very
+      // ordering under test.
+      final alice = promotedBeforeItsPromotion(_owner, 2);
+      final addBob = chained(
+        _owner,
+        0,
+        ControlOp.addMember,
+        target: _bob,
+        role: GroupRole.member,
+      );
+      final addAlice = chained(
+        _owner,
+        1,
+        ControlOp.addMember,
+        target: alice,
+        role: GroupRole.member,
+        previous: addBob,
+      );
+      final promote = chained(
+        _owner,
+        2,
+        ControlOp.setRole,
+        target: alice,
+        role: GroupRole.admin,
+        previous: addAlice,
+      );
+      // Version 6 IS this op's shape on the wire: groupId set, target set,
+      // role null. The other rows are version 2 for the same reason.
+      final handOver = ControlEntry(
+        version: 6,
+        groupId: _owner,
+        author: _owner,
+        seq: 3,
+        prevHash: controlEntryHash(promote),
+        op: ControlOp.transferOwnership,
+        target: _bob,
+        role: null,
+        policyVersion: 0,
+        createdAtMs: _t++,
+        signature: Uint8List(0),
+      );
+      const renamed = 'renamed by the promoted admin';
+      final rename = ControlEntry(
+        version: 2,
+        author: alice,
+        seq: 0,
+        prevHash: '',
+        op: ControlOp.setName,
+        target: null,
+        role: null,
+        text: renamed,
+        policyVersion: 0,
+        createdAtMs: _t++,
+        signature: Uint8List(0),
+      );
+      final heads = [head(promote), head(rename)]
+        ..sort((a, b) => a.author.hex.compareTo(b.author.hex));
+      final base = [addBob, addAlice, promote, handOver, rename];
+
+      final without = foldControlLog(owner: _owner, entries: base, verify: _ok);
+      expect(
+        without.state.roleOf(_bob),
+        GroupRole.owner,
+        reason: 'premise: the transfer applied',
+      );
+      expect(
+        without.state.name,
+        isNot(renamed),
+        reason: 'premise: with no testimony the merge order refuses the rename',
+      );
+
+      // The NEW owner vouches. This is the one that has to count.
+      final bySuccessor = foldControlLog(
+        owner: _owner,
+        entries: [...base, seal(_bob, 0, heads)],
+        verify: _ok,
+      );
+      expect(
+        bySuccessor.state.name,
+        renamed,
+        reason:
+            'the owner of this Space vouched for a row and the fold ignored '
+            'it — the API that wrote the seal reported success',
+      );
+
+      // And the PREVIOUS owner, now an admin, does not.
+      final byPredecessor = foldControlLog(
+        owner: _owner,
+        entries: [...base, seal(_owner, 4, heads, previous: handOver)],
+        verify: _ok,
+      );
+      expect(
+        byPredecessor.state.name,
+        isNot(renamed),
+        reason:
+            'a demoted owner still granted exemptions — vouching for a prefix '
+            'is a power they handed over with the Space',
+      );
+    });
+
     test('the seal vouches for a ROW, not for a position', () {
       // The heads carry `(author, seq, hash)` and the exemption was keyed on
       // `author → seq` alone, so a DIFFERENT row at the sealed position — a

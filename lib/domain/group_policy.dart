@@ -1555,9 +1555,43 @@ GroupFoldResult foldControlLog({
   String? initialCoverContentId,
 }) {
   final withdrawals = <String, ControlEntry>{};
+  // WHOEVER HOLDS IT NOW, not whoever started with it.
+  //
+  // Ownership moves — `transferOwnership` is an operation this log has — and
+  // the seal was looked up against the MANIFEST's owner, which is the genesis
+  // one for the life of the Space. After a transfer that was wrong twice over:
+  // the successor's checkpoint sealed nothing, and the checkpoint of the
+  // previous owner, by then an admin, went on granting exemptions they no
+  // longer had the authority to grant (report27 X17).
+  //
+  // Found by folding once with no seal at all. That pass is conservative by
+  // construction — a seal only ever ADMITS rows — so the ownership it reports
+  // is ownership no exemption bought. Paid for only by a Space that has
+  // actually transferred; the scan below is one pass over rows already in
+  // memory, and the common case never folds twice.
+  var sealingOwner = owner;
+  if (entries.any((e) => e.op == ControlOp.transferOwnership)) {
+    final unsealed = _foldControlLogOnce(
+      owner: owner,
+      entries: entries,
+      verify: verify,
+      sealedHeads: const {},
+      initialName: initialName,
+      initialDescription: initialDescription,
+      initialAvatarContentId: initialAvatarContentId,
+      initialCoverContentId: initialCoverContentId,
+      withdrawals: const [],
+    );
+    for (final member in unsealed.state.members.values) {
+      if (member.role == GroupRole.owner) {
+        sealingOwner = member.nodeId;
+        break;
+      }
+    }
+  }
   // Computed once, from the same verified rows both passes read.
   final sealed = _ownerSealedHeads(
-    owner: owner,
+    owner: sealingOwner,
     entries: entries,
     verify: verify,
   );
