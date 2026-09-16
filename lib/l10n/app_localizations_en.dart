@@ -7328,6 +7328,16 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String transferImportPartial(
+    int events,
+    int files,
+    int settings,
+    int failed,
+  ) {
+    return 'Merged: $events entries, $files files added, $settings settings filled in — but $failed could not be written. Try again; what did land is kept.';
+  }
+
+  @override
   String get transferRefusedOtherIdentity =>
       'This archive belongs to a different identity. Merging it would attribute somebody else’s messages to you.';
 

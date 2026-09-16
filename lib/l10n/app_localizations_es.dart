@@ -7423,6 +7423,16 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String transferImportPartial(
+    int events,
+    int files,
+    int settings,
+    int failed,
+  ) {
+    return 'Fusionado: $events entradas, $files archivos añadidos, $settings ajustes completados, pero $failed no se pudieron escribir. Inténtalo de nuevo; lo que sí se guardó se conserva.';
+  }
+
+  @override
   String get transferRefusedOtherIdentity =>
       'Este archivo pertenece a otra identidad. Fusionarlo te atribuiría mensajes ajenos.';
 

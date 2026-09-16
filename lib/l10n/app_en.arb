@@ -3392,6 +3392,23 @@
       }
     }
   },
+  "transferImportPartial": "Merged: {events} entries, {files} files added, {settings} settings filled in \u2014 but {failed} could not be written. Try again; what did land is kept.",
+  "@transferImportPartial": {
+    "placeholders": {
+      "events": {
+        "type": "int"
+      },
+      "files": {
+        "type": "int"
+      },
+      "settings": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
   "transferRefusedOtherIdentity": "This archive belongs to a different identity. Merging it would attribute somebody else’s messages to you.",
   "transferRefusedHasIdentity": "This archive carries an identity and this device already has one. Import it on a fresh install instead.",
   "transferRefusedNotReady": "The app is not ready to merge yet — open a chat once and try again.",

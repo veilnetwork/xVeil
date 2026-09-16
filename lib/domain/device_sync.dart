@@ -206,6 +206,27 @@ class DeviceSyncApplyGate {
   /// Slot -> the newest event actually applied to it.
   final Map<String, DeviceSyncEvent> _applied = {};
 
+  /// The last event for a slot whose write actually SUCCEEDED.
+  ///
+  /// [_applied] is the admission watermark: it moves before the work runs,
+  /// because admission has to be decided in one go. That makes it the wrong
+  /// thing for a failure to fall back to — the entry it displaced may be an
+  /// event that is also still in flight, or one that has already failed
+  /// (report27 X07).
+  final Map<String, DeviceSyncEvent> _committed = {};
+
+  /// How many queued writes threw.
+  ///
+  /// A failed apply is survivable — it must not poison the slot behind it —
+  /// but it is not nothing, and the gate used to swallow it whole: `settle`
+  /// returned normally and a caller standing in front of a screen was told
+  /// the merge was done (report27 X06).
+  int _failedApplies = 0;
+
+  /// Writes that threw since this gate was made. Non-zero means part of what
+  /// was offered is NOT on disk.
+  int get failedApplies => _failedApplies;
+
   /// Slot -> the tail of that slot's apply chain, present only while work for
   /// it is outstanding. Deliberately per slot and not one chain for everything:
   /// a single chain would make a slow contact write hold up an unrelated
@@ -236,7 +257,6 @@ class DeviceSyncApplyGate {
     if (applied != null && !isNewerDeviceSync(event, applied)) return false;
     final run = plan();
     if (run == null) return false;
-    final previous = _applied[slot];
     _applied[slot] = event;
     final queued = (_chains[slot] ?? Future<void>.value())
         .then((_) => run())
@@ -253,12 +273,27 @@ class DeviceSyncApplyGate {
         //
         // Restored only if nothing NEWER was admitted meanwhile: rolling that
         // back would let an older event win a race it already lost.
+        .then((_) {
+          // WHAT ACTUALLY LANDED, kept apart from what was admitted. The
+          // rollback below restores this, not the admission it displaced.
+          _committed[slot] = event;
+        })
         .catchError((Object _) {
+          _failedApplies += 1;
           if (!identical(_applied[slot], event)) return;
-          if (previous == null) {
+          // NOT `previous`. Two events for one slot are admitted before
+          // either writes, so `previous` can be an event that is ALSO still
+          // pending — and when both writes failed, the second one's rollback
+          // restored the first as though it had landed. A retry of that first
+          // event then lost to a watermark set by its own failure, and the
+          // slot kept an applied-mark for a write that never happened
+          // (report27 X07). The last COMMIT is the only thing a failure may
+          // fall back to.
+          final landed = _committed[slot];
+          if (landed == null) {
             _applied.remove(slot);
           } else {
-            _applied[slot] = previous;
+            _applied[slot] = landed;
           }
         });
     _chains[slot] = queued;

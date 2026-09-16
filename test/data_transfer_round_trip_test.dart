@@ -216,6 +216,47 @@ Future<Uint8List> _exportOf(
 }
 
 void main() {
+  /// A write that threw is not a merge that finished.
+  ///
+  /// The apply gate survives a failed write on purpose — it must not poison
+  /// the slot behind it — and the count stopped there. `settle` returned
+  /// normally, the importer reported a merge, and the screen said so with part
+  /// of the archive not on disk. The only counter beside it,
+  /// `unconfirmedAppliers`, is about appliers that cannot report at all, which
+  /// is a different fact (report27 X06).
+  test('a merge whose writes failed says so', () async {
+    final archive = await _exportOf(_deviceWithHistory());
+    final gate = DeviceSyncApplyGate();
+    final report = await DataImporter(
+      storage: _Space(),
+      appliers: DeviceSyncAppliers()
+        ..register(
+          (event, {attachmentThumb}) async {
+            gate.offer(event, () => () async {
+              throw StateError('the disk said no');
+            });
+          },
+          settle: gate.settle,
+          failures: () => gate.failedApplies,
+        ),
+      selfNodeIdHex: hexOf(1),
+    ).run(bytes: Stream.value(archive));
+
+    expect(
+      report.syncEvents,
+      greaterThan(3),
+      reason: 'premise: the archive has to carry events to fail on',
+    );
+    expect(
+      report.failedApplies,
+      report.syncEvents,
+      reason:
+          'every write threw and the report counts ${report.failedApplies} of '
+          'them — a merge that reports success with nothing written is the one '
+          'outcome a person cannot act on',
+    );
+  });
+
   test('an import stops when the identity it belongs to is switched away', () async {
     // The appliers are an app-wide registry that a switch re-populates, so an
     // import that ran on past one sent the REST of somebody's archive into the

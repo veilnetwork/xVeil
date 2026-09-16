@@ -167,6 +167,55 @@ void main() {
     expect(applied, 1, reason: 'the retry must actually run');
   });
 
+  test('two failures in one slot leave neither as the watermark', () async {
+    // The rollback restored whatever the admission had DISPLACED, and with two
+    // events admitted before either wrote, that is an event which is also
+    // still in flight. When both writes failed, the second one's rollback
+    // reinstated the first as though it had landed — so a retry of the first
+    // lost to a watermark set by its own failure, and the slot kept an
+    // applied-mark for a write that never happened (report27 X07).
+    const now = 1700000000000;
+    final gate = DeviceSyncApplyGate(nowMs: () => now);
+    DeviceSyncEvent at(int ts, String value) => DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'theme',
+          tsMs: ts,
+          payload: {'v': value},
+        );
+
+    final first = at(now - 2000, 'dark');
+    final second = at(now - 1000, 'light');
+    // Both admitted before either write runs — the chain is per slot, so the
+    // second queues behind the first and the guard has already seen both.
+    expect(
+      gate.offer(first, () => () async => throw StateError('disk full')),
+      isTrue,
+    );
+    expect(
+      gate.offer(second, () => () async => throw StateError('disk full')),
+      isTrue,
+    );
+    await gate.settle();
+
+    expect(
+      gate.failedApplies,
+      2,
+      reason: 'a swallowed write error is a merge that reports success',
+    );
+
+    // Neither landed, so BOTH must still be offerable.
+    var appliedFirst = 0;
+    expect(
+      gate.offer(first, () => () async => appliedFirst++),
+      isTrue,
+      reason:
+          'the slot remembers an event that never reached the disk, and the '
+          'only way past it is something newer — this one is lost for good',
+    );
+    await gate.settle();
+    expect(appliedFirst, 1, reason: 'the retry must actually run');
+  });
+
   test('a newer event that succeeded is not undone by an older failure',
       () async {
     // The rollback must not hand the slot back to an event that already lost:
