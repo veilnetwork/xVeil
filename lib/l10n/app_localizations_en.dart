@@ -76,14 +76,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onboardRestoreIdentitySub =>
-      'With its recovery certificate, or with the 24 words';
+      'With the recovery certificate you saved for it';
 
   @override
   String get onboardRestoreBody =>
-      'Two ways back, and they do not bring back the same thing. The certificate restores THIS identity — the address your contacts hold. The 24 words alone restore a different one: they fix half of the identity key, and the other half was drawn at random when the identity was made and exists only in the certificate.';
-
-  @override
-  String get onboardRestoreSubmit => 'Restore';
+      'The certificate is what brings this identity back — the same address your contacts hold. Choose the file and enter the code you kept apart from it.';
 
   @override
   String get onboardLinkDevice => 'Link to a device you already use';
@@ -5255,10 +5252,6 @@ class AppL10nEn extends AppL10n {
   String get onboardPasswordMismatch => 'Passwords do not match';
 
   @override
-  String get recoveryPhraseHint =>
-      'Enter your recovery phrase, words separated by spaces';
-
-  @override
   String get securityCenterTooltip => 'Security';
 
   @override
@@ -5720,14 +5713,17 @@ class AppL10nEn extends AppL10n {
       'Save the file before moving on. It exists only on this screen, and it is the only copy of half your key.';
 
   @override
-  String get onboardRestoreWithCertificate => 'I have a recovery certificate';
-
-  @override
   String get onboardRestoreCertificateBody =>
       'The certificate is what brings back the address your contacts hold. The 24 words alone restore a different identity — use them only if this identity never had a certificate.';
 
   @override
   String get onboardRestorePickCertificate => 'Choose the certificate file';
+
+  @override
+  String get onboardRestoreCertificateFromFile => 'Chosen from a file';
+
+  @override
+  String get onboardRestoreCertificateAnother => 'Choose a different one';
 
   @override
   String onboardRestoreCertificateChosen(String id) {
@@ -5758,9 +5754,6 @@ class AppL10nEn extends AppL10n {
   @override
   String get onboardRestoreCertificateBad =>
       'That file is not an xVeil recovery certificate, or it is damaged.';
-
-  @override
-  String get onboardRestoreWithPhrase => 'Restore with the 24 words';
 
   @override
   String get onboardContainerInUse =>
@@ -5827,6 +5820,9 @@ class AppL10nEn extends AppL10n {
   @override
   String get onboardArchiveNoCredential =>
       'This archive was written before archives carried the identity key. It restores the transport key and the conversations, but the identity will be a DIFFERENT one — at an address your contacts do not hold. Export a fresh archive from the device that still has this identity, or restore from the recovery certificate instead.';
+
+  @override
+  String get onboardArchiveUnlock => 'Unlock this archive';
 
   @override
   String get onboardArchiveContinue => 'Take the identity from this archive';

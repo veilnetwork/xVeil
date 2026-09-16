@@ -222,20 +222,14 @@ abstract class AppL10n {
   /// No description provided for @onboardRestoreIdentitySub.
   ///
   /// In en, this message translates to:
-  /// **'With its recovery certificate, or with the 24 words'**
+  /// **'With the recovery certificate you saved for it'**
   String get onboardRestoreIdentitySub;
 
   /// No description provided for @onboardRestoreBody.
   ///
   /// In en, this message translates to:
-  /// **'Two ways back, and they do not bring back the same thing. The certificate restores THIS identity — the address your contacts hold. The 24 words alone restore a different one: they fix half of the identity key, and the other half was drawn at random when the identity was made and exists only in the certificate.'**
+  /// **'The certificate is what brings this identity back — the same address your contacts hold. Choose the file and enter the code you kept apart from it.'**
   String get onboardRestoreBody;
-
-  /// No description provided for @onboardRestoreSubmit.
-  ///
-  /// In en, this message translates to:
-  /// **'Restore'**
-  String get onboardRestoreSubmit;
 
   /// No description provided for @onboardLinkDevice.
   ///
@@ -9242,12 +9236,6 @@ abstract class AppL10n {
   /// **'Passwords do not match'**
   String get onboardPasswordMismatch;
 
-  /// No description provided for @recoveryPhraseHint.
-  ///
-  /// In en, this message translates to:
-  /// **'Enter your recovery phrase, words separated by spaces'**
-  String get recoveryPhraseHint;
-
   /// No description provided for @securityCenterTooltip.
   ///
   /// In en, this message translates to:
@@ -10094,12 +10082,6 @@ abstract class AppL10n {
   /// **'Save the file before moving on. It exists only on this screen, and it is the only copy of half your key.'**
   String get onboardCertNotSavedYet;
 
-  /// No description provided for @onboardRestoreWithCertificate.
-  ///
-  /// In en, this message translates to:
-  /// **'I have a recovery certificate'**
-  String get onboardRestoreWithCertificate;
-
   /// No description provided for @onboardRestoreCertificateBody.
   ///
   /// In en, this message translates to:
@@ -10111,6 +10093,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Choose the certificate file'**
   String get onboardRestorePickCertificate;
+
+  /// No description provided for @onboardRestoreCertificateFromFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Chosen from a file'**
+  String get onboardRestoreCertificateFromFile;
+
+  /// No description provided for @onboardRestoreCertificateAnother.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a different one'**
+  String get onboardRestoreCertificateAnother;
 
   /// No description provided for @onboardRestoreCertificateChosen.
   ///
@@ -10159,12 +10153,6 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'That file is not an xVeil recovery certificate, or it is damaged.'**
   String get onboardRestoreCertificateBad;
-
-  /// No description provided for @onboardRestoreWithPhrase.
-  ///
-  /// In en, this message translates to:
-  /// **'Restore with the 24 words'**
-  String get onboardRestoreWithPhrase;
 
   /// No description provided for @onboardContainerInUse.
   ///
@@ -10273,6 +10261,12 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'This archive was written before archives carried the identity key. It restores the transport key and the conversations, but the identity will be a DIFFERENT one — at an address your contacts do not hold. Export a fresh archive from the device that still has this identity, or restore from the recovery certificate instead.'**
   String get onboardArchiveNoCredential;
+
+  /// No description provided for @onboardArchiveUnlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock this archive'**
+  String get onboardArchiveUnlock;
 
   /// No description provided for @onboardArchiveContinue.
   ///
