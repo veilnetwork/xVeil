@@ -109,6 +109,14 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
   final _code = TextEditingController();
   final _pasted = TextEditingController();
   SovereignRecoveryCertificate? _certificate;
+
+  /// Which way the certificate in hand arrived.
+  ///
+  /// Reported from the field: after choosing a file the screen still offered
+  /// the paste box, so the person could not tell whether the file had been
+  /// taken — "мне всё ещё предлагается его вставить в поле". Once there IS a
+  /// certificate, the two ways in stop being a question and become an answer.
+  bool _fromFile = false;
   bool _bad = false;
   bool _codeRefused = false;
   bool _checking = false;
@@ -147,7 +155,7 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
       return;
     }
     if (text == null || !mounted) return;
-    _accept(text);
+    _accept(text, fromFile: true);
   }
 
   /// One road in for both ways of holding a certificate.
@@ -155,7 +163,7 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
   /// A copy and a download are the same artefact — the export sheet offers a
   /// copy button beside the save button — so they must not have different
   /// fates here. `parse` carries the tolerance for how a copy arrives.
-  void _accept(String text) {
+  void _accept(String text, {bool fromFile = false}) {
     setState(() {
       _bad = false;
       _codeRefused = false;
@@ -167,7 +175,10 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
       // the version before anything downstream sees it.
       final certificate = SovereignRecoveryCertificate.parse(text);
       if (!mounted) return;
-      setState(() => _certificate = certificate);
+      setState(() {
+        _certificate = certificate;
+        _fromFile = fromFile;
+      });
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -216,12 +227,17 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
       children: [
         Text(l.onboardRestoreCertificateBody),
         const SizedBox(height: 12),
-        OutlinedButton.icon(
-          onPressed: _checking ? null : _choose,
-          icon: const Icon(Icons.folder_open),
-          label: Text(l.onboardRestorePickCertificate),
-        ),
-        const SizedBox(height: 12),
+        // The two ways IN are offered only while there is nothing in hand.
+        // Leaving them up beside an accepted certificate asks a question that
+        // has already been answered, and reads as though the answer did not
+        // register.
+        if (certificate == null) ...[
+          OutlinedButton.icon(
+            onPressed: _checking ? null : _choose,
+            icon: const Icon(Icons.folder_open),
+            label: Text(l.onboardRestorePickCertificate),
+          ),
+          const SizedBox(height: 12),
         // The other half of how people actually hold this. The sheet that
         // creates a certificate offers a copy button, and what is copied gets
         // pasted — into a password manager, a note, a message to oneself. A
@@ -245,19 +261,46 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
             }
             _accept(text);
           },
-          decoration: InputDecoration(
-            labelText: l.onboardRestorePasteCertificate,
-            helperText: l.onboardRestorePasteCertificateHint,
-            helperMaxLines: 3,
+            decoration: InputDecoration(
+              labelText: l.onboardRestorePasteCertificate,
+              helperText: l.onboardRestorePasteCertificateHint,
+              helperMaxLines: 3,
+            ),
           ),
-        ),
+        ],
         if (certificate != null) ...[
-          const SizedBox(height: 8),
-          // The address it names, so a person with two certificates can tell
-          // which one they just chose before they commit to it.
-          Text(
-            l.onboardRestoreCertificateChosen(_shortId(certificate.nodeId)),
-            style: Theme.of(context).textTheme.bodySmall,
+          // WHAT IS IN HAND, and how it got here. The address so a person with
+          // two certificates can tell which one this is before committing the
+          // whole install to it; the source so choosing a file visibly ends
+          // the choosing.
+          Row(
+            children: [
+              Icon(
+                _fromFile ? Icons.description_outlined : Icons.content_paste,
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${_fromFile ? l.onboardRestoreCertificateFromFile : l.onboardRestorePasteCertificate}'
+                  ' · ${l.onboardRestoreCertificateChosen(_shortId(certificate.nodeId))}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+          TextButton.icon(
+            onPressed: _checking
+                ? null
+                : () => setState(() {
+                    _certificate = null;
+                    _fromFile = false;
+                    _bad = false;
+                    _codeRefused = false;
+                    _pasted.clear();
+                  }),
+            icon: const Icon(Icons.refresh, size: 16),
+            label: Text(l.onboardRestoreCertificateAnother),
           ),
         ],
         if (_bad) ...[

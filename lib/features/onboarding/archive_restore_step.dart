@@ -68,7 +68,10 @@ class ArchivePreview {
 
 /// Picks an archive, reads its header and its identity, or reports why not.
 typedef ArchiveOpener =
-    Future<ArchivePreview?> Function({required String? password});
+    Future<ArchivePreview?> Function({
+      required String? password,
+      bool reuseLast,
+    });
 
 class ArchiveRestoreStep extends StatefulWidget {
   const ArchiveRestoreStep({
@@ -126,7 +129,7 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
     super.dispose();
   }
 
-  Future<void> _choose() async {
+  Future<void> _choose({bool reuseLast = false}) async {
     if (_busy) return;
     setState(() {
       _busy = true;
@@ -134,8 +137,16 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
       _badReason = null;
     });
     try {
+      // THE FILE FIRST, THE PASSWORD ONLY IF IT HAS ONE.
+      //
+      // The password box used to stand above the picker and be asked of
+      // everyone, including the majority whose archive is not sealed —
+      // reported as "когда восстанавливаю личность из архива без пароля, то
+      // мне всегда предлагается ввести пароль". An archive says whether it is
+      // sealed; asking it is better than asking the person.
       final preview = await widget.open(
         password: _password.text.isEmpty ? null : _password.text,
+        reuseLast: reuseLast,
       );
       if (!mounted) return;
       setState(() {
@@ -222,21 +233,37 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
           const SizedBox(height: 12),
           Text(l.onboardArchiveBody),
           const SizedBox(height: 16),
-          TextField(
-            controller: _password,
-            obscureText: true,
-            autocorrect: false,
-            enableSuggestions: false,
-            decoration: InputDecoration(
-              labelText: l.onboardArchivePasswordLabel,
-            ),
-          ),
-          const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: _busy ? null : _choose,
+            onPressed: _busy ? null : () => _choose(),
             icon: const Icon(Icons.folder_open),
             label: Text(l.onboardArchivePick),
           ),
+          // Only for an archive that turned out to be sealed, and it re-reads
+          // the file already chosen rather than sending anyone back through
+          // the dialog.
+          if (_needsPassword) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _password,
+              obscureText: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: _busy
+                  ? null
+                  : (_) => _choose(reuseLast: true),
+              decoration: InputDecoration(
+                labelText: l.onboardArchivePasswordLabel,
+              ),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.tonal(
+              onPressed: _busy || _password.text.isEmpty
+                  ? null
+                  : () => _choose(reuseLast: true),
+              child: Text(l.onboardArchiveUnlock),
+            ),
+          ],
           if (preview != null) ...[
             const SizedBox(height: 8),
             Text(
@@ -278,13 +305,7 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
               ),
             ],
           ],
-          if (_needsPassword) ...[
-            const SizedBox(height: 8),
-            Text(
-              l.transferImportPasswordTitle,
-              style: TextStyle(color: scheme.error),
-            ),
-          ],
+
           if (_bad) ...[
             const SizedBox(height: 8),
             Text(l.onboardArchiveBad, style: TextStyle(color: scheme.error)),

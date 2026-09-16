@@ -50,7 +50,6 @@ class _NoopNode implements NodeController {
 /// never finished.
 class _SpyController extends AppController {
   static bool? seenRestoring;
-  static String? seenPhrase;
 
   @override
   Future<void> completeOnboarding({
@@ -66,7 +65,6 @@ class _SpyController extends AppController {
     String? nodeConfigToml,
   }) {
     seenRestoring = restoringIdentity;
-    seenPhrase = identityPhrase;
     return super.completeOnboarding(
       password: password,
       mode: mode,
@@ -86,7 +84,6 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     _SpyController.seenRestoring = null;
-    _SpyController.seenPhrase = null;
   });
 
   Future<ProviderContainer> pump(WidgetTester tester) async {
@@ -159,31 +156,4 @@ void main() {
     expect(_SpyController.seenRestoring, isFalse);
   });
 
-  testWidgets('typing a phrase that already names an identity IS a restore', (
-    tester,
-  ) async {
-    final container = await pump(tester);
-    await tester.tap(find.text(l(tester).actionContinue));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(l(tester).onboardRestoreIdentity));
-    await tester.pumpAndSettle();
-    await chooseRestoreByPhrase(tester);
-    final words = List.generate(24, (i) => 'w$i').join(' ');
-    await tester.enterText(find.byType(TextField), words);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(l(tester).onboardRestoreSubmit));
-    await tester.pumpAndSettle();
-    // storage, then network entry.
-    await tester.tap(find.text(l(tester).actionContinue));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(l(tester).actionContinue));
-    await tester.pumpAndSettle();
-    await finish(tester);
-
-    expect(container.read(appControllerProvider).phase, AppPhase.ready);
-    expect(_SpyController.seenRestoring, isTrue);
-    // The flag travels WITH the phrase. A restore flag whose phrase went
-    // missing would mint a device key for an identity nobody is restoring.
-    expect(_SpyController.seenPhrase, words);
-  });
 }

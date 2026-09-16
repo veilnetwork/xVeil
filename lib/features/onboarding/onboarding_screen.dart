@@ -21,7 +21,6 @@ import '../../state/data_import.dart';
 import 'archive_restore_step.dart';
 import 'certificate_restore_input.dart';
 import 'recovery_certificate_step.dart';
-import 'recovery_phrase_input.dart';
 
 /// First-launch wizard. Steps:
 ///   0 welcome → 1 choose path → 2 recovery phrase → 3 storage mode →
@@ -199,25 +198,24 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _go(6);
   }
 
-  /// The user typed a phrase that passed the native validator: it feeds the
-  /// SAME deterministic first-boot derivation as the create path, so the
-  /// node identity it produces is the one the phrase was written down for.
-  void _restoreWith(String phrase) {
-    _restoring = true;
-    _phrase = phrase.split(' ');
-    _realPhrase = true;
-    _joinExisting = false;
-    _restoreCertificate = null;
-    _restoreCode = '';
-    _go(3);
-  }
-
   /// Pick an archive and read what it says about itself.
   ///
   /// The reading lives here rather than in the step for one reason: real file
   /// IO inside `testWidgets` does not fail, it HANGS — stream events are never
   /// delivered in fake time. The widget is handed what was read.
-  Future<ArchivePreview?> _openArchive({required String? password}) async {
+  /// The archive chosen last, so a sealed one can be re-read with its password
+  /// without sending the person back through the file dialog.
+  String? _lastArchivePath;
+
+  Future<ArchivePreview?> _openArchive({
+    required String? password,
+    bool reuseLast = false,
+  }) async {
+    if (reuseLast) {
+      final again = _lastArchivePath;
+      if (again == null) return null;
+      return _readArchive(File(again), password);
+    }
     final picked = await FilePicker.pickFiles(withReadStream: false);
     // `.single` THROWS on an empty list, and the step reads any throw from here
     // as "this file is damaged". A picker that answers with a result carrying
@@ -229,6 +227,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final path = files.first.path;
     if (path == null) return null;
     final file = File(path);
+    _lastArchivePath = path;
     // NAMED IN THE FAILURE. Everything below can throw, and the one thing that
     // makes such a throw actionable is which file it was about: a sandboxed
     // build reaches the chosen file through the picker's grant, so "cannot
@@ -237,6 +236,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     if (!await file.exists()) {
       throw FileSystemException('the chosen file is not there', path);
     }
+    return _readArchive(file, password);
+  }
+
+  Future<ArchivePreview?> _readArchive(File file, String? password) async {
     final header = await DataImporter.inspect(file.openRead());
     final identity = header.includesIdentity
         ? await DataImporter.readIdentity(file.openRead(), password: password)
@@ -502,11 +505,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               open: _openArchive,
               onIdentity: _restoreFromArchive,
             ),
-            5 => _RestoreStep(
-              validate: widget.validatePhrase,
-              onSubmit: _restoreWith,
-              onCertificate: _restoreWithCertificate,
-            ),
+            5 => _RestoreStep(onCertificate: _restoreWithCertificate),
             6 => _LinkStep(onNext: () => _go(3)),
             8 => RecoveryCertificateStep(
               mintFresh: widget.mintIdentity,
@@ -726,34 +725,30 @@ class _LinkStep extends StatelessWidget {
 /// fix the Ed25519 half of the hybrid master and the Falcon half was drawn at
 /// random — and a screen that offers only them tells someone holding their
 /// certificate that there is nowhere to put it.
-class _RestoreStep extends StatefulWidget {
-  const _RestoreStep({
-    required this.validate,
-    required this.onSubmit,
-    required this.onCertificate,
-  });
-  final bool Function(String phrase) validate;
-  final ValueChanged<String> onSubmit;
+/// The certificate, and only the certificate.
+///
+/// The words used to stand beside it as a second way back. They are not one:
+/// they fix the Ed25519 half of the hybrid master and the Falcon half was
+/// drawn at random, so restoring from them produces a DIFFERENT identity at an
+/// address nobody holds. Offering that as an alternative made it look like a
+/// choice between two routes to the same place, which is the shape of a trap
+/// rather than of a second chance. Owner's call, after the measurement:
+/// "личность в любом случае не восстановим из-за отсутствия falcon512 части, а
+/// значит бесполезно и равносильно созданию новой личности".
+///
+/// What this costs, said plainly: an identity old enough to have no sovereign
+/// credential at all IS restored exactly by its words, and those people lose
+/// this door. Every identity this app has created for months is hybrid.
+class _RestoreStep extends StatelessWidget {
+  const _RestoreStep({required this.onCertificate});
+
   final void Function(Uint8List certificate, String code) onCertificate;
 
   @override
-  State<_RestoreStep> createState() => _RestoreStepState();
-}
-
-class _RestoreStepState extends State<_RestoreStep> {
-  /// Which way this person is taking. The certificate is the default: someone
-  /// who has one should not have to find it behind a toggle, and someone who
-  /// does not loses one tap.
-  bool _byCertificate = true;
-
-  @override
   Widget build(BuildContext context) {
-    final validate = widget.validate;
-    final onSubmit = widget.onSubmit;
     final l = AppL10n.of(context);
-    // Typing the phrase in puts it on screen exactly as showing it does — the
-    // field is not obscured, deliberately, because a mistyped word here costs
-    // the identity. Guarded for the same reason the display step is.
+    // Guarded like every screen that puts a recovery capability on it: what is
+    // typed here is half of one.
     return SecureScreenGuard(
       child: SingleChildScrollView(
         child: Column(
@@ -770,30 +765,7 @@ class _RestoreStepState extends State<_RestoreStep> {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            SegmentedButton<bool>(
-              segments: [
-                ButtonSegment(
-                  value: true,
-                  label: Text(l.onboardRestoreWithCertificate),
-                ),
-                ButtonSegment(
-                  value: false,
-                  label: Text(l.onboardRestoreWithPhrase),
-                ),
-              ],
-              selected: {_byCertificate},
-              onSelectionChanged: (v) =>
-                  setState(() => _byCertificate = v.first),
-            ),
-            const SizedBox(height: 16),
-            if (_byCertificate)
-              CertificateRestoreInput(onSubmit: widget.onCertificate)
-            else
-              RecoveryPhraseInput(
-                validate: validate,
-                onSubmit: onSubmit,
-                submitLabel: l.onboardRestoreSubmit,
-              ),
+            CertificateRestoreInput(onSubmit: onCertificate),
           ],
         ),
       ),
@@ -801,12 +773,6 @@ class _RestoreStepState extends State<_RestoreStep> {
   }
 }
 
-/// Take a password and try it against whatever is already on this device.
-///
-/// No file is looked for and nothing is reported about what is here. The
-/// answer to "is there a container" and the answer to "is that the password"
-/// are deliberately the same answer, because the first one is the one that
-/// must never be given.
 class _OpenExistingStep extends StatefulWidget {
   const _OpenExistingStep({
     required this.busy,
