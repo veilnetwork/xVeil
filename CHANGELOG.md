@@ -6,6 +6,32 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.71] — 2026-09-16
+
+*The seed you lost was the one whose name sorted below yours.*
+
+### Fixed
+
+- **A client kept only the seeds whose node id sorted above its own.** Reported
+  from a phone: three of the four seeds, never the fourth, and the missing one
+  was always the same. The rule that decides which side of a pair places the
+  call needs two sides — and at a public meeting point this app only reads,
+  there is only one: a seed found there holds no row for the phone that found
+  it and can never dial back. The first meeting worked, so it looked like a
+  network that had worked yesterday and lost a seed today; every reconnect
+  after that was cancelled, waiting for a call that could not come. Measured on
+  the production network with all four seeds healthy, on one version and
+  announcing continuously. veil 0.11.35 carries the fix: a node that announces
+  nothing keeps every outbound, whatever the ids say.
+
+### Changed
+
+- **An Android release build can be asked for the diagnostic trace and the
+  debug hook**, the way Linux, macOS and iOS already could. It matters most
+  here: a phone that already carries an identity is signed with the release
+  key, so a debug APK cannot be installed over it — without this, making a
+  phone diagnosable meant deleting somebody's container.
+
 ## [0.13.70] — 2026-09-16
 
 *A compaction can only keep what it is given, and now it says so.*
