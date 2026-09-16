@@ -261,6 +261,45 @@ void main() {
       );
     });
 
+    /// The phrase is normalized here as it is everywhere else it is typed.
+    ///
+    /// Every other entry point folds case and runs the words together on
+    /// single spaces before the byte-based KDF sees them; this one only
+    /// trimmed the ends. So the same twenty-four words, typed with the line
+    /// break they were written down with or the capitals a keyboard puts on
+    /// them, hashed to different bytes and were refused on a perfectly good
+    /// archive — with the message reserved for a WRONG secret, which is the
+    /// one thing a person cannot debug (report27 X20).
+    testWidgets('the words open it however they were typed', (tester) async {
+      String? seen;
+      var taken = false;
+      await tester.pumpWidget(
+        host(
+          open: ({required password, reuseLast = false}) async =>
+              withCredential(),
+          onIdentity: (_, _, _) => taken = true,
+          check: (_, secret) async {
+            seen = secret;
+            return secret == 'alpha bravo charlie delta';
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await pick(tester);
+      await typeSecret(tester, '  Alpha  BRAVO\n charlie\tDelta  ');
+      await tester.tap(find.text(AppL10nEn().onboardArchiveContinue));
+      await tester.pumpAndSettle();
+
+      expect(
+        seen,
+        'alpha bravo charlie delta',
+        reason:
+            'the credential was asked to open with $seen — the same words, '
+            'and a different byte string than every other screen sends',
+      );
+      expect(taken, isTrue, reason: 'a good archive was refused');
+    });
+
     testWidgets('a secret that does not open it takes nothing', (tester) async {
       var taken = false;
       await tester.pumpWidget(
