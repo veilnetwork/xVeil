@@ -15,6 +15,7 @@ import '../../domain/theme_spec.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/theme_controller.dart';
+import '../../theme/app_theme.dart';
 
 class ThemePickerScreen extends ConsumerStatefulWidget {
   const ThemePickerScreen({super.key});
@@ -173,10 +174,10 @@ class _ThemeRow extends StatelessWidget {
     // The swatch is built the same way the app would build the whole theme, so
     // what the row shows is what choosing it does — not an approximation that
     // can drift from it.
-    final preview = ColorScheme.fromSeed(
-      seedColor: spec.seed,
-      brightness: spec.dark ? Brightness.dark : Brightness.light,
-    );
+    // Built through the same path the app uses, so the swatch shows what
+    // choosing it does — the chosen background AND the repaired error colour,
+    // which is the pair a person is entitled to see before committing.
+    final preview = AppTheme.of(spec).colorScheme;
     return ListTile(
       onTap: onTap,
       leading: Container(
@@ -295,6 +296,23 @@ class _MakeThemeDialogState extends State<_MakeThemeDialog> {
   ];
   Color _seed = _seeds.first;
 
+  /// Null = derived from the seed, which is what every theme did before a
+  /// background could be chosen at all.
+  Color? _background;
+
+  /// Backgrounds worth offering, including ones that would have been unsafe
+  /// before the foregrounds were repaired — a near-black, a paper white, and
+  /// a mid grey, which is the worst case for readability and now simply works.
+  static const _backgrounds = [
+    Color(0xFF000000),
+    Color(0xFF0E0E12),
+    Color(0xFF121A18),
+    Color(0xFF1A1420),
+    Color(0xFF777777),
+    Color(0xFFF2EFE9),
+    Color(0xFFFFFFFF),
+  ];
+
   @override
   void dispose() {
     _name.dispose();
@@ -347,6 +365,48 @@ class _MakeThemeDialogState extends State<_MakeThemeDialog> {
               onChanged: (v) => setState(() => _dark = v),
               title: Text(l.themeMakeDark),
             ),
+            const SizedBox(height: 4),
+            Text(l.themeMakeBackground),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                // "From the colour" first, and selected by default: a theme
+                // that names no background is the one shape that was always
+                // safe, and it stays the easy answer.
+                ChoiceChip(
+                  label: Text(l.themeMakeBackgroundFromSeed),
+                  selected: _background == null,
+                  onSelected: (_) => setState(() => _background = null),
+                ),
+                for (final bg in _backgrounds)
+                  GestureDetector(
+                    onTap: () => setState(() => _background = bg),
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: bg,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          width:
+                              _background?.toARGB32() == bg.toARGB32() ? 3 : 1,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Said where the choice is made: a person picking a background is
+            // entitled to know what the app will do about it, and that the
+            // safety is not something they can switch off by accident.
+            Text(
+              l.themeBackgroundSafety,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ],
         ),
       ),
@@ -366,6 +426,7 @@ class _MakeThemeDialogState extends State<_MakeThemeDialog> {
                 name: name.isEmpty ? l.themeMake : name,
                 seed: _seed,
                 dark: _dark,
+                background: _background,
               ),
             );
           },
