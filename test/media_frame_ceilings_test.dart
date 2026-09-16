@@ -85,6 +85,33 @@ void main() {
       );
     });
 
+    test('the frame size gate reads the BYTES, not the index flag', () {
+      // `f.key` is the VNOTE1 index's claim and libvpx does not consult it: it
+      // reads the frame tag out of the payload and sizes four reference
+      // buffers from that frame's own 14-bit dimensions. Gating the check on
+      // the index let a real keyframe carrying 16383 square through by
+      // labelling itself a delta frame (report27 V09).
+      final note = read('src/veil_video_note.cc');
+      final decode = body(note, 'void vnote_decode_one(VeilVnotePlayer* p');
+      expect(
+        decode,
+        contains('veil_vp8_keyframe_size'),
+        reason: 'the payload is never parsed, so the index decides',
+      );
+      final parse = decode.indexOf('veil_vp8_keyframe_size');
+      final gate = decode.indexOf('if (f.key)');
+      expect(
+        gate == -1 || gate > parse,
+        isTrue,
+        reason: 'the parse is still behind the index flag',
+      );
+      expect(
+        decode,
+        contains('declared.ok &&'),
+        reason: 'the bound is not applied to what the bytes declare',
+      );
+    });
+
     test('the note sink bounds the decoded frame', () {
       final note = read('src/veil_video_note.cc');
       expect(
@@ -125,6 +152,55 @@ void main() {
         dart,
         isNot(contains('final need = width.value * height.value * 4;')),
         reason: 'an unbounded grow is back in the group path',
+      );
+    });
+  });
+
+  group('a queued task cannot outlive what it points at', () {
+    String read(String rel) =>
+        File('third_party/veil/flutter/veil_media/$rel').readAsStringSync();
+
+    test('the inbound task holds a guard, and the destructor clears it', () {
+      // `OnVeilDatagram` copies a packet and posts it to the network queue
+      // with a raw `this`; `Stop` waits a second for the pending count and
+      // returns anyway, so a delayed task could run against a shim its owner
+      // had already freed (report27 V23). Waiting longer is not the fix.
+      final shim = read('src/veil_transport_shim.cc');
+      final header = read('src/veil_transport_shim.h');
+
+      expect(
+        header,
+        contains('struct TaskGuard'),
+        reason: 'the shim carries nothing a queued task can safely check',
+      );
+      final post = shim.indexOf('network_queue_->PostTask(');
+      expect(post, isNot(-1), reason: 'the post moved');
+      final lambda = shim.substring(post, post + 700);
+      expect(
+        lambda,
+        contains('guard = self->task_guard_'),
+        reason: 'the task captures only a raw pointer to the shim',
+      );
+      expect(
+        lambda,
+        contains('if (!guard->alive) return;'),
+        reason: 'the task runs without asking whether the shim is still there',
+      );
+
+      final dtor = shim.indexOf('VeilTransportShim::~VeilTransportShim');
+      final cleared = shim.indexOf('task_guard_->alive = false');
+      expect(dtor, isNot(-1), reason: 'the destructor moved');
+      expect(
+        cleared,
+        greaterThan(dtor),
+        reason: 'nothing tells the queued task that the shim has gone',
+      );
+      expect(
+        shim.substring(dtor, cleared),
+        contains('std::lock_guard<std::mutex> lock(task_guard_->mu)'),
+        reason:
+            'the flag is cleared without the lock, so a task mid-delivery is '
+            'not waited for',
       );
     });
   });
