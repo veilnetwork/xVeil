@@ -1530,7 +1530,10 @@
   "settingsStorageCompactDone": "Освобождено",
   "settingsStorageCompactFailed": "Не удалось сжать хранилище",
   "settingsStorageAutoCompact": "Авто-сжатие при разблокировке",
-  "settingsStorageAutoCompactBody": "Сжимать автоматически, когда контейнер раздувается. Включайте ТОЛЬКО если в этом контейнере нет других скрытых личностей — сжатие сохраняет лишь разблокированное пространство.",
+  "settingsStorageAutoCompactBody": "Сжимать автоматически, когда контейнер раздувается. Сохраняется только та личность, которой вы разблокировали, — включайте, пока она здесь одна; если появится ещё одна, настройка выключится сама.",
+  "settingsStorageAutoCompactConfirmTitle": "Здесь только эта личность?",
+  "settingsStorageAutoCompactConfirmBody": "Автоматическое сжатие перезаписывает контейнер, сохраняя только ту личность, которой вы разблокировали. Всё остальное, что в нём есть — вторая личность, ложный мастер-пароль, пространство под другим паролем — этой перезаписью удаляется: без вопроса и без возврата.\n\nПриложение не может это проверить: контейнер с отрицаемостью устроен так, чтобы не видеть того, к чему ему не дали пароль. Знаете только вы.",
+  "settingsStorageAutoCompactConfirmAction": "Она здесь одна — включить",
   "settingsCompactOffer": "Предлагать сжатие",
   "settingsCompactOfferHint": "Замечать, когда большая часть контейнера — мёртвая набивка, и предлагать её вернуть. Предложение сначала спрашивает пароли всех личностей, поэтому ничего скрытого не теряется.",
   "settingsCompactOfferPeriod": "Спрашивать не чаще",
@@ -1554,14 +1557,9 @@
   "compactOfferUnknown": "Этот пароль здесь ничего не открывает",
   "compactOfferAlready": "Уже в списке",
   "compactOfferKeeping": "Будут сохранены",
-  "compactOfferWithMaster": "и ещё {count} под ней",
-  "@compactOfferWithMaster": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
+  "compactOfferMasterOnly": "Этот пароль сохраняет только это пространство. У {count, plural, =1{личности} other{{count} личностей}} под ним свои пароли — введите каждый, иначе они будут удалены.",
+  "@compactOfferMasterOnly": {"placeholders": {"count": {"type": "int"}}},
+  "compactOfferStillNeeded": "Ещё не открыты — иначе будут удалены:",
   "compactOfferRun": "Сжать",
   "settingsCompactOfferDays": "{count, plural, one{{count} день} few{{count} дня} other{{count} дней}}",
   "@settingsCompactOfferDays": {
