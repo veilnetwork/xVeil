@@ -226,10 +226,19 @@ class DataImporter {
   ///
   /// Refuses before applying anything when the archive is not this identity's,
   /// or when it carries an identity this device would have to replace.
+  /// [stillOurs], when given, is asked before every record: false stops the
+  /// import where it stands.
+  ///
+  /// An import is long and the appliers are an app-wide registry that an
+  /// identity switch re-populates — so a switch halfway through used to send
+  /// the REST of somebody's archive into the identity they had just moved to
+  /// (report27 X02). Stopping is the honest outcome: what was applied belongs
+  /// to the identity that agreed to it, and the report says how far it got.
   Future<DataImportReport> run({
     required Stream<List<int>> bytes,
     String? password,
     void Function(int records)? onProgress,
+    bool Function()? stillOurs,
   }) async {
     final reader = await DataTransferReader.open(bytes);
     final header = reader.header;
@@ -265,6 +274,12 @@ class DataImporter {
     var seen = 0;
 
     await for (final record in reader.records(password: password)) {
+      if (stillOurs != null && !stillOurs()) {
+        // Not an error and not a rollback: the records already applied were
+        // applied to the identity that asked for them. Everything after this
+        // one belongs to an identity that did not.
+        break;
+      }
       seen++;
       onProgress?.call(seen);
       switch (record.kind) {

@@ -7375,6 +7375,10 @@ class AppL10nEs extends AppL10n {
   String get transferWorking => 'Trabajando…';
 
   @override
+  String get transferIdentitySwitched =>
+      'Cambiaste de identidad, así que no se realizó: pertenece a la identidad desde la que se inició.';
+
+  @override
   String transferProgress(int done, int total) {
     return '$done de $total';
   }

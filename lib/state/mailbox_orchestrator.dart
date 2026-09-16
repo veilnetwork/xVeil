@@ -54,7 +54,16 @@ class PoisonedBlobRegistry {
        _put = putSetting;
 
   static const String _key = 'mailbox.poisoned.v1';
-  static const int _cap = 64;
+
+  /// FIFO cap, chosen by what ONE SETTINGS VALUE HOLDS.
+  ///
+  /// The container refuses a value over 2048 bytes, and each entry is a
+  /// 64-character hex plus its quotes and comma — so a cap of 64 produced a
+  /// ~4.3 KB value the store would not take. The write threw, the catch
+  /// swallowed it, and nothing was ever persisted again: the restart this
+  /// exists to protect paid the cert-resolve timeout per junk blob all over
+  /// again (report27 X36).
+  static const int _cap = 30;
 
   final Future<String?> Function(String) _get;
   final Future<void> Function(String, String) _put;
@@ -110,11 +119,15 @@ class PoisonedBlobRegistry {
   /// cert-resolve timeout per junk blob.
   Future<void> flush() async {
     if (!_dirty) return;
-    _dirty = false;
     try {
       await _put(_key, jsonEncode(await _load()));
+      // Cleared only once it LANDED. Clearing first meant a single failed
+      // write cost every later flush in the session too: nothing was dirty
+      // any more, so nothing was written (report27 X36).
+      _dirty = false;
     } catch (_) {
-      // Best-effort: the in-RAM cache still shields this session.
+      // Best-effort: the in-RAM cache still shields this session, and the
+      // next flush tries again.
     }
   }
 

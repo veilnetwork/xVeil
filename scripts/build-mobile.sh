@@ -59,7 +59,12 @@ build_ios() {
   "$VEIL/scripts/build-mobile.sh" --target "$veil_triple" \
     --features "$SEED_FEATURE,node-embedded,packet-tunnel"
 
-  local a="$VEIL/target/$veil_triple/release/libveilclient_ffi.a"
+  # Cargo writes to CARGO_TARGET_DIR when it is set — a machine with a small
+  # system disk builds that way, and then `<repo>/target` never exists. This
+  # said "expected staticlib missing" about a library that had just been built
+  # (report27 context: the Android half of the same assumption shipped a stale
+  # .so to a phone instead of failing).
+  local a="${CARGO_TARGET_DIR:-$VEIL/target}/$veil_triple/release/libveilclient_ffi.a"
   [[ -f "$a" ]] || die "expected staticlib missing: $a"
   local dest="$VEIL/flutter/veil_flutter/ios/Frameworks"
   mkdir -p "$dest"

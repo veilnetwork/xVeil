@@ -371,7 +371,20 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
         },
     ]);
     final bytes = _sk(json);
-    final existing = await _as.get(Ns.settings, _sk('master:roster'));
+    // WHEREVER IT LIVES. A roster that outgrew a settings record moved to the
+    // file store, and a guard that reads only the setting would read "no
+    // roster" for it — then overwrite it, which is the exact loss this guard
+    // exists to prevent.
+    Uint8List? existing;
+    try {
+      final stored = await loadFile(_rosterFile);
+      if (stored != null && stored.isNotEmpty) existing = stored;
+    } catch (_) {
+      // Unreadable is not absent: fall through to the setting, and if that is
+      // unreadable too the guard below refuses.
+    }
+    existing ??= await _as.get(Ns.settings, _sk('master:roster'));
+    if (existing != null && existing.isEmpty) existing = null;
     // FAIL CLOSED on an unreadable roster. `loadRoster` answers null both for
     // "this space has no roster" and for "this space has one I could not
     // parse", so `_updateRoster` starts from an empty list either way, mutates
@@ -386,13 +399,59 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       );
     }
     if (_bytesEqual(existing, bytes)) return;
-    await _as.commit([PutOp(Ns.settings, _sk('master:roster'), bytes)]);
+    // A ROSTER IS NOT BOUND BY THE SETTING LIMIT.
+    //
+    // One JSON value in a settings record, and the record is capped at 2048
+    // bytes by the container (`MAX_VALUE_LEN`). Each identity costs ~105 of
+    // them — an 88-character base64 of its 64-byte keys plus its label — so a
+    // container stopped being able to add an identity somewhere around twenty
+    // of them, and the failure landed AFTER the child space had already been
+    // created: a real identity on disk that the master does not list
+    // (report27 X31).
+    //
+    // The file store takes what the setting cannot, exactly as the sovereign
+    // material does a few files over. ONE copy at a time: whichever home is
+    // used, the other is cleared, or a stale record still looks authoritative.
+    if (bytes.length <= _maxSettingValueBytes) {
+      await _as.commit([PutOp(Ns.settings, _sk('master:roster'), bytes)]);
+      try {
+        if (await hasFile(_rosterFile)) await storeFile(_rosterFile, _sk(''));
+      } catch (_) {
+        // Best effort: an empty leftover decodes as "no roster" and the
+        // setting above is what `loadRoster` prefers anyway.
+      }
+      return;
+    }
+    await storeFile(_rosterFile, bytes, name: 'master-roster');
+    try {
+      await _as.commit([PutOp(Ns.settings, _sk('master:roster'), _sk(''))]);
+    } catch (_) {
+      // Same reasoning: the reader prefers the file, and an empty setting is
+      // not a roster.
+    }
   }
+
+  /// Where a roster lives when it outgrew a settings record.
+  static const String _rosterFile = 'master:roster.v2';
+
+  /// The container's own ceiling for one settings value, with room for the
+  /// record around it.
+  static const int _maxSettingValueBytes = 1900;
 
   @override
   Future<List<RosterEntry>?> loadRoster() async {
-    final raw = await _as.get(Ns.settings, _sk('master:roster'));
-    if (raw == null) return null; // plain identity space — not a master
+    // The file first: a roster that outgrew a settings record lives there, and
+    // the setting beside it was cleared when it moved (see [saveRoster]).
+    Uint8List? raw;
+    try {
+      final stored = await loadFile(_rosterFile);
+      if (stored != null && stored.isNotEmpty) raw = stored;
+    } catch (_) {
+      // Unreadable file: fall through to the setting rather than claim this
+      // space has no roster.
+    }
+    raw ??= await _as.get(Ns.settings, _sk('master:roster'));
+    if (raw == null || raw.isEmpty) return null; // plain space — not a master
     // A corrupt / truncated roster blob must not crash a roster-edit or the
     // master open (jsonDecode, the cast, or base64.decode would throw). Treat
     // it as no-roster so the caller degrades gracefully rather than wedging.

@@ -104,8 +104,13 @@ Future<List<RememberedPeer>> readRememberedPeers(Storage storage) async {
 
 /// Fold [seenNow] in and write the result back.
 ///
-/// Answers what is now held, so a caller can log it without reading again.
-Future<List<RememberedPeer>> rememberPeers(
+/// Answers what is now held, so a caller can log it without reading again —
+/// and WHETHER IT LANDED. A failed write is not worth failing a session over,
+/// but a caller that records the set as remembered on the strength of this
+/// call alone never retries it: the same peers are already "remembered", so
+/// nothing changes, so nothing is written for the rest of the session
+/// (report27 X22).
+Future<({List<RememberedPeer> kept, bool stored})> rememberPeers(
   Storage storage,
   Iterable<String> seenNow, {
   int? nowMs,
@@ -126,7 +131,9 @@ Future<List<RememberedPeer>> rememberPeers(
   } catch (_) {
     // A write that will not land is not worth failing a session over: the
     // next launch simply starts from the meeting points, which is where it
-    // started before any of this existed.
+    // started before any of this existed. The caller is told, so it can try
+    // again rather than believe this one.
+    return (kept: merged, stored: false);
   }
-  return merged;
+  return (kept: merged, stored: true);
 }

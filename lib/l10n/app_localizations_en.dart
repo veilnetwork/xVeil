@@ -7280,6 +7280,10 @@ class AppL10nEn extends AppL10n {
   String get transferWorking => 'Working…';
 
   @override
+  String get transferIdentitySwitched =>
+      'You switched identity, so this was not carried out — it belongs to the identity it was started from.';
+
+  @override
   String transferProgress(int done, int total) {
     return '$done of $total';
   }

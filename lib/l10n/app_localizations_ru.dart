@@ -7343,6 +7343,10 @@ class AppL10nRu extends AppL10n {
   String get transferWorking => 'Выполняется…';
 
   @override
+  String get transferIdentitySwitched =>
+      'Вы сменили личность, поэтому действие не выполнено — оно относится к той личности, из которой было начато.';
+
+  @override
   String transferProgress(int done, int total) {
     return '$done из $total';
   }
