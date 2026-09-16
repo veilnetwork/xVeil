@@ -12811,6 +12811,12 @@ abstract class AppL10n {
   /// **'Merged: {events} entries, {files} files added, {settings} settings filled in.'**
   String transferImportDone(int events, int files, int settings);
 
+  /// No description provided for @transferImportPartial.
+  ///
+  /// In en, this message translates to:
+  /// **'Merged: {events} entries, {files} files added, {settings} settings filled in — but {failed} could not be written. Try again; what did land is kept.'**
+  String transferImportPartial(int events, int files, int settings, int failed);
+
   /// No description provided for @transferRefusedOtherIdentity.
   ///
   /// In en, this message translates to:
