@@ -1537,7 +1537,10 @@
   "settingsStorageCompactDone": "Recuperado",
   "settingsStorageCompactFailed": "No se pudo compactar el almacenamiento",
   "settingsStorageAutoCompact": "Compactar automáticamente al desbloquear",
-  "settingsStorageAutoCompactBody": "Compacta automáticamente cuando el contenedor se infla. Actívalo SOLO si en este contenedor no vive ninguna otra identidad oculta: la compactación conserva únicamente el espacio desbloqueado.",
+  "settingsStorageAutoCompactBody": "Compacta automáticamente cuando el contenedor se infla. Conserva solo la identidad con la que desbloqueas, así que actívalo solo mientras sea la única aquí: si se añade otra, esto se desactiva solo.",
+  "settingsStorageAutoCompactConfirmTitle": "¿Vive aquí solo esta identidad?",
+  "settingsStorageAutoCompactConfirmBody": "La compactación automática reescribe el contenedor conservando solo la identidad con la que desbloqueaste. Todo lo demás que contenga —una segunda identidad, un maestro señuelo, un espacio abierto con otra contraseña— se elimina en esa reescritura, sin preguntar y sin vuelta atrás.\n\nLa aplicación no puede comprobarlo: un contenedor negable está hecho para no ver aquello cuya contraseña no le han dado. Solo tú lo sabes.",
+  "settingsStorageAutoCompactConfirmAction": "Es la única — activar",
   "settingsCompactOffer": "Ofrecer compactar",
   "settingsCompactOfferHint": "Avisa cuando gran parte del contenedor es relleno muerto y ofrece recuperarlo. La oferta pide antes la contraseña de cada identidad, así que no se pierde nada oculto.",
   "settingsCompactOfferPeriod": "Preguntar no más a menudo que",
@@ -1561,14 +1564,9 @@
   "compactOfferUnknown": "Esa contraseña no abre nada aquí",
   "compactOfferAlready": "Ya está en la lista",
   "compactOfferKeeping": "Se conservarán",
-  "compactOfferWithMaster": "y {count} más bajo ella",
-  "@compactOfferWithMaster": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
+  "compactOfferMasterOnly": "Esta contraseña conserva solo este espacio. {count, plural, =1{La identidad que hay} other{Las {count} identidades que hay}} debajo tienen su propia contraseña: introduce cada una o se eliminarán.",
+  "@compactOfferMasterOnly": {"placeholders": {"count": {"type": "int"}}},
+  "compactOfferStillNeeded": "Aún por desbloquear, o se eliminarán:",
   "compactOfferRun": "Compactar ahora",
   "settingsCompactOfferDays": "{count, plural, =1{1 día} other{{count} días}}",
   "@settingsCompactOfferDays": {

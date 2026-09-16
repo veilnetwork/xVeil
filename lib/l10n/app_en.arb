@@ -1561,7 +1561,10 @@
   "settingsStorageCompactDone": "Reclaimed",
   "settingsStorageCompactFailed": "Couldn't compact storage",
   "settingsStorageAutoCompact": "Auto-compact on unlock",
-  "settingsStorageAutoCompactBody": "Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.",
+  "settingsStorageAutoCompactBody": "Compact automatically when the container bloats. Keeps only the identity you unlock with, so turn it on only while this is the only identity here — if another one is ever added, this turns itself off.",
+  "settingsStorageAutoCompactConfirmTitle": "Only this identity lives here?",
+  "settingsStorageAutoCompactConfirmBody": "Automatic compaction rewrites the container keeping only the identity you unlocked with. Anything else it holds — a second identity, a decoy master, a space opened by a different password — is deleted by that rewrite, without asking and with no way back.\n\nThis app cannot check: a deniable container is built so that it cannot see what it has not been given the password to. Only you know.",
+  "settingsStorageAutoCompactConfirmAction": "It is the only one — turn on",
   "settingsCompactOffer": "Offer to compact",
   "settingsCompactOfferHint": "Notice when a lot of the container is dead padding and offer to reclaim it. The offer asks for every identity’s password first, so nothing hidden is lost.",
   "settingsCompactOfferPeriod": "Ask no more often than",
@@ -1585,14 +1588,9 @@
   "compactOfferUnknown": "That password does not open anything here",
   "compactOfferAlready": "Already on the list",
   "compactOfferKeeping": "Will be kept",
-  "compactOfferWithMaster": "with {count} more under it",
-  "@compactOfferWithMaster": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
+  "compactOfferMasterOnly": "This password keeps this space only. The {count, plural, =1{identity} other{{count} identities}} under it have their own passwords — enter each, or they are deleted.",
+  "@compactOfferMasterOnly": {"placeholders": {"count": {"type": "int"}}},
+  "compactOfferStillNeeded": "Still to unlock, or they are deleted:",
   "compactOfferRun": "Compact now",
   "settingsCompactOfferDays": "{count, plural, =1{1 day} other{{count} days}}",
   "@settingsCompactOfferDays": {

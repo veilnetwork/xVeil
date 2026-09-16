@@ -213,6 +213,24 @@ class IdentityLease {
       'IdentityLease($label, epoch $epoch, lifecycle $lifecycle)';
 }
 
+/// A compaction was asked to run while identities it can SEE would be dropped.
+///
+/// Thrown rather than silently keeping fewer spaces, because the alternative
+/// is a deletion wearing the name of maintenance: `compact_known` keeps only
+/// the spaces whose own passwords it is given, and a master's roster tells the
+/// app exactly which ones are missing.
+class CompactionWouldDropIdentities implements Exception {
+  const CompactionWouldDropIdentities(this.labels);
+
+  /// The identities the container holds that no supplied password opens.
+  final List<String> labels;
+
+  @override
+  String toString() =>
+      'compaction would drop identities with no password supplied: '
+      '${labels.join(", ")}';
+}
+
 class AppController extends Notifier<AppState> {
   /// Roster of the master unlocked this session — cached for the whole master
   /// session so identity switching needs no re-prompt. Holds child SpaceKeys;
@@ -738,6 +756,10 @@ class AppController extends Notifier<AppState> {
         // password re-prompt (held in memory like the child keys above).
         _setMasterKeys(await storage.exportSpaceKeys());
         await storage.close(); // release the single-space lock first
+        // Once per install: this container is a master, so no identity in it
+        // may still carry the "I am the only one here" attestation that
+        // auto-compaction runs on.
+        await _sweepAutoCompactUnderMaster(roster);
         // "All identities online" (the NORM since 2026-07-11): host every
         // space + run every node at once (needs the real container path).
         // Else the one-active picker. AWAIT the persisted value — the lazily
@@ -859,6 +881,15 @@ class AppController extends Notifier<AppState> {
         'identity in the container',
       );
     }
+    // The guard lives HERE, not only in the dialog that collects: a caller that
+    // gathered some passwords and stopped is asking for a deletion, whatever
+    // its screen believed. The names come from a master's own roster, so this
+    // is not a guess about what might be in the container — it is a list of
+    // identities the app can see and the passwords cannot open.
+    final missing = roster.uncovered;
+    if (missing.isNotEmpty) {
+      throw CompactionWouldDropIdentities(missing);
+    }
     return _compactKeeping(
       passwords: [
         for (final bytes in roster.passwords()) Uint8List.fromList(bytes),
@@ -920,6 +951,8 @@ class AppController extends Notifier<AppState> {
       String? displayName,
       String? username,
       List<String> subordinates,
+      Uint8List? spaceKeys,
+      List<({String label, List<int> keys})> children,
     })
   >
   probeCompactionIdentity(String password) async {
@@ -929,6 +962,8 @@ class AppController extends Notifier<AppState> {
       displayName: null,
       username: null,
       subordinates: <String>[],
+      spaceKeys: null,
+      children: <({String label, List<int> keys})>[],
     );
     final storage = ref.read(storageProvider);
     if (!await storage.open(password: password)) return closed;
@@ -945,6 +980,17 @@ class AppController extends Notifier<AppState> {
         username: profile?.username,
         subordinates: <String>[
           for (final e in roster ?? const <RosterEntry>[]) e.label,
+        ],
+        // What this password opened. Compaction keeps SPACES, and the keys are
+        // what say which space this was — so a master's list of children can be
+        // ticked off against the passwords actually typed.
+        spaceKeys: await storage.exportSpaceKeys(),
+        // A master names every identity under it. Each of those is its own
+        // space with its own password: this list is what compaction would
+        // DESTROY if the person stopped at the master's password.
+        children: [
+          for (final e in roster ?? const <RosterEntry>[])
+            (label: e.label, keys: e.spaceKeys),
         ],
       );
     } catch (_) {
@@ -1164,6 +1210,74 @@ class AppController extends Notifier<AppState> {
     await ref
         .read(storageProvider)
         .putSetting(_autoCompactKey, enabled ? '1' : '0');
+  }
+
+  /// One-time pref: the identities already in this container have had their
+  /// stale attestation cleared. Kept OUTSIDE the container on purpose — the
+  /// alternative is an extra keys-open on every master unlock to read a flag
+  /// that answers the same thing forever.
+  static const String _autoCompactSweptPref = 'storage.autocompact.swept.v1';
+
+  /// Take the auto-compaction attestation back from every identity under a
+  /// master, once.
+  ///
+  /// The setting means "this container holds only me" — true when the person
+  /// gave it, and false the moment a second space appeared. They have no way to
+  /// notice: adding an identity says nothing about a storage switch they set
+  /// months ago. And it is not idle: unlocking a CHILD with its own password
+  /// gives a lone-space session, where auto-compaction would fire and keep only
+  /// that child — destroying the master and every sibling.
+  ///
+  /// New identities are revoked as they are added; this is for the containers
+  /// that already exist.
+  Future<void> _sweepAutoCompactUnderMaster(List<RosterEntry> roster) async {
+    try {
+      // Keyed by the container, not by the install: a second container is a
+      // second set of identities, and one sweep must not answer for both.
+      final key =
+          '$_autoCompactSweptPref:'
+          '${ref.read(deniableBootProvider)?.storePath ?? ''}';
+      final prefs = await ref.read(prefsProvider.future);
+      if (prefs.getBool(key) ?? false) return;
+      await revokeAutoCompactAcross(roster);
+      await prefs.setBool(key, true);
+    } catch (e) {
+      devLog(() => 'xVeil[storage]: auto-compact sweep skipped: $e');
+    }
+  }
+
+  /// Clear the auto-compaction attestation in each of [spaces].
+  ///
+  /// Opened by KEYS, so no password derivation is paid and nothing has to be
+  /// asked. The value written is the DEFAULT — a space saying "auto-compaction
+  /// off" says nothing a fresh container does not, which is what keeps this out
+  /// of the deniability story. Written only when it is not already off, so a
+  /// container that has nothing to revoke is not rewritten for it.
+  ///
+  /// Best-effort per space: one that will not open leaves its own setting alone
+  /// rather than failing the identity operation around it. The container must
+  /// be CLOSED on entry; it is closed on the way out.
+  Future<void> revokeAutoCompactAcross(Iterable<RosterEntry> spaces) async {
+    final storage = ref.read(storageProvider);
+    for (final entry in spaces) {
+      try {
+        if (!await storage.openWithKeys(entry.spaceKeys)) continue;
+        if (await storage.getSetting(_autoCompactKey) == '1') {
+          await storage.putSetting(_autoCompactKey, '0');
+          devLog(
+            () =>
+                'xVeil[storage]: auto-compact revoked in "${entry.label}" — '
+                'this container holds more than one identity',
+          );
+        }
+      } catch (e) {
+        devLog(() => 'xVeil[storage]: auto-compact revoke failed: $e');
+      } finally {
+        try {
+          await storage.close();
+        } catch (_) {}
+      }
+    }
   }
 
   // ── The compaction OFFER: when to interrupt, and how much is worth it ──────
@@ -1919,6 +2033,8 @@ class AppController extends Notifier<AppState> {
       ];
       await storage.saveRoster(updated);
       await storage.close();
+      // The identity just bound now shares its container with this master.
+      await revokeAutoCompactAcross(updated);
       _setPendingRoster(updated);
       _bumpAnonymityRevision();
 
@@ -2342,6 +2458,11 @@ class AppController extends Notifier<AppState> {
       _setMasterKeys(await storage.exportSpaceKeys());
       await storage.close();
 
+      // This container now holds more than one identity, so nothing in it may
+      // keep an attestation that says otherwise — including the identity that
+      // has just become a child of this master.
+      await revokeAutoCompactAcross(roster);
+
       // Enter the new identity (one-active). If the user has keep-all-online on,
       // the next unlock brings every identity — including this one — back online.
       _setPendingRoster(roster);
@@ -2410,6 +2531,12 @@ class AppController extends Notifier<AppState> {
           ok = true;
         }
         await storage.close();
+        // A decoy is one more space in this container, and every identity it
+        // lists can be unlocked on its own. None of them may go on claiming to
+        // be alone here: auto-compaction in any of them would take the decoy
+        // with it, and a duress password that stops working is the one failure
+        // this feature cannot afford.
+        if (ok) await revokeAutoCompactAcross(roster);
       }
     } catch (e) {
       devLog(() => 'xVeil[identity]: createDecoyMaster write failed: $e');

@@ -78,7 +78,14 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     super.initState();
     // The password already in hand belongs to the identity being used, and
     // losing THAT one would be the worst outcome of all.
-    _accept(widget.currentPassword, silent: true);
+    //
+    // AFTER the first frame, because this reaches localisations on its way to
+    // the error it will not show, and a dependency lookup before `initState`
+    // has finished is an assertion — which is where it fired, throwing out of
+    // `initState` and skipping the one password this dialog must never lose.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _accept(widget.currentPassword, silent: true);
+    });
   }
 
   @override
@@ -93,7 +100,6 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
       _busy = true;
       _error = null;
     });
-    final l = AppL10n.of(context);
     final probe = await ref
         .read(appControllerProvider.notifier)
         .probeCompactionIdentity(password);
@@ -101,17 +107,25 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
     if (!probe.opened) {
       setState(() {
         _busy = false;
-        if (!silent) _error = l.compactOfferUnknown;
+        // Read where it is USED. The silent first pass has no message to show,
+        // and going looking for one is what used to break it.
+        if (!silent) _error = AppL10n.of(context).compactOfferUnknown;
       });
       return;
     }
     final name = probe.username ?? probe.displayName ?? '—';
+    // What a master knows: every identity under it, by the keys that name its
+    // space. Recorded BEFORE the password is added, so the checklist exists
+    // even if this same password turns out to be a repeat.
+    _roster.expectSpaces(probe.children);
     // Keyed by the password's own bytes: two labels can name one space, and
     // handing compact_known the same password twice asks it to keep the same
     // space twice.
     final added = _roster.addUnlocked(
       '$name#${_found.length}',
       passwordBytes: password.codeUnits,
+      // The space this password opened — what ticks it off a master's list.
+      spaceKeys: probe.spaceKeys,
     );
     setState(() {
       _busy = false;
@@ -119,7 +133,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
         _found.add((name: name, subordinates: probe.subordinates.length));
         _password.clear();
       } else if (!silent) {
-        _error = l.compactOfferAlready;
+        _error = AppL10n.of(context).compactOfferAlready;
       }
     });
   }
@@ -147,6 +161,8 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final e = widget.estimate;
+    // Identities this container is known to hold that nothing typed here opens.
+    final missing = _roster.uncovered;
     return AlertDialog(
       title: Text(l.compactOfferTitle),
       content: SingleChildScrollView(
@@ -201,9 +217,37 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.lock_open, size: 18),
                   title: Text(f.name),
+                  // A master is NOT its children. Each of them is a separate
+                  // space with its own password, and this one keeps none of
+                  // them — which is the opposite of what this line used to
+                  // say ("with N more under it", printed under "Will be
+                  // kept").
                   subtitle: f.subordinates > 0
-                      ? Text(l.compactOfferWithMaster(f.subordinates))
+                      ? Text(l.compactOfferMasterOnly(f.subordinates))
                       : null,
+                ),
+            ],
+            if (missing.isNotEmpty) ...[
+              const Divider(),
+              // The list nobody has to remember: a master names every identity
+              // under it, so the app can say which ones are still missing
+              // instead of asking the person to be sure.
+              Text(
+                l.compactOfferStillNeeded,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+              for (final label in missing)
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    Icons.lock_outline,
+                    size: 18,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  title: Text(label),
                 ),
             ],
           ],
@@ -215,7 +259,11 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
           child: Text(l.actionCancel),
         ),
         FilledButton(
-          onPressed: _busy || _roster.length == 0 ? null : _run,
+          // Not "some passwords were typed" — every identity the app can see
+          // has to be on the list, or the button is not a compaction.
+          onPressed: _busy || _roster.length == 0 || missing.isNotEmpty
+              ? null
+              : _run,
           child: Text(l.compactOfferRun),
         ),
       ],

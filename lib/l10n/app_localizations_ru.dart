@@ -3628,7 +3628,19 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get settingsStorageAutoCompactBody =>
-      'Сжимать автоматически, когда контейнер раздувается. Включайте ТОЛЬКО если в этом контейнере нет других скрытых личностей — сжатие сохраняет лишь разблокированное пространство.';
+      'Сжимать автоматически, когда контейнер раздувается. Сохраняется только та личность, которой вы разблокировали, — включайте, пока она здесь одна; если появится ещё одна, настройка выключится сама.';
+
+  @override
+  String get settingsStorageAutoCompactConfirmTitle =>
+      'Здесь только эта личность?';
+
+  @override
+  String get settingsStorageAutoCompactConfirmBody =>
+      'Автоматическое сжатие перезаписывает контейнер, сохраняя только ту личность, которой вы разблокировали. Всё остальное, что в нём есть — вторая личность, ложный мастер-пароль, пространство под другим паролем — этой перезаписью удаляется: без вопроса и без возврата.\n\nПриложение не может это проверить: контейнер с отрицаемостью устроен так, чтобы не видеть того, к чему ему не дали пароль. Знаете только вы.';
+
+  @override
+  String get settingsStorageAutoCompactConfirmAction =>
+      'Она здесь одна — включить';
 
   @override
   String get settingsCompactOffer => 'Предлагать сжатие';
@@ -3675,9 +3687,18 @@ class AppL10nRu extends AppL10n {
   String get compactOfferKeeping => 'Будут сохранены';
 
   @override
-  String compactOfferWithMaster(int count) {
-    return 'и ещё $count под ней';
+  String compactOfferMasterOnly(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count личностей',
+      one: 'личности',
+    );
+    return 'Этот пароль сохраняет только это пространство. У $_temp0 под ним свои пароли — введите каждый, иначе они будут удалены.';
   }
+
+  @override
+  String get compactOfferStillNeeded => 'Ещё не открыты — иначе будут удалены:';
 
   @override
   String get compactOfferRun => 'Сжать';

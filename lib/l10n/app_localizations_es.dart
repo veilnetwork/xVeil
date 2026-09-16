@@ -3637,7 +3637,18 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get settingsStorageAutoCompactBody =>
-      'Compacta automáticamente cuando el contenedor se infla. Actívalo SOLO si en este contenedor no vive ninguna otra identidad oculta: la compactación conserva únicamente el espacio desbloqueado.';
+      'Compacta automáticamente cuando el contenedor se infla. Conserva solo la identidad con la que desbloqueas, así que actívalo solo mientras sea la única aquí: si se añade otra, esto se desactiva solo.';
+
+  @override
+  String get settingsStorageAutoCompactConfirmTitle =>
+      '¿Vive aquí solo esta identidad?';
+
+  @override
+  String get settingsStorageAutoCompactConfirmBody =>
+      'La compactación automática reescribe el contenedor conservando solo la identidad con la que desbloqueaste. Todo lo demás que contenga —una segunda identidad, un maestro señuelo, un espacio abierto con otra contraseña— se elimina en esa reescritura, sin preguntar y sin vuelta atrás.\n\nLa aplicación no puede comprobarlo: un contenedor negable está hecho para no ver aquello cuya contraseña no le han dado. Solo tú lo sabes.';
+
+  @override
+  String get settingsStorageAutoCompactConfirmAction => 'Es la única — activar';
 
   @override
   String get settingsCompactOffer => 'Ofrecer compactar';
@@ -3684,9 +3695,18 @@ class AppL10nEs extends AppL10n {
   String get compactOfferKeeping => 'Se conservarán';
 
   @override
-  String compactOfferWithMaster(int count) {
-    return 'y $count más bajo ella';
+  String compactOfferMasterOnly(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Las $count identidades que hay',
+      one: 'La identidad que hay',
+    );
+    return 'Esta contraseña conserva solo este espacio. $_temp0 debajo tienen su propia contraseña: introduce cada una o se eliminarán.';
   }
+
+  @override
+  String get compactOfferStillNeeded => 'Aún por desbloquear, o se eliminarán:';
 
   @override
   String get compactOfferRun => 'Compactar ahora';
