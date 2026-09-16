@@ -8,7 +8,6 @@
 // path. Every launch paid the whole discovery round again.
 
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/embedded_node.dart';
