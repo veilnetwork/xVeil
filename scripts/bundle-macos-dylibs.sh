@@ -27,11 +27,30 @@ ENT="$ROOT/macos/Runner/$ENTITLEMENTS"
 PACKET_TUNNEL_ENT="$ROOT/macos/PacketTunnel/PacketTunnel.entitlements"
 [ -d "$APP" ] || { echo "no .app at $APP — build first" >&2; exit 1; }
 
-HV="$ROOT/third_party/hidden-volume/target/$PROFILE/libhidden_volume_ffi.dylib"
-VC="$ROOT/third_party/veil/target/$PROFILE/libveilclient_ffi.dylib"
-for f in "$HV" "$VC"; do
-  [ -f "$f" ] || { echo "missing dylib: $f — build the native lib first" >&2; exit 1; }
-done
+# WHERE CARGO ACTUALLY PUT THEM, not where a checkout usually keeps them.
+#
+# `CARGO_TARGET_DIR` redirects every crate's output into one shared directory,
+# which is how a machine with a small system disk builds at all — and with it
+# set, `<submodule>/target` does not exist. This step then reported "build the
+# native lib first" about a library that had just been built, and the only
+# thing wrong was where it was looked for.
+find_dylib() {
+  local name="$1" submodule="$2" candidate
+  for candidate in \
+    ${CARGO_TARGET_DIR:+"$CARGO_TARGET_DIR/$PROFILE/$name"} \
+    "$ROOT/$submodule/target/$PROFILE/$name"; do
+    if [ -f "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  echo "missing dylib: $name — build the native lib first" >&2
+  echo "  looked in: ${CARGO_TARGET_DIR:+$CARGO_TARGET_DIR/$PROFILE, }$ROOT/$submodule/target/$PROFILE" >&2
+  return 1
+}
+
+HV="$(find_dylib libhidden_volume_ffi.dylib third_party/hidden-volume)" || exit 1
+VC="$(find_dylib libveilclient_ffi.dylib third_party/veil)" || exit 1
 
 # A Flutter/Xcode rebuild does not rebuild the runtime-loaded Rust dylibs. Do
 # not silently package yesterday's FFI after a Rust fix: that exact mismatch
