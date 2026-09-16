@@ -5669,7 +5669,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onboardCertFreshWhy =>
-      'This identity has just been made. Its key exists in one place — the certificate below — and is opened by one secret: the code beside it. There are no 24 words to write down: the words a wallet would give you fix half of this key, and the other half is drawn at random, so they would restore a different identity. Save both, apart from each other, before going on.';
+      'This identity has just been made. Its key exists in one place — the certificate below — and is opened by one secret: the code beside it. Save both, keeping them apart, before going on. There will be no other copy.';
+
+  @override
+  String get onboardCertFreshFailed =>
+      'The identity could not be made on this device, so none was. Nothing has been created and nothing was written. Go back and try again; if it keeps failing, this build cannot reach the component that makes keys.';
 
   @override
   String get onboardCertFreshMustSave =>
