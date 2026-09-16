@@ -3567,7 +3567,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsStorageCompactBody =>
-      'Reclaim unused space — the app re-opens. Keeps ONLY the unlocked space: any other hidden identity in this container is discarded.';
+      'Reclaim unused space — the app reopens. Compaction keeps only the identities whose passwords you give it, so the next step asks you to name every one in this container. Anything left unnamed is dropped.';
 
   @override
   String settingsStorageReclaimable(String size) {
@@ -3864,15 +3864,27 @@ class AppL10nEn extends AppL10n {
       'Run every identity\'s node at once so switching is instant and none goes offline (the default). Turn off for strict unlinkability — an observer may link always-on identities by their shared device. Mark sensitive identities to route anonymously.';
 
   @override
-  String get settingsPhraseStatusTitle => 'Recovery phrase';
+  String get settingsRecoveryTitle => 'Restoring this identity';
 
   @override
-  String get settingsPhraseBackedHint =>
-      'This identity derives from its recovery phrase — the phrase you wrote down restores it.';
+  String get settingsRecoveryByCertificate =>
+      'The recovery certificate and its code bring this identity back. Words do nothing for it.';
 
   @override
-  String get settingsPhraseNoneHint =>
-      'This identity was created without a recovery phrase — a phrase cannot restore it. Keep the app data backed up by other means.';
+  String get settingsRecoveryCertificateMissing =>
+      'No copy of the certificate has been saved on this device yet — until one is, this identity is one device failure away from being gone.';
+
+  @override
+  String get settingsRecoveryBundleNoCopy =>
+      'Your 24 words open this identity\'s key, but they do not reproduce it: half of that key exists only inside this device. Export a recovery certificate to have a copy that does.';
+
+  @override
+  String get settingsRecoveryPhraseOnly =>
+      'This identity comes from your 24 words, and those words restore it exactly.';
+
+  @override
+  String get settingsRecoveryNothing =>
+      'Nothing off this device restores this identity. Keep an archive with the identity in it, or export a recovery certificate.';
 
   @override
   String get settingsAnonymousRouting => 'Anonymous routing (onion)';
