@@ -133,8 +133,14 @@ CompactionOfferVerdict compactionOfferVerdict({
 ///
 ///  * the same identity can hang under two different masters, and it must be
 ///    compacted ONCE — a repeated password is not a second space;
-///  * unlocking a master brings its subordinates with it, and those arrive
-///    without the person typing anything.
+///  * unlocking a master does NOT bring its subordinates. Each identity under
+///    a master is its own space with its own password, and `compact_known`
+///    keeps a space only when that space's own password is supplied — the
+///    library's own test says so (`repack_drops_hidden_space_when_password_not_
+///    supplied`). A master's password keeps the master and destroys every
+///    child. What a master DOES give is the list of them, by keys, which is
+///    what [CompactionRoster.expectSpaces] turns into a checklist nobody has
+///    to remember.
 /// Two constraints the collecting screen has to be built around, established
 /// by reading the code rather than assumed:
 ///
@@ -170,13 +176,67 @@ class CompactionRoster {
   /// The master a subordinate arrived under, if it did.
   String? masterOf(String nodeId) => _byNodeId[nodeId]?.viaMaster;
 
+  /// Spaces this container is KNOWN to hold, learned from a master's roster.
+  ///
+  /// Keyed by space keys rather than by label, because the keys are what says
+  /// "this is the same space": two masters can list one identity under two
+  /// names, and renaming an identity must not make it look like a second one
+  /// somebody forgot.
+  final Map<String, String> _expected = {};
+
+  /// Space keys a supplied password actually opened.
+  final Set<String> _covered = {};
+
+  /// Record what a master says lives in this container.
+  void expectSpaces(Iterable<({String label, List<int> keys})> children) {
+    for (final child in children) {
+      final id = _hex(child.keys);
+      if (id.isEmpty) continue;
+      _expected.putIfAbsent(id, () => child.label);
+    }
+  }
+
+  /// Record the space a supplied password opened, so the checklist can tick it.
+  void coverSpace(List<int> keys) {
+    final id = _hex(keys);
+    if (id.isNotEmpty) _covered.add(id);
+  }
+
+  /// Identities this container is known to hold that NO supplied password
+  /// opens — the ones a compaction would destroy.
+  ///
+  /// This is the whole of the safety story for a container with a master in
+  /// it: the person cannot be asked to remember a list the app is already
+  /// holding, and "I typed some passwords" is not the same claim as "every
+  /// identity here is on the list".
+  List<String> get uncovered => [
+    for (final entry in _expected.entries)
+      if (!_covered.contains(entry.key)) entry.value,
+  ];
+
+  /// Every identity this container is known to hold is on the list.
+  bool get isComplete => uncovered.isEmpty;
+
+  static String _hex(List<int> bytes) =>
+      bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
   /// Add an identity the person unlocked by typing its password.
+  ///
+  /// [spaceKeys] is what the password opened — supplying it ticks that space
+  /// off the checklist built by [expectSpaces]. Omitting it keeps the password
+  /// but proves nothing about coverage.
   ///
   /// Returns false when it was already on the list — the same space reached
   /// through a second master, or simply typed twice. Compaction must not
   /// receive its password twice.
-  bool addUnlocked(String nodeId, {required List<int> passwordBytes}) =>
-      _add(nodeId, passwordBytes: passwordBytes, viaMaster: null);
+  bool addUnlocked(
+    String nodeId, {
+    required List<int> passwordBytes,
+    List<int>? spaceKeys,
+  }) {
+    if (spaceKeys != null) coverSpace(spaceKeys);
+    return _add(nodeId, passwordBytes: passwordBytes, viaMaster: null);
+  }
 
   /// Add a subordinate that a master brought with it.
   bool addSubordinate(
