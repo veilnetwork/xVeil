@@ -272,11 +272,22 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       if (!mounted) return;
       setState(() {
         _busy = null;
-        _result = l.transferImportDone(
-          report.syncEvents,
-          report.filesAdded,
-          report.settingsFilled,
-        );
+        // A write that THREW is not a merge that finished. The gate survives
+        // one deliberately — it must not poison the slot behind it — and the
+        // count used to stop there, so this line said "merged" with part of
+        // the archive not on disk (report27 X06).
+        _result = report.failedApplies > 0
+            ? l.transferImportPartial(
+                report.syncEvents,
+                report.filesAdded,
+                report.settingsFilled,
+                report.failedApplies,
+              )
+            : l.transferImportDone(
+                report.syncEvents,
+                report.filesAdded,
+                report.settingsFilled,
+              );
       });
     } on ImportRefused catch (e) {
       if (!mounted) return;

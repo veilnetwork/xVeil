@@ -42,9 +42,19 @@ typedef DeviceSyncApply = FutureOr<void> Function(DeviceSyncEvent event);
 /// which is not the thing the word "merged" claims.
 typedef DeviceSyncSettle = Future<void> Function();
 
+/// How many of an applier's queued writes THREW.
+///
+/// Settling says the queue is empty; it does not say the queue succeeded. A
+/// gate that swallowed a disk error reported a finished merge with part of it
+/// missing, and the only counter beside it — [DeviceSyncAppliers.unconfirmed] —
+/// counts appliers that cannot report at all, which is a different fact
+/// (report27 X06).
+typedef DeviceSyncFailures = int Function();
+
 class DeviceSyncAppliers {
   final List<DeviceSyncApply> _handlers = [];
   final Map<DeviceSyncApply, DeviceSyncSettle> _settles = {};
+  final Map<DeviceSyncApply, DeviceSyncFailures> _failures = {};
 
   /// Register [apply]; the returned callback removes it again.
   ///
@@ -56,13 +66,30 @@ class DeviceSyncAppliers {
   /// Returning the remover rather than exposing an `unregister(fn)` keeps a
   /// provider's teardown honest: `ref.onDispose(appliers.register(...))` cannot
   /// be written in a way that removes somebody else's handler.
-  void Function() register(DeviceSyncApply apply, {DeviceSyncSettle? settle}) {
+  void Function() register(
+    DeviceSyncApply apply, {
+    DeviceSyncSettle? settle,
+    DeviceSyncFailures? failures,
+  }) {
     _handlers.add(apply);
     if (settle != null) _settles[apply] = settle;
+    if (failures != null) _failures[apply] = failures;
     return () {
       _handlers.remove(apply);
       _settles.remove(apply);
+      _failures.remove(apply);
     };
+  }
+
+  /// Queued writes that threw, across every applier that counts them.
+  ///
+  /// Read AFTER [settleAll]: before it, the queues are still running.
+  int get failedApplies {
+    var total = 0;
+    for (final count in List<DeviceSyncFailures>.of(_failures.values)) {
+      total += count();
+    }
+    return total;
   }
 
   /// Appliers that cannot report when their queued work is finished.

@@ -7391,6 +7391,16 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String transferImportPartial(
+    int events,
+    int files,
+    int settings,
+    int failed,
+  ) {
+    return 'Объединено: $events записей, файлов добавлено $files, настроек заполнено $settings — но $failed записать не удалось. Повторите; то, что уже легло, сохранено.';
+  }
+
+  @override
   String get transferRefusedOtherIdentity =>
       'Архив принадлежит другой личности. Слияние приписало бы вам чужие сообщения.';
 
