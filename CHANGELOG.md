@@ -6,6 +6,41 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.70] — 2026-09-16
+
+*A compaction can only keep what it is given, and now it says so.*
+
+### Fixed
+
+- **Compacting with a master password would have deleted every identity under
+  it.** Compaction keeps spaces, and only the ones whose own passwords it is
+  given; each identity under a master is a separate space with a separate
+  password. The offer listed a master as keeping "N more under it" — under the
+  heading "Will be kept" — so the one screen that exists to prevent a data loss
+  was the likeliest way to cause one. A master names its identities, so the app
+  builds the checklist itself now: each password typed ticks off the space it
+  opened, and nothing can start a compaction while a known identity is
+  unaccounted for. The refusal sits in the code that compacts, not in the
+  screen that asks.
+- **Automatic compaction no longer outlives the statement it rests on.**
+  Turning it on says "this container holds only this identity" — something the
+  app cannot verify, because a deniable container is built so that it cannot
+  see what it has no password for. It is now asked as a statement rather than
+  offered as a switch, and the app takes it back the moment it makes it false:
+  adding an identity, binding one, or creating a decoy master clears it in
+  every identity in the container.
+- **The password already in hand is on the list again.** The offer tried to
+  unlock it before the screen had finished being built, which threw — so the
+  identity being used was the one password the dialog silently skipped.
+
+### Added
+
+- **The offer to reclaim storage now finds you.** A container with several
+  identities can never compact unattended: it takes every password, and there
+  is nobody to ask at the time. When there is a gigabyte or more to reclaim and
+  it has not asked in three days, a banner says so on the main screen instead
+  of waiting to be found in settings.
+
 ## [0.13.69] — 2026-09-16
 
 *The look is yours, and a theme can be handed to somebody.*
