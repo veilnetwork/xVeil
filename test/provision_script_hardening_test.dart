@@ -745,4 +745,49 @@ void main() {
       );
     });
   });
+
+  test('the config that is validated is the one that is installed', () {
+    // `validate` opened the staged file by name, the symlink check opened it
+    // by name, and `install` opened it by name a third time — so the bytes
+    // that were validated need not be the bytes that land in
+    // /var/lib/veil/node.toml, and the directory they live in is writable by
+    // the veil account (report27 X13).
+    final script = buildProvisionScript(
+      const NodeProvisionConfig(
+        releaseUrl: 'https://example.invalid/veil-cli',
+        expectedSha256:
+            '0000000000000000000000000000000000000000000000000000000000000000',
+        obfs4PskB64: 'dGVzdC1maXh0dXJlLXBzay1ub3QtcmVhbC12YWx1ZSE=',
+      ),
+    );
+
+    final snapshot = script.indexOf('root-cfg/xveil-node.toml');
+    expect(snapshot, isNot(-1), reason: 'no root-owned snapshot is taken');
+
+    final validate = script.indexOf(
+      r'config validate',
+      script.indexOf('root-cfg'),
+    );
+    final install = script.indexOf(
+      'install -o veil -g veil -m 0600 \$XVEIL_TMP/root-cfg/xveil-node.toml',
+    );
+    expect(install, isNot(-1), reason: 'the install still takes the staged name');
+    expect(
+      script.substring(validate, install),
+      isNot(contains('\$XVEIL_TMP/cfg/xveil-node.toml')),
+      reason: 'the veil-writable name is touched again between the two',
+    );
+
+    // And the snapshot is somewhere the veil account cannot rewrite.
+    expect(
+      script,
+      contains('install -d -o root -g veil -m 0750 \$XVEIL_TMP/root-cfg'),
+      reason: 'the snapshot directory is writable by the account it guards against',
+    );
+    expect(
+      script,
+      contains('chown root:veil \$XVEIL_TMP/root-cfg/xveil-node.toml'),
+    );
+    expect(script, contains('head -c 262144'), reason: 'the copy is unbounded');
+  });
 }

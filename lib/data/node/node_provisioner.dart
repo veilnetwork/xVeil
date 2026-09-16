@@ -1337,12 +1337,36 @@ sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config s
 $exitComment
 set_toml_scalar proxy.exit enabled '$exitValue' \$XVEIL_TMP/cfg/xveil-node.toml
 $exitAdmission
-sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/cfg/xveil-node.toml config validate
-# The validated file is about to be read by root out of a directory the veil
-# account writes. A symlink in its place would install whatever it points at
-# as the node's config — readable by veil, and chosen by whoever put it there.
+# VALIDATE THE SNAPSHOT THAT GETS INSTALLED, not a name that is resolved twice.
+#
+# The staged file lives in a directory the veil account writes. `validate`
+# opened it by name, the check below opened it by name, and `install` opened it
+# by name a third time — so the bytes that were validated need not be the bytes
+# that land in /var/lib/veil/node.toml (report27 X13). A `test -L` more does not
+# close that: the gap is between the opens, not in any one of them.
+#
+# So root takes its OWN copy first, into a directory only root can write, and
+# everything after that — the validation and the install — is about that copy.
+# Size-bounded, because the source is somebody else's file: a config is a few
+# kilobytes and a staged file larger than this is not one.
+sudo install -d -o root -g veil -m 0750 \$XVEIL_TMP/root-cfg
 require_staged_file \$XVEIL_TMP/cfg/xveil-node.toml
-sudo install -o veil -g veil -m 0600 \$XVEIL_TMP/cfg/xveil-node.toml /var/lib/veil/node.toml
+sudo sh -c '
+  exec 3<"\$1" || exit 1
+  kind="\$(stat -L -c %F /dev/fd/3 2>/dev/null)" || kind=""
+  if [ -n "\$kind" ] && [ "\$kind" != "regular file" ]; then
+    echo "xveil: refusing to install \$1: it is a \$kind" >&2
+    exit 1
+  fi
+  head -c 262144 <&3 > "\$2" || exit 1
+' _ \$XVEIL_TMP/cfg/xveil-node.toml \$XVEIL_TMP/root-cfg/xveil-node.toml
+# READABLE by veil, WRITABLE by nobody but root — the validation below runs as
+# veil and must see the same bytes the install takes, and the directory above
+# is root-only so the name cannot be replaced either.
+sudo chown root:veil \$XVEIL_TMP/root-cfg/xveil-node.toml
+sudo chmod 0640 \$XVEIL_TMP/root-cfg/xveil-node.toml
+sudo -u veil /usr/local/bin/veil-cli -c \$XVEIL_TMP/root-cfg/xveil-node.toml config validate
+sudo install -o veil -g veil -m 0600 \$XVEIL_TMP/root-cfg/xveil-node.toml /var/lib/veil/node.toml
 
 # 7. optional applications: install complete templates + units, but do not
 # enable them until the operator replaces their fail-closed placeholders.

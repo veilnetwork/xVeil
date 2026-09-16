@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -313,6 +314,69 @@ void main() {
     test('openRead is null for a file that is not there', () async {
       const disk = LocalFolderSyncDisk();
       expect(await disk.openRead(root.path, 'nope.bin'), isNull);
+    });
+
+    test('the mirror read asks the native walk BEFORE resolving a name', () {
+      // The containment check and the open both resolve the same name, so a
+      // component swapped between them serves a file from outside the root
+      // (report27 X14). The native walk closes that window by holding each
+      // directory open — and it is unavailable under `flutter test`, so the
+      // behavioural test below cannot tell whether it ran. This one can: it
+      // asserts the ORDER in the source, which is what the fix is.
+      final source = File(
+        'lib/state/folder_sync_adapters.dart',
+      ).readAsStringSync();
+      final body = source.substring(
+        source.indexOf('Future<RangeSource?> openRead('),
+      );
+      final beneath = body.indexOf('veilOpenBeneath(');
+      final byName = body.indexOf('mirrorPathWithin(');
+      expect(beneath, greaterThanOrEqualTo(0), reason: 'the walk is not used');
+      expect(
+        beneath,
+        lessThan(byName),
+        reason: 'the name is resolved before the walk is even asked',
+      );
+      expect(
+        body.contains('beneath.supported'),
+        isTrue,
+        reason:
+            'a refusal and an inability must not read the same: falling back '
+            'on a refusal serves the very file the walk rejected',
+      );
+    });
+
+    test('openRead does not follow a link out of the mirrored folder', () async {
+      // The containment check decides by NAME and the open resolves that name
+      // again, so a component swapped between the two hands this read a file
+      // from outside the root — and the bytes go up to the cloud
+      // (report27 X14). The native walk holds each directory open and follows
+      // no link; where it is unavailable the weaker open stands, so this test
+      // asserts what the platform can actually promise.
+      const disk = LocalFolderSyncDisk();
+      final outside = File('${root.parent.path}/secret.txt')
+        ..writeAsStringSync('not yours');
+      addTearDown(() {
+        if (outside.existsSync()) outside.deleteSync();
+      });
+      try {
+        Link('${root.path}/link.txt').createSync(outside.path);
+      } on FileSystemException {
+        return; // a platform without symlinks has nothing to prove here
+      }
+
+      final source = await disk.openRead(root.path, 'link.txt');
+      if (source == null) return; // refused outright, which is the point
+      try {
+        final bytes = await source.read(0, source.size);
+        expect(
+          utf8.decode(bytes ?? Uint8List(0)),
+          isNot('not yours'),
+          reason: 'a link out of the folder was read and would be uploaded',
+        );
+      } finally {
+        await source.dispose();
+      }
     });
 
     test('writeFrom pulls in bounded hops, never the whole file', () async {

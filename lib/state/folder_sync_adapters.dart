@@ -261,6 +261,29 @@ class LocalFolderSyncDisk implements FolderSyncDisk {
 
   @override
   Future<RangeSource?> openRead(String root, String path) async {
+    // THROUGH THE ROOT, not through a name checked a moment ago.
+    //
+    // `mirrorPathWithin` decides by NAME that the path stays inside the
+    // mirrored folder, and the open that follows resolves that name again —
+    // so a local writer that re-points an intermediate component between the
+    // two hands this read a file from outside the root, and the bytes go up
+    // to the cloud (report27 X14). The native walk opens each component
+    // beneath a held directory handle with no symlink to follow, which is the
+    // same guarantee the CREATE side already uses.
+    //
+    // `supported` is not the same question as "refused": a refusal must not
+    // fall back to the weaker open, or the fallback serves exactly the file
+    // the walk rejected.
+    final beneath = await veilOpenBeneath(root, path);
+    if (beneath.supported) {
+      final source = beneath.source;
+      if (source == null) return null;
+      return RangeSource(
+        size: source.size,
+        read: source.read,
+        close: source.close,
+      );
+    }
     final resolved = mirrorPathWithin(root, path);
     if (resolved == null) return null;
     return fileRangeSource(resolved);
