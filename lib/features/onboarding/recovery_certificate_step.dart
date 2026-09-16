@@ -420,7 +420,10 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Text(
-                  l.onboardCertFailed,
+                  // The create path has no "later": this step does not let
+                // anyone past, so telling them to make one in Settings later
+                // describes a door that is not there.
+                _fresh ? l.onboardCertFreshFailed : l.onboardCertFailed,
                   style: TextStyle(color: scheme.error),
                 ),
               ),

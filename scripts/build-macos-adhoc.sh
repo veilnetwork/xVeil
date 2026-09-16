@@ -90,8 +90,31 @@ echo "==> xcodebuild (ad-hoc, no VPN entitlement)"
 # every observation of the running app is of stale code. `flutter build macos`
 # passes this itself, which is why the problem only shows up here. It cost an
 # hour once; the check at the end is there so it cannot cost another.
+# ONE ARCHITECTURE, AND THE REASON IS THE TOOLCHAIN, not a preference.
+#
+# Xcode CLT 26.6.0 changed `lipo`: `-verify_arch` now takes exactly one arch.
+# Flutter's `thinFramework` still calls
+#
+#     lipo <binary> -verify_arch arm64 x86_64
+#
+# which that lipo answers with "requires exactly one input file" — so Flutter
+# reports "does not contain architectures" about a binary its own `lipo -info`
+# prints as fat with both. Measured here, after a toolchain update turned a
+# working build into a failing one with nothing else changed:
+#
+#     lipo <binary> -verify_arch arm64            -> rc 0
+#     lipo <binary> -verify_arch arm64 x86_64     -> rc 1
+#
+# Building for this machine's own arch keeps the arch list to one and the
+# verification passes. That is honest for THIS script — it produces an ad-hoc
+# build for the machine it runs on, which cannot be handed to anyone else
+# anyway — and it is not a fix for release artifacts. The real fix is a Flutter
+# that calls the new lipo correctly; when that lands, drop these two settings.
+HOST_ARCH="$(uname -m)"
+echo "==> building for $HOST_ARCH only (Flutter + CLT 26.6 lipo, see comment)"
 xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration "$XC_CONFIG" \
   -derivedDataPath build/macos \
+  ARCHS="$HOST_ARCH" ONLY_ACTIVE_ARCH=YES \
   CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual PROVISIONING_PROFILE_SPECIFIER= DEVELOPMENT_TEAM= \
   CODE_SIGN_ENTITLEMENTS="Runner/$ENTITLEMENTS" \
   build
