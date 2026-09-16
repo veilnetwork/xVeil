@@ -88,6 +88,24 @@ const int kTransferKdfMaxParallelism = 16;
 /// And the same for the chunk size, which decides one allocation per chunk.
 const int kTransferMaxChunkBytes = 8 * 1024 * 1024;
 
+/// The longest metadata LINE a reader will accumulate before refusing.
+///
+/// Every line in this format is JSON with no payload in it — the magic, the
+/// header, and one metadata object per record, which names an id and a length
+/// and never carries the bytes. So a line is small by construction, and the
+/// reader had no bound at all: it pulled until it found a newline or the
+/// stream ended, holding everything it had seen. Pointing the importer at a
+/// large file that happens to contain no newline — a video, a disk image, a
+/// database — accumulated the whole of it in memory before anything could
+/// judge it, and the file is chosen BEFORE the password is asked for
+/// (report27 X03).
+///
+/// One mebibyte is three orders of magnitude past any line this writer
+/// produces and small enough that refusing costs nothing. A file that needs
+/// more than this for one line is not one of ours, which is exactly what the
+/// error says.
+const int kTransferMaxLineBytes = 1024 * 1024;
+
 /// The largest payload one record may declare.
 ///
 /// The length comes out of the file, so it is an untrusted number that a
@@ -733,7 +751,16 @@ class DataTransferReader {
       final frame = await feed.take(4);
       if (frame == null) return;
       final sealedLen = ByteData.sublistView(frame).getUint32(0, Endian.little);
-      if (sealedLen < 16) {
+      // BOUNDED FROM ABOVE AS WELL. This is a uint32 out of the file — up to
+      // four gibibytes — and only the floor was checked, so `take` below
+      // accumulated whatever it declared before the AEAD could say a word
+      // about it (report27 X03).
+      //
+      // The ceiling is not a new policy: the header declares `chunkBytes`,
+      // already validated against `kTransferMaxChunkBytes` when it was parsed,
+      // and the writer seals at most that much plaintext. Plus the 16-byte
+      // tag, that is the largest frame this format can contain.
+      if (sealedLen < 16 || sealedLen > seal.chunkBytes + 16) {
         throw const TransferException(TransferFailure.corrupt, 'chunk length');
       }
       final sealed = await feed.take(sealedLen);
@@ -859,6 +886,15 @@ class _ByteFeed {
         final out = utf8.decode(_consume(nl));
         _consume(1); // the newline itself
         return out;
+      }
+      // BEFORE THE NEXT PULL, not after it: what is already queued is what
+      // this reader is holding, and the point is not to hold more
+      // (report27 X03).
+      if (_available > kTransferMaxLineBytes) {
+        throw const TransferException(
+          TransferFailure.notAnArchive,
+          'a line past the format\'s ceiling — this is not an archive',
+        );
       }
       if (!await _pull()) {
         if (_available == 0) return null;
