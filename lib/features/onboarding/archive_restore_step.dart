@@ -19,6 +19,7 @@
 // so the reading is the caller's and this widget is handed what was read.
 
 import 'dart:typed_data';
+import '../../domain/sovereign_secret.dart';
 
 import 'package:flutter/material.dart';
 
@@ -194,7 +195,20 @@ class _ArchiveRestoreStepState extends State<ArchiveRestoreStep> {
       _checking = true;
       _secretRefused = false;
     });
-    final secret = _secret.text.trim();
+    // THE SHARED NORMALIZER, not a bare trim.
+    //
+    // Every other way of entering this secret folds case and runs the words
+    // together on single spaces before the byte-based KDF sees them; this one
+    // only trimmed the ends. So the same twenty-four words, typed with a line
+    // break where they were written down or with the capitals a keyboard puts
+    // on them, hashed to different bytes and were refused — on a perfectly
+    // good archive, with the message reserved for a wrong secret (report27
+    // X20). A recovery CODE is left exactly as typed: it is base64url, where
+    // case is content.
+    final secret = normalizeSovereignSecret(
+      _secret.text,
+      isRecoveryCode: preview.credentialIsCertificate,
+    );
     final opens = await widget.check(credential, secret);
     if (!mounted) return;
     setState(() => _checking = false);
