@@ -27,12 +27,28 @@ Future<({int before, int after})?> showCompactionOffer(
   required CompactionEstimate estimate,
   required String currentPassword,
 }) async {
+  // THE NAVIGATOR, TAKEN BEFORE THE TEARDOWN.
+  //
+  // `beginCompactionCollection` moves the app to `preparingNode`, and the
+  // router sends `/home` and the settings routes to `/preparing` when it sees
+  // that. The screen this was called from is one of those, so it can be
+  // unmounted while the teardown below is still awaiting — and the old code
+  // then found `context.mounted` false, cancelled the collection it had just
+  // opened, and returned null. The person asked to compact and was handed back
+  // nothing, having never been shown the one dialog that collects the
+  // passwords (report27 X28).
+  //
+  // The root navigator outlives that redirect: the router replaces the page
+  // UNDER it, and a dialog pushed on it is unaffected. Taken here, before
+  // anything can move, so the collection does not depend on the screen that
+  // started it surviving.
+  final navigator = Navigator.of(context, rootNavigator: true);
   final ctrl = ref.read(appControllerProvider.notifier);
   await ctrl.noteCompactionOffered();
   final opened = await ctrl.beginCompactionCollection();
-  if (!context.mounted) {
-    // Nothing can report to a gone screen, but the container still has to come
-    // back — this is the path that would otherwise strand it closed.
+  if (!navigator.mounted) {
+    // Nothing can report to a gone navigator, but the container still has to
+    // come back — this is the path that would otherwise strand it closed.
     await ctrl.cancelCompactionCollection(currentPassword);
     return null;
   }
@@ -41,7 +57,7 @@ Future<({int before, int after})?> showCompactionOffer(
     return null;
   }
   final result = await showDialog<({int before, int after})>(
-    context: context,
+    context: navigator.context,
     barrierDismissible: false,
     builder: (_) => _CompactionOfferDialog(
       estimate: estimate,
