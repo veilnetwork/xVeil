@@ -3934,7 +3934,8 @@ class AppL10nEs extends AppL10n {
   String get themeShare => 'Copiar este tema para compartirlo';
 
   @override
-  String get themeShared => 'Copiado. Quien lo reciba puede pegarlo aquí.';
+  String get themeShared =>
+      'Copiado. Pégalo en un chat y llegará como un tema, listo para activar con un toque.';
 
   @override
   String get themeMake => 'Crear uno';
@@ -3952,11 +3953,43 @@ class AppL10nEs extends AppL10n {
   String get themeMakeSave => 'Usar este tema';
 
   @override
+  String get themeMakeBackground => 'Fondo';
+
+  @override
+  String get themeMakeBackgroundFromSeed => 'Del color del tema';
+
+  @override
+  String get themeBackgroundSafety =>
+      'Elige el fondo que quieras. El texto y las advertencias se desplazan lo justo para seguir siendo legibles sobre él: eso no lo decides tú ni quien te envíe un tema.';
+
+  @override
   String get themeRemove => 'Quitar';
 
   @override
   String get themeSafety =>
       'Un tema elige un color y claro u oscuro, y nada más. No puede decidir cómo se ve una advertencia: los demás colores se derivan del tuyo, así que un tema de un desconocido puede hacer que la aplicación resulte extraña, pero no engañosa.';
+
+  @override
+  String get themeInChat => 'Un tema';
+
+  @override
+  String get themeInChatUse => 'Usar este tema';
+
+  @override
+  String get themeInChatInUse => 'En uso ahora';
+
+  @override
+  String get themeInChatSafety =>
+      'Solo colores. Un tema no puede cambiar el aspecto de una advertencia.';
+
+  @override
+  String get themeInChatSampleTheirs => '¿Qué te parece?';
+
+  @override
+  String get themeInChatSampleMine => 'Así.';
+
+  @override
+  String get themeInChatSampleWarning => 'Una advertencia se ve así';
 
   @override
   String get settingsRecoveryTitle => 'Restaurar esta identidad';

@@ -6857,7 +6857,7 @@ abstract class AppL10n {
   /// No description provided for @themeShared.
   ///
   /// In en, this message translates to:
-  /// **'Copied. Anyone you send it to can paste it here.'**
+  /// **'Copied. Paste it into a chat and it arrives as a theme, ready to put on with one tap.'**
   String get themeShared;
 
   /// No description provided for @themeMake.
@@ -6890,6 +6890,24 @@ abstract class AppL10n {
   /// **'Use this theme'**
   String get themeMakeSave;
 
+  /// No description provided for @themeMakeBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Background'**
+  String get themeMakeBackground;
+
+  /// No description provided for @themeMakeBackgroundFromSeed.
+  ///
+  /// In en, this message translates to:
+  /// **'From the colour'**
+  String get themeMakeBackgroundFromSeed;
+
+  /// No description provided for @themeBackgroundSafety.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick any background you like. Text and warnings are moved as little as they must be to stay readable on it — that part is not yours or anyone else’s to set.'**
+  String get themeBackgroundSafety;
+
   /// No description provided for @themeRemove.
   ///
   /// In en, this message translates to:
@@ -6901,6 +6919,48 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'A theme chooses a colour and light or dark, and nothing else. It cannot decide what a warning looks like — the colours of everything else are derived from yours, so a theme from a stranger can make the app unfamiliar but not misleading.'**
   String get themeSafety;
+
+  /// No description provided for @themeInChat.
+  ///
+  /// In en, this message translates to:
+  /// **'A theme'**
+  String get themeInChat;
+
+  /// No description provided for @themeInChatUse.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this theme'**
+  String get themeInChatUse;
+
+  /// No description provided for @themeInChatInUse.
+  ///
+  /// In en, this message translates to:
+  /// **'In use now'**
+  String get themeInChatInUse;
+
+  /// No description provided for @themeInChatSafety.
+  ///
+  /// In en, this message translates to:
+  /// **'Colours only. A theme cannot change what a warning looks like.'**
+  String get themeInChatSafety;
+
+  /// No description provided for @themeInChatSampleTheirs.
+  ///
+  /// In en, this message translates to:
+  /// **'How does this look?'**
+  String get themeInChatSampleTheirs;
+
+  /// No description provided for @themeInChatSampleMine.
+  ///
+  /// In en, this message translates to:
+  /// **'Like this.'**
+  String get themeInChatSampleMine;
+
+  /// No description provided for @themeInChatSampleWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'A warning looks like this'**
+  String get themeInChatSampleWarning;
 
   /// No description provided for @settingsRecoveryTitle.
   ///
