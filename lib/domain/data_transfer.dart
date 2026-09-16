@@ -573,7 +573,22 @@ class DataTransferReader {
   final Uint8List _headerBytes;
 
   static Future<DataTransferReader> open(Stream<List<int>> bytes) async {
+    // OWNERSHIP STARTS HERE. `_ByteFeed` builds a `StreamIterator`, which
+    // subscribes — so from this line on there is a live subscription, and for
+    // a file that is an open handle. Every refusal below used to leave with it
+    // still held: a wrong magic, a newer generation, a truncated or
+    // unparseable header. A caller that never got a reader has nothing to
+    // close (report27 X09).
     final feed = _ByteFeed(bytes);
+    try {
+      return await _openOn(feed);
+    } catch (_) {
+      await feed.cancel();
+      rethrow;
+    }
+  }
+
+  static Future<DataTransferReader> _openOn(_ByteFeed feed) async {
     final magic = await feed.line();
     if (magic == null) {
       throw const TransferException(TransferFailure.notAnArchive, 'empty file');
@@ -626,9 +641,18 @@ class DataTransferReader {
     _ByteFeed body = _feed;
     if (seal != null) {
       if (password == null) {
+        // Same reason as `open`: the subscription is live and this caller is
+        // not coming back for it (report27 X09).
+        await _feed.cancel();
         throw const TransferException(TransferFailure.badPassword, 'sealed');
       }
-      final key = await deriveTransferKey(password, seal);
+      final SecretKey key;
+      try {
+        key = await deriveTransferKey(password, seal);
+      } catch (_) {
+        await _feed.cancel();
+        rethrow;
+      }
       body = _ByteFeed(_unsealed(_feed, key, seal));
     }
     var sawEnd = false;

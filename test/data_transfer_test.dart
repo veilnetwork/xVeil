@@ -390,6 +390,70 @@ void main() {
       expect(cancelled, isTrue);
     });
 
+    /// A refusal releases it too — the reader may never exist.
+    ///
+    /// `open` subscribes before it has read a byte, and every refusal after
+    /// that used to leave with the subscription held: a wrong magic, a newer
+    /// generation, a truncated or unparseable header. The caller has no reader
+    /// to close, so for a file that is an open handle nobody is coming back
+    /// for (report27 X09).
+    test('a refused archive releases the source as well', () async {
+      Future<void> refuses(String label, List<int> body) async {
+        var cancelled = false;
+        final controller = StreamController<List<int>>();
+        controller.onCancel = () => cancelled = true;
+        controller.add(body);
+        await expectLater(
+          DataTransferReader.open(controller.stream),
+          throwsA(isA<TransferException>()),
+          reason: 'premise: $label has to be refused',
+        );
+        expect(
+          cancelled,
+          isTrue,
+          reason:
+              '$label was refused with the source still subscribed — the '
+              'caller got no reader, so nothing can close it',
+        );
+      }
+
+      await refuses('a file that is not an archive', utf8.encode('nonsense\n'));
+      await refuses(
+        'an archive from a later generation',
+        utf8.encode('XVEILBK9\n'),
+      );
+      await refuses(
+        'an archive whose header is not JSON',
+        utf8.encode('$kDataTransferMagic\nnot json\n'),
+      );
+      await refuses(
+        'an archive whose header is JSON but not a header',
+        utf8.encode('$kDataTransferMagic\n{"not":"a header"}\n'),
+      );
+    });
+
+    /// And a sealed archive opened without the password.
+    test('a sealed archive with no password releases the source', () async {
+      var cancelled = false;
+      final archive = await write([
+        const TransferRecord(kind: TransferRecordKind.profile),
+      ], password: 'sealed-with-a-password');
+      final controller = StreamController<List<int>>();
+      controller.onCancel = () => cancelled = true;
+      controller.add(archive);
+
+      final reader = await DataTransferReader.open(controller.stream);
+      await expectLater(
+        reader.records().toList(),
+        throwsA(isA<TransferException>()),
+      );
+      expect(
+        cancelled,
+        isTrue,
+        reason: 'the records were refused with the source still subscribed',
+      );
+    });
+
     test('a record declaring more than the ceiling is refused unread', () async {
       final out = BytesBuilder()
         ..add(utf8.encode('$kDataTransferMagic\n'))
