@@ -19,6 +19,7 @@ import 'state/group_service_providers.dart';
 import 'state/group_call_service.dart';
 import 'state/p2p_endpoint_service.dart';
 import 'state/locale_controller.dart';
+import 'state/theme_controller.dart';
 import 'theme/app_theme.dart';
 
 class XVeilApp extends ConsumerWidget {
@@ -30,9 +31,13 @@ class XVeilApp extends ConsumerWidget {
     return MaterialApp.router(
       onGenerateTitle: (context) => AppL10n.of(context).appName,
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
-      themeMode: ThemeMode.dark,
+      // ONE theme, the one this profile chose, in the brightness it carries.
+      // `themeMode` is fixed to light so that a theme declaring itself dark is
+      // dark whatever the system says: a person who picked a look picked it,
+      // and an OS that overrode it would make the choice mean nothing on half
+      // the machines it runs on.
+      theme: AppTheme.of(ref.watch(themeProvider).chosen),
+      themeMode: ThemeMode.light,
       // null → follow the system locale; otherwise the user's chosen language.
       locale: ref.watch(localeProvider),
       localizationsDelegates: AppL10n.localizationsDelegates,

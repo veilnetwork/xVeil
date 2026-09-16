@@ -3864,6 +3864,56 @@ class AppL10nEn extends AppL10n {
       'Run every identity\'s node at once so switching is instant and none goes offline (the default). Turn off for strict unlinkability — an observer may link always-on identities by their shared device. Mark sensitive identities to route anonymously.';
 
   @override
+  String get themeTitle => 'Appearance';
+
+  @override
+  String get themeSubtitle => 'Pick a look, or bring one of your own';
+
+  @override
+  String get themeBuiltIn => 'That come with xVeil';
+
+  @override
+  String get themeYours => 'Yours';
+
+  @override
+  String get themeImport => 'Add a theme somebody sent';
+
+  @override
+  String get themeImportHint =>
+      'Paste the text that starts with xveil-theme:v1:';
+
+  @override
+  String get themeImportBad => 'That is not an xVeil theme.';
+
+  @override
+  String get themeShare => 'Copy this theme to share it';
+
+  @override
+  String get themeShared => 'Copied. Anyone you send it to can paste it here.';
+
+  @override
+  String get themeMake => 'Make one';
+
+  @override
+  String get themeMakeName => 'Name it';
+
+  @override
+  String get themeMakeDark => 'Dark';
+
+  @override
+  String get themeMakeColour => 'Colour';
+
+  @override
+  String get themeMakeSave => 'Use this theme';
+
+  @override
+  String get themeRemove => 'Remove';
+
+  @override
+  String get themeSafety =>
+      'A theme chooses a colour and light or dark, and nothing else. It cannot decide what a warning looks like — the colours of everything else are derived from yours, so a theme from a stranger can make the app unfamiliar but not misleading.';
+
+  @override
   String get settingsRecoveryTitle => 'Restoring this identity';
 
   @override

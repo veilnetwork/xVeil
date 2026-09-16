@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../domain/ui_languages.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/folder_panel_controller.dart';
 import '../../state/locale_controller.dart';
+import '../../state/theme_controller.dart';
 
 /// Settings → Appearance: language and where the chat-folder navigation
 /// lives. The future theme picker belongs here too.
@@ -100,6 +102,15 @@ class AppearanceSettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
+          // First, because it is the row people come to this screen for and
+          // the only one here that changes something they see at a glance.
+          ListTile(
+            leading: const Icon(Icons.palette_outlined),
+            title: Text(l.themeTitle),
+            subtitle: Text(ref.watch(themeProvider).chosen.name),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => context.push('/settings/appearance/theme'),
+          ),
           ListTile(
             leading: const Icon(Icons.translate_outlined),
             title: Text(l.settingsLanguage),
