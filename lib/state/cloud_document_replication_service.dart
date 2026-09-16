@@ -1343,7 +1343,6 @@ class CloudDocumentReplicationService {
         // One extra, not more: each is a circuit build charged to the start of
         // every download, and the second already removes the single-relay
         // funnel.
-        extraProviderSlots: 1,
       );
       try {
         final client = CloudMemberContentClient(
