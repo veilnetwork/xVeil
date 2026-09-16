@@ -3608,7 +3608,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get settingsStorageCompactBody =>
-      'Recupera espacio sin usar; la aplicación se reabre. Conserva SOLO el espacio desbloqueado: cualquier otra identidad oculta de este contenedor se descarta.';
+      'Recupera espacio sin usar; la aplicación se reabrirá. La compactación conserva solo las identidades cuyas contraseñas le des, así que el siguiente paso te pide nombrar cada una de este contenedor. Lo que no se nombre se descarta.';
 
   @override
   String settingsStorageReclaimable(String size) {
@@ -3910,15 +3910,27 @@ class AppL10nEs extends AppL10n {
       'Ejecuta a la vez el nodo de cada identidad, así cambiar es instantáneo y ninguna se queda sin conexión (opción predeterminada). Desactívalo para una desvinculación estricta: quien observe puede relacionar las identidades siempre activas por el dispositivo que comparten. Marca las identidades sensibles para que se enruten de forma anónima.';
 
   @override
-  String get settingsPhraseStatusTitle => 'Frase de recuperación';
+  String get settingsRecoveryTitle => 'Restaurar esta identidad';
 
   @override
-  String get settingsPhraseBackedHint =>
-      'Esta identidad deriva de su frase de recuperación: la frase que anotaste la restaura.';
+  String get settingsRecoveryByCertificate =>
+      'El certificado de recuperación y su código devuelven esta identidad. Las palabras no hacen nada por ella.';
 
   @override
-  String get settingsPhraseNoneHint =>
-      'Esta identidad se creó sin frase de recuperación, así que ninguna frase puede restaurarla. Haz copias de los datos de la aplicación por otros medios.';
+  String get settingsRecoveryCertificateMissing =>
+      'Todavía no se ha guardado ninguna copia del certificado en este dispositivo: hasta que la haya, esta identidad está a un fallo de distancia de desaparecer.';
+
+  @override
+  String get settingsRecoveryBundleNoCopy =>
+      'Tus 24 palabras abren la clave de esta identidad, pero no la reproducen: la mitad de esa clave existe solo dentro de este dispositivo. Exporta un certificado de recuperación para tener una copia que sí lo haga.';
+
+  @override
+  String get settingsRecoveryPhraseOnly =>
+      'Esta identidad procede de tus 24 palabras, y esas palabras la restauran exactamente.';
+
+  @override
+  String get settingsRecoveryNothing =>
+      'Nada fuera de este dispositivo restaura esta identidad. Guarda un archivo con la identidad dentro, o exporta un certificado de recuperación.';
 
   @override
   String get settingsAnonymousRouting => 'Enrutado anónimo (onion)';
