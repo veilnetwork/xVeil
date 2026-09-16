@@ -368,6 +368,14 @@ extension _MessagingContentServer on MessagingService {
               'xVeil[content]: stream-serve EOF/timeout before request '
               '<- ${peer.short}',
         );
+        // ABORTED, not closed. A timeout here means the read below is still
+        // outstanding in the native stream: `onTimeout` gives this function an
+        // answer, it does not stop the read. A graceful close leaves that read
+        // and the shared serve gate with nothing to end them, and how long
+        // that lasts is not this side's to decide (report27 X38). An EOF
+        // reaches the same line and aborting one is harmless — the peer has
+        // already gone.
+        failed = true;
         return; // peer hung up before requesting
       }
       final cidBytes = Uint8List.sublistView(reqBytes, 0, 32);

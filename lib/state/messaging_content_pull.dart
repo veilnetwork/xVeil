@@ -509,10 +509,24 @@ extension _MessagingContentPull on MessagingService {
         throw StateError('stream manifest does not bind requested content');
       }
       if (m.size > 0) {
-        await MessagingService._readExactly(stream, 1).timeout(
+        final probe = await MessagingService._readExactly(stream, 1).timeout(
           MessagingService._streamManifestTimeout,
           onTimeout: () => null,
         );
+        if (probe == null) {
+          // The probe timed out, so that read is still outstanding down in the
+          // native stream — `onTimeout` answers this function, it does not
+          // stop the read. Returning through the graceful close below left it
+          // running with nothing to end it (report27 X38). The manifest is
+          // still worth returning; what changes is that this stream is torn
+          // down rather than parted with politely.
+          devLog(
+            () =>
+                'xVeil[content]: manifest stream-probe timed out after the '
+                'manifest ${cid.substring(0, 12)} <- ${peer.short}',
+          );
+          return m;
+        }
       }
       devLog(
         () =>
