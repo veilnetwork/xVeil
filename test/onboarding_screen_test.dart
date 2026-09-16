@@ -485,7 +485,7 @@ void main() {
     // when the generator has nothing to give, and the step says so and offers
     // no way past. The invariant is the same one: a device that cannot make a
     // real key does not get an identity.
-    expect(find.text(l().onboardCertFailed), findsOneWidget);
+    expect(find.text(l().onboardCertFreshFailed), findsOneWidget);
     expect(
       find.text(l().devicesSaveCertificate),
       findsNothing,
@@ -539,7 +539,7 @@ void main() {
     // arrives at a certificate that can be saved. A screen that refused every
     // create would satisfy the refusal assertions and make the app unusable.
     expect(find.text(l().onboardCertFreshTitle), findsOneWidget);
-    expect(find.text(l().onboardCertFailed), findsNothing);
+    expect(find.text(l().onboardCertFreshFailed), findsNothing);
     expect(
       find.text(l().devicesSaveCertificate),
       findsOneWidget,

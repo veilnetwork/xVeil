@@ -38,7 +38,7 @@ HV="$ROOT/third_party/hidden-volume"
 # minimum deployment version. The archive still links, but every BoringSSL/PQ
 # object then requires the build machine's OS instead of xVeil's contract.
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-10.15}"
+  export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
 fi
 
 echo "==> Building hidden-volume-ffi ($PROFILE)"

@@ -5747,7 +5747,11 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get onboardCertFreshWhy =>
-      'Esta identidad acaba de crearse. Su clave existe en un solo sitio, el certificado de abajo, y la abre un solo secreto: el código que lo acompaña. No hay 24 palabras que anotar: fijarían solo la mitad de esta clave y la otra mitad se sortea, así que restaurarían otra identidad. Guarda ambos, por separado, antes de continuar.';
+      'Esta identidad acaba de crearse. Su clave existe en un solo sitio, el certificado de abajo, y la abre un solo secreto: el código que lo acompaña. Guarda ambos por separado antes de continuar. No habrá otra copia.';
+
+  @override
+  String get onboardCertFreshFailed =>
+      'No se pudo crear la identidad en este dispositivo, así que no se creó ninguna. No se ha escrito nada. Vuelve e inténtalo de nuevo; si sigue fallando, esta compilación no alcanza el componente que fabrica las claves.';
 
   @override
   String get onboardCertFreshMustSave =>
