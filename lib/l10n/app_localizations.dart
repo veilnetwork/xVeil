@@ -6806,6 +6806,102 @@ abstract class AppL10n {
   /// **'Run every identity\'s node at once so switching is instant and none goes offline (the default). Turn off for strict unlinkability — an observer may link always-on identities by their shared device. Mark sensitive identities to route anonymously.'**
   String get settingsKeepAllOnlineHint;
 
+  /// No description provided for @themeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Appearance'**
+  String get themeTitle;
+
+  /// No description provided for @themeSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a look, or bring one of your own'**
+  String get themeSubtitle;
+
+  /// No description provided for @themeBuiltIn.
+  ///
+  /// In en, this message translates to:
+  /// **'That come with xVeil'**
+  String get themeBuiltIn;
+
+  /// No description provided for @themeYours.
+  ///
+  /// In en, this message translates to:
+  /// **'Yours'**
+  String get themeYours;
+
+  /// No description provided for @themeImport.
+  ///
+  /// In en, this message translates to:
+  /// **'Add a theme somebody sent'**
+  String get themeImport;
+
+  /// No description provided for @themeImportHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Paste the text that starts with xveil-theme:v1:'**
+  String get themeImportHint;
+
+  /// No description provided for @themeImportBad.
+  ///
+  /// In en, this message translates to:
+  /// **'That is not an xVeil theme.'**
+  String get themeImportBad;
+
+  /// No description provided for @themeShare.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy this theme to share it'**
+  String get themeShare;
+
+  /// No description provided for @themeShared.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied. Anyone you send it to can paste it here.'**
+  String get themeShared;
+
+  /// No description provided for @themeMake.
+  ///
+  /// In en, this message translates to:
+  /// **'Make one'**
+  String get themeMake;
+
+  /// No description provided for @themeMakeName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name it'**
+  String get themeMakeName;
+
+  /// No description provided for @themeMakeDark.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark'**
+  String get themeMakeDark;
+
+  /// No description provided for @themeMakeColour.
+  ///
+  /// In en, this message translates to:
+  /// **'Colour'**
+  String get themeMakeColour;
+
+  /// No description provided for @themeMakeSave.
+  ///
+  /// In en, this message translates to:
+  /// **'Use this theme'**
+  String get themeMakeSave;
+
+  /// No description provided for @themeRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get themeRemove;
+
+  /// No description provided for @themeSafety.
+  ///
+  /// In en, this message translates to:
+  /// **'A theme chooses a colour and light or dark, and nothing else. It cannot decide what a warning looks like — the colours of everything else are derived from yours, so a theme from a stranger can make the app unfamiliar but not misleading.'**
+  String get themeSafety;
+
   /// No description provided for @settingsRecoveryTitle.
   ///
   /// In en, this message translates to:

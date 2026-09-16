@@ -3899,6 +3899,56 @@ class AppL10nRu extends AppL10n {
       'Запускать узлы всех личностей сразу: переключение мгновенно, никто не уходит в оффлайн (по умолчанию). Выключите для строгой несвязываемости — всегда-онлайн личности можно связать по общему устройству. Чувствительные личности отмечайте для анонимной маршрутизации.';
 
   @override
+  String get themeTitle => 'Оформление';
+
+  @override
+  String get themeSubtitle => 'Выберите вид или принесите свой';
+
+  @override
+  String get themeBuiltIn => 'Идут с xVeil';
+
+  @override
+  String get themeYours => 'Ваши';
+
+  @override
+  String get themeImport => 'Добавить тему, которую прислали';
+
+  @override
+  String get themeImportHint =>
+      'Вставьте текст, начинающийся с xveil-theme:v1:';
+
+  @override
+  String get themeImportBad => 'Это не тема xVeil.';
+
+  @override
+  String get themeShare => 'Скопировать эту тему, чтобы поделиться';
+
+  @override
+  String get themeShared => 'Скопировано. Кому отправите — вставит здесь же.';
+
+  @override
+  String get themeMake => 'Создать свою';
+
+  @override
+  String get themeMakeName => 'Название';
+
+  @override
+  String get themeMakeDark => 'Тёмная';
+
+  @override
+  String get themeMakeColour => 'Цвет';
+
+  @override
+  String get themeMakeSave => 'Использовать эту тему';
+
+  @override
+  String get themeRemove => 'Удалить';
+
+  @override
+  String get themeSafety =>
+      'Тема задаёт цвет и светлое или тёмное — и больше ничего. Она не может решать, как выглядит предупреждение: остальные цвета выводятся из вашего, поэтому чужая тема сделает приложение непривычным, но не обманчивым.';
+
+  @override
   String get settingsRecoveryTitle => 'Восстановление этой личности';
 
   @override
