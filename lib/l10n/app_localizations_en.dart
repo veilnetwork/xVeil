@@ -7338,6 +7338,16 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String transferImportInterrupted(
+    String reason,
+    int events,
+    int files,
+    int settings,
+  ) {
+    return 'The archive stopped part-way: $reason Merged before that: $events entries, $files files, $settings settings. Nothing is lost — merging the same archive again is safe and picks up what is missing.';
+  }
+
+  @override
   String get transferRefusedOtherIdentity =>
       'This archive belongs to a different identity. Merging it would attribute somebody else’s messages to you.';
 
