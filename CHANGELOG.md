@@ -6,6 +6,42 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.67] — 2026-09-16
+
+*The words were never the backup, so the app stopped handing them out.*
+
+### Changed — read this one
+
+- **macOS 12 is now the minimum.** xVeil no longer installs on Catalina or Big
+  Sur. Xcode 27 refuses to build for anything below 12.0, and there is no way
+  to keep the old floor and a working build at once.
+- **Creating an identity no longer shows 24 words.** They never restored it:
+  the phrase fixes half of the identity key and the other half is drawn at
+  random, so the words bring back a DIFFERENT identity at an address nobody
+  holds. Measured, twice, from one phrase. Creating now mints the identity on
+  the certificate step and hands over a file and a code — and will not let you
+  past until the file is saved, because nothing else can restore that identity.
+  The code is the one secret from then on: restoring, linking a device,
+  claiming a nickname, reissuing the certificate.
+- Identities made by earlier versions are untouched. Their words still open
+  their credential, and restoring by phrase is still there.
+
+### Fixed
+
+- **An archive that said it carried the identity carried the wrong key.** The
+  export wrote the node's transport key and called it the identity; the key an
+  identity is NAMED by was never in the file, so restoring from an archive
+  produced a different address. The credential now travels with it, encrypted
+  exactly as the container holds it — the archive is a locked box, and the
+  restore asks for the secret that opens it, naming the right one. An archive
+  written before this says plainly that it restores a different identity.
+- **The export did not say which secret a future restore would need.** It names
+  it now, and asks the identity rather than assuming: a certificate-born
+  identity is opened by its code, not by words.
+- A cancelled file dialog was reported as a damaged archive, and a refused
+  archive would not say why.
+- The words step claimed the 24 words were the identity.
+
 ## [0.13.66] — 2026-09-15
 
 *A recovery code nobody checked, a certificate that had to be a file, and a
