@@ -694,6 +694,18 @@ def _android(release: bool) -> list[Step]:
                     "--target-platform", "android-arm64,android-arm,android-x64",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
                     *_network_define(),
+                    # Both emit nothing unless the environment asks, and this
+                    # was the one release path that could not be asked — Linux,
+                    # macOS and iOS pass them on release and debug alike.
+                    #
+                    # Android is the platform where it matters most: a phone
+                    # already carrying an identity is signed with the RELEASE
+                    # key, so a debug APK cannot be installed over it — the
+                    # only way to a diagnosable build there, short of deleting
+                    # somebody's container, is a release build that was asked
+                    # for the trace and the hook.
+                    *_debug_hook_define(),
+                    *_diagnostic_log_define(),
                 ],
                 env=_path_remap_env(),
             )
