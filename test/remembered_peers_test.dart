@@ -108,9 +108,21 @@ void main() {
 
     test('a write that will not land does not fail the session', () async {
       final storage = _Mem()..refuseWrites = true;
-      final kept = await rememberPeers(storage, ['tcp://a:1'], nowMs: 1);
-      expect(kept.map((p) => p.transport), ['tcp://a:1']);
+      final outcome = await rememberPeers(storage, ['tcp://a:1'], nowMs: 1);
+      expect(outcome.kept.map((p) => p.transport), ['tcp://a:1']);
       expect(storage.settings, isEmpty);
+      // And it SAYS so. A caller that marked this set as remembered anyway
+      // would never write it again: the set does not change, so nothing looks
+      // new, so the whole session goes unremembered after one transient
+      // failure (report27 X22).
+      expect(outcome.stored, isFalse);
+    });
+
+    test('a write that lands says so', () async {
+      final storage = _Mem();
+      final outcome = await rememberPeers(storage, ['tcp://a:1'], nowMs: 1);
+      expect(outcome.stored, isTrue);
+      expect(storage.settings, isNotEmpty);
     });
   });
 

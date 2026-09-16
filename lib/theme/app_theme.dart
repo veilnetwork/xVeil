@@ -120,6 +120,14 @@ class AppTheme {
         surfaceContainerHighest: highest,
         onSurface: legibleOnAll(scheme.onSurface, surfaces),
         onSurfaceVariant: legibleOnAll(scheme.onSurfaceVariant, surfaces),
+        // OUTLINE CARRIES TEXT IN THIS APP, whatever Material means by it: a
+        // dozen screens draw a hint, a timestamp or an icon in it. Left
+        // seeded, a theme whose background happens to equal the seed's own
+        // outline put real text at contrast 1 (report27 X30). Repaired with
+        // the text threshold rather than the weaker one borders would need,
+        // because the borders are not what this protects.
+        outline: legibleOnAll(scheme.outline, surfaces),
+        outlineVariant: legibleOnAll(scheme.outlineVariant, surfaces),
         error: error,
         primary: primary,
         secondary: secondary,

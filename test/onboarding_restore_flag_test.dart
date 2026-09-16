@@ -15,6 +15,7 @@
 // restored_device_key_test.dart and the live suite. This is the wiring between
 // them, which nothing else touches.
 
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -50,6 +51,7 @@ class _NoopNode implements NodeController {
 /// never finished.
 class _SpyController extends AppController {
   static bool? seenRestoring;
+  static Uint8List? seenCredential;
 
   @override
   Future<void> completeOnboarding({
@@ -65,6 +67,7 @@ class _SpyController extends AppController {
     String? nodeConfigToml,
   }) {
     seenRestoring = restoringIdentity;
+    seenCredential = sovereignCredential;
     return super.completeOnboarding(
       password: password,
       mode: mode,
@@ -84,6 +87,7 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     _SpyController.seenRestoring = null;
+    _SpyController.seenCredential = null;
   });
 
   Future<ProviderContainer> pump(WidgetTester tester) async {
@@ -103,6 +107,9 @@ void main() {
               home: OnboardingScreen(
                 mintIdentity: fakeMintedIdentity,
                 saveCertificate: fakeSaveCertificate,
+                // The restore path's code check is FFI; here any code opens
+                // the certificate that was pasted.
+                restoreCheck: (certificate, code) async => true,
                 // The real validator is FFI; any 24 words pass here.
                 validatePhrase: (p) => p.split(' ').length == 24,
                 // And the real generator is FFI too. Named, because the screen
@@ -156,4 +163,72 @@ void main() {
     expect(_SpyController.seenRestoring, isFalse);
   });
 
+
+  testWidgets('backing out of a restore does not create with its certificate', (
+    tester,
+  ) async {
+    // Create and restore share this screen's State, and Back is ordinary
+    // navigation. A certificate accepted on the restore path stayed in the
+    // fields, and `_finish` preferred it over the one the create ceremony had
+    // just minted and shown — so the person saved a backup for an identity
+    // this install does not have (report27 X18).
+    final container = await pump(tester);
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+
+    // Restore: paste somebody else's certificate, prove the code.
+    await tester.tap(find.text(l(tester).onboardRestoreIdentity));
+    await tester.pumpAndSettle();
+    final restored = Uint8List.fromList([
+      ...ascii.encode('XVRC'),
+      1,
+      0,
+      ...List<int>.filled(58, 0xCD),
+    ]);
+    final pasted =
+        'xveil-recovery:v1:${base64Url.encode(restored).replaceAll('=', '')}';
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.at(0), pasted);
+    await tester.enterText(fields.at(1), 'xvrc-a-code-longer-than-thirty-two-bytes');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).onboardRestoreCertificateSubmit));
+    await tester.pumpAndSettle();
+
+    // Change your mind: back to the choice, and create instead. The wizard's
+    // Back is its own control (the steps are not routes), and from the
+    // password step it goes 3 → 8 → choice.
+    for (var i = 0; i < 4; i++) {
+      if (find.text(l(tester).onboardCreateIdentity).evaluate().isNotEmpty) {
+        break;
+      }
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(find.text(l(tester).onboardCreateIdentity));
+    await tester.pumpAndSettle();
+    await confirmRecoveryPhrase(
+      tester,
+      continueLabel: l(tester).actionContinue,
+    );
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+    await finish(tester);
+
+    expect(container.read(appControllerProvider).phase, AppPhase.ready);
+    expect(
+      _SpyController.seenRestoring,
+      isFalse,
+      reason: 'this is a create, whatever the restore path collected before',
+    );
+    expect(
+      _SpyController.seenCredential,
+      isNot(restored),
+      reason:
+          'the container was given the certificate the person abandoned, so '
+          'the one the ceremony showed and saved backs up nothing',
+    );
+    expect(_SpyController.seenCredential, fakeMintedIdentity().credential);
+  });
 }

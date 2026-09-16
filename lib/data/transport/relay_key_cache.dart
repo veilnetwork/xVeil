@@ -61,7 +61,15 @@ abstract interface class RelayKeyCache {
 /// relays per peer. Both bound a store that grows with the contact list: the
 /// fan-out is 3 replicas, and beyond a few hundred peers the cheap fallback
 /// stops being cheap.
-const int kPeerRelayCacheMaxPeers = 64;
+///
+/// THE PEER BOUND IS ALSO WHAT ONE SETTINGS VALUE HOLDS. The index is the
+/// peers' hex ids joined by commas — 65 bytes each — and the container refuses
+/// a value over 2048. At 64 the index was ~4.2 KB: every write threw, the
+/// best-effort catch swallowed it, and the bound was silently never persisted
+/// — so the next launch re-learned it from nothing and the per-peer settings
+/// grew without one. Found by teaching the container fake the ceiling the real
+/// one has (report27, X31/X36 family).
+const int kPeerRelayCacheMaxPeers = 30;
 const int kPeerRelayCacheMaxRelays = 4;
 
 /// [RelayKeyCache] over the active deniable space's settings KV. Stored as a

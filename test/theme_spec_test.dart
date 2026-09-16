@@ -119,5 +119,25 @@ void main() {
         expect(ThemeSpec.parse(theme.toText()), theme);
       }
     });
+
+    test('a stranger cannot take a built-in id for a different theme', () {
+      // The chosen theme is remembered BY ID and looked up in the built-ins
+      // first, so a custom entry calling itself `veil-dark` is worn now and
+      // lost at the next restart — with two ticks in the picker in between
+      // (report27 X12).
+      final impostor = ThemeSpec.fromJson({
+        'id': kDefaultTheme.id,
+        'n': 'Not Veil',
+        'c': 'ff0000',
+        'd': false,
+      })!;
+      expect(impostor.id, isNot(kDefaultTheme.id));
+      expect(
+        kBuiltInThemes.any((t) => t.id == impostor.id),
+        isFalse,
+        reason: 'the built-in namespace is not somebody else’s to write in',
+      );
+      expect(impostor.name, 'Not Veil');
+    });
   });
 }

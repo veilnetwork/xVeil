@@ -14,14 +14,25 @@ String _hexKey(Uint8List key) {
 /// In-memory [KvLogStore] — exercises the real domain→namespace/log mapping
 /// without the native library. Backs the dev/test build and is the harness
 /// for the storage unit tests.
+/// What hidden-volume's `space::index::MAX_VALUE_LEN` allows in one value.
+const int kFakeMaxValueBytes = 2048;
+
 class FakeKvLogStore implements KvLogStore, SyncCommitAnchorSource {
   FakeKvLogStore({Uint8List? keys})
     : _keys = keys ?? Uint8List.fromList(List.filled(64, 0));
 
   final Map<int, Map<String, Uint8List>> _kv = {};
   final Map<int, List<KvLogEntry>> _log = {};
-  final Uint8List _keys;
+  Uint8List _keys;
   int _seq = 0;
+
+  /// The same space, named by different keys — what a repack does to every
+  /// space it copies (fresh salt, same password, new keys). The contents are
+  /// the point: they survive, and only the name changes.
+  FakeKvLogStore withKeys(Uint8List keys) {
+    _keys = keys;
+    return this;
+  }
 
   /// What [hardeningWarning] answers. Settable so a test can stage the
   /// container condition this fake cannot produce for itself.
@@ -100,6 +111,20 @@ class FakeKvLogStore implements KvLogStore, SyncCommitAnchorSource {
     for (final op in ops) {
       switch (op) {
         case PutOp(:final namespace, :final key, :final value):
+          // THE CONTAINER'S OWN CEILING, modelled.
+          //
+          // `MAX_VALUE_LEN` is 2048 bytes in hidden-volume, and a value over
+          // it is refused by the real store. This fake took anything, so every
+          // structure that grows without bound — a master roster, a device
+          // admission, a cached index — passed its tests at sizes the
+          // container would reject (report27 X31/X32/X33/X36). A fake more
+          // permissive than the thing it stands for is how those shipped.
+          if (value.length > kFakeMaxValueBytes) {
+            throw StateError(
+              'value exceeds MAX_VALUE_LEN (${value.length} > '
+              '$kFakeMaxValueBytes): the container would refuse this write',
+            );
+          }
           (_kv[namespace] ??= {})[_hexKey(key)] = value;
         case DeleteOp(:final namespace, :final key):
           _kv[namespace]?.remove(_hexKey(key));

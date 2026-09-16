@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/api_server.dart';
 import '../api/attachment_downloads.dart';
+import '../data/storage/storage.dart';
 import '../api/blob_sources.dart';
 import '../api/cloud_api_adapter.dart';
 import '../api/direct_file_api.dart';
@@ -482,12 +483,35 @@ class ApiServerController extends Notifier<ApiConfig> {
   /// took any id it was given (report24 A4-1). The GROUP and CLOUD adapters
   /// keep their own openers — each resolves an attachment through its own
   /// membership and visibility checks before asking for bytes.
-  late final AttachmentDownloads _attachments = AttachmentDownloads(
-    ref.read(storageProvider),
-  );
+  /// Bound to the storage of the identity being served RIGHT NOW.
+  ///
+  /// It used to be a `late final` holding whatever `storageProvider` resolved
+  /// to the first time a file was asked for. Riverpod keeps a `Notifier`
+  /// instance across rebuilds, and `storageProvider` watches the session and
+  /// the active identity — so after a switch the API served identity B's
+  /// tokens while this downloader still read identity A's store, provenance
+  /// and all (report27 X01). The TTL did not help: the refresh read A too.
+  ///
+  /// Rebuilt only when the store instance actually changes, so the provenance
+  /// cache still does its job for as long as one identity is being served.
+  AttachmentDownloads? _attachmentsFor;
+  Storage? _attachmentsStore;
+
+  AttachmentDownloads get _attachments {
+    final storage = ref.read(storageProvider);
+    final cached = _attachmentsFor;
+    if (cached != null && identical(storage, _attachmentsStore)) return cached;
+    _attachmentsStore = storage;
+    return _attachmentsFor = AttachmentDownloads(storage);
+  }
 
   Future<ApiBlobSource?> _loadFile(String fileId) =>
       _attachments.open(fileId);
+
+  /// The direct-download route, as a test can reach it: the same call the HTTP
+  /// handler makes, so a test proves the route rather than the field behind it.
+  @visibleForTesting
+  Future<ApiBlobSource?> loadFileForTest(String fileId) => _loadFile(fileId);
 
   Future<String?> _placeCall(String toHex, String media) async {
     final NodeId peer;

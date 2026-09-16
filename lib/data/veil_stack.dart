@@ -1400,7 +1400,31 @@ class RealVeilStack {
       }
       return decoded;
     }
-    if (identityPhrase == null || identityPhrase.isEmpty) return null;
+    if (identityPhrase == null || identityPhrase.isEmpty) {
+      // AN IDENTITY THAT HAS A CERTIFICATE IS NOT A LEGACY IDENTITY.
+      //
+      // No material and no secret to make it with reads, one line down, as
+      // "boot without a sovereign identity" — the node then comes up on its
+      // TRANSPORT key, at an address nobody the person knows holds. For an
+      // identity that never had a certificate that is right: it is what it
+      // always was. For one whose container holds a recovery certificate it is
+      // a different identity wearing the same profile, and the restore that
+      // was supposed to bring the first one back reported nothing (report27
+      // X19: the refusal was caught as an ordinary boot failure, and the
+      // one-shot secret was already spent).
+      //
+      // Absent, not unreadable: a read that THREW is a transient this must not
+      // turn into a refusal to start.
+      final credential = await _sovereignCredential(storage);
+      if (credential != null) {
+        throw SovereignRestoreRefused(
+          'this identity holds a recovery certificate but no sovereign '
+          'material: booting would take a different address. Restore from the '
+          'certificate again with its code.',
+        );
+      }
+      return null;
+    }
 
     // Provisioning writes MASTER-DERIVED material to disk, so it happens in a
     // directory this call creates and removes, under the app's own runtime
@@ -3207,18 +3231,35 @@ class RealVeilStack {
         final live = await transport.peers();
         final addresses = <String>[
           for (final peer in live)
-            if (peer.isActive && peer.transport.trim().isNotEmpty)
+            // OUTBOUND ONLY, and that is not a preference.
+            //
+            // An inbound session's `transport` is the address the connection
+            // ARRIVED ON — this node's own obfs4 listener — not a way to reach
+            // the peer that made it. Remembering those filled the durable list
+            // with our own bind URI, so the next launch spent its first dials
+            // on itself and the peers it actually had were crowded out
+            // (report27 X21). A peer that called us is reachable only if it
+            // also announces somewhere, and then discovery finds it there.
+            if (peer.isActive &&
+                peer.direction == PeerDirection.outbound &&
+                peer.transport.trim().isNotEmpty)
               peer.transport.trim(),
         ];
         if (addresses.isEmpty) return;
         final key = (addresses.toList()..sort()).join('|');
         if (key == _lastRemembered) return;
-        _lastRemembered = key;
-        final kept = await rememberPeers(storage, addresses);
+        final outcome = await rememberPeers(storage, addresses);
+        // AFTER the write, not before it. `rememberPeers` swallows a failed
+        // write on purpose — a session is not worth failing over a settings
+        // record — but marking the set as remembered before it landed meant a
+        // transient I/O error cost the whole session's persistence: the set
+        // never changed again, so it was never retried (report27 X22).
+        if (outcome.stored) _lastRemembered = key;
         devLog(
           () =>
               'xVeil[peers]: remembered ${addresses.length} live, '
-              '${kept.length} kept for the next launch',
+              '${outcome.kept.length} kept for the next launch'
+              '${outcome.stored ? '' : ' (NOT written — will retry)'}',
         );
       } catch (e) {
         devLog(() => 'xVeil[peers]: could not remember this session: $e');
