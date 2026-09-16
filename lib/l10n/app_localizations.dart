@@ -6335,8 +6335,26 @@ abstract class AppL10n {
   /// No description provided for @settingsStorageAutoCompactBody.
   ///
   /// In en, this message translates to:
-  /// **'Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.'**
+  /// **'Compact automatically when the container bloats. Keeps only the identity you unlock with, so turn it on only while this is the only identity here — if another one is ever added, this turns itself off.'**
   String get settingsStorageAutoCompactBody;
+
+  /// No description provided for @settingsStorageAutoCompactConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Only this identity lives here?'**
+  String get settingsStorageAutoCompactConfirmTitle;
+
+  /// No description provided for @settingsStorageAutoCompactConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Automatic compaction rewrites the container keeping only the identity you unlocked with. Anything else it holds — a second identity, a decoy master, a space opened by a different password — is deleted by that rewrite, without asking and with no way back.\n\nThis app cannot check: a deniable container is built so that it cannot see what it has not been given the password to. Only you know.'**
+  String get settingsStorageAutoCompactConfirmBody;
+
+  /// No description provided for @settingsStorageAutoCompactConfirmAction.
+  ///
+  /// In en, this message translates to:
+  /// **'It is the only one — turn on'**
+  String get settingsStorageAutoCompactConfirmAction;
 
   /// No description provided for @settingsCompactOffer.
   ///
@@ -6416,11 +6434,17 @@ abstract class AppL10n {
   /// **'Will be kept'**
   String get compactOfferKeeping;
 
-  /// No description provided for @compactOfferWithMaster.
+  /// No description provided for @compactOfferMasterOnly.
   ///
   /// In en, this message translates to:
-  /// **'with {count} more under it'**
-  String compactOfferWithMaster(int count);
+  /// **'This password keeps this space only. The {count, plural, =1{identity} other{{count} identities}} under it have their own passwords — enter each, or they are deleted.'**
+  String compactOfferMasterOnly(int count);
+
+  /// No description provided for @compactOfferStillNeeded.
+  ///
+  /// In en, this message translates to:
+  /// **'Still to unlock, or they are deleted:'**
+  String get compactOfferStillNeeded;
 
   /// No description provided for @compactOfferRun.
   ///

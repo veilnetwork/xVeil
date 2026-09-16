@@ -3594,7 +3594,19 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsStorageAutoCompactBody =>
-      'Compact automatically when the container bloats. Enable ONLY if no other hidden identity lives in this container — compaction keeps just the unlocked space.';
+      'Compact automatically when the container bloats. Keeps only the identity you unlock with, so turn it on only while this is the only identity here — if another one is ever added, this turns itself off.';
+
+  @override
+  String get settingsStorageAutoCompactConfirmTitle =>
+      'Only this identity lives here?';
+
+  @override
+  String get settingsStorageAutoCompactConfirmBody =>
+      'Automatic compaction rewrites the container keeping only the identity you unlocked with. Anything else it holds — a second identity, a decoy master, a space opened by a different password — is deleted by that rewrite, without asking and with no way back.\n\nThis app cannot check: a deniable container is built so that it cannot see what it has not been given the password to. Only you know.';
+
+  @override
+  String get settingsStorageAutoCompactConfirmAction =>
+      'It is the only one — turn on';
 
   @override
   String get settingsCompactOffer => 'Offer to compact';
@@ -3642,9 +3654,18 @@ class AppL10nEn extends AppL10n {
   String get compactOfferKeeping => 'Will be kept';
 
   @override
-  String compactOfferWithMaster(int count) {
-    return 'with $count more under it';
+  String compactOfferMasterOnly(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count identities',
+      one: 'identity',
+    );
+    return 'This password keeps this space only. The $_temp0 under it have their own passwords — enter each, or they are deleted.';
   }
+
+  @override
+  String get compactOfferStillNeeded => 'Still to unlock, or they are deleted:';
 
   @override
   String get compactOfferRun => 'Compact now';

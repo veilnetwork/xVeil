@@ -157,6 +157,44 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
   /// one password there would keep one space and delete the others — so this
   /// is not a second way to do the same thing, it is the only safe way to do it
   /// at all.
+  /// Turning auto-compaction ON is a statement about the container, so it is
+  /// made as one.
+  ///
+  /// The app cannot check it — a deniable container is built so that it cannot
+  /// see what it has no password for — and the cost of being wrong is another
+  /// identity deleted by a maintenance job. A switch flipped in passing is not
+  /// the right shape for that; turning it OFF needs no ceremony at all.
+  Future<void> _setAutoCompact(AppL10n l, bool enable) async {
+    final ctrl = ref.read(appControllerProvider.notifier);
+    if (!enable) {
+      setState(() => _autoCompact = false);
+      await ctrl.setAutoCompactEnabled(false);
+      return;
+    }
+    final agreed = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(l.settingsStorageAutoCompactConfirmTitle),
+        content: SingleChildScrollView(
+          child: Text(l.settingsStorageAutoCompactConfirmBody),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(d).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(d).pop(true),
+            child: Text(l.settingsStorageAutoCompactConfirmAction),
+          ),
+        ],
+      ),
+    );
+    if (agreed != true || !mounted) return;
+    setState(() => _autoCompact = true);
+    await ctrl.setAutoCompactEnabled(true);
+  }
+
   Future<void> _compactAll(AppL10n l) async {
     final pw = await showDialog<String>(
       context: context,
@@ -346,10 +384,7 @@ class _StorageSettingsScreenState extends ConsumerState<StorageSettingsScreen> {
                     subtitle: Text(l.settingsStorageAutoCompactBody),
                     isThreeLine: true,
                     value: _autoCompact,
-                    onChanged: (v) {
-                      setState(() => _autoCompact = v);
-                      ctrl.setAutoCompactEnabled(v);
-                    },
+                    onChanged: (v) => _setAutoCompact(l, v),
                   ),
                 if (!ctrl.canCompactStorage)
                   ListTile(

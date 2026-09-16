@@ -22,6 +22,11 @@ import '../spaces/space_list_screen.dart';
 import 'home_section_scaffold.dart';
 import 'menu_tiles_screen.dart';
 import '../settings/hardening_sync_notice.dart';
+import '../settings/compaction_offer_dialog.dart' show showCompactionOffer;
+import '../settings/storage_settings_screen.dart'
+    show CompactPasswordDialog, fmtBytes;
+import '../../domain/storage_compaction_policy.dart';
+import '../../state/app_controller.dart';
 
 /// The main authenticated surface. Chats and Communities are real tabs:
 /// switching keeps the bottom bar and highlights the active destination —
@@ -77,7 +82,95 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       // check itself decides whether to ask at all — see [checkIfDue] — so
       // calling it on every launch costs nothing on the days it declines.
       unawaited(_offerUpdateIfAny());
+      // A container that has grown into gigabytes of dead padding, said where
+      // somebody will see it. This is the only automatic path a container with
+      // SEVERAL identities has: compaction keeps exactly the spaces whose
+      // passwords it is given, so it can never run unattended there — and
+      // leaving it to be discovered on a settings screen meant, in practice,
+      // never. Silent unless the policy says this is worth an interruption:
+      // a gigabyte or more to reclaim, and not asked again for three days.
+      unawaited(_offerCompactionIfDue());
     });
+  }
+
+  /// Offer to reclaim storage, when there is enough of it to be worth saying.
+  ///
+  /// A banner rather than a dialog, for the same reason the update is one: the
+  /// person opened a messenger to read something, and maintenance can wait for
+  /// them to look at it. Marked as offered the moment it is SHOWN, so "ask no
+  /// more often than" measures from the asking.
+  Future<void> _offerCompactionIfDue() async {
+    final ctrl = ref.read(appControllerProvider.notifier);
+    final offer = await ctrl.compactionOffer();
+    if (offer == null || offer.verdict != CompactionOfferVerdict.offer) return;
+    if (!mounted) return;
+    await ctrl.noteCompactionOffered();
+    if (!mounted) return;
+    final l = AppL10n.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final estimate = offer.estimate;
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        content: Text(
+          l.compactOfferBody(
+            fmtBytes(estimate.fileBytes),
+            fmtBytes(estimate.liveBytes),
+          ),
+        ),
+        leading: const Icon(Icons.compress),
+        actions: [
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: Text(l.actionCancel),
+          ),
+          TextButton(
+            onPressed: () async {
+              messenger.hideCurrentMaterialBanner();
+              await _compactFromBanner(l, estimate);
+            },
+            child: Text(l.compactOfferRun),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The password, then the list of identities, then the compaction.
+  ///
+  /// The same path the storage screen takes, and deliberately not a shortcut
+  /// around it: the list is what keeps a compaction from being a deletion.
+  Future<void> _compactFromBanner(
+    AppL10n l,
+    CompactionEstimate estimate,
+  ) async {
+    final password = await showDialog<String>(
+      context: context,
+      builder: (d) => CompactPasswordDialog(
+        title: l.compactOfferTitle,
+        hint: l.settingsStoragePasswordHint,
+        confirmLabel: l.actionContinue,
+        cancelLabel: l.actionCancel,
+      ),
+    );
+    if (password == null || password.isEmpty || !mounted) return;
+    // Taken BEFORE the await: compaction tears the session down and reopens it,
+    // so this screen's context may be gone by the time there is a result.
+    final messenger = ScaffoldMessenger.of(context);
+    final sizes = await showCompactionOffer(
+      context,
+      ref,
+      estimate: estimate,
+      currentPassword: password,
+    );
+    if (sizes == null) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          '${l.settingsStorageCompactDone}: '
+          '${fmtBytes(sizes.before)} → ${fmtBytes(sizes.after)}',
+        ),
+      ),
+    );
   }
 
   /// Say that a newer release exists, where a person will actually see it.
