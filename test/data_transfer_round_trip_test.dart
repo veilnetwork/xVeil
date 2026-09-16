@@ -216,6 +216,59 @@ Future<Uint8List> _exportOf(
 }
 
 void main() {
+  /// An archive that stops part-way says what it already applied.
+  ///
+  /// A streaming import applies as it reads — that is what lets an archive
+  /// larger than memory be merged at all — so a truncated file leaves real
+  /// changes behind. They were reported as the same bare failure a file that
+  /// was never readable gets, with nothing to say part of it had landed and
+  /// nothing to say whether trying again was safe (report27 X10). It is: every
+  /// record here is idempotent.
+  test('a truncated archive reports what it managed to merge', () async {
+    final archive = await _exportOf(_deviceWithHistory());
+    // Cut it short well past the header, so records really do apply first.
+    final cut = Uint8List.sublistView(archive, 0, (archive.length * 3) ~/ 4);
+
+    final collector = _Collector();
+    final target = _Space();
+    Object? thrown;
+    try {
+      await DataImporter(
+        storage: target,
+        appliers: collector.appliers,
+        selfNodeIdHex: hexOf(1),
+      ).run(bytes: Stream.value(cut));
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(
+      thrown,
+      isA<ImportInterrupted>(),
+      reason:
+          'a truncated archive threw $thrown — the same shape a file that was '
+          'never readable throws, with nothing about what had already landed',
+    );
+    final partial = (thrown! as ImportInterrupted).partial;
+    expect(
+      partial.syncEvents,
+      greaterThan(0),
+      reason:
+          'the report says nothing was applied, and the appliers were handed '
+          '${collector.events.length} events',
+    );
+    expect(
+      partial.syncEvents,
+      collector.events.length,
+      reason: 'the count must be what actually reached the appliers',
+    );
+    expect(
+      (thrown as ImportInterrupted).cause,
+      isA<TransferException>(),
+      reason: 'the reason it stopped has to travel with it',
+    );
+  });
+
   /// A write that threw is not a merge that finished.
   ///
   /// The apply gate survives a failed write on purpose — it must not poison

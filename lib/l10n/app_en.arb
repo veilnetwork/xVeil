@@ -3409,6 +3409,23 @@
       }
     }
   },
+  "transferImportInterrupted": "The archive stopped part-way: {reason} Merged before that: {events} entries, {files} files, {settings} settings. Nothing is lost \u2014 merging the same archive again is safe and picks up what is missing.",
+  "@transferImportInterrupted": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      },
+      "events": {
+        "type": "int"
+      },
+      "files": {
+        "type": "int"
+      },
+      "settings": {
+        "type": "int"
+      }
+    }
+  },
   "transferRefusedOtherIdentity": "This archive belongs to a different identity. Merging it would attribute somebody else’s messages to you.",
   "transferRefusedHasIdentity": "This archive carries an identity and this device already has one. Import it on a fresh install instead.",
   "transferRefusedNotReady": "The app is not ready to merge yet — open a chat once and try again.",

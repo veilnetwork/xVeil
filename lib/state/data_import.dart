@@ -54,6 +54,34 @@ enum ImportRefusal {
   noAppliers,
 }
 
+/// The archive stopped part-way, and this is what had already been applied.
+///
+/// A streaming import is not atomic and is not meant to be: records are
+/// applied as they arrive, which is what lets an archive larger than memory be
+/// merged at all. What was missing is the other half of that bargain — when a
+/// truncated or damaged archive stops the loop, the person was shown the same
+/// bare failure they would get for a file that was never readable, with
+/// nothing to say that part of it had landed and nothing to say whether trying
+/// again was safe (report27 X10).
+///
+/// It is. Every record this import applies is idempotent: a device-sync event
+/// is ranked newest-wins against what is already there, a file is addressed by
+/// the hash of its own bytes, and a setting this device already has is kept.
+/// So the remedy is to say what happened and let them retry.
+class ImportInterrupted implements Exception {
+  const ImportInterrupted(this.partial, this.cause);
+
+  /// What had been applied when the archive stopped.
+  final DataImportReport partial;
+
+  /// Why it stopped — a [TransferException] for a truncated or damaged file.
+  final Object cause;
+
+  @override
+  String toString() =>
+      'ImportInterrupted(after ${partial.syncEvents} entries: $cause)';
+}
+
 class ImportRefused implements Exception {
   const ImportRefused(this.reason, {this.archiveNodeId});
   final ImportRefusal reason;
@@ -306,7 +334,24 @@ class DataImporter {
     var unknown = 0;
     var seen = 0;
 
-    await for (final record in reader.records(password: password)) {
+    // The report as it stands at any moment, so a failure can carry it.
+    DataImportReport soFar() => DataImportReport(
+      syncEvents: syncEvents,
+      filesAdded: filesAdded,
+      filesAlreadyHere: filesHere,
+      settingsFilled: settingsFilled,
+      settingsKept: settingsKept,
+      settingsRefused: settingsRefused,
+      identityAdopted: identityAdopted,
+      credentialAdopted: credentialAdopted,
+      profileFilled: profileFilled,
+      unknownRecords: unknown,
+      unconfirmedAppliers: _appliers.unconfirmed,
+      failedApplies: _appliers.failedApplies,
+    );
+
+    try {
+      await for (final record in reader.records(password: password)) {
       if (stillOurs != null && !stillOurs()) {
         // Not an error and not a rollback: the records already applied were
         // applied to the identity that asked for them. Everything after this
@@ -464,6 +509,19 @@ class DataImporter {
         case TransferRecordKind.end:
           break;
       }
+    }
+
+    } on TransferException catch (e) {
+      // STOPPED PART-WAY, and it says so with what landed. A streaming import
+      // applies as it reads — that is what lets an archive larger than memory
+      // be merged — so a truncated or damaged file leaves real changes behind.
+      // They used to be reported as the same bare failure a file that was
+      // never readable gets (report27 X10).
+      //
+      // Settled first: the writes already queued belong to this import and the
+      // counts have to describe them.
+      await _appliers.settleAll();
+      throw ImportInterrupted(soFar(), e);
     }
 
     // The appliers queue their writes behind per-slot chains; delivery only

@@ -12817,6 +12817,17 @@ abstract class AppL10n {
   /// **'Merged: {events} entries, {files} files added, {settings} settings filled in — but {failed} could not be written. Try again; what did land is kept.'**
   String transferImportPartial(int events, int files, int settings, int failed);
 
+  /// No description provided for @transferImportInterrupted.
+  ///
+  /// In en, this message translates to:
+  /// **'The archive stopped part-way: {reason} Merged before that: {events} entries, {files} files, {settings} settings. Nothing is lost — merging the same archive again is safe and picks up what is missing.'**
+  String transferImportInterrupted(
+    String reason,
+    int events,
+    int files,
+    int settings,
+  );
+
   /// No description provided for @transferRefusedOtherIdentity.
   ///
   /// In en, this message translates to:
