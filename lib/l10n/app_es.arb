@@ -3001,6 +3001,7 @@
   "transferImportConfirmBody": "Identidad {id}…, escrito el {when}. Contiene {messages} mensajes y {files} archivos. Lo existente se conserva; solo se añade lo que falta.",
   "transferImportAction": "Fusionar",
   "transferImportDone": "Fusionado: {events} entradas, {files} archivos añadidos, {settings} ajustes completados.",
+  "transferImportPartial": "Fusionado: {events} entradas, {files} archivos a\u00f1adidos, {settings} ajustes completados, pero {failed} no se pudieron escribir. Int\u00e9ntalo de nuevo; lo que s\u00ed se guard\u00f3 se conserva.",
   "transferRefusedOtherIdentity": "Este archivo pertenece a otra identidad. Fusionarlo te atribuiría mensajes ajenos.",
   "transferRefusedHasIdentity": "El archivo trae una identidad y este dispositivo ya tiene una. Impórtalo en una instalación nueva.",
   "transferRefusedNotReady": "La app aún no está lista para fusionar: abre cualquier chat e inténtalo de nuevo.",

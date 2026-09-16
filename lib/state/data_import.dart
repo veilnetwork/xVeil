@@ -77,6 +77,7 @@ class DataImportReport {
     required this.profileFilled,
     required this.unknownRecords,
     required this.unconfirmedAppliers,
+    this.failedApplies = 0,
   });
 
   /// Events handed to the appliers. Not the same as "changes": an event for
@@ -115,6 +116,15 @@ class DataImportReport {
   /// Appliers that took events but cannot report when their writes finish.
   /// Non-zero means part of the merge is still landing after this report.
   final int unconfirmedAppliers;
+
+  /// Queued writes that THREW, across the appliers that count them.
+  ///
+  /// A different fact from [unconfirmedAppliers], which is about appliers that
+  /// cannot report at all. This one is a disk or commit error the gate
+  /// deliberately survives — it must not poison the slot behind it — and which
+  /// used to be swallowed whole, so a screen said the merge was done with part
+  /// of it missing (report27 X06).
+  final int failedApplies;
 }
 
 /// Reads an archive into an open space.
@@ -451,6 +461,9 @@ class DataImporter {
       profileFilled: profileFilled,
       unknownRecords: unknown,
       unconfirmedAppliers: _appliers.unconfirmed,
+      // Read after `settleAll`, which is the only point at which the queues
+      // have stopped moving.
+      failedApplies: _appliers.failedApplies,
     );
   }
 }

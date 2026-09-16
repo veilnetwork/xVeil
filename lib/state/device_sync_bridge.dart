@@ -519,7 +519,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   ref.onDispose(
     ref
         .read(deviceSyncAppliersProvider)
-        .register(handleEvent, settle: gate.settle),
+        .register(
+          handleEvent,
+          settle: gate.settle,
+          failures: () => gate.failedApplies,
+        ),
   );
 
   final sub = svc.deviceIncoming.listen((gm) {
