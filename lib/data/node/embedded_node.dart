@@ -1895,6 +1895,36 @@ class EmbeddedNode {
   /// must be numeric `IPv4:port` or `[IPv6]:port`; native config validates them
   /// again. Replaces a rendered `udp_reflectors = []` instead of duplicating
   /// `[nat]`.
+  /// Write the addresses this device reached before into `[global]`.
+  ///
+  /// Places to look, not vouched-for peers: no key travels with them, and the
+  /// node dials them exactly as it dials a rendezvous find. Empty leaves the
+  /// config alone rather than writing an empty array, so a device that has met
+  /// nobody composes the same config it always did.
+  static String withRememberedPeers(String toml, List<String> transports) {
+    final clean = <String>[];
+    for (final t in transports) {
+      final v = t.trim();
+      if (v.isEmpty || clean.contains(v)) continue;
+      clean.add(v);
+    }
+    if (clean.isEmpty) return toml;
+    final rendered = clean.map(tomlBasicString).join(', ');
+    final line = 'remembered_peers = [$rendered]';
+    final existing = RegExp(
+      r'^\s*remembered_peers\s*=\s*\[[^\n\r]*\]\s*$',
+      multiLine: true,
+    );
+    if (existing.hasMatch(toml)) return toml.replaceFirst(existing, line);
+    final global = RegExp(r'^\[global\]\s*$', multiLine: true);
+    final match = global.firstMatch(toml);
+    if (match != null) {
+      final at = match.end;
+      return '${toml.substring(0, at)}\n$line${toml.substring(at)}';
+    }
+    return '$toml\n[global]\n$line\n';
+  }
+
   static String withUdpReflectors(String toml, List<String> reflectors) {
     final normalized = normalizeUdpReflectors(reflectors);
     if (normalized.isEmpty) return toml;

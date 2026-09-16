@@ -26,6 +26,7 @@ import 'node/bundled_seeds.dart'
         meetingPointsForBoot,
         meetingPolicyInSpace;
 import 'node/dht_participation.dart';
+import 'node/remembered_peers.dart';
 import 'node/embedded_node.dart';
 import 'node/identity_config_fields.dart';
 import 'node/node_controller.dart';
@@ -2589,6 +2590,33 @@ class RealVeilStack {
       // and needs no instruction beyond "next to the exe".
       logFile: debugNodeLogPath(),
     );
+    // THE ADDRESSES THIS DEVICE REACHED BEFORE.
+    //
+    // Read from the container, which is the only place that survives a
+    // restart: the runtime keeps its peer table in memory and the config it
+    // boots from is composed fresh, so without this every launch started from
+    // nothing and paid the whole discovery round again — worst of all for a
+    // client that came up while the seeds it knows were between announce
+    // windows.
+    //
+    // Places to look, not vouched-for peers: they carry no key and the node
+    // dials them exactly as it dials a rendezvous find.
+    try {
+      final remembered = await readRememberedPeers(storage);
+      if (remembered.isNotEmpty) {
+        fullConfig = EmbeddedNode.withRememberedPeers(fullConfig, [
+          for (final peer in remembered) peer.transport,
+        ]);
+        devLog(
+          () =>
+              'xVeil[deniable]: ${remembered.length} remembered peer(s) go '
+              'into this boot',
+        );
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[deniable]: could not read remembered peers: $e');
+    }
+
     // Debug stands only: loopback Prometheus metrics for the embedded node,
     // the per-node twin of a relay's [metrics] endpoint. Never binds a
     // non-loopback interface.
@@ -2868,6 +2896,7 @@ class RealVeilStack {
     // readiness check used to.
     try {
       return await _finishDeniableBoot(
+        storage: storage,
         controller: controller,
         transport: transport,
         runtimeBootstrapPeers: runtimeBootstrapPeers,
@@ -2902,6 +2931,9 @@ class RealVeilStack {
   /// The tail of [startDeniable]: register seeds, mint the invite, assemble the
   /// stack. Split out so ONE `try` can own the unwind for all of it.
   static Future<RealVeilStack> _finishDeniableBoot({
+    // Only so the finished stack can start writing down what it is in session
+    // with: the container is the one place that survives a restart.
+    required Storage storage,
     required NodeController controller,
     required VeilFlutterTransport transport,
     required List<BootstrapPeerCfg>? runtimeBootstrapPeers,
@@ -3021,7 +3053,7 @@ class RealVeilStack {
     );
     devLog(() => 'xVeil[deniable]: connected + identity-only invite ready');
 
-    return RealVeilStack._(
+    final built = RealVeilStack._(
       controller: controller,
       transport: transport,
       myInvite: invite,
@@ -3036,6 +3068,10 @@ class RealVeilStack {
       registeredSeeds: seedsToRegister,
       joinEndpoint: transport.joinP2PEndpoint,
     );
+    // FROM HERE the node has a session table worth writing down. Started on
+    // the deniable path only: it is the one with a container to write into.
+    built.startRememberingPeers(storage);
+    return built;
   }
 
   /// Dev boot from an existing `config.toml`. [embedded] runs the node
@@ -3153,7 +3189,49 @@ class RealVeilStack {
   /// no longer cancels the ones after it. The first error is still rethrown, so
   /// an unclean teardown is not silent; it is just no longer paid for with the
   /// rest of the teardown.
+  /// Writes down what this node is in session with, so the next launch has
+  /// somewhere to start.
+  ///
+  /// Every few minutes rather than at teardown: a process that is killed, or a
+  /// phone that swaps the app out, never reaches its teardown — and those are
+  /// exactly the restarts that used to cost a full discovery round. Cheap: one
+  /// FFI call returning at most 256 entries, and a settings write only when
+  /// something changed.
+  Timer? _rememberPeers;
+  String _lastRemembered = '';
+
+  void startRememberingPeers(Storage storage, {Duration every = const Duration(minutes: 3)}) {
+    _rememberPeers?.cancel();
+    Future<void> snapshot() async {
+      try {
+        final live = await transport.peers();
+        final addresses = <String>[
+          for (final peer in live)
+            if (peer.isActive && peer.transport.trim().isNotEmpty)
+              peer.transport.trim(),
+        ];
+        if (addresses.isEmpty) return;
+        final key = (addresses.toList()..sort()).join('|');
+        if (key == _lastRemembered) return;
+        _lastRemembered = key;
+        final kept = await rememberPeers(storage, addresses);
+        devLog(
+          () =>
+              'xVeil[peers]: remembered ${addresses.length} live, '
+              '${kept.length} kept for the next launch',
+        );
+      } catch (e) {
+        devLog(() => 'xVeil[peers]: could not remember this session: $e');
+      }
+    }
+
+    unawaited(snapshot());
+    _rememberPeers = Timer.periodic(every, (_) => unawaited(snapshot()));
+  }
+
   Future<void> dispose() async {
+    _rememberPeers?.cancel();
+    _rememberPeers = null;
     final failure = await runCleanupLegs('veil-stack', [
       ('transport', transport.dispose),
       // Before the node stops: this is an IPC connection TO it, and a handle
