@@ -3924,7 +3924,8 @@ class AppL10nRu extends AppL10n {
   String get themeShare => 'Скопировать эту тему, чтобы поделиться';
 
   @override
-  String get themeShared => 'Скопировано. Кому отправите — вставит здесь же.';
+  String get themeShared =>
+      'Скопировано. Вставьте в переписку — придёт темой, которую включают одним касанием.';
 
   @override
   String get themeMake => 'Создать свою';
@@ -3942,11 +3943,43 @@ class AppL10nRu extends AppL10n {
   String get themeMakeSave => 'Использовать эту тему';
 
   @override
+  String get themeMakeBackground => 'Фон';
+
+  @override
+  String get themeMakeBackgroundFromSeed => 'Из цвета темы';
+
+  @override
+  String get themeBackgroundSafety =>
+      'Фон выбирайте любой. Текст и предупреждения сдвинутся ровно настолько, чтобы остаться читаемыми на нём — это не задаёте ни вы, ни тот, кто прислал тему.';
+
+  @override
   String get themeRemove => 'Удалить';
 
   @override
   String get themeSafety =>
       'Тема задаёт цвет и светлое или тёмное — и больше ничего. Она не может решать, как выглядит предупреждение: остальные цвета выводятся из вашего, поэтому чужая тема сделает приложение непривычным, но не обманчивым.';
+
+  @override
+  String get themeInChat => 'Тема оформления';
+
+  @override
+  String get themeInChatUse => 'Включить эту тему';
+
+  @override
+  String get themeInChatInUse => 'Сейчас включена';
+
+  @override
+  String get themeInChatSafety =>
+      'Только цвета. Тема не может изменить то, как выглядит предупреждение.';
+
+  @override
+  String get themeInChatSampleTheirs => 'Как тебе такое?';
+
+  @override
+  String get themeInChatSampleMine => 'Вот так.';
+
+  @override
+  String get themeInChatSampleWarning => 'Так выглядит предупреждение';
 
   @override
   String get settingsRecoveryTitle => 'Восстановление этой личности';

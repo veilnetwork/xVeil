@@ -1795,6 +1795,9 @@ class _Bubble extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final outgoing = message.direction == MessageDirection.outgoing;
     final recommendation = parseSpaceRecommendationMessage(message.body);
+    // A look somebody sent. Text, not a file — it arrives as sixty characters
+    // of base64 and reads as noise, so the bubble draws it as what it is.
+    final sharedTheme = message.isFile ? null : ThemeSpec.locate(message.body);
     final naked = message.isFile && isStickerFileName(message.fileName);
     // In-flight download fraction for this file (null = not downloading). Falls
     // back to fileId so our OWN re-download (pulling a deleted sent file back
@@ -1850,464 +1853,487 @@ class _Bubble extends ConsumerWidget {
                       bottomRight: Radius.circular(outgoing ? 4 : 16),
                     ),
                   ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // "Forwarded from X" caption. The wire carries the original
-                // author's node-id hex; resolve it through MY OWN contacts here so
-                // the sender's private alias never leaked (see _forwardMessages).
-                if (message.forwardedFrom != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.forward,
-                          size: 13,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            l.chatForwardedFrom(
-                              _resolveForwardAuthor(
-                                ref,
-                                l,
-                                message.forwardedFrom!,
-                              ),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                  fontStyle: FontStyle.italic,
-                                ),
+            // The ink a bubble's text is written in belongs to the bubble's
+            // OWN fill, not to the page behind it. An outgoing bubble is
+            // painted in `primaryContainer`, so its text is
+            // `onPrimaryContainer` — Material pairs those and keeps them
+            // readable together. Inheriting `onSurface` there worked only as
+            // long as the surface and the bubble happened to be similar, which
+            // a theme that brings its own background is free not to be.
+            child: DefaultTextStyle.merge(
+              style: TextStyle(
+                color: outgoing ? scheme.onPrimaryContainer : scheme.onSurface,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // "Forwarded from X" caption. The wire carries the original
+                  // author's node-id hex; resolve it through MY OWN contacts here so
+                  // the sender's private alias never leaked (see _forwardMessages).
+                  if (message.forwardedFrom != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.forward,
+                            size: 13,
+                            color: scheme.onSurfaceVariant,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              l.chatForwardedFrom(
+                                _resolveForwardAuthor(
+                                  ref,
+                                  l,
+                                  message.forwardedFrom!,
+                                ),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelSmall
+                                  ?.copyWith(
+                                    color: scheme.onSurfaceVariant,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                // Quoted reply preview (a reference to a deleted/out-of-window
-                // message shows a generic stub). Tapping it jumps to the quoted
-                // message.
-                if (message.replyToId != null)
-                  GestureDetector(
-                    onTap: onTapQuote,
-                    child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
-                  ),
-                if (recommendation != null)
-                  _SpaceRecommendationBubble(card: recommendation)
-                else if (message.isFile &&
-                    isStickerPackFileName(message.fileName))
-                  _StickerPackCard(
-                    fileKey: message.fileId ?? message.fileContentId ?? '',
-                    thumbB64: message.thumb,
-                    downloaded: progress == null && (message.fileId != null),
-                    progress: progress,
-                    onDownload: progress != null
-                        ? cancelDownload
-                        : onTapFile == null
-                        ? null
-                        : () => onTapFile!(message),
-                  )
-                else if (message.isFile &&
-                    isModelBundleFileName(message.fileName))
-                  // A model, not content: an offer to install something that
-                  // will decide what this app says other people wrote. The
-                  // card says so, and installs nothing until its manifest and
-                  // hashes have been read.
-                  ModelBundleCard(
-                    fileKey: message.fileId ?? message.fileContentId ?? '',
-                    fileName: message.fileName,
-                    sizeBytes: message.fileSize,
-                    downloaded: progress == null && (message.fileId != null),
-                    progress: progress,
-                    onDownload: progress != null
-                        ? cancelDownload
-                        : onTapFile == null
-                        ? null
-                        : () => onTapFile!(message),
-                  )
-                else if (message.isFile && isStickerFileName(message.fileName))
-                  _StickerContent(
-                    fileKey: message.fileId ?? message.fileContentId ?? '',
-                    thumbB64: message.thumb,
-                    progress: progress,
-                    onCancel: cancelDownload,
-                    onDownload: onTapFile == null
-                        ? null
-                        : () => onTapFile!(message),
-                  )
-                else if (message.isFile && isVnoteFileName(message.fileName))
-                  FutureBuilder<_FileAffordance>(
-                    future: _affordance(ref),
-                    builder: (context, snap) {
-                      final a =
-                          snap.data ??
-                          (message.fileId != null
-                              ? _FileAffordance.save
-                              : _FileAffordance.download);
-                      final downloaded =
-                          progress == null && a == _FileAffordance.save;
-                      return _VnoteBubble(
-                        messageId: message.id,
-                        fileKey: message.fileId ?? message.fileContentId ?? '',
-                        sidecar: decodeVnoteSidecar(message.thumb),
-                        outgoing: outgoing,
-                        downloaded: downloaded,
-                        progress: progress,
-                        onDownload: progress != null
-                            ? cancelDownload
-                            : (!downloaded && onTapFile != null)
-                            ? () => onTapFile!(message)
-                            : null,
-                      );
-                    },
-                  )
-                else if (message.isFile && isVoiceFileName(message.fileName))
-                  FutureBuilder<_FileAffordance>(
-                    future: _affordance(ref),
-                    builder: (context, snap) {
-                      final a =
-                          snap.data ??
-                          (message.fileId != null
-                              ? _FileAffordance.save
-                              : _FileAffordance.download);
-                      final downloaded =
-                          progress == null && a == _FileAffordance.save;
-                      return _VoiceBubble(
-                        messageId: message.id,
-                        fileKey: message.fileId ?? message.fileContentId ?? '',
-                        sidecar: decodeVoiceSidecar(message.thumb),
-                        outgoing: outgoing,
-                        downloaded: downloaded,
-                        progress: progress,
-                        onDownload: progress != null
-                            ? cancelDownload
-                            : (!downloaded && onTapFile != null)
-                            ? () => onTapFile!(message)
-                            : null,
-                      );
-                    },
-                  )
-                else if (message.isFile &&
-                    isImageFileName(message.fileName) &&
-                    (message.fileId ?? message.fileContentId) != null)
-                  _ImagePreview(
-                    fileKey: (message.fileId ?? message.fileContentId)!,
-                    name: message.fileName ?? '',
-                    thumbB64: message.thumb,
-                    progress: progress,
-                    onCancel: cancelDownload,
-                    onOpen: onTapFile == null
-                        ? null
-                        : () => onTapFile!(message),
-                    onView: onOpenImage == null
-                        ? null
-                        : () => onOpenImage!(message),
-                  )
-                else if (message.isFile)
-                  FutureBuilder<_FileAffordance>(
-                    future: _affordance(ref),
-                    builder: (context, snap) {
-                      final a =
-                          snap.data ??
-                          (message.fileId != null
-                              ? _FileAffordance.save
-                              : _FileAffordance.download);
-                      // Terminal state only renders when nothing is in flight —
-                      // a live retry's spinner wins over the stale mark.
-                      final gone =
-                          progress == null && a == _FileAffordance.gone;
-                      // A HELD video plays on tap (the in-app player over the
-                      // loopback stream); save moves to the trailing button.
-                      final playable =
-                          onPlayVideo != null &&
-                          a == _FileAffordance.save &&
-                          isVideoFileName(message.fileName);
-                      // A video WITH an embedded preview frame renders as a
-                      // media box (thumb + play/download overlay) instead of
-                      // the file row. Terminal-degraded states (gone /
-                      // resuming) keep the row — its honest status text.
-                      final videoThumb =
-                          isVideoFileName(message.fileName) &&
-                              !gone &&
-                              !resuming
-                          ? _decodeThumbB64(message.thumb)
-                          : null;
-                      if (videoThumb != null) {
-                        return _VideoPreviewBox(
-                          thumb: videoThumb,
-                          playable: playable,
+                  // Quoted reply preview (a reference to a deleted/out-of-window
+                  // message shows a generic stub). Tapping it jumps to the quoted
+                  // message.
+                  if (message.replyToId != null)
+                    GestureDetector(
+                      onTap: onTapQuote,
+                      child: _QuoteBlock(quoted: quoted, outgoing: outgoing),
+                    ),
+                  if (recommendation != null)
+                    _SpaceRecommendationBubble(card: recommendation)
+                  else if (sharedTheme != null)
+                    SharedThemeCard(
+                      found: sharedTheme,
+                      highlight: highlight,
+                      customEmoji: message.customEmoji,
+                    )
+                  else if (message.isFile &&
+                      isStickerPackFileName(message.fileName))
+                    _StickerPackCard(
+                      fileKey: message.fileId ?? message.fileContentId ?? '',
+                      thumbB64: message.thumb,
+                      downloaded: progress == null && (message.fileId != null),
+                      progress: progress,
+                      onDownload: progress != null
+                          ? cancelDownload
+                          : onTapFile == null
+                          ? null
+                          : () => onTapFile!(message),
+                    )
+                  else if (message.isFile &&
+                      isModelBundleFileName(message.fileName))
+                    // A model, not content: an offer to install something that
+                    // will decide what this app says other people wrote. The
+                    // card says so, and installs nothing until its manifest and
+                    // hashes have been read.
+                    ModelBundleCard(
+                      fileKey: message.fileId ?? message.fileContentId ?? '',
+                      fileName: message.fileName,
+                      sizeBytes: message.fileSize,
+                      downloaded: progress == null && (message.fileId != null),
+                      progress: progress,
+                      onDownload: progress != null
+                          ? cancelDownload
+                          : onTapFile == null
+                          ? null
+                          : () => onTapFile!(message),
+                    )
+                  else if (message.isFile &&
+                      isStickerFileName(message.fileName))
+                    _StickerContent(
+                      fileKey: message.fileId ?? message.fileContentId ?? '',
+                      thumbB64: message.thumb,
+                      progress: progress,
+                      onCancel: cancelDownload,
+                      onDownload: onTapFile == null
+                          ? null
+                          : () => onTapFile!(message),
+                    )
+                  else if (message.isFile && isVnoteFileName(message.fileName))
+                    FutureBuilder<_FileAffordance>(
+                      future: _affordance(ref),
+                      builder: (context, snap) {
+                        final a =
+                            snap.data ??
+                            (message.fileId != null
+                                ? _FileAffordance.save
+                                : _FileAffordance.download);
+                        final downloaded =
+                            progress == null && a == _FileAffordance.save;
+                        return _VnoteBubble(
+                          messageId: message.id,
+                          fileKey:
+                              message.fileId ?? message.fileContentId ?? '',
+                          sidecar: decodeVnoteSidecar(message.thumb),
+                          outgoing: outgoing,
+                          downloaded: downloaded,
                           progress: progress,
-                          sizeLabel: message.fileSize != null
-                              ? _formatBytes(message.fileSize!)
+                          onDownload: progress != null
+                              ? cancelDownload
+                              : (!downloaded && onTapFile != null)
+                              ? () => onTapFile!(message)
                               : null,
-                          onTap: progress != null
+                        );
+                      },
+                    )
+                  else if (message.isFile && isVoiceFileName(message.fileName))
+                    FutureBuilder<_FileAffordance>(
+                      future: _affordance(ref),
+                      builder: (context, snap) {
+                        final a =
+                            snap.data ??
+                            (message.fileId != null
+                                ? _FileAffordance.save
+                                : _FileAffordance.download);
+                        final downloaded =
+                            progress == null && a == _FileAffordance.save;
+                        return _VoiceBubble(
+                          messageId: message.id,
+                          fileKey:
+                              message.fileId ?? message.fileContentId ?? '',
+                          sidecar: decodeVoiceSidecar(message.thumb),
+                          outgoing: outgoing,
+                          downloaded: downloaded,
+                          progress: progress,
+                          onDownload: progress != null
+                              ? cancelDownload
+                              : (!downloaded && onTapFile != null)
+                              ? () => onTapFile!(message)
+                              : null,
+                        );
+                      },
+                    )
+                  else if (message.isFile &&
+                      isImageFileName(message.fileName) &&
+                      (message.fileId ?? message.fileContentId) != null)
+                    _ImagePreview(
+                      fileKey: (message.fileId ?? message.fileContentId)!,
+                      name: message.fileName ?? '',
+                      thumbB64: message.thumb,
+                      progress: progress,
+                      onCancel: cancelDownload,
+                      onOpen: onTapFile == null
+                          ? null
+                          : () => onTapFile!(message),
+                      onView: onOpenImage == null
+                          ? null
+                          : () => onOpenImage!(message),
+                    )
+                  else if (message.isFile)
+                    FutureBuilder<_FileAffordance>(
+                      future: _affordance(ref),
+                      builder: (context, snap) {
+                        final a =
+                            snap.data ??
+                            (message.fileId != null
+                                ? _FileAffordance.save
+                                : _FileAffordance.download);
+                        // Terminal state only renders when nothing is in flight —
+                        // a live retry's spinner wins over the stale mark.
+                        final gone =
+                            progress == null && a == _FileAffordance.gone;
+                        // A HELD video plays on tap (the in-app player over the
+                        // loopback stream); save moves to the trailing button.
+                        final playable =
+                            onPlayVideo != null &&
+                            a == _FileAffordance.save &&
+                            isVideoFileName(message.fileName);
+                        // A video WITH an embedded preview frame renders as a
+                        // media box (thumb + play/download overlay) instead of
+                        // the file row. Terminal-degraded states (gone /
+                        // resuming) keep the row — its honest status text.
+                        final videoThumb =
+                            isVideoFileName(message.fileName) &&
+                                !gone &&
+                                !resuming
+                            ? _decodeThumbB64(message.thumb)
+                            : null;
+                        if (videoThumb != null) {
+                          return _VideoPreviewBox(
+                            thumb: videoThumb,
+                            playable: playable,
+                            progress: progress,
+                            sizeLabel: message.fileSize != null
+                                ? _formatBytes(message.fileSize!)
+                                : null,
+                            onTap: progress != null
+                                ? cancelDownload
+                                : playable
+                                ? () => onPlayVideo!(message)
+                                : (onTapFile == null
+                                      ? null
+                                      : () => onTapFile!(message)),
+                            onSave: playable && onTapFile != null
+                                ? () => onTapFile!(message)
+                                : null,
+                          );
+                        }
+                        return InkWell(
+                          onTap: progress != null || resuming
                               ? cancelDownload
                               : playable
                               ? () => onPlayVideo!(message)
                               : (onTapFile == null
                                     ? null
                                     : () => onTapFile!(message)),
-                          onSave: playable && onTapFile != null
-                              ? () => onTapFile!(message)
-                              : null,
-                        );
-                      }
-                      return InkWell(
-                        onTap: progress != null || resuming
-                            ? cancelDownload
-                            : playable
-                            ? () => onPlayVideo!(message)
-                            : (onTapFile == null
-                                  ? null
-                                  : () => onTapFile!(message)),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              playable
-                                  ? Icons.play_circle_outline
-                                  : documentIcon(message.fileName),
-                              size: 20,
-                              color: playable
-                                  ? scheme.primary
-                                  : scheme.onSurfaceVariant,
-                            ),
-                            const SizedBox(width: 8),
-                            Flexible(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    message.fileName ?? message.body,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  // Subtitle: "Downloading NN%" while a transfer
-                                  // is in flight; the ask-to-re-send notice when
-                                  // every holder said GONE; else the file size.
-                                  if (progress != null)
-                                    Text(
-                                      '${l.fileDownloading} ${(progress * 100).round()}%',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                    )
-                                  else if (resuming)
-                                    Text(
-                                      l.fileResuming,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                    )
-                                  else if (gone)
-                                    Text(
-                                      l.fileGoneAskResend,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(color: scheme.error),
-                                    )
-                                  else if (message.fileSize != null)
-                                    Text(
-                                      _formatBytes(message.fileSize!),
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: scheme.onSurfaceVariant,
-                                          ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            // While downloading: a ring at the current fraction.
-                            // Else an icon per affordance. A HELD blob shows the
-                            // "downloaded ✓" mark (NOT a plain down-arrow — that
-                            // reads as "still needs downloading", the exact
-                            // confusion users hit after storage compaction, which
-                            // keeps the file but the bubble looked un-fetched);
-                            // tapping it still exports/saves.
-                            if (progress != null)
-                              CancelableDownloadProgress(
-                                progress: progress,
-                                onCancel: cancelDownload!,
-                                size: 20,
-                                strokeWidth: 2,
-                                color: scheme.onSurfaceVariant,
-                              )
-                            else if (resuming)
-                              CancelableDownloadProgress(
-                                progress: null,
-                                onCancel: cancelDownload!,
-                                size: 20,
-                                strokeWidth: 2,
-                                color: scheme.onSurfaceVariant,
-                              )
-                            else if (playable)
-                              // Row-tap plays; saving the video moved here.
-                              InkWell(
-                                onTap: onTapFile == null
-                                    ? null
-                                    : () => onTapFile!(message),
-                                child: Icon(
-                                  Icons.download_done_outlined,
-                                  size: 16,
-                                  color: scheme.primary,
-                                ),
-                              )
-                            else
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
                               Icon(
-                                switch (a) {
-                                  _FileAffordance.save =>
+                                playable
+                                    ? Icons.play_circle_outline
+                                    : documentIcon(message.fileName),
+                                size: 20,
+                                color: playable
+                                    ? scheme.primary
+                                    : scheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      message.fileName ?? message.body,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    // Subtitle: "Downloading NN%" while a transfer
+                                    // is in flight; the ask-to-re-send notice when
+                                    // every holder said GONE; else the file size.
+                                    if (progress != null)
+                                      Text(
+                                        '${l.fileDownloading} ${(progress * 100).round()}%',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                      )
+                                    else if (resuming)
+                                      Text(
+                                        l.fileResuming,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                      )
+                                    else if (gone)
+                                      Text(
+                                        l.fileGoneAskResend,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(color: scheme.error),
+                                      )
+                                    else if (message.fileSize != null)
+                                      Text(
+                                        _formatBytes(message.fileSize!),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // While downloading: a ring at the current fraction.
+                              // Else an icon per affordance. A HELD blob shows the
+                              // "downloaded ✓" mark (NOT a plain down-arrow — that
+                              // reads as "still needs downloading", the exact
+                              // confusion users hit after storage compaction, which
+                              // keeps the file but the bubble looked un-fetched);
+                              // tapping it still exports/saves.
+                              if (progress != null)
+                                CancelableDownloadProgress(
+                                  progress: progress,
+                                  onCancel: cancelDownload!,
+                                  size: 20,
+                                  strokeWidth: 2,
+                                  color: scheme.onSurfaceVariant,
+                                )
+                              else if (resuming)
+                                CancelableDownloadProgress(
+                                  progress: null,
+                                  onCancel: cancelDownload!,
+                                  size: 20,
+                                  strokeWidth: 2,
+                                  color: scheme.onSurfaceVariant,
+                                )
+                              else if (playable)
+                                // Row-tap plays; saving the video moved here.
+                                InkWell(
+                                  onTap: onTapFile == null
+                                      ? null
+                                      : () => onTapFile!(message),
+                                  child: Icon(
                                     Icons.download_done_outlined,
-                                  _FileAffordance.open => Icons.open_in_new,
-                                  _FileAffordance.gone =>
-                                    Icons.file_download_off_outlined,
-                                  _FileAffordance.download =>
-                                    Icons.download_outlined,
-                                },
-                                size: 16,
-                                color: switch (a) {
-                                  _FileAffordance.gone => scheme.error,
-                                  _FileAffordance.save => scheme.primary,
-                                  _ => scheme.onSurfaceVariant,
-                                },
+                                    size: 16,
+                                    color: scheme.primary,
+                                  ),
+                                )
+                              else
+                                Icon(
+                                  switch (a) {
+                                    _FileAffordance.save =>
+                                      Icons.download_done_outlined,
+                                    _FileAffordance.open => Icons.open_in_new,
+                                    _FileAffordance.gone =>
+                                      Icons.file_download_off_outlined,
+                                    _FileAffordance.download =>
+                                      Icons.download_outlined,
+                                  },
+                                  size: 16,
+                                  color: switch (a) {
+                                    _FileAffordance.gone => scheme.error,
+                                    _FileAffordance.save => scheme.primary,
+                                    _ => scheme.onSurfaceVariant,
+                                  },
+                                ),
+                            ],
+                          ),
+                        );
+                      },
+                    )
+                  else
+                    FormattedText(
+                      message.body,
+                      highlight: highlight,
+                      customEmoji: message.customEmoji,
+                    ),
+                  // On-device translation of an INCOMING message, by button.
+                  // Hidden entirely when no engine is present — see
+                  // `_TranslationRow`.
+                  if (message.direction == MessageDirection.incoming &&
+                      message.body.trim().isNotEmpty)
+                    _TranslationRow(messageId: message.id, body: message.body),
+                  // Reaction chips: aggregated emoji → count for this message.
+                  // Tap toggles my reaction, long-press / right-click lists the
+                  // reactors; hidden entirely by the "show reactions" preference.
+                  // In select mode the chips go inert so taps fall through to
+                  // the row-selection gesture.
+                  Builder(
+                    builder: (context) {
+                      if (!ref.watch(showReactionsProvider)) {
+                        return const SizedBox.shrink();
+                      }
+                      final forMsg = ref
+                          .watch(reactionsProvider(message.conversationId))
+                          .value?[message.id];
+                      if (forMsg == null || forMsg.isEmpty) {
+                        return const SizedBox.shrink();
+                      }
+                      final selfHex = ref.watch(
+                        appControllerProvider.select(
+                          (s) => s.identity?.nodeId.hex,
+                        ),
+                      );
+                      final mine = selfHex == null ? null : forMsg[selfHex];
+                      final counts = <String, int>{};
+                      for (final e in forMsg.values) {
+                        counts[e] = (counts[e] ?? 0) + 1;
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            for (final entry in counts.entries)
+                              InkWell(
+                                onTap: selecting || onToggleReaction == null
+                                    ? null
+                                    : () =>
+                                          onToggleReaction!(message, entry.key),
+                                onLongPress: selecting || onShowReactors == null
+                                    ? null
+                                    : () => onShowReactors!(message),
+                                onSecondaryTap:
+                                    selecting || onShowReactors == null
+                                    ? null
+                                    : () => onShowReactors!(message),
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: mine == entry.key
+                                        ? scheme.primaryContainer
+                                        : scheme.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: mine == entry.key
+                                        ? Border.all(
+                                            color: scheme.primary,
+                                            width: 1,
+                                          )
+                                        : null,
+                                  ),
+                                  child: Text(
+                                    '${entry.key} ${entry.value}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
                               ),
                           ],
                         ),
                       );
                     },
-                  )
-                else
-                  FormattedText(
-                    message.body,
-                    highlight: highlight,
-                    customEmoji: message.customEmoji,
                   ),
-                // On-device translation of an INCOMING message, by button.
-                // Hidden entirely when no engine is present — see
-                // `_TranslationRow`.
-                if (message.direction == MessageDirection.incoming &&
-                    message.body.trim().isNotEmpty)
-                  _TranslationRow(messageId: message.id, body: message.body),
-                // Reaction chips: aggregated emoji → count for this message.
-                // Tap toggles my reaction, long-press / right-click lists the
-                // reactors; hidden entirely by the "show reactions" preference.
-                // In select mode the chips go inert so taps fall through to
-                // the row-selection gesture.
-                Builder(
-                  builder: (context) {
-                    if (!ref.watch(showReactionsProvider)) {
-                      return const SizedBox.shrink();
-                    }
-                    final forMsg = ref
-                        .watch(reactionsProvider(message.conversationId))
-                        .value?[message.id];
-                    if (forMsg == null || forMsg.isEmpty) {
-                      return const SizedBox.shrink();
-                    }
-                    final selfHex = ref.watch(
-                      appControllerProvider.select(
-                        (s) => s.identity?.nodeId.hex,
-                      ),
-                    );
-                    final mine = selfHex == null ? null : forMsg[selfHex];
-                    final counts = <String, int>{};
-                    for (final e in forMsg.values) {
-                      counts[e] = (counts[e] ?? 0) + 1;
-                    }
-                    return Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: [
-                          for (final entry in counts.entries)
-                            InkWell(
-                              onTap: selecting || onToggleReaction == null
-                                  ? null
-                                  : () => onToggleReaction!(message, entry.key),
-                              onLongPress: selecting || onShowReactors == null
-                                  ? null
-                                  : () => onShowReactors!(message),
-                              onSecondaryTap:
-                                  selecting || onShowReactors == null
-                                  ? null
-                                  : () => onShowReactors!(message),
-                              borderRadius: BorderRadius.circular(10),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: mine == entry.key
-                                      ? scheme.primaryContainer
-                                      : scheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: mine == entry.key
-                                      ? Border.all(
-                                          color: scheme.primary,
-                                          width: 1,
-                                        )
-                                      : null,
-                                ),
-                                child: Text(
-                                  '${entry.key} ${entry.value}',
-                                  style: const TextStyle(fontSize: 12),
-                                ),
+                  const SizedBox(height: 2),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (message.edited) ...[
+                        Text(
+                          l.chatEdited,
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
                               ),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (message.edited) ...[
+                        ),
+                        const SizedBox(width: 4),
+                      ],
                       Text(
-                        l.chatEdited,
+                        formatHhmm(message.timestamp),
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: scheme.onSurfaceVariant,
-                          fontStyle: FontStyle.italic,
                         ),
                       ),
-                      const SizedBox(width: 4),
+                      if (outgoing) ...[
+                        const SizedBox(width: 4),
+                        Icon(
+                          _statusIcon(message.status),
+                          size: 13,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ],
+                      ..._signatureBadge(context, l, scheme),
                     ],
-                    Text(
-                      formatHhmm(message.timestamp),
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    if (outgoing) ...[
-                      const SizedBox(width: 4),
-                      Icon(
-                        _statusIcon(message.status),
-                        size: 13,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ],
-                    ..._signatureBadge(context, l, scheme),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -2495,29 +2521,29 @@ class _TranslationRowState extends ConsumerState<_TranslationRow> {
       child: Tooltip(
         message: l.chatTranslateInto,
         child: InkWell(
-        onTap: () => ref
-            .read(translationControllerProvider.notifier)
-            .translate(messageId, body),
-        onLongPress: () => _pickTranslationLanguage(
-          context,
-          ref,
-          messageId: messageId,
-          body: body,
-          current: entry?.to,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.translate_outlined, size: 15, color: muted),
-            const SizedBox(width: 4),
-            Text(
-              failed ? l.chatTranslateFailed : l.chatTranslate,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: failed ? scheme.error : muted,
+          onTap: () => ref
+              .read(translationControllerProvider.notifier)
+              .translate(messageId, body),
+          onLongPress: () => _pickTranslationLanguage(
+            context,
+            ref,
+            messageId: messageId,
+            body: body,
+            current: entry?.to,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.translate_outlined, size: 15, color: muted),
+              const SizedBox(width: 4),
+              Text(
+                failed ? l.chatTranslateFailed : l.chatTranslate,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: failed ? scheme.error : muted,
+                ),
               ),
-            ),
-          ],
-        ),
+            ],
+          ),
         ),
       ),
     );
