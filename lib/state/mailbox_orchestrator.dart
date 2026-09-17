@@ -253,7 +253,26 @@ class MailboxOrchestrator {
             .where((e) => now.isBefore(e.value))
             .toList()
           ..sort((a, b) => a.value.compareTo(b.value));
-    return [for (final e in live.take(_maxSkipPerFetch)) _unhex(e.key)];
+    final out = <Uint8List>[
+      for (final e in live.take(_maxSkipPerFetch)) _unhex(e.key),
+    ];
+    // AND THE ONES THAT WILL NEVER OPEN.
+    //
+    // These used to be acked away, and the ack is what kept the queue moving:
+    // the relay serves oldest-first inside a reply budget, so an id left at the
+    // head is in every batch and everything behind it is never reached. The
+    // ack had to go — it names a content id, so it deletes every replica under
+    // that id including an honest copy nothing looked at (report27 X35) — and
+    // the skip hint does the same job without destroying anything: the relay
+    // keeps its copies and serves this device the NEXT blob instead.
+    //
+    // Newest first, because the head of the queue is what blocks it, and
+    // bounded by the relay's own cap on the hint.
+    for (final hex in _openFailedOnce.toList().reversed) {
+      if (out.length >= _maxSkipPerFetch) break;
+      out.add(_unhex(hex));
+    }
+    return out;
   }
 
   /// Mirrors the relay's own cap on the hint.
@@ -627,7 +646,30 @@ class MailboxOrchestrator {
         }
         _openFailedOnce.add(cidHex);
         await _poisoned?.add(b.contentId);
-        await _ack(cost, me, b.contentId, authCookie, knownRelays);
+        // NO ACK. A body that would not open is never a reason to delete
+        // anything, anywhere.
+        //
+        // The ack names a CONTENT ID and nothing else: the relay cannot tell
+        // the copy that failed from any other under the same id, so every
+        // replica goes. For a message small enough to arrive whole that was
+        // tolerable — the other bodies in this batch are tried first, which is
+        // what the `variantsLeft` check above is for. For a message large
+        // enough to be ANNOUNCED and fetched in slices it was not: the
+        // collector returns the first body it can assemble and stops, so
+        // `variantsLeft` is zero with an honest copy still sitting on another
+        // relay that nothing has looked at. One compromised relay among those
+        // actually in use could therefore delete a message that would have
+        // opened (report27 X35).
+        //
+        // The cost of not acking is that a junk blob occupies its relay until
+        // the TTL sweeps it. That is paid for locally instead: the cid is
+        // quarantined above, durably, so this device stops re-fetching and
+        // re-failing it — which is what the ack was mostly buying.
+        devLog(
+          () =>
+              'xVeil[drain]: NOT acking contentId=${_shortHex(b.contentId)} — '
+              'the open failed and an ack would take every replica with it',
+        );
         continue;
       }
       _transientOpenFails.remove(cidHex); // opened fine — forget old timeouts

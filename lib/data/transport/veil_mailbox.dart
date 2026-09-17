@@ -330,7 +330,19 @@ class InMemoryMailboxRelay implements VeilMailboxRelay {
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
     List<Uint8List> skip = const [],
-  }) async => List.unmodifiable(_store[me.hex] ?? const []);
+  }) async {
+    // HONOURED, as the real relay honours it (`Mailbox::fetch_skipping`). It
+    // used to be accepted and ignored, which made this double unable to
+    // reproduce the one thing the hint exists for: a blob at the head of the
+    // queue that this device cannot open, inside a reply budget that serves
+    // oldest-first, hiding everything behind it (report27 X35).
+    final all = _store[me.hex] ?? const <StoredMailboxBlob>[];
+    if (skip.isEmpty) return List.unmodifiable(all);
+    return List.unmodifiable([
+      for (final b in all)
+        if (!skip.any((s) => _bytesEqual(s, b.contentId))) b,
+    ]);
+  }
 
   @override
   Future<void> ack({
