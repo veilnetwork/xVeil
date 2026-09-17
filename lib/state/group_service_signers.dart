@@ -22,6 +22,18 @@ abstract class GroupSigner {
     SpaceModerationAppealDecision unsigned,
   );
   bool verifyControl(ControlEntry e);
+
+  /// Could the key that signed [e] act at [atUnixSecs]?
+  ///
+  /// Separate from [verifyControl] because the two are asked in different
+  /// places on purpose. This one runs at ADMISSION, where a row arriving now is
+  /// a new action and an expired delegation must not authorise it.
+  /// [verifyControl] runs inside `foldControlLog`, where the same row is
+  /// history and the answer must not depend on when any device received it — a
+  /// fold that consulted arrival moments would put two devices of one person on
+  /// two different member lists.
+  bool verifyControlAt(ControlEntry e, int atUnixSecs);
+
   bool verifyMessage(GroupMessage m);
   bool verifyReaction(GroupReaction r);
   bool verifyPost(SpacePost post);
@@ -191,6 +203,9 @@ class NativeGroupSigner implements GroupSigner {
   );
   @override
   bool verifyControl(ControlEntry e) => verifyControlEntry(e, lib: lib);
+  @override
+  bool verifyControlAt(ControlEntry e, int atUnixSecs) =>
+      verifyControlEntry(e, atUnixSecs: atUnixSecs, lib: lib);
   @override
   bool verifyMessage(GroupMessage m) => verifyGroupMessage(m, lib: lib);
   @override

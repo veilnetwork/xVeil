@@ -103,6 +103,9 @@ class _DeviceSigner implements GroupSigner {
   bool verifyControl(ControlEntry e) =>
       _ok(e.authorPubKey, e.canonicalBytes(), e.signature);
   @override
+  bool verifyControlAt(ControlEntry e, int atUnixSecs) =>
+      verifyControl(e);
+  @override
   bool verifyMessage(GroupMessage m) =>
       _ok(m.authorPubKey, m.canonicalBytes(), m.signature);
   @override

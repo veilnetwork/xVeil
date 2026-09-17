@@ -64,11 +64,19 @@ int? debugDocumentLookupBytes(NodeId identity) =>
 /// binding, the original rule, unchanged), or the author's identity document
 /// names the key as one of its devices. Nothing else is accepted, and a key
 /// that fails both is refused exactly as before.
+///
+/// [atUnixSecs] is the moment the caller is judging, and `0` — the default —
+/// means it has none. With a moment, the DEVICE key's own validity window has
+/// to contain it; without one, the question is only whether the document lists
+/// the key, which is what every caller asked before this parameter existed
+/// (report27 V02). The hash-binding path never consults a window: there is no
+/// document, no delegation and therefore nothing that can lapse.
 bool _verifyAuthored({
   required NodeId author,
   required Uint8List publicKey,
   required Uint8List message,
   required Uint8List signature,
+  int atUnixSecs = 0,
   DynamicLibrary? lib,
 }) {
   try {
@@ -83,14 +91,21 @@ bool _verifyAuthored({
     }
     final document = _documentLookup?.call(author);
     if (document == null || document.isEmpty) return false;
-    if (!EmbeddedNode.identityDocumentAuthorizes(
-      document: document,
-      nodeId: author.bytes,
-      publicKey: publicKey,
-      lib: lib,
-    )) {
-      return false;
-    }
+    final authorised = atUnixSecs > 0
+        ? EmbeddedNode.identityDocumentAuthorizedAt(
+            document: document,
+            nodeId: author.bytes,
+            publicKey: publicKey,
+            atUnixSecs: atUnixSecs,
+            lib: lib,
+          )
+        : EmbeddedNode.identityDocumentAuthorizes(
+            document: document,
+            nodeId: author.bytes,
+            publicKey: publicKey,
+            lib: lib,
+          );
+    if (!authorised) return false;
     // The document vouches for the KEY; the SIGNATURE still has to hold. Bound
     // to the key's own id so the native check's hash test is satisfied by
     // construction and what remains is the Ed25519 verification itself.
@@ -179,13 +194,24 @@ ControlEntry signControlEntry({
 /// [ControlEntry.authorPubKey], AND that the key hashes to the author node id.
 /// Returns false on any mismatch / missing key — never throws (safe as the
 /// injected `verify` for [foldControlLog]).
-bool verifyControlEntry(ControlEntry e, {DynamicLibrary? lib}) {
+///
+/// [atUnixSecs] belongs to ADMISSION, not to the fold. Pass the moment this
+/// device accepted the row and the signing device key's window has to contain
+/// it; pass nothing — the default — and the answer is the one the fold needs,
+/// which must not depend on when any particular device happened to receive the
+/// row. See `GroupService._admitControlRowsSignedByLiveKeys`.
+bool verifyControlEntry(
+  ControlEntry e, {
+  int atUnixSecs = 0,
+  DynamicLibrary? lib,
+}) {
   if (e.authorPubKey.length != 32 || e.signature.length != 64) return false;
   return _verifyAuthored(
     author: e.author,
     publicKey: e.authorPubKey,
     message: e.canonicalBytes(),
     signature: e.signature,
+    atUnixSecs: atUnixSecs,
     lib: lib,
   );
 }

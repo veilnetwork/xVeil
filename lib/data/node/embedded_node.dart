@@ -466,6 +466,20 @@ typedef _DocAuthorizesNative =
     Int32 Function(Pointer<Uint8>, IntPtr, Pointer<Uint8>, Pointer<Uint8>);
 typedef _DocAuthorizesDart =
     int Function(Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Uint8>);
+// int veil_identity_document_authorized_at(const uint8_t *doc, size_t doc_len,
+//                                          const uint8_t node_id[32],
+//                                          const uint8_t pubkey[32],
+//                                          uint64_t at_unix_secs);
+typedef _DocAuthorizedAtNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      IntPtr,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Uint64,
+    );
+typedef _DocAuthorizedAtDart =
+    int Function(Pointer<Uint8>, int, Pointer<Uint8>, Pointer<Uint8>, int);
 typedef _VerifyNative =
     Int32 Function(
       Pointer<Uint8>,
@@ -2628,6 +2642,56 @@ class EmbeddedNode {
       nidPtr.asTypedList(32).setAll(0, nodeId);
       pkPtr.asTypedList(32).setAll(0, publicKey);
       return fn(docPtr, document.length, nidPtr, pkPtr) == 0;
+    } finally {
+      calloc.free(docPtr);
+      calloc.free(nidPtr);
+      calloc.free(pkPtr);
+    }
+  }
+
+  /// Was [publicKey] entitled to speak for [nodeId] AT [atUnixSecs]?
+  ///
+  /// [identityDocumentAuthorizes] asks whether the document lists the key and
+  /// ignores that key's own validity window on purpose: demanding it be valid
+  /// TODAY would reject history that was legitimate when it was written. The
+  /// cost of that tolerance is that a device secret keeps its authority for
+  /// ever, long after the delegation granting it lapsed (report27 V02).
+  ///
+  /// This asks the question an admission decision actually has: could this key
+  /// act at the moment this device accepted the thing it signed. The document
+  /// itself is still verified at NOW — it is the identity's current statement
+  /// about itself — while the KEY's window is checked at [atUnixSecs], which
+  /// survives renewal because a renewal moves `valid_until` and leaves
+  /// `valid_from` where it was. Revocation still applies at NOW and still wins.
+  ///
+  /// [atUnixSecs] of `0` means "no moment recorded" and falls back to exactly
+  /// [identityDocumentAuthorizes], so a caller with nothing honest to pass is
+  /// no worse off than before this existed.
+  static bool identityDocumentAuthorizedAt({
+    required Uint8List document,
+    required Uint8List nodeId,
+    required Uint8List publicKey,
+    required int atUnixSecs,
+    DynamicLibrary? lib,
+  }) {
+    if (document.isEmpty ||
+        nodeId.length != 32 ||
+        publicKey.length != 32 ||
+        atUnixSecs < 0) {
+      return false;
+    }
+    final dl = lib ?? _veilLib();
+    final fn = dl.lookupFunction<_DocAuthorizedAtNative, _DocAuthorizedAtDart>(
+      'veil_identity_document_authorized_at',
+    );
+    final docPtr = calloc<Uint8>(document.length);
+    final nidPtr = calloc<Uint8>(32);
+    final pkPtr = calloc<Uint8>(32);
+    try {
+      docPtr.asTypedList(document.length).setAll(0, document);
+      nidPtr.asTypedList(32).setAll(0, nodeId);
+      pkPtr.asTypedList(32).setAll(0, publicKey);
+      return fn(docPtr, document.length, nidPtr, pkPtr, atUnixSecs) == 0;
     } finally {
       calloc.free(docPtr);
       calloc.free(nidPtr);
