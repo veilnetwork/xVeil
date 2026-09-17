@@ -52,6 +52,23 @@ import 'support/fake_hv_container.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
+/// A signer that answers the ADMISSION question differently from the fold's.
+///
+/// `verifyControl` keeps saying yes, because the row's signature is fine and
+/// the fold has no business asking anything else. `verifyControlAt` says no for
+/// the named rows, which is what a device key whose delegation has lapsed looks
+/// like from `_admitControlRowsSignedByLiveKeys`.
+class _LapsedAtAdmissionSigner extends _FakeSigner {
+  _LapsedAtAdmissionSigner(super.self);
+
+  /// `ControlEntry.text` of rows whose key could not act at admission time.
+  final Set<String> lapsed = <String>{};
+
+  @override
+  bool verifyControlAt(ControlEntry e, int atUnixSecs) =>
+      !lapsed.contains(e.text) && verifyControl(e);
+}
+
 NodeId _ordinalId(int value) {
   final bytes = Uint8List(32);
   bytes[0] = (value >> 8) & 0xff;
@@ -102,6 +119,9 @@ class _FakeSigner implements GroupSigner {
   @override
   bool verifyControl(ControlEntry e) =>
       e.signature.length == 64 && e.authorPubKey.length == 32;
+  @override
+  bool verifyControlAt(ControlEntry e, int atUnixSecs) =>
+      verifyControl(e);
   @override
   bool verifyContentRequest(GroupContentRequest r) =>
       r.signature.length == 64 && r.authorPubKey.length == 32;
@@ -180,6 +200,9 @@ class _AuthorityFakeSigner extends _FakeSigner {
         _fakeSovereignSignature(value.authorPubKey, value.canonicalBytes()),
         value.signature,
       );
+  @override
+  bool verifyControlAt(ControlEntry value, int atUnixSecs) =>
+      verifyControl(value);
 }
 
 class _NativeSovereignVerifier extends _FakeSigner {
@@ -11134,6 +11157,130 @@ void main() {
           spaceId,
         ))!.protectedChannels[channelId.hex]!.channelEpoch,
         servingEpoch + 1,
+      );
+
+      await bobStorage.close();
+      await ownerStorage.close();
+    },
+  );
+
+  test(
+    'report27 V02: a control row whose key had lapsed by the time it arrived '
+    'is refused, and one already held is never re-judged',
+    () async {
+      final t0 = DateTime.utc(2026, 9, 17, 9).millisecondsSinceEpoch;
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(ownerStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => t0;
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Windows');
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+
+      // A row that is already history by the time Bob's device sees it.
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.setName,
+          text: 'history',
+        ),
+        isTrue,
+      );
+
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobSigner = _LapsedAtAdmissionSigner(bob);
+      var bobWall = t0 + const Duration(minutes: 5).inMilliseconds;
+      final bobSvc = GroupService(bobStorage, bobSigner)
+        ..debugWallClockMs = () => bobWall;
+      addTearDown(bobSvc.dispose);
+      Future<void> sync() async {
+        expect(
+          await bobSvc.ingestSnapshot(
+            ownerSvc.snapshotJson(
+              (await ownerSvc.load(spaceId))!,
+              recipient: bob,
+            ),
+          ),
+          isTrue,
+        );
+      }
+
+      // The joining batch is history this device was not present for, so it is
+      // admitted whole even with the refusal armed — there is no honest moment
+      // of arrival to judge it by.
+      bobSigner.lapsed.add('history');
+      await sync();
+      final joined = (await bobSvc.load(spaceId))!;
+      expect(
+        joined.control.where((e) => e.text == 'history'),
+        hasLength(1),
+        reason:
+            'the baseline batch has no arrival moment of its own and must pass '
+            'through untouched, or joining a Space would discard its past',
+      );
+      final heldBefore = joined.control.length;
+      bobSigner.lapsed.clear();
+
+      // A row written now, and this device does have a moment for it. The key
+      // could not act at that moment, so the row is never stored.
+      expect(
+        await ownerSvc.addControlOp(spaceId, ControlOp.setName, text: 'lapsed'),
+        isTrue,
+      );
+      bobWall = t0 + const Duration(hours: 1).inMilliseconds;
+      bobSigner.lapsed.add('lapsed');
+      await sync();
+      final refused = (await bobSvc.load(spaceId))!;
+      expect(
+        refused.control.where((e) => e.text == 'lapsed'),
+        isEmpty,
+        reason:
+            'a device secret whose delegation had lapsed by the time the row '
+            'reached here still added a row to the log',
+      );
+      expect(
+        refused.control.length,
+        heldBefore,
+        reason: 'and nothing that was already held went with it',
+      );
+
+      // The control: the SAME row, with the key entitled to act, is admitted.
+      // Without this the test would pass on a save that simply drops rows.
+      bobSigner.lapsed.clear();
+      await sync();
+      final admitted = (await bobSvc.load(spaceId))!;
+      expect(
+        admitted.control.where((e) => e.text == 'lapsed'),
+        hasLength(1),
+        reason: 'the refusal must be the window, not the arrival itself',
+      );
+
+      // And now it is HISTORY. The window lapsing afterwards must not withdraw
+      // it — that is the retroactive invalidation this design refuses, and it
+      // is what a fold that consulted arrival moments would do on every replay.
+      bobSigner.lapsed.add('lapsed');
+      bobWall = t0 + const Duration(days: 30).inMilliseconds;
+      expect(
+        await ownerSvc.addControlOp(spaceId, ControlOp.setName, text: 'later'),
+        isTrue,
+      );
+      await sync();
+      final kept = (await bobSvc.load(spaceId))!;
+      expect(
+        kept.control.where((e) => e.text == 'lapsed'),
+        hasLength(1),
+        reason:
+            'a row admitted once was re-judged later and withdrawn; the '
+            'question is asked at admission and never again',
       );
 
       await bobStorage.close();

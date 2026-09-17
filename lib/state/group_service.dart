@@ -6078,7 +6078,72 @@ class GroupService {
     );
   }
 
+  /// Refuse control rows whose signing device key was not entitled to act at
+  /// the moment this device received them (report27 V02).
+  ///
+  /// A control row arriving now is a NEW ACTION and is judged by the key's
+  /// window at this moment; a row already held is HISTORY and is replayed
+  /// untouched. Without the split, a device secret keeps the authority its
+  /// delegation granted long after the delegation lapsed — it can still add and
+  /// remove members, and hand ownership away.
+  ///
+  /// Here and not inside the fold, deliberately. `foldControlLog` has to stay a
+  /// pure function of signed bytes — see [GroupBundle.controlReceipts] — or two
+  /// devices of one person that received the same row on different sides of a
+  /// key's expiry would compute two different member lists and never converge.
+  /// Admission is a local decision, which is exactly what the receipt map
+  /// already is; the fold then runs over what this device chose to keep.
+  ///
+  /// Two ways to carry no honest arrival moment, and both pass through
+  /// unchecked. The BASELINE pass — the first time this device records receipts
+  /// for a Space — is everything it holds arriving as one historical batch it
+  /// was not present for; judging that batch by today's windows would withdraw
+  /// a moderator's entire past. And a row that already carries a receipt was
+  /// admitted once; asking again later is asking a different question, and
+  /// answering it would be the retroactive invalidation this design refuses.
+  ///
+  /// The hash-binding path is untouched: a row whose author IS its key has no
+  /// document, no delegation and nothing that can lapse.
+  GroupBundle _admitControlRowsSignedByLiveKeys(GroupBundle b) {
+    final previous = b.controlReceipts;
+    if (previous.isEmpty || b.control.isEmpty) return b;
+    // [_clockNowMs], not [_now]: this only asks what time it is, and advancing
+    // the mutation counter on every save would shift every stamp written after.
+    final nowSecs = _clockNowMs() ~/ 1000;
+    final refused = <String>{};
+    for (final e in b.control) {
+      final key = controlReceiptKey(e);
+      if (previous.containsKey(key)) continue;
+      // Only the WINDOW may refuse here. A row failing the time-free check as
+      // well is failing for a reason admission has no business acting on —
+      // typically that this device does not hold the author's identity
+      // document, which is a verdict for whichever path produced the bundle,
+      // not for a rule about expiry. Every such path today (`_ingestSnapshot`
+      // and the merges around it) already drops those rows before this runs,
+      // so this line cannot be observed from outside; it is here to keep the
+      // rule true of a path that does not, rather than have one silently
+      // deleting log rows for the wrong reason.
+      if (!_signer.verifyControl(e)) continue;
+      if (_signer.verifyControlAt(e, nowSecs)) continue;
+      refused.add(key);
+    }
+    if (refused.isEmpty) return b;
+    devLog(
+      () =>
+          'xVeil[groups]: refused ${refused.length} arriving control row(s) of '
+          '${b.manifest.groupId.hex.substring(0, 8)}: the signing device key '
+          'was not entitled to act at this moment',
+    );
+    return b.copyWith(
+      control: [
+        for (final e in b.control)
+          if (!refused.contains(controlReceiptKey(e))) e,
+      ],
+    );
+  }
+
   Future<void> _save(GroupBundle b, {bool notify = true}) async {
+    b = _admitControlRowsSignedByLiveKeys(b);
     final controlReceipts = _notedControlReceipts(b);
     // Chunked file-store (not putSetting): the bundle carries inline media that
     // overflows the single-setting cap. storeFile replaces the prior blob (or

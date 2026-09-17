@@ -81,6 +81,9 @@ class _FakeSigner implements GroupSigner {
   bool verifyControl(ControlEntry e) =>
       e.signature.length == 64 && e.authorPubKey.length == 32;
   @override
+  bool verifyControlAt(ControlEntry e, int atUnixSecs) =>
+      verifyControl(e);
+  @override
   bool verifyContentRequest(GroupContentRequest r) =>
       r.signature.length == 64 && r.authorPubKey.length == 32;
   @override
