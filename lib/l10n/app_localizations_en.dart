@@ -7233,6 +7233,15 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String transferContentsGroups(int groups, int cloud) {
+    return 'Groups and Spaces: $groups, cloud entries: $cloud';
+  }
+
+  @override
+  String get transferContentsGroupsNote =>
+      'Groups travel whole: members, history and the keys to read it. The device list does not — a restored device joins the way every device does.';
+
+  @override
   String get transferIncludeFiles => 'Include files';
 
   @override

@@ -12662,6 +12662,18 @@ abstract class AppL10n {
   /// **'{contacts} conversations, {messages} messages, {calls} calls'**
   String transferContents(int contacts, int messages, int calls);
 
+  /// No description provided for @transferContentsGroups.
+  ///
+  /// In en, this message translates to:
+  /// **'Groups and Spaces: {groups}, cloud entries: {cloud}'**
+  String transferContentsGroups(int groups, int cloud);
+
+  /// No description provided for @transferContentsGroupsNote.
+  ///
+  /// In en, this message translates to:
+  /// **'Groups travel whole: members, history and the keys to read it. The device list does not — a restored device joins the way every device does.'**
+  String get transferContentsGroupsNote;
+
   /// No description provided for @transferIncludeFiles.
   ///
   /// In en, this message translates to:

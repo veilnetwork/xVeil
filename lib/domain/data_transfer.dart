@@ -202,6 +202,15 @@ abstract class ArchiveGroups {
   /// Put one back. `false` when the snapshot was refused — a wrong identity, a
   /// manifest that does not verify, a body that does not parse.
   Future<bool> restoreSnapshot(String snapshotJson);
+
+  /// Roughly how many bytes [archivableGroupIds] would add to an archive.
+  ///
+  /// A hint, and named so. It exists because a group's history dominates the
+  /// size of an archive that has one, and a preview that left it out would
+  /// answer "megabytes" for a file that turns out to be gigabytes — which is
+  /// the one question the preview is asked. Cheap by construction: the stored
+  /// bundle's own length, not a snapshot built twice.
+  Future<int> archivableGroupBytes();
 }
 
 /// A layer whose state an archive carries as ordinary device-sync rows.
