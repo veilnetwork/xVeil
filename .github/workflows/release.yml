@@ -200,6 +200,46 @@ jobs:
           echo "using NDK $p"
           echo "path=$p" >> "$GITHUB_OUTPUT"
 
+      # CMake, installed HERE rather than by gradle forty minutes in.
+      #
+      # A pub plugin's native build asks the Android SDK manager for CMake
+      # 3.22.1 during `assembleRelease`. On 2026-09-17 that download arrived
+      # corrupt — `java.io.IOException: Error reading Zip content from a
+      # SeekableByteChannel` — and took the whole release run with it after
+      # every other bundle had already been built. A package fetched from the
+      # network in the middle of a release is a release that can fail for a
+      # reason that has nothing to do with the code, which is the same lesson
+      # an unguarded apt taught this project once already.
+      #
+      # So it is fetched up front, with retries, and its presence asserted. If
+      # it still cannot be had, the job says so in ten seconds instead of in
+      # forty minutes. Gradle then finds it installed and downloads nothing.
+      - name: Android CMake
+        run: |
+          set -euo pipefail
+          want=3.22.1
+          sdk="${ANDROID_HOME:?}"
+          mgr="$(ls -d "$sdk"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | tail -1 || true)"
+          [ -n "$mgr" ] || mgr="$sdk/tools/bin/sdkmanager"
+          if [ -x "$sdk/cmake/$want/bin/cmake" ]; then
+            echo "CMake $want already on the image"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            echo "installing CMake $want (attempt $attempt)"
+            if yes | timeout 600 "$mgr" "cmake;$want" >/dev/null 2>&1; then
+              break
+            fi
+            # A half-written package is what failed the release; a retry over
+            # the same bytes would read them again.
+            rm -rf "$sdk/cmake/$want"
+            sleep $((attempt * 15))
+          done
+          [ -x "$sdk/cmake/$want/bin/cmake" ] || {
+            echo "::error::CMake $want could not be installed after three attempts"
+            exit 1; }
+          "$sdk/cmake/$want/bin/cmake" --version
+
       - name: whisper.cpp at the pinned commit
         run: |
           set -euo pipefail
