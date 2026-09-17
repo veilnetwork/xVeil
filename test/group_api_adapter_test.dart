@@ -73,6 +73,9 @@ final class _Signer implements GroupSigner {
   @override
   bool verifyControl(ControlEntry entry) =>
       entry.signature.length == 64 && entry.authorPubKey.length == 32;
+  @override
+  bool verifyControlAt(ControlEntry entry, int atUnixSecs) =>
+      verifyControl(entry);
 
   @override
   bool verifyMessage(GroupMessage message) =>
