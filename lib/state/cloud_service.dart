@@ -12,6 +12,7 @@ import '../data/storage/storage.dart';
 import '../domain/chat.dart';
 import '../domain/cloud.dart';
 import '../domain/cloud_capability.dart';
+import '../domain/data_transfer.dart' show ArchiveCloud;
 import '../domain/content_manifest.dart';
 import '../domain/device_sync.dart';
 import '../domain/group_message.dart';
@@ -154,7 +155,7 @@ class CloudServiceClosed implements Exception {
       'this identity is no longer active: the change was not made';
 }
 
-class CloudService {
+class CloudService implements ArchiveCloud {
   CloudService(
     this._storage,
     this._sync, {
@@ -472,6 +473,65 @@ class CloudService {
         {'body': claim.toEvent().toBody(), 'author': claim.deviceId.hex},
     ]),
   );
+
+  // ── The archive's half (report27 X08) ──────────────────────────────────
+
+  @override
+  bool claimsSyncKind(DeviceSyncKind kind) =>
+      kind == DeviceSyncKind.cloudEntry ||
+      kind == DeviceSyncKind.cloudFolder ||
+      kind == DeviceSyncKind.cloudReplica;
+
+  /// This device's cloud rows, exactly as the index persists them.
+  ///
+  /// The same list [_saveIndex] writes, and for the same reason: it is the
+  /// whole of what this layer knows, in the one shape every other path already
+  /// merges. Note heads are in it via [_indexRows], so an edited note travels
+  /// with its history rather than only its winner.
+  @override
+  Future<List<DeviceSyncEvent>> archivableCloudEvents() async => [
+    for (final item in _indexRows()) item.toEvent(),
+    for (final folder in _folders.values) folder.toEvent(),
+    for (final entry in _trash.values) entry.toEvent(),
+  ];
+
+  /// Take cloud rows out of an archive.
+  ///
+  /// Folded into the LOCAL index rather than posted to the device group,
+  /// because an import happens on a device that may not have one yet — a
+  /// restore onto a fresh install is the case this is for. The reconcile
+  /// backfill republishes local rows once a device group appears, so nothing is
+  /// stranded; and the fold is the same LWW every other path runs, so a row
+  /// this device already has a newer version of loses here exactly as it would
+  /// on the wire.
+  @override
+  Future<int> adoptArchivedCloudEvents(List<DeviceSyncEvent> events) {
+    if (events.isEmpty) return Future.value(0);
+    return _serialized(() async {
+      final before = _indexRows().length + _folders.length + _trash.length;
+      final merged = <DeviceSyncEvent>[
+        for (final item in _indexRows()) item.toEvent(),
+        for (final folder in _folders.values) folder.toEvent(),
+        for (final entry in _trash.values) entry.toEvent(),
+        ...events,
+      ];
+      _items
+        ..clear()
+        ..addAll(foldCloudItems(merged));
+      _noteHeads
+        ..clear()
+        ..addAll(foldCloudNoteHeads(merged));
+      _folders
+        ..clear()
+        ..addAll(foldCloudFolders(merged));
+      _trash
+        ..clear()
+        ..addAll(foldCloudTrash(merged));
+      await _saveIndex();
+      _emit();
+      return (_indexRows().length + _folders.length + _trash.length) - before;
+    });
+  }
 
   void _scheduleReconcile() {
     _reconcileTimer?.cancel();

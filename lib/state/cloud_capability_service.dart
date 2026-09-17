@@ -13,6 +13,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/cloud.dart';
 import '../domain/cloud_capability.dart';
 import '../domain/content_manifest.dart';
+import '../domain/data_transfer.dart' show ArchiveCloud;
 import '../domain/device_sync.dart';
 import 'cloud_folder_share.dart';
 import 'group_service_providers.dart';
@@ -241,7 +242,7 @@ class CloudPublicShare {
   final int expiresAtMs;
 }
 
-class CloudCapabilityService {
+class CloudCapabilityService implements ArchiveCloud {
   CloudCapabilityService(
     this._storage,
     this._network, {
@@ -1369,11 +1370,36 @@ class CloudCapabilityService {
     } catch (_) {
       return;
     }
-    final folded = foldDeviceSync([
-      ..._events.values,
+    await _absorbCapabilityEvents([
       for (final record in remote)
         if (record.event.kind == DeviceSyncKind.cloudCapability) record.event,
     ]);
+
+    final remoteBodies = {
+      for (final record in remote)
+        if (record.event.kind == DeviceSyncKind.cloudCapability)
+          record.event.toBody(),
+    };
+    for (final event in _events.values) {
+      if (!remoteBodies.contains(event.toBody())) {
+        try {
+          await sync.post(event);
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Fold [incoming] into the registry and act on what wins.
+  ///
+  /// Extracted from [_reconcileSync] so an offline archive lands by exactly the
+  /// same path a sibling device's rows do (report27 X08) — including resuming
+  /// the hosting of a share that is still live, which is what lets a restored
+  /// device revoke it. The caller decides where the rows came from; this does
+  /// not need a sync port and works on a device that has none yet.
+  Future<void> _absorbCapabilityEvents(
+    Iterable<DeviceSyncEvent> incoming,
+  ) async {
+    final folded = foldDeviceSync([..._events.values, ...incoming]);
     for (final entry in folded.entries) {
       if (entry.key.$1 != DeviceSyncKind.cloudCapability) continue;
       final shareId = entry.key.$2;
@@ -1426,19 +1452,30 @@ class CloudCapabilityService {
     }
     await _saveCurrentRows();
     await _saveEvents();
+  }
 
-    final remoteBodies = {
-      for (final record in remote)
-        if (record.event.kind == DeviceSyncKind.cloudCapability)
-          record.event.toBody(),
-    };
-    for (final event in _events.values) {
-      if (!remoteBodies.contains(event.toBody())) {
-        try {
-          await sync.post(event);
-        } catch (_) {}
-      }
-    }
+  // ── The archive's half (report27 X08) ──────────────────────────────────
+
+  @override
+  bool claimsSyncKind(DeviceSyncKind kind) =>
+      kind == DeviceSyncKind.cloudCapability;
+
+  /// The share registry as the archive should carry it.
+  ///
+  /// These are grants: a copy of the archive is a copy of every live share.
+  /// Carried anyway, and deliberately, because the alternative is worse — a
+  /// restored device that cannot see what this identity shared cannot REVOKE
+  /// it either, and the share goes on serving with nobody able to stop it.
+  @override
+  Future<List<DeviceSyncEvent>> archivableCloudEvents() async =>
+      _events.values.toList();
+
+  @override
+  Future<int> adoptArchivedCloudEvents(List<DeviceSyncEvent> events) async {
+    if (_closed || events.isEmpty) return 0;
+    final before = _events.length;
+    await _absorbCapabilityEvents(events);
+    return _events.length - before;
   }
 
   Future<void> _saveRows(List<_RegistryRow> rows) => _saveMetadata(

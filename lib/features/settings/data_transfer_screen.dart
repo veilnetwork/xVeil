@@ -28,6 +28,8 @@ import '../../routing/back_affordance.dart';
 import '../common/shown_cause.dart';
 import '../../state/data_export.dart';
 import '../../state/data_import.dart';
+import '../../state/cloud_capability_service.dart';
+import '../../state/cloud_service.dart';
 import '../../state/device_settings_sync.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/device_sync_appliers.dart';
@@ -113,6 +115,17 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   Future<String> _selfHex() =>
       ref.read(messagingServiceProvider).savedSelfHex();
 
+  /// The layers whose rows the archive carries: the cloud index, and the share
+  /// registry.
+  ///
+  /// Read inside the operation, like the appliers and the group service beside
+  /// them: both belong to the identity this transfer was asked for, and
+  /// `stillOurs` is what stops a switch halfway through (report27 X02).
+  List<ArchiveCloud> _cloudLayers() => [
+    ?ref.read(cloudServiceProvider),
+    ?ref.read(cloudCapabilityServiceProvider),
+  ];
+
   Future<void> _loadPlan() async {
     try {
       final plan = await DataExporter(
@@ -158,6 +171,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         // layer belongs to the identity this export was asked for, and
         // `stillOurs` is what stops a switch halfway through (report27 X02).
         groups: ref.read(groupServiceProvider),
+        cloud: _cloudLayers(),
       ).run(
         sink: (bytes) async => handle.add(bytes),
         password: password,
@@ -263,6 +277,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         appliers: ref.read(deviceSyncAppliersProvider),
         selfNodeIdHex: owner.selfHex,
         groups: ref.read(groupServiceProvider),
+        cloud: _cloudLayers(),
       ).run(
         bytes: file.openRead(),
         password: password,

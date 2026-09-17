@@ -117,6 +117,89 @@ Future<Uint8List> Function(int, int) _reader(Uint8List bytes) =>
         Uint8List.sublistView(bytes, offset, offset + length);
 
 void main() {
+  /// report27 X08 — the cloud tree travels in an archive.
+  ///
+  /// It is not a snapshot and cannot be: the cloud state IS a fold over LWW
+  /// rows, so what an archive carries is the rows. What this pins is that the
+  /// rows a device hands out are enough to rebuild the tree on a device that
+  /// holds nothing — items, their folders, and the note history behind the
+  /// winner.
+  test('report27 X08: the cloud tree leaves as rows and is rebuilt from them', () async {
+    var clock = 1000;
+    final aStorage = FakeHvContainer().storage();
+    await aStorage.open(password: 'pw', createIfMissing: true);
+    var ids = 0;
+    final a = CloudService(
+      aStorage,
+      _FakeSync(_id(1)),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'archived-${ids++}',
+      integrityChecks: false,
+    );
+    await a.start();
+    final folder = await a.createFolder('Kept');
+    final note = await a.saveTextNote(
+      title: 'Carried',
+      body: 'v1',
+      folderId: folder.id,
+    );
+    await a.saveTextNote(
+      itemId: note.id,
+      expectedRevision: note.revision,
+      expectedContentId: note.contentId,
+      title: 'Carried',
+      body: 'v2',
+    );
+
+    final rows = await a.archivableCloudEvents();
+    expect(rows, isNotEmpty, reason: 'premise: there is a tree to carry');
+
+    // A device holding nothing.
+    final bStorage = FakeHvContainer().storage();
+    await bStorage.open(password: 'pw', createIfMissing: true);
+    final b = CloudService(
+      bStorage,
+      _FakeSync(_id(2)),
+      contentReceived: const Stream.empty(),
+      now: () => DateTime.fromMillisecondsSinceEpoch(clock++),
+      newId: () => 'other',
+      integrityChecks: false,
+    );
+    await b.start();
+    expect(await b.listItems(), isEmpty, reason: 'premise: B holds nothing');
+
+    final adopted = await b.adoptArchivedCloudEvents(rows);
+    expect(adopted, greaterThan(0), reason: 'nothing was taken');
+
+    final items = await b.listItems();
+    expect(
+      items.map((i) => i.name),
+      contains('Carried'),
+      reason:
+          'the note did not arrive: the archive carried the blobs and not the '
+          'tree, which is the shape of the defect this closes',
+    );
+    expect(
+      items.single.folderId,
+      folder.id,
+      reason: 'the item arrived loose — its folder did not travel with it',
+    );
+    expect(
+      b.listFolders().map((f) => f.name),
+      contains('Kept'),
+      reason: 'the folder itself did not travel',
+    );
+
+    // Idempotent, like every other row in an archive: importing twice is one
+    // import. Anything else makes "try again" unsafe advice after a failure.
+    expect(await b.adoptArchivedCloudEvents(rows), 0);
+    expect((await b.listItems()).length, items.length);
+
+    await a.close();
+    await b.close();
+  });
+
   test('a closed service refuses changes instead of writing them', () async {
     // report21 X21-H2. `close()` is what an identity switch does to the
     // service it leaves. A screen that captured the OLD one keeps working —

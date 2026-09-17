@@ -43,6 +43,8 @@ import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
 
+import 'device_sync.dart';
+
 /// First line of every archive. The digit is the format generation: a reader
 /// that does not know it refuses the file whole rather than guessing.
 const String kDataTransferMagic = 'XVEILBK1';
@@ -200,6 +202,34 @@ abstract class ArchiveGroups {
   /// Put one back. `false` when the snapshot was refused — a wrong identity, a
   /// manifest that does not verify, a body that does not parse.
   Future<bool> restoreSnapshot(String snapshotJson);
+}
+
+/// A layer whose state an archive carries as ordinary device-sync rows.
+///
+/// The cloud tree is the case this exists for: items, folders and share
+/// capabilities are LWW rows, not files, so an archive carries the rows and the
+/// far side folds them the way every other path does. They ride the `sync`
+/// record kind — the same one conversations and settings use — because there is
+/// nothing new about them on the wire; what is new is that somebody has to
+/// claim them on the way in.
+///
+/// Two implementations rather than one, because the state lives in two places:
+/// the cloud index, and the share registry with its secrets.
+abstract class ArchiveCloud {
+  /// Whether rows of [kind] belong to this layer. The importer asks before
+  /// handing an event over, so the knowledge of which kinds are whose stays
+  /// with the layer that owns them.
+  bool claimsSyncKind(DeviceSyncKind kind);
+
+  /// This layer's own rows, as the archive should carry them.
+  Future<List<DeviceSyncEvent>> archivableCloudEvents();
+
+  /// Take rows out of an archive, and say how many were new here.
+  ///
+  /// A batch rather than one at a time: the merge is a fold over the whole set
+  /// against what this device holds, which is how the same rows arriving from a
+  /// sibling are merged.
+  Future<int> adoptArchivedCloudEvents(List<DeviceSyncEvent> events);
 }
 
 /// One record: what it is, what it says, and (optionally) its bytes.
