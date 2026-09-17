@@ -268,7 +268,7 @@ class CloudCapabilityService implements ArchiveCloud {
   static const _eventsFile = 'cloud.capability.events.v2';
   static const _folderRegistryFile = 'cloud.folder.capabilities.registry.v1';
   static const _folderRegistrySetting = 'cloud.folder.capabilities.v1';
-  static const _manifestPrefix = 'mf:';
+  static const _manifestPrefix = kContentManifestFilePrefix;
   static const _providerEndpointBase = 40;
   static const _returnEndpointId = 48;
   static const maxActiveShares = 6;

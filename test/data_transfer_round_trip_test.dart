@@ -22,6 +22,7 @@ import 'package:xveil/data/node/sovereign_identity_material.dart'
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/data_transfer.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/identity.dart';
@@ -85,7 +86,17 @@ class _Space implements Storage {
   @override
   Future<SharedContentReferenceSnapshot>
   sharedContentReferenceSnapshot() async => SharedContentReferenceSnapshot(
-    storedContentIds: files.keys.toSet(),
+    // Bare cids, as the real store reports them: a cid is listed when it has a
+    // payload OR an `mf:` manifest, and the manifest's own file id is not a
+    // member. A fake that listed `mf:<cid>` as a cid would send the exporter
+    // looking for `mf:mf:<cid>` and the test would pass on it.
+    storedContentIds: {
+      for (final k in files.keys)
+        if (k.startsWith(kContentManifestFilePrefix))
+          k.substring(kContentManifestFilePrefix.length)
+        else
+          k,
+    },
     referencedContentIds: files.keys.toSet(),
     complete: true,
   );
@@ -216,6 +227,15 @@ class _Groups implements ArchiveGroups {
   @override
   Future<String?> archiveSnapshot(String groupIdHex) async =>
       snapshots[groupIdHex];
+
+  @override
+  Future<int> archivableGroupBytes() async {
+    var total = 0;
+    for (final body in snapshots.values) {
+      total += body.length;
+    }
+    return total;
+  }
 
   @override
   Future<bool> restoreSnapshot(String snapshotJson) async {
@@ -735,6 +755,55 @@ void main() {
     );
   });
 
+  /// report27 X08 — a content manifest travels even when the bytes do not.
+  ///
+  /// `mf:<cid>` is how a piecewise-stored blob is read back and how a device
+  /// knows the content exists at all. It is a few hundred bytes and it was in
+  /// neither half of the archive: not a settings key (the allowlist is one
+  /// entry) and not a content id (`storedContentIds` holds bare cids). So a
+  /// restored device had the bytes and nothing describing them, and an archive
+  /// without files said nothing about what this identity had.
+  test('content manifests travel, with or without the bytes', () async {
+    final space = _deviceWithHistory();
+    const cid =
+        'abababababababababababababababababababababababababababababababab';
+    space.files[cid] = Uint8List.fromList([1, 2, 3, 4]);
+    space.files['$kContentManifestFilePrefix$cid'] = Uint8List.fromList(
+      utf8.encode('{"contentId":"$cid","size":4}'),
+    );
+
+    final withoutFiles = await _exportOf(space, includeFiles: false);
+    final lean = _Space();
+    await DataImporter(
+      storage: lean,
+      appliers: _Collector().appliers,
+      selfNodeIdHex: hexOf(1),
+    ).run(bytes: Stream.value(withoutFiles));
+    expect(
+      lean.files.keys,
+      contains('$kContentManifestFilePrefix$cid'),
+      reason:
+          'an archive without files carried nothing about this content at '
+          'all, so the restored device cannot even ask a peer for it',
+    );
+    expect(
+      lean.files.keys,
+      isNot(contains(cid)),
+      reason: 'and the bytes must NOT ride along in a no-files export',
+    );
+
+    // With the files, both travel.
+    final whole = await _exportOf(space);
+    final full = _Space();
+    final report = await DataImporter(
+      storage: full,
+      appliers: _Collector().appliers,
+      selfNodeIdHex: hexOf(1),
+    ).run(bytes: Stream.value(whole));
+    expect(full.files.keys, containsAll([cid, '$kContentManifestFilePrefix$cid']));
+    expect(report.filesAdded, greaterThanOrEqualTo(2));
+  });
+
   test('the profile is filled, never overwritten', () async {
     final archive = await _exportOf(_deviceWithHistory());
     final target = _Space()
@@ -1105,6 +1174,41 @@ void main() {
     expect(plan.files, 1);
     expect(plan.fileBytes, 13);
     expect(plan.estimatedBytesWithFiles, greaterThan(plan.estimatedBytesWithoutFiles));
+    expect(plan.groups, 0, reason: 'this device has no group layer wired');
+    expect(plan.cloudRows, 0);
+  });
+
+  /// report27 X08 — the preview counts the groups and the cloud tree too.
+  ///
+  /// It listed conversations, messages and calls while the screen offered
+  /// "everything this identity has", so a person had no way to see beforehand
+  /// that groups were not in the file. And a group's history DOMINATES the size
+  /// of an archive that has one: a preview that leaves it out answers
+  /// "megabytes" for a file that turns out to be gigabytes, which is the one
+  /// question the preview is asked.
+  test('the plan counts the groups and the cloud tree it will carry', () async {
+    final body = jsonEncode({'id': 'one', 'pad': 'x' * 4000});
+    final plan = await DataExporter(
+      storage: _deviceWithHistory(),
+      nodeIdHex: hexOf(1),
+      syncedSettingKeys: {'locale'},
+      groups: _Groups({'aa' * 32: body, 'bb' * 32: body}),
+      cloud: [
+        _Cloud({DeviceSyncKind.cloudEntry}, [
+          _cloudRow(DeviceSyncKind.cloudEntry, 'item-1'),
+        ]),
+      ],
+    ).plan();
+
+    expect(plan.groups, 2, reason: 'both groups must be counted');
+    expect(plan.cloudRows, 1);
+    expect(
+      plan.estimatedBytesWithoutFiles,
+      greaterThan(2 * body.length),
+      reason:
+          'the size the person is shown ignores the groups, so an archive '
+          'with a long history reads as a small file',
+    );
   });
 
   group('the credential travels with the identity', () {

@@ -172,7 +172,7 @@ class CloudService implements ArchiveCloud {
   static const _profileSetting = 'cloud.profile.v1';
   static const _lastVerifySetting = 'cloud.last_verify.v1';
   static const _seenSetting = 'cloud.seen.v1';
-  static const _manifestPrefix = 'mf:';
+  static const _manifestPrefix = kContentManifestFilePrefix;
   static const _wireChunkBytes = 4096;
   static const maxTextNoteBytes = 1024 * 1024;
 

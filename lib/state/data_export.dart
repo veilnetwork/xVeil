@@ -33,6 +33,7 @@ import '../data/node/sovereign_identity_material.dart'
     show readSovereignCredential;
 import '../data/storage/storage.dart';
 import '../domain/chat.dart';
+import '../domain/content_manifest.dart';
 import '../domain/data_transfer.dart';
 import '../domain/device_sync.dart';
 import 'transferable_settings.dart';
@@ -58,6 +59,9 @@ class DataExportPlan {
     required this.files,
     required this.fileBytes,
     required this.oversizeFiles,
+    this.groups = 0,
+    this.groupBytes = 0,
+    this.cloudRows = 0,
   });
 
   final int contacts;
@@ -73,6 +77,17 @@ class DataExportPlan {
   /// discovered afterwards.
   final int oversizeFiles;
 
+  /// Groups and Spaces that would travel, counted together: the person is
+  /// being told what comes back, and both come back the same way.
+  final int groups;
+
+  /// Roughly what those groups add. A group's history dominates the size of an
+  /// archive that has one.
+  final int groupBytes;
+
+  /// Cloud rows — items, folders, note history, trash, share grants.
+  final int cloudRows;
+
   /// A rough size for the archive WITHOUT files.
   ///
   /// Rough on purpose and named so: it is a count-based estimate, and the real
@@ -84,6 +99,8 @@ class DataExportPlan {
       (messages * 512) +
       (settings * 256) +
       (callLogEntries * 192) +
+      (cloudRows * 512) +
+      groupBytes +
       4096;
 
   int get estimatedBytesWithFiles => estimatedBytesWithoutFiles + fileBytes;
@@ -99,6 +116,7 @@ class DataExportReport {
     this.groups = 0,
     this.skippedGroups = const [],
     this.cloudRows = 0,
+    this.contentManifests = 0,
   });
 
   final int records;
@@ -118,6 +136,9 @@ class DataExportReport {
 
   /// Cloud rows carried — items, folders, note heads, trash, share grants.
   final int cloudRows;
+
+  /// Content manifests carried. They travel even when the bytes do not.
+  final int contentManifests;
 }
 
 /// Reads an open space and writes it as an archive.
@@ -207,6 +228,18 @@ class DataExporter {
       fileBytes += size;
     }
 
+    final groups = _groups;
+    var groupCount = 0;
+    var groupBytes = 0;
+    if (groups != null) {
+      groupCount = (await groups.archivableGroupIds()).length;
+      groupBytes = await groups.archivableGroupBytes();
+    }
+    var cloudRows = 0;
+    for (final layer in _cloud) {
+      cloudRows += (await layer.archivableCloudEvents()).length;
+    }
+
     return DataExportPlan(
       contacts: conversations.length,
       messages: messages,
@@ -215,6 +248,9 @@ class DataExporter {
       files: files,
       fileBytes: fileBytes,
       oversizeFiles: oversize,
+      groups: groupCount,
+      groupBytes: groupBytes,
+      cloudRows: cloudRows,
     );
   }
 
@@ -490,27 +526,51 @@ class DataExporter {
     }
 
     // 8. The files, streamed — a phone must be able to export a gigabyte
-    //    without holding a gigabyte.
+    //    without holding a gigabyte — and the content MANIFESTS beside them.
+    //
+    //    A manifest (`mf:<cid>`) is how a piecewise-stored blob is read back
+    //    and how a device knows a piece of content exists at all. It is a few
+    //    hundred bytes, and it travels whether or not the bytes do: an archive
+    //    without files still tells the restored device what this identity has,
+    //    so the content can be fetched from a peer instead of being invisible.
+    //    `storedContentIds` holds bare cids — a cid is in it when it has a
+    //    payload OR a manifest — so the manifest is asked for by name.
     final skipped = <String>[];
     var files = 0;
-    if (includeFiles) {
-      final snapshot = await _storage.sharedContentReferenceSnapshot();
-      for (final id in snapshot.storedContentIds) {
-        final size = await _storage.fileSize(id) ?? 0;
-        if (size > _fileCeiling) {
-          skipped.add(id);
-          continue;
-        }
-        await writer.addStreamed(
-          kind: TransferRecordKind.file,
-          meta: {'id': id},
-          length: size,
-          payload: _fileChunks(id, size),
+    var manifests = 0;
+    final snapshot = await _storage.sharedContentReferenceSnapshot();
+    for (final id in snapshot.storedContentIds) {
+      final manifestId = '$kContentManifestFilePrefix$id';
+      final manifest = await _storage.loadFile(manifestId);
+      if (manifest != null && manifest.isNotEmpty) {
+        await writer.add(
+          TransferRecord(
+            kind: TransferRecordKind.file,
+            meta: {'id': manifestId},
+            payload: manifest,
+          ),
         );
         records++;
-        files++;
-        step();
+        manifests++;
       }
+      if (!includeFiles) {
+        step();
+        continue;
+      }
+      final size = await _storage.fileSize(id) ?? 0;
+      if (size > _fileCeiling) {
+        skipped.add(id);
+        continue;
+      }
+      await writer.addStreamed(
+        kind: TransferRecordKind.file,
+        meta: {'id': id},
+        length: size,
+        payload: _fileChunks(id, size),
+      );
+      records++;
+      files++;
+      step();
     }
 
     await writer.close();
@@ -522,6 +582,7 @@ class DataExporter {
       groups: groupsCarried,
       skippedGroups: skippedGroups,
       cloudRows: cloudRows,
+      contentManifests: manifests,
     );
   }
 

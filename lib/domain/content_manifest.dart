@@ -4,6 +4,14 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'file_names.dart';
 
+/// File-id prefix under which a [ContentManifest] is stored.
+///
+/// One constant rather than a private copy per service: the cloud index, the
+/// share registry and the archive exporter all name the same file, and three
+/// spellings of `'mf:'` is how one of them ends up looking for a manifest
+/// nobody writes.
+const String kContentManifestFilePrefix = 'mf:';
+
 /// A content-addressed, hash-verified file manifest — the "torrent file" of the
 /// decentralized content layer. A file is split into fixed-size PIECES; each
 /// piece has a SHA-256 hash, and the whole manifest hashes to a [contentId] that

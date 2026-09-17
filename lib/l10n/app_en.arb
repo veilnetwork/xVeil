@@ -3296,6 +3296,9 @@
       }
     }
   },
+  "transferContentsGroups": "Groups and Spaces: {groups}, cloud entries: {cloud}",
+  "@transferContentsGroups": {"placeholders": {"groups": {"type": "int"}, "cloud": {"type": "int"}}},
+  "transferContentsGroupsNote": "Groups travel whole: members, history and the keys to read it. The device list does not — a restored device joins the way every device does.",
   "transferIncludeFiles": "Include files",
   "transferSizes": "Without files about {without} MB; with files about {with_} MB ({files} files)",
   "@transferSizes": {
