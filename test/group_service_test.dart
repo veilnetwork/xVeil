@@ -5763,6 +5763,199 @@ void main() {
     expect((snap['g'] as List).length, 1, reason: 'carries the missed event');
   });
 
+  /// report27 X08 — a group leaves in an archive as a whole snapshot and comes
+  /// back with the key that makes its history readable.
+  ///
+  /// The failure this guards is specific and was measured on the device-seed
+  /// path it borrows: a group that arrives with a manifest and a control log
+  /// and not one readable message looks like a working restore until something
+  /// tries to read it.
+  test(
+    'report27 X08: a group travels in an archive with the key its history '
+    'needs, and the device group stays behind',
+    () async {
+      final aStorage = FakeHvContainer().storage();
+      await aStorage.open(password: 'pw', createIfMissing: true);
+      final a = GroupService(
+        aStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(a.dispose);
+      // A device group, so the exclusion has something to exclude.
+      expect(
+        await a.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false),
+        isTrue,
+      );
+      final deviceGroup = (await a.deviceGroupIdHex())!;
+      final gid = await a.createGroup('Carried');
+      expect(
+        await a.postMessage(gid, 'said before the backup', broadcast: false),
+        isTrue,
+      );
+      // Rotate past that message's epoch. Forward secrecy is the point: the
+      // envelope for a retired epoch does not survive, so the local key is the
+      // only thing that can still open what was said under it — which is
+      // exactly what an archive has to carry and what `kk` is for.
+      expect(
+        await a.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final sid = await a.createSpace('Also carried');
+
+      final carried = await a.archivableGroupIds();
+      expect(
+        carried,
+        containsAll(<String>[gid.hex, sid.hex]),
+        reason: 'a group and a Space are both things an archive must carry',
+      );
+      expect(
+        carried,
+        isNot(contains(deviceGroup)),
+        reason:
+            'the device group travelled in a file — device membership is '
+            'established by the link ceremony and the sovereign document, and '
+            'a file is not a ceremony',
+      );
+
+      // A second device, holding nothing.
+      final bStorage = FakeHvContainer().storage();
+      await bStorage.open(password: 'pw', createIfMissing: true);
+      final b = GroupService(
+        bStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(b.dispose);
+      final retiredEpoch = (await a.load(gid))!.messages.single.membershipEpoch!;
+      for (final id in carried) {
+        final snapshot = await a.archiveSnapshot(id);
+        expect(snapshot, isNotNull, reason: 'every carried id must snapshot');
+        var body = snapshot!;
+        if (id == gid.hex) {
+          // The envelopes for the retired epoch, removed the way forward
+          // secrecy removes them. Without this the key arrives by the envelope
+          // route and `kk` decides nothing, so the assertion below would hold
+          // whether or not an archive carries keys at all.
+          final decoded = jsonDecode(body) as Map<String, dynamic>;
+          final envelopes = decoded['ke'];
+          if (envelopes is List) {
+            decoded['ke'] = [
+              for (final e in envelopes)
+                if (e is Map && e['epoch'] != retiredEpoch) e,
+            ];
+          }
+          body = jsonEncode(decoded);
+        }
+        expect(await b.restoreSnapshot(body), isTrue);
+      }
+
+      final restored = await b.load(gid);
+      expect(restored, isNotNull, reason: 'the group itself must arrive');
+      expect(
+        restored!.messages,
+        hasLength(1),
+        reason:
+            'the history did not travel at all: a snapshot built for anyone '
+            'but our own device withholds the rows it assumes the far side '
+            'cannot read',
+      );
+      final row = restored.messages.single;
+      expect(row.isEncrypted, isTrue, reason: 'premise: the history is sealed');
+      // Coupled to the row assertion above rather than independent of it: the
+      // snapshot only carries a row whose epoch the audience can open, so a
+      // build that withholds the keys withholds the rows with them and the
+      // length check fires first. Stated anyway, because the pairing is the
+      // snapshot's decision and a future one could carry rows without keys —
+      // which is precisely the group that arrives and cannot be read.
+      expect(
+        restored.localEpochKeys.containsKey(row.membershipEpoch),
+        isTrue,
+        reason:
+            'the history arrived and the key to it did not, so the group is '
+            'here and unreadable',
+      );
+      expect(
+        (await b.load(sid))?.manifest.isSpace,
+        isTrue,
+        reason: 'the Space arrived as a Space',
+      );
+
+      await aStorage.close();
+      await bStorage.close();
+    },
+  );
+
+  /// report27 X08 — a snapshot cannot poison an epoch key by carrying a wrong
+  /// one.
+  ///
+  /// This is what makes carrying epoch keys in a FILE safe at all. A snapshot
+  /// from a sibling device is vouched for by the sovereign device group; an
+  /// archive is vouched for by a header and a password, which is weaker. The
+  /// thing that closes the gap is not where the key sits in a merge but that
+  /// the control log COMMITS to it: `_validLocalEpochKey` drops a key the
+  /// commitment does not match, and the envelope re-derives the right one.
+  /// Pinned here because the archive path is a new caller of that protection
+  /// and nothing else states it from this side.
+  test(
+    'report27 X08: a restored snapshot cannot poison an epoch key we hold',
+    () async {
+      final aStorage = FakeHvContainer().storage();
+      await aStorage.open(password: 'pw', createIfMissing: true);
+      final a = GroupService(
+        aStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(a.dispose);
+      final gid = await a.createGroup('Keys');
+      expect(await a.postMessage(gid, 'sealed', broadcast: false), isTrue);
+      final mine = (await a.load(gid))!;
+      final epoch = mine.messages.single.membershipEpoch!;
+      final rightKey = mine.localEpochKeys[epoch]!;
+
+      // The same group, snapshotted with a DIFFERENT key for that epoch.
+      final snapshot = jsonDecode(await a.archiveSnapshot(gid.hex) as String)
+          as Map<String, dynamic>;
+      final handed = snapshot['kk'];
+      expect(
+        handed,
+        isA<Map>(),
+        reason: 'premise: the snapshot carries epoch keys at all',
+      );
+      expect(
+        (handed as Map).containsKey('$epoch'),
+        isTrue,
+        reason: 'premise: the snapshot carries the key under test',
+      );
+      handed['$epoch'] = base64Encode(
+        Uint8List.fromList(List<int>.filled(32, 0x5A)),
+      );
+
+      expect(await a.restoreSnapshot(jsonEncode(snapshot)), isTrue);
+      expect(
+        (await a.load(gid))!.localEpochKeys[epoch],
+        rightKey,
+        reason:
+            'a snapshot carrying a wrong key for this epoch replaced the right '
+            'one — an archive can now make our own history unreadable',
+      );
+
+      await aStorage.close();
+    },
+  );
+
   test(
     "an own-device seed carries the SIBLING's rows, not only the seeder's",
     () async {

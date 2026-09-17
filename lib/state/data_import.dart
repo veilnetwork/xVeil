@@ -106,6 +106,8 @@ class DataImportReport {
     required this.unknownRecords,
     required this.unconfirmedAppliers,
     this.failedApplies = 0,
+    this.groupsRestored = 0,
+    this.groupsRefused = 0,
   });
 
   /// Events handed to the appliers. Not the same as "changes": an event for
@@ -138,6 +140,16 @@ class DataImportReport {
   final bool identityAdopted;
   final bool profileFilled;
 
+  /// Groups and Spaces the group layer accepted.
+  final int groupsRestored;
+
+  /// Groups the archive carried and this run did not put back — a snapshot the
+  /// group layer refused, a payload that would not decode, or an import with no
+  /// group layer to hand them to. Counted so the report can say so: a group
+  /// silently absent afterwards looks exactly like a group the archive never
+  /// had.
+  final int groupsRefused;
+
   /// Records from a newer vocabulary, skipped.
   final int unknownRecords;
 
@@ -169,12 +181,26 @@ class DataImporter {
     required Storage storage,
     required DeviceSyncAppliers appliers,
     required String selfNodeIdHex,
-  }) : this._(storage, appliers, selfNodeIdHex);
+    ArchiveGroups? groups,
+  }) : this._(storage, appliers, selfNodeIdHex, groups);
 
-  DataImporter._(this._storage, this._appliers, this._selfNodeIdHex);
+  DataImporter._(
+    this._storage,
+    this._appliers,
+    this._selfNodeIdHex,
+    this._groups,
+  );
 
   final Storage _storage;
   final DeviceSyncAppliers _appliers;
+
+  /// The group layer, or `null` where there is none.
+  ///
+  /// An import that cannot reach it does not drop the groups quietly: their
+  /// records are counted as REFUSED, so the report says an archive carried
+  /// groups this run could not put back. Silence here would read as "the
+  /// archive had none".
+  final ArchiveGroups? _groups;
 
   /// The identity this device is running as — empty when it has none yet,
   /// which is the only case in which an archive may bring one.
@@ -323,6 +349,8 @@ class DataImporter {
     }
 
     var syncEvents = 0;
+    var groupsRestored = 0;
+    var groupsRefused = 0;
     var filesAdded = 0;
     var filesHere = 0;
     var settingsFilled = 0;
@@ -348,6 +376,8 @@ class DataImporter {
       unknownRecords: unknown,
       unconfirmedAppliers: _appliers.unconfirmed,
       failedApplies: _appliers.failedApplies,
+      groupsRestored: groupsRestored,
+      groupsRefused: groupsRefused,
     );
 
     try {
@@ -494,6 +524,31 @@ class DataImporter {
           await _storage.putSetting(key, value);
           settingsFilled++;
 
+        case TransferRecordKind.group:
+          final payload = record.payload;
+          final groups = _groups;
+          if (payload == null || groups == null) {
+            groupsRefused++;
+            break;
+          }
+          final String snapshot;
+          try {
+            snapshot = utf8.decode(payload, allowMalformed: false);
+          } on FormatException {
+            groupsRefused++;
+            break;
+          }
+          // The snapshot comes in by the SAME door a sibling device's does,
+          // so the manifest, the signatures and the merge are judged by the
+          // group layer's own rules rather than by a second set written here.
+          // A refusal is counted, never thrown: one group that will not verify
+          // is not a reason to abandon the conversations after it.
+          if (await groups.restoreSnapshot(snapshot)) {
+            groupsRestored++;
+          } else {
+            groupsRefused++;
+          }
+
         case TransferRecordKind.file:
           final id = record.meta['id'];
           final payload = record.payload;
@@ -545,6 +600,8 @@ class DataImporter {
       // Read after `settleAll`, which is the only point at which the queues
       // have stopped moving.
       failedApplies: _appliers.failedApplies,
+      groupsRestored: groupsRestored,
+      groupsRefused: groupsRefused,
     );
   }
 }

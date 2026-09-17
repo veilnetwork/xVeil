@@ -96,6 +96,8 @@ class DataExportReport {
     required this.files,
     required this.skippedFiles,
     required this.bytes,
+    this.groups = 0,
+    this.skippedGroups = const [],
   });
 
   final int records;
@@ -104,6 +106,14 @@ class DataExportReport {
   /// Files whose bytes were left out, by id, so the report can name them.
   final List<String> skippedFiles;
   final int bytes;
+
+  /// Groups and Spaces carried, as whole snapshots.
+  final int groups;
+
+  /// Groups that did NOT fit, by id. A snapshot past
+  /// [kTransferMaxRecordBytes] is a record no importer would accept, so it is
+  /// left out and named rather than written and refused on the other side.
+  final List<String> skippedGroups;
 }
 
 /// Reads an open space and writes it as an archive.
@@ -112,12 +122,14 @@ class DataExporter {
     required Storage storage,
     required String nodeIdHex,
     required Set<String> syncedSettingKeys,
+    ArchiveGroups? groups,
     int Function()? nowMs,
     int fileCeiling = kExportFileByteCeiling,
   }) : this._(
          storage,
          nodeIdHex,
          syncedSettingKeys,
+         groups,
          nowMs ?? _wallClock,
          fileCeiling,
        );
@@ -128,6 +140,7 @@ class DataExporter {
     this._storage,
     this._nodeIdHex,
     this._syncedSettingKeys,
+    this._groups,
     this._now,
     this._fileCeiling,
   );
@@ -135,6 +148,15 @@ class DataExporter {
   static int _wallClock() => DateTime.now().millisecondsSinceEpoch;
 
   final Storage _storage;
+
+  /// The group layer, or `null` where there is none to ask.
+  ///
+  /// Nullable rather than required because an export can run in places that
+  /// have no group service — the headless paths and the transfer tests. What it
+  /// must NOT do is pretend: an export without this carries no groups, and the
+  /// report says `groups: 0` rather than leaving the person to assume.
+  final ArchiveGroups? _groups;
+
   final String _nodeIdHex;
 
   /// The settings the device-group sync carries, asked of the hub rather than
@@ -405,7 +427,42 @@ class DataExporter {
       step();
     }
 
-    // 6. The files, streamed — a phone must be able to export a gigabyte
+    // 6. Groups and Spaces, one snapshot each: the manifest, the signed
+    //    control log, the epoch keys and the history.
+    //
+    //    Whole snapshots rather than rows, because that is the unit the group
+    //    layer already knows how to write and to read — the same one a device
+    //    seed sends a sibling. Rows would mean a second merge, written here,
+    //    disagreeing with the one on the wire.
+    var groupsCarried = 0;
+    final skippedGroups = <String>[];
+    final groups = _groups;
+    if (groups != null) {
+      for (final gid in await groups.archivableGroupIds()) {
+        final snapshot = await groups.archiveSnapshot(gid);
+        if (snapshot == null) continue;
+        final payload = Uint8List.fromList(utf8.encode(snapshot));
+        if (payload.length > kTransferMaxRecordBytes) {
+          // Named, not silently dropped: the same discipline as an oversize
+          // file. A record this long is one the importer refuses outright, so
+          // writing it would lose the whole archive rather than one group.
+          skippedGroups.add(gid);
+          continue;
+        }
+        await writer.add(
+          TransferRecord(
+            kind: TransferRecordKind.group,
+            meta: {'gid': gid},
+            payload: payload,
+          ),
+        );
+        records++;
+        groupsCarried++;
+        step();
+      }
+    }
+
+    // 7. The files, streamed — a phone must be able to export a gigabyte
     //    without holding a gigabyte.
     final skipped = <String>[];
     var files = 0;
@@ -435,6 +492,8 @@ class DataExporter {
       files: files,
       skippedFiles: skipped,
       bytes: bytes,
+      groups: groupsCarried,
+      skippedGroups: skippedGroups,
     );
   }
 
