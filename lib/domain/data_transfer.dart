@@ -156,6 +156,19 @@ enum TransferRecordKind {
   /// box, never the key to it.
   credential,
 
+  /// One group or Space, as a snapshot — manifest, signed control log, epoch
+  /// keys and history.
+  ///
+  /// The same snapshot a device seed sends to another device of this identity,
+  /// because an archive is the same errand done offline: fill a device that
+  /// holds none of this. It carries the epoch keys, which is what separates a
+  /// restored conversation from a group that appears and is empty.
+  ///
+  /// A reader that predates this kind skips the record — the framing is
+  /// length-prefixed and the kind is a NAME — and counts it as unknown, so an
+  /// archive written here still restores everything else on an older build.
+  group,
+
   /// One stored file's bytes.
   file,
 
@@ -168,6 +181,25 @@ enum TransferRecordKind {
     }
     return null;
   }
+}
+
+/// The groups half of an archive, as the exporter and the importer need it.
+///
+/// An interface rather than `GroupService` itself, for two reasons. The
+/// transfer code is testable without a node behind it; and what an archive may
+/// ask of the group layer is written down in ONE place — enumerate, snapshot,
+/// restore — instead of being whatever the two call sites happened to reach
+/// for.
+abstract class ArchiveGroups {
+  /// Every group and Space this identity would want back from an archive.
+  Future<List<String>> archivableGroupIds();
+
+  /// One group as an archive carries it, or `null` if it cannot be read.
+  Future<String?> archiveSnapshot(String groupIdHex);
+
+  /// Put one back. `false` when the snapshot was refused — a wrong identity, a
+  /// manifest that does not verify, a body that does not parse.
+  Future<bool> restoreSnapshot(String snapshotJson);
 }
 
 /// One record: what it is, what it says, and (optionally) its bytes.
