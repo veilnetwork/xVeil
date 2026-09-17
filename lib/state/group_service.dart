@@ -18093,6 +18093,20 @@ class GroupService implements ArchiveGroups {
   Future<bool> restoreSnapshot(String snapshotJson) =>
       ingestSnapshot(snapshotJson, fromOwnDevice: true);
 
+  /// The stored bundles' own byte length, summed.
+  ///
+  /// A proxy for the snapshots rather than the snapshots themselves: a preview
+  /// that folded and serialized every group would do the export's work twice,
+  /// on the screen, before the person has said yes.
+  @override
+  Future<int> archivableGroupBytes() async {
+    var total = 0;
+    for (final hex in await archivableGroupIds()) {
+      total += await _storage.fileSize(_key(NodeId.fromHex(hex))) ?? 0;
+    }
+    return total;
+  }
+
   /// half-seeded device is better than an unseeded one and the next link or
   /// nudge re-sends what is missing anyway.
   Future<int> seedDevice(NodeId device) async {
