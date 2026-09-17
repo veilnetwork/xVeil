@@ -896,6 +896,35 @@ void main() {
         isTrue,
         reason: 'the document must name the key this device signs with',
       );
+
+      // report27 V02 — the same question with a MOMENT attached. Nothing else
+      // in the Dart tree calls `veil_identity_document_authorized_at`, and an
+      // argument order no test crosses is an argument order nobody checks.
+      expect(
+        EmbeddedNode.identityDocumentAuthorizedAt(
+          document: document,
+          nodeId: identity,
+          publicKey: nodeKey,
+          atUnixSecs: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          lib: lib,
+        ),
+        isTrue,
+        reason: 'the key is entitled to act now',
+      );
+      expect(
+        EmbeddedNode.identityDocumentAuthorizedAt(
+          document: document,
+          nodeId: identity,
+          publicKey: nodeKey,
+          atUnixSecs: 1,
+          lib: lib,
+        ),
+        isFalse,
+        reason:
+            'and was not entitled in 1970, before the delegation existed — a '
+            'moment that changes the answer for nothing is a moment that never '
+            'reached the native side',
+      );
     },
     skip: skip,
   );

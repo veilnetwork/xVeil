@@ -76,6 +76,9 @@ class _Signer implements GroupSigner {
   @override
   bool verifyControl(ControlEntry entry) =>
       _valid(entry.signature, entry.authorPubKey);
+  @override
+  bool verifyControlAt(ControlEntry entry, int atUnixSecs) =>
+      verifyControl(entry);
 
   @override
   bool verifyMessage(GroupMessage message) =>

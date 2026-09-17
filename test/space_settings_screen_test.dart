@@ -77,6 +77,9 @@ class _Signer implements GroupSigner {
   @override
   bool verifyControl(ControlEntry value) => true;
   @override
+  bool verifyControlAt(ControlEntry value, int atUnixSecs) =>
+      verifyControl(value);
+  @override
   bool verifyMessage(GroupMessage value) => true;
   @override
   bool verifyReaction(GroupReaction value) => true;
