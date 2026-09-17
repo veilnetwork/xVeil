@@ -154,6 +154,10 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         nodeIdHex: owner.selfHex,
         syncedSettingKeys:
             ref.read(deviceSettingsSyncHubProvider).syncedKeys.toSet(),
+        // Read inside the operation, like the appliers beside it: the group
+        // layer belongs to the identity this export was asked for, and
+        // `stillOurs` is what stops a switch halfway through (report27 X02).
+        groups: ref.read(groupServiceProvider),
       ).run(
         sink: (bytes) async => handle.add(bytes),
         password: password,
@@ -258,6 +262,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         storage: owner.storage,
         appliers: ref.read(deviceSyncAppliersProvider),
         selfNodeIdHex: owner.selfHex,
+        groups: ref.read(groupServiceProvider),
       ).run(
         bytes: file.openRead(),
         password: password,

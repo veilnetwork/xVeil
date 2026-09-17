@@ -193,17 +193,52 @@ TransferSeal cheapCost() => TransferSeal(
   chunkBytes: 64 * 1024,
 );
 
+/// A stand-in group layer: it hands out snapshots by id and remembers what it
+/// was asked to put back.
+///
+/// The real one is exercised where it lives (`group_service_test`, report27
+/// X08): that a snapshot carries the epoch keys and that a restore rebuilds a
+/// readable group is the group layer's business. What belongs HERE is the
+/// plumbing — that a group leaves as a record, arrives as one, and is counted
+/// honestly when it cannot be put back.
+class _Groups implements ArchiveGroups {
+  _Groups(this.snapshots);
+
+  final Map<String, String> snapshots;
+  final List<String> restored = [];
+
+  /// Ids whose restore answers no, so the refusal count has something to count.
+  final Set<String> refuse = {};
+
+  @override
+  Future<List<String>> archivableGroupIds() async => snapshots.keys.toList();
+
+  @override
+  Future<String?> archiveSnapshot(String groupIdHex) async =>
+      snapshots[groupIdHex];
+
+  @override
+  Future<bool> restoreSnapshot(String snapshotJson) async {
+    final id = (jsonDecode(snapshotJson) as Map)['id'] as String;
+    if (refuse.contains(id)) return false;
+    restored.add(id);
+    return true;
+  }
+}
+
 Future<Uint8List> _exportOf(
   _Space space, {
   String? password,
   bool includeIdentity = false,
   bool includeFiles = true,
+  ArchiveGroups? groups,
 }) async {
   final out = BytesBuilder();
   await DataExporter(
     storage: space,
     nodeIdHex: hexOf(1),
     syncedSettingKeys: {'locale'},
+    groups: groups,
     nowMs: () => 5000,
   ).run(
     sink: (b) async => out.add(b),
@@ -488,6 +523,79 @@ void main() {
       folded.length,
       half.length,
       reason: 'a second import must converge on the same state, not double it',
+    );
+  });
+
+  /// report27 X08 — groups leave in the archive and arrive on the other side.
+  ///
+  /// The archive used to carry conversations, settings, the call journal and
+  /// files, while the screen offered to save "everything this identity has".
+  /// Groups and Spaces were not in it at all, so a person who kept a backup and
+  /// lost the device lost every group in it and had no way to know beforehand.
+  test('groups leave in the archive and land on the other side', () async {
+    final source = _Groups({
+      'aa' * 32: jsonEncode({'id': 'one'}),
+      'bb' * 32: jsonEncode({'id': 'two'}),
+    });
+    final archive = await _exportOf(_deviceWithHistory(), groups: source);
+
+    final destination = _Groups({});
+    final report = await DataImporter(
+      storage: _Space(),
+      appliers: _Collector().appliers,
+      selfNodeIdHex: hexOf(1),
+      groups: destination,
+    ).run(bytes: Stream.value(archive));
+
+    expect(
+      destination.restored,
+      ['one', 'two'],
+      reason: 'the archive carried no groups, or the importer dropped them',
+    );
+    expect(report.groupsRestored, 2);
+    expect(report.groupsRefused, 0);
+  });
+
+  /// A group that cannot be put back is COUNTED, never dropped in silence.
+  ///
+  /// A group missing afterwards looks exactly like a group the archive never
+  /// carried, and the two call for opposite things from the person: try again,
+  /// or stop looking.
+  test('a group the far side refuses is reported, not silently lost', () async {
+    final source = _Groups({
+      'aa' * 32: jsonEncode({'id': 'one'}),
+      'bb' * 32: jsonEncode({'id': 'two'}),
+    });
+    final archive = await _exportOf(_deviceWithHistory(), groups: source);
+
+    final destination = _Groups({})..refuse.add('two');
+    final refusing = await DataImporter(
+      storage: _Space(),
+      appliers: _Collector().appliers,
+      selfNodeIdHex: hexOf(1),
+      groups: destination,
+    ).run(bytes: Stream.value(archive));
+    expect(
+      refusing.groupsRestored,
+      1,
+      reason: 'a group the far side refused was counted as restored',
+    );
+    expect(refusing.groupsRefused, 1, reason: 'a refusal must be counted');
+
+    // And an import with no group layer at all says so too, rather than
+    // reporting an archive that carried groups as one that carried none.
+    final blind = await DataImporter(
+      storage: _Space(),
+      appliers: _Collector().appliers,
+      selfNodeIdHex: hexOf(1),
+    ).run(bytes: Stream.value(archive));
+    expect(blind.groupsRestored, 0);
+    expect(
+      blind.groupsRefused,
+      2,
+      reason:
+          'an import that cannot reach the group layer reported the groups as '
+          'absent instead of as unapplied',
     );
   });
 

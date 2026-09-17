@@ -28,6 +28,7 @@ import 'package:veil_flutter/veil_ffi.dart' as veil;
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../crypto/blake3.dart';
+import '../domain/data_transfer.dart';
 import '../domain/chat.dart'
     show
         ContactStatus,
@@ -458,7 +459,7 @@ List<NodeId> snapshotRecipients({
   ];
 }
 
-class GroupService {
+class GroupService implements ArchiveGroups {
   GroupService(
     this._storage,
     this._signer, {
@@ -18047,6 +18048,51 @@ class GroupService {
   /// delivery at all would collapse the whole backfill.
   ///
   /// Best-effort per group: one that fails does not abandon the rest, because a
+  /// Every group and Space an archive should carry.
+  ///
+  /// The DEVICE GROUP is deliberately absent. Device membership is established
+  /// by the link ceremony and by the sovereign document — an archive that
+  /// carried it would be a file asserting who this identity's devices are, and
+  /// a file is not a ceremony. A restoring device gets its place the way every
+  /// device does.
+  ///
+  /// `_listUserGroups` already drops device groups by name, so the filter below
+  /// cannot be observed from outside today; it is the rule stated where the
+  /// decision is, rather than a dependency on a naming convention enforced
+  /// three thousand lines away. [seedDevice] keeps the same belt and braces.
+  @override
+  Future<List<String>> archivableGroupIds() async {
+    final deviceGroupHex = await deviceGroupIdHex();
+    return [
+      for (final entry in [...await listGroups(), ...await listSpaces()])
+        if (entry.groupId.hex != deviceGroupHex) entry.groupId.hex,
+    ];
+  }
+
+  /// One group as an archive carries it.
+  ///
+  /// `ownDevice: true` is the whole point: it hands over the epoch keys, and
+  /// without them a restored group arrives with a manifest, a control log and
+  /// not one readable message — measured on the stand, and the reason
+  /// [seedDevice] passes the same flag.
+  @override
+  Future<String?> archiveSnapshot(String groupIdHex) async {
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(groupIdHex);
+    } catch (_) {
+      return null;
+    }
+    final b = await load(groupId);
+    if (b == null) return null;
+    return snapshotJson(b, ownDevice: true);
+  }
+
+  /// Put one back, by the same door a sibling device's snapshot comes in.
+  @override
+  Future<bool> restoreSnapshot(String snapshotJson) =>
+      ingestSnapshot(snapshotJson, fromOwnDevice: true);
+
   /// half-seeded device is better than an unseeded one and the next link or
   /// nudge re-sends what is missing anyway.
   Future<int> seedDevice(NodeId device) async {
