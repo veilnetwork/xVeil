@@ -1101,6 +1101,17 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     final want = Completer<MailboxSlice?>();
     final sub = _fetchApp.messages().listen((m) {
       if (want.isCompleted) return;
+      // FROM THE RELAY THIS SLICE WAS ASKED OF, and signed.
+      //
+      // The FETCH listener a few hundred lines up checks both; this one
+      // checked neither. Every retry reuses the same reply endpoint and the
+      // same content id, and cancelling a subscription does not recall an
+      // answer already in flight — so a straggler from a relay asked EARLIER
+      // satisfied the listener waiting on a LATER one, and its bytes went into
+      // the body being assembled. No forged identity is needed for that; the
+      // reply-block TTL is five minutes (report27 X35).
+      if (m.provenance != veil.SenderProvenance.signed) return;
+      if (NodeId(m.srcNodeId) != NodeId(relayId)) return;
       final MailboxSlice slice;
       try {
         slice = decodeMailboxSliceResp(m.data);

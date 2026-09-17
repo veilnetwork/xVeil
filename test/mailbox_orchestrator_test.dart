@@ -82,7 +82,8 @@ void main() {
     },
   );
 
-  test('drain acks + skips a corrupt blob without wedging the inbox', () async {
+  test('drain skips a corrupt blob without wedging the inbox, and without '
+      'acking it', () async {
     // A malformed blob (too short to open) deposited directly + a good one.
     await relay.put(
       receiver: me,
@@ -105,10 +106,21 @@ void main() {
       ourCertVersion: 1,
       alreadyHave: never,
     );
-    // The good one is delivered; the corrupt one is dropped — both acked.
+    // The good one is delivered and acked away. The corrupt one is dropped
+    // and LEFT: an ack names a content id and nothing else, so the relay
+    // cannot tell the copy that failed from any other under that id, and a
+    // body that would not open is never a reason to delete anything
+    // (report27 X35). This device stops re-opening it through the quarantine
+    // instead; the relay's TTL clears the copy.
     expect(drained, hasLength(1));
     expect(drained.single.data, Uint8List.fromList([42]));
-    expect((await relay.fetch(me: me, authCookie: cookie)), isEmpty);
+    final left = await relay.fetch(me: me, authCookie: cookie);
+    expect(
+      left.map((b) => b.contentId),
+      [_cid(0xBA)],
+      reason:
+          'the good blob must be acked away and the corrupt one must not be',
+    );
   });
 
   /// A forged body under a real message id must not destroy the real one.
@@ -161,8 +173,59 @@ void main() {
     },
   );
 
-  /// And a content id is given up only when NOTHING filed under it opened.
-  test('an id whose every body fails is still quarantined and acked', () async {
+  /// The honest copy survives a body that would not open.
+  ///
+  /// A message large enough to be ANNOUNCED is fetched in slices, and the
+  /// collector returns the FIRST body it can assemble and stops — so the
+  /// batch holds one variant, the "another variant is still to try" guard sees
+  /// none, and the id was acked. An ack names a content id and nothing else,
+  /// so the relay cannot tell the copy that failed from any other under that
+  /// id: one compromised relay among those in use could delete a message that
+  /// would have opened (report27 X35).
+  test('a failed open never deletes a copy nobody looked at', () async {
+    final cid = _cid(0xE7);
+    // One body, undecryptable. In the sliced case this is all the batch has.
+    await relay.put(
+      receiver: me,
+      contentId: cid,
+      sender: peer,
+      blob: Uint8List.fromList([0, 1, 2]),
+    );
+
+    expect(
+      await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      ),
+      isEmpty,
+    );
+
+    // Whatever is filed under that id is still at the relay. In production the
+    // copy this device never saw is the honest one, and it is the copy an ack
+    // would have taken.
+    expect(
+      (await relay.fetch(me: me, authCookie: cookie))
+          .map((b) => b.contentId)
+          .where((id) => id[0] == cid[0]),
+      isNotEmpty,
+      reason:
+          'the drain acked an id it could only fail to open, which deletes '
+          'every replica under it — including one nothing has verified',
+    );
+  });
+
+  /// And a content id is given up only when NOTHING filed under it opened —
+  /// given up LOCALLY, by quarantine, never by deleting the relay's copies.
+  ///
+  /// The ack used to go out here. It names a content id, so it takes every
+  /// replica: for a message small enough to arrive whole the other bodies in
+  /// the batch are tried first, but a message large enough to be announced and
+  /// fetched in slices returns ONE assembled body, and the honest copy on
+  /// another relay is deleted without anything having looked at it
+  /// (report27 X35).
+  test('an id whose every body fails is quarantined and not acked', () async {
     final cid = _cid(0xD2);
     for (final junk in [
       Uint8List.fromList([0, 1, 2]),
@@ -179,11 +242,21 @@ void main() {
     expect(drained, isEmpty);
     expect(
       await relay.fetch(me: me, authCookie: cookie),
-      isEmpty,
+      isNotEmpty,
       reason:
-          'an id nothing could open must still be acked away, or it is '
-          're-served and re-opened for its whole relay TTL',
+          'the drain deleted every copy under an id it merely could not open '
+          '— including any honest one it never looked at',
     );
+
+    // What stops the re-open loop is the quarantine, not the ack: a second
+    // drain returns nothing and does not pay for the opens again.
+    final again = await orch.drain(
+      me: me,
+      authCookie: cookie,
+      ourCertVersion: 1,
+      alreadyHave: never,
+    );
+    expect(again, isEmpty);
   });
 
   /// A blob that cannot be opened YET must not take the queue behind it down.
@@ -441,10 +514,15 @@ void main() {
       );
     });
 
-    test('a junk backlog is fully quarantined+acked in one drain — it must '
+    test('a junk backlog is fully quarantined in one drain — it must '
         'not look like a live producer of one fresh cid per drain', () async {
       var opens = 0;
-      final budgeted = _OneBlobPerFetchRelay();
+      // A relay that honours `skip`, which is what the real one does
+      // (`Mailbox::fetch_skipping`). The ack used to move this queue along;
+      // it cannot any more, because an ack names a content id and would take
+      // every replica under it (report27 X35). The hint does the same job
+      // without destroying anything.
+      final budgeted = _SkipHonouringRelay();
       final orch = MailboxOrchestrator(
         _CountingOpenCrypto(
           LoopbackMailboxCrypto(senderForOpen: peer),
@@ -472,8 +550,17 @@ void main() {
       expect(opens, 4, reason: 'each junk blob pays exactly one open');
       expect(
         await budgeted.fetch(me: me, authCookie: cookie),
-        isEmpty,
-        reason: 'the whole junk backlog is acked away in one drain',
+        isNotEmpty,
+        reason:
+            'the drain deleted copies it merely could not open — an ack names '
+            'a content id, so it takes every replica under it',
+      );
+      expect(
+        budgeted.asked,
+        hasLength(4),
+        reason:
+            'every junk id must be in the hint, or the queue behind it is '
+            'unreachable for the relay TTL',
       );
     });
 
@@ -1159,6 +1246,9 @@ class _OneBlobPerFetchRelay extends InMemoryMailboxRelay {
     List<Uint8List> skip = const [],
   }) async {
     fetchCalls++;
+    // DEAF TO THE HINT on purpose: this models a relay that ignores `skip`,
+    // which is what the stall tests above are about. The listening
+    // counterpart is `_SkipHonouringRelay`.
     final all = await super.fetch(
       me: me,
       authCookie: authCookie,
