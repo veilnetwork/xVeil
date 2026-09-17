@@ -403,6 +403,21 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
               ),
               style: theme.textTheme.bodySmall,
             ),
+            // What the older build did NOT carry, said in the same breath as
+            // what it did: the screen offered "everything this identity has"
+            // and listed three things, so a person had no way to know that
+            // groups and the cloud tree were not among them (report27 X08).
+            Text(
+              l.transferContentsGroups(plan.groups, plan.cloudRows),
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              l.transferContentsGroupsNote,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 8),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,

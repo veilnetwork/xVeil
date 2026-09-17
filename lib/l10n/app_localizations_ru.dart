@@ -7296,6 +7296,15 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String transferContentsGroups(int groups, int cloud) {
+    return 'Групп и пространств: $groups, облачных записей: $cloud';
+  }
+
+  @override
+  String get transferContentsGroupsNote =>
+      'Группы едут целиком: состав, история и ключи, чтобы её прочитать. Список устройств — нет: восстановленное устройство входит так же, как входит любое.';
+
+  @override
   String get transferIncludeFiles => 'Включить файлы';
 
   @override
