@@ -6,6 +6,51 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.72] — 2026-09-17
+
+*A backup that is actually a backup.*
+
+### Added
+
+- **Groups and Spaces travel in the archive.** They were not in it at all — not
+  the manifest, not the signed control log, not the membership, not a message.
+  A person who kept a backup and lost the device lost every group in it, while
+  the screen offered to save "everything this identity has". They travel as one
+  snapshot each, the same one a device seed sends another device of this
+  identity, so the epoch keys come with them and the history is readable on the
+  other side rather than arriving as an empty group. The device list stays
+  behind: device membership is established by the link ceremony, and a file is
+  not a ceremony.
+
+- **The cloud tree travels too** — items, folders, the note history behind each
+  winner, the trash and the share registry. The blobs already travelled as
+  files; the structure did not, so a restore gave the bytes back with no
+  folders and no record of what had been shared. Share grants are carried
+  deliberately: a restored device that cannot see what this identity shared
+  cannot revoke it either.
+
+- **Content manifests travel with or without the bytes**, so an archive
+  exported without files still tells the restored device what this identity
+  has, and the content can be fetched from a peer instead of being invisible.
+
+### Changed
+
+- **The export preview says what the archive carries, and what it does not.**
+  It listed conversations, messages and calls; it now counts the groups and the
+  cloud rows too, and the size it shows includes the groups — a preview that
+  left them out answered "megabytes" for a file that turns out to be gigabytes.
+
+- **A control row is judged by the signing key's window at the moment it
+  arrived.** A device secret used to keep the authority its delegation granted
+  long after the delegation lapsed — it could still add and remove members and
+  hand ownership away. The check runs at ADMISSION, never inside the control-log
+  fold, which has to stay a pure function of signed bytes or two devices of one
+  person would compute two different member lists and never converge.
+
+- veil 0.11.36 and hidden-volume 2.6.0. veil's anycast records now carry a
+  signed publication time, so a provider that departs expires on its own clock
+  instead of being held alive by its neighbours' refreshes.
+
 ## [0.13.71] — 2026-09-16
 
 *The seed you lost was the one whose name sorted below yours.*
