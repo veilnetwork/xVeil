@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.73] — 2026-09-17
+
+*The Windows bundle builds again.*
+
+### Fixed
+
+- **veil 0.11.37.** The 0.13.72 release run built every bundle except Windows,
+  where `veilclient-ffi` failed on a one-line type error in code that is
+  Windows-only and had therefore never been compiled by anything. veil now has
+  a Windows type-check in its hygiene gate, so the question is asked before a
+  tag rather than an hour into a release. Nothing else about 0.13.72 changes —
+  its Linux, Android and macOS artifacts were green.
+
 ## [0.13.72] — 2026-09-17
 
 *A backup that is actually a backup.*
