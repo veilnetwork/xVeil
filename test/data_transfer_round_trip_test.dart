@@ -226,12 +226,42 @@ class _Groups implements ArchiveGroups {
   }
 }
 
+/// A stand-in cloud layer: it hands out rows and remembers what it took.
+///
+/// The real merge is exercised where it lives (`cloud_service_test`, report27
+/// X08). What belongs here is that the rows leave, arrive, reach the layer that
+/// claims them — and are counted rather than quietly passed off as merged when
+/// no layer does.
+class _Cloud implements ArchiveCloud {
+  _Cloud(this.kinds, [this.rows = const []]);
+
+  final Set<DeviceSyncKind> kinds;
+  final List<DeviceSyncEvent> rows;
+  final List<DeviceSyncEvent> adopted = [];
+
+  @override
+  bool claimsSyncKind(DeviceSyncKind kind) => kinds.contains(kind);
+
+  @override
+  Future<List<DeviceSyncEvent>> archivableCloudEvents() async => rows;
+
+  @override
+  Future<int> adoptArchivedCloudEvents(List<DeviceSyncEvent> events) async {
+    adopted.addAll(events);
+    return events.length;
+  }
+}
+
+DeviceSyncEvent _cloudRow(DeviceSyncKind kind, String key) =>
+    DeviceSyncEvent(kind: kind, key: key, tsMs: 7000, payload: const {});
+
 Future<Uint8List> _exportOf(
   _Space space, {
   String? password,
   bool includeIdentity = false,
   bool includeFiles = true,
   ArchiveGroups? groups,
+  List<ArchiveCloud> cloud = const [],
 }) async {
   final out = BytesBuilder();
   await DataExporter(
@@ -239,6 +269,7 @@ Future<Uint8List> _exportOf(
     nodeIdHex: hexOf(1),
     syncedSettingKeys: {'locale'},
     groups: groups,
+    cloud: cloud,
     nowMs: () => 5000,
   ).run(
     sink: (b) async => out.add(b),
@@ -596,6 +627,111 @@ void main() {
       reason:
           'an import that cannot reach the group layer reported the groups as '
           'absent instead of as unapplied',
+    );
+  });
+
+  /// report27 X08 — the cloud tree travels, and reaches the layer that owns it.
+  ///
+  /// Cloud rows ride the same `sync` record everything else does, but NO
+  /// applier applies them: the bridge has an explicit arm saying the cloud
+  /// services do. Handing them to the appliers anyway would have counted them
+  /// as merged and dropped them.
+  test('cloud rows reach the layer that claims them', () async {
+    final source = _Cloud(
+      {DeviceSyncKind.cloudEntry, DeviceSyncKind.cloudFolder},
+      [
+        _cloudRow(DeviceSyncKind.cloudEntry, 'item-1'),
+        _cloudRow(DeviceSyncKind.cloudFolder, 'folder-1'),
+      ],
+    );
+    final shares = _Cloud({DeviceSyncKind.cloudCapability}, [
+      _cloudRow(DeviceSyncKind.cloudCapability, 'share-1'),
+    ]);
+    final archive = await _exportOf(
+      _deviceWithHistory(),
+      cloud: [source, shares],
+    );
+
+    final index = _Cloud({
+      DeviceSyncKind.cloudEntry,
+      DeviceSyncKind.cloudFolder,
+    });
+    final registry = _Cloud({DeviceSyncKind.cloudCapability});
+    final collector = _Collector();
+    final report = await DataImporter(
+      storage: _Space(),
+      appliers: collector.appliers,
+      selfNodeIdHex: hexOf(1),
+      cloud: [index, registry],
+    ).run(bytes: Stream.value(archive));
+
+    // Asked FIRST, because it is what separates "went to the wrong place"
+    // from "never left": a row that reached the appliers is a row this import
+    // counted as merged and dropped.
+    expect(
+      collector.events.map((e) => e.kind),
+      isNot(contains(DeviceSyncKind.cloudEntry)),
+      reason:
+          'a cloud row went to the appliers, which apply none of them — it '
+          'would be counted as merged and dropped',
+    );
+    expect(
+      index.adopted.map((e) => e.key),
+      ['item-1', 'folder-1'],
+      reason: 'the cloud index rows did not reach the index',
+    );
+    expect(
+      registry.adopted.map((e) => e.key),
+      ['share-1'],
+      reason: 'a share grant went to the wrong layer, or to none',
+    );
+    expect(report.cloudRowsAdopted, 3);
+  });
+
+  /// With no cloud layer wired, the rows are REFUSED, never counted as merged.
+  ///
+  /// The two look identical afterwards — a tree that is not there — and call
+  /// for opposite things from the person.
+  test('cloud rows with nobody to take them are reported, not merged', () async {
+    final archive = await _exportOf(
+      _deviceWithHistory(),
+      cloud: [
+        _Cloud({DeviceSyncKind.cloudEntry}, [
+          _cloudRow(DeviceSyncKind.cloudEntry, 'item-1'),
+          _cloudRow(DeviceSyncKind.cloudEntry, 'item-2'),
+        ]),
+      ],
+    );
+
+    final blind = await DataImporter(
+      storage: _Space(),
+      appliers: _Collector().appliers,
+      selfNodeIdHex: hexOf(1),
+    ).run(bytes: Stream.value(archive));
+    expect(blind.cloudRowsAdopted, 0);
+    expect(
+      blind.cloudRowsRefused,
+      2,
+      reason:
+          'an import with no cloud layer reported the tree as absent instead '
+          'of as unapplied',
+    );
+
+    // And a layer that does not claim the kind is the same case: the row was
+    // carried and nobody took it.
+    final wrongLayer = await DataImporter(
+      storage: _Space(),
+      appliers: _Collector().appliers,
+      selfNodeIdHex: hexOf(1),
+      cloud: [_Cloud({DeviceSyncKind.cloudCapability})],
+    ).run(bytes: Stream.value(archive));
+    expect(wrongLayer.cloudRowsAdopted, 0);
+    expect(
+      wrongLayer.cloudRowsRefused,
+      2,
+      reason:
+          'a row no wired layer claims was carried and nobody took it, and '
+          'the report said nothing — the same silence as having no layer',
     );
   });
 
