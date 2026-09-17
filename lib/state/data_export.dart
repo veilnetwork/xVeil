@@ -98,6 +98,7 @@ class DataExportReport {
     required this.bytes,
     this.groups = 0,
     this.skippedGroups = const [],
+    this.cloudRows = 0,
   });
 
   final int records;
@@ -114,6 +115,9 @@ class DataExportReport {
   /// [kTransferMaxRecordBytes] is a record no importer would accept, so it is
   /// left out and named rather than written and refused on the other side.
   final List<String> skippedGroups;
+
+  /// Cloud rows carried — items, folders, note heads, trash, share grants.
+  final int cloudRows;
 }
 
 /// Reads an open space and writes it as an archive.
@@ -123,6 +127,7 @@ class DataExporter {
     required String nodeIdHex,
     required Set<String> syncedSettingKeys,
     ArchiveGroups? groups,
+    List<ArchiveCloud> cloud = const [],
     int Function()? nowMs,
     int fileCeiling = kExportFileByteCeiling,
   }) : this._(
@@ -130,6 +135,7 @@ class DataExporter {
          nodeIdHex,
          syncedSettingKeys,
          groups,
+         cloud,
          nowMs ?? _wallClock,
          fileCeiling,
        );
@@ -141,6 +147,7 @@ class DataExporter {
     this._nodeIdHex,
     this._syncedSettingKeys,
     this._groups,
+    this._cloud,
     this._now,
     this._fileCeiling,
   );
@@ -156,6 +163,11 @@ class DataExporter {
   /// must NOT do is pretend: an export without this carries no groups, and the
   /// report says `groups: 0` rather than leaving the person to assume.
   final ArchiveGroups? _groups;
+
+  /// The layers whose state travels as device-sync rows — the cloud index and
+  /// the share registry. Empty where there are none to ask, and an export then
+  /// carries no cloud tree and says `cloudRows: 0`.
+  final List<ArchiveCloud> _cloud;
 
   final String _nodeIdHex;
 
@@ -462,7 +474,22 @@ class DataExporter {
       }
     }
 
-    // 7. The files, streamed — a phone must be able to export a gigabyte
+    // 7. The cloud tree: items, folders, note heads, trash and the share
+    //    registry, as the LWW rows they already are.
+    //
+    //    Rows rather than a snapshot, because unlike a group there is no
+    //    snapshot to take — the cloud state IS a fold over these events, and
+    //    they ride the same `sync` record every conversation does.
+    var cloudRows = 0;
+    for (final layer in _cloud) {
+      for (final event in await layer.archivableCloudEvents()) {
+        await emit(event);
+        cloudRows++;
+        step();
+      }
+    }
+
+    // 8. The files, streamed — a phone must be able to export a gigabyte
     //    without holding a gigabyte.
     final skipped = <String>[];
     var files = 0;
@@ -494,6 +521,7 @@ class DataExporter {
       bytes: bytes,
       groups: groupsCarried,
       skippedGroups: skippedGroups,
+      cloudRows: cloudRows,
     );
   }
 

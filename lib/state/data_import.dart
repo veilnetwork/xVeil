@@ -108,6 +108,8 @@ class DataImportReport {
     this.failedApplies = 0,
     this.groupsRestored = 0,
     this.groupsRefused = 0,
+    this.cloudRowsAdopted = 0,
+    this.cloudRowsRefused = 0,
   });
 
   /// Events handed to the appliers. Not the same as "changes": an event for
@@ -150,6 +152,12 @@ class DataImportReport {
   /// had.
   final int groupsRefused;
 
+  /// Cloud rows this device did not already have a newer version of.
+  final int cloudRowsAdopted;
+
+  /// Cloud rows the archive carried with no layer here to take them.
+  final int cloudRowsRefused;
+
   /// Records from a newer vocabulary, skipped.
   final int unknownRecords;
 
@@ -182,13 +190,15 @@ class DataImporter {
     required DeviceSyncAppliers appliers,
     required String selfNodeIdHex,
     ArchiveGroups? groups,
-  }) : this._(storage, appliers, selfNodeIdHex, groups);
+    List<ArchiveCloud> cloud = const [],
+  }) : this._(storage, appliers, selfNodeIdHex, groups, cloud);
 
   DataImporter._(
     this._storage,
     this._appliers,
     this._selfNodeIdHex,
     this._groups,
+    this._cloud,
   );
 
   final Storage _storage;
@@ -202,9 +212,30 @@ class DataImporter {
   /// archive had none".
   final ArchiveGroups? _groups;
 
+  /// The layers that own device-sync rows an applier does not apply — the cloud
+  /// index and the share registry. Empty where there are none, and their rows
+  /// are then counted as refused rather than passing for applied.
+  final List<ArchiveCloud> _cloud;
+
   /// The identity this device is running as — empty when it has none yet,
   /// which is the only case in which an archive may bring one.
   final String _selfNodeIdHex;
+
+  bool _claimedByCloud(DeviceSyncEvent event) {
+    for (final layer in _cloud) {
+      if (layer.claimsSyncKind(event.kind)) return true;
+    }
+    // With no layer wired there is nobody to ask, so the KINDS decide. Without
+    // this, an import on a device whose cloud service is not up would hand
+    // these to the appliers, which apply none of them, and report them as
+    // merged.
+    return const {
+      DeviceSyncKind.cloudEntry,
+      DeviceSyncKind.cloudFolder,
+      DeviceSyncKind.cloudReplica,
+      DeviceSyncKind.cloudCapability,
+    }.contains(event.kind);
+  }
 
   /// Read the header alone: whose archive this is, what is in it, and whether
   /// it needs a password. Nothing is applied.
@@ -351,6 +382,34 @@ class DataImporter {
     var syncEvents = 0;
     var groupsRestored = 0;
     var groupsRefused = 0;
+    var cloudRowsAdopted = 0;
+    var cloudRowsRefused = 0;
+    // Buffered rather than applied one at a time: the cloud merge is a fold
+    // over the whole set against what this device holds, which is how the same
+    // rows are merged when they arrive from a sibling. Flushed at the end of
+    // the record loop AND on the way out of a truncated one, so an archive that
+    // stops part-way still lands what it managed to read.
+    final cloudBuffer = <DeviceSyncEvent>[];
+    Future<void> flushCloud() async {
+      if (cloudBuffer.isEmpty) return;
+      final rows = List<DeviceSyncEvent>.of(cloudBuffer);
+      cloudBuffer.clear();
+      final taken = <DeviceSyncEvent>{};
+      for (final layer in _cloud) {
+        final mine = [
+          for (final e in rows)
+            if (layer.claimsSyncKind(e.kind)) e,
+        ];
+        if (mine.isEmpty) continue;
+        taken.addAll(mine);
+        cloudRowsAdopted += await layer.adoptArchivedCloudEvents(mine);
+      }
+      // A cloud row no WIRED layer claims — the archive has capabilities and
+      // only the index is up, say. Counted, because it is a row the archive
+      // carried and this device did not take, which is the same thing a missing
+      // layer means and must not read as a merge.
+      cloudRowsRefused += rows.length - taken.length;
+    }
     var filesAdded = 0;
     var filesHere = 0;
     var settingsFilled = 0;
@@ -378,6 +437,8 @@ class DataImporter {
       failedApplies: _appliers.failedApplies,
       groupsRestored: groupsRestored,
       groupsRefused: groupsRefused,
+      cloudRowsAdopted: cloudRowsAdopted,
+      cloudRowsRefused: cloudRowsRefused,
     );
 
     try {
@@ -403,6 +464,18 @@ class DataImporter {
             // skip it anyway; counting it keeps the report honest about an
             // archive written by a newer app.
             unknown++;
+            break;
+          }
+          // A row the cloud layers own goes to them, not to the appliers —
+          // no applier applies one, so delivering it would be a silent drop
+          // dressed up as a merge. With no such layer wired, it is counted
+          // refused for the same reason a group is (report27 X08).
+          if (_claimedByCloud(event)) {
+            if (_cloud.isEmpty) {
+              cloudRowsRefused++;
+            } else {
+              cloudBuffer.add(event);
+            }
             break;
           }
           await _appliers.deliver(event);
@@ -575,9 +648,12 @@ class DataImporter {
       //
       // Settled first: the writes already queued belong to this import and the
       // counts have to describe them.
+      await flushCloud();
       await _appliers.settleAll();
       throw ImportInterrupted(soFar(), e);
     }
+
+    await flushCloud();
 
     // The appliers queue their writes behind per-slot chains; delivery only
     // means "decided". Waiting here is what lets the screen say "merged" and
@@ -602,6 +678,8 @@ class DataImporter {
       failedApplies: _appliers.failedApplies,
       groupsRestored: groupsRestored,
       groupsRefused: groupsRefused,
+      cloudRowsAdopted: cloudRowsAdopted,
+      cloudRowsRefused: cloudRowsRefused,
     );
   }
 }
