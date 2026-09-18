@@ -225,11 +225,27 @@ jobs:
             echo "CMake $want already on the image"
             exit 0
           fi
+          # The licence prompt is answered from a here-string, NOT from `yes |`.
+          #
+          # `yes` takes SIGPIPE the moment sdkmanager stops reading and exits
+          # 141, and under `pipefail` that is the status of the whole pipeline
+          # — even when the install SUCCEEDED. This loop therefore read every
+          # successful attempt as a failure and ran the `rm -rf` below on the
+          # CMake it had just installed, three times, before failing. A
+          # here-string is not a pipeline, so there is no status to confuse.
+          #
+          # And the outcome is judged by the ARTEFACT rather than by an exit
+          # code: an installer that returns non-zero after putting the files
+          # in place must not send us back round to delete them.
           for attempt in 1 2 3; do
             echo "installing CMake $want (attempt $attempt)"
-            if yes | timeout 600 "$mgr" "cmake;$want" >/dev/null 2>&1; then
+            rc=0
+            timeout 600 "$mgr" --install "cmake;$want" <<<"$(printf 'y\n%.0s' $(seq 50))" || rc=$?
+            if [ -x "$sdk/cmake/$want/bin/cmake" ]; then
+              echo "CMake $want is in place (sdkmanager exit $rc)"
               break
             fi
+            echo "attempt $attempt did not produce the binary (sdkmanager exit $rc)"
             # A half-written package is what failed the release; a retry over
             # the same bytes would read them again.
             rm -rf "$sdk/cmake/$want"
