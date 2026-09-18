@@ -131,6 +131,16 @@ class PoisonedBlobRegistry {
     }
   }
 
+  /// Everything quarantined, as the relay must be told to skip it.
+  ///
+  /// The in-RAM tier alone used to fill the skip hint, and it is empty after a
+  /// relaunch — so the first drain of every session let the relay serve a blob
+  /// that provably will not open, and the branch that met it acked the id away
+  /// (report27 X35, the half the first pass left). Told about it, the relay
+  /// keeps its copies and serves the next blob instead.
+  Future<List<String>> quarantinedCids() async =>
+      List<String>.unmodifiable(await _load());
+
   static String _hex(Uint8List bytes) {
     final sb = StringBuffer();
     for (final b in bytes) {
@@ -184,12 +194,17 @@ class MailboxOrchestrator {
   final VeilMailboxRelay _relay;
   final PoisonedBlobRegistry? _poisoned;
 
-  /// cids whose open failed THIS session (in-RAM tier of the quarantine). The
-  /// durable registry is written only when a failed cid is sighted AGAIN after
-  /// its ack (= an ack-less relay will re-serve it until TTL — worth one padded
-  /// commit to survive relaunches). A one-shot junk deposit that the ack
-  /// removes costs NO container write — a live producer of fresh junk blobs
-  /// must not be able to grow the container one commit per blob.
+  /// cids whose open failed THIS session (in-RAM tier of the quarantine).
+  ///
+  /// The durable registry behind it is written on the FIRST permanent failure
+  /// now. It used to wait for a second sighting, on the reasoning that an ack
+  /// had probably removed the blob already and a one-shot junk deposit should
+  /// cost no container write; nothing acks a failed open any more (report27
+  /// X35), so every such blob is re-served until its relay TTL and the durable
+  /// entry is what a relaunch needs. The cost is bounded by the flush being
+  /// once per drain rather than once per blob, and by the registry's own FIFO
+  /// cap — a live producer of fresh junk still cannot grow the container one
+  /// commit per blob.
   /// Bounded for the same reason [_transientOpenFails] is: this is keyed by
   /// content id, and a producer of unique junk can otherwise grow it for the
   /// whole session. The durable registry behind it is FIFO-capped at 64, so
@@ -246,16 +261,24 @@ class MailboxOrchestrator {
   /// sending more is only waste — and by the fact that the map itself is
   /// bounded. Oldest deadlines first: those are the ones most likely to still
   /// be in the way when the next fetch lands.
-  List<Uint8List> _setAsideContentIds() {
+  Future<List<Uint8List>> _setAsideContentIds() async {
     final now = this.now();
     final live =
         _transientGaveUpUntil.entries
             .where((e) => now.isBefore(e.value))
             .toList()
           ..sort((a, b) => a.value.compareTo(b.value));
-    final out = <Uint8List>[
-      for (final e in live.take(_maxSkipPerFetch)) _unhex(e.key),
-    ];
+    final taken = <String>{};
+    final out = <Uint8List>[];
+    void offer(String hex) {
+      if (out.length >= _maxSkipPerFetch) return;
+      if (!taken.add(hex)) return; // an id earns one slot, not three
+      out.add(_unhex(hex));
+    }
+
+    for (final e in live) {
+      offer(e.key);
+    }
     // AND THE ONES THAT WILL NEVER OPEN.
     //
     // These used to be acked away, and the ack is what kept the queue moving:
@@ -269,8 +292,20 @@ class MailboxOrchestrator {
     // Newest first, because the head of the queue is what blocks it, and
     // bounded by the relay's own cap on the hint.
     for (final hex in _openFailedOnce.toList().reversed) {
-      if (out.length >= _maxSkipPerFetch) break;
-      out.add(_unhex(hex));
+      offer(hex);
+    }
+    // INCLUDING THE ONES THIS SESSION HAS NOT MET YET.
+    //
+    // [_openFailedOnce] is in RAM, so it is empty after a relaunch — and it
+    // was the only thing feeding this hint. The durable registry is what
+    // survives, and the relay was never told about it: every session's first
+    // drain therefore had the relay serve a blob known not to open, met it in
+    // the quarantine branch below, and acked the id away — which takes every
+    // replica under that id, the honest copy included. That is the deletion
+    // X35 removed, one restart later. The relay is told now.
+    for (final hex
+        in (await _poisoned?.quarantinedCids() ?? const <String>[])) {
+      offer(hex);
     }
     return out;
   }
@@ -343,9 +378,11 @@ class MailboxOrchestrator {
 
   /// Fetch our pending blobs, open + verify each, skip (but still ack) ones we
   /// [alreadyHave] (dedup against live delivery), and return the newly-recovered
-  /// messages. A blob that fails to open + verify is acked + skipped so one
-  /// corrupt/forged blob can't wedge the inbox. Every blob we resolve is acked
-  /// so the relay can drop it.
+  /// messages. Every blob we RESOLVE is acked so the relay can drop it; a blob
+  /// that fails to open + verify is quarantined and named in the skip hint
+  /// instead, never acked — an ack names a content id, so it would take every
+  /// replica under that id with it (report27 X35). That keeps one corrupt or
+  /// forged blob from wedging the inbox without destroying the copy beside it.
   ///
   /// Drains until EMPTY (bounded): the relay's FETCH reply must fit one signed
   /// AuthDeliver (~6 KB), so a backlog is served roughly ONE ~4 KB blob per
@@ -408,7 +445,7 @@ class MailboxOrchestrator {
         me: me,
         authCookie: authCookie,
         knownRelays: knownRelays,
-        skip: _setAsideContentIds(),
+        skip: await _setAsideContentIds(),
       );
       cost.fetchMs += fetchSw.elapsedMilliseconds;
       // A call may have started while the native FETCH was in flight. Leave
@@ -515,19 +552,31 @@ class MailboxOrchestrator {
         return left;
       }();
       // Quarantined: this cid already failed open PERMANENTLY (decryption is
-      // deterministic). Skip the decrypt — but keep acking so a relay that
-      // supports the ack endpoint finally drops it (replicas that missed an
-      // earlier ack included). A re-sighting after the in-RAM tier means the
-      // ack did NOT stick (pre-ack relay) — promote to the durable registry so
-      // the skip survives a relaunch.
+      // deterministic). Skip the decrypt — and ack NOTHING.
+      //
+      // These two branches used to ack, on the reasoning that a relay
+      // supporting the endpoint should finally drop a blob an earlier ack had
+      // missed. There is no earlier ack any more: a failed open stopped acking
+      // when X35 was fixed, because an ack names a CONTENT ID and nothing else
+      // and so takes every replica under it — including an honest copy nothing
+      // has looked at. Acking here said the same thing one drain later, and
+      // after a relaunch it was not even later: the in-RAM tier is empty then,
+      // so the very first drain of a session met the blob here and deleted the
+      // id. What stops the re-open loop is the quarantine, and what keeps the
+      // queue moving is the skip hint — which now carries the durable registry
+      // too, so a relay new enough to read it does not serve this blob at all.
       final cidHex = _cidHex(b.contentId);
       if (_openFailedOnce.contains(cidHex)) {
         await _poisoned?.add(b.contentId);
-        await _ack(cost, me, b.contentId, authCookie, knownRelays);
         continue;
       }
       if (await (_poisoned?.contains(b.contentId) ?? Future.value(false))) {
-        await _ack(cost, me, b.contentId, authCookie, knownRelays);
+        // Sighted again this session: remember it in RAM as well, so the hint
+        // carries it even if the registry has since aged the id out.
+        if (_openFailedOnce.length >= _openFailedOnceMax) {
+          _openFailedOnce.remove(_openFailedOnce.first);
+        }
+        _openFailedOnce.add(cidHex);
         continue;
       }
       // Given up on THIS SESSION for transient reasons. Skip the expensive
