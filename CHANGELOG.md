@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.75] — 2026-09-19
+
+*The release that 0.13.74 could not publish.*
+
+### Fixed
+
+- **The CI step that installs Android's CMake deleted it again on every
+  retry.** It was added one release earlier so a build would stop dying
+  part-way through on a half-unpacked package, and it fed the licence prompt
+  with `yes |`. Under `pipefail`, `yes` taking SIGPIPE makes the whole pipeline
+  exit 141 — even when the install succeeded — so the loop read each success as
+  a failure and removed the files it had just installed, three times, before
+  giving up. 0.13.74 built every bundle except Android and therefore published
+  nothing. The prompt is answered without a pipeline now, and the step judges
+  the result by whether the binary is there rather than by an exit code.
+
+Nothing else changes: the application code is identical to 0.13.74, whose
+Linux, Windows and macOS bundles were all green.
+
 ## [0.13.74] — 2026-09-19
 
 *Two fixes that were finished everywhere except where they mattered.*
