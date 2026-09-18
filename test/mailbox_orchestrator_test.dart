@@ -9,6 +9,8 @@ import 'package:xveil/state/mailbox_orchestrator.dart';
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 Uint8List _cid(int s) => Uint8List.fromList(List.filled(32, s));
 Uint8List _appId(int s) => Uint8List.fromList(List.filled(32, s));
+String _hexOf(Uint8List b) =>
+    [for (final x in b) x.toRadixString(16).padLeft(2, '0')].join();
 
 void main() {
   late InMemoryMailboxRelay relay;
@@ -206,9 +208,10 @@ void main() {
     // copy this device never saw is the honest one, and it is the copy an ack
     // would have taken.
     expect(
-      (await relay.fetch(me: me, authCookie: cookie))
-          .map((b) => b.contentId)
-          .where((id) => id[0] == cid[0]),
+      (await relay.fetch(
+        me: me,
+        authCookie: cookie,
+      )).map((b) => b.contentId).where((id) => id[0] == cid[0]),
       isNotEmpty,
       reason:
           'the drain acked an id it could only fail to open, which deletes '
@@ -652,6 +655,178 @@ void main() {
     );
 
     setUp(() => settings = {});
+
+    /// The half report27 X35 left behind.
+    ///
+    /// The ack at the point of failure went; two ack sites keyed on the
+    /// QUARANTINE stayed. Inside one session they are unreachable — the id is
+    /// in the skip hint, so the relay does not serve it. But `_openFailedOnce`
+    /// is in RAM, and it was the only thing feeding that hint: after a
+    /// relaunch the hint was empty, the relay served the blob again, and the
+    /// branch that met it acked the id away. An ack names a content id and
+    /// nothing else, so that takes every replica under it — the honest copy on
+    /// another relay included. The deletion X35 removed, one restart later.
+    test('a relaunch does not ack away the id the quarantine holds', () async {
+      // Deaf to the skip hint, the way a relay too old to read the field is —
+      // which is what puts the drain in front of the quarantine branch at all.
+      final deafRelay = _OneBlobPerFetchRelay();
+      await deafRelay.put(
+        receiver: me,
+        contentId: _cid(0xF1),
+        sender: peer,
+        blob: Uint8List.fromList([0, 1, 2]), // undecryptable forever
+      );
+
+      final before = MailboxOrchestrator(
+        LoopbackMailboxCrypto(senderForOpen: peer),
+        deafRelay,
+        poisoned: freshRegistry(),
+      );
+      expect(
+        await before.drain(
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        ),
+        isEmpty,
+      );
+      expect(
+        await deafRelay.fetch(me: me, authCookie: cookie),
+        isNotEmpty,
+        reason: 'a failed open must not delete anything',
+      );
+      expect(
+        await freshRegistry().contains(_cid(0xF1)),
+        isTrue,
+        reason: 'the durable quarantine is what replaced the ack',
+      );
+
+      // The app restarts: the in-RAM tier is gone, the registry is not.
+      final after = MailboxOrchestrator(
+        LoopbackMailboxCrypto(senderForOpen: peer),
+        deafRelay,
+        poisoned: freshRegistry(),
+      );
+      await after.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
+      expect(
+        await deafRelay.fetch(me: me, authCookie: cookie),
+        isNotEmpty,
+        reason:
+            'the relaunch acked an id it never re-opened, and an ack takes '
+            'every replica under that id — including one nothing looked at',
+      );
+    });
+
+    /// And on a relay new enough to read the hint, a fresh session names the
+    /// quarantine on its FIRST fetch — so the relay does not spend a reply
+    /// slot serving a blob both sides already know will not open.
+    ///
+    /// The cumulative record cannot answer this: the durable branch below puts
+    /// the id into the in-RAM tier when it meets it, so a LATER fetch names it
+    /// either way. What the durable registry buys is the FIRST one — which,
+    /// with a relay serving oldest-first under a reply budget, is the round
+    /// everything behind the junk is waiting for (report14 X14-M4).
+    test(
+      'a fresh session names the durable quarantine on its FIRST fetch',
+      () async {
+        final relay = _SkipHonouringRelay();
+        // Oldest first: the junk is the head of the queue, the real message is
+        // behind it.
+        await relay.put(
+          receiver: me,
+          contentId: _cid(0xF2),
+          sender: peer,
+          blob: Uint8List.fromList([0, 1, 2]), // undecryptable forever
+        );
+        final wanted = Uint8List.fromList([7, 7, 7]);
+        final before = MailboxOrchestrator(
+          LoopbackMailboxCrypto(senderForOpen: peer),
+          relay,
+          poisoned: freshRegistry(),
+        );
+        await before.stash(
+          me: peer,
+          recipient: me,
+          appId: _appId(0xF3),
+          endpointId: 4,
+          data: wanted,
+          contentId: _cid(0xF3),
+        );
+        // Session one meets the junk, quarantines it, and delivers the message
+        // behind it.
+        expect(
+          (await before.drain(
+            me: me,
+            authCookie: cookie,
+            ourCertVersion: 1,
+            alreadyHave: never,
+          )).single.data,
+          wanted,
+        );
+
+        // A second message arrives while the app is closed.
+        final later = Uint8List.fromList([8, 8, 8]);
+        await before.stash(
+          me: peer,
+          recipient: me,
+          appId: _appId(0xF4),
+          endpointId: 5,
+          data: later,
+          contentId: _cid(0xF4),
+        );
+
+        // The app restarts. The in-RAM tier is empty; the registry is not.
+        var opens = 0;
+        final counting = _CountingOpenCrypto(
+          LoopbackMailboxCrypto(senderForOpen: peer),
+          onOpen: () => opens++,
+        );
+        final after = MailboxOrchestrator(
+          counting,
+          relay,
+          poisoned: freshRegistry(),
+        );
+        relay.asksPerFetch.clear();
+        final got = await after.drain(
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+        );
+
+        expect(
+          relay.asksPerFetch.first,
+          contains(_hexOf(_cid(0xF2))),
+          reason:
+              'the FIRST fetch of a session must name the durable quarantine — '
+              'the in-RAM tier that used to fill this hint is empty here, so '
+              'without the registry the relay serves the junk head again',
+        );
+        expect(
+          got.single.data,
+          later,
+          reason: 'and the message behind the junk arrives',
+        );
+        expect(
+          opens,
+          1,
+          reason:
+              'exactly one open: the real message. The quarantined head was '
+              'passed over by the relay, not re-opened here',
+        );
+        expect(
+          await relay.fetch(me: me, authCookie: cookie),
+          isNotEmpty,
+          reason: 'and the junk is still the relay\'s to keep — never acked',
+        );
+      },
+    );
 
     test('an undecryptable blob is opened ONCE, quarantined durably, and '
         'skipped on every later drain (relay that ignores acks)', () async {
@@ -1208,6 +1383,11 @@ class _SkipHonouringRelay extends InMemoryMailboxRelay {
   /// Everything the caller has asked to be passed over, across all fetches.
   final asked = <String>{};
 
+  /// And what each fetch asked, in order. The cumulative set above cannot tell
+  /// "the hint carried it from the first fetch" from "a later round learned it
+  /// the expensive way", which is the whole question for a fresh session.
+  final asksPerFetch = <Set<String>>[];
+
   @override
   Future<List<StoredMailboxBlob>> fetch({
     required NodeId me,
@@ -1215,6 +1395,7 @@ class _SkipHonouringRelay extends InMemoryMailboxRelay {
     List<NodeId> knownRelays = const [],
     List<Uint8List> skip = const [],
   }) async {
+    asksPerFetch.add({for (final s in skip) _hex(s)});
     for (final s in skip) {
       asked.add(_hex(s));
     }
