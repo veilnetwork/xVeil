@@ -6,6 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.74] — 2026-09-19
+
+*Two fixes that were finished everywhere except where they mattered.*
+
+### Fixed
+
+- **A restart could still delete a message's honest copies.** 0.13.72 stopped a
+  failed open from acking a blob away: an ack names a content id and nothing
+  else, so the relay cannot tell the copy that failed from any other under that
+  id and deletes them all — including an honest copy on another relay that
+  nothing has looked at, which for a message fetched in slices is the only one
+  there is. But two ack sites keyed on the quarantine were left behind, and the
+  hint that keeps a relay from re-serving a known-bad blob was filled only from
+  memory. After a relaunch that hint was empty, the relay served the blob again,
+  and the ack went out after all. The quarantine is now told to the relay
+  directly, so the first fetch of a session already names it, and neither branch
+  acks.
+
+### Added
+
+- **An owner can settle a Space's early history.** The rule that lets them has
+  existed since 0.13.54 and nothing could reach it. A Space's control log is
+  ordered without clocks, because a date is set by whoever writes the row, so
+  rows written before the log carried a causal edge do not say which promotion
+  authorised them — and a moderator action can be re-read as one they were not
+  entitled to make. The owner can now vouch for what their Space has already
+  applied, from Space settings. It undoes no verdict already reached and grants
+  nobody a new power; it stops the question being asked again.
+
 ## [0.13.73] — 2026-09-17
 
 *The Windows bundle builds again.*
