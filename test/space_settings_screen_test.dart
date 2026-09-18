@@ -171,6 +171,130 @@ void main() {
   /// a community deleting its history every half hour showed the owner the
   /// word "Unlimited". A group chat converted into a community arrives with
   /// exactly such a window.
+  /// report24 G3-1's second half is an owner's deliberate act, and until now
+  /// nothing but a test could perform it: `sealControlHistory` had no caller in
+  /// the app at all. A domain rule the owner cannot reach is not the feature —
+  /// so this asks the SCREEN, not the service.
+  testWidgets('the owner can settle early history from the settings screen', (
+    tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(91);
+    final service = GroupService(storage, _Signer(owner));
+    addTearDown(service.dispose);
+    final spaceId = await service.createSpace('Settled');
+    expect(
+      (await service.load(
+        spaceId,
+      ))!.control.where((e) => e.op == ControlOp.checkpoint),
+      isEmpty,
+      reason: 'nothing has vouched for anything yet',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(service)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final tile = find.byKey(const ValueKey('space-seal-history-tile'));
+    await tester.scrollUntilVisible(
+      tile,
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(tile, findsOneWidget);
+
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('space-seal-history-confirm')));
+    await tester.pumpAndSettle();
+
+    // The screen's word has to reach the SIGNED log, not just close a dialog.
+    final sealed = (await service.load(
+      spaceId,
+    ))!.control.where((e) => e.op == ControlOp.checkpoint);
+    expect(sealed, hasLength(1));
+    expect(sealed.single.author, owner);
+    expect(
+      sealed.single.controlCheckpoint,
+      isNotNull,
+      reason: 'a checkpoint with no heads settles nothing',
+    );
+  });
+
+  /// And it is offered to the owner alone. The fold refuses an admin's
+  /// checkpoint — reading one would let an admin legitimise their own refused
+  /// rows — so an entry point that invited them to write one would promise
+  /// something the domain will not do.
+  testWidgets('an admin is not offered the seal', (tester) async {
+    final ownerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    final owner = _id(92);
+    final admin = _id(93);
+    final ownerSvc = GroupService(ownerStorage, _Signer(owner));
+    addTearDown(ownerSvc.dispose);
+    final spaceId = await ownerSvc.createSpace('Not yours to settle');
+    expect(
+      await ownerSvc.addControlOp(
+        spaceId,
+        ControlOp.addMember,
+        target: admin,
+        role: GroupRole.admin,
+      ),
+      isTrue,
+    );
+
+    final adminStorage = FakeHvContainer().storage();
+    await adminStorage.open(password: 'pw', createIfMissing: true);
+    final adminSvc = GroupService(adminStorage, _Signer(admin));
+    addTearDown(adminSvc.dispose);
+    expect(
+      await adminSvc.ingestSnapshot(
+        ownerSvc.snapshotJson(
+          (await ownerSvc.load(spaceId))!,
+          recipient: admin,
+        ),
+      ),
+      isTrue,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [groupServiceProvider.overrideWithValue(adminSvc)],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Scroll the whole list: the tile is lazy, so "not built yet" and "not
+    // offered" look alike until the end of the list has been reached.
+    final scrollable = find.byType(Scrollable).first;
+    for (var i = 0; i < 40; i++) {
+      await tester.drag(scrollable, const Offset(0, -400));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('space-seal-history-tile')),
+      findsNothing,
+      reason:
+          'the fold will not read an admin\'s checkpoint, so the screen '
+          'must not offer to write one',
+    );
+  });
+
   testWidgets('a sub-day window is shown as itself, not as unlimited', (
     tester,
   ) async {
@@ -2230,14 +2354,15 @@ void main() {
       );
     },
   );
-/// `renameGroup` answers with a bare bool, and the screen used to turn every
-/// false into "could not update the community, CHECK THE NETWORK and try
-/// again". The rename control is drawn from a snapshot, so the permission
-/// behind it can be revoked while the dialog is open — and the network is not
-/// what refuses: the broadcast is unawaited and never decides this call's
-/// answer, so that advice could not be followed to a fix. The string for the
-/// real answer existed, translated, and was allow-listed as unreachable
-/// (report17).
+
+  /// `renameGroup` answers with a bare bool, and the screen used to turn every
+  /// false into "could not update the community, CHECK THE NETWORK and try
+  /// again". The rename control is drawn from a snapshot, so the permission
+  /// behind it can be revoked while the dialog is open — and the network is not
+  /// what refuses: the broadcast is unawaited and never decides this call's
+  /// answer, so that advice could not be followed to a fix. The string for the
+  /// real answer existed, translated, and was allow-listed as unreachable
+  /// (report17).
 
   test('the reasons a settings change can be refused are told apart', () async {
     final storage = HiddenVolumeStorage(
@@ -2270,49 +2395,50 @@ void main() {
     );
   });
 
-  testWidgets('a refusal that is not about permission keeps the generic answer', (
-    tester,
-  ) async {
-    // The control case, and the one that runs the wiring: the rename fails
-    // while the permission is intact, so the screen must NOT start claiming a
-    // permission problem for every failure it meets.
-    final storage = HiddenVolumeStorage(
-      ({required password, required create}) => FakeKvLogStore(),
-    );
-    await storage.open(password: 'pw', createIfMissing: true);
-    final service = _RenameRefusingService(storage, _Signer(_id(10)));
-    addTearDown(service.dispose);
-    final spaceId = await service.createSpace('Community');
+  testWidgets(
+    'a refusal that is not about permission keeps the generic answer',
+    (tester) async {
+      // The control case, and the one that runs the wiring: the rename fails
+      // while the permission is intact, so the screen must NOT start claiming a
+      // permission problem for every failure it meets.
+      final storage = HiddenVolumeStorage(
+        ({required password, required create}) => FakeKvLogStore(),
+      );
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = _RenameRefusingService(storage, _Signer(_id(10)));
+      addTearDown(service.dispose);
+      final spaceId = await service.createSpace('Community');
 
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [groupServiceProvider.overrideWithValue(service)],
-        child: MaterialApp(
-          localizationsDelegates: AppL10n.localizationsDelegates,
-          supportedLocales: AppL10n.supportedLocales,
-          home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [groupServiceProvider.overrideWithValue(service)],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: SpaceSettingsScreen(spaceIdHex: spaceId.hex),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
-    expect(
-      settingsFailureMessage(l, denied: true),
-      isNot(settingsFailureMessage(l, denied: false)),
-      reason: 'the two answers must not be the same sentence',
-    );
-    expect(settingsFailureMessage(l, denied: true), l.spaceRenameDenied);
+      final l = AppL10n.of(tester.element(find.byType(SpaceSettingsScreen)));
+      expect(
+        settingsFailureMessage(l, denied: true),
+        isNot(settingsFailureMessage(l, denied: false)),
+        reason: 'the two answers must not be the same sentence',
+      );
+      expect(settingsFailureMessage(l, denied: true), l.spaceRenameDenied);
 
-    await tester.tap(find.byKey(const Key('space-rename-button')));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, 'Renamed');
-    await tester.tap(find.text(l.spaceRenameAction));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('space-rename-button')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Renamed');
+      await tester.tap(find.text(l.spaceRenameAction));
+      await tester.pumpAndSettle();
 
-    expect(find.text(l.spaceOperationFailed), findsOneWidget);
-    expect(find.text(l.spaceRenameDenied), findsNothing);
-  });
+      expect(find.text(l.spaceOperationFailed), findsOneWidget);
+      expect(find.text(l.spaceRenameDenied), findsNothing);
+    },
+  );
 
   testWidgets('a rename refused for want of the permission says so', (
     tester,
@@ -2387,7 +2513,6 @@ class _RenameRefusingService extends GroupService {
   Future<bool> renameGroup(NodeId groupId, String name) async => false;
 
   @override
-  Future<GroupState?> stateOf(NodeId groupId) => super.stateOf(
-    revoked && stateAfter != null ? stateAfter! : groupId,
-  );
+  Future<GroupState?> stateOf(NodeId groupId) =>
+      super.stateOf(revoked && stateAfter != null ? stateAfter! : groupId);
 }

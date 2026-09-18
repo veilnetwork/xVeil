@@ -1287,6 +1287,23 @@ class AppL10nEn extends AppL10n {
       'Signed access and retention changes. Entries cannot be edited or deleted.';
 
   @override
+  String get spaceSealHistoryTitle => 'Settle early history';
+
+  @override
+  String get spaceSealHistoryHint =>
+      'Vouch, as owner, for the operations this Space has already applied — so the ordering stops re-deciding them.';
+
+  @override
+  String get spaceSealHistoryConfirm =>
+      'The control log is ordered without clocks, because a date can be set by whoever writes the row. Rows written before that ordering carry no link to the promotion that authorised them, so a moderator action can be re-read as unauthorised.\n\nSettling records your word, as owner, for everything this device has accepted up to now. It does not undo verdicts already reached here, and it grants nobody a new power: signatures, chains and withdrawn authority still apply. What it does is stop the question being asked again.';
+
+  @override
+  String get spaceSealHistoryAction => 'Settle';
+
+  @override
+  String get spaceSealHistoryDone => 'Early history settled.';
+
+  @override
   String get spacePolicyAuditEmpty => 'No policy changes have been signed yet.';
 
   @override
