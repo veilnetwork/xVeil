@@ -1298,6 +1298,23 @@ class AppL10nEs extends AppL10n {
       'Cambios firmados de acceso y conservación. Las entradas no se pueden editar ni borrar.';
 
   @override
+  String get spaceSealHistoryTitle => 'Sellar el historial inicial';
+
+  @override
+  String get spaceSealHistoryHint =>
+      'Avalar, como propietario, las operaciones que este espacio ya aplicó, para que el orden deje de decidirlas de nuevo.';
+
+  @override
+  String get spaceSealHistoryConfirm =>
+      'El registro de control se ordena sin relojes, porque la fecha la pone quien escribe la fila. Las filas escritas antes de ese orden no enlazan con el ascenso que las autorizó, así que una acción de moderación puede releerse como no autorizada.\n\nSellar deja constancia de tu palabra, como propietario, sobre todo lo que este dispositivo ha aceptado hasta ahora. No deshace los veredictos ya alcanzados aquí y no concede ningún poder nuevo: las firmas, las cadenas y la autoridad retirada siguen vigentes. Lo que hace es dejar de plantear la pregunta otra vez.';
+
+  @override
+  String get spaceSealHistoryAction => 'Sellar';
+
+  @override
+  String get spaceSealHistoryDone => 'Historial inicial sellado.';
+
+  @override
   String get spacePolicyAuditEmpty =>
       'Todavía no se ha firmado ningún cambio de política.';
 
