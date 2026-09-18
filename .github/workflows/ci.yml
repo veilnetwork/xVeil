@@ -76,6 +76,12 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      # A moved document leaves a link that still looks like a link.
+      # README and INSTALL both described an app and a set of published
+      # builds that had moved on without them; this catches the half of
+      # that rot a machine can see. Self-test first.
+      - run: python3 scripts/check-docs.py --self-test
+      - run: python3 scripts/check-docs.py
 
   build-support:
     name: build support
