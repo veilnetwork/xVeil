@@ -1246,6 +1246,55 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
     if (!await service.setSpaceArchived(spaceId, archived)) _failure();
   }
 
+  /// The owner's word that this Space's early history was applied as written.
+  ///
+  /// The control log is ordered without clocks on purpose — a date is set by
+  /// whoever writes the row — so between two authors the order falls to a hash.
+  /// Rows written before the log carried a causal edge name no promotion, and
+  /// an operation a moderator really was entitled to make can be re-read as one
+  /// they were not (report24 G3-1).
+  ///
+  /// A `checkpoint` written by the OWNER is testimony the fold will read: rows
+  /// at or below its heads skip the authorization gate, and only that gate.
+  /// Nothing else is relaxed and nobody gains a power they did not have — an
+  /// owner may issue any operation in their own Space, so vouching that one was
+  /// applied is already theirs. Which is why it is offered to the owner alone.
+  ///
+  /// It is HERE rather than automatic because the automatic path never writes
+  /// one: a checkpoint is a side effect of posting, and that path reuses any
+  /// recent one whose historical state still grants the poster permission —
+  /// which, for an owner, is every one of them.
+  Future<void> _sealHistory(GroupService service, NodeId spaceId) async {
+    final l = AppL10n.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l.spaceSealHistoryTitle),
+        content: SingleChildScrollView(child: Text(l.spaceSealHistoryConfirm)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            key: const ValueKey('space-seal-history-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l.spaceSealHistoryAction),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!await service.sealControlHistory(spaceId)) {
+      _failure();
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l.spaceSealHistoryDone)));
+  }
+
   Future<void> _deleteSpace(GroupService service, NodeId spaceId) async {
     final l = AppL10n.of(context);
     final confirmed = await showDialog<bool>(
@@ -2668,6 +2717,18 @@ class _SpaceSettingsScreenState extends ConsumerState<SpaceSettingsScreen> {
                           ),
                         ),
                       ),
+                      if (myRole == GroupRole.owner) ...[
+                        const SizedBox(height: 12),
+                        Card(
+                          child: ListTile(
+                            key: const ValueKey('space-seal-history-tile'),
+                            leading: const Icon(Icons.verified_outlined),
+                            title: Text(l.spaceSealHistoryTitle),
+                            subtitle: Text(l.spaceSealHistoryHint),
+                            onTap: () => _sealHistory(service, spaceId),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       // Ungated on purpose: the log itself decides row by row
                       // what this member may read, and an entry point that

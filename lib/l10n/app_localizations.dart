@@ -2319,6 +2319,36 @@ abstract class AppL10n {
   /// **'Signed access and retention changes. Entries cannot be edited or deleted.'**
   String get spacePolicyAuditHint;
 
+  /// No description provided for @spaceSealHistoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Settle early history'**
+  String get spaceSealHistoryTitle;
+
+  /// No description provided for @spaceSealHistoryHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Vouch, as owner, for the operations this Space has already applied — so the ordering stops re-deciding them.'**
+  String get spaceSealHistoryHint;
+
+  /// No description provided for @spaceSealHistoryConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'The control log is ordered without clocks, because a date can be set by whoever writes the row. Rows written before that ordering carry no link to the promotion that authorised them, so a moderator action can be re-read as unauthorised.\n\nSettling records your word, as owner, for everything this device has accepted up to now. It does not undo verdicts already reached here, and it grants nobody a new power: signatures, chains and withdrawn authority still apply. What it does is stop the question being asked again.'**
+  String get spaceSealHistoryConfirm;
+
+  /// No description provided for @spaceSealHistoryAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Settle'**
+  String get spaceSealHistoryAction;
+
+  /// No description provided for @spaceSealHistoryDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Early history settled.'**
+  String get spaceSealHistoryDone;
+
   /// No description provided for @spacePolicyAuditEmpty.
   ///
   /// In en, this message translates to:
