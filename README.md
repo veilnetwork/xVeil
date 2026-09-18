@@ -29,7 +29,22 @@ veil overlay, including:
   (`node-embedded`, the iOS/sandbox path; RocksDB stripped for a slim mobile build)
 - Real overlay **transport**; contact exchange via bootstrap invites (QR + paste)
 - **Consent gate** — request → accept before anyone can message you
-- Master vault (one password → several spaces); RU/EN; veil-branded icons
+- Master vault (one password → several identities); EN/RU/ES; veil-branded icons
+
+Beyond one-to-one chat, the app also carries:
+
+- **Spaces** — communities with a signed control log: roles, moderation with
+  appeals, protected and restricted channels, a public feed with posts,
+  comments and reactions, retention policy, and a policy audit
+- **Group chats** and **calls** — one-to-one and group, with a device picker,
+  a call log and an in-app overlay
+- **Cloud storage** — folders, notes, shared documents and attachments, with
+  capability links that can be revoked
+- **Backup and multi-device** — a sealed or plain archive that carries the
+  identity, contacts, groups, Spaces and the cloud tree; device linking,
+  verification and revocation
+- **Node operation** from inside the app — config, managed nodes, a fleet
+  updater and network diagnostics
 
 The app still builds/runs/tests on **in-memory fakes** behind clean ports (no native
 stack needed); the real stack activates via env (`XVEIL_VEIL_CLI`/`XVEIL_VEIL_CONFIG`,
@@ -69,14 +84,21 @@ flutter test
 ```
 lib/
   core/        value types (NodeId)
-  domain/      Identity, Contact, Conversation, Message
+  crypto/      key handling
+  domain/      Identity, Contact, Conversation, Message, groups, Spaces, cloud
   data/        ports + fakes: storage/ node/ transport/
   state/       Riverpod: providers, AppController, MessagingService
-  features/    splash · onboarding · lock · home · chat · network · settings
+  features/    bootstrap · calls · chat · common · contacts · groups · help
+               home · identity · lock · network · onboarding · preparing
+               settings · spaces · splash · storage
   routing/     go_router + AppPhase gating
-  l10n/        app_en.arb · app_ru.arb
+  headless/    the app without a UI, for tests and diagnostics
+  desktop/     desktop-only entry points
+  theme/       colour and typography
+  l10n/        app_en.arb · app_ru.arb · app_es.arb
 third_party/   veil + hidden-volume (git submodules)
-doc/           ARCHITECTURE.md · SECURITY-NOTES.md
+doc/           design notes and plans (23 documents; ARCHITECTURE.md and
+               SECURITY-NOTES.md are the two to start from)
 ```
 
 ## Community

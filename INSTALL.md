@@ -13,14 +13,26 @@ checkout, not from anyone's laptop.
 | Platform | File | Notes |
 |---|---|---|
 | Android | `app-arm64-v8a-release.apk` | almost every phone made since 2016 |
+| Android (32-bit) | `app-armeabi-v7a-release.apk` | older phones |
+| Android (x86) | `app-x86_64-release.apk` | emulators, x86 tablets |
 | Windows | `xveil-windows-x64.zip` | unzip, run `xveil.exe` |
+| Windows on ARM | `xveil-windows-arm64.zip` | same, native ARM64 |
 | Linux | `xveil-linux-x64.tar.gz` | unpack, run `bundle/xveil` |
+| Linux on ARM | `xveil-linux-arm64.tar.gz` | same, native ARM64 |
+| Linux (musl) | `xveil-linux-x64-musl.tar.gz` | Alpine and other musl systems |
 
-Android is `arm64-v8a` only. Builds for `armeabi-v7a` and `x86_64` were
-published through v0.9.1 and are not any more: the call media engine is built
-for arm64 alone, so those APKs started and then could not record a voice
-message, play a video note, take a call or transcribe anything. An APK that
-looks like the app and quietly cannot do half of it is worse than no APK.
+Take the `arm64-v8a` APK unless you know your phone is one of the exceptions.
+
+Each desktop platform also gets a `-debug` archive. It is the same app with the
+diagnostics left in — larger and slower, and only worth taking if someone has
+asked you for a log.
+
+All three Android ABIs are published again. They were dropped after v0.9.1
+because the call media engine was built for arm64 alone, so the other APKs
+started and then could not record a voice message, play a video note, take a
+call or transcribe anything. `libveil_media`, the hidden-volume library and
+whisper.cpp are all built for `arm64-v8a`, `armeabi-v7a` and `x86_64` now, so
+the reason is gone.
 
 Speech recognition downloads its model (~57 MB) the first time you use it,
 which is why the app itself is small.
@@ -137,14 +149,26 @@ by hand from a `veil:bootstrap?…` link: **Network → Peers → Add peer**.
 | Платформа | Файл | Примечание |
 |---|---|---|
 | Android | `app-arm64-v8a-release.apk` | почти все телефоны с 2016 года |
+| Android (32 бита) | `app-armeabi-v7a-release.apk` | телефоны постарше |
+| Android (x86) | `app-x86_64-release.apk` | эмуляторы, планшеты на x86 |
 | Windows | `xveil-windows-x64.zip` | распаковать, запустить `xveil.exe` |
+| Windows на ARM | `xveil-windows-arm64.zip` | то же, нативно под ARM64 |
 | Linux | `xveil-linux-x64.tar.gz` | распаковать, запустить `bundle/xveil` |
+| Linux на ARM | `xveil-linux-arm64.tar.gz` | то же, нативно под ARM64 |
+| Linux (musl) | `xveil-linux-x64-musl.tar.gz` | Alpine и другие системы на musl |
 
-Android — только `arm64-v8a`. Сборки под `armeabi-v7a` и `x86_64` публиковались
-по v0.9.1 включительно и больше не публикуются: движок звонков собирается лишь
-под arm64, поэтому те APK запускались, но не могли ни записать голосовое, ни
-проиграть кружочек, ни принять звонок, ни распознать речь. APK, который выглядит
-как приложение и молча не умеет половины, хуже, чем его отсутствие.
+Берите APK под `arm64-v8a`, если только точно не знаете, что ваш телефон —
+исключение.
+
+У каждой настольной платформы есть ещё архив `-debug`. Это то же приложение с
+оставленной диагностикой — больше и медленнее; брать его стоит, только если у
+вас попросили журнал.
+
+Все три Android-ABI снова публикуются. Их перестали выкладывать после v0.9.1,
+потому что движок звонков собирался лишь под arm64 и те APK запускались, но не
+могли ни записать голосовое, ни проиграть кружочек, ни принять звонок, ни
+распознать речь. Сейчас `libveil_media`, библиотека hidden-volume и whisper.cpp
+собираются под `arm64-v8a`, `armeabi-v7a` и `x86_64` — причина отпала.
 
 Модель распознавания речи (~57 МБ) докачивается при первом использовании —
 поэтому само приложение небольшое.
