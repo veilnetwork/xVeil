@@ -113,3 +113,11 @@ Donations in crypto:
 
 - **Ethereum:** `0x5238294aFb8F4e36D7ea091827909E0311879B1A`
 - **Bitcoin:** `bc1qam33yx29et9krqc8jnnu80qvds8jz32wrwr3ph`
+
+## License
+
+MIT OR Apache-2.0, at your option — see [LICENSE-MIT](LICENSE-MIT) and
+[LICENSE-APACHE](LICENSE-APACHE). The same terms cover the two components
+xVeil is built on, [veil](third_party/veil) and
+[hidden-volume](third_party/hidden-volume), so a build of this application is
+permissively licensed end to end.
