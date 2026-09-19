@@ -355,4 +355,103 @@ void main() {
       expect(opener.opens, isEmpty);
     });
   });
+
+  group('the seal is keyed to the address the peer has for us', () {
+    // The device ids are NOT the identity ids here, which is the whole point:
+    // every earlier test in this file handed both ends the same pair of node
+    // ids, so the derivation — symmetric by construction — could not fail. The
+    // defect lived one level up, in WHICH id the call site handed it, and it
+    // shipped green.
+    final callerIdentity = _node(0x31);
+    final callerDevice = _node(0xA1);
+    final calleeIdentity = _node(0x32);
+    final calleeDevice = _node(0xA2);
+
+    test('both ends derive one pair when each uses its IDENTITY', () async {
+      final callerContribution = generateCallMediaKeyContribution();
+      final calleeContribution = generateCallMediaKeyContribution();
+
+      final caller = deriveCallMediaKeys(
+        call: _call(
+          route: CallTransportKind.p2p,
+          direction: CallDirection.outgoing,
+          peer: calleeIdentity,
+          localMediaKey: callerContribution,
+          peerMediaKey: calleeContribution,
+        ),
+        localNodeId: callerIdentity.bytes,
+      );
+      final callee = deriveCallMediaKeys(
+        call: _call(
+          route: CallTransportKind.p2p,
+          direction: CallDirection.incoming,
+          peer: callerIdentity,
+          localMediaKey: calleeContribution,
+          peerMediaKey: callerContribution,
+        ),
+        localNodeId: calleeIdentity.bytes,
+      );
+
+      expect(caller.txKey, callee.rxKey);
+      expect(caller.rxKey, callee.txKey);
+    });
+
+    test('a DEVICE id on one end seals what the other cannot open', () {
+      // What production actually did, and what it cost: the caller asked the
+      // transport for its own node id (the device) while the callee could only
+      // put the caller's IDENTITY in the same slot. Measured on the stand
+      // 2026-09-19 as `media.ingress.arrived n=1000` against
+      // `media.ingress.drop reason=seal-open-failed n=1000` — every cell
+      // delivered, every cell refused, on both sides of a live p2p call.
+      final callerContribution = generateCallMediaKeyContribution();
+      final calleeContribution = generateCallMediaKeyContribution();
+
+      final callerOnItsDevice = deriveCallMediaKeys(
+        call: _call(
+          route: CallTransportKind.p2p,
+          direction: CallDirection.outgoing,
+          peer: calleeIdentity,
+          localMediaKey: callerContribution,
+          peerMediaKey: calleeContribution,
+        ),
+        localNodeId: callerDevice.bytes,
+      );
+      final calleeOnItsDevice = deriveCallMediaKeys(
+        call: _call(
+          route: CallTransportKind.p2p,
+          direction: CallDirection.incoming,
+          peer: callerIdentity,
+          localMediaKey: calleeContribution,
+          peerMediaKey: callerContribution,
+        ),
+        localNodeId: calleeDevice.bytes,
+      );
+
+      expect(
+        callerOnItsDevice.txKey,
+        isNot(calleeOnItsDevice.rxKey),
+        reason: 'this is the silence, stated as an assertion',
+      );
+    });
+
+    test('the transport offers the identity, and the device only without one', () {
+      expect(
+        peerFacingNodeIdOf(
+          deviceNodeId: callerDevice,
+          identityAddress: callerIdentity.bytes,
+        ).hex,
+        callerIdentity.hex,
+      );
+      // An identity with no document IS its own device key, and the two
+      // coincide — which is exactly why every call between such peers kept
+      // working and hid the defect for everyone else.
+      expect(
+        peerFacingNodeIdOf(
+          deviceNodeId: callerDevice,
+          identityAddress: null,
+        ).hex,
+        callerDevice.hex,
+      );
+    });
+  });
 }
