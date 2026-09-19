@@ -149,11 +149,18 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   if (transport is VeilFlutterTransport) {
     unawaited(
       RealVeilStack.sovereignReceiveAddress(storage).then((receiveAddress) {
-        if (receiveAddress != null && !providerDisposed) {
+        if (!providerDisposed) {
+          // Assigned even when it is null. "This identity has no document" is
+          // an ANSWER, and withholding it left the transport unable to tell it
+          // apart from "the boot has not looked yet" — which is the state
+          // call-media key derivation must never guess at.
           transport.identityAddress = receiveAddress;
         }
       }).catchError((Object e) {
         devLog(() => 'xVeil[identity]: transport receive address FAILED: $e');
+        // A failure is also an answer for this purpose: no address we can
+        // trust. Unblock the waiters rather than making them time out.
+        if (!providerDisposed) transport.identityAddress = null;
       }),
     );
   }

@@ -722,7 +722,13 @@ class VeilCallMediaController implements CallMediaController {
         },
       );
     }
-    final localId = (await _transport.nodeId()).bytes;
+    // The address the PEER knows us by, not this device's transport id. Both
+    // ends hash (caller, callee) into the call-media master key, and the peer
+    // can only put our IDENTITY there — a contact, an invite and a certificate
+    // all carry that one. Asking the transport for its own node id made the two
+    // ends hash different pairs on any device whose identity is not its own
+    // key, and every sealed cell then arrived and failed to open.
+    final localId = (await _transport.peerFacingNodeId()).bytes;
     final peerId = call.peer.bytes;
     // Open only the route finalized by call negotiation.
     final int chan;
