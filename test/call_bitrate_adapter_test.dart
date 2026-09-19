@@ -199,4 +199,85 @@ void main() {
     expect(a.level, 0);
     expect(a.target, (maxBitrateKbps: 150, maxFps: 15));
   });
+
+  group('when the ladder runs out of rungs', () {
+    // The gap this closes, measured: at the bottom rung (270 kbps of a 900 kbps
+    // profile) the stand still lost 68% of outbound video and kept sending.
+    // The ladder had no way to say "there is no smaller step" — every sample
+    // returned null, which is exactly what a healthy hold returns too.
+
+    test('says nothing while rungs remain, however bad the link', () {
+      final a = direct();
+      // Walk all the way down: three degrade steps for a four-rung ladder.
+      for (var i = 0; i < 6; i++) {
+        lossy(a);
+      }
+      expect(a.level, CallBitrateAdapter.ladder.length - 1);
+      expect(a.atFloor, isTrue);
+      expect(
+        a.videoAdvice,
+        CallVideoAdvice.keep,
+        reason: 'reaching the floor is not itself advice — the floor has not '
+            'been given a chance to carry the call yet',
+      );
+    });
+
+    test('advises dropping video only after the floor keeps failing', () {
+      final a = direct();
+      for (var i = 0; i < 6; i++) {
+        lossy(a);
+      }
+      // One short burst at the floor must not raise a user-facing prompt.
+      for (var i = 0; i < CallBitrateAdapter.adviseAfter - 1; i++) {
+        expect(lossy(a), isNull);
+        expect(a.videoAdvice, CallVideoAdvice.keep, reason: 'sample $i');
+      }
+      expect(lossy(a), isNull);
+      expect(a.videoAdvice, CallVideoAdvice.suggestDisable);
+    });
+
+    test('a good sample at the floor restarts the count', () {
+      final a = direct();
+      for (var i = 0; i < 6; i++) {
+        lossy(a);
+      }
+      for (var i = 0; i < CallBitrateAdapter.adviseAfter - 1; i++) {
+        lossy(a);
+      }
+      good(a); // link breathes
+      for (var i = 0; i < CallBitrateAdapter.adviseAfter - 1; i++) {
+        expect(lossy(a), isNull);
+        expect(a.videoAdvice, CallVideoAdvice.keep, reason: 'after $i');
+      }
+      expect(lossy(a), isNull);
+      expect(a.videoAdvice, CallVideoAdvice.suggestDisable);
+    });
+
+    test('the advice is latched, not momentary', () {
+      final a = direct();
+      for (var i = 0; i < 6 + CallBitrateAdapter.adviseAfter; i++) {
+        lossy(a);
+      }
+      expect(a.videoAdvice, CallVideoAdvice.suggestDisable);
+      // A handful of good samples is not yet a recovery: too few to climb a
+      // rung, so a prompt the user is reaching for must not vanish.
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+        good(a);
+        expect(a.videoAdvice, CallVideoAdvice.suggestDisable, reason: 'good $i');
+      }
+    });
+
+    test('climbing off the floor withdraws the advice', () {
+      final a = direct();
+      for (var i = 0; i < 6 + CallBitrateAdapter.adviseAfter; i++) {
+        lossy(a);
+      }
+      expect(a.videoAdvice, CallVideoAdvice.suggestDisable);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+        good(a);
+      }
+      expect(a.atFloor, isFalse);
+      expect(a.videoAdvice, CallVideoAdvice.keep);
+    });
+  });
 }

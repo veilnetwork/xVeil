@@ -16,6 +16,7 @@ import '../../state/android_camera_capture.dart'
 import '../../state/android_native_call_camera.dart';
 import '../../state/android_native_call_video.dart';
 import '../../state/call_service.dart';
+import '../../state/call_video_prompt.dart';
 import '../../state/veil_call_media.dart'
     show localVideoFrame, remoteVideoFrame;
 import 'call_lifecycle_bridge.dart' show callPipMode;
@@ -515,6 +516,15 @@ class _CallBody extends ConsumerWidget {
                   : null,
             ),
           ),
+        // Under the transport badge, which answers "which path"; this one
+        // answers "and it is not carrying this". Same left/right inset so the
+        // two read as one column rather than two floating cards.
+        Positioned(
+          top: call.transport != null ? 112 : 66,
+          left: 16,
+          right: 16,
+          child: WeakLinkBanner(call: call, svc: svc),
+        ),
         if (call.media.video && !selfPreviewHidden)
           Positioned(
             left: selfPreviewOffset.dx,
@@ -577,6 +587,104 @@ String callStatusLabel(AppL10n l, Call call) {
 /// Minimal opaque fill for a PiP window whose call is gone or has no video
 /// stage yet. Deliberately content-free: nothing from the app may leak into
 /// the floating window.
+/// The in-call offer to drop video when the link cannot carry it.
+///
+/// Public only so a widget test can pump it without standing up the whole
+/// overlay: which actions it offers depends on WHO raised the prompt, and that
+/// branch is not reachable from the service tests.
+///
+/// Shows nothing at all until [callVideoPrompt] is raised — by the local
+/// bitrate ladder running out of rungs on a still-failing link, or by the peer
+/// asking. It never acts on its own: the whole point is that a camera the user
+/// switched on is not switched off by a measurement or by a remote party.
+@visibleForTesting
+class WeakLinkBanner extends StatelessWidget {
+  const WeakLinkBanner({super.key, required this.call, required this.svc});
+
+  final Call call;
+  final CallService svc;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final theme = Theme.of(context);
+    return ValueListenableBuilder<CallVideoPromptCause?>(
+      valueListenable: callVideoPrompt,
+      builder: (context, cause, _) {
+        // Nothing to drop means nothing to offer, whatever raised the prompt.
+        if (cause == null || (!call.cameraOn && !call.screenOn)) {
+          return const SizedBox.shrink();
+        }
+        final peerAsked = cause == CallVideoPromptCause.peerAsked;
+        return Material(
+          color: theme.colorScheme.surface.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.network_check,
+                      size: 18,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      l.callWeakLinkTitle,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  peerAsked
+                      ? l.callWeakLinkBodyPeer
+                      : l.callWeakLinkBodyLocal,
+                  style: theme.textTheme.bodySmall,
+                ),
+                Wrap(
+                  spacing: 4,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        callVideoPrompt.value = null;
+                        unawaited(svc.setCameraEnabled(false));
+                      },
+                      child: Text(l.callWeakLinkTurnOffVideo),
+                    ),
+                    // Only when WE measured it. A peer that already asked does
+                    // not need to be asked back, and offering it would invite
+                    // the two sides to ping-pong the same request.
+                    if (!peerAsked)
+                      TextButton(
+                        onPressed: () async {
+                          final messenger = ScaffoldMessenger.maybeOf(context);
+                          await svc.askPeerToStopVideo();
+                          messenger?.showSnackBar(
+                            SnackBar(content: Text(l.callWeakLinkAsked)),
+                          );
+                        },
+                        child: Text(l.callWeakLinkAskPeer),
+                      ),
+                    TextButton(
+                      onPressed: () => callVideoPrompt.value = null,
+                      child: Text(l.callWeakLinkDismiss),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _PipEndedCover extends StatelessWidget {
   const _PipEndedCover();
 

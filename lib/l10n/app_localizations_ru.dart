@@ -7471,4 +7471,28 @@ class AppL10nRu extends AppL10n {
   @override
   String get cloudFolderShareRevokeFailed =>
       'Не удалось отозвать ссылку — возможно, она ещё работает. Попробуйте снова.';
+
+  @override
+  String get callWeakLinkTitle => 'Слабая связь';
+
+  @override
+  String get callWeakLinkBodyLocal =>
+      'Ваше видео не доходит. Если его отключить, звук станет ровнее.';
+
+  @override
+  String get callWeakLinkBodyPeer =>
+      'Связь собеседника не тянет видео. Если отключить своё, звук станет ровнее.';
+
+  @override
+  String get callWeakLinkTurnOffVideo => 'Отключить видео';
+
+  @override
+  String get callWeakLinkAskPeer => 'Попросить и собеседника';
+
+  @override
+  String get callWeakLinkDismiss => 'Оставить видео';
+
+  @override
+  String get callWeakLinkAsked =>
+      'Собеседника попросили передавать только звук';
 }
