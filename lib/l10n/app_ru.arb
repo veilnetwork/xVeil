@@ -1563,7 +1563,13 @@
   "compactOfferAlready": "Уже в списке",
   "compactOfferKeeping": "Будут сохранены",
   "compactOfferMasterOnly": "Этот пароль сохраняет только это пространство. У {count, plural, =1{личности} other{{count} личностей}} под ним свои пароли — введите каждый, иначе они будут удалены.",
-  "@compactOfferMasterOnly": {"placeholders": {"count": {"type": "int"}}},
+  "@compactOfferMasterOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "compactOfferStillNeeded": "Ещё не открыты — иначе будут удалены:",
   "compactOfferRun": "Сжать",
   "settingsCompactOfferDays": "{count, plural, one{{count} день} few{{count} дня} other{{count} дней}}",
@@ -2387,7 +2393,16 @@
   "devicesRevoke": "Отозвать устройство",
   "devicesSecretDidNotFit": "Этот секрет не открыл личность. Проверьте, не пропущено ли слово и нет ли опечатки — пробелы и заглавные буквы значения не имеют.",
   "devicesPhraseWordCount": "{count} из {total} слов",
-  "@devicesPhraseWordCount": {"placeholders": {"count": {"type": "int"}, "total": {"type": "int"}}},
+  "@devicesPhraseWordCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "onboardCertFreshTitle": "Ваша личность и единственный ключ к ней",
   "onboardCertFreshWhy": "Личность только что создана. Её ключ существует в одном месте — в сертификате ниже — и открывается одним секретом: кодом рядом с ним. Сохраните оба, храня их порознь, прежде чем идти дальше. Другой копии не будет.",
   "onboardCertFreshFailed": "Создать личность на этом устройстве не удалось, поэтому она и не создана. Ничего не записано. Вернитесь и попробуйте снова; если повторяется — эта сборка не может добраться до компонента, который делает ключи.",
@@ -2408,7 +2423,13 @@
   "onboardRestoreCertificateFromFile": "Выбран из файла",
   "onboardRestoreCertificateAnother": "Выбрать другой",
   "onboardRestoreCertificateChosen": "Сертификат личности {id}…",
-  "@onboardRestoreCertificateChosen": {"placeholders": {"id": {"type": "String"}}},
+  "@onboardRestoreCertificateChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "onboardRestoreCodeLabel": "Код восстановления",
   "onboardRestoreCodeHint": "Код, который вы хранили отдельно от файла. Он начинается с xvrc-.",
   "onboardRestorePasteCertificate": "Или вставьте сертификат",
@@ -2428,7 +2449,16 @@
   "onboardArchiveBody": "Выберите архив, записанный с галочкой «Включить личность». Личность эта установка возьмёт из него сейчас; переписка и файлы вольются потом, из того же файла.",
   "onboardArchivePick": "Выбрать архив",
   "onboardArchiveChosen": "Личность {id}…, записан {when}",
-  "@onboardArchiveChosen": {"placeholders": {"id": {"type": "String"}, "when": {"type": "String"}}},
+  "@onboardArchiveChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "when": {
+        "type": "String"
+      }
+    }
+  },
   "onboardArchiveNoIdentity": "В этом архиве нет личности. Восстановитесь сертификатом или 24 словами, а затем влейте этот файл в Настройках → Перенос данных.",
   "onboardArchiveBad": "Этот файл не архив xVeil или повреждён.",
   "onboardArchivePasswordLabel": "Пароль архива",
@@ -2965,7 +2995,16 @@
   "transferExportTitle": "Экспорт",
   "transferContents": "Диалогов: {contacts}, сообщений: {messages}, звонков: {calls}",
   "transferContentsGroups": "Групп и пространств: {groups}, облачных записей: {cloud}",
-  "@transferContentsGroups": {"placeholders": {"groups": {"type": "int"}, "cloud": {"type": "int"}}},
+  "@transferContentsGroups": {
+    "placeholders": {
+      "groups": {
+        "type": "int"
+      },
+      "cloud": {
+        "type": "int"
+      }
+    }
+  },
   "transferContentsGroupsNote": "Группы едут целиком: состав, история и ключи, чтобы её прочитать. Список устройств — нет: восстановленное устройство входит так же, как входит любое.",
   "transferIncludeFiles": "Включить файлы",
   "transferSizes": "Без файлов примерно {without} МБ; с файлами примерно {with_} МБ (файлов: {files})",
@@ -2991,8 +3030,8 @@
   "transferImportConfirmBody": "Личность {id}…, записан {when}. Внутри сообщений: {messages}, файлов: {files}. Имеющееся сохранится, добавится только недостающее.",
   "transferImportAction": "Объединить",
   "transferImportDone": "Объединено: записей {events}, добавлено файлов {files}, восполнено настроек {settings}.",
-  "transferImportPartial": "\u041e\u0431\u044a\u0435\u0434\u0438\u043d\u0435\u043d\u043e: {events} \u0437\u0430\u043f\u0438\u0441\u0435\u0439, \u0444\u0430\u0439\u043b\u043e\u0432 \u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u043e {files}, \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a \u0437\u0430\u043f\u043e\u043b\u043d\u0435\u043d\u043e {settings} \u2014 \u043d\u043e {failed} \u0437\u0430\u043f\u0438\u0441\u0430\u0442\u044c \u043d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435; \u0442\u043e, \u0447\u0442\u043e \u0443\u0436\u0435 \u043b\u0435\u0433\u043b\u043e, \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u043e.",
-  "transferImportInterrupted": "\u0410\u0440\u0445\u0438\u0432 \u043e\u0431\u043e\u0440\u0432\u0430\u043b\u0441\u044f \u043d\u0430 \u043f\u043e\u043b\u043f\u0443\u0442\u0438: {reason} \u0414\u043e \u044d\u0442\u043e\u0433\u043e \u043e\u0431\u044a\u0435\u0434\u0438\u043d\u0435\u043d\u043e: {events} \u0437\u0430\u043f\u0438\u0441\u0435\u0439, \u0444\u0430\u0439\u043b\u043e\u0432 {files}, \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a {settings}. \u041d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043f\u043e\u0442\u0435\u0440\u044f\u043d\u043e \u2014 \u043f\u043e\u0432\u0442\u043e\u0440\u043d\u043e\u0435 \u043e\u0431\u044a\u0435\u0434\u0438\u043d\u0435\u043d\u0438\u0435 \u0442\u043e\u0433\u043e \u0436\u0435 \u0430\u0440\u0445\u0438\u0432\u0430 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e \u0438 \u0434\u043e\u0431\u0435\u0440\u0451\u0442 \u043e\u0441\u0442\u0430\u043b\u044c\u043d\u043e\u0435.",
+  "transferImportPartial": "Объединено: {events} записей, файлов добавлено {files}, настроек заполнено {settings} — но {failed} записать не удалось. Повторите; то, что уже легло, сохранено.",
+  "transferImportInterrupted": "Архив оборвался на полпути: {reason} До этого объединено: {events} записей, файлов {files}, настроек {settings}. Ничего не потеряно — повторное объединение того же архива безопасно и доберёт остальное.",
   "transferRefusedOtherIdentity": "Архив принадлежит другой личности. Слияние приписало бы вам чужие сообщения.",
   "transferRefusedHasIdentity": "В архиве есть личность, а у этого устройства она уже есть. Импортируйте его на чистую установку.",
   "transferRefusedNotReady": "Приложение ещё не готово к слиянию — откройте любой чат и попробуйте снова.",
@@ -3002,5 +3041,12 @@
   "transferCorrupt": "Архив повреждён.",
   "settingsTransferHint": "Перенести всё на другое устройство через файл",
   "transferTooLarge": "Архив описывает запись гораздо большую, чем xVeil когда-либо пишет, поэтому он не прочитан.",
-  "cloudFolderShareRevokeFailed": "Не удалось отозвать ссылку — возможно, она ещё работает. Попробуйте снова."
+  "cloudFolderShareRevokeFailed": "Не удалось отозвать ссылку — возможно, она ещё работает. Попробуйте снова.",
+  "callWeakLinkTitle": "Слабая связь",
+  "callWeakLinkBodyLocal": "Ваше видео не доходит. Если его отключить, звук станет ровнее.",
+  "callWeakLinkBodyPeer": "Связь собеседника не тянет видео. Если отключить своё, звук станет ровнее.",
+  "callWeakLinkTurnOffVideo": "Отключить видео",
+  "callWeakLinkAskPeer": "Попросить и собеседника",
+  "callWeakLinkDismiss": "Оставить видео",
+  "callWeakLinkAsked": "Собеседника попросили передавать только звук"
 }

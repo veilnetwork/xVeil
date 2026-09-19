@@ -10,6 +10,27 @@
 ///
 /// Pure and synchronous — no timers, no engine handles — so the policy is unit
 /// testable; the media controller owns wiring it to the 1 s stats poll.
+/// What the ladder has to say about video beyond its own rungs.
+///
+/// The ladder can only spend less; it cannot spend nothing. Once the bottom
+/// rung is reached and the link is STILL bad, stepping down is no longer an
+/// available move and continuing to send is not a neutral choice — measured on
+/// the stand 2026-09-19, the bottom rung (270 kbps of a 900 kbps profile) still
+/// lost 68% of outbound video, i.e. two thirds of everything sent was pushed
+/// into a link that could not carry it, crowding the audio that shared it.
+///
+/// Advisory on purpose: the ladder states the finding, the call decides. A
+/// codec policy must not silently switch off a camera the user turned on.
+enum CallVideoAdvice {
+  /// The link is carrying what the current rung asks of it.
+  keep,
+
+  /// The ladder is at its floor and the link is still failing. Offer to drop
+  /// video; audio alone needs a fraction of the budget (measured: ~35 kbit/s
+  /// against ~330 kbit/s for video+audio on the same call).
+  suggestDisable,
+}
+
 class CallBitrateAdapter {
   CallBitrateAdapter({required this.baseBitrateKbps, required this.baseFps});
 
@@ -25,6 +46,12 @@ class CallBitrateAdapter {
 
   /// Consecutive bad samples (~seconds) before stepping down.
   static const int degradeAfter = 2;
+
+  /// Consecutive bad samples (~seconds) AT THE BOTTOM RUNG before advising
+  /// that video be dropped. Deliberately much longer than [degradeAfter]: a
+  /// rung change is invisible, while this one reaches the user, and a prompt
+  /// that appears during a two-second burst is worse than no prompt at all.
+  static const int adviseAfter = 8;
 
   /// Consecutive good samples (~seconds) before stepping back up. Recovery is
   /// deliberately much slower than degradation so a marginal link settles
@@ -51,6 +78,8 @@ class CallBitrateAdapter {
 
   int _level = 0;
   int _badStreak = 0;
+  int _floorBadStreak = 0;
+  CallVideoAdvice _advice = CallVideoAdvice.keep;
   int _goodStreak = 0;
   int? _lastTxDrops;
   int? _curWindowMin;
@@ -78,6 +107,17 @@ class CallBitrateAdapter {
 
   /// Current rung (0 = full route budget).
   int get level => _level;
+
+  /// Whether the ladder has run out of rungs on a link that is still failing.
+  ///
+  /// Latched rather than momentary: it is raised after [adviseAfter] bad
+  /// samples at the floor and cleared only when the ladder actually climbs
+  /// back off the floor. A value that flickered with each sample would drive a
+  /// prompt that appears and vanishes while the user reaches for it.
+  CallVideoAdvice get videoAdvice => _advice;
+
+  /// True while the ladder is on its last rung and cannot spend less.
+  bool get atFloor => _level == ladder.length - 1;
 
   /// Target for the current rung.
   ({int maxBitrateKbps, int maxFps}) get target => (
@@ -119,11 +159,20 @@ class CallBitrateAdapter {
       if (_badStreak >= degradeAfter && _level < ladder.length - 1) {
         _badStreak = 0;
         _level++;
+        // A rung was still available, so the floor streak restarts: the new
+        // rung has not been given its chance yet.
+        _floorBadStreak = 0;
         return target;
+      }
+      // Out of rungs. THIS is the state the ladder had no way to report, and
+      // the one the link was actually in while it kept sending.
+      if (atFloor && ++_floorBadStreak >= adviseAfter) {
+        _advice = CallVideoAdvice.suggestDisable;
       }
       return null;
     }
     _badStreak = 0;
+    _floorBadStreak = 0;
     if (!good) {
       // Marginal sample: hold the rung, restart the recovery clock.
       _goodStreak = 0;
@@ -133,6 +182,9 @@ class CallBitrateAdapter {
     if (_goodStreak >= recoverAfter && _level > 0) {
       _goodStreak = 0;
       _level--;
+      // Climbing off the floor is the only thing that withdraws the advice:
+      // the link has demonstrably carried more than the floor asked of it.
+      _advice = CallVideoAdvice.keep;
       return target;
     }
     return null;
