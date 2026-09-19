@@ -12929,6 +12929,48 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Could not revoke the link — it may still work. Try again.'**
   String get cloudFolderShareRevokeFailed;
+
+  /// Heading of the in-call banner offering to drop video on a failing link
+  ///
+  /// In en, this message translates to:
+  /// **'Weak connection'**
+  String get callWeakLinkTitle;
+
+  /// Banner body when this device measured that its own outbound video is not arriving
+  ///
+  /// In en, this message translates to:
+  /// **'Your video is not getting through. Turning it off should steady the audio.'**
+  String get callWeakLinkBodyLocal;
+
+  /// Banner body when the peer asked us to stop sending video
+  ///
+  /// In en, this message translates to:
+  /// **'Your contact\'s connection cannot carry video. Turning yours off should steady the audio.'**
+  String get callWeakLinkBodyPeer;
+
+  /// Banner action: stop sending video on this call
+  ///
+  /// In en, this message translates to:
+  /// **'Turn off video'**
+  String get callWeakLinkTurnOffVideo;
+
+  /// Banner action: ask the peer to stop sending video too
+  ///
+  /// In en, this message translates to:
+  /// **'Ask them too'**
+  String get callWeakLinkAskPeer;
+
+  /// Banner action: dismiss the offer and keep sending video
+  ///
+  /// In en, this message translates to:
+  /// **'Keep video'**
+  String get callWeakLinkDismiss;
+
+  /// Confirmation shown after asking the peer to send audio only
+  ///
+  /// In en, this message translates to:
+  /// **'Asked your contact to send audio only'**
+  String get callWeakLinkAsked;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

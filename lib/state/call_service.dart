@@ -13,6 +13,7 @@ import 'messaging.dart';
 import 'call_slot.dart';
 import 'group_service_providers.dart';
 import 'p2p_endpoint_service.dart';
+import 'call_video_prompt.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
 import 'veil_call_media.dart';
@@ -946,9 +947,46 @@ class CallService {
         // Onion is never accepted here: the original posture negotiation is
         // the only authority that can select it.
         break;
+      case CallSignalType.askVideoOff:
+        _onAskVideoOff(peer, sig);
       case CallSignalType.unknown:
         break;
     }
+  }
+
+  /// The peer's downlink cannot carry our video and is saying so.
+  ///
+  /// Advisory by design: this does NOT switch the camera off. Nothing on the
+  /// wire is allowed to turn off a user's camera — that would be a remote
+  /// party controlling local capture — so it raises the same offer the local
+  /// measurement raises and the user decides.
+  ///
+  /// Ignored unless we are actually sending video to this exact live call: a
+  /// request about a camera that is already off has nothing to offer, and one
+  /// naming another call is not about this one.
+  void _onAskVideoOff(NodeId peer, CallSignal sig) {
+    final c = _current;
+    if (c == null || c.callId != sig.callId || c.peer != peer || !c.isLive) {
+      return;
+    }
+    if (!c.cameraOn && !c.screenOn) return;
+    callVideoPrompt.value = CallVideoPromptCause.peerAsked;
+  }
+
+  /// Tell the peer our link cannot carry their video, so they can offer their
+  /// own user the same choice. Fire-and-forget: a lost request costs nothing
+  /// but the offer, and the local measurement that raised it keeps standing.
+  Future<void> askPeerToStopVideo() async {
+    final cur = _current;
+    if (cur == null || !cur.isLive) return;
+    await _messaging.sendCallSignal(
+      cur.peer,
+      CallSignal(
+        callId: cur.callId,
+        type: CallSignalType.askVideoOff,
+        protocolVersion: _signalProtocolVersion,
+      ),
+    );
   }
 
   /// Fold the peer's live capture posture (mic/camera/screen) out of any
@@ -1597,6 +1635,10 @@ class CallService {
       );
     }
     _current = null;
+    // Belt and braces with the media controller's own clear: this path also
+    // runs for a call whose media never came up, where there is no controller
+    // to do it and a stale prompt would outlive the call that raised it.
+    callVideoPrompt.value = null;
     if (!_changes.isClosed) _changes.add(null);
   }
 
@@ -1647,6 +1689,7 @@ class CallService {
     _disposed = true;
     // Cleared here, not left behind: it is what those post-await checks read.
     _current = null;
+    callVideoPrompt.value = null;
     _cancelRingTimeout();
     _cancelHeartbeat();
     if (_messaging.onCallSignal == _handler) _messaging.onCallSignal = null;

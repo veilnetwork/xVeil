@@ -19,6 +19,7 @@ import 'android_native_call_camera.dart';
 import 'android_native_call_video.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
+import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
@@ -915,6 +916,32 @@ class VeilCallMediaController implements CallMediaController {
                   '${change.maxFps}fps ok=$ok',
             );
           }
+          // Out of rungs on a link that is still failing. Until now this state
+          // produced nothing at all — `onSample` returns null both for "held
+          // the rung because all is well" and for "held it because there is
+          // nothing smaller left", and the call went on pushing video into a
+          // link measured losing 68% of it.
+          //
+          // Only ever RAISED here, never lowered: the adapter withdraws its
+          // own advice when the ladder climbs back off the floor, and the
+          // prompt follows that rather than flickering with each sample.
+          final advising = adapter.videoAdvice == CallVideoAdvice.suggestDisable;
+          // MEASURED, not assumed: the camera can be off while the video
+          // sender still exists, and there is nothing to offer to drop then.
+          // This sample already carries the answer.
+          final sendingVideo = ((stats['video_tx_fps'] as num?) ?? 0) > 0;
+          if (advising && sendingVideo && callVideoPrompt.value == null) {
+            callVideoPrompt.value = CallVideoPromptCause.linkFailing;
+            devLog(
+              () =>
+                  'xVeil[call-media]: link cannot carry video at the ladder '
+                  'floor (${adapter.target.maxBitrateKbps}kbps) — offering to '
+                  'drop it',
+            );
+          } else if (!advising &&
+              callVideoPrompt.value == CallVideoPromptCause.linkFailing) {
+            callVideoPrompt.value = null;
+          }
         }
       } catch (_) {}
     });
@@ -1101,6 +1128,10 @@ class VeilCallMediaController implements CallMediaController {
     _mediaEpoch++;
     if (clearActiveCall) {
       _activeCall = null;
+      // The prompt belongs to a call, not to the app. A route repair
+      // (clearActiveCall: false) deliberately keeps it: the link that could
+      // not carry video a second ago is the same link.
+      callVideoPrompt.value = null;
       // The rebuild cap is per CALL, not per session: a repair's stop+start
       // (clearActiveCall: false) must not refill the budget it just spent.
       _starvedRebuilds = 0;
