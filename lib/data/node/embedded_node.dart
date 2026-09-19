@@ -1827,16 +1827,33 @@ class EmbeddedNode {
     // Escaped, not interpolated: on Windows this is a path full of
     // backslashes, and inside a TOML basic string a backslash begins an
     // escape. See [tomlBasicString].
+    //
+    // `logs` GOES WITH IT. Naming a file while the sink is still `stderr` is a
+    // contradiction and the node says so — `apply-config rejected: config
+    // validation failed: global.log_file: must not be set when global.logs is
+    // stderr` — and then starts nothing at all. Since `debugNodeLogPath()`
+    // returns a path in every debug build, that meant no debug build could
+    // bring up a node: the stand built to exercise the network had no network.
+    // Release never saw it, because there the path is null and this whole
+    // helper is a no-op.
     final line = 'log_file = ${tomlBasicString(path)}';
+    final sink = 'logs = "file"';
     final rendered = RegExp(r'^[ \t]*log_file[ \t]*=.*$', multiLine: true);
-    if (rendered.hasMatch(toml)) return toml.replaceAll(rendered, line);
-    const marker = '[global]\n';
-    final idx = toml.indexOf(marker);
-    if (idx >= 0) {
-      final at = idx + marker.length;
-      return '${toml.substring(0, at)}$line\n${toml.substring(at)}';
+    final renderedSink = RegExp(r'^[ \t]*logs[ \t]*=.*$', multiLine: true);
+    var out = rendered.hasMatch(toml)
+        ? toml.replaceAll(rendered, line)
+        : null;
+    if (out == null) {
+      const marker = '[global]\n';
+      final idx = toml.indexOf(marker);
+      out = idx >= 0
+          ? '${toml.substring(0, idx + marker.length)}$line\n'
+                '${toml.substring(idx + marker.length)}'
+          : '$toml\n[global]\n$line\n';
     }
-    return '$toml\n[global]\n$line\n';
+    return renderedSink.hasMatch(out)
+        ? out.replaceAll(renderedSink, sink)
+        : out.replaceFirst('$line\n', '$line\n$sink\n');
   }
 
   static String withIdentityDir(String toml, String? dir) {
