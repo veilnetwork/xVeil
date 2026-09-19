@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
+
 // `SenderProvenance` now exists on BOTH sides of this boundary: veil_flutter's
 // (the SDK's decode of veil's wire byte) and this app's port type. They are the
 // same four levels with the same bytes, but the app must speak its own
@@ -115,6 +117,17 @@ abstract interface class CallMediaChannelOpener {
   });
 }
 
+/// Which node id a peer knows this endpoint by, given what the boot found.
+///
+/// Extracted so the CHOICE can be tested without a live node: the defect it
+/// exists for was never in the key derivation (which is symmetric and was
+/// green) but in which id the call site handed it.
+@visibleForTesting
+NodeId peerFacingNodeIdOf({
+  required NodeId deviceNodeId,
+  required Uint8List? identityAddress,
+}) => identityAddress == null ? deviceNodeId : NodeId(identityAddress);
+
 /// Production [VeilTransport] over veil_flutter. Binds the shared `xveil/inbox`
 /// named endpoint, so a peer is addressable from its node id alone (its app_id
 /// is derived — see [chatAppIdFor], verified against the native bindNamed).
@@ -155,7 +168,58 @@ class VeilFlutterTransport
   /// Set rather than constructed: the transport connects before the sovereign
   /// material is read. Null on an identity with no document, where the node id
   /// is the whole story and nothing below changes.
-  Uint8List? identityAddress;
+  Uint8List? get identityAddress => _identityAddress;
+  set identityAddress(Uint8List? value) {
+    _identityAddress = value;
+    // "Not known yet" and "known to be absent" are different answers and only
+    // one of them is a reason to wait. Publishing BOTH is what lets
+    // [peerFacingNodeId] block until the boot has decided, instead of racing
+    // it and quietly answering with the device id.
+    if (!_identityAddressKnown.isCompleted) _identityAddressKnown.complete();
+  }
+
+  Uint8List? _identityAddress;
+  final Completer<void> _identityAddressKnown = Completer<void>();
+
+  /// The node id a PEER derives this endpoint's addressing and per-call key
+  /// material from: the IDENTITY when this device carries a document, its own
+  /// node id when it does not.
+  ///
+  /// [deviceNodeId] answers "which device am I"; this answers "which address do
+  /// others know me by", and call-media key derivation needs the second. Mixing
+  /// them made both ends hash a different pair — one hashed its DEVICE against
+  /// the peer's IDENTITY, the other the mirror image — so every sealed media
+  /// cell arrived intact and failed to open. Measured on the stand 2026-09-19:
+  /// `media.ingress.arrived n=1000` with `media.ingress.drop
+  /// reason=seal-open-failed n=1000` on both sides of a live p2p call, while
+  /// signalling over the same session was perfect.
+  ///
+  /// Awaits the boot's answer rather than sampling it: the address is published
+  /// asynchronously, and a call that started first would otherwise derive
+  /// unopenable keys on some launches and correct ones on others.
+  Future<NodeId> peerFacingNodeId({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (!_identityAddressKnown.isCompleted) {
+      try {
+        await _identityAddressKnown.future.timeout(timeout);
+      } on TimeoutException {
+        // Say so. The fallback below is correct for an identity with no
+        // document and WRONG for one that has a document we simply have not
+        // read yet, and those two must not look alike in a log.
+        devLog(
+          () =>
+              'xVeil[identity]: receive address still unknown after '
+              '${timeout.inMilliseconds}ms — falling back to this device id '
+              '${_nodeId.short}',
+        );
+      }
+    }
+    return peerFacingNodeIdOf(
+      deviceNodeId: _nodeId,
+      identityAddress: _identityAddress,
+    );
+  }
 
   int _debugRealtimeRxCount = 0;
 
