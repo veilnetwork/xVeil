@@ -7505,4 +7505,27 @@ class AppL10nEs extends AppL10n {
   @override
   String get cloudFolderShareRevokeFailed =>
       'No se pudo revocar el enlace: puede seguir funcionando. Inténtalo de nuevo.';
+
+  @override
+  String get callWeakLinkTitle => 'Conexión débil';
+
+  @override
+  String get callWeakLinkBodyLocal =>
+      'Tu vídeo no está llegando. Desactivarlo debería estabilizar el audio.';
+
+  @override
+  String get callWeakLinkBodyPeer =>
+      'La conexión de tu contacto no soporta vídeo. Desactivar el tuyo debería estabilizar el audio.';
+
+  @override
+  String get callWeakLinkTurnOffVideo => 'Desactivar vídeo';
+
+  @override
+  String get callWeakLinkAskPeer => 'Pedírselo también';
+
+  @override
+  String get callWeakLinkDismiss => 'Mantener vídeo';
+
+  @override
+  String get callWeakLinkAsked => 'Se pidió a tu contacto enviar solo audio';
 }

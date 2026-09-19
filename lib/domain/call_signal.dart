@@ -53,6 +53,22 @@ enum CallSignalType {
   /// forever. Carries only callId (+ sentAtMs); no state change on receipt.
   health,
 
+  /// Either side, mid-call: "my link cannot carry your video — please send
+  /// audio only". A REQUEST, not a state change: the sender is describing its
+  /// own downlink, which the peer has no way to observe (RTCP tells a sender
+  /// what the receiver got, never the reverse). The receiver decides; nothing
+  /// here switches a camera off by itself.
+  ///
+  /// Raised by [CallVideoAdvice.suggestDisable], which fires only once the
+  /// bitrate ladder has run out of rungs and the floor is STILL failing —
+  /// measured on the stand 2026-09-19 as 68% outbound video loss at the bottom
+  /// rung, with no step left to take and nothing said to anyone.
+  ///
+  /// Placed above [unknown] deliberately: a peer on an older build decodes
+  /// this index as its own `unknown` and ignores it, so the call continues
+  /// exactly as it does today rather than breaking.
+  askVideoOff,
+
   /// Decode-only sentinel for a type this build doesn't know. Never encoded.
   /// (Added enum values go ABOVE this one; an older peer decodes a newer type's
   /// index as its own `unknown` and ignores it — see _enumFromIndex.)

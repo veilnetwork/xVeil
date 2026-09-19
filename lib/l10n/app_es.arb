@@ -1570,7 +1570,13 @@
   "compactOfferAlready": "Ya está en la lista",
   "compactOfferKeeping": "Se conservarán",
   "compactOfferMasterOnly": "Esta contraseña conserva solo este espacio. {count, plural, =1{La identidad que hay} other{Las {count} identidades que hay}} debajo tienen su propia contraseña: introduce cada una o se eliminarán.",
-  "@compactOfferMasterOnly": {"placeholders": {"count": {"type": "int"}}},
+  "@compactOfferMasterOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "compactOfferStillNeeded": "Aún por desbloquear, o se eliminarán:",
   "compactOfferRun": "Compactar ahora",
   "settingsCompactOfferDays": "{count, plural, =1{1 día} other{{count} días}}",
@@ -2394,7 +2400,16 @@
   "devicesRevoke": "Revocar dispositivo",
   "devicesSecretDidNotFit": "Ese secreto no abrió esta identidad. Comprueba si falta o sobra una palabra y si hay una errata: los espacios y las mayúsculas no importan.",
   "devicesPhraseWordCount": "{count} de {total} palabras",
-  "@devicesPhraseWordCount": {"placeholders": {"count": {"type": "int"}, "total": {"type": "int"}}},
+  "@devicesPhraseWordCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "onboardCertFreshTitle": "Tu identidad y la única llave que la abre",
   "onboardCertFreshWhy": "Esta identidad acaba de crearse. Su clave existe en un solo sitio, el certificado de abajo, y la abre un solo secreto: el código que lo acompaña. Guarda ambos por separado antes de continuar. No habrá otra copia.",
   "onboardCertFreshFailed": "No se pudo crear la identidad en este dispositivo, así que no se creó ninguna. No se ha escrito nada. Vuelve e inténtalo de nuevo; si sigue fallando, esta compilación no alcanza el componente que fabrica las claves.",
@@ -2415,7 +2430,13 @@
   "onboardRestoreCertificateFromFile": "Elegido de un fichero",
   "onboardRestoreCertificateAnother": "Elegir otro",
   "onboardRestoreCertificateChosen": "Certificado de la identidad {id}…",
-  "@onboardRestoreCertificateChosen": {"placeholders": {"id": {"type": "String"}}},
+  "@onboardRestoreCertificateChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "onboardRestoreCodeLabel": "Código de recuperación",
   "onboardRestoreCodeHint": "El código que guardaste aparte del archivo. Empieza por xvrc-.",
   "onboardRestorePasteCertificate": "O pega el certificado",
@@ -2435,7 +2456,16 @@
   "onboardArchiveBody": "Elige el archivo que exportaste con «Incluir identidad». Esta instalación toma la identidad ahora; las conversaciones y los archivos se fusionan después, desde el mismo archivo.",
   "onboardArchivePick": "Elegir el archivo",
   "onboardArchiveChosen": "Identidad {id}…, escrito el {when}",
-  "@onboardArchiveChosen": {"placeholders": {"id": {"type": "String"}, "when": {"type": "String"}}},
+  "@onboardArchiveChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "when": {
+        "type": "String"
+      }
+    }
+  },
   "onboardArchiveNoIdentity": "Este archivo no lleva identidad. Restaura con tu certificado o tus 24 palabras y luego fusiona este archivo en Ajustes → Transferencia de datos.",
   "onboardArchiveBad": "Ese archivo no es un archivo de xVeil, o está dañado.",
   "onboardArchivePasswordLabel": "Contraseña del archivo",
@@ -2983,7 +3013,16 @@
   "transferExportTitle": "Exportar",
   "transferContents": "{contacts} conversaciones, {messages} mensajes, {calls} llamadas",
   "transferContentsGroups": "Grupos y Espacios: {groups}, entradas de la nube: {cloud}",
-  "@transferContentsGroups": {"placeholders": {"groups": {"type": "int"}, "cloud": {"type": "int"}}},
+  "@transferContentsGroups": {
+    "placeholders": {
+      "groups": {
+        "type": "int"
+      },
+      "cloud": {
+        "type": "int"
+      }
+    }
+  },
   "transferContentsGroupsNote": "Los grupos viajan enteros: miembros, historial y las claves para leerlo. La lista de dispositivos no: un dispositivo restaurado se une como se une cualquiera.",
   "transferIncludeFiles": "Incluir archivos",
   "transferSizes": "Sin archivos unos {without} MB; con archivos unos {with_} MB ({files} archivos)",
@@ -3009,8 +3048,8 @@
   "transferImportConfirmBody": "Identidad {id}…, escrito el {when}. Contiene {messages} mensajes y {files} archivos. Lo existente se conserva; solo se añade lo que falta.",
   "transferImportAction": "Fusionar",
   "transferImportDone": "Fusionado: {events} entradas, {files} archivos añadidos, {settings} ajustes completados.",
-  "transferImportPartial": "Fusionado: {events} entradas, {files} archivos a\u00f1adidos, {settings} ajustes completados, pero {failed} no se pudieron escribir. Int\u00e9ntalo de nuevo; lo que s\u00ed se guard\u00f3 se conserva.",
-  "transferImportInterrupted": "El archivo se interrumpi\u00f3 a medias: {reason} Antes de eso se fusionaron: {events} entradas, {files} archivos, {settings} ajustes. No se pierde nada: volver a fusionar el mismo archivo es seguro y recoge lo que falta.",
+  "transferImportPartial": "Fusionado: {events} entradas, {files} archivos añadidos, {settings} ajustes completados, pero {failed} no se pudieron escribir. Inténtalo de nuevo; lo que sí se guardó se conserva.",
+  "transferImportInterrupted": "El archivo se interrumpió a medias: {reason} Antes de eso se fusionaron: {events} entradas, {files} archivos, {settings} ajustes. No se pierde nada: volver a fusionar el mismo archivo es seguro y recoge lo que falta.",
   "transferRefusedOtherIdentity": "Este archivo pertenece a otra identidad. Fusionarlo te atribuiría mensajes ajenos.",
   "transferRefusedHasIdentity": "El archivo trae una identidad y este dispositivo ya tiene una. Impórtalo en una instalación nueva.",
   "transferRefusedNotReady": "La app aún no está lista para fusionar: abre cualquier chat e inténtalo de nuevo.",
@@ -3020,5 +3059,12 @@
   "transferCorrupt": "El archivo está dañado.",
   "settingsTransferHint": "Mover todo a otro dispositivo mediante un archivo",
   "transferTooLarge": "El archivo describe un registro mucho mayor de lo que xVeil escribe, así que no se leyó.",
-  "cloudFolderShareRevokeFailed": "No se pudo revocar el enlace: puede seguir funcionando. Inténtalo de nuevo."
+  "cloudFolderShareRevokeFailed": "No se pudo revocar el enlace: puede seguir funcionando. Inténtalo de nuevo.",
+  "callWeakLinkTitle": "Conexión débil",
+  "callWeakLinkBodyLocal": "Tu vídeo no está llegando. Desactivarlo debería estabilizar el audio.",
+  "callWeakLinkBodyPeer": "La conexión de tu contacto no soporta vídeo. Desactivar el tuyo debería estabilizar el audio.",
+  "callWeakLinkTurnOffVideo": "Desactivar vídeo",
+  "callWeakLinkAskPeer": "Pedírselo también",
+  "callWeakLinkDismiss": "Mantener vídeo",
+  "callWeakLinkAsked": "Se pidió a tu contacto enviar solo audio"
 }

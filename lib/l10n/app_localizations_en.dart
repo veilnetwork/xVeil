@@ -7410,4 +7410,27 @@ class AppL10nEn extends AppL10n {
   @override
   String get cloudFolderShareRevokeFailed =>
       'Could not revoke the link — it may still work. Try again.';
+
+  @override
+  String get callWeakLinkTitle => 'Weak connection';
+
+  @override
+  String get callWeakLinkBodyLocal =>
+      'Your video is not getting through. Turning it off should steady the audio.';
+
+  @override
+  String get callWeakLinkBodyPeer =>
+      'Your contact\'s connection cannot carry video. Turning yours off should steady the audio.';
+
+  @override
+  String get callWeakLinkTurnOffVideo => 'Turn off video';
+
+  @override
+  String get callWeakLinkAskPeer => 'Ask them too';
+
+  @override
+  String get callWeakLinkDismiss => 'Keep video';
+
+  @override
+  String get callWeakLinkAsked => 'Asked your contact to send audio only';
 }

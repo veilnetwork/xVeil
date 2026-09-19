@@ -1594,7 +1594,13 @@
   "compactOfferAlready": "Already on the list",
   "compactOfferKeeping": "Will be kept",
   "compactOfferMasterOnly": "This password keeps this space only. The {count, plural, =1{identity} other{{count} identities}} under it have their own passwords — enter each, or they are deleted.",
-  "@compactOfferMasterOnly": {"placeholders": {"count": {"type": "int"}}},
+  "@compactOfferMasterOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "compactOfferStillNeeded": "Still to unlock, or they are deleted:",
   "compactOfferRun": "Compact now",
   "settingsCompactOfferDays": "{count, plural, =1{1 day} other{{count} days}}",
@@ -2440,7 +2446,16 @@
   "devicesRevoke": "Revoke device",
   "devicesSecretDidNotFit": "That secret did not open this identity. Check for a missing or extra word, and for a typo — spacing and capitals do not matter.",
   "devicesPhraseWordCount": "{count} of {total} words",
-  "@devicesPhraseWordCount": {"placeholders": {"count": {"type": "int"}, "total": {"type": "int"}}},
+  "@devicesPhraseWordCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "onboardCertFreshTitle": "Your identity and the one key to it",
   "onboardCertFreshWhy": "This identity has just been made. Its key exists in one place — the certificate below — and is opened by one secret: the code beside it. Save both, keeping them apart, before going on. There will be no other copy.",
   "onboardCertFreshFailed": "The identity could not be made on this device, so none was. Nothing has been created and nothing was written. Go back and try again; if it keeps failing, this build cannot reach the component that makes keys.",
@@ -2461,7 +2476,13 @@
   "onboardRestoreCertificateFromFile": "Chosen from a file",
   "onboardRestoreCertificateAnother": "Choose a different one",
   "onboardRestoreCertificateChosen": "Certificate for identity {id}…",
-  "@onboardRestoreCertificateChosen": {"placeholders": {"id": {"type": "String"}}},
+  "@onboardRestoreCertificateChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      }
+    }
+  },
   "onboardRestoreCodeLabel": "Recovery code",
   "onboardRestoreCodeHint": "The code you stored apart from the file. It starts with xvrc-.",
   "onboardRestorePasteCertificate": "Or paste the certificate",
@@ -2481,7 +2502,16 @@
   "onboardArchiveBody": "Choose the archive you exported with “Include identity”. This install takes the identity from it now; the conversations and files are merged afterwards, from the same file.",
   "onboardArchivePick": "Choose the archive",
   "onboardArchiveChosen": "Identity {id}…, written {when}",
-  "@onboardArchiveChosen": {"placeholders": {"id": {"type": "String"}, "when": {"type": "String"}}},
+  "@onboardArchiveChosen": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "when": {
+        "type": "String"
+      }
+    }
+  },
   "onboardArchiveNoIdentity": "This archive carries no identity. Restore with your certificate or your 24 words first, then merge this file from Settings → Data transfer.",
   "onboardArchiveBad": "That file is not an xVeil archive, or it is damaged.",
   "onboardArchivePasswordLabel": "Archive password",
@@ -3302,7 +3332,16 @@
     }
   },
   "transferContentsGroups": "Groups and Spaces: {groups}, cloud entries: {cloud}",
-  "@transferContentsGroups": {"placeholders": {"groups": {"type": "int"}, "cloud": {"type": "int"}}},
+  "@transferContentsGroups": {
+    "placeholders": {
+      "groups": {
+        "type": "int"
+      },
+      "cloud": {
+        "type": "int"
+      }
+    }
+  },
   "transferContentsGroupsNote": "Groups travel whole: members, history and the keys to read it. The device list does not — a restored device joins the way every device does.",
   "transferIncludeFiles": "Include files",
   "transferSizes": "Without files about {without} MB; with files about {with_} MB ({files} files)",
@@ -3400,7 +3439,7 @@
       }
     }
   },
-  "transferImportPartial": "Merged: {events} entries, {files} files added, {settings} settings filled in \u2014 but {failed} could not be written. Try again; what did land is kept.",
+  "transferImportPartial": "Merged: {events} entries, {files} files added, {settings} settings filled in — but {failed} could not be written. Try again; what did land is kept.",
   "@transferImportPartial": {
     "placeholders": {
       "events": {
@@ -3417,7 +3456,7 @@
       }
     }
   },
-  "transferImportInterrupted": "The archive stopped part-way: {reason} Merged before that: {events} entries, {files} files, {settings} settings. Nothing is lost \u2014 merging the same archive again is safe and picks up what is missing.",
+  "transferImportInterrupted": "The archive stopped part-way: {reason} Merged before that: {events} entries, {files} files, {settings} settings. Nothing is lost — merging the same archive again is safe and picks up what is missing.",
   "@transferImportInterrupted": {
     "placeholders": {
       "reason": {
@@ -3443,5 +3482,33 @@
   "transferCorrupt": "The archive is damaged.",
   "settingsTransferHint": "Move everything to another device through a file",
   "transferTooLarge": "The archive describes a record far larger than xVeil ever writes, so it was not read.",
-  "cloudFolderShareRevokeFailed": "Could not revoke the link — it may still work. Try again."
+  "cloudFolderShareRevokeFailed": "Could not revoke the link — it may still work. Try again.",
+  "callWeakLinkTitle": "Weak connection",
+  "@callWeakLinkTitle": {
+    "description": "Heading of the in-call banner offering to drop video on a failing link"
+  },
+  "callWeakLinkBodyLocal": "Your video is not getting through. Turning it off should steady the audio.",
+  "@callWeakLinkBodyLocal": {
+    "description": "Banner body when this device measured that its own outbound video is not arriving"
+  },
+  "callWeakLinkBodyPeer": "Your contact's connection cannot carry video. Turning yours off should steady the audio.",
+  "@callWeakLinkBodyPeer": {
+    "description": "Banner body when the peer asked us to stop sending video"
+  },
+  "callWeakLinkTurnOffVideo": "Turn off video",
+  "@callWeakLinkTurnOffVideo": {
+    "description": "Banner action: stop sending video on this call"
+  },
+  "callWeakLinkAskPeer": "Ask them too",
+  "@callWeakLinkAskPeer": {
+    "description": "Banner action: ask the peer to stop sending video too"
+  },
+  "callWeakLinkDismiss": "Keep video",
+  "@callWeakLinkDismiss": {
+    "description": "Banner action: dismiss the offer and keep sending video"
+  },
+  "callWeakLinkAsked": "Asked your contact to send audio only",
+  "@callWeakLinkAsked": {
+    "description": "Confirmation shown after asking the peer to send audio only"
+  }
 }
