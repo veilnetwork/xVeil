@@ -967,19 +967,25 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           filled.add(b);
           continue;
         }
+        final why = <String>[];
         final bytes = await _collectAnnounced(
           contentId: b.contentId,
           relayIds: relayIds,
           kemByRelay: kemByRelay,
+          why: why,
         );
         if (bytes == null) {
           // Left out rather than passed on empty: an empty blob decrypts to
           // nothing and would be acked as processed, which is how a message
           // gets dropped and called delivered. Next drain tries again.
+          //
+          // WITH THE CLASS, not just the verdict: every replica said something
+          // different and this line used to say the same word for all of them.
           devLog(
             () =>
                 'xVeil[drain]: announced blob '
-                '${NodeId(b.contentId).short} not collected this pass',
+                '${NodeId(b.contentId).short} not collected this pass — '
+                '${why.isEmpty ? "no replica was asked" : why.join("; ")}',
           );
           continue;
         }
@@ -1027,13 +1033,30 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   ///
   /// Relays are tried in turn because the deposit fans out to several replicas
   /// and any one of them may have aged its copy out.
+  /// [why] collects one sentence per relay tried when the walk does not
+  /// assemble — see the caller, which prints them.
+  ///
+  /// EIGHT DIFFERENT THINGS USED TO BE ONE BARE `break`, and the caller said
+  /// the same sentence for all of them: "announced blob X not collected this
+  /// pass". A relay that never answered, one that says it holds nothing, one
+  /// that changed its stated length mid-walk and one that ran out of rounds
+  /// are answered by four different things and looked identical.
+  ///
+  /// Measured cost on the stand (2026-09-20): the ACCEPT of a contact request
+  /// was announced at 15:17:54, not collected, and finally assembled at
+  /// 15:31:15 — thirteen minutes in which the relationship was stranded, and
+  /// the only line about it named no relay and no cause. The node's own
+  /// `mailbox_seal` learned this lesson already (`CertUnresolved`); this is
+  /// the drain's copy of it.
   Future<Uint8List?> _collectAnnounced({
     required Uint8List contentId,
     required List<Uint8List> relayIds,
     required Map<String, Uint8List> kemByRelay,
+    List<String>? why,
   }) async {
     for (final relayId in relayIds) {
       final relay = NodeId(relayId);
+      void stopped(String reason) => why?.add('${relay.short} $reason');
       Uint8List? kem = kemByRelay[relay.hex];
       if (kem == null || kem.length != 32) {
         try {
@@ -1057,27 +1080,55 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         );
         // No answer at all: this relay cannot serve it (or is older than the
         // endpoint). Move to the next replica rather than spending the pass.
-        if (slice == null) break;
+        if (slice == null) {
+          stopped('did not answer at offset $offset');
+          break;
+        }
         // A stated length of zero is the relay saying it holds nothing. Also
         // the answer for a blob acked from another device — stop, do not retry.
-        if (slice.totalLen == 0) break;
-        if (slice.totalLen > kMailboxBlobMaxBytes) break;
+        if (slice.totalLen == 0) {
+          stopped('holds nothing under this id');
+          break;
+        }
+        if (slice.totalLen > kMailboxBlobMaxBytes) {
+          stopped(
+            'states ${slice.totalLen}B, past the $kMailboxBlobMaxBytes cap',
+          );
+          break;
+        }
         total ??= slice.totalLen;
         // A relay that changes its story mid-walk is one we cannot assemble
         // from; the bytes would be a mixture of two blobs.
-        if (slice.totalLen != total) break;
-        if (slice.offset != offset) break;
-        if (slice.bytes.isEmpty) break;
+        if (slice.totalLen != total) {
+          stopped(
+            'changed its length mid-walk ($total then ${slice.totalLen})',
+          );
+          break;
+        }
+        if (slice.offset != offset) {
+          stopped('answered offset ${slice.offset}, asked $offset');
+          break;
+        }
+        if (slice.bytes.isEmpty) {
+          stopped('sent an empty window at $offset of $total');
+          break;
+        }
         out.add(slice.bytes);
         offset += slice.bytes.length;
         if (offset >= total) {
           ok = true;
           break;
         }
+        if (rounds >= _maxSliceRounds) {
+          stopped('ran out of rounds at $offset of $total');
+        }
       }
       if (!ok || total == null) continue;
       final bytes = out.toBytes();
-      if (bytes.length != total) continue;
+      if (bytes.length != total) {
+        stopped('assembled ${bytes.length}B of the $total it stated');
+        continue;
+      }
       devLog(
         () =>
             'xVeil[drain]: collected announced blob '

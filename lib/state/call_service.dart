@@ -838,6 +838,15 @@ class CallService {
         return;
       }
       _onSignal(peer, sig);
+      // THE CALLER GIVING UP IS NEWS FOR THE SIBLINGS TOO. The offer is fanned
+      // out (see [_relayOfferToSiblings]) and nothing fanned out its ending, so
+      // the devices that were rung by the fan-out heard only the ring. Measured
+      // on a three-device stand: the caller cancelled 38s in, the device the
+      // rendezvous had picked cleared in 3ms, and the sibling went on ringing
+      // for the rest of its 75s timeout — seventy seconds of a phone ringing
+      // for a call that had ended — and then sent the caller a `reject` for a
+      // call the caller had already cancelled.
+      if (_endedRemotely(sig.type)) _relayEndToSiblings(peer, sig);
       return;
     }
     unawaited(() async {
@@ -1217,6 +1226,64 @@ class CallService {
     }
   }
 
+  /// The caller is gone — which of its signals says so.
+  ///
+  /// `reject` and `busy` are what WE answer with, never what a caller sends to
+  /// a ringing device, so they are not here.
+  static bool _endedRemotely(CallSignalType type) =>
+      type == CallSignalType.cancel || type == CallSignalType.end;
+
+  /// Call ids whose offer this device fanned out, so their ending can follow
+  /// the same path.
+  ///
+  /// Bounded: a set that only grows would keep every call id this device ever
+  /// relayed for the life of the process. Ids are dropped as soon as the end
+  /// is relayed, and the oldest is evicted if a caller never sends one.
+  final _fannedOffers = <String>{};
+  static const int _maxFannedOffers = 32;
+
+  /// Pass the caller's ending to the siblings this device rang on its behalf.
+  ///
+  /// Deliberately the same shape as [_relayOfferToSiblings], including
+  /// `onBehalfOf`: the sibling's relayed lane proves the sender is one of my
+  /// own devices and then treats the signal as the true caller's, which is
+  /// exactly what this is. Only a device that actually fanned the offer out
+  /// forwards the ending — a sibling that received the relayed offer has
+  /// `onBehalfOf` set and never reaches here, so there is no ping-pong.
+  ///
+  /// The reason travels unchanged: a sibling must record a cancelled call as
+  /// missed, not as `answeredElsewhere`, which is a different lane with a
+  /// different meaning (see [_onAnsweredElsewhere]).
+  void _relayEndToSiblings(NodeId caller, CallSignal sig) {
+    if (!_fannedOffers.remove(sig.callId)) return;
+    unawaited(() async {
+      final list = ownSiblingDevices;
+      if (list == null || _disposed) return;
+      try {
+        final siblings = await list();
+        if (siblings.isEmpty || _disposed) return;
+        final relayed = sig.copyWith(
+          onBehalfOf: caller.hex,
+          sentAtMs: sig.sentAtMs ?? _now().millisecondsSinceEpoch,
+        );
+        devLog(
+          () =>
+              'xVeil[call-sig]: fanning ${sig.type.name} ${sig.callId} from '
+              '${caller.short} out to ${siblings.length} sibling device(s)',
+        );
+        for (final device in siblings) {
+          unawaited(_messaging.sendCallSignal(device, relayed));
+        }
+      } catch (e) {
+        // Best-effort, like the offer fan-out: this device has already ended
+        // its own call and a failed forward must not touch that. The sibling
+        // still stops at its own ring timeout, which is the behaviour this
+        // replaces rather than depends on.
+        devLog(() => 'xVeil[call-sig]: end fan-out failed: $e');
+      }
+    }());
+  }
+
   Future<void> _relayOfferToSiblings(NodeId caller, CallSignal sig) async {
     final list = ownSiblingDevices;
     if (list == null || _disposed) return;
@@ -1234,6 +1301,13 @@ class CallService {
             'xVeil[call-sig]: fanning offer ${sig.callId} from '
             '${caller.short} out to ${siblings.length} sibling device(s)',
       );
+      // Remembered BEFORE the sends, and only for an offer that really went
+      // out: these are the devices whose ringing this one is now responsible
+      // for ending (see [_relayEndToSiblings]).
+      if (_fannedOffers.length >= _maxFannedOffers) {
+        _fannedOffers.remove(_fannedOffers.first);
+      }
+      _fannedOffers.add(sig.callId);
       for (final device in siblings) {
         unawaited(_messaging.sendCallSignal(device, relayed));
       }
