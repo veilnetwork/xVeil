@@ -427,10 +427,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
 
   Future<void> serveHistoryAsk(DeviceSyncEvent e) async {
     if (bridgeGone) return;
-    announceDevice ??= await svc.resolveMyDevice();
     final ask = historyAskToServe(
       event: e,
-      myDeviceHex: (announceDevice ?? svc.selfId).hex,
+      myAddresses: await svc.myDeviceAddresses(),
       alreadyServedMs: int.tryParse(
         await svc.storage.getSetting(servedKey(e.key)) ?? '',
       ),

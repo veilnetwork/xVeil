@@ -18018,6 +18018,28 @@ class GroupService implements ArchiveGroups {
     return ids;
   }
 
+  /// Every name by which THIS device is addressed inside its own device group.
+  ///
+  /// There are two, and only on the device the group is owned by. A device
+  /// group's owner is the IDENTITY, not a device — it is never in the member
+  /// list — so a LINKED device has no name for the master except that identity.
+  /// The master must therefore answer to it, and a linked device must not, or
+  /// every device of the identity would answer a message meant for one.
+  ///
+  /// Empty when this device cannot name itself yet: answering to an address we
+  /// are not sure of is worse than answering to none.
+  Future<Set<String>> myDeviceAddresses() async {
+    final me = await resolveMyDevice();
+    if (me == null) return const {};
+    final out = <String>{me.hex};
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return out;
+    final b = await load(NodeId.fromHex(hex));
+    if (b == null) return out;
+    if (await _deviceGroupOwnerIfLinked() == null) out.add(b.manifest.owner.hex);
+    return out;
+  }
+
   /// The device group's owner, but only when THIS device is a linked member of
   /// it — null on the device the group is owned by, where the owner is us.
   Future<NodeId?> _deviceGroupOwnerIfLinked() async {
