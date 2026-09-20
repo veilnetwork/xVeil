@@ -69,7 +69,7 @@ class _FakeOrchestrator implements MailboxOrchestrator {
     required Future<bool> Function(Uint8List contentId) alreadyHave,
     List<NodeId> knownRelays = const [],
     bool Function()? shouldContinue,
-    void Function(DrainedMessage message)? onMessage,
+    Future<bool> Function(DrainedMessage message)? onMessage,
   }) async {
     drains++;
     final held = gate;
@@ -78,12 +78,17 @@ class _FakeOrchestrator implements MailboxOrchestrator {
     // The real orchestrator hands each message up as it opens, BEFORE the loop
     // ends, and the service now delivers from here rather than from the
     // returned batch. A fake that skipped this would deliver nothing and quietly
-    // contradict the contract it stands in for.
+    // contradict the contract it stands in for. It also WAITS for the verdict,
+    // as the real one does: the answer decides whether the blob is acked.
     for (final m in out) {
-      onMessage?.call(m);
+      verdicts.add(await onMessage?.call(m) ?? true);
     }
     return out;
   }
+
+  /// What the service answered for each message handed up — `true` = the app
+  /// took it (ack), `false` = refused on local grounds (leave it at the relay).
+  final List<bool> verdicts = [];
 
   @override
   Future<void> stash({
@@ -115,7 +120,7 @@ void main() {
             client: _FakeClient(),
             me: _id(1),
             orchestrator: orch,
-            deliver: (_) {},
+            deliver: (_) async {},
             drainInterval: const Duration(milliseconds: 100),
           )
           ..hotDrainInterval = const Duration(milliseconds: 10)
@@ -172,7 +177,7 @@ void main() {
         client: _FakeClient(),
         me: _id(1),
         orchestrator: orch,
-        deliver: delivered.add,
+        deliver: (m) async => delivered.add(m),
         drainInterval: const Duration(milliseconds: 100),
       );
       addTearDown(service.dispose);
@@ -191,6 +196,80 @@ void main() {
     },
   );
 
+  /// THE LINK BETWEEN THE CONSENT GATE AND THE ACK.
+  ///
+  /// The orchestrator holds the ack when the app answers `false`; this is where
+  /// that answer is produced. The app says so by calling
+  /// [InboundMessage.onDeclined] — which the inbound dispatch does at exactly
+  /// the gates whose reason is local to this device (the sender is not accepted
+  /// HERE). Without this hop the drain would ask a question nothing could ever
+  /// answer, and the guard downstream would be vacuous.
+  group('a drained message the app refuses is reported as refused', () {
+    test('onDeclined → the drain is told NOT to ack', () async {
+      final service = MailboxService(
+        client: _FakeClient(),
+        me: _id(1),
+        orchestrator: orch,
+        deliver: (m) async => m.onDeclined?.call('sender not accepted here'),
+        drainInterval: const Duration(milliseconds: 100),
+      );
+      addTearDown(service.dispose);
+      orch.queued.add([_mail()]);
+      await service.start(relays: [_id(7)]);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(orch.verdicts, isNotEmpty, reason: 'nothing was drained at all');
+      expect(
+        orch.verdicts.first,
+        isFalse,
+        reason:
+            'the app refused the message on local grounds and the drain was '
+            'told to ack it anyway — that ack deletes every replica, including '
+            'the ones our other devices still need',
+      );
+    });
+
+    /// CONTROL. The same delivery that simply does not decline must still be
+    /// acked, or the guard above would pass on a drain that never acks at all
+    /// and every message would be re-served until its relay TTL.
+    test('a delivery that says nothing is taken, and acked', () async {
+      final service = MailboxService(
+        client: _FakeClient(),
+        me: _id(1),
+        orchestrator: orch,
+        deliver: (_) async {},
+        drainInterval: const Duration(milliseconds: 100),
+      );
+      addTearDown(service.dispose);
+      orch.queued.add([_mail()]);
+      await service.start(relays: [_id(7)]);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(orch.verdicts, isNotEmpty, reason: 'nothing was drained at all');
+      expect(orch.verdicts.first, isTrue);
+    });
+
+    /// CONTROL. A delivery that THROWS is not a refusal — it is the behaviour
+    /// this path had before there was a verdict, and it must stay that way, or
+    /// one bad frame would leave its blob at the relay forever.
+    test('a delivery that throws is still acked, as it always was', () async {
+      final service = MailboxService(
+        client: _FakeClient(),
+        me: _id(1),
+        orchestrator: orch,
+        deliver: (_) async => throw StateError('disk full'),
+        drainInterval: const Duration(milliseconds: 100),
+      );
+      addTearDown(service.dispose);
+      orch.queued.add([_mail()]);
+      await service.start(relays: [_id(7)]);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+
+      expect(orch.verdicts, isNotEmpty, reason: 'nothing was drained at all');
+      expect(orch.verdicts.first, isTrue);
+    });
+  });
+
   test('a wake that lands mid-drain is spent, not dropped', () async {
     // A wake is a relay naming a deposit that just landed, and the pass under
     // way may already be past its fetch rounds — so it can miss exactly the
@@ -202,7 +281,7 @@ void main() {
       client: _FakeClient(),
       me: _id(1),
       orchestrator: orch,
-      deliver: (_) {},
+      deliver: (_) async {},
       // Long on purpose: if a drain follows the wake it cannot be the schedule
       // that produced it.
       drainInterval: const Duration(seconds: 30),
@@ -295,7 +374,7 @@ void main() {
       client: client,
       me: _id(1),
       orchestrator: orch,
-      deliver: (_) {},
+      deliver: (_) async {},
       drainInterval: const Duration(seconds: 30),
     );
     addTearDown(() async {
@@ -322,7 +401,7 @@ void main() {
         client: client,
         me: _id(1),
         orchestrator: orch,
-        deliver: (_) {},
+        deliver: (_) async {},
         drainInterval: const Duration(seconds: 30),
       );
       addTearDown(() async {
@@ -359,7 +438,7 @@ void main() {
             client: client,
             me: _id(1),
             orchestrator: orch,
-            deliver: (_) {},
+            deliver: (_) async {},
             drainInterval: const Duration(
               seconds: 30,
             ), // idle tick out of the way
@@ -434,7 +513,7 @@ void main() {
         client: _FakeClient(),
         me: _id(1),
         orchestrator: _FakeOrchestrator(),
-        deliver: (_) {},
+        deliver: (_) async {},
       );
       addTearDown(service.dispose);
       expect(service.hotDrainInterval, const Duration(seconds: 3));

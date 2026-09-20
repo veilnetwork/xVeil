@@ -58,6 +58,7 @@ class InboundMessage {
     required this.payload,
     this.replyId = 0,
     this.provenance = SenderProvenance.claimed,
+    this.onDeclined,
   });
   final NodeId src;
   final Uint8List payload;
@@ -75,6 +76,30 @@ class InboundMessage {
   /// public ad either side — so a delivery ACK returns in ~half the round-trip.
   /// 0 = not repliable (fall back to a normal anonymous [VeilTransport.send]).
   final int replyId;
+
+  /// Called when the receiver refuses this frame on grounds that are LOCAL to
+  /// THIS DEVICE — the frame was intelligible, authenticated and addressed
+  /// here, and was dropped anyway because of what this device happens to know
+  /// right now (most of all: the sender is not an accepted contact HERE).
+  ///
+  /// It exists for exactly one caller, the mailbox drain, and for exactly one
+  /// decision: whether to ACK the blob that carried the frame. An ack names a
+  /// content id, so the relay deletes EVERY replica under it — including the
+  /// copies the sender deposited for this identity's OTHER devices. A device
+  /// that dropped the message must therefore not ack it: a sibling that HAS
+  /// accepted the contact would otherwise find an empty mailbox (F54, measured
+  /// live — a freshly linked device silently deleted mail the accepting device
+  /// never received).
+  ///
+  /// NOT for refusals the whole identity would agree with — a blocked sender, a
+  /// message already stored, a message deliberately deleted here. Those are
+  /// decisions, they travel between devices, and their blob SHOULD be acked
+  /// away.
+  ///
+  /// Null on the live transport path: nothing there is waiting on a verdict,
+  /// and a live frame that is dropped costs the sender a retransmit, not a
+  /// deletion.
+  final void Function(String reason)? onDeclined;
 }
 
 /// Session state of a peer, mapped from veil's wire bytes. [active] = a live
