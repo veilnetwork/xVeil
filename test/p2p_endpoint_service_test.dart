@@ -89,7 +89,12 @@ class _Harness {
 
   /// Contacts the boot-time announce should reach.
   List<NodeId> accepted = const [];
+
+  /// My OWN other devices — not contacts, and never in [accepted].
+  List<NodeId> ownDeviceTargets = const [];
   Object? acceptedError;
+
+  Object? ownDevicesError;
 
   /// Devices of MY OWN identity document (hex) — the re-keying gate.
   final Set<String> ownDevices = {};
@@ -134,6 +139,11 @@ class _Harness {
       final err = acceptedError;
       if (err != null) throw err;
       return accepted;
+    },
+    ownDevices: () async {
+      final err = ownDevicesError;
+      if (err != null) throw err;
+      return ownDeviceTargets;
     },
     isOwnDevice: (p) async => ownDevices.contains(p.hex),
     selfNode: () async => selfNode ?? _identity().nodeId,
@@ -558,14 +568,24 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 80));
 
       expect(h.svc.knownEndpoints(sibling), [_inviteUri(0x21)]);
-      expect(h.svc.knownEndpoints(third), isEmpty,
-          reason: 'a third party never enters through the sibling door');
-      expect(h.svc.knownEndpoints(me), isEmpty,
-          reason: 'nothing is ever stored under my own name');
-      expect(h.joined, [_inviteUri(0x21)],
-          reason: 'the sibling candidate is dialed');
-      expect(h.messaging.sentEndpoints.single.$1.hex, sibling.hex,
-          reason: 'the reply goes to the device, not to my own name');
+      expect(
+        h.svc.knownEndpoints(third),
+        isEmpty,
+        reason: 'a third party never enters through the sibling door',
+      );
+      expect(
+        h.svc.knownEndpoints(me),
+        isEmpty,
+        reason: 'nothing is ever stored under my own name',
+      );
+      expect(h.joined, [
+        _inviteUri(0x21),
+      ], reason: 'the sibling candidate is dialed');
+      expect(
+        h.messaging.sentEndpoints.single.$1.hex,
+        sibling.hex,
+        reason: 'the reply goes to the device, not to my own name',
+      );
     },
   );
 
@@ -742,6 +762,44 @@ void _messagingWarmTests() {
       expect(h.messaging.sentEndpoints, hasLength(5));
     });
 
+    // MY OWN DEVICES ARE NOT CONTACTS, so they were in no list here and the one
+    // repair for a moved address skipped them. Measured on a two-device stand:
+    // `announcing our endpoints to 1 contact(s)` on a device whose only other
+    // party was its master, `knownPeerEndpoints: 0` in BOTH directions for the
+    // life of the process, and every byte between the two devices taking the
+    // mailbox at 30s to 2 minutes while both sat on one machine.
+    test('my own devices are told too, not only contacts', () async {
+      final h = _Harness();
+      h.accepted = [_peer(1)];
+      h.ownDeviceTargets = [_peer(9)];
+
+      await h.svc.announceLocalEndpoints();
+
+      expect(
+        h.messaging.sentEndpoints.map((e) => e.$1).toSet(),
+        {_peer(1), _peer(9)},
+        reason: 'the sibling still holds a stale address for us',
+      );
+    });
+
+    // CONTROL: one device named twice is one announce. The union is a union.
+    test('a device that is also a contact is told once', () async {
+      final h = _Harness();
+      h.accepted = [_peer(9)];
+      h.ownDeviceTargets = [_peer(9)];
+      await h.svc.announceLocalEndpoints();
+      expect(h.messaging.sentEndpoints, hasLength(1));
+    });
+
+    // CONTROL: failing to list my devices must not cost the contacts theirs.
+    test('a device-list failure still announces to contacts', () async {
+      final h = _Harness();
+      h.accepted = [_peer(1)];
+      h.ownDevicesError = StateError('group service gone');
+      await h.svc.announceLocalEndpoints();
+      expect(h.messaging.sentEndpoints.map((e) => e.$1), [_peer(1)]);
+    });
+
     test('a storage failure is not fatal', () async {
       final h = _Harness();
       h.acceptedError = StateError('container closed');
@@ -762,35 +820,41 @@ void _messagingWarmTests() {
     // myself" is exactly the answer that must not be given on someone else's
     // behalf.
 
-    test('nothing is shared after dispose, however permissive the policy', () async {
-      final h = _Harness();
-      h.svc.dispose();
-      // The switch: the identity that replaced ours allows everything.
-      h.allows = true;
-      h.messagingAllows = true;
-      await h.svc.maybeShare(_peer(1), force: true);
-      await h.svc.announceLocalEndpoints();
-      await h.svc.warmForMessaging(_peer(2));
-      expect(h.messaging.sentEndpoints, isEmpty);
-      expect(h.joined, isEmpty);
-      expect(
-        h.policyReads,
-        0,
-        reason:
-            'the disposed service still asked the policy — and what answers '
-            'is the identity that replaced it',
-      );
-    });
+    test(
+      'nothing is shared after dispose, however permissive the policy',
+      () async {
+        final h = _Harness();
+        h.svc.dispose();
+        // The switch: the identity that replaced ours allows everything.
+        h.allows = true;
+        h.messagingAllows = true;
+        await h.svc.maybeShare(_peer(1), force: true);
+        await h.svc.announceLocalEndpoints();
+        await h.svc.warmForMessaging(_peer(2));
+        expect(h.messaging.sentEndpoints, isEmpty);
+        expect(h.joined, isEmpty);
+        expect(
+          h.policyReads,
+          0,
+          reason:
+              'the disposed service still asked the policy — and what answers '
+              'is the identity that replaced it',
+        );
+      },
+    );
 
-    test('the ladder refuses rather than dialling for the new identity', () async {
-      final h = _Harness();
-      h.allows = true;
-      h.svc.dispose();
-      expect(await h.svc.ensureReady(_peer(1)), isFalse);
-      expect(h.messaging.sentEndpoints, isEmpty);
-      expect(h.joined, isEmpty);
-      expect(h.punchCalls, isEmpty);
-    });
+    test(
+      'the ladder refuses rather than dialling for the new identity',
+      () async {
+        final h = _Harness();
+        h.allows = true;
+        h.svc.dispose();
+        expect(await h.svc.ensureReady(_peer(1)), isFalse);
+        expect(h.messaging.sentEndpoints, isEmpty);
+        expect(h.joined, isEmpty);
+        expect(h.punchCalls, isEmpty);
+      },
+    );
 
     test('a share already past the policy check does not go out', () async {
       // The window a flag checked only on entry would miss: the policy has
