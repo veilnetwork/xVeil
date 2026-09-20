@@ -255,6 +255,19 @@ class MailboxOrchestrator {
   final Map<String, DateTime> _transientGaveUpUntil = {};
   static const _transientGaveUpMax = 512;
 
+  /// cids this device REFUSED (opened fine, and the app declined to take the
+  /// message on grounds local to this device). Deliberately in RAM and
+  /// deliberately short: see [_deferRefused]. Bounded like its neighbours so a
+  /// producer of unique blobs cannot grow it for the whole session.
+  final Map<String, DateTime> _refusedUntil = {};
+  static const _refusedMax = 512;
+
+  /// Long enough that a refused blob is not re-fetched on every tick of the hot
+  /// cadence, short enough that the consent it is waiting for — a contact
+  /// accepted here, or a sibling's decision arriving over device sync — puts it
+  /// back in reach within the same sitting rather than at the next restart.
+  static const _refusedCooldown = Duration(minutes: 2);
+
   /// Content ids currently inside their back-off, as the relay wants them.
   ///
   /// Bounded by what the wire accepts — a relay truncates past its own cap, so
@@ -277,6 +290,19 @@ class MailboxOrchestrator {
     }
 
     for (final e in live) {
+      offer(e.key);
+    }
+    // AND THE ONES THIS DEVICE REFUSED, while their back-off lasts. Same
+    // reasoning, different cause: the blob is fine, we are the problem, and
+    // leaving it at the head of the relay's oldest-first reply would block
+    // every message behind it. Expired entries are dropped rather than sent —
+    // the hint is capped, and a deadline that has passed must not spend a slot
+    // that a live one needs.
+    final refusedLive =
+        _refusedUntil.entries.where((e) => now.isBefore(e.value)).toList()
+          ..sort((a, b) => a.value.compareTo(b.value));
+    _refusedUntil.removeWhere((_, until) => !now.isBefore(until));
+    for (final e in refusedLive) {
       offer(e.key);
     }
     // AND THE ONES THAT WILL NEVER OPEN.
@@ -407,7 +433,15 @@ class MailboxOrchestrator {
     /// Invoked the moment a blob is opened and verified, BEFORE the loop goes
     /// looking for more. The returned list still carries everything, so a
     /// caller that only wants the batch can ignore this.
-    void Function(DrainedMessage message)? onMessage,
+    ///
+    /// Answers whether this device TOOK RESPONSIBILITY for the message. `false`
+    /// means it was refused on grounds local to this device (see
+    /// [InboundMessage.onDeclined]) — the blob is then left at the relay,
+    /// unacked, because an ack takes every replica under that content id with
+    /// it, including the ones our siblings have not fetched yet. A null
+    /// [onMessage] reads as `true`: a caller that asks no question is not
+    /// refusing anything.
+    Future<bool> Function(DrainedMessage message)? onMessage,
   }) async {
     final delivered = <DrainedMessage>[];
     final seenThisDrain = <String>{};
@@ -526,7 +560,7 @@ class MailboxOrchestrator {
     required List<NodeId> knownRelays,
     required List<DrainedMessage> delivered,
     bool Function()? shouldContinue,
-    void Function(DrainedMessage message)? onMessage,
+    Future<bool> Function(DrainedMessage message)? onMessage,
     required _DrainCost cost,
   }) async {
     // How many blobs in THIS batch still carry each content id.
@@ -733,7 +767,6 @@ class MailboxOrchestrator {
         endpointId: opened.endpointId,
         data: opened.data,
       );
-      delivered.add(message);
       // Hand it up NOW, not when the loop ends. The rounds after this one exist
       // to clear a BACKLOG: they re-fetch, find the relay still serving the blob
       // whose ack is in flight, and wait [_ackSettleDelay] for the removal to
@@ -742,9 +775,46 @@ class MailboxOrchestrator {
       // finished made every message wait out the search for its successors.
       // Measured on the stand: a drain that carried one message took ~6.8s while
       // the fetch that produced it took ~0.5s.
-      onMessage?.call(message);
+      //
+      // The answer decides the ACK. An ack names a content id and nothing else,
+      // so the relay deletes every replica under it — including the copies the
+      // sender deposited for this identity's OTHER devices. A device that
+      // DROPPED the message must therefore not ack it (F54, measured live: a
+      // freshly linked device that did not yet know the contact fetched the
+      // message, dropped it at its consent gate, acked it away, and the device
+      // that HAD accepted the contact then found an empty mailbox — the message
+      // reached neither).
+      final accepted = await onMessage?.call(message) ?? true;
+      if (!accepted) {
+        _deferRefused(cidHex);
+        devLog(
+          () =>
+              'xVeil[drain]: NOT acking contentId=${_shortHex(b.contentId)} — '
+              'this device refused the message on local grounds; the copy stays '
+              'for whichever of our devices can take it',
+        );
+        continue;
+      }
+      delivered.add(message);
       await _ack(cost, me, b.contentId, authCookie, knownRelays);
     }
+  }
+
+  /// Stop re-fetching a blob this device just refused, for a bounded while.
+  ///
+  /// Not acking is the point of the refusal, but an unacked blob is re-served
+  /// on every fetch, and a relay fills its reply oldest-first — so a refused
+  /// message would otherwise sit at the head of every batch and starve
+  /// everything queued behind it (the same failure [_transientGaveUpUntil]
+  /// exists for). A DEADLINE, not a verdict: the reason for the refusal is this
+  /// device's own state, and that state changes — the contact is accepted, a
+  /// sibling's decision arrives — so the blob must come back into view on its
+  /// own, without a restart.
+  void _deferRefused(String cidHex) {
+    if (_refusedUntil.length >= _refusedMax) {
+      _refusedUntil.remove(_refusedUntil.keys.first);
+    }
+    _refusedUntil[cidHex] = now().add(_refusedCooldown);
   }
 
   Future<void> _ack(

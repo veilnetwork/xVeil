@@ -660,7 +660,7 @@ class VeilFlutterTransport
   /// messaging layer routes + dedups them). Caller drives [MailboxService.start]
   /// with the relay to advertise.
   Future<MailboxService> buildMailboxService({
-    required void Function(InboundMessage) deliver,
+    required Future<void> Function(InboundMessage) deliver,
     RelayKeyCache? relayKeyCache,
     PoisonedBlobRegistry? poisonedBlobs,
     // The address this identity RECEIVES under, when it differs from the id the

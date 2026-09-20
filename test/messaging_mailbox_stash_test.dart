@@ -737,6 +737,102 @@ void main() {
     );
   });
 
+  /// WHAT THE CONSENT GATE OWES ITS CARRIER.
+  ///
+  /// Dropping a message because the sender is not accepted HERE is right. Not
+  /// SAYING SO is what cost the message: the mailbox drain acked the blob, and
+  /// an ack names a content id, so the relay deleted every replica under it —
+  /// including the copies the sender deposited for this identity's other
+  /// devices. Measured live (F54): a device linked minutes earlier did not yet
+  /// know the contact, fetched the message, dropped it here, acked it away, and
+  /// the device that HAD accepted the contact then found an empty mailbox.
+  group('a message refused for lack of consent says so', () {
+    Uint8List wireFor(String id) => WireEnvelope.message(
+      'hello',
+      id: id,
+      sentAtMs: DateTime.now().millisecondsSinceEpoch,
+    ).encode();
+
+    test('not accepted here → the carrier is told to keep the copy', () async {
+      final declined = <String>[];
+      expect(
+        (await sA.getContact(b))?.status,
+        isNot(ContactStatus.accepted),
+        reason: 'the premise: this device has not accepted the sender',
+      );
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: wireFor('f54-declined'),
+          provenance: SenderProvenance.signed,
+          onDeclined: declined.add,
+        ),
+      );
+      await pumpEventQueue();
+      expect(
+        await sA.loadMessages(b.hex),
+        isEmpty,
+        reason: 'the premise: the message is still dropped',
+      );
+      expect(
+        declined,
+        isNotEmpty,
+        reason:
+            'the gate dropped the message and told nobody, so whoever carried '
+            'it will ack the blob away from our other devices',
+      );
+    });
+
+    /// CONTROL. An ACCEPTED sender's message is stored and nothing is declined
+    /// — otherwise the guard above would pass on a build that declines
+    /// everything, and every message would be re-served until its relay TTL.
+    test('accepted here → nothing is declined', () async {
+      await mA.acceptContact(b);
+      final declined = <String>[];
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: wireFor('f54-taken'),
+          provenance: SenderProvenance.signed,
+          onDeclined: declined.add,
+        ),
+      );
+      await pumpEventQueue();
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        contains('f54-taken'),
+        reason: 'the premise: an accepted sender\'s message is stored',
+      );
+      expect(declined, isEmpty);
+    });
+
+    /// CONTROL. A BLOCKED sender is a decision of the whole identity — every
+    /// device would drop it, so its blob SHOULD be acked away. Declining here
+    /// would leave junk at the relay until its TTL for the one case the ack was
+    /// built for.
+    test('blocked here → NOT declined, because every device agrees', () async {
+      await mA.blockContact(b);
+      final declined = <String>[];
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: wireFor('f54-blocked'),
+          provenance: SenderProvenance.signed,
+          onDeclined: declined.add,
+        ),
+      );
+      await pumpEventQueue();
+      expect(await sA.loadMessages(b.hex), isEmpty);
+      expect(
+        declined,
+        isEmpty,
+        reason:
+            'a block travels between devices; holding the ack would only keep '
+            'a blocked sender\'s blob alive at the relay',
+      );
+    });
+  });
+
   test('concurrent pre-consent intros cannot race past the cap', () async {
     // A hostile peer mints a FRESH id per request and fires many AT ONCE. The
     // inbound handler is async and the stream does not await it, so without
