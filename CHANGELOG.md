@@ -6,6 +6,59 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.76] — 2026-09-20
+
+*Calls between a phone and a restored identity carried no media at all.*
+
+### Fixed
+
+- **Every sealed media cell arrived and none of them opened.** The call-media
+  key derivation hashes `(callerNode, calleeNode)` into its master key, and the
+  call site handed it the transport's own node id — the DEVICE. A peer can only
+  put our IDENTITY in that slot: a contact, an invite and a certificate all
+  carry that one. So the two ends hashed different pairs and every packet
+  failed its AEAD, in both directions, for the whole call. Measured on a
+  two-device stand as `arrived n=1000` against
+  `drop reason=seal-open-failed n=1000`, while signalling over the same session
+  was perfect.
+
+  It only bites where a device's key is not its identity — a device restored
+  into an existing identity, or a second device linked to one. For an identity
+  with no document the two coincide, the derivation is unchanged bit for bit,
+  and calls that work today keep working against an older build. Only the case
+  that is broken today changes.
+
+- **The node refused to start in every debug build.** Naming a log file while
+  the sink was still `stderr` is a pair the node rejects outright, and then it
+  starts nothing at all. Release never saw it, because there the path is null.
+
+### Added
+
+- **The call offers to drop video when the link cannot carry it.** The bitrate
+  ladder walks 900 → 675 → 450 → 270 kbps and then has nowhere left to go; at
+  that floor a failing link was measured still losing 68% of outbound video,
+  and the call went on sending, because "held the rung because all is well" and
+  "held it because there is nothing smaller left" were the same value to
+  everything above. The second one is now a state of its own: after eight
+  consecutive bad samples at the floor, the call offers to turn video off, and
+  offers to ask the peer to do the same.
+
+  Advisory on both sides. Neither the measurement nor the remote party switches
+  off a camera its user turned on — the request raises the same offer the local
+  measurement raises, and the person decides.
+
+- **Opus is configured for a lossy link** — mono, inband FEC, DTX — and the
+  Android engine is rebuilt so that reaches a phone. The engine is not built by
+  the app's own build and had been pinned to a 24 July artifact; all three
+  pins now name one engine set built from one veil commit.
+
+### Changed
+
+- **Licensed `MIT OR Apache-2.0`**, together with veil and hidden-volume, so a
+  build of xVeil is permissively licensed end to end. The GPL dependency that
+  reached the packet tunnel through a vendored SOCKS5 crate is gone, replaced
+  by a clean-room codec written from RFC 1928 and RFC 1929.
+
 ## [0.13.75] — 2026-09-19
 
 *The release that 0.13.74 could not publish.*
