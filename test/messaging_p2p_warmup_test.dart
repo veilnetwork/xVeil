@@ -168,25 +168,70 @@ void main() {
   group('who a conversation may ask for a direct route', () {
     const known = true;
 
-    test('the default — follow the global policy — means NO', () {
+    test('the default follows the global policy, in both directions', () {
+      // The option is called "follow the global policy" and until 2026-09-20
+      // it followed nothing: it read as a flat no, so a person who had set the
+      // policy to "all" still got `messaging ladder not allowed` on every
+      // conversation with no screen saying why.
+      for (final (global, accepted, expected) in <(P2PGlobalPolicy, bool, bool)>[
+        (P2PGlobalPolicy.allowAll, true, true),
+        (P2PGlobalPolicy.contacts, true, true),
+        (P2PGlobalPolicy.contacts, false, false),
+        (P2PGlobalPolicy.selected, true, false),
+        (P2PGlobalPolicy.denied, true, false),
+      ]) {
+        expect(
+          p2pMessagingAllows(
+            global: global,
+            override: kDefaultContactP2POverride,
+            contactKnown: known,
+            contactAccepted: accepted,
+            contactBlocked: false,
+            localAnonymous: false,
+          ),
+          expected,
+          reason: 'global=${global.name} accepted=$accepted',
+        );
+      }
+    });
+
+    test('a per-contact deny overrides the most permissive global policy', () {
       expect(
         p2pMessagingAllows(
-          override: kDefaultContactP2POverride,
+          global: P2PGlobalPolicy.allowAll,
+          override: ContactP2POverride.deny,
           contactKnown: known,
+          contactAccepted: true,
           contactBlocked: false,
           localAnonymous: false,
         ),
         isFalse,
-        reason: 'the global policy is about calls, where reaching one named '
-            'person is the point; a chat must be opted in per contact',
+        reason: 'the narrower answer is the one the person gave about THIS '
+            'contact; a global default must never widen past it',
+      );
+    });
+
+    test('a per-contact allow stands even when the global policy denies', () {
+      expect(
+        p2pMessagingAllows(
+          global: P2PGlobalPolicy.denied,
+          override: ContactP2POverride.allow,
+          contactKnown: known,
+          contactAccepted: true,
+          contactBlocked: false,
+          localAnonymous: false,
+        ),
+        isTrue,
       );
     });
 
     test('an explicit allow for this contact means yes', () {
       expect(
         p2pMessagingAllows(
+          global: P2PGlobalPolicy.allowAll,
           override: ContactP2POverride.allow,
           contactKnown: known,
+          contactAccepted: true,
           contactBlocked: false,
           localAnonymous: false,
         ),
@@ -197,8 +242,10 @@ void main() {
     test('an anonymous identity is refused even with an explicit allow', () {
       expect(
         p2pMessagingAllows(
+          global: P2PGlobalPolicy.allowAll,
           override: ContactP2POverride.allow,
           contactKnown: known,
+          contactAccepted: true,
           contactBlocked: false,
           localAnonymous: true,
         ),
@@ -211,8 +258,10 @@ void main() {
     test('a blocked or unknown peer is refused', () {
       expect(
         p2pMessagingAllows(
+          global: P2PGlobalPolicy.allowAll,
           override: ContactP2POverride.allow,
           contactKnown: known,
+          contactAccepted: true,
           contactBlocked: true,
           localAnonymous: false,
         ),
@@ -220,8 +269,10 @@ void main() {
       );
       expect(
         p2pMessagingAllows(
+          global: P2PGlobalPolicy.allowAll,
           override: ContactP2POverride.allow,
           contactKnown: false,
+          contactAccepted: true,
           contactBlocked: false,
           localAnonymous: false,
         ),
@@ -233,8 +284,10 @@ void main() {
     test('an explicit deny is refused', () {
       expect(
         p2pMessagingAllows(
+          global: P2PGlobalPolicy.allowAll,
           override: ContactP2POverride.deny,
           contactKnown: known,
+          contactAccepted: true,
           contactBlocked: false,
           localAnonymous: false,
         ),

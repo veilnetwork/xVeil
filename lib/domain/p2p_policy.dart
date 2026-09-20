@@ -46,18 +46,32 @@ bool lanListenAllowed({
 
 /// Whether MESSAGING may run the direct-connection ladder toward this contact.
 ///
-/// Deliberately stricter than [p2pPolicyAllows], and it does NOT consult
-/// [P2PGlobalPolicy]. Placing a call is already an act of reaching out to one
-/// named person, and the media path exposes the address to them anyway; sending
-/// a chat message is not, and people send them to everyone they know. So the
-/// direct route in a conversation is opt-in PER CONTACT: `followGlobal` — the
-/// default — means NO here, not "whatever calls do".
+/// `followGlobal` FOLLOWS THE GLOBAL POLICY, which is what the option is
+/// called and therefore what it has to do. It did not until 2026-09-20: this
+/// predicate ignored [P2PGlobalPolicy] entirely and read `followGlobal` as a
+/// flat no, so a person who had set the global policy to "all" or "contacts"
+/// still got `messaging ladder not allowed (override=followGlobal)` on every
+/// conversation and no screen anywhere said why.
+///
+/// The reasoning that stood behind the old behaviour is worth keeping in view,
+/// because it is not wrong about the risk: placing a call is an act of reaching
+/// out to one named person and the media path exposes the address to them
+/// anyway, while a chat message is not, and people send those to everyone they
+/// know. So following the global policy here DOES widen who can learn this
+/// node's direct address — to exactly the set the global policy already names.
+/// That is the setting's own promise; a per-contact `deny` still overrides it,
+/// and `selected`/`denied` still mean no.
+///
+/// Every veto is kept: an anonymous identity, a blocked contact and an unknown
+/// contact are refused before the policy is consulted at all.
 ///
 /// The mailbox path is unaffected either way. A denial here costs latency, not
 /// delivery.
 bool p2pMessagingAllows({
+  required P2PGlobalPolicy global,
   required ContactP2POverride override,
   required bool contactKnown,
+  required bool contactAccepted,
   required bool contactBlocked,
   required bool localAnonymous,
 }) {
@@ -67,7 +81,15 @@ bool p2pMessagingAllows({
   if (localAnonymous) return false;
   if (contactBlocked) return false;
   if (!contactKnown) return false;
-  return override == ContactP2POverride.allow;
+  if (override == ContactP2POverride.deny) return false;
+  if (override == ContactP2POverride.allow) return true;
+  // followGlobal — the default — now means what it says.
+  return switch (global) {
+    P2PGlobalPolicy.allowAll => true,
+    P2PGlobalPolicy.contacts => contactAccepted,
+    P2PGlobalPolicy.selected => false,
+    P2PGlobalPolicy.denied => false,
+  };
 }
 
 bool p2pPolicyAllows({
