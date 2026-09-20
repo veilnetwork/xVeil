@@ -343,7 +343,7 @@ void main() {
       expect(
         historyAskToServe(
           event: askEvent(by: 'bb', to: 'aa'),
-          myDeviceHex: 'aa',
+          myAddresses: const {'aa'},
           alreadyServedMs: null,
         ),
         isNotNull,
@@ -358,7 +358,7 @@ void main() {
       expect(
         historyAskToServe(
           event: askEvent(by: 'bb', to: 'aa', tsMs: 5000),
-          myDeviceHex: 'aa',
+          myAddresses: const {'aa'},
           alreadyServedMs: 5000,
         ),
         isNull,
@@ -372,7 +372,7 @@ void main() {
       expect(
         historyAskToServe(
           event: askEvent(by: 'bb', to: 'aa', tsMs: 5001),
-          myDeviceHex: 'aa',
+          myAddresses: const {'aa'},
           alreadyServedMs: 5000,
         ),
         isNotNull,
@@ -385,7 +385,7 @@ void main() {
       expect(
         historyAskToServe(
           event: askEvent(by: 'bb', to: 'cc'),
-          myDeviceHex: 'aa',
+          myAddresses: const {'aa'},
           alreadyServedMs: null,
         ),
         isNull,
@@ -396,7 +396,40 @@ void main() {
       expect(
         historyAskToServe(
           event: askEvent(by: 'aa', to: 'aa'),
-          myDeviceHex: 'aa',
+          myAddresses: const {'aa'},
+          alreadyServedMs: null,
+        ),
+        isNull,
+      );
+    });
+
+    /// THE MASTER HAS TWO NAMES, and a linked device knows only one of them.
+    ///
+    /// A device group's owner is the IDENTITY and is never in the member list,
+    /// so the master's own device id is a name no linked device can see — the
+    /// only name its screen can put on that row is the identity. Measured on
+    /// the two-device stand: an ask addressed that way went unanswered, and
+    /// nothing anywhere said why.
+    test('the master answers to the identity a linked device names it by', () {
+      expect(
+        historyAskToServe(
+          event: askEvent(by: 'bb', to: 'identity'),
+          myAddresses: const {'aa', 'identity'},
+          alreadyServedMs: null,
+        ),
+        isNotNull,
+      );
+    });
+
+    /// CONTROL, and the reason the addresses are a set rather than a widening.
+    /// A LINKED device holds one address and must not answer to the identity,
+    /// or every device of the identity would answer an ask meant for the
+    /// master — each posting its own full copy into the same shared log.
+    test('a linked device does NOT answer to the identity', () {
+      expect(
+        historyAskToServe(
+          event: askEvent(by: 'bb', to: 'identity'),
+          myAddresses: const {'aa'},
           alreadyServedMs: null,
         ),
         isNull,
@@ -412,7 +445,7 @@ void main() {
             tsMs: 5000,
             payload: {},
           ),
-          myDeviceHex: 'aa',
+          myAddresses: const {'aa'},
           alreadyServedMs: null,
         ),
         isNull,
@@ -428,7 +461,7 @@ void main() {
             tsMs: 5000,
             payload: {'from': 'aa'},
           ),
-          myDeviceHex: 'aa',
+          myAddresses: const {'aa'},
           alreadyServedMs: null,
         ),
         isNull,
