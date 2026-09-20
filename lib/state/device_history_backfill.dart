@@ -108,6 +108,13 @@ import 'device_sync_bridge.dart' show contactPrefsPayload;
 ///  * an ask addressed to a DIFFERENT device. Every device sees this row — the
 ///    group is a broadcast log — and without this check every one of them
 ///    would answer at once, each posting its own full copy into the same log.
+///
+///    [myAddresses] is a SET because the master has two names. A device
+///    group's owner is the IDENTITY and is never in the member list, so a
+///    linked device has no name for the master except that identity — and
+///    measured on the stand, that is the only name its screen can offer.
+///    A linked device holds one address and must not answer to the identity,
+///    or every device would answer an ask meant for the master.
 ///  * an ask ALREADY SERVED. The folded device-sync state is replayed into the
 ///    appliers on every bridge build, so an answered ask that left no record
 ///    would be answered again on every app start, for as long as its row lived
@@ -118,14 +125,14 @@ import 'device_sync_bridge.dart' show contactPrefsPayload;
 /// app.
 DeviceHistoryAsk? historyAskToServe({
   required DeviceSyncEvent event,
-  required String myDeviceHex,
+  required Set<String> myAddresses,
   required int? alreadyServedMs,
 }) {
   if (event.kind != DeviceSyncKind.historyAsk) return null;
   final ask = DeviceHistoryAsk.fromPayload(event.payload);
   if (ask == null) return null;
-  if (event.key == myDeviceHex) return null;
-  if (!ask.asks(myDeviceHex)) return null;
+  if (myAddresses.contains(event.key)) return null;
+  if (!myAddresses.any(ask.asks)) return null;
   if (alreadyServedMs != null && event.tsMs <= alreadyServedMs) return null;
   return ask;
 }
