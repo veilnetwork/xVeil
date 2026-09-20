@@ -624,9 +624,10 @@ void main() {
         authCookie: cookie,
         ourCertVersion: 1,
         alreadyHave: never,
-        onMessage: (m) {
+        onMessage: (m) async {
           handedUp = m;
           fetchesWhenHandedUp = sticky.fetchCalls;
+          return true;
         },
       );
 
@@ -1247,6 +1248,131 @@ void main() {
         await reg.flush();
         expect(writes, 1, reason: 'a flush with nothing new writes nothing');
       });
+    });
+  });
+
+  /// A DEVICE THAT DROPPED THE MESSAGE MUST NOT DELETE IT FOR ITS SIBLINGS.
+  ///
+  /// An ack names a content id and nothing else, so the relay removes every
+  /// replica under it — including the copies the sender deposited for this
+  /// identity's other devices. Measured live (F54): a freshly linked device did
+  /// not yet know the contact, fetched the message, dropped it at its consent
+  /// gate, acked it away, and the device that HAD accepted the contact then
+  /// found an empty mailbox. The message reached neither.
+  group('a refused message is not acked away', () {
+    Future<void> stashOne(Uint8List cid) => orch.stash(
+      me: peer,
+      recipient: me,
+      appId: _appId(0xAA),
+      endpointId: 9,
+      data: Uint8List.fromList([1, 2, 3]),
+      contentId: cid,
+    );
+
+    test(
+      'refused → the blob stays at the relay for a sibling to fetch',
+      () async {
+        await stashOne(_cid(0xD1));
+        final drained = await orch.drain(
+          me: me,
+          authCookie: cookie,
+          ourCertVersion: 1,
+          alreadyHave: never,
+          onMessage: (_) async => false, // this device declined it
+        );
+        expect(
+          drained,
+          isEmpty,
+          reason: 'a message this device refused is not mail it recovered',
+        );
+        expect(
+          await relay.fetch(me: me, authCookie: cookie),
+          hasLength(1),
+          reason:
+              'the relay must still hold the copy our other devices need; '
+              'acking it would delete every replica under that content id',
+        );
+      },
+    );
+
+    /// CONTROL. Same blob, same drain, the one difference being the answer —
+    /// otherwise the guard above would also pass on a drain that acks nothing
+    /// at all.
+    test('taken → the blob IS acked away, exactly as before', () async {
+      await stashOne(_cid(0xD2));
+      final drained = await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+        onMessage: (_) async => true,
+      );
+      expect(drained, hasLength(1));
+      expect(
+        await relay.fetch(me: me, authCookie: cookie),
+        isEmpty,
+        reason: 'a message this device took is the relay\'s to forget',
+      );
+    });
+
+    /// CONTROL. A caller that asks no question refuses nothing — every
+    /// existing caller and every other test in this file relies on it.
+    test('no onMessage at all → acked, as it always was', () async {
+      await stashOne(_cid(0xD3));
+      await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
+      expect(await relay.fetch(me: me, authCookie: cookie), isEmpty);
+    });
+
+    /// Not acking is the point; re-fetching it on every tick is the price, and
+    /// the relay fills its reply oldest-first — so a refused blob left at the
+    /// head would starve everything queued behind it. It has to be named in the
+    /// skip hint while its back-off lasts.
+    test('and the relay is told to pass over it on the next fetch', () async {
+      final skipRelay = _SkipHonouringRelay();
+      final o = MailboxOrchestrator(
+        LoopbackMailboxCrypto(senderForOpen: peer),
+        skipRelay,
+      );
+      await o.stash(
+        me: peer,
+        recipient: me,
+        appId: _appId(0xAA),
+        endpointId: 9,
+        data: Uint8List.fromList([1, 2, 3]),
+        contentId: _cid(0xD4),
+      );
+      await o.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+        onMessage: (_) async => false,
+      );
+      final before = skipRelay.asksPerFetch.length;
+      await o.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+        onMessage: (_) async => false,
+      );
+      expect(
+        skipRelay.asksPerFetch.length,
+        greaterThan(before),
+        reason: 'the second drain must have fetched at all',
+      );
+      expect(
+        skipRelay.asksPerFetch[before],
+        contains(_hexOf(_cid(0xD4))),
+        reason:
+            'the refused id must be in the hint from the FIRST fetch of the '
+            'next drain, not learned again the expensive way',
+      );
     });
   });
 }
