@@ -120,8 +120,7 @@ class _FakeSigner implements GroupSigner {
   bool verifyControl(ControlEntry e) =>
       e.signature.length == 64 && e.authorPubKey.length == 32;
   @override
-  bool verifyControlAt(ControlEntry e, int atUnixSecs) =>
-      verifyControl(e);
+  bool verifyControlAt(ControlEntry e, int atUnixSecs) => verifyControl(e);
   @override
   bool verifyContentRequest(GroupContentRequest r) =>
       r.signature.length == 64 && r.authorPubKey.length == 32;
@@ -4254,6 +4253,65 @@ void main() {
     expect(chat, isEmpty);
     await sub.cancel();
 
+    // A TWO-DEVICE GROUP, which is the ordinary one and the one the round-trip
+    // above cannot see. Its group has three devices, so the linked device still
+    // has a sibling to address, and the loop that hand-delivers `deltas` never
+    // asks WHO they were addressed to.
+    //
+    // Measured on a live two-device stand (2026-09-20): the linked device
+    // posted a device-sync event, `postDeviceEvent` answered true, the row
+    // landed in its own folded state, and nothing went on the wire. Eight
+    // minutes later the master had neither that event, nor a message the linked
+    // device had received from a contact, nor one it had sent. The master's own
+    // deltas reached the linked device within fifteen seconds throughout, so
+    // the pair disagreed in ONE direction and nothing said so.
+    {
+      final s3 = FakeHvContainer().storage();
+      await s3.open(password: 'pw', createIfMissing: true);
+      final pairOwnerSent = <String>[];
+      final pairOwner = GroupService(
+        s3,
+        _FakeSigner(owner),
+        send: (p, g, j) async => pairOwnerSent.add(j),
+      );
+      expect(await pairOwner.linkDevice(bob, sovereign: sovereign), isTrue);
+      final pairGid = (await pairOwner.deviceGroupIdHex())!;
+      await drain();
+
+      final s4 = FakeHvContainer().storage();
+      await s4.open(password: 'pw', createIfMissing: true);
+      final addressed = <NodeId>[];
+      final linked = GroupService(
+        s4,
+        _FakeSigner(bob),
+        send: (p, g, j) async => addressed.add(p),
+      );
+      expect(await linked.ingestSnapshot(pairOwnerSent.first), isTrue);
+      expect(await linked.adoptDeviceGroup(NodeId.fromHex(pairGid)), isTrue);
+      linked.myDevice = bob;
+
+      expect(
+        await linked.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'pair',
+            tsMs: 333,
+            payload: const {'v': 'from the linked device'},
+          ),
+        ),
+        isTrue,
+      );
+      await drain();
+
+      expect(
+        addressed.map((n) => n.hex),
+        contains(sovereign.nodeId.hex),
+        reason:
+            'the linked device posted to nobody — the owner is the only '
+            'other party it has, and the scan dropped it',
+      );
+    }
+
     // Revoke removes the device and rotates the epoch.
     final epochBefore = (await primary.stateOf(NodeId.fromHex(gidHex)))!.epoch;
     expect(await primary.revokeDevice(bob, sovereign: sovereign), isTrue);
@@ -5770,130 +5828,127 @@ void main() {
   /// path it borrows: a group that arrives with a manifest and a control log
   /// and not one readable message looks like a working restore until something
   /// tries to read it.
-  test(
-    'report27 X08: a group travels in an archive with the key its history '
-    'needs, and the device group stays behind',
-    () async {
-      final aStorage = FakeHvContainer().storage();
-      await aStorage.open(password: 'pw', createIfMissing: true);
-      final a = GroupService(
-        aStorage,
-        _FakeSigner(owner),
-        epochService: GroupEpochService(
-          LoopbackMailboxCrypto(senderForOpen: owner),
-        ),
-      );
-      addTearDown(a.dispose);
-      // A device group, so the exclusion has something to exclude.
-      expect(
-        await a.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false),
-        isTrue,
-      );
-      final deviceGroup = (await a.deviceGroupIdHex())!;
-      final gid = await a.createGroup('Carried');
-      expect(
-        await a.postMessage(gid, 'said before the backup', broadcast: false),
-        isTrue,
-      );
-      // Rotate past that message's epoch. Forward secrecy is the point: the
-      // envelope for a retired epoch does not survive, so the local key is the
-      // only thing that can still open what was said under it — which is
-      // exactly what an archive has to carry and what `kk` is for.
-      expect(
-        await a.addControlOp(
-          gid,
-          ControlOp.addMember,
-          target: bob,
-          role: GroupRole.member,
-        ),
-        isTrue,
-      );
-      final sid = await a.createSpace('Also carried');
+  test('report27 X08: a group travels in an archive with the key its history '
+      'needs, and the device group stays behind', () async {
+    final aStorage = FakeHvContainer().storage();
+    await aStorage.open(password: 'pw', createIfMissing: true);
+    final a = GroupService(
+      aStorage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    addTearDown(a.dispose);
+    // A device group, so the exclusion has something to exclude.
+    expect(
+      await a.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false),
+      isTrue,
+    );
+    final deviceGroup = (await a.deviceGroupIdHex())!;
+    final gid = await a.createGroup('Carried');
+    expect(
+      await a.postMessage(gid, 'said before the backup', broadcast: false),
+      isTrue,
+    );
+    // Rotate past that message's epoch. Forward secrecy is the point: the
+    // envelope for a retired epoch does not survive, so the local key is the
+    // only thing that can still open what was said under it — which is
+    // exactly what an archive has to carry and what `kk` is for.
+    expect(
+      await a.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    final sid = await a.createSpace('Also carried');
 
-      final carried = await a.archivableGroupIds();
-      expect(
-        carried,
-        containsAll(<String>[gid.hex, sid.hex]),
-        reason: 'a group and a Space are both things an archive must carry',
-      );
-      expect(
-        carried,
-        isNot(contains(deviceGroup)),
-        reason:
-            'the device group travelled in a file — device membership is '
-            'established by the link ceremony and the sovereign document, and '
-            'a file is not a ceremony',
-      );
+    final carried = await a.archivableGroupIds();
+    expect(
+      carried,
+      containsAll(<String>[gid.hex, sid.hex]),
+      reason: 'a group and a Space are both things an archive must carry',
+    );
+    expect(
+      carried,
+      isNot(contains(deviceGroup)),
+      reason:
+          'the device group travelled in a file — device membership is '
+          'established by the link ceremony and the sovereign document, and '
+          'a file is not a ceremony',
+    );
 
-      // A second device, holding nothing.
-      final bStorage = FakeHvContainer().storage();
-      await bStorage.open(password: 'pw', createIfMissing: true);
-      final b = GroupService(
-        bStorage,
-        _FakeSigner(owner),
-        epochService: GroupEpochService(
-          LoopbackMailboxCrypto(senderForOpen: owner),
-        ),
-      );
-      addTearDown(b.dispose);
-      final retiredEpoch = (await a.load(gid))!.messages.single.membershipEpoch!;
-      for (final id in carried) {
-        final snapshot = await a.archiveSnapshot(id);
-        expect(snapshot, isNotNull, reason: 'every carried id must snapshot');
-        var body = snapshot!;
-        if (id == gid.hex) {
-          // The envelopes for the retired epoch, removed the way forward
-          // secrecy removes them. Without this the key arrives by the envelope
-          // route and `kk` decides nothing, so the assertion below would hold
-          // whether or not an archive carries keys at all.
-          final decoded = jsonDecode(body) as Map<String, dynamic>;
-          final envelopes = decoded['ke'];
-          if (envelopes is List) {
-            decoded['ke'] = [
-              for (final e in envelopes)
-                if (e is Map && e['epoch'] != retiredEpoch) e,
-            ];
-          }
-          body = jsonEncode(decoded);
+    // A second device, holding nothing.
+    final bStorage = FakeHvContainer().storage();
+    await bStorage.open(password: 'pw', createIfMissing: true);
+    final b = GroupService(
+      bStorage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    addTearDown(b.dispose);
+    final retiredEpoch = (await a.load(gid))!.messages.single.membershipEpoch!;
+    for (final id in carried) {
+      final snapshot = await a.archiveSnapshot(id);
+      expect(snapshot, isNotNull, reason: 'every carried id must snapshot');
+      var body = snapshot!;
+      if (id == gid.hex) {
+        // The envelopes for the retired epoch, removed the way forward
+        // secrecy removes them. Without this the key arrives by the envelope
+        // route and `kk` decides nothing, so the assertion below would hold
+        // whether or not an archive carries keys at all.
+        final decoded = jsonDecode(body) as Map<String, dynamic>;
+        final envelopes = decoded['ke'];
+        if (envelopes is List) {
+          decoded['ke'] = [
+            for (final e in envelopes)
+              if (e is Map && e['epoch'] != retiredEpoch) e,
+          ];
         }
-        expect(await b.restoreSnapshot(body), isTrue);
+        body = jsonEncode(decoded);
       }
+      expect(await b.restoreSnapshot(body), isTrue);
+    }
 
-      final restored = await b.load(gid);
-      expect(restored, isNotNull, reason: 'the group itself must arrive');
-      expect(
-        restored!.messages,
-        hasLength(1),
-        reason:
-            'the history did not travel at all: a snapshot built for anyone '
-            'but our own device withholds the rows it assumes the far side '
-            'cannot read',
-      );
-      final row = restored.messages.single;
-      expect(row.isEncrypted, isTrue, reason: 'premise: the history is sealed');
-      // Coupled to the row assertion above rather than independent of it: the
-      // snapshot only carries a row whose epoch the audience can open, so a
-      // build that withholds the keys withholds the rows with them and the
-      // length check fires first. Stated anyway, because the pairing is the
-      // snapshot's decision and a future one could carry rows without keys —
-      // which is precisely the group that arrives and cannot be read.
-      expect(
-        restored.localEpochKeys.containsKey(row.membershipEpoch),
-        isTrue,
-        reason:
-            'the history arrived and the key to it did not, so the group is '
-            'here and unreadable',
-      );
-      expect(
-        (await b.load(sid))?.manifest.isSpace,
-        isTrue,
-        reason: 'the Space arrived as a Space',
-      );
+    final restored = await b.load(gid);
+    expect(restored, isNotNull, reason: 'the group itself must arrive');
+    expect(
+      restored!.messages,
+      hasLength(1),
+      reason:
+          'the history did not travel at all: a snapshot built for anyone '
+          'but our own device withholds the rows it assumes the far side '
+          'cannot read',
+    );
+    final row = restored.messages.single;
+    expect(row.isEncrypted, isTrue, reason: 'premise: the history is sealed');
+    // Coupled to the row assertion above rather than independent of it: the
+    // snapshot only carries a row whose epoch the audience can open, so a
+    // build that withholds the keys withholds the rows with them and the
+    // length check fires first. Stated anyway, because the pairing is the
+    // snapshot's decision and a future one could carry rows without keys —
+    // which is precisely the group that arrives and cannot be read.
+    expect(
+      restored.localEpochKeys.containsKey(row.membershipEpoch),
+      isTrue,
+      reason:
+          'the history arrived and the key to it did not, so the group is '
+          'here and unreadable',
+    );
+    expect(
+      (await b.load(sid))?.manifest.isSpace,
+      isTrue,
+      reason: 'the Space arrived as a Space',
+    );
 
-      await aStorage.close();
-      await bStorage.close();
-    },
-  );
+    await aStorage.close();
+    await bStorage.close();
+  });
 
   /// report27 X08 — a snapshot cannot poison an epoch key by carrying a wrong
   /// one.
@@ -5926,8 +5981,9 @@ void main() {
       final rightKey = mine.localEpochKeys[epoch]!;
 
       // The same group, snapshotted with a DIFFERENT key for that epoch.
-      final snapshot = jsonDecode(await a.archiveSnapshot(gid.hex) as String)
-          as Map<String, dynamic>;
+      final snapshot =
+          jsonDecode(await a.archiveSnapshot(gid.hex) as String)
+              as Map<String, dynamic>;
       final handed = snapshot['kk'];
       expect(
         handed,
@@ -20356,9 +20412,9 @@ void main() {
         ),
         isTrue,
       );
-      final promotion = (await ownerSvc.load(spaceId))!.control.lastWhere(
-        (entry) => entry.op == ControlOp.setRole,
-      );
+      final promotion = (await ownerSvc.load(
+        spaceId,
+      ))!.control.lastWhere((entry) => entry.op == ControlOp.setRole);
 
       final bobStorage = FakeHvContainer().storage();
       await bobStorage.open(password: 'pw', createIfMissing: true);
@@ -20372,7 +20428,10 @@ void main() {
       addTearDown(bobSvc.dispose);
       expect(
         await bobSvc.ingestSnapshot(
-          ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
         ),
         isTrue,
       );
@@ -20413,77 +20472,83 @@ void main() {
     },
   );
 
-  test('only the owner can seal the control history, and the row survives',
-      () async {
-    // The deliberate row. Its own path never produced one reliably: a
-    // checkpoint is a side effect of posting, and that path reuses any recent
-    // one whose historical state still grants the poster permission — which,
-    // for an owner, is every one of them (report24 G3-1).
-    final ownerStorage = FakeHvContainer().storage();
-    await ownerStorage.open(password: 'pw', createIfMissing: true);
-    final ownerSvc = GroupService(
-      ownerStorage,
-      _FakeSigner(owner),
-      epochService: GroupEpochService(
-        LoopbackMailboxCrypto(senderForOpen: owner),
-      ),
-    );
-    addTearDown(ownerSvc.dispose);
-    final spaceId = await ownerSvc.createSpace('Sealed');
-    expect(
-      await ownerSvc.addControlOp(
-        spaceId,
-        ControlOp.addMember,
-        target: bob,
-        role: GroupRole.admin,
-      ),
-      isTrue,
-    );
+  test(
+    'only the owner can seal the control history, and the row survives',
+    () async {
+      // The deliberate row. Its own path never produced one reliably: a
+      // checkpoint is a side effect of posting, and that path reuses any recent
+      // one whose historical state still grants the poster permission — which,
+      // for an owner, is every one of them (report24 G3-1).
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(ownerSvc.dispose);
+      final spaceId = await ownerSvc.createSpace('Sealed');
+      expect(
+        await ownerSvc.addControlOp(
+          spaceId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.admin,
+        ),
+        isTrue,
+      );
 
-    expect(await ownerSvc.sealControlHistory(spaceId), isTrue);
-    final control = (await ownerSvc.load(spaceId))!.control;
-    final seal = control.lastWhere((e) => e.op == ControlOp.checkpoint);
-    expect(seal.author, owner, reason: 'the seal must be the owner\'s word');
-    expect(
-      seal.controlCheckpoint,
-      isNotNull,
-      reason: 'a seal with no heads settles nothing',
-    );
-    // And the fold keeps it: a row that does not survive its own fold would
-    // have been saved as testimony nobody reads.
-    final folded = foldControlLog(
-      owner: owner,
-      entries: control,
-      verify: (_) => true,
-    );
-    expect(folded.accepted, contains(seal));
+      expect(await ownerSvc.sealControlHistory(spaceId), isTrue);
+      final control = (await ownerSvc.load(spaceId))!.control;
+      final seal = control.lastWhere((e) => e.op == ControlOp.checkpoint);
+      expect(seal.author, owner, reason: 'the seal must be the owner\'s word');
+      expect(
+        seal.controlCheckpoint,
+        isNotNull,
+        reason: 'a seal with no heads settles nothing',
+      );
+      // And the fold keeps it: a row that does not survive its own fold would
+      // have been saved as testimony nobody reads.
+      final folded = foldControlLog(
+        owner: owner,
+        entries: control,
+        verify: (_) => true,
+      );
+      expect(folded.accepted, contains(seal));
 
-    // The admin cannot write one. An admin sealing a prefix would be the
-    // escalation the fold's owner-only rule exists to refuse, and refusing it
-    // here as well keeps the two from disagreeing about who may vouch.
-    final bobStorage = FakeHvContainer().storage();
-    await bobStorage.open(password: 'pw', createIfMissing: true);
-    final bobSvc = GroupService(
-      bobStorage,
-      _FakeSigner(bob),
-      epochService: GroupEpochService(
-        LoopbackMailboxCrypto(senderForOpen: owner),
-      ),
-    );
-    addTearDown(bobSvc.dispose);
-    expect(
-      await bobSvc.ingestSnapshot(
-        ownerSvc.snapshotJson((await ownerSvc.load(spaceId))!, recipient: bob),
-      ),
-      isTrue,
-    );
-    expect(
-      await bobSvc.sealControlHistory(spaceId),
-      isFalse,
-      reason: 'an admin wrote a seal, which is the owner vouching for a '
-          'prefix — a power an admin does not have',
-    );
-  });
+      // The admin cannot write one. An admin sealing a prefix would be the
+      // escalation the fold's owner-only rule exists to refuse, and refusing it
+      // here as well keeps the two from disagreeing about who may vouch.
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      final bobSvc = GroupService(
+        bobStorage,
+        _FakeSigner(bob),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+      );
+      addTearDown(bobSvc.dispose);
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson(
+            (await ownerSvc.load(spaceId))!,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.sealControlHistory(spaceId),
+        isFalse,
+        reason:
+            'an admin wrote a seal, which is the owner vouching for a '
+            'prefix — a power an admin does not have',
+      );
+    },
+  );
 
   test('the next-link predicate accounts for rows the merge found '
       'unauthorized', () {
@@ -20504,11 +20569,16 @@ void main() {
     final at = source.indexOf('_nextControlLink(');
     expect(at, isNot(-1), reason: 'the link builder is gone; re-aim this');
     final body = source.substring(at, source.indexOf('hasRejectedSuffix', at));
-    for (final list in ['folded.accepted', 'folded.withdrawn', 'folded.unauthorized']) {
+    for (final list in [
+      'folded.accepted',
+      'folded.withdrawn',
+      'folded.unauthorized',
+    ]) {
       expect(
         body,
         contains(list),
-        reason: 'the head this author may continue from is computed without '
+        reason:
+            'the head this author may continue from is computed without '
             '$list, so a row in it reads as a fork of their own chain',
       );
     }
