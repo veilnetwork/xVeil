@@ -58,6 +58,7 @@ class P2PEndpointService {
     required this._lanListenEnabled,
     Future<List<String>> Function()? localAddresses,
     Future<List<NodeId>> Function()? acceptedPeers,
+    Future<List<NodeId>> Function()? ownDevices,
     Future<bool> Function(NodeId peer)? isOwnDevice,
     Future<NodeId> Function()? selfNode,
     void Function()? nudgeDrain,
@@ -66,6 +67,7 @@ class P2PEndpointService {
     DateTime Function()? now,
   }) : _localAddresses = localAddresses ?? _defaultLocalAddresses,
        _acceptedPeers = acceptedPeers ?? _noPeers,
+       _ownDevices = ownDevices ?? _noPeers,
        _isOwnDevice = isOwnDevice ?? _notOwnDevice,
        // ignore: prefer_initializing_formals — public `selfNode:` → private field.
        _selfNode = selfNode,
@@ -111,6 +113,9 @@ class P2PEndpointService {
   /// Contacts to tell when our own address changes. Injected rather than read
   /// from storage here so the service stays a pure negotiator.
   final Future<List<NodeId>> Function() _acceptedPeers;
+
+  /// My OWN other devices, which are not contacts and never appeared here.
+  final Future<List<NodeId>> Function() _ownDevices;
   final Future<List<String>> Function() _localAddresses;
 
   /// Explicit call-path hole punch (real-P2P Stage B). Runs one bounded
@@ -267,18 +272,43 @@ class P2PEndpointService {
   Future<void> announceLocalEndpoints({int max = 32}) async {
     if (_disposed) return;
     if (!_lanListenEnabled()) return; // loopback bind — nothing dialable
-    final List<NodeId> peers;
+    final peers = <NodeId>[];
+    final seen = <String>{};
     try {
-      peers = await _acceptedPeers();
+      for (final p in await _acceptedPeers()) {
+        if (seen.add(p.hex)) peers.add(p);
+      }
     } catch (e) {
       devLog(() => 'xVeil[p2p]: could not list contacts to announce to: $e');
       return;
+    }
+    // AND MY OWN DEVICES, which are not contacts and so were never told.
+    //
+    // A sibling has no conversation, so it is in no contact list, so the boot
+    // announce — the one thing that repairs a moved address without waiting for
+    // something else to run the ladder — skipped it. Measured on a two-device
+    // stand: `announcing our endpoints to 1 contact(s)` on a device whose only
+    // other party was its master, `knownPeerEndpoints: 0` in BOTH directions
+    // for the life of the process, and every byte between the two devices —
+    // mirrors, call fan-out, snapshots — taking the mailbox at 30s to 2
+    // minutes while both sat on one machine.
+    //
+    // Failing to list them is not failing to announce: the contacts above still
+    // get theirs.
+    try {
+      for (final d in await _ownDevices()) {
+        if (seen.add(d.hex)) peers.add(d);
+      }
+    } catch (e) {
+      devLog(
+        () => 'xVeil[p2p]: could not list my own devices to announce to: $e',
+      );
     }
     if (peers.isEmpty) return;
     devLog(
       () =>
           'xVeil[p2p]: announcing our endpoints to '
-          '${peers.length > max ? max : peers.length} contact(s) after node boot',
+          '${peers.length > max ? max : peers.length} peer(s) after node boot',
     );
     for (final peer in peers.take(max)) {
       if (_disposed) return;
@@ -840,7 +870,7 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     messagingAllowsP2P: (peer) =>
         ref.read(p2pPolicyProvider.notifier).allowsMessagingPeer(peer),
     isOwnDevice: (peer) async =>
-        await ref.read(groupServiceProvider)?.isMyDevice(peer) ?? false,
+        await ref.read(groupServiceProvider)?.isMyDeviceOrMaster(peer) ?? false,
     selfNode: () => transport.nodeId(),
     nudgeDrain: messaging.nudgeMailboxDrain,
     joinEndpoint: transport.joinP2PEndpoint,
@@ -850,6 +880,9 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     listenScheme: () => stack.listenScheme,
     lanListenEnabled: () => stack.lanListen,
     listenTransports: transport.listenTransports,
+    ownDevices: () async =>
+        await ref.read(groupServiceProvider)?.addressableOwnDevices() ??
+        const [],
     acceptedPeers: () async {
       final conversations = await ref.read(storageProvider).loadConversations();
       final seen = <String>{};

@@ -1840,10 +1840,15 @@ final callServiceProvider = Provider<CallService>((ref) {
   // Device fan-out wiring. Read LAZILY inside the closures: the group
   // service is per-identity and may not exist yet while the call service is
   // being built — a null read here would freeze fan-out off for the session.
+  // addressableOwnDevices, NOT otherDeviceIds: on a LINKED device the latter is
+  // empty (the owner it would name is dropped as "me" on the master), so the
+  // offer fan-out and the hang-up fan-out both addressed nobody from there.
   svc.ownSiblingDevices = () async =>
-      await ref.read(groupServiceProvider)?.otherDeviceIds() ?? const [];
+      await ref.read(groupServiceProvider)?.addressableOwnDevices() ?? const [];
+  // A RELAYED signal is admitted only from one of my own devices — and on a
+  // linked device the relaying master is not "one of mine" by the member list.
   svc.isOwnDevice = (peer) async =>
-      await ref.read(groupServiceProvider)?.isMyDevice(peer) ?? false;
+      await ref.read(groupServiceProvider)?.isMyDeviceOrMaster(peer) ?? false;
   ref.onDispose(svc.dispose);
   return svc;
 });
