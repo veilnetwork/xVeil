@@ -1710,4 +1710,56 @@ void main() {
       );
     });
   });
+
+  // A conversation whose contact row was NEVER WRITTEN came back as an
+  // ACCEPTED contact: `Contact`'s own default status is `accepted`, and the
+  // missing-row branch of `_contactFor` built one of those.
+  //
+  // Measured live on a two-device stand (2026-09-20). The second device of one
+  // identity mirrors the outgoing GREETING of a contact request but
+  // deliberately does not mirror a pending status (`applyMirroredContactStatus`
+  // refuses a mirrored pending), so it held two chats with no contact rows —
+  // and listed BOTH as accepted, `canMessage: true`. One of them had never
+  // received the request at all (its deposit was still in backoff): it had
+  // never seen a request, let alone answered one, and the second device offered
+  // to message it.
+  //
+  // Not cosmetic. `canMessage`, the realtime-control gate, content publish and
+  // group recommendations all key on `status == accepted`, and
+  // `capPreConsentIntros` returns early for an accepted peer — so the
+  // pre-consent intro cap stopped applying to a peer who had consented to
+  // nothing.
+  test('a conversation with no contact row is not consent', () async {
+    // Exactly the sibling's state: a mirrored outgoing greeting, no row.
+    await storage.appendMessage(
+      _msg(
+        conv: _id(7).hex,
+        dir: MessageDirection.outgoing,
+        body: 'hello',
+        ts: DateTime(2026, 9, 20),
+      ),
+    );
+    expect(
+      await storage.getContact(_id(7)),
+      isNull,
+      reason: 'the fixture is wrong: this test needs a row that does not exist',
+    );
+
+    final convs = await storage.loadConversations();
+    final synthesised = convs.firstWhere((c) => c.peer.nodeId == _id(7));
+    expect(
+      synthesised.peer.status,
+      isNot(ContactStatus.accepted),
+      reason: 'a row nobody ever wrote was read back as consent',
+    );
+    expect(synthesised.peer.canMessage, isFalse);
+
+    // CONTROL: a row that WAS written as accepted still reads as accepted, so
+    // this cannot be satisfied by refusing everyone.
+    await storage.upsertContact(Contact(nodeId: _id(8)));
+    final stored = (await storage.loadConversations())
+        .firstWhere((c) => c.peer.nodeId == _id(8));
+    expect(stored.peer.status, ContactStatus.accepted);
+    expect(stored.peer.canMessage, isTrue);
+  });
 }
