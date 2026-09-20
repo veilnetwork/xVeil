@@ -4362,6 +4362,47 @@ void main() {
     expect(after.epoch, greaterThan(epochBefore));
   });
 
+  // A LINK TELLS SOMEBODY, so state decided before it can be replayed.
+  //
+  // Contact decisions are emitted at the moment they are taken, into a group
+  // the new device is not yet in, and nothing replays them — so it starts out
+  // believing every contact is undecided. Measured on a four-device stand: a
+  // message addressed to the IDENTITY was drained first by the freshly linked
+  // device, whose row for the sender was still `pendingIncoming`; it would not
+  // store it as a conversation message, ACKED it anyway, and the ack deletes
+  // `(identity, content_id)` at the relay — so the sibling where the contact IS
+  // accepted never saw it, while the sender reported `stash OK` and then
+  // `already stashed` forever.
+  test('linking a device says so, and only on success', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    final linked = <NodeId>[];
+    svc.onMemberLinked = (d) async => linked.add(d);
+    Future<void> settle() => Future<void>.delayed(Duration.zero);
+
+    expect(await svc.linkDevice(bob, sovereign: sovereign), isTrue);
+    await settle();
+    expect(
+      linked.map((n) => n.hex),
+      [bob.hex],
+      reason: 'nothing can replay what it is never told about',
+    );
+
+    // CONTROL: a link that did not happen must not announce one, or "linked"
+    // stops meaning anything and the replay fires against an identity the user
+    // has already left.
+    linked.clear();
+    svc.dispose();
+    expect(await svc.linkDevice(_id(7), sovereign: sovereign), isFalse);
+    await settle();
+    expect(
+      linked,
+      isEmpty,
+      reason: 'a refused link announced itself as a successful one',
+    );
+  });
+
   // MY OWN IDENTITY IS ALWAYS ME, whatever the device group looks like.
   //
   // Nobody else can authenticate as it, so a frame whose verified source is my
