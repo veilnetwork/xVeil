@@ -380,7 +380,20 @@ jobs:
           # carries ONE android engine, arm64 — it predates the ABIs. This
           # release carries all three, each verified against its own provenance
           # and, below, against its own ELF machine type.
-          ENGINE_RELEASE: 'engine-2026.08.28.2'
+          #
+          # MOVED 2026-09-20 to `engine-2026.09.20`, the first engine built
+          # from a veil that configures Opus for a lossy link (mono, inband
+          # FEC, DTX). The pin is what makes that reach a phone at all: the
+          # engine is not built by `flutter build apk` and is gitignored in
+          # jniLibs, so an APK carries whatever this tag names and nothing the
+          # C++ says can change that. The 08.28.2 engine dated from 24 July.
+          #
+          # Carries the same five assets as the release it replaces — three
+          # android ABIs plus both Windows DLLs, linux and windows runs joined
+          # onto one tag — so no platform silently falls back to an older
+          # engine. Provenance checked, not assumed: the arm64 sidecar records
+          # veil-submodule 9596342f, the commit that carries the Opus change.
+          ENGINE_RELEASE: 'engine-2026.09.20'
           # webrtc-linux run 31609030118 (12 August), the FIRST run whose
           # engine-android job ever finished. Every earlier run carried
           # libveil_media-linux-x64 and nothing else, so there was no android
@@ -654,7 +667,12 @@ jobs:
           # behind `#if defined(_WIN32)` -- but the diagnostics that named the
           # cause are cross-platform, and an engine set built from one veil
           # pointer is one thing to reason about instead of three.
-          ENGINE_RELEASE: 'engine-2026.08.29.9'
+          #
+          # MOVED 2026-09-20 to `engine-2026.09.20`, together with the android
+          # and windows pins. Same principle the `.9` note states above -- one
+          # engine set from one veil pointer -- and this time the pointer also
+          # carries the Opus settings for a lossy link (mono, inband FEC, DTX).
+          ENGINE_RELEASE: 'engine-2026.09.20'
           # Kept as the fallback route and as the record of where this came
           # from. EXPIRES 2026-11-10; the release above does not.
           ENGINE_RUN: '31609030118'
@@ -938,7 +956,12 @@ jobs:
           # device from the one the person listens on. Each of those was proven
           # on that machine with a hand-installed DLL; this pin is what puts
           # them in a release.
-          ENGINE_RELEASE: 'engine-2026.08.29.9'
+          #
+          # MOVED 2026-09-20 to `engine-2026.09.20`, together with the android
+          # and windows pins. Same principle the `.9` note states above -- one
+          # engine set from one veil pointer -- and this time the pointer also
+          # carries the Opus settings for a lossy link (mono, inband FEC, DTX).
+          ENGINE_RELEASE: 'engine-2026.09.20'
           # DEAD once ENGINE_RELEASE above is set — the branch below is never
           # taken. Kept as the record of where this engine used to come from:
           # webrtc-windows run 30665287484 (2026-07-31), whose artifact expires
