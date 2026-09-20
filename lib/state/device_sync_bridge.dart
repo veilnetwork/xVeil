@@ -30,7 +30,7 @@ import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
 import 'device_settings_sync.dart';
 import 'device_sync_appliers.dart';
-import 'providers.dart' show realStackProvider;
+import 'providers.dart' show realStackProvider, storageProvider;
 import 'group_service_providers.dart';
 import 'locale_controller.dart';
 import 'messaging.dart';
@@ -187,6 +187,58 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // a preference edit and a status change LWW independently — an alias edit
   // carrying a stale embedded status could otherwise un-block a peer that my
   // other device just blocked.
+  // A DEVICE THAT JUST JOINED WAS NOT HERE WHEN THE DECISIONS WERE MADE.
+  //
+  // Contact decisions are emitted below at the MOMENT they are taken, into a
+  // group the new device was not yet a member of, and nothing replays them. So
+  // it starts out believing every contact is undecided — and that is not a
+  // display problem. Measured on a four-device stand: a message addressed to
+  // the IDENTITY was drained first by the freshly linked device, whose row for
+  // the sender was still `pendingIncoming`; it would not store it as a
+  // conversation message, ACKED it anyway, and the ack deletes
+  // `(identity, content_id)` at the relay — so the sibling where the contact IS
+  // accepted never saw it, while the sender reported `stash OK` and then
+  // `already stashed` forever. One message, lost, every layer reporting
+  // success.
+  //
+  // DECISIONS ONLY, exactly like the live emitter below and for the same
+  // reason: a pending status is the doorbell, every device hears it for itself,
+  // and replaying one would give it a fresher stamp than a real accept.
+  svc.onMemberLinked = (device) async {
+    try {
+      final conversations = await ref.read(storageProvider).loadConversations();
+      var replayed = 0;
+      for (final c in conversations) {
+        final status = c.peer.status;
+        if (status != ContactStatus.accepted &&
+            status != ContactStatus.blocked) {
+          continue;
+        }
+        if (c.peer.nodeId == svc.selfId ||
+            await svc.isMyDevice(c.peer.nodeId)) {
+          continue;
+        }
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.contactUp,
+            key: 's:${c.peer.nodeId.hex}',
+            tsMs: nextTs(),
+            payload: {'status': status.name},
+          ),
+        );
+        replayed++;
+      }
+      devLog(
+        () =>
+            'xVeil[devices]: replayed $replayed contact decision(s) to the '
+            'device ${device.hex.substring(0, 8)} that just linked',
+      );
+    } catch (e) {
+      // Best-effort catch-up: a link that completed must not be undone by it.
+      devLog(() => 'xVeil[devices]: contact replay after link failed: $e');
+    }
+  };
+
   messaging.onContactStatusChanged = (peer, status) {
     svc.notifyContactAccessChanged(peer);
     unawaited(() async {

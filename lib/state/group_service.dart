@@ -18622,7 +18622,47 @@ class GroupService implements ArchiveGroups {
     return true;
   }
 
+  /// Link [device], then tell whoever is listening that it really happened.
+  ///
+  /// The callback is the seam a newly linked device needs: everything this
+  /// identity decided BEFORE the link — above all which contacts it accepted —
+  /// was emitted as a device-sync event at the moment of the decision, into a
+  /// group this device was not yet in. Nothing replays it, so the new device
+  /// starts out not knowing that any contact is accepted.
+  ///
+  /// That is not a cosmetic gap. Measured on a four-device stand: a message
+  /// addressed to the IDENTITY was drained first by the freshly linked device,
+  /// whose contact row for the sender was still `pendingIncoming`; it declined
+  /// to store it as a conversation message, ACKED it anyway, and the ack
+  /// deletes `(identity, content_id)` at the relay — so the sibling where the
+  /// contact IS accepted never saw it, and the sender went on reporting
+  /// `stash OK`. One message, gone, with every layer reporting success.
   Future<bool> linkDevice(
+    NodeId device, {
+    required SovereignGroupSigner sovereign,
+    bool broadcastSnapshot = true,
+  }) async {
+    final ok = await _linkDevice(
+      device,
+      sovereign: sovereign,
+      broadcastSnapshot: broadcastSnapshot,
+    );
+    if (ok) {
+      try {
+        await onMemberLinked?.call(device);
+      } catch (_) {
+        // Catch-up must never turn a completed link into a failure.
+      }
+    }
+    return ok;
+  }
+
+  /// Told when a device has really joined, so state decided before the link can
+  /// be replayed into the group. Wired by the provider; null in tests that do
+  /// not care.
+  Future<void> Function(NodeId device)? onMemberLinked;
+
+  Future<bool> _linkDevice(
     NodeId device, {
     required SovereignGroupSigner sovereign,
     bool broadcastSnapshot = true,
