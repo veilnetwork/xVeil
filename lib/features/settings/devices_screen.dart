@@ -25,8 +25,10 @@ import '../../data/node/sovereign_identity_material.dart'
         kIdentityDocumentFile,
         readSovereignMaterial;
 import '../../data/transport/bootstrap_invite.dart';
+import '../../domain/chat.dart' show Contact;
 import '../../domain/device_link.dart';
 import '../../domain/sovereign_secret.dart';
+import '../../domain/device_history_ask.dart';
 import '../../domain/device_sync.dart' show DeviceSyncEvent, DeviceSyncKind;
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
@@ -258,6 +260,13 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   /// member read: a re-send must not blank the list it was started from.
   bool _resending = false;
 
+  /// The stamp of the last history ask this screen posted.
+  ///
+  /// The answering device serves an ask only when it is NEWER than the one it
+  /// last served, so two presses inside the same wall-clock millisecond would
+  /// leave the second unanswered — and nothing on either screen would say why.
+  int _lastAskMs = 0;
+
   @override
   void initState() {
     super.initState();
@@ -481,6 +490,45 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       DeviceSnapshotSend.failed => l.devicesOperationFailed,
     };
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  /// Ask [device] for the history this one was linked too late to see.
+  ///
+  /// The scope is the PERSON'S, up to a full copy — which is why this opens a
+  /// sheet instead of doing something reasonable on their behalf. What comes
+  /// back is ordinary device-sync events, so it arrives the same way anything
+  /// else from a sibling does: gradually, and only while both are online.
+  Future<void> _pullHistory(NodeId device) async {
+    final l = AppL10n.of(context);
+    final ask = await showModalBottomSheet<DeviceHistoryAsk>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheet) => _HistoryAskSheet(device: device, ref: ref),
+    );
+    if (ask == null || !mounted) return;
+    final svc = ref.read(groupServiceProvider);
+    if (svc == null) return;
+    var ok = false;
+    try {
+      final me = await svc.resolveMyDevice() ?? svc.selfId;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      _lastAskMs = now > _lastAskMs ? now : _lastAskMs + 1;
+      ok = await svc.postDeviceEvent(
+        ask.toEvent(byDeviceHex: me.hex, tsMs: _lastAskMs),
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: history ask failed: $e');
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok ? l.devicesPullAsked(device.short) : l.devicesPullNotSent,
+        ),
+      ),
+    );
   }
 
   Future<void> _revoke(NodeId device) async {
@@ -732,10 +780,36 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                     : _awayLine(context, l, device),
                 trailing: device == self
                     ? const Icon(Icons.check)
-                    : IconButton(
-                        tooltip: l.devicesRevoke,
-                        icon: const Icon(Icons.link_off),
-                        onPressed: () => _revoke(device),
+                    // ONE MENU, not a row of icons. Unlinking used to be the
+                    // only thing a device offered, so it sat here as a single
+                    // button; asking it for history is the second, and a
+                    // destructive action next to an ordinary one — as two
+                    // adjacent taps — is how the wrong one gets pressed.
+                    : PopupMenuButton<String>(
+                        tooltip: l.devicesPullHistory,
+                        onSelected: (choice) => choice == 'pull'
+                            ? _pullHistory(device)
+                            : _revoke(device),
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: 'pull',
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.history),
+                              title: Text(l.devicesPullHistory),
+                              subtitle: Text(l.devicesPullHistoryHint),
+                              isThreeLine: true,
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'revoke',
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.link_off),
+                              title: Text(l.devicesRevoke),
+                            ),
+                          ),
+                        ],
                       ),
               ),
           const Divider(),
@@ -1778,6 +1852,219 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Choosing what a history request brings over.
+///
+/// Everything here is a narrowing of a FULL COPY, which is the default: the
+/// person is deciding what to leave behind, not what to include. Contacts and
+/// their statuses are deliberately not on the list — a device holding a
+/// conversation without the contact behind it turns away the next message that
+/// arrives in it, so they are correctness, not a preference.
+class _HistoryAskSheet extends StatefulWidget {
+  const _HistoryAskSheet({required this.device, required this.ref});
+
+  final NodeId device;
+  final WidgetRef ref;
+
+  @override
+  State<_HistoryAskSheet> createState() => _HistoryAskSheetState();
+}
+
+class _HistoryAskSheetState extends State<_HistoryAskSheet> {
+  /// Null is "everything" — see the class comment.
+  int? _perConversation;
+  bool _calls = true;
+  bool _reads = true;
+  bool _files = true;
+
+  /// Null is "every conversation"; a set is the ones chosen.
+  Set<String>? _peers;
+
+  List<Contact>? _contacts;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadContacts());
+  }
+
+  Future<void> _loadContacts() async {
+    try {
+      final conversations = await widget.ref
+          .read(storageProvider)
+          .loadConversations();
+      if (!mounted) return;
+      setState(() => _contacts = [for (final c in conversations) c.peer]);
+    } catch (_) {
+      // The picker is an option, not the sheet: a contact list that cannot be
+      // read leaves "every conversation", which is the default anyway.
+    }
+  }
+
+  Future<void> _pickConversations() async {
+    final all = _contacts;
+    if (all == null || all.isEmpty) return;
+    final chosen = Set<String>.from(_peers ?? all.map((c) => c.nodeId.hex));
+    final result = await showModalBottomSheet<Set<String>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      builder: (sheet) => StatefulBuilder(
+        builder: (_, setSheet) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final c in all)
+                      CheckboxListTile(
+                        value: chosen.contains(c.nodeId.hex),
+                        title: Text(
+                          (c.name ?? '').isNotEmpty ? c.name! : c.nodeId.short,
+                        ),
+                        subtitle: Text(c.nodeId.short),
+                        onChanged: (on) => setSheet(
+                          () => on == true
+                              ? chosen.add(c.nodeId.hex)
+                              : chosen.remove(c.nodeId.hex),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: FilledButton(
+                  onPressed: () => Navigator.of(sheet).pop(chosen),
+                  child: Text(AppL10n.of(sheet).devicesPullConfirm),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      // Everything ticked is the same request as "every conversation", and
+      // saying it the short way keeps the payload — and the answering
+      // device's walk — from depending on a list that may have grown since.
+      _peers = (result.isEmpty || result.length == all.length) ? null : result;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppL10n.of(context);
+    final all = _contacts;
+    final chosen = _peers;
+    return SafeArea(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: Text(
+                l.devicesPullTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            if (all != null && all.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.forum_outlined),
+                title: Text(l.navChats),
+                subtitle: Text(
+                  chosen == null
+                      ? l.devicesPullDepthAll
+                      : '${chosen.length} / ${all.length}',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _pickConversations,
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Text(
+                l.devicesPullDepth,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            RadioGroup<int?>(
+              groupValue: _perConversation,
+              onChanged: (v) => setState(() => _perConversation = v),
+              child: Column(
+                children: [
+                  for (final option in <(String, int?)>[
+                    (l.devicesPullDepthAll, null),
+                    (l.devicesPullDepthLast(200), 200),
+                    (l.devicesPullDepthLast(50), 50),
+                  ])
+                    RadioListTile<int?>(
+                      key: ValueKey('devices-pull-depth-${option.$2 ?? "all"}'),
+                      value: option.$2,
+                      title: Text(option.$1),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+              child: Text(
+                l.devicesPullAlso,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            SwitchListTile(
+              value: _calls,
+              title: Text(l.devicesPullCalls),
+              onChanged: (v) => setState(() => _calls = v),
+            ),
+            SwitchListTile(
+              value: _reads,
+              title: Text(l.devicesPullReads),
+              onChanged: (v) => setState(() => _reads = v),
+            ),
+            SwitchListTile(
+              value: _files,
+              title: Text(l.devicesPullFiles),
+              subtitle: Text(l.devicesPullFilesHint),
+              isThreeLine: true,
+              onChanged: (v) => setState(() => _files = v),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Text(
+                l.devicesPullContactsAlways,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pop(
+                  DeviceHistoryAsk(
+                    fromDeviceHex: widget.device.hex,
+                    peers: chosen?.toList(),
+                    perConversation: _perConversation,
+                    callLog: _calls,
+                    readMarks: _reads,
+                    files: _files,
+                  ),
+                ),
+                child: Text(l.devicesPullConfirm),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
