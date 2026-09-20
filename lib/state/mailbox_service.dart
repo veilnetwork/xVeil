@@ -109,7 +109,7 @@ class MailboxService implements MailboxSink {
     required VeilClient client,
     required NodeId me,
     required MailboxOrchestrator orchestrator,
-    required void Function(InboundMessage) deliver,
+    required Future<void> Function(InboundMessage) deliver,
     RelayKeyCache? relayKeyCache,
     int ourCertVersion = 0,
     Duration drainInterval = kIdleDrainInterval,
@@ -124,7 +124,7 @@ class MailboxService implements MailboxSink {
   final VeilClient _client;
   final NodeId _me;
   final MailboxOrchestrator _orchestrator;
-  final void Function(InboundMessage) _deliver;
+  final Future<void> Function(InboundMessage) _deliver;
   // Persisted last-known-good relay KEM keys. A fresh resolve is always
   // preferred; this only rescues registration through a transient resolve
   // failure so we don't go unreachable. Null on the loopback/dev path.
@@ -547,13 +547,56 @@ class MailboxService implements MailboxSink {
   /// the blob's sidecar and confirmed by the auth-deliver signature — never the
   /// relay's wire hint. So this path states [SenderProvenance.signed] and means
   /// it (audit X/V-01).
-  void _deliverDrained(DrainedMessage m) => _deliver(
-    InboundMessage(
-      src: m.sender,
-      payload: m.data,
-      provenance: SenderProvenance.signed,
-    ),
-  );
+  /// Hand a drained blob to the app and answer whether the app TOOK it.
+  ///
+  /// `false` only for a refusal that is this device's own (see
+  /// [InboundMessage.onDeclined]); the drain then leaves the blob at the relay
+  /// instead of acking it away from our other devices.
+  ///
+  /// Optimistic by construction: silence means yes. The verdict is awaited only
+  /// up to [_verdictWindow], and a delivery that throws still counts as taken —
+  /// both are exactly what this code did before there was a verdict at all, so
+  /// a slow or broken inbound path can never be WORSE than it was, only the
+  /// refusal is new. The refusal itself is raised at the consent gate, before
+  /// any storage or network work, so it is never the slow case.
+  Future<bool> _deliverDrained(DrainedMessage m) async {
+    final verdict = Completer<bool>();
+    void settle(bool taken) {
+      if (!verdict.isCompleted) verdict.complete(taken);
+    }
+
+    unawaited(
+      _deliver(
+        InboundMessage(
+          src: m.sender,
+          payload: m.data,
+          provenance: SenderProvenance.signed,
+          onDeclined: (reason) {
+            devLog(
+              () =>
+                  'xVeil[mailbox]: declined a drained message from '
+                  '${m.sender.short} — $reason',
+            );
+            settle(false);
+          },
+        ),
+      ).then((_) => settle(true), onError: (Object e) {
+        devLog(
+          () =>
+              'xVeil[mailbox]: delivery of a drained message from '
+              '${m.sender.short} FAILED — $e; acking anyway, as before',
+        );
+        settle(true);
+      }),
+    );
+    return verdict.future.timeout(_verdictWindow, onTimeout: () => true);
+  }
+
+  /// How long the drain waits to hear that a message was refused before it
+  /// assumes it was taken. A refusal is decided synchronously at the consent
+  /// gate; this only bounds the case where the inbound chain is busy with an
+  /// earlier frame, and timing out lands on the old behaviour.
+  static const _verdictWindow = Duration(seconds: 3);
 
   /// A peer is provably LIVE-reachable right now (we just received a frame from
   /// it), so a message it stashed for us is likely already sitting at the relay

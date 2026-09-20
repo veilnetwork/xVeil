@@ -67,6 +67,24 @@ extension _MessagingInboundDispatch on MessagingService {
     return false;
   }
 
+  /// Record that THIS DEVICE refused [m] for a reason no sibling need share,
+  /// so whoever carried the frame can decline to destroy the copy the siblings
+  /// still need. See [InboundMessage.onDeclined] for the full argument; the
+  /// short version is that acking a mailbox blob deletes every replica under
+  /// its content id, so the device that dropped the message must not be the one
+  /// to ack it.
+  ///
+  /// Always logged, even when nobody is listening: a drop with no record is not
+  /// reviewable, and these particular drops are the ones that cost a message.
+  void _declinedLocally(InboundMessage m, String reason) {
+    devLog(
+      () =>
+          'xVeil[recv]: DECLINED LOCALLY from=${m.src.short} — $reason; '
+          'the carrier must not delete the copy our other devices need',
+    );
+    m.onDeclined?.call(reason);
+  }
+
   Future<void> _dispatch(InboundMessage m) async {
     final env = WireEnvelope.decode(m.payload);
     // What actually arrived. `recv: INBOUND` says a frame came and how big it
@@ -258,7 +276,20 @@ extension _MessagingInboundDispatch on MessagingService {
         }
       case WireKind.message:
         // Consent gate: only deliver from accepted peers; drop the rest.
-        if (existing?.status != ContactStatus.accepted) return;
+        if (existing?.status != ContactStatus.accepted) {
+          // Tell the carrier the refusal was OURS, not the identity's. This
+          // device does not (yet) know the sender; a sibling may already have
+          // accepted them, and the copy at the relay is the only one that
+          // sibling can still get. Without this, the mailbox drain acked the
+          // blob and the relay dropped every replica under that content id —
+          // measured live as a message that reached NEITHER device (F54).
+          _declinedLocally(
+            m,
+            'sender not accepted on this device '
+            '(status=${existing?.status.name ?? "no contact row"})',
+          );
+          return;
+        }
         final id = env.id;
         if (isServiceEchoBody(env.body)) {
           if (id != null) await _ackTo(m, id, direct: true);
@@ -554,6 +585,7 @@ extension _MessagingInboundDispatch on MessagingService {
                 'xVeil[content]: manifest DROPPED — ${m.src.short} '
                 'not accepted (status=${existing?.status})',
           );
+          _declinedLocally(m, 'manifest sender not accepted on this device');
           return;
         }
         // Same class as a message, one arm later: an offer surfaces a row in
@@ -1061,6 +1093,7 @@ extension _MessagingInboundDispatch on MessagingService {
                 'xVeil[recv]: fileMeta DROPPED — ${m.src.short} '
                 'not accepted (status=${existing?.status})',
           );
+          _declinedLocally(m, 'fileMeta sender not accepted on this device');
           return;
         }
         await _fileTransfer.handleMeta(m, parseFileMeta(env.body));
@@ -1072,6 +1105,7 @@ extension _MessagingInboundDispatch on MessagingService {
                 'xVeil[recv]: fileChunk DROPPED — ${m.src.short} '
                 'not accepted (status=${existing?.status})',
           );
+          _declinedLocally(m, 'fileChunk sender not accepted on this device');
           return;
         }
         await _fileTransfer.handleChunk(m, parseFileChunk(env.body));
