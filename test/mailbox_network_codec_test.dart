@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox_network.dart';
 
 /// Byte-exact tests for the offline-mailbox network wire codecs
@@ -9,13 +10,17 @@ import 'package:xveil/data/transport/veil_mailbox_network.dart';
 /// so a Dart-side regression can't silently corrupt deposits or drains.
 void main() {
   _sliceTests();
+  _announcerOrdering();
   group('encodeMailboxPut', () {
     test('produces the exact MailboxPutPayload layout', () {
       final receiver = Uint8List.fromList(List.filled(32, 0x0B));
       final content = Uint8List.fromList(List.filled(32, 0x42));
       final blob = Uint8List.fromList([1, 2, 3, 4, 5]);
       final wire = encodeMailboxPut(
-          receiverId: receiver, contentId: content, blob: blob);
+        receiverId: receiver,
+        contentId: content,
+        blob: blob,
+      );
 
       // receiver(32) content(32) sender(32) blob_len(4) blob push(2) cap(2) wake(2)
       expect(wire.length, 32 + 32 + 32 + 4 + blob.length + 2 + 2 + 2);
@@ -23,8 +28,11 @@ void main() {
       expect(wire.sublist(32, 64), content);
       // sender_id is ZERO (anonymity — real id sealed in the blob).
       expect(wire.sublist(64, 96), Uint8List(32));
-      final blobLen =
-          ByteData.sublistView(wire, 96, 100).getUint32(0, Endian.big);
+      final blobLen = ByteData.sublistView(
+        wire,
+        96,
+        100,
+      ).getUint32(0, Endian.big);
       expect(blobLen, blob.length);
       expect(wire.sublist(100, 100 + blob.length), blob);
       // The three trailing optional-field length prefixes are all 0 (absent).
@@ -52,9 +60,16 @@ void main() {
       final sender = Uint8List.fromList(List.filled(32, 0xAA));
       final content = Uint8List.fromList(List.filled(32, 0xC1));
       final blob = Uint8List.fromList([9, 8, 7]);
-      final got = decodeMailboxFetchResp(_fetchResp([
-        _entry(sender: sender, content: content, depositedAt: 1700, blob: blob),
-      ]));
+      final got = decodeMailboxFetchResp(
+        _fetchResp([
+          _entry(
+            sender: sender,
+            content: content,
+            depositedAt: 1700,
+            blob: blob,
+          ),
+        ]),
+      );
       expect(got.length, 1);
       expect(got[0].senderId.bytes, sender);
       expect(got[0].contentId, content);
@@ -62,18 +77,22 @@ void main() {
     });
 
     test('decodes multiple blobs in order', () {
-      final got = decodeMailboxFetchResp(_fetchResp([
-        _entry(
+      final got = decodeMailboxFetchResp(
+        _fetchResp([
+          _entry(
             sender: Uint8List(32),
             content: Uint8List.fromList(List.filled(32, 1)),
             depositedAt: 1,
-            blob: Uint8List.fromList([1])),
-        _entry(
+            blob: Uint8List.fromList([1]),
+          ),
+          _entry(
             sender: Uint8List.fromList(List.filled(32, 2)),
             content: Uint8List.fromList(List.filled(32, 2)),
             depositedAt: 2,
-            blob: Uint8List.fromList([2, 2])),
-      ]));
+            blob: Uint8List.fromList([2, 2]),
+          ),
+        ]),
+      );
       expect(got.length, 2);
       expect(got[0].blob, [1]);
       expect(got[1].blob, [2, 2]);
@@ -81,27 +100,34 @@ void main() {
     });
 
     test('rejects a buffer too short for the count prefix', () {
-      expect(() => decodeMailboxFetchResp(Uint8List(1)),
-          throwsA(isA<FormatException>()));
+      expect(
+        () => decodeMailboxFetchResp(Uint8List(1)),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('rejects a truncated entry header', () {
       // count=1 but no entry bytes follow.
       final wire = Uint8List.fromList([0, 1]);
-      expect(() => decodeMailboxFetchResp(wire),
-          throwsA(isA<FormatException>()));
+      expect(
+        () => decodeMailboxFetchResp(wire),
+        throwsA(isA<FormatException>()),
+      );
     });
 
     test('rejects a blob that overruns the buffer', () {
       final entry = _entry(
-          sender: Uint8List(32),
-          content: Uint8List(32),
-          depositedAt: 0,
-          blob: Uint8List.fromList([1, 2, 3]));
+        sender: Uint8List(32),
+        content: Uint8List(32),
+        depositedAt: 0,
+        blob: Uint8List.fromList([1, 2, 3]),
+      );
       // Drop the last blob byte so blob_len(3) overruns the actual bytes.
       final wire = _fetchResp([entry]);
-      expect(() => decodeMailboxFetchResp(wire.sublist(0, wire.length - 1)),
-          throwsA(isA<FormatException>()));
+      expect(
+        () => decodeMailboxFetchResp(wire.sublist(0, wire.length - 1)),
+        throwsA(isA<FormatException>()),
+      );
     });
   });
 
@@ -113,8 +139,9 @@ void main() {
       // a 1000-byte payload was five chunks, and at 7680 it is one — which
       // would have left this test asserting nothing about splitting.
       final size = kMailboxPutChunkDataBytes * 2 + 100;
-      final payload =
-          Uint8List.fromList(List.generate(size, (i) => (i * 7 + 1) & 0xff));
+      final payload = Uint8List.fromList(
+        List.generate(size, (i) => (i * 7 + 1) & 0xff),
+      );
       final chunks = chunkMailboxPut(content, payload);
       expect(chunks.length, 3);
 
@@ -124,13 +151,20 @@ void main() {
         expect(c.sublist(0, 32), content, reason: 'content_id in every chunk');
         final bd = ByteData.sublistView(c, 32, 36);
         expect(bd.getUint16(0, Endian.big), i, reason: 'chunk_index');
-        expect(bd.getUint16(2, Endian.big), chunks.length, reason: 'chunk_total');
+        expect(
+          bd.getUint16(2, Endian.big),
+          chunks.length,
+          reason: 'chunk_total',
+        );
         final data = c.sublist(36);
         expect(data.length, lessThanOrEqualTo(kMailboxPutChunkDataBytes));
         reassembled.add(data);
       }
-      expect(reassembled.toBytes(), payload,
-          reason: 'concatenated chunk_data must equal the original payload');
+      expect(
+        reassembled.toBytes(),
+        payload,
+        reason: 'concatenated chunk_data must equal the original payload',
+      );
     });
 
     test('a payload smaller than one chunk yields a single chunk', () {
@@ -191,12 +225,9 @@ void _sliceTests() {
     // read it as one. A receiver that took it for an empty window would ask for
     // the same offset until something else stopped it.
     test('a stated length of zero decodes as an empty answer', () {
-      final got = decodeMailboxSliceResp(_slice(
-        contentId: cid,
-        offset: 0,
-        totalLen: 0,
-        bytes: Uint8List(0),
-      ));
+      final got = decodeMailboxSliceResp(
+        _slice(contentId: cid, offset: 0, totalLen: 0, bytes: Uint8List(0)),
+      );
       expect(got.totalLen, 0);
       expect(got.bytes, isEmpty);
     });
@@ -228,14 +259,16 @@ void _sliceTests() {
   // the signal to go and slice it, so a decoder that rejected or skipped it
   // would lose the mail silently.
   test('a fetch entry with no bytes decodes as an announcement', () {
-    final blobs = decodeMailboxFetchResp(_fetchResp([
-      _entry(
-        sender: Uint8List(32),
-        content: Uint8List.fromList(List.filled(32, 9)),
-        depositedAt: 5,
-        blob: Uint8List(0),
-      ),
-    ]));
+    final blobs = decodeMailboxFetchResp(
+      _fetchResp([
+        _entry(
+          sender: Uint8List(32),
+          content: Uint8List.fromList(List.filled(32, 9)),
+          depositedAt: 5,
+          blob: Uint8List(0),
+        ),
+      ]),
+    );
     expect(blobs, hasLength(1));
     expect(blobs.single.blob, isEmpty);
   });
@@ -277,4 +310,52 @@ Uint8List _entry({
   b.add(len.buffer.asUint8List());
   b.add(blob);
   return b.toBytes();
+}
+
+// An announcement is a relay saying "I hold this, come and get it". The slice
+// walk used to ignore who said it and take the relay list from the top,
+// spending a round trip on every replica that does not hold the blob — at the
+// 20s slice timeout each when they answer nothing at all. Measured across a
+// four-device stand, the reasons those walks reported: 196 x `holds nothing
+// under this id` against 27 timeouts.
+void _announcerOrdering() {
+  Uint8List relay(int seed) => Uint8List.fromList(List.filled(32, seed));
+  List<String> hexes(List<Uint8List> ids) => [
+    for (final r in ids) NodeId(r).hex,
+  ];
+
+  group('the announcing relay is asked first', () {
+    test('it moves to the front and the rest keep their order', () {
+      final a = relay(1), b = relay(2), c = relay(3);
+      expect(hexes(announcerFirst([a, b, c], NodeId(c).hex)), [
+        NodeId(c).hex,
+        NodeId(a).hex,
+        NodeId(b).hex,
+      ]);
+    });
+
+    // CONTROL: the rest of the list is still walked. A relay that ages its
+    // copy out between the announcement and the walk is covered by the other
+    // replicas, which is the whole reason the walk tries more than one.
+    test('nobody is dropped', () {
+      final a = relay(1), b = relay(2), c = relay(3);
+      expect(announcerFirst([a, b, c], NodeId(b).hex), hasLength(3));
+    });
+
+    // CONTROL: no announcer — a relay that predates the field, or a blob that
+    // arrived with its bytes — leaves the order exactly as it was.
+    test('without an announcer the order is untouched', () {
+      final a = relay(1), b = relay(2);
+      expect(hexes(announcerFirst([a, b], null)), hexes([a, b]));
+    });
+
+    // CONTROL: an announcer that is not in the list changes nothing.
+    test('an announcer nobody asked is ignored', () {
+      final a = relay(1), b = relay(2);
+      expect(
+        hexes(announcerFirst([a, b], NodeId(relay(9)).hex)),
+        hexes([a, b]),
+      );
+    });
+  });
 }
