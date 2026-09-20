@@ -112,9 +112,37 @@ Events ride the device group's message-log as attachments-free bodies
 | settingSet  | app-level setting key/value (platform-local keys —   |
 |             | tray etc. — excluded by an allowlist)                |
 | callLog     | call-journal entry                                   |
+| historyAsk  | one device asking ANOTHER for the history it was     |
+|             | linked too late to see (target device + scope)       |
 
 Apply is idempotent and last-write-wins per (kind, key, ts) — the same
-deterministic-fold discipline as group state. Attachments are NOT
+deterministic-fold discipline as group state.
+
+`historyAsk` is the one COMMAND in this vocabulary; everything else is
+state. Linking starts forward sync and nothing else, so a device linked
+today holds none of yesterday — an answer for a second phone and the
+wrong one for a replacement. The person chooses the scope, up to a full
+copy, and the device that is asked answers with ordinary events of the
+kinds above: the receiving side needed no new applier, because a
+replayed mirror is the same mirror an online sibling would have sent.
+
+Two rules keep a backfill from being a rollback:
+
+* a message mirror keeps its REAL timestamp. Its key is the message id,
+  so it conflicts with nothing, and the timestamp is where the message
+  sits in the conversation.
+* a contact row carries a COUNTER, which loses to any real event. The
+  container records what a contact's status IS and never when it was
+  decided, so there is no honest "when" to carry; stamped with the wall
+  clock, every stale value would become the newest thing the fold had
+  ever seen. Fill a gap, never overwrite — the same rule the archive
+  walk already follows.
+
+Being a command, it carries its own idempotence: the folded state is
+replayed into the appliers on every bridge build, so the answering
+device keeps a DURABLE watermark per asking device, written before the
+walk rather than after — a replay that dies in the middle must not
+restart from the top on the next launch. Attachments are NOT
 inlined: msgMirror carries the contentId ref; the receiving device
 fetches lazily over the membership-authorized pull when the user opens
 the message.
@@ -152,7 +180,9 @@ the message.
    apply loop folds inbound events into the local store (dedup against
    native delivery); verify: message sent on desktop appears in the
    phone's 1:1 chat with the SAME peer conversation.
-4. Contacts/settings/call-log sync + lazy attachment fetch.
+4. Contacts/settings/call-log sync + lazy attachment fetch. ✅ plus
+   history backfill on request (`historyAsk`): Settings → Devices → a
+   device → "Get data from this device", scope chosen by the person.
 5. Padding/registry-privacy follow-ups + audit pass (the churn-outlier
    saga's stub-identity/EK-epoch grabli get re-checked here).
 6. Sovereign hardening: ✅ opaque one-burst signer; ✅ signed algorithm-aware

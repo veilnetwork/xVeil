@@ -57,6 +57,22 @@ enum DeviceSyncKind {
   /// announcements never overwrite one another.
   identityDoc,
 
+  /// One device asking another for the history it was linked too late to see.
+  ///
+  /// NOT a piece of state, unlike every kind above it — a COMMAND, and the one
+  /// event in this vocabulary that asks a device to do something rather than
+  /// telling it something. It is keyed by the ASKING device so the log holds
+  /// one row per device rather than one per press, and the device it names
+  /// answers with ordinary events of the kinds above: the receiving side needs
+  /// no new applier, because a replayed mirror is the same mirror a sibling
+  /// that had been online would have sent.
+  ///
+  /// Being a command, it needs its own idempotence. The folded state is
+  /// replayed into the appliers on every bridge build, so an answered ask that
+  /// left no record would be answered again on every app start; the answering
+  /// device therefore keeps a durable watermark per asking device.
+  historyAsk,
+
   /// A personal-cloud folder (upsert or tombstone). Folders are private
   /// organization of the owner's own index — they carry no content refs and
   /// never leave the sovereign device group. Devices from before this

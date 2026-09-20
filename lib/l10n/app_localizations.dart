@@ -12536,6 +12536,96 @@ abstract class AppL10n {
   /// **'That change could not be saved, so it was not applied.'**
   String get seedsSwitchSaveFailed;
 
+  /// Per-device action: ask that device to send the history this one was linked too late to see.
+  ///
+  /// In en, this message translates to:
+  /// **'Get data from this device'**
+  String get devicesPullHistory;
+
+  /// Subtitle for devicesPullHistory.
+  ///
+  /// In en, this message translates to:
+  /// **'Linking only syncs from now on. This fills in what came before.'**
+  String get devicesPullHistoryHint;
+
+  /// Title of the sheet that chooses the scope of a history request.
+  ///
+  /// In en, this message translates to:
+  /// **'What to bring over'**
+  String get devicesPullTitle;
+
+  /// Section label for the per-conversation message limit.
+  ///
+  /// In en, this message translates to:
+  /// **'How much of each conversation'**
+  String get devicesPullDepth;
+
+  /// Option: no per-conversation limit — a full copy.
+  ///
+  /// In en, this message translates to:
+  /// **'Everything'**
+  String get devicesPullDepthAll;
+
+  /// Option: only the newest N messages per conversation.
+  ///
+  /// In en, this message translates to:
+  /// **'Last {count} messages'**
+  String devicesPullDepthLast(int count);
+
+  /// Section label for the optional extras of a history request.
+  ///
+  /// In en, this message translates to:
+  /// **'Also bring'**
+  String get devicesPullAlso;
+
+  /// Extra: the call journal.
+  ///
+  /// In en, this message translates to:
+  /// **'Call journal'**
+  String get devicesPullCalls;
+
+  /// Extra: the per-conversation read watermarks.
+  ///
+  /// In en, this message translates to:
+  /// **'What was already read'**
+  String get devicesPullReads;
+
+  /// Extra: the reference that lets this device download a message's attached bytes.
+  ///
+  /// In en, this message translates to:
+  /// **'Files and photos'**
+  String get devicesPullFiles;
+
+  /// Subtitle for devicesPullFiles.
+  ///
+  /// In en, this message translates to:
+  /// **'Heavy. Without this the messages still arrive, just without their attachments.'**
+  String get devicesPullFilesHint;
+
+  /// Explains why contacts are not offered as a choice in the history-request sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Contacts and their statuses always come with it — without them this device turns away the next message each of them sends.'**
+  String get devicesPullContactsAlways;
+
+  /// Confirm button of the history-request sheet.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask'**
+  String get devicesPullConfirm;
+
+  /// Confirmation after a history request was posted.
+  ///
+  /// In en, this message translates to:
+  /// **'Asked {device}. What it sends appears here as it arrives — both devices have to be online.'**
+  String devicesPullAsked(String device);
+
+  /// Shown when posting a history request failed.
+  ///
+  /// In en, this message translates to:
+  /// **'The request could not be posted to the device group.'**
+  String get devicesPullNotSent;
+
   /// Action on the devices screen: re-send the device-group snapshot to already-linked devices. Reachable after the linking sheet was closed, which used to strand the other device waiting forever.
   ///
   /// In en, this message translates to:

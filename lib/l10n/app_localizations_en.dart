@@ -7156,6 +7156,59 @@ class AppL10nEn extends AppL10n {
       'That change could not be saved, so it was not applied.';
 
   @override
+  String get devicesPullHistory => 'Get data from this device';
+
+  @override
+  String get devicesPullHistoryHint =>
+      'Linking only syncs from now on. This fills in what came before.';
+
+  @override
+  String get devicesPullTitle => 'What to bring over';
+
+  @override
+  String get devicesPullDepth => 'How much of each conversation';
+
+  @override
+  String get devicesPullDepthAll => 'Everything';
+
+  @override
+  String devicesPullDepthLast(int count) {
+    return 'Last $count messages';
+  }
+
+  @override
+  String get devicesPullAlso => 'Also bring';
+
+  @override
+  String get devicesPullCalls => 'Call journal';
+
+  @override
+  String get devicesPullReads => 'What was already read';
+
+  @override
+  String get devicesPullFiles => 'Files and photos';
+
+  @override
+  String get devicesPullFilesHint =>
+      'Heavy. Without this the messages still arrive, just without their attachments.';
+
+  @override
+  String get devicesPullContactsAlways =>
+      'Contacts and their statuses always come with it — without them this device turns away the next message each of them sends.';
+
+  @override
+  String get devicesPullConfirm => 'Ask';
+
+  @override
+  String devicesPullAsked(String device) {
+    return 'Asked $device. What it sends appears here as it arrives — both devices have to be online.';
+  }
+
+  @override
+  String get devicesPullNotSent =>
+      'The request could not be posted to the device group.';
+
+  @override
   String get devicesResendSetup => 'Send the encrypted setup again';
 
   @override
