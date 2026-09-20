@@ -87,10 +87,11 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
   }
 
   /// The MESSAGING gate: may a conversation with [peer] run the direct ladder?
-  /// Opt-in per contact — see [p2pMessagingAllows] for why this does not follow
-  /// the global policy the way calls do. A denial is normal and costs latency
-  /// only, so it is logged at the same level as the call-path denial but must
-  /// never surface as an error.
+  /// A per-contact `allow`/`deny` decides on its own; `followGlobal` follows
+  /// the global policy, which is what it is called — see [p2pMessagingAllows]
+  /// for what that widens and what it does not. A denial is normal and costs
+  /// latency only, so it is logged at the same level as the call-path denial
+  /// but must never surface as an error.
   Future<bool> allowsMessagingPeer(NodeId peer) async {
     try {
       // MY OWN DEVICE first, and not as a courtesy. The opt-in below is a
@@ -106,8 +107,10 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
       final contact = await ref.read(storageProvider).getContact(peer);
       final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
       final allowed = p2pMessagingAllows(
+        global: state,
         override: override,
         contactKnown: contact != null,
+        contactAccepted: contact?.status == ContactStatus.accepted,
         contactBlocked: contact?.status == ContactStatus.blocked,
         localAnonymous: localAnonymous,
       );
@@ -115,8 +118,9 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
         devLog(
           () =>
               'xVeil[p2p]: messaging ladder not allowed for ${peer.short} '
-              '(override=${override.name} known=${contact != null} '
-              'anonymous=$localAnonymous) — mailbox path unaffected',
+              '(override=${override.name} global=${state.name} '
+              'known=${contact != null} anonymous=$localAnonymous) '
+              '— mailbox path unaffected',
         );
       }
       return allowed;
