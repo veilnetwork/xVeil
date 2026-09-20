@@ -260,6 +260,16 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   /// member read: a re-send must not blank the list it was started from.
   bool _resending = false;
 
+  /// The device ids this device may actually unlink — the control log's own
+  /// members, which is NOT the same as the rows on screen.
+  ///
+  /// The list now also carries the device group's OWNER (so a linked device can
+  /// see its master at all), and unlinking the master is not a thing a linked
+  /// device can do: only the owner signs a revocation. Offering the action
+  /// anyway would put a button on screen whose only possible outcome is an
+  /// error — the same mistake the self-row revoke button made, one row over.
+  Set<String> _revocable = const {};
+
   /// The stamp of the last history ask this screen posted.
   ///
   /// The answering device serves an ask only when it is NEWER than the one it
@@ -342,8 +352,28 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final certificateSaved = await svc?.hasSavedRecoveryCertificate() ?? true;
     final validUntil =
         ref.read(realStackProvider)?.ownDelegationValidUntil() ?? 0;
-    final members = [...?state?.members.values.map((m) => m.nodeId)]
-      ..sort((a, b) => a.hex.compareTo(b.hex));
+    // THE MASTER IS NOT IN THE MEMBER LIST, and neither is this device.
+    //
+    // A device group's members are DEVICES; its owner is the IDENTITY, which
+    // is never one of them. So on a linked device the control log names
+    // exactly one device — itself — and the screen drew a single row with a
+    // tick beside it: the master, the only other device there is, was not on
+    // the screen at all. Nothing could be asked of it and nothing said why.
+    // Measured on the two-device stand while verifying the history request:
+    // the device that needed the history had nobody to ask.
+    //
+    // [GroupService.addressableOwnDevices] is the list that already answers
+    // "who else is mine" correctly from either side — the other members, plus
+    // the owner when WE are the linked one. Ourselves is added so the master,
+    // whose device id is likewise absent from the members, still shows the
+    // row that says which device this is.
+    final self = await svc?.resolveMyDevice();
+    final members =
+        <NodeId>{
+          ...?state?.members.values.map((m) => m.nodeId),
+          ...?await svc?.addressableOwnDevices(),
+          ?self,
+        }.toList()..sort((a, b) => a.hex.compareTo(b.hex));
     final storedIdentity = await readSovereignMaterial(ref.read(storageProvider));
     final myDocument = storedIdentity == null
         ? null
@@ -357,6 +387,9 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
             nonce: fields.nonce,
             algo: fields.algo,
           );
+    final revocable = {
+      ...?state?.members.values.map((m) => m.nodeId.hex),
+    };
     final messaging = ref.read(messagingServiceProvider);
     final seen = <String, DateTime?>{};
     for (final m in members) {
@@ -366,6 +399,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     setState(() {
       _lastSeen = seen;
       _members = members;
+      _revocable = revocable;
       _hasSovereignBundle = hasBundle;
       _certificateSaved = certificateSaved;
       _delegationValidUntil = validUntil;
@@ -801,14 +835,15 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                               isThreeLine: true,
                             ),
                           ),
-                          PopupMenuItem(
-                            value: 'revoke',
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const Icon(Icons.link_off),
-                              title: Text(l.devicesRevoke),
+                          if (_revocable.contains(device.hex))
+                            PopupMenuItem(
+                              value: 'revoke',
+                              child: ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.link_off),
+                                title: Text(l.devicesRevoke),
+                              ),
                             ),
-                          ),
                         ],
                       ),
               ),
