@@ -148,11 +148,49 @@ void main() {
         registered: () => registered,
         cancelled: () => false,
         interval: Duration.zero,
+        attempts: 5,
       );
-      expect(asked, 3, reason: 'it gave up while the node was still finding');
+      expect(asked, 5, reason: 'it gave up while the node was still finding');
+      // The CONTROL for the widening below: a carrier set that never grows is
+      // handed over ONCE. Registering no longer ends the watch, so without this
+      // the widening could be "start on every tick" and nothing would say so.
       expect(started, [
         [id(1)],
       ]);
+    });
+
+    // Measured on the phone: `candidates — 0 configured + 1 discovered`, one
+    // REGISTERED, `start done`, and forty seconds later EIGHT active peers —
+    // including the three relays the other side drains. The mailbox stayed
+    // frozen on the one stale peer for the life of the process, so the sender
+    // resolved an ad naming a relay it cannot reach and first contact could not
+    // be delivered while both sides sat on the same three relays.
+    test('hands over the carriers that arrive AFTER registration', () async {
+      var asked = 0;
+      var registered = false;
+      final started = <List<NodeId>>[];
+      await startMailboxWhenCarriersExist(
+        // One peer at boot; the rest of the island a few ticks later.
+        candidates: () async =>
+            ++asked < 2 ? [id(1)] : [id(1), id(2), id(3)],
+        start: (relays) async {
+          started.add(relays);
+          registered = true; // the first candidate resolved and stuck
+        },
+        registered: () => registered,
+        cancelled: () => false,
+        interval: Duration.zero,
+        attempts: 6,
+      );
+      expect(
+        started,
+        [
+          [id(1)],
+          [id(1), id(2), id(3)],
+        ],
+        reason: 'the relays that appeared after the first success never '
+            'reached the mailbox',
+      );
     });
 
     test('does not start on an empty list', () async {

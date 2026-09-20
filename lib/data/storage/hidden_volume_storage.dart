@@ -611,7 +611,32 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
 
   Future<Contact> _contactFor(NodeId id) async {
     final raw = await _as.get(Ns.contacts, id.bytes);
-    if (raw == null) return Contact(nodeId: id);
+    // A CONTACT ROW THAT WAS NEVER WRITTEN IS NOT CONSENT. `Contact`'s own
+    // default status is `accepted` — right for a record built after the
+    // relationship exists, and a fabrication here, where the only thing known
+    // is that nobody ever decided anything about this id.
+    //
+    // [loadConversations] unions the contact index with every id that has
+    // messages, so a conversation with no row got this default and came back
+    // as an ACCEPTED contact with `canMessage: true`. Measured live on a
+    // two-device stand: the sibling device mirrors the outgoing greeting of a
+    // contact REQUEST but deliberately does not mirror a pending status (see
+    // `applyMirroredContactStatus`), so it held two chats with no rows — and
+    // showed both as accepted contacts. One of them was a peer whose request
+    // had never been deposited at all: it had never seen a request, let alone
+    // answered one, and the second device offered to message it.
+    //
+    // The consequences are not cosmetic: `canMessage`, the realtime-control
+    // gate, content publish and group recommendations all key on
+    // `status == accepted`, and `capPreConsentIntros` returns early for an
+    // accepted peer, so the pre-consent intro cap stopped applying too.
+    //
+    // `pendingOutgoing` because that is what the case actually is — our own
+    // device asked and nobody has answered — and because every gate above is
+    // closed for it.
+    if (raw == null) {
+      return Contact(nodeId: id, status: ContactStatus.pendingOutgoing);
+    }
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     final s = m['s'] as int?;
     return Contact(
