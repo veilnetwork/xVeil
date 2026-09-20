@@ -28,6 +28,8 @@ import '../domain/chat.dart'
 import '../domain/device_sync.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
+import 'device_history_backfill.dart'
+    show historyAskToServe, replayHistoryForAsk;
 import 'device_settings_sync.dart';
 import 'device_sync_appliers.dart';
 import 'providers.dart' show realStackProvider, storageProvider;
@@ -79,6 +81,10 @@ Map<String, Object?> contactPrefsPayload(Contact c) => {
 /// numbers verbatim (report14 X14-M5).
 DisappearingSetting? disappearingFromPayload(Map<String, Object?> payload) =>
     DisappearingSetting.fromMirrorJson(payload);
+
+/// Enough of a device id to correlate two log lines without printing the whole
+/// thing into a file a person may share.
+String _short(String hex) => hex.length <= 8 ? hex : hex.substring(0, 8);
 
 final deviceSyncBridgeProvider = Provider<void>((ref) {
   final svc = ref.watch(groupServiceProvider);
@@ -389,6 +395,88 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     }
   };
 
+  // ── ANSWERING A HISTORY ASK ───────────────────────────────────────────────
+  //
+  // Linking starts FORWARD sync and nothing else, so a device linked today has
+  // none of yesterday. Another device can fill that in, and the person decides
+  // how much — up to a full copy. What comes back is ordinary sync events, so
+  // nothing on the receiving side had to learn a new shape.
+  //
+  // ONE AT A TIME, and CANCELLED WITH THE BRIDGE. A replay can be a year of
+  // conversations; two running at once would double the load on a log every
+  // device shares, and one still running after an identity switch would post
+  // this identity's history into whatever group came next.
+  //
+  // A CHAIN, not a flag. The folded state is replayed into these appliers in a
+  // loop that does not wait, so several asks can arrive before the first one
+  // has reached its first await — a flag then admits them all (the race) or,
+  // taken synchronously, admits ONE and drops the rest for the whole session
+  // (which is worse: a device with three siblings could have its own ask
+  // thrown away because another device's ask was first in the fold). Queued,
+  // each is served in turn and none is lost.
+  var serveChain = Future<void>.value();
+  var bridgeGone = false;
+  ref.onDispose(() => bridgeGone = true);
+
+  /// Durable, because the folded state is replayed into these appliers on
+  /// EVERY bridge build. An ask that left no record would be answered again on
+  /// every app start, for as long as its row lived in the log — a full history
+  /// re-posted into the shared log on every launch.
+  String servedKey(String askingDeviceHex) =>
+      'device.history.served.v1:$askingDeviceHex';
+
+  Future<void> serveHistoryAsk(DeviceSyncEvent e) async {
+    if (bridgeGone) return;
+    announceDevice ??= await svc.resolveMyDevice();
+    final ask = historyAskToServe(
+      event: e,
+      myDeviceHex: (announceDevice ?? svc.selfId).hex,
+      alreadyServedMs: int.tryParse(
+        await svc.storage.getSetting(servedKey(e.key)) ?? '',
+      ),
+    );
+    if (ask == null) return;
+    // WRITTEN BEFORE THE WALK, not after. A replay that dies in the middle —
+    // the app is closed, the identity is switched — must not come back on
+    // the next launch and start again from the top, forever. The person can
+    // ask again; a loop cannot be asked to stop.
+    await svc.storage.putSetting(servedKey(e.key), '${e.tsMs}');
+    devLog(
+      () =>
+          'xVeil[devices]: ${_short(e.key)} asked for history '
+          '(${ask.peers?.length ?? "all"} conversation(s), '
+          '${ask.perConversation ?? "all"} message(s) each, '
+          'calls=${ask.callLog} reads=${ask.readMarks} files=${ask.files}) '
+          '— replaying',
+    );
+    final report = await replayHistoryForAsk(
+      ask: ask,
+      storage: svc.storage,
+      post: (event, {attachment}) =>
+          svc.postDeviceEvent(event, attachment: attachment),
+      cancelled: () =>
+          bridgeGone || !identical(ref.read(groupServiceProvider), svc),
+    );
+    devLog(
+      () =>
+          'xVeil[devices]: replayed ${report.messages} message(s), '
+          '${report.contacts} contact(s), ${report.calls} call(s), '
+          '${report.readMarks} read mark(s) across '
+          '${report.conversations} conversation(s) to ${_short(e.key)}'
+          '${report.stoppedEarly ? " — STOPPED EARLY" : ""}',
+    );
+  }
+
+  /// Queue an ask behind whatever is already being served.
+  void queueHistoryAsk(DeviceSyncEvent e) {
+    serveChain = serveChain.then((_) => serveHistoryAsk(e)).catchError((
+      Object error,
+    ) {
+      // One failed replay must not poison the queue behind it.
+      devLog(() => 'xVeil[devices]: history replay failed: $error');
+    });
+  }
+
   // ── APPLY: device-group event → local state. Ordering lives in the gate:
   // newest-wins per (kind, key) ranked exactly like foldDeviceSync, nothing
   // effective before its own timestamp, and — because [DeviceSyncApplyGate.offer]
@@ -561,6 +649,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             }
           };
         });
+      case DeviceSyncKind.historyAsk:
+        // DELIBERATELY NOT THROUGH THE GATE. The gate ranks STATE — newest
+        // event per (kind, key) wins and the loser is dropped. This is a
+        // command, its idempotence is the durable watermark inside, and a
+        // gate slot would only give it a second, weaker one.
+        queueHistoryAsk(e);
       case DeviceSyncKind.cloudCapability:
         break; // applied by CloudCapabilityService (contains secret registry)
     }

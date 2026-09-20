@@ -7249,6 +7249,59 @@ class AppL10nEs extends AppL10n {
       'No se pudo guardar el cambio, así que no se ha aplicado.';
 
   @override
+  String get devicesPullHistory => 'Traer datos de este dispositivo';
+
+  @override
+  String get devicesPullHistoryHint =>
+      'La vinculación solo sincroniza desde ahora. Esto rellena lo anterior.';
+
+  @override
+  String get devicesPullTitle => 'Qué traer';
+
+  @override
+  String get devicesPullDepth => 'Cuánto de cada conversación';
+
+  @override
+  String get devicesPullDepthAll => 'Todo';
+
+  @override
+  String devicesPullDepthLast(int count) {
+    return 'Últimos $count mensajes';
+  }
+
+  @override
+  String get devicesPullAlso => 'Traer también';
+
+  @override
+  String get devicesPullCalls => 'Registro de llamadas';
+
+  @override
+  String get devicesPullReads => 'Lo que ya se leyó';
+
+  @override
+  String get devicesPullFiles => 'Archivos y fotos';
+
+  @override
+  String get devicesPullFilesHint =>
+      'Pesado. Sin esto los mensajes llegan igual, solo que sin adjuntos.';
+
+  @override
+  String get devicesPullContactsAlways =>
+      'Los contactos y sus estados vienen siempre — sin ellos este dispositivo rechaza el siguiente mensaje de cada uno.';
+
+  @override
+  String get devicesPullConfirm => 'Pedir';
+
+  @override
+  String devicesPullAsked(String device) {
+    return 'Se pidió a $device. Lo que envíe aparecerá a medida que llegue — ambos dispositivos deben estar en línea.';
+  }
+
+  @override
+  String get devicesPullNotSent =>
+      'No se pudo publicar la solicitud en el grupo de dispositivos.';
+
+  @override
   String get devicesResendSetup => 'Enviar de nuevo la configuración cifrada';
 
   @override

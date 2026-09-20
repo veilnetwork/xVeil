@@ -7218,6 +7218,59 @@ class AppL10nRu extends AppL10n {
       'Изменение не удалось сохранить, поэтому оно не применено.';
 
   @override
+  String get devicesPullHistory => 'Получить данные с этого устройства';
+
+  @override
+  String get devicesPullHistoryHint =>
+      'Привязка синхронизирует только с этого момента. Это восполнит то, что было раньше.';
+
+  @override
+  String get devicesPullTitle => 'Что перенести';
+
+  @override
+  String get devicesPullDepth => 'Сколько из каждой переписки';
+
+  @override
+  String get devicesPullDepthAll => 'Всё';
+
+  @override
+  String devicesPullDepthLast(int count) {
+    return 'Последние $count сообщений';
+  }
+
+  @override
+  String get devicesPullAlso => 'Ещё перенести';
+
+  @override
+  String get devicesPullCalls => 'Журнал звонков';
+
+  @override
+  String get devicesPullReads => 'Что уже прочитано';
+
+  @override
+  String get devicesPullFiles => 'Файлы и фотографии';
+
+  @override
+  String get devicesPullFilesHint =>
+      'Тяжёлое. Без этого сообщения всё равно придут, только без вложений.';
+
+  @override
+  String get devicesPullContactsAlways =>
+      'Контакты и их статусы переносятся всегда — без них это устройство отвергнет следующее сообщение от каждого из них.';
+
+  @override
+  String get devicesPullConfirm => 'Запросить';
+
+  @override
+  String devicesPullAsked(String device) {
+    return 'Запрос отправлен устройству $device. То, что оно пришлёт, будет появляться по мере поступления — оба устройства должны быть в сети.';
+  }
+
+  @override
+  String get devicesPullNotSent =>
+      'Запрос не удалось положить в группу устройств.';
+
+  @override
   String get devicesResendSetup => 'Отправить зашифрованную настройку ещё раз';
 
   @override

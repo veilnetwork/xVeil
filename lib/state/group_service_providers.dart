@@ -14,12 +14,12 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
 import '../domain/chat.dart' show MessageDirection;
 import '../domain/device_sync.dart';
-import '../domain/group_message.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/space_public_feed_transport.dart';
 import 'app_controller.dart';
 import 'cloud_capability_service.dart' show cloudProviderSlotFor;
 import 'cloud_document_providers.dart';
+import 'device_history_backfill.dart' show deviceMirrorOf;
 import 'device_sync_appliers.dart';
 import 'group_epoch_service.dart';
 import 'group_crypto.dart';
@@ -303,52 +303,23 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   unawaited(service.nudgeGroupSyncAll());
 
   // Multi-device mirror emit: bytes remain lazy content references.
+  //
+  // The event is built by [deviceMirrorOf], which is also what a history
+  // replay posts and what the archive walk writes. One builder on purpose: the
+  // receiving side cannot tell the three apart and must not have to, and a
+  // field added to one copy of this payload and not the others is how a mirror
+  // comes to carry less than the message it mirrors (the archive's copy was
+  // already dropping inline custom emoji that way).
   messaging.onMessageStored = (peer, message) {
     if (peer == service.selfId) return;
     unawaited(() async {
       if (await service.isMyDevice(peer)) return;
-      final contentId = message.fileContentId ?? message.fileId;
-      if (contentId == null) {
-        if (message.body.isEmpty) return;
-        await service.postDeviceEvent(
-          DeviceSyncEvent(
-            kind: DeviceSyncKind.msgMirror,
-            key: message.id,
-            tsMs: message.timestamp.millisecondsSinceEpoch,
-            payload: {
-              'peer': peer.hex,
-              'dir': message.direction.name,
-              'body': message.body,
-              if (message.customEmoji.isNotEmpty)
-                'ce': encodeInlineCustomEmoji(message.customEmoji),
-            },
-          ),
-        );
-        return;
-      }
+      final hasFile = (message.fileContentId ?? message.fileId) != null;
+      if (!hasFile && message.body.isEmpty) return;
+      final mirror = deviceMirrorOf(peer.hex, message);
       await service.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.msgMirror,
-          key: message.id,
-          tsMs: message.timestamp.millisecondsSinceEpoch,
-          payload: {
-            'peer': peer.hex,
-            'dir': message.direction.name,
-            'body': message.body,
-            'cid': contentId,
-            'fname': message.fileName,
-            'fsize': message.fileSize,
-          },
-        ),
-        attachment: MediaObject(
-          kind: 'file',
-          dataB64: (message.thumb?.isNotEmpty ?? false)
-              ? message.thumb!
-              : 'AA==',
-          w: 1,
-          h: 1,
-          cid: contentId,
-        ),
+        mirror.event,
+        attachment: mirror.attachment,
       );
     }());
   };
