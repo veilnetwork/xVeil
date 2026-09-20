@@ -18797,6 +18797,22 @@ class GroupService implements ArchiveGroups {
   /// The owner is read from MY OWN device-group manifest, never claimed by the
   /// peer, so this widens nothing a stranger can reach.
   Future<bool> isMyDeviceOrMaster(NodeId peer) async {
+    // MY OWN IDENTITY, first and without asking storage. Nobody else can
+    // authenticate as it, so a frame whose verified source is my identity came
+    // from one of my devices — possibly from THIS one, echoed back through the
+    // identity mailbox both devices drain.
+    //
+    // That echo is not this question's to answer, and it is already answered
+    // where the facts are: the endpoint handler drops any candidate carrying a
+    // URI this node currently mints ("my own share, echoed back"), which is an
+    // ADDRESS test and works whatever the ids look like. The id test it sits
+    // next to — sender equals THIS node's transport id — only catches the echo
+    // on a device that booted on the master key, where the two are the same
+    // value. On a stand where neither device did (one restored, one mined) it
+    // never fires, and the master was left unable to admit anything its linked
+    // device sent: measured as `out endpoints to=258fc11e` leaving one side and
+    // nothing arriving at the other.
+    if (peer == _signer.selfId) return true;
     if (await isMyDevice(peer)) return true;
     return await _deviceGroupOwnerIfLinked() == peer;
   }

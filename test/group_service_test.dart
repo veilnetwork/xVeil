@@ -4362,6 +4362,39 @@ void main() {
     expect(after.epoch, greaterThan(epochBefore));
   });
 
+  // MY OWN IDENTITY IS ALWAYS ME, whatever the device group looks like.
+  //
+  // Nobody else can authenticate as it, so a frame whose verified source is my
+  // identity came from one of my devices — and the membership list cannot say
+  // so: on a stand where the master booted from a restore its own identity is
+  // NOT among the members, and `isMyDevice` answered no about it. Every lane
+  // built on that question then closed against its own linked device: measured
+  // as `out endpoints to=258fc11e` leaving one side and nothing arriving at the
+  // other, for the life of both processes.
+  //
+  // The echo of my own share is not this question's to catch — the endpoint
+  // handler drops a candidate carrying a URI this node currently mints, which
+  // is an address test and holds whatever the ids look like.
+  test('my own identity is me even with no device group at all', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+
+    expect(
+      await svc.deviceGroupIdHex(),
+      isNull,
+      reason: 'the fixture stopped reproducing "no membership to consult"',
+    );
+    expect(await svc.isMyDevice(owner), isFalse);
+    expect(
+      await svc.isMyDeviceOrMaster(owner),
+      isTrue,
+      reason: 'a node refused a frame it had verified as its own identity',
+    );
+    // CONTROL: it is me, and nobody else.
+    expect(await svc.isMyDeviceOrMaster(_id(0x7E)), isFalse);
+  });
+
   test(
     'sovereign genesis tampering is rejected before materialization',
     () async {
