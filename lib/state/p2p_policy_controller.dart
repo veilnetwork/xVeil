@@ -103,7 +103,7 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
       // sibling→master stream open failing NO_SESSION while both sat on one
       // machine).
       final group = ref.read(groupServiceProvider);
-      if (group != null && await group.isMyDevice(peer)) return true;
+      if (group != null && await group.isMyDeviceOrMaster(peer)) return true;
       final contact = await ref.read(storageProvider).getContact(peer);
       final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
       final allowed = p2pMessagingAllows(
@@ -142,7 +142,7 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
       // opt-in still died right here: the warm ran, shared nothing, dropped
       // the sibling's own share on the floor, and the session never formed.
       final group = ref.read(groupServiceProvider);
-      if (group != null && await group.isMyDevice(peer)) return true;
+      if (group != null && await group.isMyDeviceOrMaster(peer)) return true;
       final contact = await ref.read(storageProvider).getContact(peer);
       final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
       final accepted = contact?.status == ContactStatus.accepted;

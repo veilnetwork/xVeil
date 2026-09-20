@@ -17996,6 +17996,48 @@ class GroupService implements ArchiveGroups {
   /// so filtering by it on a restored device returns the sibling as "me" and
   /// this device as "other", which is backwards in the way that is hardest to
   /// see.
+  /// The same list, plus the one party [otherDeviceIds] cannot name: a LINKED
+  /// device's master.
+  ///
+  /// A device group's owner is the IDENTITY. The master addressing it would be
+  /// addressing itself, so [snapshotRecipients] drops it — right there, and
+  /// wrong for every device on the other side of the link, whose master is the
+  /// only other party it has. On a two-device identity that leaves the linked
+  /// device with an EMPTY list of its own devices, and everything built on that
+  /// list silently addresses nobody: the call fan-out (an incoming offer is
+  /// never relayed to the master, and neither is the caller's hang-up) and the
+  /// endpoint announce (so no direct lane is ever formed and every byte between
+  /// the two devices takes the mailbox, measured at 30s to 2 minutes).
+  ///
+  /// Whether I am linked is not a guess: my DEVICE id is in the member list and
+  /// not as the owner.
+  Future<List<NodeId>> addressableOwnDevices() async {
+    final ids = [...await otherDeviceIds()];
+    final owner = await _deviceGroupOwnerIfLinked();
+    if (owner != null && !ids.contains(owner)) ids.add(owner);
+    return ids;
+  }
+
+  /// The device group's owner, but only when THIS device is a linked member of
+  /// it — null on the device the group is owned by, where the owner is us.
+  Future<NodeId?> _deviceGroupOwnerIfLinked() async {
+    final me = await resolveMyDevice();
+    if (me == null) return null;
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return null;
+    final b = await load(NodeId.fromHex(hex));
+    if (b == null) return null;
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (e) => _validControlFor(b.manifest, e),
+    ).state;
+    final linked = state.members.values.any(
+      (m) => m.nodeId == me && m.role != GroupRole.owner,
+    );
+    return linked ? b.manifest.owner : null;
+  }
+
   Future<List<NodeId>> otherDeviceIds() async {
     // Ask before folding: without it the fallback names this device and the
     // caller addresses itself.
@@ -18738,6 +18780,27 @@ class GroupService implements ArchiveGroups {
   /// Whether [peer] is a CURRENT member of my device group — i.e. another of
   /// my own devices. The mirror taps consult this per stored message, so the
   /// folded member set is cached briefly; link/adopt/revoke invalidate it.
+  /// [isMyDevice], and also MY MASTER — the party a linked device addresses by
+  /// the identity itself.
+  ///
+  /// The device group's members are DEVICES; its owner is the identity, and the
+  /// master is not among them. So a linked device asking "is this one of mine?"
+  /// about its own master is told NO, and every gate built on that question
+  /// closes against the one party it is not supposed to be protected from.
+  ///
+  /// Measured on a two-device stand: `policy denies 258fc11e … known=false` on
+  /// the linked device — its own master, refused by the contact rules because
+  /// it is not a contact — so the endpoint announce, both ends of the endpoint
+  /// exchange and rung 0 of the call path all died there, and the two devices
+  /// never formed a direct session in either direction.
+  ///
+  /// The owner is read from MY OWN device-group manifest, never claimed by the
+  /// peer, so this widens nothing a stranger can reach.
+  Future<bool> isMyDeviceOrMaster(NodeId peer) async {
+    if (await isMyDevice(peer)) return true;
+    return await _deviceGroupOwnerIfLinked() == peer;
+  }
+
   Future<bool> isMyDevice(NodeId peer) async {
     while (true) {
       // A membership mutation may land while load() is awaiting storage. Its

@@ -285,7 +285,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     unawaited(service.ingestGroupEntryFromStranger(peer, bundleJson));
   };
   messaging.allowStrangerGroupSync = service.allowStrangerGroupSync;
-  messaging.isOwnDevice = service.isMyDevice;
+  // isMyDeviceOrMaster: a LINKED device's master is not a member of the device
+  // group — it is the owner — so `isMyDevice` says no about it, and every lane
+  // this answer opens (content serving, ack dedup, call signals, endpoint
+  // shares) closed against the one party there is nothing to protect from.
+  messaging.isOwnDevice = service.isMyDeviceOrMaster;
   messaging.isSovereignAuthority = (peer) async {
     final hex = await service.deviceGroupIdHex();
     if (hex == null) return false;

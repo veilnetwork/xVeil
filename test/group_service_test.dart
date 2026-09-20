@@ -4310,6 +4310,48 @@ void main() {
             'the linked device posted to nobody — the owner is the only '
             'other party it has, and the scan dropped it',
       );
+
+      // The same rule, named: everything built on "my other devices" — the call
+      // fan-out, the endpoint announce — asked `otherDeviceIds`, which is EMPTY
+      // here for exactly the same reason.
+      // The owner is missing from `otherDeviceIds`, which is what everything
+      // built on "my other devices" asks — the call fan-out, the endpoint
+      // announce. On a stand where the master device is not itself a member
+      // that list comes back EMPTY and those callers address nobody at all.
+      expect(
+        (await linked.otherDeviceIds()).map((n) => n.hex),
+        isNot(contains(sovereign.nodeId.hex)),
+        reason: 'the fixture stopped reproducing the condition',
+      );
+      expect(
+        (await linked.addressableOwnDevices()).map((n) => n.hex),
+        contains(sovereign.nodeId.hex),
+        reason: 'a linked device still cannot name the one party it has',
+      );
+      // The question every p2p gate asks. `isMyDevice` says NO about my own
+      // master — it is the group's OWNER, not one of its members — so the
+      // endpoint announce, both ends of the exchange and rung 0 of the call
+      // path all closed against it. Measured live as
+      // `policy denies 258fc11e … known=false` on the linked device.
+      expect(await linked.isMyDevice(sovereign.nodeId), isFalse);
+      expect(
+        await linked.isMyDeviceOrMaster(sovereign.nodeId),
+        isTrue,
+        reason: 'a linked device still refuses its own master',
+      );
+      // CONTROL: it widens to MY master and to nobody else.
+      expect(await linked.isMyDeviceOrMaster(_id(0x5A)), isFalse);
+      // CONTROL: on the owner the answer is unchanged — it is not its own
+      // sibling, and answering yes would exempt it from the gates about
+      // itself.
+      expect(await pairOwner.isMyDeviceOrMaster(sovereign.nodeId), isFalse);
+
+      // CONTROL: the owner must not be told to address ITSELF, or the master
+      // exchanges endpoints with its own identity and "meets" itself.
+      expect(
+        (await pairOwner.addressableOwnDevices()).map((n) => n.hex),
+        isNot(contains(sovereign.nodeId.hex)),
+      );
     }
 
     // Revoke removes the device and rotates the epoch.
