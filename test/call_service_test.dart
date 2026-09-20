@@ -1943,6 +1943,84 @@ void main() {
       },
     );
 
+    // Measured on a three-device stand (2026-09-20): C called an identity with
+    // two devices. The device the rendezvous picked rang in ~1s and cleared 3ms
+    // after the caller cancelled; the SIBLING — rung by the fan-out — heard
+    // nothing about the ending and went on ringing for the rest of its 75s
+    // timeout, then sent the caller a `reject` for a call the caller had
+    // already cancelled. Seventy seconds of a phone ringing for nobody.
+    test('the caller giving up is fanned out like the offer was', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(caller, offer('fan-end'));
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.ringing);
+
+      fake.onCallSignal!(
+        caller,
+        CallSignal(
+          callId: 'fan-end',
+          type: CallSignalType.cancel,
+          reason: CallEndReason.cancelled,
+        ),
+      );
+      await pumpEventQueue();
+
+      final ends = fake.sentTo
+          .where((r) => r.$2.type == CallSignalType.cancel)
+          .toList();
+      expect(
+        ends,
+        hasLength(1),
+        reason: 'the sibling rung by the fan-out was never told it ended',
+      );
+      expect(ends.single.$1.hex, sibling.hex);
+      expect(ends.single.$2.callId, 'fan-end');
+      expect(
+        ends.single.$2.onBehalfOf,
+        caller.hex,
+        reason: 'the sibling admits a relayed signal only as the true caller',
+      );
+      expect(
+        ends.single.$2.reason,
+        CallEndReason.cancelled,
+        reason: 'a cancelled call is missed, not answeredElsewhere',
+      );
+      svc.dispose();
+    });
+
+    // THE CONTROL. Fanning every ending out would satisfy the test above and
+    // put back the ping-pong the offer lane is careful about: a sibling that
+    // was never rung by us has nothing to stop, and a device that received a
+    // RELAYED offer must not forward its ending on to the others.
+    test('an ending nobody was fanned for is not relayed', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      // A cancel for a call this device never rang for, let alone fanned out.
+      fake.onCallSignal!(
+        caller,
+        CallSignal(
+          callId: 'never-fanned',
+          type: CallSignalType.cancel,
+          reason: CallEndReason.cancelled,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(
+        fake.sentTo.where((r) => r.$2.type == CallSignalType.cancel),
+        isEmpty,
+        reason: 'siblings were told to stop a ring that never started',
+      );
+      svc.dispose();
+    });
+
     test(
       'a RELAYED offer does not fan out again (no sibling ping-pong)',
       () async {
