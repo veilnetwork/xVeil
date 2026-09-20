@@ -729,8 +729,7 @@ class GroupService implements ArchiveGroups {
   /// retain `_kMaxDurablePublicFeedPackages` entries and its old home could
   /// hold eleven (report27 X33).
   @visibleForTesting
-  Future<String> debugReadPublicFeedCacheIndex() =>
-      _readPublicFeedCacheIndex();
+  Future<String> debugReadPublicFeedCacheIndex() => _readPublicFeedCacheIndex();
 
   @visibleForTesting
   Future<void> debugWritePublicFeedCacheIndex(String json) =>
@@ -2158,11 +2157,13 @@ class GroupService implements ArchiveGroups {
     ];
     if (!state.isActive || owners.length != 1 || owners.single != selfId) {
       // ignore: avoid_print
-      print('OWN active=${state.isActive} n=${owners.length} '
-          'owner=${owners.isEmpty ? "-" : owners.single.hex.substring(0, 4)} '
-          'self=${selfId.hex.substring(0, 4)} '
-          'rows=${folded.accepted.length} rej=${folded.rejected.length} '
-          'transfers=${folded.accepted.where((e) => e.op == ControlOp.transferOwnership).length}');
+      print(
+        'OWN active=${state.isActive} n=${owners.length} '
+        'owner=${owners.isEmpty ? "-" : owners.single.hex.substring(0, 4)} '
+        'self=${selfId.hex.substring(0, 4)} '
+        'rows=${folded.accepted.length} rej=${folded.rejected.length} '
+        'transfers=${folded.accepted.where((e) => e.op == ControlOp.transferOwnership).length}',
+      );
       return null;
     }
     final authorityChain = buildSpacePublicAuthorityChain(
@@ -6719,7 +6720,9 @@ class GroupService implements ArchiveGroups {
               'it was running ($e)',
         );
       } else {
-        devLog(() => 'xVeil[maintenance]: pass failed, retrying in an hour: $e');
+        devLog(
+          () => 'xVeil[maintenance]: pass failed, retrying in an hour: $e',
+        );
       }
     } finally {
       _spaceDeletionMaintenanceRunning = false;
@@ -8515,7 +8518,11 @@ class GroupService implements ArchiveGroups {
       // recipient sets are derived from this future state. This ordering lets
       // the current owner preserve an owner-only retention decision during an
       // ownership transfer while the final bundle is still one atomic write.
-      final projected = signMutation(initialLink.seq, initialLink.prevHash, initialLink.seen);
+      final projected = signMutation(
+        initialLink.seq,
+        initialLink.prevHash,
+        initialLink.seen,
+      );
       final projectedFold = foldControlLog(
         owner: b.manifest.owner,
         entries: [...b.control, projected],
@@ -8576,7 +8583,11 @@ class GroupService implements ArchiveGroups {
       );
       if (mutationLink.blocked) return false;
       mySeq = mutationLink.seq;
-      final signed = signMutation(mySeq, mutationLink.prevHash, mutationLink.seen);
+      final signed = signMutation(
+        mySeq,
+        mutationLink.prevHash,
+        mutationLink.seen,
+      );
       controls.add(signed);
       var candidate = [...workingBundle.control, signed];
       var folded = foldControlLog(
@@ -17587,10 +17598,12 @@ class GroupService implements ArchiveGroups {
   /// list; the leading space cannot be produced through the create/rename
   /// dialogs (both trim their input).
   static const String kDeviceGroupName = ' xveil.devices';
+
   /// The one declaration lives in the data layer — see
   /// `kSovereignBundleSetting` in `sovereign_identity_material.dart`. Kept as
   /// a name here so every existing call site reads the same way.
-  static const String kSovereignBundleSetting = material.kSovereignBundleSetting;
+  static const String kSovereignBundleSetting =
+      material.kSovereignBundleSetting;
   static const String kPendingDeviceAdoptionSetting =
       'devices.pending_adoption.v1';
 
@@ -17932,10 +17945,7 @@ class GroupService implements ArchiveGroups {
     // BOTH homes. A cancel that clears one leaves the other admitting a
     // source for seven days.
     try {
-      await _storage.storeFile(
-        kPendingDeviceAdoptionFile,
-        Uint8List(0),
-      );
+      await _storage.storeFile(kPendingDeviceAdoptionFile, Uint8List(0));
     } catch (_) {}
     await _storage.putSetting(kPendingDeviceAdoptionSetting, '');
   }
@@ -19095,10 +19105,36 @@ class GroupService implements ArchiveGroups {
       meDevice = await resolveMyDevice();
     }
     final deltaSelfExclusion = meDevice ?? _signer.selfId;
+    // AM I A LINKED DEVICE, or the one the group is owned by?
+    //
+    // The owner of a device group is the IDENTITY, and the master device
+    // addressing it would be addressing itself — which is why the scan below
+    // drops the owner. A LINKED device is in the opposite position: the owner
+    // is the only other party it has, and dropping it leaves an empty list.
+    //
+    // Measured on a two-device stand: the linked device posted a device-sync
+    // event, `postDeviceEvent` answered true, the row landed in its own folded
+    // state — and NOTHING went on the wire. Eight minutes later the master had
+    // neither that event, nor the message the linked device had received from a
+    // contact, nor the one it had sent. The master's own deltas reached it
+    // within fifteen seconds the whole time, so the two devices disagreed in
+    // one direction only and nothing said so.
+    //
+    // The existing round-trip test misses it because its group has THREE
+    // devices: the linked device still has a sibling to address, and the test
+    // hand-delivers whatever came out without asking who it was addressed to.
+    // With exactly two devices — the ordinary case — there is nobody.
+    final iAmALinkedDevice =
+        b.manifest.isSovereignDevice &&
+        meDevice != null &&
+        state.members.values.any(
+          (m) => m.nodeId == meDevice && m.role != GroupRole.owner,
+        );
     final candidates = <NodeId>[
       for (final member in state.members.values)
         if (member.nodeId != deltaSelfExclusion &&
             (!b.manifest.isSovereignDevice ||
+                iAmALinkedDevice ||
                 member.nodeId != b.manifest.owner) &&
             (channelMessages.isEmpty ||
                 channelMessages.any(
