@@ -6,6 +6,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../../core/ids.dart';
@@ -57,6 +58,29 @@ Uint8List encodeFetchRequest(List<Uint8List> skip) {
     out.add(cid);
   }
   return out.toBytes();
+}
+
+/// The relay that ANNOUNCED an oversized blob, tried before the rest.
+///
+/// An announcement is a relay saying "I hold this, come and get it", and the
+/// slice walk used to ignore who said it: it took the relay list from the top
+/// and spent a round trip on every replica that does not hold the blob — at
+/// [MailboxNetwork._sliceTimeout] each when they answer nothing at all.
+/// Measured across a four-device stand, the reasons those walks reported:
+/// 196 x `holds nothing under this id` against 27 timeouts.
+///
+/// The rest of the list still follows, unchanged and in order: a relay that
+/// ages its copy out between the announcement and the walk is covered by the
+/// replicas, which is the whole reason the walk tries more than one.
+@visibleForTesting
+List<Uint8List> announcerFirst(List<Uint8List> relayIds, String? announcer) {
+  if (announcer == null) return relayIds;
+  final first = <Uint8List>[];
+  final rest = <Uint8List>[];
+  for (final r in relayIds) {
+    (NodeId(r).hex == announcer ? first : rest).add(r);
+  }
+  return [...first, ...rest];
 }
 
 /// Receiver-authenticated SLICE: "give me `content_id` from `offset`".
@@ -739,6 +763,15 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     var anyAttempted = false;
     final seen = <String>{};
     final aggregated = <StoredMailboxBlob>[];
+    // WHICH RELAY ANNOUNCED EACH OVERSIZED BLOB.
+    //
+    // An announcement is a relay saying "I have this, come and get it", and
+    // the collector below used to ignore who said it: it walked the relay list
+    // from the top, spending a round trip on every replica that does not hold
+    // the blob. Measured across a four-device stand, the reasons those walks
+    // gave: 196 × `holds nothing under this id` against 27 timeouts. The one
+    // relay guaranteed to have it is the one that offered it.
+    final announcedBy = <String, String>{};
     // The relays this drain asked, and the ones that have answered. A relay
     // answers at most once: a second frame from the same one cannot close the
     // window early on the others' behalf.
@@ -798,6 +831,9 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
         for (final b in blobs) {
           if (seen.add(mailboxVariantKey(b.contentId, b.blob))) {
             aggregated.add(b);
+            if (b.blob.isEmpty) {
+              announcedBy[NodeId(b.contentId).hex] = from;
+            }
             fresh++;
           }
         }
@@ -972,6 +1008,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           contentId: b.contentId,
           relayIds: relayIds,
           kemByRelay: kemByRelay,
+          announcer: announcedBy[NodeId(b.contentId).hex],
           why: why,
         );
         if (bytes == null) {
@@ -1052,9 +1089,10 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     required Uint8List contentId,
     required List<Uint8List> relayIds,
     required Map<String, Uint8List> kemByRelay,
+    String? announcer,
     List<String>? why,
   }) async {
-    for (final relayId in relayIds) {
+    for (final relayId in announcerFirst(relayIds, announcer)) {
       final relay = NodeId(relayId);
       void stopped(String reason) => why?.add('${relay.short} $reason');
       Uint8List? kem = kemByRelay[relay.hex];
