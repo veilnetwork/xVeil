@@ -89,8 +89,26 @@ Future<List<NodeId>> liveMailboxRelayCandidates({
 /// empty list stays empty for the life of the process — connected, and unable
 /// to be reached first, exactly as if there were no network at all.
 ///
-/// Stops at the first start that leaves the mailbox registered. [cancelled]
-/// ends it early when the identity or the stack it belongs to is gone.
+/// Registering does NOT end the watch: the peer set keeps growing after it, and
+/// a set frozen at the first success is the same defect one beat later.
+/// Measured on the phone — `candidates — 0 configured + 1 discovered`, one
+/// `REGISTERED`, `start done`, and forty seconds later EIGHT active peers
+/// including the three relays its correspondent drains. The mailbox was frozen
+/// on the one stale peer for the life of the process, so a sender resolving
+/// that ad found a relay it cannot reach and first contact was undeliverable
+/// while both sides sat on the same three relays.
+///
+/// `MailboxService` is already built for this — `_tryRegister` registers at
+/// EVERY candidate and the drain tick keeps covering the ones still missing —
+/// it simply never learned about the ones that arrived late. So the answer is
+/// to keep asking and hand it the list again WHEN IT HAS GROWN, which also
+/// makes the XOR-deterministic pick mean what its comment claims: deterministic
+/// over the peer set, not over whichever subset happened to be connected in the
+/// first seconds.
+///
+/// A set that has not grown is not handed over again — a repeat changes nothing
+/// and costs a pass. [cancelled] ends the watch when the identity or the stack
+/// it belongs to is gone.
 Future<void> startMailboxWhenCarriersExist({
   required Future<List<NodeId>> Function() candidates,
   required Future<void> Function(List<NodeId>) start,
@@ -99,12 +117,17 @@ Future<void> startMailboxWhenCarriersExist({
   Duration interval = const Duration(seconds: 10),
   int attempts = 30,
 }) async {
+  final handed = <String>{};
   for (var attempt = 0; attempt < attempts; attempt++) {
     if (cancelled()) return;
     final relays = await candidates();
-    if (relays.isNotEmpty) {
+    final fresh = relays.where((r) => !handed.contains(r.hex)).isNotEmpty;
+    // Before registration every non-empty list is worth another try: the relay
+    // may be the same one whose key only now resolves.
+    if (relays.isNotEmpty && (fresh || !registered())) {
+      handed.addAll(relays.map((r) => r.hex));
       await start(relays);
-      if (cancelled() || registered()) return;
+      if (cancelled()) return;
     }
     await Future<void>.delayed(interval);
   }
