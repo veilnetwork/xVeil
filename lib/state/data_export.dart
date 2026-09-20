@@ -36,6 +36,7 @@ import '../domain/chat.dart';
 import '../domain/content_manifest.dart';
 import '../domain/data_transfer.dart';
 import '../domain/device_sync.dart';
+import 'device_history_backfill.dart' show deviceMirrorOf;
 import 'transferable_settings.dart';
 import 'device_sync_bridge.dart' show contactPrefsPayload;
 
@@ -590,28 +591,16 @@ class DataExporter {
   ///
   /// Deliberately the same field names: an importer reading this cannot tell
   /// whether the event arrived over the device group or out of a file, and
-  /// that is the property that keeps one merge rule instead of two.
-  DeviceSyncEvent _mirrorOf(String peerHex, Message message) {
-    final contentId = message.fileContentId ?? message.fileId;
-    return DeviceSyncEvent(
-      kind: DeviceSyncKind.msgMirror,
-      key: message.id,
-      tsMs: message.timestamp.millisecondsSinceEpoch,
-      payload: {
-        'peer': peerHex,
-        'dir': message.direction.name,
-        'body': message.body,
-        // The bytes stay where they are: a mirror carries the CONTENT ID, and
-        // the file record (or the peer) supplies the bytes. Same as the live
-        // emit, which is the point.
-        if (contentId != null) ...{
-          'cid': contentId,
-          'fname': message.fileName,
-          'fsize': message.fileSize,
-        },
-      },
-    );
-  }
+  /// that is the property that keeps one merge rule instead of two. Which is
+  /// why it is now the SAME BUILDER rather than a second copy of the same
+  /// field list — the copy had already drifted, dropping the inline custom
+  /// emoji the live emit carries, so an archive round trip lost them.
+  ///
+  /// [withFileBytes] is false because an archive carries a file's bytes as its
+  /// own record; the reference that authorizes a PULL only means something
+  /// between two live devices.
+  DeviceSyncEvent _mirrorOf(String peerHex, Message message) =>
+      deviceMirrorOf(peerHex, message, withFileBytes: false).event;
 
   Stream<List<int>> _fileChunks(String id, int size) async* {
     const window = 1 << 20;
