@@ -10,7 +10,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart'
-    show Contact, ContactStatus, MessageStatus, MessageDirection;
+    show Contact, ContactStatus, Message, MessageStatus, MessageDirection;
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging.dart';
@@ -735,6 +735,259 @@ void main() {
       isEmpty,
       reason: 'a buffered delete must win over a later buffered edit',
     );
+  });
+
+  /// AN ERASE IS FORENSIC, OR IT IS NOTHING.
+  ///
+  /// `doc/MESSAGE-EDIT-DELETE-DESIGN.md` builds delete for a container opened
+  /// under coercion: the plaintext must be gone, not hidden. A sibling that
+  /// never hears about the erase keeps it readable — so the strongest act in
+  /// the app left a copy exactly where the person would not look for one.
+  ///
+  /// Measured on the two-device stand (2026-09-21). Both variants erased on C:
+  ///
+  /// | | C (erased here) | D (my other device) | the peer |
+  /// |---|---|---|---|
+  /// | delete for me | gone | STILL THERE (4 min) | there, correctly |
+  /// | delete for everyone | gone | STILL THERE (4 min) | gone in 30 s |
+  group('an erased message is erased on my other devices too', () {
+    test('deleting locally raises the event that tells them', () async {
+      await mA.acceptContact(b);
+      await mA.sendText(b, 'regret this');
+      final sent = (await sA.loadMessages(b.hex)).last;
+
+      final erased = <({String peer, String id})>[];
+      mA.onMessageDeleted = (peer, id) =>
+          erased.add((peer: peer.hex, id: id));
+      addTearDown(() => mA.onMessageDeleted = null);
+
+      await mA.deleteMessageLocally(sent.id);
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains(sent.id)),
+        reason: 'the premise: it is gone from THIS device',
+      );
+      expect(
+        erased,
+        contains((peer: b.hex, id: sent.id)),
+        reason:
+            'this device erased the message and told nobody, so the copy on '
+            'my other device stays readable',
+      );
+    });
+
+    /// The stronger act: the peer loses it, and the person's own second device
+    /// was the one place it survived.
+    test('deleting for everyone tells them as well', () async {
+      await mA.acceptContact(b);
+      await mA.sendText(b, 'unsend this');
+      final sent = (await sA.loadMessages(b.hex)).last;
+
+      final erased = <String>[];
+      mA.onMessageDeleted = (peer, id) => erased.add(id);
+      addTearDown(() => mA.onMessageDeleted = null);
+
+      await mA.deleteForEveryone(sent.id);
+      await pumpEventQueue();
+
+      expect(erased, contains(sent.id));
+    });
+
+    /// The peer took their own message back. Only the device they reached
+    /// heard it; the others hold a copy of what the sender unsent.
+    test('a peer unsend is passed on to my other devices', () async {
+      await mA.acceptContact(b);
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.message(
+            'theirs',
+            id: 'theirs-1',
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      final erased = <String>[];
+      mA.onMessageDeleted = (peer, id) => erased.add(id);
+      addTearDown(() => mA.onMessageDeleted = null);
+
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.del('theirs-1').encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('theirs-1')),
+        reason: 'the premise: the unsend WAS honoured here',
+      );
+      expect(erased, contains('theirs-1'));
+    });
+
+    test('a sibling\'s erase removes the message here', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'erase-me',
+        direction: MessageDirection.incoming,
+        body: 'mirrored, then taken back',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        contains('erase-me'),
+        reason: 'the premise: the mirror landed',
+      );
+
+      await mA.applyMirroredDelete(peer: b, msgId: 'erase-me');
+      await pumpEventQueue();
+
+      expect((await sA.loadMessages(b.hex)).map((m) => m.id), isNot(contains('erase-me')));
+    });
+
+    /// CONTROL. An erase applied FROM a sibling must not be announced back, or
+    /// two devices trade the same tombstone forever — the same rule the
+    /// mirrored write and the mirrored status already follow.
+    test('an erase applied from a sibling is not announced back', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'no-echo',
+        direction: MessageDirection.incoming,
+        body: 'quiet please',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      final erased = <String>[];
+      mA.onMessageDeleted = (peer, id) => erased.add(id);
+      addTearDown(() => mA.onMessageDeleted = null);
+
+      await mA.applyMirroredDelete(peer: b, msgId: 'no-echo');
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('no-echo')),
+        reason: 'the premise: the sibling\'s erase WAS applied',
+      );
+      expect(erased, isEmpty);
+    });
+
+    /// A tombstone can outrun the mirror that carries its message: both ride
+    /// the same log, but an oversized mirror waits for a later fetch window
+    /// while a tiny tombstone does not. `Storage.deleteMessage` writes nothing
+    /// for a message it cannot find, so without parking the erase the message
+    /// would arrive afterwards and stay for good.
+    test('an erase that arrives before its message still lands', () async {
+      await mA.acceptContact(b);
+
+      await mA.applyMirroredDelete(peer: b, msgId: 'out-of-order');
+      await pumpEventQueue();
+
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'out-of-order',
+        direction: MessageDirection.incoming,
+        body: 'arrived after its own tombstone',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('out-of-order')),
+        reason: 'a tombstone that outran its message was spent on nothing',
+      );
+    });
+
+    /// The fold replays every tombstone the group has ever carried on every
+    /// app start, so "erase something already erased" is the COMMON case. It
+    /// must not park a pending operation each time — the buffer holds 512 and
+    /// real pending edits and unsends share it.
+    test('replaying erases of already-erased messages parks nothing', () async {
+      await mA.acceptContact(b);
+
+      // A REAL pending operation, parked first: the peer unsent a message
+      // that has not reached us yet. It is the oldest entry, so it is the
+      // first thing an overflowing buffer throws away.
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.del('slow-arrival').encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      // Now the startup replay of a person who has erased a lot of messages.
+      for (var i = 0; i < kMaxPendingOps; i++) {
+        await sA.appendMessage(
+          Message(
+            id: 'old-$i',
+            conversationId: b.hex,
+            direction: MessageDirection.incoming,
+            body: 'erased long ago',
+            timestamp: DateTime.now(),
+            status: MessageStatus.delivered,
+          ),
+        );
+        await sA.deleteMessage(b.hex, 'old-$i');
+        await mA.applyMirroredDelete(peer: b, msgId: 'old-$i');
+      }
+      await pumpEventQueue();
+
+      // The message the unsend was waiting for finally arrives.
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.message(
+            'taken back',
+            id: 'slow-arrival',
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('slow-arrival')),
+        reason:
+            'the replay parked an erase per already-erased message and pushed '
+            'the peer\'s real unsend out of the buffer',
+      );
+    });
+
+    /// CONTROL for the out-of-order test: an ordinary mirror with no erase
+    /// waiting still lands. Without it, "pending consumed" and "message
+    /// dropped" would look the same.
+    test('a mirror with no erase waiting still lands', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'ordinary',
+        direction: MessageDirection.incoming,
+        body: 'nothing pending',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        contains('ordinary'),
+      );
+    });
   });
 
   /// A BLOCK IS A DECISION, AND A SIBLING DOES NOT OVERRULE IT.

@@ -84,12 +84,24 @@ class _MessagingMutations {
     if (await isIncomingFrom(peer, id)) {
       await _owner._storage.deleteMessage(peer.hex, id);
       await _owner._storage.scrubDeleted();
+      // My other devices hold their own copy of this message and heard no
+      // unsend — only the device the peer reached did. Without this they keep
+      // showing what the sender took back.
+      _owner._deviceMirror.onMessageDeleted?.call(peer, id);
     } else if (!await hasMessage(peer, id)) {
       bufferPending(peer, id, _PendingOp.delete());
     }
   }
 
   /// Delete a message from this device and immediately scrub its plaintext.
+  ///
+  /// "This device" was the whole of it until 2026-09-21, and that made the
+  /// strongest act in the app the least effective one: `deleteForEveryone`
+  /// calls straight through here, so a message erased for the PEER stayed
+  /// readable on the person's own second device. The design this path comes
+  /// from (doc/MESSAGE-EDIT-DELETE-DESIGN.md) is built for a container opened
+  /// under coercion — a surviving sibling copy is precisely the outcome it
+  /// exists to prevent, so a delete is now told to the device group.
   Future<void> deleteLocally(String messageId) async {
     final message = await _find(messageId);
     if (message == null) return;
@@ -97,6 +109,10 @@ class _MessagingMutations {
     await _owner._storage.scrubDeleted();
     // A deleted file post must stop advertising and serving its bytes too.
     await _releaseServeStateFor(message);
+    _owner._deviceMirror.onMessageDeleted?.call(
+      NodeId.fromHex(message.conversationId),
+      messageId,
+    );
     _owner._signal();
   }
 
