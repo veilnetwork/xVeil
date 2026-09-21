@@ -1264,6 +1264,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/delete_message':
           await _deleteMessage(req);
           return;
+        case '/edit_message':
+          await _editMessage(req);
+          return;
         case '/has_file':
           await _hasFile(req);
           return;
@@ -6972,6 +6975,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       await svc.deleteMessageLocally(id);
     }
     return _json(req, {'ok': true, 'id': id, 'forEveryone': forEveryone});
+  }
+
+  /// Edit one of our sent messages, the way the chat bubble's long-press does.
+  ///
+  /// Here so the multi-device campaign can measure what an edit reaches. The
+  /// `edit:` frame goes to the peer, and the campaign has now found four
+  /// decisions in a row that stayed on the device they were made on.
+  Future<void> _editMessage(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final id = _required(req, 'id');
+    if (id == null) return;
+    final text = req.uri.queryParameters['text'];
+    if (text == null) return _json(req, {'ok': false, 'error': 'no text'});
+    await ref.read(messagingServiceProvider).editOwnMessage(id, text);
+    return _json(req, {'ok': true, 'id': id, 'text': text});
   }
 
   /// Query params merged with a JSON POST body (body wins on key conflict).
