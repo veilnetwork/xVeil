@@ -1018,7 +1018,16 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       // COUNTED, not narrated. One line per skipped blob per pass is hundreds
       // of lines a minute against a backlog — the log then costs more than the
       // work it describes, and buries the pass that matters.
-      var deferred = 0;
+      // COUNTED APART, because the two reasons ask for opposite things.
+      //
+      // One line used to say "already known unopenable, or past this pass's
+      // budget" and let the reader pick. On the stand that number sat at 72 for
+      // three minutes, and nothing in it said whether the queue was stuck or
+      // simply full of blobs that will never open — which is the difference
+      // between "raise the budget" and "there is nothing to raise it for".
+      // A counter that cannot tell those apart is not a measurement.
+      var hopeless = 0;
+      var overBudget = 0;
       final collect = announcedToCollect(
         [for (final b in aggregated) if (b.blob.isEmpty) b.contentId],
         neverCollect: neverCollect,
@@ -1030,7 +1039,11 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           continue;
         }
         if (!collect.contains(NodeId(b.contentId).hex)) {
-          deferred++;
+          if (neverCollect.contains(NodeId(b.contentId).hex)) {
+            hopeless++;
+          } else {
+            overBudget++;
+          }
           continue;
         }
         final why = <String>[];
@@ -1064,12 +1077,12 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           ),
         );
       }
-      if (deferred > 0) {
+      if (hopeless > 0 || overBudget > 0) {
         devLog(
           () =>
-              'xVeil[drain]: $deferred announced blob(s) left for a later pass '
-              '— either already known unopenable, or past this pass\'s budget '
-              'of $_maxAnnouncedPerFetch',
+              'xVeil[drain]: announced blobs left — $overBudget waiting for a '
+              'later pass (budget $_maxAnnouncedPerFetch), '
+              '$hopeless already known unopenable',
         );
       }
       aggregated
@@ -1163,7 +1176,26 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   /// all, so it is latency the person feels on every message that shares a
   /// batch with a heavy blob. Two keeps a genuine oversized message moving
   /// while bounding what a backlog can cost.
+  ///
+  /// RAISING IT DOES NOT HELP, and that is measured rather than assumed. On
+  /// the device-sync path every row is an announced blob — a blob carries one
+  /// ML-KEM envelope PER RECIPIENT DEVICE, so a delta carrying one event of a
+  /// few dozen bytes weighs about 9.9 KB, above the 5632-byte reply budget.
+  /// Two devices on a cleaned stand (2026-09-21) put a mirror 169 s behind its
+  /// message. Raised to 16 with an 8-second deadline on the collecting phase,
+  /// the same measurement gave 191 s: no improvement, the deadline reached on
+  /// every pass, and the announced count unchanged around 70.
+  ///
+  /// So the queue is not what this number governs, and the real lever is
+  /// elsewhere — FEWER blobs, by batching several events into one delta,
+  /// rather than a faster walk through one blob per event.
   static const int _maxAnnouncedPerFetch = 2;
+
+  /// What this build actually ships, for a guard to hold to the measurement.
+  /// A constant defended only by the comment above it is a constant nobody
+  /// notices changing.
+  @visibleForTesting
+  static int get announcedBudgetPerPass => _maxAnnouncedPerFetch;
 
   Future<Uint8List?> _collectAnnounced({
     required Uint8List contentId,
