@@ -240,11 +240,36 @@ class P2PEndpointService {
     if (_disposed) return;
     _lastSharedAt[peer.hex] = now;
     final ts = now.millisecondsSinceEpoch;
+    // WHICH DEVICE THIS IS. Mail between my own devices is sealed AS the
+    // identity, and both devices publish under the identity's key, so nothing
+    // else in this frame can tell one sibling from another: the wire source is
+    // the shared identity and so is the key every candidate presents. The
+    // receiver therefore filed a sibling's addresses under the identity, while
+    // the device group dials a sibling by its DEVICE id — which consequently
+    // had no endpoints at all, and every byte between a person's own devices
+    // took the mailbox.
+    //
+    // Measured on the stand (2026-09-21): `knownPeerEndpoints: 0` for the
+    // sibling's device id and 2 for the identity, in both directions, with the
+    // live leg never arriving and the mirror landing 85 seconds later out of a
+    // relay. Both devices on one machine.
+    //
+    // Only useful between my own devices, and only read there — an ordinary
+    // contact is dialed by the identity it presents, which is what we want.
+    // Absent from an older build's frame, and the receiver falls back to what
+    // it did before.
+    String? myDevice;
+    try {
+      myDevice = (await _selfNode?.call())?.hex;
+    } catch (_) {
+      myDevice = null;
+    }
     final body = jsonEncode({
       'v': 1,
       'ts': ts,
       'e': uris,
       if (requestReshare) 'r': 1,
+      'd': ?myDevice,
     });
     await _messaging.sendP2PEndpoints(peer, body, sentAtMs: ts);
   }
@@ -466,6 +491,21 @@ class P2PEndpointService {
   /// policy decides whether we act at all (dial + reply); a denied peer's
   /// frame is dropped without an answer (no policy oracle for the sender —
   /// silence is indistinguishable from an older build).
+  /// File one candidate under the sibling that declared it, or — for a frame
+  /// from a build that declares nothing — under the key its invite presents,
+  /// exactly as before.
+  static void _fileUnder(
+    Map<String, NodeId> deviceById,
+    Map<String, List<String>> urisById,
+    NodeId presented,
+    String uri,
+    NodeId? sibling,
+  ) {
+    final key = sibling ?? presented;
+    deviceById[key.hex] = key;
+    (urisById[key.hex] ??= []).add(uri);
+  }
+
   void _onFrame(NodeId peer, String bodyJson) {
     unawaited(() async {
       // Every early exit names its reason in the dev log. The WIRE stays
@@ -487,6 +527,10 @@ class P2PEndpointService {
         List<String> uris;
         int ts;
         bool reshareRequested;
+        // Which of MY OWN devices sent this, when the sender says so. Read
+        // only on the own-sender path below; an ordinary contact is dialed by
+        // the identity its invite presents and nothing here changes that.
+        String? declaredDevice;
         try {
           final m = jsonDecode(bodyJson);
           if (m is! Map || m['v'] != 1) {
@@ -499,6 +543,10 @@ class P2PEndpointService {
           }
           ts = (m['ts'] as num?)?.toInt() ?? 0;
           reshareRequested = m['r'] == 1;
+          final declared = m['d'];
+          declaredDevice = declared is String && declared.isNotEmpty
+              ? declared
+              : null;
           uris = [
             for (final e in (m['e'] as List? ?? const []))
               if (e is String && e.isNotEmpty) e,
@@ -593,6 +641,25 @@ class P2PEndpointService {
         } catch (_) {
           return; // cannot tell echoes apart — better silent than self-dial
         }
+        // WHO TO FILE THESE UNDER.
+        //
+        // The presented key cannot say: both of my devices publish under the
+        // identity's key, so a sibling's candidate and my own echoed one look
+        // identical, and everything landed under the identity — a name the
+        // device group never dials. When the sender names its device, that is
+        // the answer, and it is trustworthy exactly here: only my own identity
+        // can authenticate as my own identity, so the claim comes from one of
+        // my devices. It is refused when it names THIS node (an echo dressed
+        // as a sibling would make us dial ourselves).
+        NodeId? sibling;
+        if (declaredDevice != null) {
+          try {
+            final claimed = NodeId.fromHex(declaredDevice);
+            if (claimed != me) sibling = claimed;
+          } catch (_) {
+            // A malformed claim is no claim; the presented key still decides.
+          }
+        }
         final deviceById = <String, NodeId>{};
         final urisById = <String, List<String>>{};
         for (final uri in uris) {
@@ -614,8 +681,7 @@ class P2PEndpointService {
           if (presented == me) {
             // The shared identity key at an address that is not mine — a
             // sibling. Never dialed when it could be THIS node (see above).
-            deviceById[presented.hex] = presented;
-            (urisById[presented.hex] ??= []).add(uri);
+            _fileUnder(deviceById, urisById, presented, uri, sibling);
             continue;
           }
           if (presented != peer && !await _isOwnDevice(presented)) {
@@ -626,8 +692,7 @@ class P2PEndpointService {
             );
             continue;
           }
-          deviceById[presented.hex] = presented;
-          (urisById[presented.hex] ??= []).add(uri);
+          _fileUnder(deviceById, urisById, presented, uri, sibling);
         }
         final stored = <NodeId>[];
         for (final entry in deviceById.entries) {
@@ -685,11 +750,29 @@ class P2PEndpointService {
     final uris = _peerEndpoints[key];
     if (uris == null || uris.isEmpty) return;
     if (!_dialing.add(key)) return;
+    // A SIBLING MINTS UNDER THE IDENTITY'S KEY, not under its own.
+    //
+    // Every device of one identity publishes the identity's public key, so a
+    // candidate for my own device presents that key and not the device id it
+    // is filed under. Pinning the dialed peer alone therefore refused every
+    // one of them — the address was learned and never used.
+    //
+    // Widened for MY OWN DEVICES ONLY, and only to MY OWN identity key: a
+    // candidate naming any third party still dies exactly as before, which is
+    // the whole point of the pin.
+    NodeId? alsoAccepts;
+    if (await _isOwnDevice(peer)) {
+      try {
+        alsoAccepts = _myIdentity().nodeId;
+      } catch (_) {
+        alsoAccepts = null;
+      }
+    }
     try {
       for (final uri in uris) {
         if (_disposed) return;
         if (await _admitted(peer)) return;
-        if (!_invitePresents(uri, peer)) continue;
+        if (!_invitePresents(uri, peer, alsoAccepts: alsoAccepts)) continue;
         try {
           await _joinEndpoint(uri);
         } catch (e) {
@@ -714,7 +797,9 @@ class P2PEndpointService {
   /// Whether [uri] is a parseable bootstrap invite that presents [peer]'s own
   /// identity. An unparseable or foreign-identity candidate is dropped with a
   /// named, address-free reason — never dialed.
-  bool _invitePresents(String uri, NodeId peer) {
+  /// [alsoAccepts] is the ONE other key a candidate may present, and it is
+  /// only ever my own identity's, only for my own device — see [_dialPeer].
+  bool _invitePresents(String uri, NodeId peer, {NodeId? alsoAccepts}) {
     final NodeId presented;
     try {
       presented = BootstrapInvite.parse(uri).nodeId;
@@ -726,7 +811,7 @@ class P2PEndpointService {
       );
       return false;
     }
-    if (presented != peer) {
+    if (presented != peer && presented != alsoAccepts) {
       devLog(
         () =>
             'xVeil[p2p]: drop endpoint from ${peer.short} '

@@ -176,6 +176,27 @@ void main() {
     expect(invite.transport, 'tcp://192.168.1.70:9000');
   });
 
+  /// THE SENDING HALF of the attribution fix, guarded on its own.
+  ///
+  /// The receiving tests below inject a frame that already names its device,
+  /// so none of them notices if the sender stops putting the name on the wire
+  /// — measured by weakening exactly that and watching them all stay green.
+  /// Without this line the fix would quietly come undone and every byte
+  /// between a person's own devices would go back to the relay.
+  test('a share says which of my devices minted it', () async {
+    final h = _Harness();
+    h.selfNode = _peer(0x31);
+    await h.svc.maybeShare(_peer(1));
+    final body = jsonDecode(h.messaging.sentEndpoints.single.$2) as Map;
+    expect(
+      body['d'],
+      _peer(0x31).hex,
+      reason:
+          'both devices publish under the identity key, so nothing else in '
+          'this frame can tell the receiver which of them sent it',
+    );
+  });
+
   test(
     'maybeShare preserves a QUIC listener scheme for media datagrams',
     () async {
@@ -634,6 +655,124 @@ void main() {
       );
     },
   );
+
+  /// THE NAME THE DEVICE GROUP ACTUALLY DIALS.
+  ///
+  /// The test above is the old behaviour and stays true: with nothing to say
+  /// otherwise, a sibling's address lands under the identity, because that is
+  /// the key both devices publish under and the only one a candidate presents.
+  ///
+  /// But the device group addresses a sibling by its DEVICE id, and that
+  /// bucket was therefore empty — measured on the stand (2026-09-21) as
+  /// `knownPeerEndpoints: 0` for the sibling and 2 for the identity, in both
+  /// directions, with the live leg never arriving and the mirror landing
+  /// eighty-five seconds later out of a relay while both devices sat on one
+  /// machine.
+  ///
+  /// So the sender says which device it is, and that is trustworthy exactly
+  /// here: only my own identity can authenticate as my own identity.
+  test('a device that names itself is filed under the name it is dialed by', () async {
+    final h = _Harness();
+    final identity = _identity().nodeId;
+    final linked = _peer(0x41);
+    // THIS node is the MASTER, and the share comes from its linked device.
+    //
+    // That direction is the one the fix is for: a master addresses its members
+    // by DEVICE id, so that is the bucket the device group dials and the one
+    // that was empty. The other direction needs nothing — a linked device
+    // knows its master only as the IDENTITY and dials it by that name, which
+    // is where a share without a declaration already lands.
+    h.selfNode = _peer(0x31);
+    h.ownDevices
+      ..add(identity.hex)
+      ..add(linked.hex);
+
+    String identityUri(String host) => BootstrapInvite(
+      publicKey: _identity().publicKey,
+      nonce: _identity().nonce,
+      transport: 'tcp://$host:9000',
+    ).toUri();
+    final echo = identityUri('192.168.1.70');
+    final linked_ = identityUri('192.168.1.50');
+
+    h.messaging.onP2PEndpoints!(
+      identity,
+      jsonEncode({
+        'v': 1,
+        'ts': 9,
+        'd': linked.hex,
+        'e': [echo, linked_],
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(
+      h.svc.knownEndpoints(linked),
+      [linked_],
+      reason:
+          'the device group dials this name, and it is the one that had '
+          'nothing under it while every byte went by relay',
+    );
+    expect(
+      h.svc.knownEndpoints(identity),
+      isEmpty,
+      reason:
+          'a named sibling is not ALSO filed under the shared identity — with '
+          'three devices that bucket would mix two of them together',
+    );
+    expect(
+      h.joined,
+      [linked_],
+      reason:
+          "the echo is still dropped, and the candidate is dialed although it "
+          "presents the IDENTITY's key rather than the device id it is filed "
+          "under — a sibling mints under the shared key",
+    );
+    expect(
+      h.messaging.sentEndpoints.single.$1.hex,
+      linked.hex,
+      reason: 'the reply goes to the device that named itself',
+    );
+  });
+
+  /// CONTROL. An echo dressed as a sibling must not make this node dial
+  /// itself: a claim naming THIS node is refused and the presented key
+  /// decides, exactly as before.
+  test('a share that names THIS node is not taken at its word', () async {
+    final h = _Harness();
+    final identity = _identity().nodeId;
+    h.selfNode = _peer(0x31);
+    h.ownDevices.add(identity.hex);
+
+    String identityUri(String host) => BootstrapInvite(
+      publicKey: _identity().publicKey,
+      nonce: _identity().nonce,
+      transport: 'tcp://$host:9000',
+    ).toUri();
+    final master = identityUri('192.168.1.50');
+
+    h.messaging.onP2PEndpoints!(
+      identity,
+      jsonEncode({
+        'v': 1,
+        'ts': 9,
+        'd': _peer(0x31).hex, // "I am you"
+        'e': [master],
+      }),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(
+      h.svc.knownEndpoints(_peer(0x31)),
+      isEmpty,
+      reason: 'nothing is ever stored under this node own name',
+    );
+    expect(
+      h.svc.knownEndpoints(identity),
+      [master],
+      reason: 'the claim is refused, so the presented key decides as before',
+    );
+  });
 }
 
 /// The messaging warm — the link that gives a CONVERSATION a direct route.
