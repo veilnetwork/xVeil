@@ -49,6 +49,36 @@ String beaconStatement({
   if (ownFloor > 0) 'fl': {selfHex: ownFloor},
 });
 
+/// The floor map a beacon carries, under every name the peer may know us by.
+///
+/// It declares OUR OWN stream — the prefix that no longer exists here, so the
+/// peer stops asking for it — and the peer looks it up under the only address
+/// it has for us, the IDENTITY. We label our rows with the DEVICE we run on,
+/// and for a sovereign identity with more than one device those are different
+/// strings, so the declaration was never found: the peer went on re-requesting
+/// sequences we had told it were gone, and healed only by the give-up path
+/// several rounds later.
+///
+/// Unlike the high-water half of the same mismatch, this one is fixable at the
+/// SENDER, because the key names US and we know both of our own names. Sending
+/// both also means a peer on an older build starts finding it with no change
+/// of its own.
+///
+/// Pure, so the shape is testable without a conversation that has lost data —
+/// a floor only exists after real loss at the source, and a clear does not
+/// make one (tombstones keep their seq slot).
+Map<String, int> floorDeclaration({
+  required String selfHex,
+  required String? identityHex,
+  required int ownFloor,
+}) {
+  if (ownFloor <= 0) return const {};
+  return {
+    selfHex: ownFloor,
+    if (identityHex != null && identityHex != selfHex) identityHex: ownFloor,
+  };
+}
+
 class _MessagingPeerSync {
   _MessagingPeerSync(this._owner);
 
@@ -202,10 +232,16 @@ class _MessagingPeerSync {
       selfHex: selfHex,
       ownFloor: ownFloor,
     );
+    final identityHex = await _owner.selfIdentityHex?.call();
+    final declaredFloor = floorDeclaration(
+      selfHex: selfHex,
+      identityHex: identityHex,
+      ownFloor: ownFloor,
+    );
     final body = jsonEncode({
       'hw': sync.highWater,
       if (holes.isNotEmpty) 'holes': holes,
-      if (ownFloor > 0) 'fl': {selfHex: ownFloor},
+      if (declaredFloor.isNotEmpty) 'fl': declaredFloor,
       'ep': now.millisecondsSinceEpoch,
     });
     if (throttled) return; // judged above; the wire frame is what we skip
