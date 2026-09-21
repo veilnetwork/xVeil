@@ -28,6 +28,18 @@ class _MessagingDeviceMirror {
   /// sent it unsending it. Never fired for an erase applied FROM a sibling.
   void Function(NodeId peer, String msgId)? onMessageDeleted;
 
+  /// Fires when a whole conversation is cleared HERE. Carries the clear EVENT,
+  /// because a clear is not a list of erasures — it is a watermark, and the
+  /// watermark is what stops a message from before it reappearing afterwards.
+  void Function(
+    NodeId peer,
+    String author,
+    int seq,
+    Map<String, int> watermark,
+    int atMs,
+  )?
+  onConversationCleared;
+
   /// Lets the device bridge offer an additional authenticated content source.
   Future<void> Function(String contentId)? deviceContentPull;
 
@@ -38,11 +50,17 @@ class _MessagingDeviceMirror {
   ///
   /// [tsMs] is bounded by [messageTsOnReceipt] like any other stamp that
   /// arrives from someone else, and this path needs it MORE than the wire path
-  /// does: a mirrored row is stored without an author or a seq, so it is off
-  /// the event streams the author-monotone effective-ts floor is computed over
-  /// and falls back to its raw timestamp for display. Nothing else here reads
-  /// the clock — a future stamp that lands keeps the conversation pinned to the
-  /// top of the chat list, and poisons its read watermark, until it arrives.
+  /// does: a mirrored row is off the event streams the author-monotone
+  /// effective-ts floor is computed over, so it falls back to its raw timestamp
+  /// for display. Nothing else here reads the clock — a future stamp that lands
+  /// keeps the conversation pinned to the top of the chat list, and poisons its
+  /// read watermark, until it arrives.
+  ///
+  /// It does NOT arrive without an author and a seq, whatever this comment said
+  /// until 2026-09-21. Storage allocates both locally on append, and a probe
+  /// measured it: a mirrored INCOMING row comes back with the peer's hex as its
+  /// author and a locally allocated seq. The distinction cost half an hour of
+  /// diagnosing a clear that would not travel.
   ///
   /// The value the emit tap mirrors on is the STORED row's timestamp, so a
   /// stamp bounded on the device that received it from the wire travels to the
@@ -99,6 +117,40 @@ class _MessagingDeviceMirror {
       _owner._signal();
     } catch (e) {
       devLog(() => 'xVeil[devices]: mirrored delete of $msgId failed: $e');
+    }
+  }
+
+  /// Empty a conversation because one of my other devices emptied it.
+  ///
+  /// The same applier a peer's clear-for-everyone goes through — this is a
+  /// clear of OUR OWN identity's making, so the author is our identity and the
+  /// watermark is ours to honour in full. Idempotent on (author, seq): the fold
+  /// is replayed into the appliers on every app start, and a clear already
+  /// applied finds its own slot taken and returns.
+  Future<void> applyClear({
+    required NodeId peer,
+    required String author,
+    required int seq,
+    required Map<String, int> watermark,
+    required int atMs,
+  }) async {
+    if (_owner._disposed) return;
+    try {
+      await _owner._storage.applyRemoteClear(
+        peer,
+        author,
+        seq,
+        watermark,
+        selfHex: await _owner._selfHex(),
+        // WHEN the clear happened, not when we got round to it. A device group
+        // runs minutes behind; bounding by our own clock would sweep away every
+        // message that arrived in between, which is every message sent AFTER
+        // the clear.
+        ownClearAtMs: atMs,
+      );
+      _owner._signal();
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: mirrored clear of ${peer.short} failed: $e');
     }
   }
 

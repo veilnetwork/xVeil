@@ -424,6 +424,15 @@ class _MessagingConversationAdmin {
     ]);
   }
 
+  /// Empty a conversation here, at the peer, and on my other devices.
+  ///
+  /// The last of those was missing until 2026-09-21, which is not an oversight
+  /// so much as a sentence nobody came back to: the storage comment on
+  /// `emitClearConversation` says the watermark is what brings another device —
+  /// "the peer, or, once multi-device lands, the author's own" — to the same
+  /// emptied state, and the wire handler for a peer's clear says the same. The
+  /// epic landed; this call still spoke only to the peer, so a person who
+  /// cleared a chat found it whole on their other device.
   Future<void> clearConversation(NodeId peer) async {
     final selfHex = await _owner._selfHex();
     final ev = await _owner._storage.emitClearConversation(peer, selfHex);
@@ -431,6 +440,13 @@ class _MessagingConversationAdmin {
       peer,
       'clear:${peer.hex}:${ev.seq}',
       WireEnvelope.clear(jsonEncode(ev.watermark), seq: ev.seq),
+    );
+    _owner._deviceMirror.onConversationCleared?.call(
+      peer,
+      ev.author,
+      ev.seq,
+      ev.watermark,
+      ev.atMs,
     );
     _owner._signal();
   }
