@@ -76,6 +76,34 @@ class _MessagingDeviceMirror {
   }) async {
     if (await _owner._hasMessage(peer, msgId)) return false;
     if (await _owner._storage.isMessageDeleted(peer.hex, msgId)) return false;
+    // A BLOCK IS A DECISION, and a sibling does not get to overrule it.
+    //
+    // The line above already refuses to resurrect a message deleted HERE, for
+    // the same reason: the mirror converges devices on CONTENT, and content is
+    // not the only thing a person decides. Blocking is the stronger statement
+    // of the two, and it was being bypassed by the device group.
+    //
+    // Measured on the two-device stand (2026-09-21). The contact was blocked
+    // on one device at the same moment they sent; that device refused the
+    // message off the wire, the sibling had not learned the block yet and
+    // stored it, and three minutes later the mirror carried it BACK and the
+    // blocking device stored it after all. The person blocked someone and
+    // their message arrived anyway, on the very device where they blocked it.
+    //
+    // Only the incoming direction is refused: a message WE sent them before
+    // the block is our own history, and the sibling mirroring it back is not
+    // the blocked party reaching us.
+    if (direction == MessageDirection.incoming) {
+      final contact = await _owner._storage.getContact(peer);
+      if (contact?.status == ContactStatus.blocked) {
+        devLog(
+          () =>
+              'xVeil[devices]: mirrored message $msgId from ${peer.short} '
+              'REFUSED — that contact is blocked on this device',
+        );
+        return false;
+      }
+    }
     await _owner._storage.appendMessage(
       Message(
         id: msgId,
