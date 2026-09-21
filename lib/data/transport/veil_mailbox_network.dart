@@ -1015,6 +1015,10 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       // Leaving the rest costs nothing that was not already accepted: an
       // uncollected blob is left UNACKED and the next pass asks again — which
       // is exactly what this loop already does for one that fails to assemble.
+      // COUNTED, not narrated. One line per skipped blob per pass is hundreds
+      // of lines a minute against a backlog — the log then costs more than the
+      // work it describes, and buries the pass that matters.
+      var deferred = 0;
       final collect = announcedToCollect(
         [for (final b in aggregated) if (b.blob.isEmpty) b.contentId],
         neverCollect: neverCollect,
@@ -1026,13 +1030,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
           continue;
         }
         if (!collect.contains(NodeId(b.contentId).hex)) {
-          devLog(
-            () =>
-                'xVeil[drain]: announced blob '
-                '${NodeId(b.contentId).short} not walked this pass — either '
-                'this device knows it cannot open it, or the pass has spent '
-                'its budget of $_maxAnnouncedPerFetch',
-          );
+          deferred++;
           continue;
         }
         final why = <String>[];
@@ -1064,6 +1062,14 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
             contentId: b.contentId,
             blob: bytes,
           ),
+        );
+      }
+      if (deferred > 0) {
+        devLog(
+          () =>
+              'xVeil[drain]: $deferred announced blob(s) left for a later pass '
+              '— either already known unopenable, or past this pass\'s budget '
+              'of $_maxAnnouncedPerFetch',
         );
       }
       aggregated
