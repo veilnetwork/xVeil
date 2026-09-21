@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/clear_policy.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
@@ -104,6 +105,90 @@ void main() {
     tearDown(() async {
       await mA.dispose();
       await mB.dispose();
+    });
+
+    /// WHOSE REQUEST COUNTS IS THE READER'S TO DECIDE.
+    ///
+    /// Clearing is the one destructive act here that ARRIVES from somebody
+    /// else, and until now one bit decided it — shared with the single-message
+    /// unsend, so it could only say always or never, and it said always.
+    group('the chat decides whose clear it honours', () {
+      late NodeId theirs;
+
+      setUp(() async {
+        theirs = _id(9);
+        await sB.upsertContact(
+          Contact(nodeId: theirs, status: ContactStatus.accepted),
+        );
+        mB.selfIdentityHex = () async => _id(8).hex;
+        await mB.deliverInbound(
+          InboundMessage(
+            src: theirs,
+            payload: WireEnvelope.message(
+              'theirs',
+              id: 'm1',
+              sentAtMs: DateTime.now().millisecondsSinceEpoch,
+              seq: 1,
+            ).encode(),
+            provenance: SenderProvenance.signed,
+          ),
+        );
+        await _until(() async => (await sB.loadMessages(theirs.hex)).length == 1);
+      });
+
+      tearDown(() => mB.selfIdentityHex = null);
+
+      Future<void> askToClear() async {
+        await mB.deliverInbound(
+          InboundMessage(
+            src: theirs,
+            payload: WireEnvelope.clear(
+              jsonEncode({_id(8).hex: 0, _id(10).hex: 9}),
+              seq: 3,
+            ).encode(),
+            provenance: SenderProvenance.signed,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+      }
+
+      Future<void> setPolicy(ClearRequestPolicy policy) async {
+        final held = await sB.getContact(theirs);
+        await sB.upsertContact(held!.copyWith(clearPolicy: policy));
+      }
+
+      test('never: the request is refused and the messages stay', () async {
+        await setPolicy(ClearRequestPolicy.never);
+        await askToClear();
+        expect((await sB.loadMessages(theirs.hex)).length, 1);
+      });
+
+      /// A 1:1 chat has no administrators, so this declines — honestly,
+      /// rather than by crediting the sender with a rank it cannot hold.
+      test('admins only: a 1:1 has none, so it refuses', () async {
+        await setPolicy(ClearRequestPolicy.admins);
+        await askToClear();
+        expect((await sB.loadMessages(theirs.hex)).length, 1);
+      });
+
+      /// Asking is not acting. Until an unanswered request has somewhere to be
+      /// seen, this must not erase — the surface and the default arrive
+      /// together in the next change.
+      test('ask: nothing is erased before the person has answered', () async {
+        await setPolicy(ClearRequestPolicy.ask);
+        await askToClear();
+        expect((await sB.loadMessages(theirs.hex)).length, 1);
+      });
+
+      /// CONTROL, and the premise of the three above: with the policy that
+      /// says yes, the clear still works. Without this they would all pass on
+      /// a conversation nothing could ever clear.
+      test('anyone: the request is honoured', () async {
+        await setPolicy(ClearRequestPolicy.anyone);
+        await askToClear();
+        await _until(() async => (await sB.loadMessages(theirs.hex)).isEmpty);
+        expect(await sB.loadMessages(theirs.hex), isEmpty);
+      });
     });
 
     /// THE SAME SCENARIO WHERE THE TWO SIDES DO NOT AGREE ON NAMES.

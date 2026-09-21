@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import '../../core/ids.dart';
 import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
+import '../../domain/clear_policy.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/inline_custom_emoji.dart';
@@ -513,6 +514,11 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
         'hrs': contact.hideAfterReadSeconds,
       // Written only when DISALLOWED — absence reads back as the default (allow).
       if (!contact.allowPeerDelete) 'apd': false,
+      // BY NAME, not by index: this one can still grow, and a record written
+      // today must not change meaning when a value is inserted in the middle.
+      // Absent reads back through the legacy bit — see the decode side.
+      if (contact.clearPolicy != kDefaultClearRequestPolicy)
+        'clp': contact.clearPolicy.name,
       if (contact.p2pOverride != kDefaultContactP2POverride)
         'p2p': contact.p2pOverride.index,
     });
@@ -660,6 +666,15 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       disappearingSetBy: m['dsb'] as String? ?? '',
       hideAfterReadSeconds: m['hrs'] as int?,
       allowPeerDelete: m['apd'] as bool? ?? true,
+      // A record from before the setting existed carries only the legacy bit,
+      // and it has to answer for both: OFF was an explicit act and is kept as
+      // "never", ON is what every untouched record holds and becomes the new
+      // default. See [clearRequestPolicyFromLegacy] for what that costs whom.
+      clearPolicy:
+          ClearRequestPolicy.fromName(m['clp'] as String?) ??
+          clearRequestPolicyFromLegacy(
+            allowPeerDelete: m['apd'] as bool? ?? true,
+          ),
       p2pOverride: _contactP2POverride(m['p2p']),
     );
   }

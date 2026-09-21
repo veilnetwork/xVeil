@@ -536,15 +536,41 @@ extension _MessagingInboundDispatch on MessagingService {
         }
         return;
       case WireKind.clear:
-        // The peer CLEARED the conversation up to a per-author seq watermark
-        // (clear-for-everyone). Consent-gated (R2); the author is bound to the
-        // AUTHENTICATED sender (R1, m.src). v1 policy: an accepted contact's clear
-        // is APPLIED (the "delete for everyone" the sender intends) — a future
-        // per-contact toggle can decline it; and once multi-device lands, a clear
-        // from our OWN identity is authoritative for our devices the same way.
+        // The peer asks us to EMPTY the conversation, up to a per-author seq
+        // watermark. Consent-gated (R2); the requester is bound to the
+        // AUTHENTICATED sender (R1, m.src).
+        //
+        // WHOSE REQUEST COUNTS IS THE READER'S TO DECIDE. This used to be one
+        // bit shared with the single-message unsend, so it could only say
+        // always or never — and its default said always, silently. Measured on
+        // the stand (2026-09-21): 37 messages at the peer, gone in nine
+        // seconds, while the sender's own dialog called the act local and
+        // unannounced. The four-valued answer lives on the contact; a 1:1 chat
+        // has no administrators, so "admins only" declines here honestly
+        // rather than pretending the sender has a rank it cannot have.
+        //
+        // The requester is never told which way it went — the no-oracle rule
+        // this layer keeps everywhere else.
         if (existing?.status != ContactStatus.accepted) return;
-        // Same receiver policy as del: a forbidden contact can't clear our copy.
-        if (existing?.allowPeerDelete == false) return;
+        final verdict = clearRequestVerdict(
+          policy: existing?.clearPolicy ?? kDefaultClearRequestPolicy,
+          requesterIsAdmin: false,
+        );
+        if (verdict == ClearRequestVerdict.decline) return;
+        if (verdict == ClearRequestVerdict.askThePerson) {
+          // NOT YET THE FINAL BEHAVIOUR, and deliberately not silent about it.
+          // "Ask" is only honest once an unanswered request has somewhere to be
+          // seen; until that surface exists, declining would be "never" wearing
+          // another name and applying would be the defect this setting exists
+          // to stop. The default is still `anyone` for exactly this reason, so
+          // nobody reaches this line without having chosen it.
+          devLog(
+            () =>
+                'xVeil[clear]: request from ${m.src.short} NOT applied — the '
+                'chat asks before clearing and there is nowhere yet to ask',
+          );
+          return;
+        }
         final cseq = env.seq;
         if (cseq != null) {
           Map<String, int> wm;
