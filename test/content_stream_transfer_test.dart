@@ -3249,4 +3249,59 @@ void main() {
       reason: 'resume stream must reconstruct the original bytes intact',
     );
   });
+  /// A RETRY MUST BE SERVED, OR A LOST CHUNK IS A LOST FILE.
+  ///
+  /// The re-request frame id is `creq:<contentId>` — stable per content, on
+  /// purpose, so however often the re-request timer fires the sender's outbox
+  /// holds one row for it. The receiving side's durable dedup read that
+  /// stability as "I have already handled this frame" and, from the SECOND
+  /// request onward, re-acked without serving.
+  ///
+  /// Measured on the four-device stand (2026-09-21): a 40 KB file was served
+  /// once, three of its ten chunks arrived, and the 43 and 32 retries the two
+  /// devices then made were answered with `re-ack … already stashed` instead of
+  /// bytes. The sender still held the file and was simply never asked again in
+  /// a way it would act on. Nothing on either side reported a fault.
+  test('a REPEATED content request is served again, not re-acked away', () async {
+    final data = _rnd(48 * 1024, 77);
+    final cid = await advertiseFromA(data, name: 'retry-me.bin');
+
+    // Built by hand so the SECOND request is byte-identical to the first,
+    // which is exactly what a retry is.
+    Uint8List request() => pieceRequestEnvelope(contentId: cid, indices: [0])
+        .withFrameId('creq:$cid')
+        .encode();
+
+    Future<int> chunksServed() async {
+      tA.sentPayloads.clear();
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: request(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      var n = 0;
+      for (final payload in tA.sentPayloads) {
+        try {
+          if (WireEnvelope.decode(payload).kind == WireKind.pieceChunk) n++;
+        } catch (_) {}
+      }
+      return n;
+    }
+
+    expect(
+      await chunksServed(),
+      greaterThan(0),
+      reason: 'the premise: the first request IS served',
+    );
+    expect(
+      await chunksServed(),
+      greaterThan(0),
+      reason:
+          'the retry was dropped as a duplicate and only re-acked, so a '
+          'transfer that lost a chunk could never ask again',
+    );
+  });
 }
