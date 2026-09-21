@@ -361,11 +361,36 @@ class MessagingService {
   void Function(NodeId peer, Message stored)? get onMessageStored =>
       _deviceMirror.onMessageStored;
 
+  void Function(NodeId peer, String msgId, MessageStatus status)?
+  get onMessageStatusChanged => _deviceMirror.onMessageStatusChanged;
+
+  set onMessageStatusChanged(
+    void Function(NodeId peer, String msgId, MessageStatus status)? callback,
+  ) {
+    _deviceMirror.onMessageStatusChanged = callback;
+  }
+
   set onMessageStored(void Function(NodeId peer, Message stored)? callback) {
     _deviceMirror.onMessageStored = callback;
   }
 
   /// Idempotently project a message received from another local device.
+  /// Move a MIRRORED message on to the status a sibling reports.
+  ///
+  /// Deliberately separate from [applyMirroredMessage], which refuses a
+  /// message it already holds: a status arrives precisely FOR a message we
+  /// already hold, and the early return is what kept the sibling's copy on one
+  /// tick forever.
+  Future<void> applyMirroredMessageStatus({
+    required NodeId peer,
+    required String msgId,
+    required MessageStatus status,
+  }) => _deviceMirror.applyMessageStatus(
+    peer: peer,
+    msgId: msgId,
+    status: status,
+  );
+
   Future<bool> applyMirroredMessage({
     required NodeId peer,
     required String msgId,
