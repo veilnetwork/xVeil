@@ -2209,6 +2209,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   Future<List<KvLogOp>> _tombstoneAllOps(
     NodeId peer, {
     Map<String, int>? upTo,
+    int? upToMs,
     required List<String> blobNamesOut,
   }) async {
     final ops = <KvLogOp>[];
@@ -2221,7 +2222,17 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       // receiver has since received. A null upTo clears everything (local clear).
       if (upTo != null) {
         final a = m.author, s = m.seq;
-        if (a == null || s == null || s > (upTo[a] ?? -1)) continue;
+        final bySeq = a != null && s != null && s <= (upTo[a] ?? -1);
+        // OUR OWN clear also reaches by TIME. The ceiling cannot carry a
+        // clear between a person's own devices: the bounding in
+        // [applyRemoteClear] drops every watermark key that is neither the
+        // author nor ourselves, and when WE are the author the dropped key is
+        // the PEER — half the conversation. Without this the fold would hide
+        // those rows while the container kept their plaintext, which is the one
+        // outcome a clear may not produce.
+        final byTime =
+            upToMs != null && m.timestamp.millisecondsSinceEpoch <= upToMs;
+        if (!bySeq && !byTime) continue;
       }
       final hit = await _liveEntryFor(peer.hex, m.id);
       if (hit == null) continue;
@@ -2392,7 +2403,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   }
 
   @override
-  Future<({String author, int seq, Map<String, int> watermark})>
+  Future<({String author, int seq, Map<String, int> watermark, int atMs})>
   emitClearConversation(NodeId peer, String selfHex) async {
     // Clear locally AND record a propagatable + replayable clear EVENT: a
     // per-author seq WATERMARK (= the current contiguous high-water) under
@@ -2402,6 +2413,10 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     // emptied state on replay, and suppresses an in-flight message that belongs
     // before the clear. Returns the event so the caller ships it on the wire.
     final conv = peer.hex;
+    // The moment of THIS clear, which travels with it to the other devices —
+    // they apply minutes later and must bound by when it happened, not by when
+    // they got round to it.
+    final at = DateTime.now().millisecondsSinceEpoch;
     final sync = await conversationSync(conv);
     final wm = Map<String, int>.from(sync.highWater);
     final blobNames = <String>[];
@@ -2423,7 +2438,12 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
               'c': conv,
               'au': selfHex,
               'sq': seq,
-              't': DateTime.now().millisecondsSinceEpoch,
+              't': at,
+              // Ours by construction, and it matters even on the device that
+              // pressed the button: a sibling's mirror of a message from before
+              // this clear is still in flight and would otherwise land here
+              // afterwards.
+              'ownAt': at,
               'wm': wm,
             }),
           ),
@@ -2435,7 +2455,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     await scrubDeleted();
     await _deleteBlobFiles(blobNames);
     await _patchCache(() {}); // refold → watermark + tombstones land
-    return (author: selfHex, seq: seq, watermark: wm);
+    return (author: selfHex, seq: seq, watermark: wm, atMs: at);
   }
 
   @override
@@ -2445,6 +2465,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     int seq,
     Map<String, int> watermark, {
     required String selfHex,
+    int? ownClearAtMs,
   }) async {
     // Apply a clear received from [author]. Record the watermark, scrub +
     // tombstone every local message AT/BELOW it (keep anything newer), and occupy
@@ -2501,12 +2522,32 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
             : entry.value;
       }
     }
+    // The clear's own moment, taken ONCE and used for both halves. It is
+    // generated HERE, never read off the wire, so it cannot be widened by a
+    // sender — which is what makes it safe to erase author-less rows by it.
+    final at = DateTime.now().millisecondsSinceEpoch;
+    // A clear of OUR OWN making — from one of this identity's other devices —
+    // is bounded by TIME as well as by the ceiling, because the bounding above
+    // drops the PEER's key when the author is ourselves, and the peer is half
+    // the conversation. A peer's clear keeps exactly the semantics it had.
+    //
+    // WHOSE CLOCK. Not this device's: a device group runs minutes behind, so
+    // "now, here" would sweep away every message that arrived while the clear
+    // was in flight — messages sent AFTER the clear, which it has no business
+    // touching. The moment that counts is when the clear HAPPENED, and it
+    // travels with it. Held down to our own clock as well, so a sibling running
+    // fast cannot reach into our future.
+    final own = author == selfHex;
+    final ownAt = own
+        ? ((ownClearAtMs ?? at) < at ? (ownClearAtMs ?? at) : at)
+        : null;
     // Gather scrub+tombstone ops BEFORE the clear row sets the fold watermark, so
     // loadMessages still lists the to-be-cleared messages.
     final blobNames = <String>[];
     final tombstones = await _tombstoneAllOps(
       peer,
       upTo: bounded,
+      upToMs: ownAt,
       blobNamesOut: blobNames,
     );
     await _commitAtNextMessageLogId(
@@ -2520,7 +2561,8 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
               'c': conv,
               'au': author,
               'sq': seq,
-              't': DateTime.now().millisecondsSinceEpoch,
+              't': at,
+              'ownAt': ?ownAt,
               // The BOUNDED map is what persists, so every later fold — on this
               // start and every one after it — reads the same bounded value.
               'wm': bounded,
@@ -3709,6 +3751,24 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   /// ceiling beside the latest time would invent a clear that never happened,
   /// suppressing a message neither of them covers.
   final Map<String, Map<String, ({int seq, int at})>> _clearedWatermark = {};
+
+  /// Per conversation: WHEN this identity's OWN newest clear of it happened.
+  ///
+  /// Set only by a clear WE made — locally, or on one of this identity's other
+  /// devices — never by a peer's, which keeps its existing bounded semantics
+  /// untouched.
+  ///
+  /// It exists because the per-author ceiling cannot carry a clear between a
+  /// person's own devices. The bounding in [applyRemoteClear] drops every
+  /// watermark key that is neither the author nor ourselves — for a peer's
+  /// clear the dropped key is a stranger, but for our OWN clear the dropped key
+  /// is THE PEER, which is half the conversation. So a sibling would receive a
+  /// clear that reached only its own outgoing rows.
+  ///
+  /// Time is the bound that works for both halves, and it is a SAFE one: the
+  /// stamp is written by the device that APPLIES the clear, never carried in
+  /// from the wire, so no sender can widen it.
+  final Map<String, int> _clearedAt = {};
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
   List<Message>?
   _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
@@ -3856,6 +3916,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     _scanSigOps.clear();
     _scanEditWinSeq.clear();
     _clearedWatermark.clear();
+    _clearedAt.clear();
     _scanFoldedUpTo = 0;
     _scanResult = null;
     _messageLogNamespaces.clear();
@@ -4003,15 +4064,30 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
               wm[au] = (seq: hw, at: at);
             }
           });
+          // OUR OWN clear also bounds the conversation by TIME — see
+          // [_clearedAt]. A peer's clear does not, so its careful per-author
+          // bounding keeps working exactly as it did.
+          final ownAtRaw = m['ownAt'];
+          final ownAt = ownAtRaw is int ? ownAtRaw : null;
+          if (ownAt != null && ownAt > (_clearedAt[c] ?? 0)) {
+            _clearedAt[c] = ownAt;
+          }
           for (final key in _scanOrder.toList()) {
             final msg = _scanById[key];
             if (msg == null || msg.conversationId != c) continue;
             final a = msg.author, s = msg.seq;
+            final tsMs = msg.timestamp.millisecondsSinceEpoch;
+            if (ownAt != null && tsMs <= ownAt) {
+              _scanById.remove(key);
+              _scanOrder.remove(key);
+              _scanLogIds.remove(key);
+              continue;
+            }
             final cleared = a == null ? null : wm[a];
             if (cleared != null &&
                 s != null &&
                 s <= cleared.seq &&
-                msg.timestamp.millisecondsSinceEpoch <= cleared.at) {
+                tsMs <= cleared.at) {
               _scanById.remove(key);
               _scanOrder.remove(key);
               _scanLogIds.remove(key);
@@ -4070,6 +4146,20 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
           pSq <= pCleared.seq &&
           pTs is int &&
           pTs <= pCleared.at) {
+        final dk = _msgKey(c, id);
+        _scanById.remove(dk);
+        _scanOrder.remove(dk);
+        _scanLogIds.remove(dk);
+        continue;
+      }
+      // Born-clear against OUR OWN clear, which bounds by time rather than by
+      // a per-author ceiling (see [_clearedAt]). This is the ordinary case, not
+      // an exotic one: a mirror travels the device group, which on a loaded
+      // stand runs minutes behind, so the message from before the clear usually
+      // arrives after it. Without this, emptying a conversation and then
+      // receiving that mirror puts the message back on a screen the person had
+      // just emptied.
+      if (pTs is int && pTs <= (_clearedAt[c] ?? -1)) {
         final dk = _msgKey(c, id);
         _scanById.remove(dk);
         _scanOrder.remove(dk);

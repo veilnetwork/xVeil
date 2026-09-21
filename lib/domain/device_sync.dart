@@ -46,6 +46,21 @@ enum DeviceSyncKind {
   /// it, while a deletion's own time is when it was decided.
   msgGone,
 
+  /// A whole conversation CLEARED, keyed by the peer hex.
+  ///
+  /// Not a list of [msgGone] events: a clear is a WATERMARK, and the watermark
+  /// is the half that a per-message erasure cannot do — it stops a message from
+  /// before the clear reappearing when it finally arrives, which on a device
+  /// group running minutes behind is the ordinary case, not the exotic one.
+  ///
+  /// Keyed by the conversation rather than by the clear, so clearing twice
+  /// keeps one row and the later clear subsumes the earlier.
+  ///
+  /// The storage comment on `emitClearConversation` and the wire handler for a
+  /// peer's clear both already said this belonged here "once multi-device
+  /// lands". It landed; this is the sentence being finished.
+  convClear,
+
   /// A conversation read-watermark (peer + ts).
   readMark,
 

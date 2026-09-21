@@ -363,6 +363,26 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     }());
   };
 
+  // The whole conversation emptied. One row per conversation, not per message:
+  // the watermark IS the event, and it is what a later-arriving mirror of a
+  // message from before the clear is measured against.
+  messaging.onConversationCleared = (peer, author, seq, watermark, atMs) {
+    if (peer == service.selfId) return;
+    unawaited(() async {
+      if (await service.isMyDevice(peer)) return;
+      await service.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.convClear,
+          key: peer.hex,
+          // The clear's OWN moment, not the post's: the devices that apply it
+          // are minutes behind, and they bound what they erase by this.
+          tsMs: atMs,
+          payload: {'au': author, 'sq': seq, 'wm': watermark},
+        ),
+      );
+    }());
+  };
+
   // Multi-device mirror apply: idempotent, content bytes remain opt-in.
   //
   // One handler for both arrivals — the live stream, and the folded state
@@ -459,7 +479,39 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   ref.onDispose(
     ref.read(deviceSyncAppliersProvider).register(applyStatusEvent),
   );
+  /// A sibling emptied this conversation, so empty it here.
+  ///
+  /// The payload is refused rather than guessed at when a field is missing or
+  /// of the wrong shape: the guess would be "clear everything", and a clear is
+  /// not reversible.
+  Future<void> applyClearEvent(DeviceSyncEvent event) async {
+    if (event.kind != DeviceSyncKind.convClear) return;
+    final author = event.payload['au'];
+    final seq = event.payload['sq'];
+    final rawWm = event.payload['wm'];
+    if (author is! String ||
+        author.isEmpty ||
+        seq is! int ||
+        rawWm is! Map ||
+        event.key.isEmpty ||
+        event.key == service.selfId.hex) {
+      return;
+    }
+    final watermark = <String, int>{};
+    rawWm.forEach((k, v) {
+      if (k is String && v is int) watermark[k] = v;
+    });
+    await messaging.applyMirroredClear(
+      peer: NodeId.fromHex(event.key),
+      author: author,
+      seq: seq,
+      watermark: watermark,
+      atMs: event.tsMs,
+    );
+  }
+
   ref.onDispose(ref.read(deviceSyncAppliersProvider).register(applyGoneEvent));
+  ref.onDispose(ref.read(deviceSyncAppliersProvider).register(applyClearEvent));
 
   // Reachable by an offline import too: a mirror out of an archive is the same
   // event a sibling would have sent, and `applyMirroredMessage` is keyed by
@@ -477,6 +529,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     );
     unawaited(applyStatusEvent(event));
     unawaited(applyGoneEvent(event));
+    unawaited(applyClearEvent(event));
   });
   unawaited(() async {
     final folded = await service.deviceSyncState();
@@ -663,4 +716,5 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.onMessageStored = null;
   messaging.onMessageStatusChanged = null;
   messaging.onMessageDeleted = null;
+  messaging.onConversationCleared = null;
 }
