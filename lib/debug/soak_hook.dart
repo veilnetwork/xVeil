@@ -7309,6 +7309,11 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'knownPeerEndpoints': svc?.knownEndpoints(peer).length ?? 0,
       if (transport is VeilFlutterTransport)
         'bindings': {
+          // Whether this device opened the inbox a SIBLING can address. Its
+          // absence is otherwise visible only as latency, and latency is the
+          // one thing this must not be judged by — the spread of a single
+          // mirror sample was measured at 33-246 s.
+          'siblingInbox': transport.debugHasSiblingInbox,
           'chatMatchesIdentity': transport.debugChatBindingMatches,
           'chatEndpoint': transport.debugChatEndpointId,
           'realtimeMatchesIdentity': transport.debugRealtimeBindingMatches,
