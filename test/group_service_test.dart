@@ -4352,6 +4352,55 @@ void main() {
         (await pairOwner.addressableOwnDevices()).map((n) => n.hex),
         isNot(contains(sovereign.nodeId.hex)),
       );
+
+      // AND THE PULL LEG, which is the other half of the same conversation.
+      //
+      // Everything above is the PUSH: what this device sends when it has
+      // something to say. Anti-entropy is what asks "what am I MISSING", and
+      // it is the only thing that can heal a row the sender's outbox gave up
+      // on. Its scan dropped the owner unconditionally too, so on a linked
+      // device the list was empty and it asked NOBODY, ever.
+      //
+      // Measured on the two-device stand (2026-09-21): across two sessions the
+      // master issued sync requests and the linked device answered every one,
+      // while the linked device issued NOT ONE. Two rows the master held never
+      // arrived; the master's outbox retired them as delivered and its queue
+      // went to zero, so nothing was left that would ever try again — the
+      // linked device sat at 20 rows against the master's 22, permanently.
+      addressed.clear();
+      expect(
+        await linked.nudgeGroupSync(NodeId.fromHex(pairGid)),
+        greaterThan(0),
+        reason: 'a linked device that asks nobody can never catch up',
+      );
+      expect(
+        addressed.map((n) => n.hex),
+        contains(sovereign.nodeId.hex),
+        reason:
+            'the owner is the only party a linked device has, and the '
+            'anti-entropy scan dropped it',
+      );
+
+      // CONTROL: the owner must still not ask ITSELF. It addresses its linked
+      // device and nothing else — a request fanned at our own identity is a
+      // round trip to nowhere that also looks like healthy traffic.
+      final ownerAsked = <NodeId>[];
+      final pairOwner2 = GroupService(
+        s3,
+        _FakeSigner(owner),
+        send: (p, g, j) async => ownerAsked.add(p),
+      );
+      await pairOwner2.nudgeGroupSync(NodeId.fromHex(pairGid));
+      expect(
+        ownerAsked.map((n) => n.hex),
+        isNot(contains(sovereign.nodeId.hex)),
+        reason: 'the master asked its own identity to reconcile with itself',
+      );
+      expect(
+        ownerAsked.map((n) => n.hex),
+        contains(bob.hex),
+        reason: 'the owner must still reach its linked device',
+      );
     }
 
     // Revoke removes the device and rotates the epoch.
