@@ -234,9 +234,31 @@ extension _MessagingInboundDispatch on MessagingService {
         // (measured live 2026-08-17: five serves stuck at N-1/N chunks
         // each). Re-consuming is idempotent by construction: a duplicate
         // index returns early, the caps still bound the buffers.
+        //
+        // A CONTENT REQUEST is the same shape, one layer up, and it was not on
+        // this list. Its frame id is `creq:<contentId>` — stable per content,
+        // deliberately, so however often the re-request timer fires the outbox
+        // holds one row. The consequence was that the SECOND request for a
+        // content id, and every request after it, was dropped here as a
+        // duplicate and merely re-acked: a transfer that lost a chunk could
+        // never ask again, and the file became permanently undownloadable
+        // while both sides reported health.
+        //
+        // Measured on the four-device stand (2026-09-21): a 40 KB file sent to
+        // an identity was served once, 3 of its 10 chunks arrived, and the 43
+        // and 32 retries the two devices made were answered with
+        // `re-ack … already stashed` instead of bytes. An image behaved
+        // identically once its first request had been spent — the sender could
+        // still serve it and simply was not asked to.
+        //
+        // Serving is a READ. Re-serving the same request sends the same bytes
+        // to the peer that asked for them, which is the whole point of the
+        // retry; nothing is stored, nothing is consumed, and the requester
+        // only asks while it is still missing chunks.
         final reprocessSafely =
             env.kind == WireKind.groupEntryChunk ||
-            env.kind == WireKind.cloudDocumentChunk;
+            env.kind == WireKind.cloudDocumentChunk ||
+            env.kind == WireKind.pieceRequest;
         if (!_outbox.remember(m.src.hex, fid) && !reprocessSafely) {
           // A re-drive of a frame this device already took. Ordinary — except
           // when the first take DID NOT achieve what it was for, which is
