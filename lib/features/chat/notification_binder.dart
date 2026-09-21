@@ -11,6 +11,7 @@ import '../../domain/group_policy.dart';
 import '../../domain/space_recommendation.dart';
 import '../../domain/space_post.dart';
 import '../../domain/space_public_discussion.dart';
+import '../../domain/clear_request.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
 import '../../state/group_service_providers.dart';
@@ -66,6 +67,13 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   StreamSubscription<({NodeId spaceId, SpacePublicCommentView comment})>?
   _publicSpaceCommentSub;
   ProviderSubscription<GroupService?>? _groupServiceListener;
+  ProviderSubscription<AsyncValue<List<PendingClearRequest>>>?
+  _clearRequestListener;
+
+  /// The requests already alerted for, so a list that merely RE-EMITS — every
+  /// service signal rebuilds it — does not re-announce a question the person
+  /// has already been shown. Cleared on identity switch with everything else.
+  final Set<String> _announcedClearRequests = {};
   final Map<
     String,
     ({
@@ -109,6 +117,16 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         groupServiceProvider,
         (_, next) => _subscribeGroups(next),
       );
+      // A request to EMPTY a conversation, waiting for an answer. Without an
+      // alert it is only found by opening settings, and a question nobody is
+      // shown is the same as one declined for them — which is exactly what the
+      // "ask me" policy exists to avoid.
+      _clearRequestListener =
+          ref.listenManual<AsyncValue<List<PendingClearRequest>>>(
+            pendingClearRequestsProvider,
+            (_, next) => unawaited(_onClearRequests(next.value ?? const [])),
+            fireImmediately: true,
+          );
     });
   }
 
@@ -118,6 +136,10 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // a notice that arrived under A and was still resolving mentions kept its
     // ticket and finished under B.
     _notificationGeneration++;
+    // The requests belong to the identity that was on screen, and the list is
+    // rebuilt for the new one — so the memory of what has been announced goes
+    // with the old identity rather than suppressing the new one's questions.
+    _announcedClearRequests.clear();
     _sub?.cancel();
     _sub = service.incoming.listen(_onIncoming);
   }
@@ -853,6 +875,46 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   /// Post the single latest-message notification. Every conversation reuses the
   /// same OS id, so mailbox replay and background bursts replace rather than
   /// stack alerts. Honours the hidden/full preview.
+  /// Announce requests that have not been announced yet.
+  ///
+  /// The list re-emits on every service signal, so the set of keys already
+  /// announced is what keeps one question to one alert. Nothing about WHICH
+  /// chat was asked about reaches the OS: the alert opens the list, and a
+  /// payload naming a conversation would leave that name in the system
+  /// notification database, outside the volume — the same reason a hidden
+  /// message preview mints an opaque token instead of the conversation id.
+  Future<void> _onClearRequests(List<PendingClearRequest> requests) async {
+    if (!mounted) return;
+    final live = {for (final request in requests) request.key};
+    // Answered or expired questions stop being owed an alert, so a LATER
+    // request from the same chat is announced again rather than swallowed.
+    _announcedClearRequests.removeWhere((key) => !live.contains(key));
+    final fresh = [
+      for (final request in requests)
+        if (!_announcedClearRequests.contains(request.key)) request,
+    ];
+    if (fresh.isEmpty) return;
+    final generation = _notificationGeneration;
+    if (!ref.read(notificationSettingsProvider).enabled) return;
+    final l = AppL10n.of(context);
+    final posted = await ref
+        .read(notificationServiceProvider)
+        .show(
+          id: kNotificationIdClearRequests,
+          title: l.clearRequestsNotificationTitle,
+          body: l.clearRequestsNotificationBody(live.length),
+          payload: kNotificationPayloadClearRequests,
+        );
+    if (!posted) return;
+    if (generation != _notificationGeneration) {
+      unawaited(
+        ref.read(notificationServiceProvider).cancel(kNotificationIdClearRequests),
+      );
+      return;
+    }
+    _announcedClearRequests.addAll(fresh.map((request) => request.key));
+  }
+
   Future<void> _show({
     required String convHex,
     required String? name,
@@ -940,6 +1002,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     WidgetsBinding.instance.removeObserver(this);
     _serviceListener?.close();
     _groupServiceListener?.close();
+    _clearRequestListener?.close();
     _sub?.cancel();
     _groupSub?.cancel();
     _spaceCommentSub?.cancel();
