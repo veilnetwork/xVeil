@@ -339,6 +339,18 @@ class MailboxOrchestrator {
   /// Mirrors the relay's own cap on the hint.
   static const _maxSkipPerFetch = 64;
 
+  /// Every content id this device already knows it cannot open, as hex.
+  ///
+  /// Uncapped on purpose: this governs LOCAL work, not the request body, and
+  /// the whole point is that the capped hint leaves the rest to be collected
+  /// again and again. Permanent quarantine only — a blob inside a TRANSIENT
+  /// back-off is one we expect to open later, and refusing to collect it would
+  /// turn a delay into a refusal.
+  Future<Set<String>> _neverCollectContentIds() async => {
+    ..._openFailedOnce,
+    ...(await _poisoned?.quarantinedCids() ?? const <String>[]),
+  };
+
   static Uint8List _unhex(String hex) => Uint8List.fromList([
     for (var i = 0; i + 1 < hex.length; i += 2)
       int.parse(hex.substring(i, i + 2), radix: 16),
@@ -480,6 +492,18 @@ class MailboxOrchestrator {
         authCookie: authCookie,
         knownRelays: knownRelays,
         skip: await _setAsideContentIds(),
+        // THE SAME KNOWLEDGE, UNCAPPED, for the decision that is ours alone.
+        //
+        // The hint above is what the relay is TOLD, and the wire caps it at
+        // [_maxSkipPerFetch]. Everything past that cap is announced again on
+        // every pass — and an ANNOUNCED blob is fetched window by window before
+        // anything can look at it, so the drain paid seconds of network to
+        // reach a failure it had already predicted. Measured on the stand
+        // (2026-09-21): 272 unopenable ids against a 64-slot hint, 626
+        // collections of 464 blobs, one of them 66 times in an hour, inside a
+        // single drain pass that ran fourteen minutes and blocked every
+        // arrival behind it.
+        neverCollect: await _neverCollectContentIds(),
       );
       cost.fetchMs += fetchSw.elapsedMilliseconds;
       // A call may have started while the native FETCH was in flight. Leave

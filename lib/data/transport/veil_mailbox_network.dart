@@ -674,6 +674,7 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     required Uint8List authCookie, // ignored — verified identity is the auth
     List<NodeId> knownRelays = const [],
     List<Uint8List> skip = const [],
+    Set<String> neverCollect = const {},
   }) async {
     // Built once for the whole pass: every relay is asked the same question,
     // and an empty list encodes to an empty body — byte-for-byte what this
@@ -1001,6 +1002,22 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
       for (final b in aggregated) {
         if (b.blob.isNotEmpty) {
           filled.add(b);
+          continue;
+        }
+        // ALREADY KNOWN TO BE UNOPENABLE — do not pay for it.
+        //
+        // An announced blob is fetched window by window before anything can
+        // look at it, so this is seconds of network per blob, and the relay's
+        // skip hint cannot carry more than the wire allows. Everything past
+        // that cap was announced again on every pass and collected again on
+        // every pass.
+        if (neverCollect.contains(NodeId(b.contentId).hex)) {
+          devLog(
+            () =>
+                'xVeil[drain]: announced blob '
+                '${NodeId(b.contentId).short} left alone — this device already '
+                'knows it cannot open it',
+          );
           continue;
         }
         final why = <String>[];
