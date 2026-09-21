@@ -467,7 +467,7 @@ extension _MessagingInboundDispatch on MessagingService {
             );
             // Scope by the sender's conversation (m.src.hex) so the status can
             // only land on a message that lives in THIS peer's chat.
-            await _storage.markMessageStatus(
+            final moved = await _storage.markMessageStatus(
               m.src.hex,
               ackId,
               MessageStatus.delivered,
@@ -476,11 +476,21 @@ extension _MessagingInboundDispatch on MessagingService {
             // its acknowledgement to whoever it was talking to, and that is
             // this device alone; a sibling holds the mirrored copy at the
             // status it was stored with and would sit on one tick forever.
-            onMessageStatusChanged?.call(
-              m.src,
-              ackId,
-              MessageStatus.delivered,
-            );
+            //
+            // Only when the status actually MOVED. An ack names a FRAME id,
+            // and most durable frames are not messages — an unsend, an edit, a
+            // clear, a content request. Storage already refuses to write a
+            // status for an id that names no message here, and announcing one
+            // anyway put a row in the device-group fold per control frame the
+            // peer ever acknowledged, keyed by something no device can ever
+            // apply it to. Seen on the stand as `msgStatus|del:<id>`.
+            if (moved) {
+              onMessageStatusChanged?.call(
+                m.src,
+                ackId,
+                MessageStatus.delivered,
+              );
+            }
             // The recipient says it STORED this — the ack is sent after the
             // write, not on receipt. That is what lets the mailbox deposit be
             // skipped: a relay copy of something already on the recipient's
