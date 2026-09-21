@@ -409,6 +409,34 @@ void _announcedCollectionBudget() {
       expect(picked, {hex(1), hex(2)});
     });
 
+    /// THE NUMBER THIS BUILD ACTUALLY SHIPS, and the measurement behind it.
+    ///
+    /// The tests above pass whatever budget they like, so none of them would
+    /// notice the shipped one changing. It is small because the collecting
+    /// happens before anything is handed up.
+    ///
+    /// RAISING IT WAS TRIED AND MEASURED. On the device-sync path every row is
+    /// an announced blob — a blob carries one ML-KEM envelope per recipient
+    /// DEVICE, so a delta carrying one tiny event weighs about 9.9 KB, above
+    /// the 5632-byte reply budget. On a cleaned two-device stand a mirror
+    /// arrived 169 s behind its message; with the budget at 16 and an
+    /// 8-second deadline on the collecting phase the same measurement gave
+    /// 191 s, the deadline reached on every pass and the announced count
+    /// unchanged around 70. No improvement, so it went back.
+    ///
+    /// The guard keeps it SMALL, which is the property the measurement
+    /// supports: a bigger walk before the hand-up is latency for everything
+    /// sharing the batch, and it buys nothing.
+    test('the shipped budget stays small', () {
+      expect(
+        VeilNetworkMailboxRelay.announcedBudgetPerPass,
+        inInclusiveRange(1, 4),
+        reason:
+            'a pass hands up nothing until it stops collecting, and a bigger '
+            'budget was measured to buy no latency at all',
+      );
+    });
+
     /// CONTROL. A blob left out is left UNACKED, so the next pass asks again —
     /// this is a deferral, not a refusal, and the budget must not be zero.
     test('the budget is not zero', () {
