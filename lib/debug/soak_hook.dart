@@ -4978,12 +4978,29 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final peer = req.uri.queryParameters['peer'];
     if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
     final id = NodeId.fromHex(peer);
-    final before = (await ref.read(storageProvider).loadMessages(peer)).length;
+    final storage = ref.read(storageProvider);
+    final before = await storage.loadMessages(peer);
+    // The WATERMARK, because that is the whole of what travels. A clear that
+    // empties this device and leaves the peer full is indistinguishable from a
+    // clear that never arrived unless the watermark can be read.
+    final sync = await storage.conversationSync(peer);
     await ref.read(messagingServiceProvider).clearConversation(id);
     return _json(req, {
       'ok': true,
-      'before': before,
-      'after': (await ref.read(storageProvider).loadMessages(peer)).length,
+      'before': before.length,
+      'after': (await storage.loadMessages(peer)).length,
+      'highWater': sync.highWater,
+      'rows': [
+        for (final m in before.take(6))
+          {
+            'id': m.id.length > 8 ? m.id.substring(0, 8) : m.id,
+            'dir': m.direction.name,
+            'author': m.author == null
+                ? null
+                : (m.author!.length > 8 ? m.author!.substring(0, 8) : m.author),
+            'seq': m.seq,
+          },
+      ],
     });
   }
 
