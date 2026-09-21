@@ -299,6 +299,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   };
   // A revoked device stops owing state, so stop holding it for it.
   service.onMemberRevoked = (device) => messaging.dropPendingFramesFor(device);
+  // The name a PEER knows this identity by. The messaging layer's own
+  // `_selfHex()` is the DEVICE it runs on, and for a sovereign identity with
+  // more than one device those are different strings — which is why a peer's
+  // acknowledgement of our stream, keyed by the identity, was never found.
+  messaging.selfIdentityHex = () async => service.selfId.hex;
   messaging.groupBindingsOwner = service;
   unawaited(service.nudgeGroupSyncAll());
 
@@ -764,4 +769,5 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.onMessageDeleted = null;
   messaging.onMessageEdited = null;
   messaging.onConversationCleared = null;
+  messaging.selfIdentityHex = null;
 }
