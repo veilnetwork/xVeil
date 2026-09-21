@@ -1178,6 +1178,72 @@ void main() {
       },
     );
 
+    /// THE HINT IS CAPPED; WHAT THIS DEVICE KNOWS IS NOT.
+    ///
+    /// The relay is told at most [_maxSkipPerFetch] ids, because that is what
+    /// the request body carries. Everything past the cap is announced again on
+    /// every pass — and an ANNOUNCED blob is fetched window by window BEFORE
+    /// anything can look at it, so the drain paid seconds of network per blob
+    /// to reach a failure it had already predicted.
+    ///
+    /// Measured on the stand (2026-09-21): a device held 272 unopenable ids
+    /// against a 64-slot hint. It made 626 slice-collections of 464 blobs, one
+    /// of them 66 times in an hour, inside a SINGLE drain pass that ran for
+    /// fourteen minutes — and while a pass is running no other can start, so
+    /// every arrival queued behind it. The device looked healthy and received
+    /// nothing at all.
+    test('what the relay is TOLD is capped; what we refuse to collect is not', () async {
+      const junk = 80; // comfortably past the wire cap
+      final relay = _RecordingRelay();
+      final orch = MailboxOrchestrator(
+        _NeverOpens(senderForOpen: peer),
+        relay,
+        poisoned: freshRegistry(),
+      );
+      for (var i = 0; i < junk; i++) {
+        await orch.stash(
+          me: peer,
+          recipient: me,
+          appId: _appId(0xAA),
+          endpointId: 9,
+          data: Uint8List.fromList([i & 0xff]),
+          contentId: _cid(i),
+        );
+      }
+
+      // First pass: every blob fails to open PERMANENTLY, so the device now
+      // knows all 80 ids the way it learns them in life.
+      await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
+      relay.calls.clear();
+      // Second pass: what does it say, and what does it keep to itself?
+      await orch.drain(
+        me: me,
+        authCookie: cookie,
+        ourCertVersion: 1,
+        alreadyHave: never,
+      );
+
+      expect(relay.calls, isNotEmpty, reason: 'the drain did not fetch at all');
+      final first = relay.calls.first;
+      expect(
+        first.skip.length,
+        lessThanOrEqualTo(64),
+        reason: 'the hint must stay inside what the request body carries',
+      );
+      expect(
+        first.neverCollect.length,
+        junk,
+        reason:
+            'the collector was handed the CAPPED list, so every id past the '
+            'cap is collected window by window again on every pass',
+      );
+    });
+
     test(
       'quarantine is FIFO-capped so junk deposits cannot grow the registry',
       () async {
@@ -1514,14 +1580,20 @@ class _SkipHonouringRelay extends InMemoryMailboxRelay {
   /// the expensive way", which is the whole question for a fresh session.
   final asksPerFetch = <Set<String>>[];
 
+  /// What the caller said it will not COLLECT, per fetch. Separate from the
+  /// hint because the hint is capped by the wire and this is not.
+  final neverCollectPerFetch = <Set<String>>[];
+
   @override
   Future<List<StoredMailboxBlob>> fetch({
     required NodeId me,
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
     List<Uint8List> skip = const [],
+    Set<String> neverCollect = const {},
   }) async {
     asksPerFetch.add({for (final s in skip) _hex(s)});
+    neverCollectPerFetch.add({...neverCollect});
     for (final s in skip) {
       asked.add(_hex(s));
     }
@@ -1551,6 +1623,7 @@ class _OneBlobPerFetchRelay extends InMemoryMailboxRelay {
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
     List<Uint8List> skip = const [],
+    Set<String> neverCollect = const {},
   }) async {
     fetchCalls++;
     // DEAF TO THE HINT on purpose: this models a relay that ignores `skip`,
@@ -1575,4 +1648,41 @@ class _AckIgnoringOneBlobRelay extends _OneBlobPerFetchRelay {
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
   }) async {}
+}
+
+/// Records exactly what each fetch was told, and serves everything it holds.
+class _RecordingRelay extends InMemoryMailboxRelay {
+  final calls = <({Set<String> skip, Set<String> neverCollect})>[];
+
+  @override
+  Future<List<StoredMailboxBlob>> fetch({
+    required NodeId me,
+    required Uint8List authCookie,
+    List<NodeId> knownRelays = const [],
+    List<Uint8List> skip = const [],
+    Set<String> neverCollect = const {},
+  }) async {
+    calls.add((
+      skip: {for (final s in skip) _hexOf(s)},
+      neverCollect: {...neverCollect},
+    ));
+    return super.fetch(
+      me: me,
+      authCookie: authCookie,
+      knownRelays: knownRelays,
+      skip: skip,
+    );
+  }
+}
+
+/// Every open fails, and fails PERMANENTLY — the classifier reads "timeout"
+/// and "PeerUnresolved" as transient, so this says neither.
+class _NeverOpens extends LoopbackMailboxCrypto {
+  _NeverOpens({super.senderForOpen});
+
+  @override
+  Future<OpenedMailboxMessage> open({
+    required Uint8List blob,
+    required int ourCertVersion,
+  }) async => throw StateError('AEAD tag mismatch');
 }
