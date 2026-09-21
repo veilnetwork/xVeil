@@ -388,6 +388,44 @@ class MessagingService {
     required String msgId,
   }) => _deviceMirror.applyDelete(peer: peer, msgId: msgId);
 
+  /// Receives a conversation cleared HERE, for projection to the other devices.
+  void Function(
+    NodeId peer,
+    String author,
+    int seq,
+    Map<String, int> wm,
+    int atMs,
+  )?
+  get onConversationCleared => _deviceMirror.onConversationCleared;
+
+  set onConversationCleared(
+    void Function(
+      NodeId peer,
+      String author,
+      int seq,
+      Map<String, int> wm,
+      int atMs,
+    )?
+    callback,
+  ) {
+    _deviceMirror.onConversationCleared = callback;
+  }
+
+  /// Empty a conversation because one of this identity's other devices did.
+  Future<void> applyMirroredClear({
+    required NodeId peer,
+    required String author,
+    required int seq,
+    required Map<String, int> watermark,
+    required int atMs,
+  }) => _deviceMirror.applyClear(
+    peer: peer,
+    author: author,
+    seq: seq,
+    watermark: watermark,
+    atMs: atMs,
+  );
+
   /// Idempotently project a message received from another local device.
   /// Move a MIRRORED message on to the status a sibling reports.
   ///

@@ -990,6 +990,227 @@ void main() {
     });
   });
 
+  /// CLEARING A CONVERSATION IS THE SAME DECISION, ONE SCALE UP.
+  ///
+  /// Measured on the two-device stand (2026-09-21): cleared on one device,
+  /// 50 messages there went to 0, and the other device still showed all 50.
+  ///
+  /// Two sentences in the codebase had already said where this belonged —
+  /// `emitClearConversation` ("the peer, or, once multi-device lands, the
+  /// author's own") and the wire handler for a peer's clear. The epic landed
+  /// and neither was finished.
+  group('clearing a conversation clears it on my other devices', () {
+    test('clearing raises the event that carries the watermark', () async {
+      await mA.acceptContact(b);
+      await mA.sendText(b, 'one');
+      await mA.sendText(b, 'two');
+
+      final cleared =
+          <({String peer, String author, int seq, Map<String, int> wm})>[];
+      mA.onConversationCleared = (peer, author, seq, wm, atMs) =>
+          cleared.add((peer: peer.hex, author: author, seq: seq, wm: wm));
+      addTearDown(() => mA.onConversationCleared = null);
+
+      await mA.clearConversation(b);
+      await pumpEventQueue();
+
+      expect(
+        await sA.loadMessages(b.hex),
+        isEmpty,
+        reason: 'the premise: it is empty on THIS device',
+      );
+      expect(
+        cleared.map((c) => c.peer),
+        contains(b.hex),
+        reason:
+            'this device emptied the conversation and told nobody, so my '
+            'other device still shows every message',
+      );
+      expect(
+        cleared.single.author,
+        isNotEmpty,
+        reason: 'the watermark is worthless without the author it belongs to',
+      );
+    });
+
+    /// THE CRUX, and not the reason it first looked like. A clear travels as a
+    /// per-author seq watermark, and the applier DROPS every key that is
+    /// neither the author nor ourselves — a rule written for a peer's clear,
+    /// where the dropped key is a stranger. When the author is our own
+    /// identity, the dropped key is THE PEER, which is half the conversation,
+    /// so a sibling applied a clear that reached only its own outgoing rows.
+    test('a sibling\'s clear empties the peer\'s half too', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'mirrored-1',
+        direction: MessageDirection.incoming,
+        body: 'from before the clear',
+        tsMs: DateTime.now().millisecondsSinceEpoch - 5000,
+      );
+      await pumpEventQueue();
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        contains('mirrored-1'),
+        reason: 'the premise: the mirror landed',
+      );
+
+      await mA.applyMirroredClear(
+        peer: b,
+        author: a.hex,
+        seq: 1,
+        watermark: {a.hex: 99},
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('mirrored-1')),
+        reason:
+            'the watermark named the peer and the applier threw that key away, '
+            'so the clear reached only our own half of the conversation',
+      );
+      // HIDDEN IS NOT ERASED, and this whole design exists for the difference:
+      // a clear that only stops `loadMessages` listing a row leaves its
+      // plaintext in a container that opens under coercion. A tombstone is what
+      // the scrub writes, and it is the only thing that tells the two apart
+      // from outside. Without this line the guard passed with the scrub's own
+      // bound removed.
+      expect(
+        await sA.isMessageDeleted(b.hex, 'mirrored-1'),
+        isTrue,
+        reason:
+            'the row was hidden by the watermark and its plaintext was left '
+            'in the container',
+      );
+    });
+
+    /// CONTROL. A clear erases what was there, not what comes next — otherwise
+    /// the conversation goes mute and nothing says why.
+    test('a message newer than the clear survives it', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredClear(
+        peer: b,
+        author: a.hex,
+        seq: 1,
+        watermark: {a.hex: 99},
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'after-the-clear',
+        direction: MessageDirection.incoming,
+        body: 'sent afterwards',
+        tsMs: DateTime.now().millisecondsSinceEpoch + 5000,
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        contains('after-the-clear'),
+        reason: 'the clear swallowed a message that came after it',
+      );
+    });
+
+    /// A mirror travels the device group, which on a loaded stand runs minutes
+    /// behind. So the ordinary case is the message arriving AFTER the clear
+    /// that covers it — and a per-message tombstone cannot catch a row nobody
+    /// has seen yet. That is what the watermark is for.
+    test('a mirror from before the clear does not come back', () async {
+      await mA.acceptContact(b);
+      final before = DateTime.now().millisecondsSinceEpoch - 5000;
+
+      await mA.applyMirroredClear(
+        peer: b,
+        author: a.hex,
+        seq: 1,
+        watermark: {a.hex: 99},
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'late-mirror',
+        direction: MessageDirection.incoming,
+        body: 'written before the clear, delivered after it',
+        tsMs: before,
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('late-mirror')),
+        reason:
+            'a message from before the clear reappeared on a screen the '
+            'person had just emptied',
+      );
+    });
+
+    /// THE SILENT LOSS THIS NEARLY SHIPPED WITH.
+    ///
+    /// The bound is the moment the clear HAPPENED, and it travels with it. Bind
+    /// by the applying device's own clock instead — the first version of this
+    /// fix did — and everything that arrived while the clear was in flight goes
+    /// too. On the stand that window is minutes, and what is in it is messages
+    /// sent AFTER the clear, which it has no business touching.
+    test('a message that arrived while the clear travelled survives', () async {
+      await mA.acceptContact(b);
+      final clearedAt = DateTime.now().millisecondsSinceEpoch - 600000;
+
+      // Sent after that clear, and here before the clear itself caught up.
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'in-the-window',
+        direction: MessageDirection.incoming,
+        body: 'sent after the clear, arrived before it',
+        tsMs: clearedAt + 1000,
+      );
+      await pumpEventQueue();
+
+      await mA.applyMirroredClear(
+        peer: b,
+        author: a.hex,
+        seq: 1,
+        watermark: {a.hex: 99},
+        atMs: clearedAt,
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        contains('in-the-window'),
+        reason:
+            'the clear was bounded by THIS device\'s clock, so it swallowed '
+            'ten minutes of messages it never covered',
+      );
+    });
+
+    /// CONTROL. A clear applied FROM a sibling must not be announced back, or
+    /// two devices trade the same clear forever.
+    test('a clear applied from a sibling is not announced back', () async {
+      await mA.acceptContact(b);
+      final announced = <String>[];
+      mA.onConversationCleared = (peer, author, seq, wm, atMs) =>
+          announced.add(peer.hex);
+      addTearDown(() => mA.onConversationCleared = null);
+
+      await mA.applyMirroredClear(
+        peer: b,
+        author: a.hex,
+        seq: 1,
+        watermark: {a.hex: 99},
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      expect(announced, isEmpty);
+    });
+  });
+
   /// A BLOCK IS A DECISION, AND A SIBLING DOES NOT OVERRULE IT.
   ///
   /// Measured on the two-device stand (2026-09-21): the contact was blocked on
