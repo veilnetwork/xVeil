@@ -54,6 +54,22 @@ class _MessagingConversationAdmin {
     _owner._signal();
   }
 
+  /// Whose request to EMPTY this conversation this device will honour.
+  ///
+  /// Distinct from [setContactAllowPeerDelete], which keeps its own job of
+  /// gating a single-message unsend — "ask me" is a sensible answer to "erase
+  /// this whole conversation" and an unbearable one to "take back this
+  /// message", where it would mean a prompt per message.
+  Future<void> setContactClearPolicy(
+    NodeId peer,
+    ClearRequestPolicy policy,
+  ) async {
+    final existing = await _owner._storage.getContact(peer);
+    if (existing == null) return;
+    await _owner._putContactPrefs(existing.copyWith(clearPolicy: policy));
+    _owner._signal();
+  }
+
   Future<void> setContactP2POverride(
     NodeId peer,
     ContactP2POverride value,

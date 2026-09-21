@@ -1443,7 +1443,7 @@
   "contactP2PDeny": "Denegar",
   "contactP2PHint": "Permitir hace que los mensajes y las llamadas con este contacto tomen una ruta directa: mucho más rápido, y le muestra tu dirección IP. Cualquier otra opción mantiene la conversación por la ruta de relés. Los mensajes se entregan igualmente.",
   "chatMenuAllowPeerDelete": "Dejar que este contacto borre en mi dispositivo",
-  "chatMenuAllowPeerDeleteHint": "Si está activado, cuando retire un mensaje o limpie el historial también se borrará tu copia. Desactivado, conservas tus copias aunque borre para todos.",
+  "chatMenuAllowPeerDeleteHint": "Cuando está activado, su retirada elimina también tu copia de ese mensaje. Borrar un chat entero es un ajuste aparte.",
   "chatMenuUnblock": "Desbloquear",
   "chatMenuClearHistory": "Limpiar el historial",
   "chatMenuDeleteConversation": "Eliminar la conversación",
@@ -3091,5 +3091,14 @@
   "clearRequestsKeep": "Conservar",
   "clearRequestsErase": "Borrar",
   "clearRequestsConfirmTitle": "¿Borrar los mensajes de este chat?",
-  "clearRequestsConfirmBody": "Todos los mensajes de ese chat se borran aquí y en tus otros dispositivos. No se puede deshacer."
+  "clearRequestsConfirmBody": "Todos los mensajes de ese chat se borran aquí y en tus otros dispositivos. No se puede deshacer.",
+  "chatMenuClearPolicy": "Quién puede borrar este chat en mi dispositivo",
+  "clearPolicyAnyone": "Cualquiera del chat",
+  "clearPolicyAdmins": "Solo un administrador",
+  "clearPolicyAsk": "Preguntarme cada vez",
+  "clearPolicyNever": "Nadie",
+  "clearPolicyHint": "Borrar el historial es una solicitud, y esto es tu respuesta. Tu propio borrado se aplica aquí y en tus otros dispositivos siempre, elijas lo que elijas. Un chat 1:1 no tiene administradores, así que \"solo un administrador\" rechaza.",
+  "clearRequestsNotificationTitle": "Alguien pide borrar un chat",
+  "clearRequestsNotificationBody": "{count, plural, =1{Un chat espera tu respuesta. No se ha borrado nada.} other{{count} chats esperan tu respuesta. No se ha borrado nada.}}",
+  "@clearRequestsNotificationBody": {"placeholders": {"count": {"type": "int"}}}
 }

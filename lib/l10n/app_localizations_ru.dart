@@ -3436,7 +3436,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatMenuAllowPeerDeleteHint =>
-      'Когда включено, его удаление или очистка убирают и вашу копию. Выключено — ваши копии остаются, даже если он удалил у всех.';
+      'Когда включено, их отзыв убирает и вашу копию того сообщения. Очистка всего чата — отдельная настройка.';
 
   @override
   String get chatMenuUnblock => 'Разблокировать';
@@ -7580,4 +7580,39 @@ class AppL10nRu extends AppL10n {
   @override
   String get clearRequestsConfirmBody =>
       'Все сообщения этого чата будут стёрты здесь и на ваших других устройствах. Отменить нельзя.';
+
+  @override
+  String get chatMenuClearPolicy => 'Кто может очистить этот чат у меня';
+
+  @override
+  String get clearPolicyAnyone => 'Любой участник';
+
+  @override
+  String get clearPolicyAdmins => 'Только администратор';
+
+  @override
+  String get clearPolicyAsk => 'Спрашивать каждый раз';
+
+  @override
+  String get clearPolicyNever => 'Никто';
+
+  @override
+  String get clearPolicyHint =>
+      'Очистка истории — это запрос, а здесь ваш ответ на него. Ваша собственная очистка применяется здесь и на ваших устройствах всегда, что бы вы ни выбрали. В разговоре один на один администраторов нет, поэтому «только администратор» означает отказ.';
+
+  @override
+  String get clearRequestsNotificationTitle => 'Просят очистить чат';
+
+  @override
+  String clearRequestsNotificationBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count чата ждут вашего ответа. Ничего не стёрто.',
+      many: '$count чатов ждут вашего ответа. Ничего не стёрто.',
+      few: '$count чата ждут вашего ответа. Ничего не стёрто.',
+      one: 'Один чат ждёт вашего ответа. Ничего не стёрто.',
+    );
+    return '$_temp0';
+  }
 }

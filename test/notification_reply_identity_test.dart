@@ -146,14 +146,27 @@ void main() {
       expectBefore(source, 'mayReplyAs(payload, active)', 'svc.postMessage(');
     });
 
-    test('and every notification records whose it is', () {
+    test('and every REPLIABLE notification records whose it is', () {
       final source = File(
         'lib/features/chat/notification_binder.dart',
       ).readAsStringSync();
 
-      expectBefore(source, 'notificationOwnersProvider', '.show(');
+      // SCOPED TO THE ALERT THAT CAN BE REPLIED TO, which is what the owner
+      // record is for. It used to look at the first `.show(` anywhere in the
+      // file, and that held only while every alert here carried an inline
+      // reply. One that cannot — the request to erase a conversation, whose
+      // only answers are yes and no and whose yes is irreversible — reddened
+      // this by being written above rather than by being wrong.
+      //
+      // So the window is the method that posts the repliable alert, and the
+      // rule inside it is unchanged: look the owner up before posting.
+      final show = source.indexOf('Future<void> _show({');
+      expect(show, greaterThan(-1), reason: 'the repliable alert moved');
+      final body = source.substring(show);
+
+      expectBefore(body, 'notificationOwnersProvider', '.show(');
       expect(
-        source,
+        body,
         contains('owners.remember(convHex,'),
         reason: 'nothing records the owner, so every reply is unattributable',
       );
@@ -169,13 +182,17 @@ void main() {
         'lib/features/chat/notification_binder.dart',
       ).readAsStringSync();
 
-      expectBefore(source, '.show(', 'owners.remember(convHex,');
+      // Same window as above, and for the same reason.
+      final show = source.indexOf('Future<void> _show({');
+      expect(show, greaterThan(-1), reason: 'the repliable alert moved');
+      final body = source.substring(show);
+      expectBefore(body, '.show(', 'owners.remember(convHex,');
       // The shape moved when the post gained an identity check (XV-N1): a
       // failed post now returns early rather than guarding one statement.
       // What must hold is the same either way — nothing between the post and
       // the record may run when the post did not happen.
-      final at = source.indexOf('owners.remember(convHex,');
-      final between = source.substring(source.indexOf('.show(', 0), at);
+      final at = body.indexOf('owners.remember(convHex,');
+      final between = body.substring(body.indexOf('.show(', 0), at);
       expect(
         RegExp(
           r'if \(!posted\) return;|if \(posted\) owners\.remember\(',

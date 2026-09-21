@@ -94,6 +94,22 @@ bool shouldNotifySpaceComment({
 /// latest conversation payload for tap/reply actions.
 int notificationIdForIncomingMessage(String _) => 0x78564d53; // "xVMS"
 
+/// The alert for requests to clear a conversation.
+///
+/// Its OWN id, so it neither replaces a message alert nor is replaced by one:
+/// these are different questions and the second is destructive, which is
+/// exactly the one that must not be quietly overwritten. Singular, like the
+/// message alert above — the list it opens carries the count.
+const int kNotificationIdClearRequests = 0x78564352; // "xVCR"
+
+/// The payload that opens the requests list.
+///
+/// A fixed token, carrying nothing about WHICH chat was asked about: the
+/// route is the same either way, and a payload naming a conversation would put
+/// that name in the system notification database, outside the volume, where a
+/// message alert is careful never to leave one (audit XV-03).
+const String kNotificationPayloadClearRequests = 'clear-requests';
+
 /// Maps the opaque notification payload to its in-app destination. Spaces are
 /// deliberately distinct from group chats: a publication alert opens the
 /// community publication surface, never `/group/...` or a direct chat.
@@ -111,6 +127,9 @@ String? notificationRouteForPayload(String? payload) {
     } catch (_) {
       return null;
     }
+  }
+  if (payload == kNotificationPayloadClearRequests) {
+    return '/settings/clear-requests';
   }
   if (payload.startsWith('space-comment:')) {
     final value = payload.substring('space-comment:'.length);
@@ -139,7 +158,11 @@ String notificationMentionPayload(String route) =>
 bool notificationPayloadSupportsReply(String payload) =>
     !payload.startsWith('space:') &&
     !payload.startsWith('space-comment:') &&
-    !payload.startsWith('mention:');
+    !payload.startsWith('mention:') &&
+    // Nor does a request to erase a conversation: the only answers it takes
+    // are yes and no, and yes is irreversible — neither belongs on a lock
+    // screen behind an inline text field.
+    payload != kNotificationPayloadClearRequests;
 
 /// Select the newest candidate without relying on storage/list sort order.
 /// Pinned chats, groups, and restored logs can all have different ordering.

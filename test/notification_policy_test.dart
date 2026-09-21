@@ -215,6 +215,41 @@ void main() {
       expect(notificationRouteForPayload('space-comment:abc'), isNull);
     });
 
+    /// A REQUEST TO ERASE A CONVERSATION, and the three things it must not do.
+    ///
+    /// Its own id, so a message alert neither replaces it nor is replaced by
+    /// it — of the two questions, the destructive one is the one that must not
+    /// be quietly overwritten. Its payload names no conversation, because a
+    /// payload that did would leave that name in the system notification
+    /// database, outside the volume, which is the very thing a hidden message
+    /// preview mints an opaque token to avoid. And no inline reply: the only
+    /// answers it takes are yes and no, and yes cannot be undone.
+    test('a clear request opens the list, names no chat, and cannot be '
+        'replied to', () {
+      expect(
+        notificationRouteForPayload(kNotificationPayloadClearRequests),
+        '/settings/clear-requests',
+      );
+      expect(
+        notificationPayloadSupportsReply(kNotificationPayloadClearRequests),
+        isFalse,
+      );
+      expect(
+        kNotificationPayloadClearRequests,
+        isNot(contains(':')),
+        reason:
+            'every other payload carries an id after a colon; this one must '
+            'carry nothing about which conversation was asked about',
+      );
+      expect(
+        kNotificationIdClearRequests,
+        isNot(notificationIdForIncomingMessage('anything')),
+        reason:
+            'sharing an id would let a message alert silently replace a '
+            'question about erasing one',
+      );
+    });
+
     test('group and direct chat routes retain inline reply support', () {
       expect(notificationRouteForPayload('group:def'), '/group/def');
       expect(notificationRouteForPayload('fedcba'), '/chat/fedcba');
