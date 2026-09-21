@@ -4411,6 +4411,133 @@ void main() {
     expect(after.epoch, greaterThan(epochBefore));
   });
 
+  /// A HOLE BENEATH THE HIGH-WATER MARK CANNOT BE SEEN, SO IT IS NEVER HEALED.
+  ///
+  /// A device group's rows are deliberately UNCHAINED — the log is a compacted
+  /// LWW state log, superseded rows are deleted on purpose, and a
+  /// seq-contiguity rule would read every legitimate compaction as a hole. The
+  /// cost is that `_acceptedMessageChain` accepts an unchained row THROUGH a
+  /// gap, so the sync frontier is a plain high-water mark.
+  ///
+  /// Measured on the two-device stand (2026-09-21): the linked device held 9 of
+  /// the master's 11 mirror rows, asked twice for what it was missing, and the
+  /// master answered `msgs=0` both times. The master's outbox had already
+  /// retired those rows as delivered and its queue was zero, so nothing else
+  /// would ever try. Both sides looked healthy and the two rows were gone for
+  /// good.
+  test('a device group sync fills a hole in the MIDDLE of a chain', () async {
+    Future<void> drain() async {
+      for (var i = 0; i < 6; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+    }
+
+    final s1 = FakeHvContainer().storage();
+    await s1.open(password: 'pw', createIfMissing: true);
+    final ownerSent = <({NodeId peer, String json})>[];
+    final master = GroupService(
+      s1,
+      _FakeSigner(owner),
+      send: (p, g, j) async => ownerSent.add((peer: p, json: j)),
+    );
+    expect(await master.linkDevice(bob, sovereign: sovereign), isTrue);
+    final gidHex = (await master.deviceGroupIdHex())!;
+    final gid = NodeId.fromHex(gidHex);
+    await drain();
+
+    final s2 = FakeHvContainer().storage();
+    await s2.open(password: 'pw', createIfMissing: true);
+    final linkedSent = <({NodeId peer, String json})>[];
+    final linked = GroupService(
+      s2,
+      _FakeSigner(bob),
+      send: (p, g, j) async => linkedSent.add((peer: p, json: j)),
+    );
+    expect(await linked.ingestSnapshot(ownerSent.first.json), isTrue);
+    expect(await linked.adoptDeviceGroup(gid), isTrue);
+    linked.myDevice = bob;
+    await drain();
+
+    // Three rows from the master, delivered with the MIDDLE one lost. A hole
+    // at the end heals by itself — the high-water mark sees it. This is the
+    // one that cannot.
+    final rows = <String>[];
+    for (final key in ['first', 'lost', 'third']) {
+      ownerSent.clear();
+      expect(
+        await master.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: key,
+            tsMs: 1000 + rows.length,
+            payload: {'v': key},
+          ),
+        ),
+        isTrue,
+      );
+      await drain();
+      rows.add(ownerSent.map((e) => e.json).join('\u0000'));
+    }
+    for (final i in [0, 2]) {
+      for (final json in rows[i].split('\u0000')) {
+        if (json.isNotEmpty) await linked.ingestSnapshot(json);
+      }
+    }
+    await drain();
+
+    final before = await linked.deviceSyncState();
+    expect(
+      before.containsKey((DeviceSyncKind.settingSet, 'first')),
+      isTrue,
+      reason: 'the premise: the rows around the hole did arrive',
+    );
+    expect(before.containsKey((DeviceSyncKind.settingSet, 'third')), isTrue);
+    expect(
+      before.containsKey((DeviceSyncKind.settingSet, 'lost')),
+      isFalse,
+      reason: 'the premise: the middle row is the one that never arrived',
+    );
+
+    // Now the linked device asks, and the master answers.
+    linkedSent.clear();
+    await linked.nudgeGroupSync(gid);
+    final request = linkedSent.firstWhere((e) => e.peer == owner);
+    ownerSent.clear();
+    expect(
+      await master.handleGroupSyncRequest(bob, jsonDecode(request.json) as Map),
+      isTrue,
+      reason:
+          'the master answered "you are missing nothing" to a device that is '
+          'provably missing a row',
+    );
+    for (final reply in ownerSent) {
+      await linked.ingestSnapshot(reply.json);
+    }
+    await drain();
+
+    final after = await linked.deviceSyncState();
+    expect(
+      after.containsKey((DeviceSyncKind.settingSet, 'lost')),
+      isTrue,
+      reason:
+          'the hole is beneath the high-water mark, so nothing could see it '
+          'and nothing would ever have healed it',
+    );
+
+    // CONTROL: a second exchange with nothing missing must ship nothing, or
+    // the guard above would also pass on a responder that re-sends its whole
+    // log every time and the device group would never stop talking.
+    linkedSent.clear();
+    await linked.nudgeGroupSync(gid);
+    final settled = linkedSent.firstWhere((e) => e.peer == owner);
+    ownerSent.clear();
+    expect(
+      await master.handleGroupSyncRequest(bob, jsonDecode(settled.json) as Map),
+      isFalse,
+      reason: 'a caught-up device was sent a delta it did not need',
+    );
+  });
+
   // A LINK TELLS SOMEBODY, so state decided before it can be replayed.
   //
   // Contact decisions are emitted at the moment they are taken, into a group

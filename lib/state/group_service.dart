@@ -13430,6 +13430,15 @@ class GroupService implements ArchiveGroups {
 
   /// Build a sync vector from an already validated bundle. Snapshot and
   /// receipt paths use this to keep one coherent storage read per Space.
+  /// How many seqs a sync request will enumerate for one unchained scope
+  /// before it gives up and sends only the high-water mark.
+  ///
+  /// A device group's log is compacted — superseded rows are deleted — so this
+  /// is far above what one is expected to hold (25 on the stand). It exists so
+  /// a pathological log cannot grow the request without bound, not as a limit
+  /// anyone should reach.
+  static const int _maxSyncHaveSeqs = 512;
+
   Map<String, dynamic> _buildGroupSyncRequest(GroupBundle b) {
     final groupId = b.manifest.groupId;
     final syncState = foldControlLog(
@@ -13473,9 +13482,32 @@ class GroupService implements ArchiveGroups {
         final scope = _messageChainScope(b.manifest, authored.first);
         final chain = _acceptedMessageChain(b.manifest, rows, author, scope);
         final fork = forks['$scope|${author.hex}'];
+        // WHICH ROWS, not just how far.
+        //
+        // A device group's rows are deliberately UNCHAINED (`prevHash` is
+        // empty there — see the comment where it is assigned): the log is a
+        // compacted LWW state log, superseded rows are DELETED on purpose, so
+        // a seq-contiguity rule would read every legitimate compaction as a
+        // hole and re-ship the whole log forever. The cost of that choice is
+        // that `_acceptedMessageChain` accepts an unchained row THROUGH a gap,
+        // so `chain.last.seq` is a plain high-water mark and a hole BELOW it
+        // is invisible.
+        //
+        // Measured on the two-device stand (2026-09-21): the linked device was
+        // missing exactly two of the master's rows, asked for what it lacked,
+        // and the master answered `msgs=0` — twice. Both sides looked healthy
+        // and nothing would ever have healed it.
+        //
+        // So an unchained scope reports the SET it holds. The log is compacted,
+        // so the set is small; past [_maxSyncHaveSeqs] it is left out and the
+        // frontier degrades to exactly what it was.
+        final unchained = b.manifest.isSovereignDevice;
+        final namesItsRows = unchained && chain.length <= _maxSyncHaveSeqs;
+        final have = chain.map((message) => message.seq).toList()..sort();
         final value = <String, Object>{
           's': chain.isEmpty ? -1 : chain.last.seq,
           if (chain.isNotEmpty) 'h': groupMessageHash(chain.last),
+          if (namesItsRows) 'have': have,
           if (fork != null)
             'f': {'s': fork.seq, 'h': fork.hashes.toList()..sort()},
         };
@@ -13826,6 +13858,21 @@ class GroupService implements ArchiveGroups {
       return -1;
     }
 
+    /// The exact seqs the requester says it holds in this scope, or null when
+    /// it did not say (a chained scope, a log too big to enumerate, or a build
+    /// from before this field existed — all of which fall back to [seen]).
+    Set<int>? haveSeqs(Object? vec, NodeId author) {
+      if (vec is! Map) return null;
+      final value = vec[author.hex];
+      if (value is! Map) return null;
+      final raw = value['have'];
+      if (raw is! List) return null;
+      return {
+        for (final entry in raw)
+          if (entry is int) entry,
+      };
+    }
+
     String? seenRowHash(Object? vec, NodeId author) {
       if (vec is! Map) return null;
       final value = vec[author.hex];
@@ -13932,12 +13979,16 @@ class GroupService implements ArchiveGroups {
         if (message.seq > fork.seq) return false;
         missing = !knownFork.contains(groupMessageHash(message));
       } else {
-        missing =
-            message.seq > peerSeq ||
-            (message.seq == peerSeq &&
-                hasRowHash(messageVector, message.author) &&
-                seenRowHash(messageVector, message.author) !=
-                    groupMessageHash(message));
+        // The SET first, when the requester named it. Otherwise the high-water
+        // mark, which cannot see a hole beneath itself.
+        final have = haveSeqs(messageVector, message.author);
+        missing = have != null
+            ? !have.contains(message.seq)
+            : message.seq > peerSeq ||
+                  (message.seq == peerSeq &&
+                      hasRowHash(messageVector, message.author) &&
+                      seenRowHash(messageVector, message.author) !=
+                          groupMessageHash(message));
       }
       if (!missing) return false;
       if (message.isChannelEncrypted) {
@@ -18059,7 +18110,9 @@ class GroupService implements ArchiveGroups {
     if (hex == null) return out;
     final b = await load(NodeId.fromHex(hex));
     if (b == null) return out;
-    if (await _deviceGroupOwnerIfLinked() == null) out.add(b.manifest.owner.hex);
+    if (await _deviceGroupOwnerIfLinked() == null) {
+      out.add(b.manifest.owner.hex);
+    }
     return out;
   }
 
