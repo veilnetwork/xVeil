@@ -14734,10 +14734,33 @@ class GroupService implements ArchiveGroups {
       meDevice = await resolveMyDevice();
     }
     final selfExclusion = meDevice ?? _signer.selfId;
+    // AM I A LINKED DEVICE, or the one the group is owned by?
+    //
+    // Same question `broadcastDelta` asks, for the same reason, in the other
+    // half of the same conversation. A device group's owner is the IDENTITY,
+    // and the master addressing it would be addressing itself — which is why
+    // the scan drops the owner. A LINKED device is in the opposite position:
+    // the owner is the only other party it has, and dropping it leaves an
+    // EMPTY list.
+    //
+    // This is the anti-entropy leg — the one that asks "what am I missing" —
+    // and with an empty list a linked device asks NOBODY, forever. Measured on
+    // the two-device stand: the master sent sync requests and the linked device
+    // answered them every time, while the linked device issued NOT ONE in
+    // either session; two rows its master held never arrived, the sender's
+    // outbox retired them as delivered, and nothing was left to retry. The
+    // fix to `broadcastDelta` covered the push leg only; this is the pull.
+    final iAmALinkedDevice =
+        bundle.manifest.isSovereignDevice &&
+        meDevice != null &&
+        state.members.values.any(
+          (m) => m.nodeId == meDevice && m.role != GroupRole.owner,
+        );
     final others = <NodeId>[
       for (final member in state.members.values)
         if (member.nodeId != selfExclusion &&
             (!bundle.manifest.isSovereignDevice ||
+                iAmALinkedDevice ||
                 member.nodeId != bundle.manifest.owner))
           member.nodeId,
     ];
