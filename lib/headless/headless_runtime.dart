@@ -355,6 +355,9 @@ class HeadlessRuntime {
           poisonedBlobs: PoisonedBlobRegistry(
             getSetting: storage.getSetting,
             putSetting: storage.putSetting,
+            loadFile: storage.loadFile,
+            storeFile: (id, bytes) =>
+                storage.storeFile(id, bytes, name: 'poisoned'),
           ),
         );
         messaging.attachMailbox(mailbox);

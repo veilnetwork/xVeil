@@ -8,6 +8,14 @@ import 'package:xveil/state/mailbox_orchestrator.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 Uint8List _cid(int s) => Uint8List.fromList(List.filled(32, s));
+
+/// Distinct beyond 256 — [_cid] fills every byte with one value, so it can
+/// only name 256 blobs and a cap test needs thousands.
+Uint8List _cid16(int s) => Uint8List.fromList([
+  s & 0xff,
+  (s >> 8) & 0xff,
+  ...List.filled(30, 0),
+]);
 Uint8List _appId(int s) => Uint8List.fromList(List.filled(32, s));
 String _hexOf(Uint8List b) =>
     [for (final x in b) x.toRadixString(16).padLeft(2, '0')].join();
@@ -650,12 +658,27 @@ void main() {
   group('poisoned-blob quarantine', () {
     // Storage stub for the registry (real one rides the settings KV).
     late Map<String, String> settings;
+    late Map<String, Uint8List> files;
     PoisonedBlobRegistry freshRegistry() => PoisonedBlobRegistry(
+      getSetting: (k) async => settings[k],
+      putSetting: (k, v) async => settings[k] = v,
+      loadFile: (id) async => files[id],
+      storeFile: (id, bytes) async => files[id] = bytes,
+    );
+
+    /// The registry as it was before the move: a settings value and nothing
+    /// else. Kept so the fallback stays exercised — a build that wires no file
+    /// storage must still work, and must still respect the ceiling that made
+    /// the old cap what it was.
+    PoisonedBlobRegistry settingsOnlyRegistry() => PoisonedBlobRegistry(
       getSetting: (k) async => settings[k],
       putSetting: (k, v) async => settings[k] = v,
     );
 
-    setUp(() => settings = {});
+    setUp(() {
+      settings = {};
+      files = {};
+    });
 
     /// The half report27 X35 left behind.
     ///
@@ -1244,28 +1267,94 @@ void main() {
       );
     });
 
+    /// A RESTART MUST NOT RE-LEARN WHAT THIS DEVICE ALREADY KNOWS.
+    ///
+    /// The list used to live in one settings value, and the container refuses
+    /// a value over 2048 bytes — which is 30 hex ids. Measured on the stand
+    /// (2026-09-21): a device learned 272 unopenable ids in an afternoon and
+    /// could carry 30 of them across a restart, so it re-collected and
+    /// re-failed the rest on every launch, window by window, at seconds
+    /// apiece.
+    test('what one session learns survives the next start, past thirty', () async {
+      final reg = freshRegistry();
+      for (var i = 0; i < 200; i++) {
+        await reg.add(_cid(i));
+      }
+      await reg.flush();
+
+      // A fresh registry over the same storage IS the restart.
+      final afterRestart = freshRegistry();
+      var carried = 0;
+      for (var i = 0; i < 200; i++) {
+        if (await afterRestart.contains(_cid(i))) carried++;
+      }
+      expect(
+        carried,
+        200,
+        reason:
+            'the restart re-learns the ones it dropped, and each re-learn is '
+            'a slice walk and a failed open',
+      );
+    });
+
+    /// CONTROL. A device that already HAS the old settings row must carry it
+    /// forward, or the very restart this registry exists for pays for its
+    /// thirty all over again on the day of the upgrade.
+    test('an existing settings list is adopted, not discarded', () async {
+      final old = settingsOnlyRegistry();
+      await old.add(_cid(0xA1));
+      await old.add(_cid(0xA2));
+      await old.flush();
+      expect(
+        settings['mailbox.poisoned.v1'],
+        isNotNull,
+        reason: 'the premise: the old row was written',
+      );
+
+      final moved = freshRegistry();
+      expect(await moved.contains(_cid(0xA1)), isTrue);
+      expect(await moved.contains(_cid(0xA2)), isTrue);
+    });
+
+    /// CONTROL. With no file storage wired the registry must keep working AND
+    /// keep the old ceiling, rather than handing the container a value it
+    /// refuses — which is how it once stopped persisting anything at all.
+    test('without file storage it still persists, within the old ceiling', () async {
+      final reg = settingsOnlyRegistry();
+      for (var i = 0; i < 100; i++) {
+        await reg.add(_cid(i));
+      }
+      await reg.flush();
+      final written = settings['mailbox.poisoned.v1']!;
+      expect(
+        RegExp('"').allMatches(written).length ~/ 2,
+        30,
+        reason: 'a settings value past the ceiling is refused and lands nowhere',
+      );
+      expect(utf8.encode(written).length, lessThanOrEqualTo(2048));
+    });
+
     test(
       'quarantine is FIFO-capped so junk deposits cannot grow the registry',
       () async {
+        // The cap is no longer about what one settings value holds — the list
+        // lives in a file now — but it is still a cap: a live producer of
+        // fresh junk must not be able to grow this for the whole session.
+        const cap = 2048;
         final reg = freshRegistry();
-        for (var i = 0; i < 80; i++) {
-          await reg.add(_cid(i));
+        for (var i = 0; i < cap + 8; i++) {
+          await reg.add(_cid16(i));
         }
         // Visible at once — only the write waits for the end of the pass.
-        expect(await reg.contains(_cid(0)), isFalse);
-        expect(await reg.contains(_cid(79)), isTrue);
-        await reg.flush();
-        // Oldest evicted, newest kept — and the whole list has to FIT: the
-        // container refuses a settings value over 2048 bytes, and a cap of 64
-        // hex ids produced ~4.3 KB that was never persisted at all
-        // (report27 X36).
-        final stored = settings['mailbox.poisoned.v1']!;
-        expect(RegExp('"').allMatches(stored).length ~/ 2, 30);
         expect(
-          utf8.encode(stored).length,
-          lessThanOrEqualTo(2048),
-          reason: 'this value is refused by the container, so nothing persists',
+          await reg.contains(_cid16(0)),
+          isFalse,
+          reason: 'the oldest must be evicted, or the list grows without bound',
         );
+        expect(await reg.contains(_cid16(cap + 7)), isTrue);
+        await reg.flush();
+        final stored = utf8.decode(files['mailbox.poisoned.v2']!);
+        expect(RegExp('"').allMatches(stored).length ~/ 2, cap);
       },
     );
 
