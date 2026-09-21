@@ -378,12 +378,19 @@ class _MessagingPeerSync {
       peerHighWater,
       limit: _reshipCap,
     );
+    // EVERY beacon, not only the ones that re-ship.
+    //
+    // This line used to fire only when there was something to send, so a
+    // healthy exchange and a silent one looked identical from outside — and
+    // after fixing the re-ship loop the measurement could not tell "nothing
+    // to re-ship" from "no beacon arrived". A `reship=0` is the evidence that
+    // the round happened AND cost nothing.
+    devLog(
+      () =>
+          'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHighWater '
+          'reship=${events.length}',
+    );
     if (events.isNotEmpty) {
-      devLog(
-        () =>
-            'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHighWater '
-            'reship=${events.length}',
-      );
       final byId = {
         for (final message in await _owner._storage.loadMessages(peer.hex))
           message.id: message,
