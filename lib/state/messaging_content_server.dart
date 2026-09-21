@@ -7,15 +7,89 @@ part of 'messaging_core.dart';
 /// fields of [MessagingService], so extraction does not alter lifecycle, wire
 /// format or the public API.
 extension _MessagingContentServer on MessagingService {
+  /// Put [contentId] back into [_serving] from what survived on disk, then
+  /// answer the request that found it missing.
+  ///
+  /// Silent when nothing survived — an UNSERVED answer is still the truth for
+  /// content this device really does not hold, and the log line says which of
+  /// the two it was.
+  Future<void> _rehydrateAndServePieces(
+    NodeId peer,
+    PieceRequestFrame req,
+  ) async {
+    final cid = req.contentId;
+    try {
+      ContentManifest? manifest;
+      final mfBytes = await _storage.loadFile('mf:$cid');
+      if (mfBytes != null) {
+        manifest = ContentManifest.fromJson(
+          jsonDecode(utf8.decode(mfBytes)) as Map<String, dynamic>,
+        );
+      }
+      final record = _parseServedRecord(
+        await _storage.getSetting('served:$cid'),
+      );
+      ServeSource? source;
+      if (record != null) {
+        source = await _openVerifiedServedSource(cid, record);
+        // The `mf:` blob is the first casualty of a bloated store, and the
+        // served record carries the hashing params — same fallback the stream
+        // serve makes rather than answering UNSERVED.
+        manifest ??= await _rebuildManifestFromServedRecord(cid, record);
+      }
+      if (manifest == null ||
+          (source == null && !await _storage.hasFile(cid))) {
+        devLog(
+          () =>
+              'xVeil[content]: pieceRequest for UNSERVED '
+              '${cid.substring(0, 12)} <- ${peer.short} (ignored)',
+        );
+        return;
+      }
+      // Whoever wins a race here writes an equivalent entry: same manifest,
+      // and a source that was verified against the same content id.
+      _serving[cid] = (
+        manifest: manifest,
+        source: source,
+        servedAt: _now(),
+      );
+      devLog(
+        () =>
+            'xVeil[content]: re-opened ${cid.substring(0, 12)} from disk for '
+            '${peer.short} — it survived the restart, the serve registry did '
+            'not',
+      );
+      _onPieceRequest(peer, req);
+    } catch (error) {
+      devLog(
+        () =>
+            'xVeil[content]: could not re-open ${cid.substring(0, 12)} for '
+            '${peer.short}: $error',
+      );
+    }
+  }
+
   void _onPieceRequest(NodeId peer, PieceRequestFrame req) {
     final served = _serving[req.contentId];
     if (served == null) {
-      devLog(
-        () =>
-            'xVeil[content]: pieceRequest for UNSERVED '
-            '${req.contentId.substring(0, 12)} <- ${peer.short} (ignored)',
-      );
-      return; // not serving this content
+      // NOT SERVING IT *RIGHT NOW* IS NOT THE SAME AS NOT HAVING IT.
+      //
+      // [_serving] is in RAM, so a restart empties it — while the manifest
+      // (`mf:$cid`), the durable source record (`served:$cid`) and often the
+      // stored blob itself all survive on disk. The STREAM serve already walks
+      // that ladder; this path answered UNSERVED and the peer, which can only
+      // keep asking, kept asking forever.
+      //
+      // Measured on the stand (2026-09-21): after the sender was restarted it
+      // still reported `hasBlob:true` for the content and still refused every
+      // request for it with `pieceRequest for UNSERVED … (ignored)`.
+      //
+      // Rehydrating widens nothing: the reopen goes through
+      // [_openVerifiedServedSource], which re-checks the grant that authorized
+      // the folder and that the file still IS this content on EVERY open —
+      // never cached — and only accepted contacts reach this method at all.
+      unawaited(_rehydrateAndServePieces(peer, req));
+      return;
     }
     // Refresh freshness on EVERY request (even one we skip) — it isn't evicted
     // mid-flight, and the live serve loop reads this to know the receiver is
