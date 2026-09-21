@@ -36,6 +36,10 @@ class _LossyTransport implements VeilTransport {
   /// whether a re-ship happened rather than infer it from what arrived.
   final sentKinds = <WireKind>[];
 
+  /// The body of every sync beacon this side put on the wire, so a test can
+  /// read what it DECLARED rather than infer it from the peer's behaviour.
+  final sentSyncBodies = <String>[];
+
   @override
   Future<NodeId> nodeId() async => _me;
   @override
@@ -55,6 +59,7 @@ class _LossyTransport implements VeilTransport {
     if (drop) return; // live datagram lost
     final env = WireEnvelope.decode(payload);
     sentKinds.add(env.kind);
+    if (env.kind == WireKind.sync) sentSyncBodies.add(env.body);
     if (dropIfBodyContains.any(env.body.contains)) return;
     if (env.kind == WireKind.fileChunk) {
       final frame = parseFileChunk(env.body);
@@ -210,6 +215,52 @@ void main() {
         reason:
             'the premise: nothing was acknowledged, so the events must go '
             'again — otherwise the test above proves nothing',
+      );
+    });
+
+    /// THE SAME MISMATCH, THE OTHER HALF — and this one IS fixable at the
+    /// sender, because the key names US and we know both of our own names.
+    ///
+    /// The floor declares the prefix of our own stream that no longer exists
+    /// here, so the peer stops asking for it. We labelled it with the device
+    /// we run on; the peer looks it up under the only address it has for us.
+    /// A sovereign identity's floor was therefore never found, and the peer
+    /// kept re-requesting what we had told it was gone until the give-up path
+    /// floored it locally rounds later.
+    ///
+    /// Tested on the pure shape, not through a conversation: a floor exists
+    /// only after real data loss at the source, and a clear does NOT make one
+    /// (tombstones keep their seq slot — measured while writing this).
+    test('the floor we declare carries both of our names', () {
+      expect(
+        floorDeclaration(selfHex: 'device', identityHex: 'identity', ownFloor: 7),
+        {'device': 7, 'identity': 7},
+        reason:
+            'the floor went out under the device we run on, which is not a '
+            'name the peer has ever heard of',
+      );
+    });
+
+    /// CONTROL. An ordinary identity has ONE name and must not grow a
+    /// duplicate key for it.
+    test('one name declares the floor once', () {
+      expect(
+        floorDeclaration(selfHex: 'same', identityHex: 'same', ownFloor: 7),
+        {'same': 7},
+      );
+      expect(
+        floorDeclaration(selfHex: 'same', identityHex: null, ownFloor: 7),
+        {'same': 7},
+      );
+    });
+
+    /// CONTROL. No floor, no key: an empty declaration keeps `fl` off the
+    /// wire entirely, which is what the beacon's quiet-streak comparison
+    /// counts on.
+    test('nothing to declare declares nothing', () {
+      expect(
+        floorDeclaration(selfHex: 'd', identityHex: 'i', ownFloor: 0),
+        isEmpty,
       );
     });
 
