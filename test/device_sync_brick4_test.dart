@@ -15,6 +15,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/clear_policy.dart';
 import 'package:xveil/domain/p2p_policy.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/disappearing_messages.dart';
@@ -98,6 +99,7 @@ void main() {
         archived: true,
         retentionDays: 7,
         allowPeerDelete: false,
+        clearPolicy: ClearRequestPolicy.never,
       );
       expect(wrote, isTrue);
       expect(
@@ -111,6 +113,13 @@ void main() {
       expect(c.pinned, isFalse);
       expect(c.retentionDays, 7);
       expect(c.allowPeerDelete, isFalse);
+      // A decision about MY history is mine on every device I own — so unlike
+      // the relationship and the P2P override beside it, this one travels.
+      expect(
+        c.clearPolicy,
+        ClearRequestPolicy.never,
+        reason: 'whose clear I honour was decided on the other device too',
+      );
       expect(c.status, ContactStatus.accepted, reason: 'status is local-only');
       expect(
         c.p2pOverride,
@@ -125,6 +134,7 @@ void main() {
           pinned: true,
           archived: false,
           allowPeerDelete: true,
+          clearPolicy: kDefaultClearRequestPolicy,
         ),
         isFalse,
       );
@@ -163,6 +173,7 @@ void main() {
       pinned: true,
       archived: false,
       allowPeerDelete: true,
+      clearPolicy: kDefaultClearRequestPolicy,
     );
     final after = (await storage.getContact(peer))!;
     expect(after.name, 'renamed elsewhere', reason: 'the edit still lands');
@@ -194,6 +205,7 @@ void main() {
       disappearingSetBy: 'bb',
       hideAfterReadSeconds: 300,
       allowPeerDelete: false,
+      clearPolicy: ClearRequestPolicy.admins,
     );
 
     final payload = contactPrefsPayload(c);
@@ -204,6 +216,9 @@ void main() {
     expect(payload['arc'], isTrue);
     expect(payload['ret'], 30);
     expect(payload['apd'], isFalse);
+    // BY NAME, because this one can still grow and an index would change
+    // meaning when a value is inserted in the middle of the enum.
+    expect(payload['clp'], ClearRequestPolicy.admins.name);
 
     final policy = disappearingFromPayload(payload)!;
     expect(policy.ttlSeconds, 3600);
@@ -243,6 +258,7 @@ void main() {
       pinned: false,
       archived: false,
       allowPeerDelete: true,
+      clearPolicy: kDefaultClearRequestPolicy,
       disappearing: DisappearingSetting(
         ttlSeconds: null,
         setAtMs: stamp - 1000,
@@ -261,6 +277,7 @@ void main() {
       pinned: false,
       archived: false,
       allowPeerDelete: true,
+      clearPolicy: kDefaultClearRequestPolicy,
       disappearing: DisappearingSetting(
         ttlSeconds: null,
         setAtMs: stamp + 1000,
