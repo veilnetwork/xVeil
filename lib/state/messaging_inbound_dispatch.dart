@@ -472,6 +472,15 @@ extension _MessagingInboundDispatch on MessagingService {
               ackId,
               MessageStatus.delivered,
             );
+            // MY OTHER DEVICES CANNOT LEARN THIS ANY OTHER WAY. The peer sends
+            // its acknowledgement to whoever it was talking to, and that is
+            // this device alone; a sibling holds the mirrored copy at the
+            // status it was stored with and would sit on one tick forever.
+            onMessageStatusChanged?.call(
+              m.src,
+              ackId,
+              MessageStatus.delivered,
+            );
             // The recipient says it STORED this — the ack is sent after the
             // write, not on receipt. That is what lets the mailbox deposit be
             // skipped: a relay copy of something already on the recipient's

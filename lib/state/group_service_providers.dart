@@ -12,7 +12,7 @@ import '../data/transport/bootstrap_invite.dart';
 import '../data/veil_stack.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
-import '../domain/chat.dart' show MessageDirection;
+import '../domain/chat.dart' show MessageDirection, MessageStatus;
 import '../domain/device_sync.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/space_public_feed_transport.dart';
@@ -324,6 +324,27 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     }());
   };
 
+  // The same message, one tick later. Tiny by design: the mirror already
+  // carried the message, this carries only how far it has got, and it is keyed
+  // by the message id so the fold keeps one row per message however many ticks
+  // it collects.
+  messaging.onMessageStatusChanged = (peer, msgId, status) {
+    if (peer == service.selfId) return;
+    unawaited(() async {
+      if (await service.isMyDevice(peer)) return;
+      await service.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgStatus,
+          key: msgId,
+          // A REAL event time, unlike the mirror's, which is the message's own
+          // time and decides where the chat puts it.
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          payload: {'peer': peer.hex, 'st': status.name},
+        ),
+      );
+    }());
+  };
+
   // Multi-device mirror apply: idempotent, content bytes remain opt-in.
   //
   // One handler for both arrivals — the live stream, and the folded state
@@ -373,6 +394,34 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     );
   }
 
+  /// One tick later on the message the mirror already delivered.
+  ///
+  /// Idempotent by construction: it writes a status onto a message id, and
+  /// writing the same one twice changes nothing. A message that has not
+  /// arrived yet is simply not there to update — the mirror carrying it and
+  /// this event travel the same log, so the next fold replay applies it once
+  /// the message exists.
+  Future<void> applyStatusEvent(DeviceSyncEvent event) async {
+    if (event.kind != DeviceSyncKind.msgStatus) return;
+    final peerHex = event.payload['peer'];
+    final raw = event.payload['st'];
+    if (peerHex is! String || raw is! String) return;
+    MessageStatus? status;
+    for (final s in MessageStatus.values) {
+      if (s.name == raw) status = s;
+    }
+    if (status == null) return; // newer vocabulary — skip, never guess
+    await messaging.applyMirroredMessageStatus(
+      peer: NodeId.fromHex(peerHex),
+      msgId: event.key,
+      status: status,
+    );
+  }
+
+  ref.onDispose(
+    ref.read(deviceSyncAppliersProvider).register(applyStatusEvent),
+  );
+
   // Reachable by an offline import too: a mirror out of an archive is the same
   // event a sibling would have sent, and `applyMirroredMessage` is keyed by
   // message id, so importing the same archive twice adds nothing the second
@@ -387,11 +436,19 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     unawaited(
       applyMirrorEvent(event, attachmentThumb: message.attachment?.dataB64),
     );
+    unawaited(applyStatusEvent(event));
   });
   unawaited(() async {
     final folded = await service.deviceSyncState();
     for (final event in folded.values) {
       await applyMirrorEvent(event);
+    }
+    // AFTER the mirrors, not interleaved: a status is written onto a message
+    // id, and on a device catching up the message itself arrives in this same
+    // replay. Applying statuses first would drop every one whose message had
+    // not been stored yet.
+    for (final event in folded.values) {
+      await applyStatusEvent(event);
     }
   }());
   ref.onDispose(() {
@@ -564,4 +621,5 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.isOwnDevice = null;
   messaging.isSovereignAuthority = null;
   messaging.onMessageStored = null;
+  messaging.onMessageStatusChanged = null;
 }
