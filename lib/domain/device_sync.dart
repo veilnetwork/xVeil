@@ -30,6 +30,22 @@ enum DeviceSyncKind {
   /// sender showed two.
   msgStatus,
 
+  /// A message DELETED, keyed by the message id.
+  ///
+  /// The one kind that takes something away rather than adding it, and the
+  /// reason it has to exist is `doc/MESSAGE-EDIT-DELETE-DESIGN.md`: delete in
+  /// this app is not "hide the row", it is a forensic erase, because the
+  /// threat is a container unlocked under coercion. A sibling that never
+  /// hears about the erase keeps the plaintext — so the strongest thing a
+  /// person can do to a message was leaving a readable copy on their own
+  /// other device. Measured on the two-device stand (2026-09-21): "delete for
+  /// everyone" removed it here and at the peer, and left it on the sibling.
+  ///
+  /// NOT folded into [msgMirror], for the same reason [msgStatus] is not: a
+  /// mirror is stamped with the MESSAGE's time, which is where the chat puts
+  /// it, while a deletion's own time is when it was decided.
+  msgGone,
+
   /// A conversation read-watermark (peer + ts).
   readMark,
 
