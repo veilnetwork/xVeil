@@ -11,6 +11,7 @@ import 'package:xveil/data/transport/veil_mailbox_network.dart';
 void main() {
   _sliceTests();
   _announcerOrdering();
+  _announcedCollectionBudget();
   group('encodeMailboxPut', () {
     test('produces the exact MailboxPutPayload layout', () {
       final receiver = Uint8List.fromList(List.filled(32, 0x0B));
@@ -355,6 +356,69 @@ void _announcerOrdering() {
       expect(
         hexes(announcerFirst([a, b], NodeId(relay(9)).hex)),
         hexes([a, b]),
+      );
+    });
+  });
+}
+
+/// WHAT ONE PASS WILL WALK, AND WHAT IT LEAVES.
+///
+/// An announced blob is fetched window by window BEFORE anything is handed up,
+/// so both rules here are latency the person feels.
+void _announcedCollectionBudget() {
+  Uint8List cid(int seed) => Uint8List.fromList(List.filled(32, seed));
+  String hex(int seed) => NodeId(cid(seed)).hex;
+
+  group('announcedToCollect', () {
+    test('walks at most the budget, oldest first', () {
+      // The relay serves oldest-first, so the head of the list is what holds
+      // the queue up — it must be the one that gets the budget.
+      final picked = VeilNetworkMailboxRelay.announcedToCollect(
+        [cid(1), cid(2), cid(3), cid(4)],
+        neverCollect: const {},
+        budget: 2,
+      );
+      expect(picked, {hex(1), hex(2)});
+    });
+
+    /// Measured on the stand: a device held 272 unopenable ids against a
+    /// 64-slot relay hint, so everything past the cap was announced again and
+    /// walked again on every pass — 626 collections of 464 blobs.
+    test('never walks one it already knows it cannot open', () {
+      final picked = VeilNetworkMailboxRelay.announcedToCollect(
+        [cid(1), cid(2), cid(3)],
+        neverCollect: {hex(1), hex(2)},
+        budget: 2,
+      );
+      expect(
+        picked,
+        {hex(3)},
+        reason: 'a hopeless blob spent the budget a real one needed',
+      );
+    });
+
+    /// CONTROL. With nothing known and room to spare, everything announced is
+    /// walked — a rule that refused everything would stop oversized messages
+    /// arriving at all.
+    test('with room and nothing known, it walks them all', () {
+      final picked = VeilNetworkMailboxRelay.announcedToCollect(
+        [cid(1), cid(2)],
+        neverCollect: const {},
+        budget: 8,
+      );
+      expect(picked, {hex(1), hex(2)});
+    });
+
+    /// CONTROL. A blob left out is left UNACKED, so the next pass asks again —
+    /// this is a deferral, not a refusal, and the budget must not be zero.
+    test('the budget is not zero', () {
+      expect(
+        VeilNetworkMailboxRelay.announcedToCollect(
+          [cid(1)],
+          neverCollect: const {},
+          budget: 1,
+        ),
+        {hex(1)},
       );
     });
   });
