@@ -52,14 +52,16 @@ enum ClearRequestPolicy {
 
 /// What a fresh chat starts with.
 ///
-/// STILL [ClearRequestPolicy.anyone] WHILE THE SURFACE IS BEING BUILT.
+/// [ClearRequestPolicy.ask], and it could not be until the requests list
+/// existed: a default of "ask" is a lie while an unanswered request has
+/// nowhere to be seen, because it behaves as [never] and says otherwise. The
+/// two arrived together for that reason.
 ///
-/// The chosen default is [ClearRequestPolicy.ask], and it is not set yet on
-/// purpose: a default of "ask" is a lie until an unanswered request has
-/// somewhere to be seen, and it would quietly behave as [never] instead. It
-/// flips in the same change that adds the requests list, so no released build
-/// promises a question it has nowhere to put.
-const ClearRequestPolicy kDefaultClearRequestPolicy = ClearRequestPolicy.anyone;
+/// It is a CHANGE of behaviour, chosen deliberately over keeping
+/// [ClearRequestPolicy.anyone]: that one is what let a peer empty somebody's
+/// conversation with nothing on screen to say so, measured on the stand at
+/// thirty-seven messages in nine seconds.
+const ClearRequestPolicy kDefaultClearRequestPolicy = ClearRequestPolicy.ask;
 
 /// The policy a record written before this setting existed decodes to.
 ///

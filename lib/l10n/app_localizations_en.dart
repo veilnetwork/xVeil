@@ -3054,7 +3054,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get chatDeleteForMeBody =>
-      'It is permanently erased from this device.';
+      'It is permanently erased here and on your other devices.';
 
   @override
   String get chatDeleteForEveryoneBody =>
@@ -3419,7 +3419,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get chatClearHistoryBody =>
-      'Every message in this chat is erased from this device. The contact stays, so you can keep messaging. The other person is not notified.';
+      'Every message in this chat is erased here and on your other devices, and the other person is asked to erase their copy too. The contact stays, so you can keep messaging.';
 
   @override
   String get chatClearHistoryConfirm => 'Clear';
@@ -7486,4 +7486,36 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get callWeakLinkAsked => 'Asked your contact to send audio only';
+
+  @override
+  String get clearRequestsTitle => 'Requests to clear';
+
+  @override
+  String get clearRequestsHint =>
+      'Chats set to ask you before clearing collect their requests here. Nothing has been erased, and the other person is not told either way.';
+
+  @override
+  String get clearRequestsEmpty => 'Nobody has asked to clear a chat';
+
+  @override
+  String clearRequestsFrom(String who) {
+    return '$who asked to clear your chat';
+  }
+
+  @override
+  String get clearRequestsBody =>
+      'Erasing removes every message of that chat from this device and your other devices. It cannot be undone.';
+
+  @override
+  String get clearRequestsKeep => 'Keep';
+
+  @override
+  String get clearRequestsErase => 'Erase';
+
+  @override
+  String get clearRequestsConfirmTitle => 'Erase this chat\'s messages?';
+
+  @override
+  String get clearRequestsConfirmBody =>
+      'Every message of that chat is erased here and on your other devices. It cannot be undone.';
 }

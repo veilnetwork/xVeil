@@ -3540,5 +3540,15 @@
   "callWeakLinkAsked": "Asked your contact to send audio only",
   "@callWeakLinkAsked": {
     "description": "Confirmation shown after asking the peer to send audio only"
-  }
+  },
+  "clearRequestsTitle": "Requests to clear",
+  "clearRequestsHint": "Chats set to ask you before clearing collect their requests here. Nothing has been erased, and the other person is not told either way.",
+  "clearRequestsEmpty": "Nobody has asked to clear a chat",
+  "clearRequestsFrom": "{who} asked to clear your chat",
+  "@clearRequestsFrom": {"placeholders": {"who": {"type": "String"}}},
+  "clearRequestsBody": "Erasing removes every message of that chat from this device and your other devices. It cannot be undone.",
+  "clearRequestsKeep": "Keep",
+  "clearRequestsErase": "Erase",
+  "clearRequestsConfirmTitle": "Erase this chat's messages?",
+  "clearRequestsConfirmBody": "Every message of that chat is erased here and on your other devices. It cannot be undone."
 }

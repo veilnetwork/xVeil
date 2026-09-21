@@ -171,13 +171,105 @@ void main() {
         expect((await sB.loadMessages(theirs.hex)).length, 1);
       });
 
-      /// Asking is not acting. Until an unanswered request has somewhere to be
-      /// seen, this must not erase — the surface and the default arrive
-      /// together in the next change.
+      /// Asking is not acting: the messages stay exactly where they are.
       test('ask: nothing is erased before the person has answered', () async {
         await setPolicy(ClearRequestPolicy.ask);
         await askToClear();
         expect((await sB.loadMessages(theirs.hex)).length, 1);
+      });
+
+      /// …and the question is KEPT, or "ask me" is "never" wearing another
+      /// name. This is the half that makes the setting honest.
+      test('ask: the request is remembered so it can be answered', () async {
+        await setPolicy(ClearRequestPolicy.ask);
+        await askToClear();
+        final held = await mB.pendingClearRequests();
+        expect(held, hasLength(1));
+        expect(held.single.chatHex, theirs.hex);
+        expect(held.single.requesterHex, theirs.hex);
+        expect(
+          held.single.watermark.keys,
+          isNotEmpty,
+          reason:
+              'a clear travels as a watermark and nothing else — without it a '
+              'later yes would have nothing to carry out',
+        );
+      });
+
+      test('answering yes carries out exactly what was asked', () async {
+        await setPolicy(ClearRequestPolicy.ask);
+        await askToClear();
+        final held = (await mB.pendingClearRequests()).single;
+
+        await mB.answerClearRequest(held, accept: true);
+        await _until(() async => (await sB.loadMessages(theirs.hex)).isEmpty);
+
+        expect(await sB.loadMessages(theirs.hex), isEmpty);
+        expect(
+          await mB.pendingClearRequests(),
+          isEmpty,
+          reason: 'an answered question must not be asked again',
+        );
+      });
+
+      test('answering no keeps the messages and forgets the question',
+          () async {
+        await setPolicy(ClearRequestPolicy.ask);
+        await askToClear();
+        final held = (await mB.pendingClearRequests()).single;
+
+        await mB.answerClearRequest(held, accept: false);
+
+        expect((await sB.loadMessages(theirs.hex)).length, 1);
+        expect(await mB.pendingClearRequests(), isEmpty);
+      });
+
+      /// THE SHIPPED DEFAULT, which is the whole reason the rest of this
+      /// group exists. A fresh chat asks before it lets anybody else empty
+      /// it; the previous default let a peer do it with nothing on screen to
+      /// say so, measured at thirty-seven messages in nine seconds.
+      test('a fresh chat asks before it lets anybody clear it', () async {
+        final fresh = _id(12);
+        await sB.upsertContact(
+          Contact(nodeId: fresh, status: ContactStatus.accepted),
+        );
+        expect(
+          (await sB.getContact(fresh))!.clearPolicy,
+          ClearRequestPolicy.ask,
+          reason:
+              'the default decides for everyone who never opens the setting',
+        );
+      });
+
+      /// CONTROL. A policy that does not ask must leave NOTHING behind —
+      /// a declined request is not a question, and a list that filled up with
+      /// requests nobody will ever be shown is a leak of who asked what.
+      test('never: refusing leaves no question behind', () async {
+        await setPolicy(ClearRequestPolicy.never);
+        await askToClear();
+        expect(await mB.pendingClearRequests(), isEmpty);
+      });
+
+      /// Asking twice is still one question, and the later ask is the one to
+      /// answer — otherwise a peer in a loop fills the container.
+      test('asking twice leaves one question', () async {
+        await setPolicy(ClearRequestPolicy.ask);
+        await askToClear();
+        await mB.deliverInbound(
+          InboundMessage(
+            src: theirs,
+            payload: WireEnvelope.clear(
+              jsonEncode({_id(8).hex: 0, _id(10).hex: 11}),
+              seq: 4,
+            ).encode(),
+            provenance: SenderProvenance.signed,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+
+        final held = await mB.pendingClearRequests();
+        expect(held, hasLength(1));
+        expect(held.single.seq, 4, reason: 'the later ask is the live one');
       });
 
       /// CONTROL, and the premise of the three above: with the policy that
@@ -213,6 +305,12 @@ void main() {
       );
       mB.selfIdentityHex = () async => ourIdentity.hex;
       addTearDown(() => mB.selfIdentityHex = null);
+      // About the NAMES, not about the policy — see the note above.
+      await sB.upsertContact(
+        (await sB.getContact(theirIdentity))!.copyWith(
+          clearPolicy: ClearRequestPolicy.anyone,
+        ),
+      );
 
       for (var seq = 1; seq <= 2; seq++) {
         await mB.deliverInbound(
@@ -311,6 +409,15 @@ void main() {
 
     test('A clears -> B converges to the same emptied state, and the clear '
         'frame carries ONLY a watermark (no message id/text)', () async {
+      // This one is about the clear MACHINERY, not about whose request counts,
+      // so it says which policy it runs under rather than riding the default.
+      // The default is now "ask", and a test that rode it would have started
+      // asserting the policy instead of the thing it was written for.
+      await sB.upsertContact(
+        (await sB.getContact(a))!.copyWith(
+          clearPolicy: ClearRequestPolicy.anyone,
+        ),
+      );
       await mA.sendText(b, 'from A one');
       await mA.sendText(b, 'from A two');
       await mB.sendText(a, 'from B one');

@@ -3088,7 +3088,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get chatDeleteForMeBody =>
-      'Se borra de forma permanente de este dispositivo.';
+      'Se borra de forma permanente aquí y en tus otros dispositivos.';
 
   @override
   String get chatDeleteForEveryoneBody =>
@@ -3456,7 +3456,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get chatClearHistoryBody =>
-      'Todos los mensajes de este chat se borran de este dispositivo. El contacto se mantiene, así que puedes seguir escribiéndole. A la otra persona no se le avisa.';
+      'Todos los mensajes de este chat se borran aquí y en tus otros dispositivos, y se pide a la otra persona que borre su copia. El contacto se mantiene, así que puedes seguir escribiéndole.';
 
   @override
   String get chatClearHistoryConfirm => 'Limpiar';
@@ -7581,4 +7581,36 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get callWeakLinkAsked => 'Se pidió a tu contacto enviar solo audio';
+
+  @override
+  String get clearRequestsTitle => 'Solicitudes de borrado';
+
+  @override
+  String get clearRequestsHint =>
+      'Los chats configurados para preguntarte antes de borrar recogen aquí sus solicitudes. Todavía no se ha borrado nada y a la otra persona no se le informa de ninguna manera.';
+
+  @override
+  String get clearRequestsEmpty => 'Nadie ha pedido borrar un chat';
+
+  @override
+  String clearRequestsFrom(String who) {
+    return '$who pide borrar vuestro chat';
+  }
+
+  @override
+  String get clearRequestsBody =>
+      'Borrar elimina todos los mensajes de ese chat de este dispositivo y de tus otros dispositivos. No se puede deshacer.';
+
+  @override
+  String get clearRequestsKeep => 'Conservar';
+
+  @override
+  String get clearRequestsErase => 'Borrar';
+
+  @override
+  String get clearRequestsConfirmTitle => '¿Borrar los mensajes de este chat?';
+
+  @override
+  String get clearRequestsConfirmBody =>
+      'Todos los mensajes de ese chat se borran aquí y en tus otros dispositivos. No se puede deshacer.';
 }

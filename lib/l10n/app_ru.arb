@@ -3063,5 +3063,15 @@
   "callWeakLinkTurnOffVideo": "Отключить видео",
   "callWeakLinkAskPeer": "Попросить и собеседника",
   "callWeakLinkDismiss": "Оставить видео",
-  "callWeakLinkAsked": "Собеседника попросили передавать только звук"
+  "callWeakLinkAsked": "Собеседника попросили передавать только звук",
+  "clearRequestsTitle": "Запросы на очистку",
+  "clearRequestsHint": "Чаты, настроенные спрашивать перед очисткой, собирают запросы здесь. Ничего пока не стёрто, и собеседнику ничего не сообщается — ни так, ни иначе.",
+  "clearRequestsEmpty": "Никто не просил очистить чат",
+  "clearRequestsFrom": "{who} просит очистить ваш чат",
+  "@clearRequestsFrom": {"placeholders": {"who": {"type": "String"}}},
+  "clearRequestsBody": "Стирание уберёт все сообщения этого чата с этого устройства и с ваших других устройств. Отменить нельзя.",
+  "clearRequestsKeep": "Оставить",
+  "clearRequestsErase": "Стереть",
+  "clearRequestsConfirmTitle": "Стереть сообщения этого чата?",
+  "clearRequestsConfirmBody": "Все сообщения этого чата будут стёрты здесь и на ваших других устройствах. Отменить нельзя."
 }

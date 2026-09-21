@@ -12,6 +12,7 @@ import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/wire_envelope.dart' show isServiceEchoBody;
 import '../domain/chat.dart';
+import '../domain/clear_request.dart';
 import '../domain/chat_folder.dart';
 import 'app_controller.dart';
 import 'chat_page_size_controller.dart';
@@ -363,6 +364,32 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
     yield await storage.loadConversations();
   }
 });
+
+/// Requests to empty a conversation that nobody has answered yet.
+///
+/// Only a chat whose policy is [ClearRequestPolicy.ask] ever makes one. The
+/// list is what turns that policy from a quiet "no" into a real question, so
+/// it is watched app-wide rather than per-chat: a request the person never
+/// sees is the same as a request that was declined for them.
+///
+/// Guarded by the same locked-phase check as [conversationsProvider], and for
+/// the same reason — an eager listener must not touch the container before
+/// unlock has finished.
+final pendingClearRequestsProvider =
+    StreamProvider<List<PendingClearRequest>>((ref) async* {
+      final ready = ref.watch(
+        appControllerProvider.select((state) => state.phase == AppPhase.ready),
+      );
+      if (!ready) {
+        yield const <PendingClearRequest>[];
+        return;
+      }
+      final service = ref.watch(messagingServiceProvider);
+      yield await service.pendingClearRequests();
+      await for (final _ in service.changes) {
+        yield await service.pendingClearRequests();
+      }
+    });
 
 /// Reactions overlay for one conversation: msgId → (reactorHex → emoji).
 /// Reloaded on every service change so a new reaction (local or inbound)
