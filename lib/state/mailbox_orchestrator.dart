@@ -43,45 +43,82 @@ class DrainedMessage {
 /// the blob's whole 7-day relay TTL, and — because it looked like fresh mail —
 /// kept the drain cadence at its fastest the entire time.
 ///
-/// Persisted as one JSON list of cid-hex under a settings key (the storage
-/// layer's no-change dedup makes re-persists free), FIFO-capped so a flood of
-/// junk deposits can't grow the container.
+/// Persisted as one JSON list of cid-hex, FIFO-capped so a flood of junk
+/// deposits cannot grow the container without bound.
+///
+/// IN A FILE, NOT A SETTINGS VALUE. The container refuses a settings value over
+/// 2048 bytes, which is 30 hex ids with their quotes and commas — and a cap of
+/// 30 is far below what one session meets. Measured on the stand (2026-09-21):
+/// a device learned 272 unopenable ids in an afternoon and could carry 30 of
+/// them across a restart, so it re-collected and re-failed the rest on every
+/// launch, at seconds of network apiece. A file has no such ceiling, so the cap
+/// is now about bounding a junk producer rather than about what one row holds.
 class PoisonedBlobRegistry {
+  /// The two `ignore`s below are the same constraint `mailbox_service.dart`
+  /// carries at file scope: a named parameter cannot start with an underscore,
+  /// so a private field cannot take an initializing formal and the analyzer's
+  /// suggestion does not compile.
   PoisonedBlobRegistry({
     required Future<String?> Function(String key) getSetting,
     required Future<void> Function(String key, String value) putSetting,
+    Future<Uint8List?> Function(String fileId)? loadFile,
+    Future<void> Function(String fileId, Uint8List bytes)? storeFile,
   }) : _get = getSetting,
-       _put = putSetting;
+       _put = putSetting,
+       // ignore: prefer_initializing_formals
+       _loadFile = loadFile,
+       // ignore: prefer_initializing_formals
+       _storeFile = storeFile;
 
   static const String _key = 'mailbox.poisoned.v1';
 
-  /// FIFO cap, chosen by what ONE SETTINGS VALUE HOLDS.
-  ///
-  /// The container refuses a value over 2048 bytes, and each entry is a
-  /// 64-character hex plus its quotes and comma — so a cap of 64 produced a
-  /// ~4.3 KB value the store would not take. The write threw, the catch
-  /// swallowed it, and nothing was ever persisted again: the restart this
-  /// exists to protect paid the cert-resolve timeout per junk blob all over
-  /// again (report27 X36).
-  static const int _cap = 30;
+  /// Where the list lives now. The settings key above is still READ once, so a
+  /// device that has one carries its 30 forward instead of starting over.
+  static const String _fileKey = 'mailbox.poisoned.v2';
+
+  /// FIFO cap, now chosen by what is sane rather than by what one settings row
+  /// holds: a junk producer still cannot grow this without bound, and an
+  /// ordinary device will never reach it. At 64 hex per entry this is ~128 KB
+  /// in a file the container already knows how to hold.
+  static const int _cap = 2048;
+
+  /// The cap that applied while the list lived in a settings value. Kept so
+  /// the fallback path — a build with no file storage wired — writes something
+  /// the container will still accept rather than throwing on every flush.
+  static const int _settingsCap = 30;
 
   final Future<String?> Function(String) _get;
   final Future<void> Function(String, String) _put;
+  final Future<Uint8List?> Function(String)? _loadFile;
+  final Future<void> Function(String, Uint8List)? _storeFile;
   List<String>? _cache; // cid hex, FIFO order (oldest first)
+
+  static List<String> _decode(String raw) {
+    final out = <String>[];
+    final decoded = jsonDecode(raw);
+    if (decoded is List) {
+      for (final e in decoded) {
+        if (e is String) out.add(e);
+      }
+    }
+    return out;
+  }
 
   Future<List<String>> _load() async {
     final cached = _cache;
     if (cached != null) return cached;
-    final out = <String>[];
+    var out = <String>[];
     try {
-      final raw = await _get(_key);
-      if (raw != null && raw.isNotEmpty) {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final e in decoded) {
-            if (e is String) out.add(e);
-          }
-        }
+      final file = _loadFile;
+      final bytes = file == null ? null : await file(_fileKey);
+      if (bytes != null && bytes.isNotEmpty) {
+        out = _decode(utf8.decode(bytes));
+      } else {
+        // FIRST RUN AFTER THE MOVE, or a build with no file storage: the old
+        // settings row is still the truth, and dropping it would make the very
+        // restart this registry exists for pay for its 30 ids again.
+        final raw = await _get(_key);
+        if (raw != null && raw.isNotEmpty) out = _decode(raw);
       }
     } catch (_) {
       // Unreadable registry → start empty (failed opens re-quarantine).
@@ -120,7 +157,18 @@ class PoisonedBlobRegistry {
   Future<void> flush() async {
     if (!_dirty) return;
     try {
-      await _put(_key, jsonEncode(await _load()));
+      final list = await _load();
+      final file = _storeFile;
+      if (file != null) {
+        await file(_fileKey, Uint8List.fromList(utf8.encode(jsonEncode(list))));
+      } else {
+        // No file storage wired: keep the OLD behaviour exactly, including its
+        // ceiling, rather than handing the container a value it refuses.
+        final tail = list.length <= _settingsCap
+            ? list
+            : list.sublist(list.length - _settingsCap);
+        await _put(_key, jsonEncode(tail));
+      }
       // Cleared only once it LANDED. Clearing first meant a single failed
       // write cost every later flush in the session too: nothing was dirty
       // any more, so nothing was written (report27 X36).

@@ -194,6 +194,9 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
             poisonedBlobs: PoisonedBlobRegistry(
               getSetting: storage.getSetting,
               putSetting: storage.putSetting,
+              loadFile: storage.loadFile,
+              storeFile: (id, bytes) =>
+                  storage.storeFile(id, bytes, name: 'poisoned'),
             ),
           );
         })
