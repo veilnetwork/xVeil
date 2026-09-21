@@ -376,6 +376,18 @@ class _MessagingMailboxDelivery {
     // flush loop race for the same stable id. Answering false would tell the
     // caller nothing went out while a deposit is being made.
     if (!_inFlight.add(id)) return true;
+    // HOW LONG THE ONE SLOT WAS HELD.
+    //
+    // The background deposit slot is global and singular, so everything else
+    // waits behind whatever is in it — and the only thing the log said was
+    // "another deposit is in flight", once per deferred attempt, with no way
+    // to tell a slow seal from a stuck one from a queue of fast ones.
+    //
+    // Measured on the stand (2026-09-21): a device-sync delta spent 18 seconds
+    // deferred before its turn came, inside a 70-second end-to-end. That 18 s
+    // is either the cost of one slow seal or the sum of several fast deposits,
+    // and those ask for opposite fixes. This line is what tells them apart.
+    final slotHeldFrom = DateTime.now();
     var deposited = false;
     try {
       try {
@@ -421,6 +433,12 @@ class _MessagingMailboxDelivery {
       }
     } finally {
       _inFlight.remove(id);
+      final heldMs = DateTime.now().difference(slotHeldFrom).inMilliseconds;
+      devLog(
+        () =>
+            'xVeil[send]: deposit slot held ${heldMs}ms by id=$id '
+            'dst=${peer.short} (${deposited ? "deposited" : "no deposit"})',
+      );
     }
     return deposited;
   }
