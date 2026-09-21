@@ -578,6 +578,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       case DeviceSyncKind.msgMirror:
       case DeviceSyncKind.msgStatus:
       case DeviceSyncKind.msgGone:
+      case DeviceSyncKind.msgEdit:
       case DeviceSyncKind.convClear:
         break; // applied by the group_service bridge (brick 3)
       case DeviceSyncKind.cloudEntry:

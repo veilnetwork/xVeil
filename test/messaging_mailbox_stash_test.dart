@@ -990,6 +990,284 @@ void main() {
     });
   });
 
+  /// AN EDIT IS THE SAME SHAPE AS AN ERASE, ONE STEP SHORT OF IT.
+  ///
+  /// The `edit:` frame goes to the PEER. Only the device that sent or received
+  /// it hears about the change, so a sibling went on showing the superseded
+  /// text for good — including after the PEER edited their own message, where
+  /// the one device the sender reached was the only one that learned.
+  group('an edited message is edited on my other devices too', () {
+    test('editing my own message raises the event', () async {
+      await mA.acceptContact(b);
+      await mA.sendText(b, 'origianl typo');
+      final sent = (await sA.loadMessages(b.hex)).last;
+
+      final edits = <({String id, String body})>[];
+      mA.onMessageEdited = (peer, id, body, ce) =>
+          edits.add((id: id, body: body));
+      addTearDown(() => mA.onMessageEdited = null);
+
+      await mA.editOwnMessage(sent.id, 'original, fixed');
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).last.body,
+        'original, fixed',
+        reason: 'the premise: it changed on THIS device',
+      );
+      expect(
+        edits.map((e) => e.id),
+        contains(sent.id),
+        reason:
+            'this device replaced the text and told nobody, so my other '
+            'device shows the old words for good',
+      );
+      expect(edits.last.body, 'original, fixed');
+    });
+
+    test('the peer\'s edit is passed on to my other devices', () async {
+      await mA.acceptContact(b);
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.message(
+            'first try',
+            id: 'theirs-e1',
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      final edits = <String>[];
+      mA.onMessageEdited = (peer, id, body, ce) => edits.add(body);
+      addTearDown(() => mA.onMessageEdited = null);
+
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.edit('theirs-e1', 'second try').encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).last.body,
+        'second try',
+        reason: 'the premise: the edit WAS applied here',
+      );
+      expect(edits, contains('second try'));
+    });
+
+    test('a sibling\'s edit replaces the text here', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'edit-me',
+        direction: MessageDirection.incoming,
+        body: 'before',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      await mA.applyMirroredEdit(peer: b, msgId: 'edit-me', body: 'after');
+      await pumpEventQueue();
+
+      expect((await sA.loadMessages(b.hex)).last.body, 'after');
+    });
+
+    /// CONTROL. An edit applied FROM a sibling must not be announced back, or
+    /// two devices trade the same words forever.
+    test('an edit applied from a sibling is not announced back', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'no-echo-edit',
+        direction: MessageDirection.incoming,
+        body: 'before',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      final edits = <String>[];
+      mA.onMessageEdited = (peer, id, body, ce) => edits.add(id);
+      addTearDown(() => mA.onMessageEdited = null);
+
+      await mA.applyMirroredEdit(
+        peer: b,
+        msgId: 'no-echo-edit',
+        body: 'after',
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).last.body,
+        'after',
+        reason: 'the premise: the sibling\'s edit WAS applied',
+      );
+      expect(edits, isEmpty);
+    });
+
+    /// The fold is replayed into the appliers on every app start, and a LOCAL
+    /// edit allocates a fresh seq every time it is called — so re-applying a
+    /// sibling's edit would append an edit row per launch, for the life of the
+    /// message. The text it already shows is the idempotence.
+    test('replaying the same edit appends no new version', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'replayed-edit',
+        direction: MessageDirection.incoming,
+        body: 'before',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await mA.applyMirroredEdit(
+        peer: b,
+        msgId: 'replayed-edit',
+        body: 'after',
+      );
+      await pumpEventQueue();
+      final afterFirst =
+          (await sA.loadMessageHistory(b.hex, 'replayed-edit')).length;
+
+      await mA.applyMirroredEdit(
+        peer: b,
+        msgId: 'replayed-edit',
+        body: 'after',
+      );
+      await mA.applyMirroredEdit(
+        peer: b,
+        msgId: 'replayed-edit',
+        body: 'after',
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessageHistory(b.hex, 'replayed-edit')).length,
+        afterFirst,
+        reason:
+            'every app start added a version of a message nobody had touched',
+      );
+    });
+
+    /// An edit can outrun the mirror that carries its message, for the same
+    /// reason an erase can: both ride one log, and an oversized mirror waits
+    /// for a later fetch window.
+    test('an edit that arrives before its message still lands', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredEdit(
+        peer: b,
+        msgId: 'early-edit',
+        body: 'the corrected text',
+      );
+      await pumpEventQueue();
+
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'early-edit',
+        direction: MessageDirection.incoming,
+        body: 'the superseded text',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).last.body,
+        'the corrected text',
+        reason: 'the edit that outran its message was spent on nothing',
+      );
+    });
+
+    /// The fold replays every edit the group ever carried on each app start,
+    /// and an edit of an ERASED message finds nothing to edit. Parking one each
+    /// time churns a buffer of 512 that real pending operations share — the
+    /// same harm the erase path had, and the reason both ask storage whether
+    /// the id is tombstoned before parking anything.
+    test('replaying edits of erased messages parks nothing', () async {
+      await mA.acceptContact(b);
+
+      // A real pending operation, parked first and therefore evicted first.
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.del('slow-arrival-2').encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      for (var i = 0; i < kMaxPendingOps; i++) {
+        await sA.appendMessage(
+          Message(
+            id: 'gone-$i',
+            conversationId: b.hex,
+            direction: MessageDirection.incoming,
+            body: 'erased long ago',
+            timestamp: DateTime.now(),
+            status: MessageStatus.delivered,
+          ),
+        );
+        await sA.deleteMessage(b.hex, 'gone-$i');
+        await mA.applyMirroredEdit(
+          peer: b,
+          msgId: 'gone-$i',
+          body: 'an edit with nothing to edit',
+        );
+      }
+      await pumpEventQueue();
+
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.message(
+            'taken back',
+            id: 'slow-arrival-2',
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('slow-arrival-2')),
+        reason:
+            'the replay parked an edit per erased message and pushed the '
+            'peer\'s real unsend out of the buffer',
+      );
+    });
+
+    /// CONTROL. An erased message is not brought back by an edit of it — the
+    /// erase is the stronger statement, exactly as it is for a mirror.
+    test('an edit does not resurrect an erased message', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'erased-then-edited',
+        direction: MessageDirection.incoming,
+        body: 'before',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await mA.applyMirroredDelete(peer: b, msgId: 'erased-then-edited');
+      await pumpEventQueue();
+
+      await mA.applyMirroredEdit(
+        peer: b,
+        msgId: 'erased-then-edited',
+        body: 'after',
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('erased-then-edited')),
+      );
+    });
+  });
+
   /// CLEARING A CONVERSATION IS THE SAME DECISION, ONE SCALE UP.
   ///
   /// Measured on the two-device stand (2026-09-21): cleared on one device,
