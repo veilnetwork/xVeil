@@ -3304,4 +3304,101 @@ void main() {
           'transfer that lost a chunk could never ask again',
     );
   });
+
+  /// NOT SERVING IT RIGHT NOW IS NOT THE SAME AS NOT HAVING IT.
+  ///
+  /// The serve registry is in RAM, so a restart empties it — while the
+  /// manifest, the durable source record and often the stored blob all survive
+  /// on disk. The STREAM serve already walks that ladder; the datagram piece
+  /// path answered UNSERVED, and a peer that can only keep asking kept asking
+  /// forever.
+  ///
+  /// Measured on the stand (2026-09-21): after the sender restarted it still
+  /// reported `hasBlob:true` for the content and still refused every request
+  /// for it with `pieceRequest for UNSERVED … (ignored)`.
+  test('a piece request after the sender restarted is served from disk', () async {
+    final workdir = await Directory.systemTemp.createTemp('xveil-piece-src');
+    addTearDown(() => workdir.delete(recursive: true));
+    await mB.setFileDownloadPolicy(
+      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+    );
+    mA.sourceOpener = veilSourceOpener;
+
+    final bytes = _rnd(40 * 1024, 91);
+    await File('${workdir.path}/restarted.bin').writeAsBytes(bytes);
+    await mA.sendFileStreaming(
+      b,
+      'restarted.bin',
+      bytes.length,
+      (o, l) async => Uint8List.sublistView(bytes, o, o + l),
+      close: () async {},
+      sourcePath: '${workdir.path}/restarted.bin',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    final cid = ContentManifest.fromBytes('restarted.bin', bytes).contentId;
+
+    // Restart the sender: the serve registry is gone, the container is not.
+    await mA.dispose();
+    final mA2 =
+        MessagingService(
+            tA,
+            sA,
+            contentPacing: Duration.zero,
+            plainFileStream: true,
+          )
+          ..sourceOpener = veilSourceOpener
+          ..start();
+    addTearDown(mA2.dispose);
+
+    tA.sentPayloads.clear();
+    await mA2.deliverInbound(
+      InboundMessage(
+        src: b,
+        payload: pieceRequestEnvelope(contentId: cid, indices: [0])
+            .withFrameId('creq:$cid')
+            .encode(),
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    var chunks = 0;
+    for (final payload in tA.sentPayloads) {
+      try {
+        if (WireEnvelope.decode(payload).kind == WireKind.pieceChunk) chunks++;
+      } catch (_) {}
+    }
+    expect(
+      chunks,
+      greaterThan(0),
+      reason:
+          'the sender still held the file and still refused to serve it, '
+          'because the only record it consulted lives in RAM',
+    );
+
+    // CONTROL: content this device genuinely does not hold is still refused,
+    // or "re-open from disk" would become "serve anything anyone names".
+    tA.sentPayloads.clear();
+    const unknown =
+        '0000000000000000000000000000000000000000000000000000000000000001';
+    await mA2.deliverInbound(
+      InboundMessage(
+        src: b,
+        payload: pieceRequestEnvelope(contentId: unknown, indices: [0])
+            .withFrameId('creq:$unknown')
+            .encode(),
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    for (final payload in tA.sentPayloads) {
+      try {
+        expect(
+          WireEnvelope.decode(payload).kind,
+          isNot(WireKind.pieceChunk),
+          reason: 'a request for content we never had was answered with bytes',
+        );
+      } catch (_) {}
+    }
+  });
 }
