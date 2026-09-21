@@ -3440,7 +3440,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get chatMenuAllowPeerDeleteHint =>
-      'Si está activado, cuando retire un mensaje o limpie el historial también se borrará tu copia. Desactivado, conservas tus copias aunque borre para todos.';
+      'Cuando está activado, su retirada elimina también tu copia de ese mensaje. Borrar un chat entero es un ajuste aparte.';
 
   @override
   String get chatMenuUnblock => 'Desbloquear';
@@ -7613,4 +7613,38 @@ class AppL10nEs extends AppL10n {
   @override
   String get clearRequestsConfirmBody =>
       'Todos los mensajes de ese chat se borran aquí y en tus otros dispositivos. No se puede deshacer.';
+
+  @override
+  String get chatMenuClearPolicy =>
+      'Quién puede borrar este chat en mi dispositivo';
+
+  @override
+  String get clearPolicyAnyone => 'Cualquiera del chat';
+
+  @override
+  String get clearPolicyAdmins => 'Solo un administrador';
+
+  @override
+  String get clearPolicyAsk => 'Preguntarme cada vez';
+
+  @override
+  String get clearPolicyNever => 'Nadie';
+
+  @override
+  String get clearPolicyHint =>
+      'Borrar el historial es una solicitud, y esto es tu respuesta. Tu propio borrado se aplica aquí y en tus otros dispositivos siempre, elijas lo que elijas. Un chat 1:1 no tiene administradores, así que \"solo un administrador\" rechaza.';
+
+  @override
+  String get clearRequestsNotificationTitle => 'Alguien pide borrar un chat';
+
+  @override
+  String clearRequestsNotificationBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count chats esperan tu respuesta. No se ha borrado nada.',
+      one: 'Un chat espera tu respuesta. No se ha borrado nada.',
+    );
+    return '$_temp0';
+  }
 }

@@ -1467,7 +1467,7 @@
   "contactP2PDeny": "Deny",
   "contactP2PHint": "Allow lets messages and calls with this contact take a direct route: much faster, and it shows them your IP address. Anything else keeps the conversation on the relay path. Messages are delivered either way.",
   "chatMenuAllowPeerDelete": "Let this contact delete at me",
-  "chatMenuAllowPeerDeleteHint": "When on, their unsend or clear removes your copy too. Off keeps your copies even if they delete for everyone.",
+  "chatMenuAllowPeerDeleteHint": "When on, their unsend removes your copy of that message too. Clearing a whole chat is a separate setting.",
   "chatMenuUnblock": "Unblock",
   "chatMenuClearHistory": "Clear history",
   "chatMenuDeleteConversation": "Delete conversation",
@@ -3550,5 +3550,14 @@
   "clearRequestsKeep": "Keep",
   "clearRequestsErase": "Erase",
   "clearRequestsConfirmTitle": "Erase this chat's messages?",
-  "clearRequestsConfirmBody": "Every message of that chat is erased here and on your other devices. It cannot be undone."
+  "clearRequestsConfirmBody": "Every message of that chat is erased here and on your other devices. It cannot be undone.",
+  "chatMenuClearPolicy": "Who may clear this chat at me",
+  "clearPolicyAnyone": "Anyone in the chat",
+  "clearPolicyAdmins": "Only an administrator",
+  "clearPolicyAsk": "Ask me each time",
+  "clearPolicyNever": "Nobody",
+  "clearPolicyHint": "Clearing history is a request, and this is your answer to it. Your own clear always applies here and on your other devices, whatever you choose. A 1:1 chat has no administrators, so \"only an administrator\" refuses.",
+  "clearRequestsNotificationTitle": "Somebody asked to clear a chat",
+  "clearRequestsNotificationBody": "{count, plural, =1{One chat is waiting for your answer. Nothing has been erased.} other{{count} chats are waiting for your answer. Nothing has been erased.}}",
+  "@clearRequestsNotificationBody": {"placeholders": {"count": {"type": "int"}}}
 }

@@ -3403,7 +3403,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get chatMenuAllowPeerDeleteHint =>
-      'When on, their unsend or clear removes your copy too. Off keeps your copies even if they delete for everyone.';
+      'When on, their unsend removes your copy of that message too. Clearing a whole chat is a separate setting.';
 
   @override
   String get chatMenuUnblock => 'Unblock';
@@ -7518,4 +7518,38 @@ class AppL10nEn extends AppL10n {
   @override
   String get clearRequestsConfirmBody =>
       'Every message of that chat is erased here and on your other devices. It cannot be undone.';
+
+  @override
+  String get chatMenuClearPolicy => 'Who may clear this chat at me';
+
+  @override
+  String get clearPolicyAnyone => 'Anyone in the chat';
+
+  @override
+  String get clearPolicyAdmins => 'Only an administrator';
+
+  @override
+  String get clearPolicyAsk => 'Ask me each time';
+
+  @override
+  String get clearPolicyNever => 'Nobody';
+
+  @override
+  String get clearPolicyHint =>
+      'Clearing history is a request, and this is your answer to it. Your own clear always applies here and on your other devices, whatever you choose. A 1:1 chat has no administrators, so \"only an administrator\" refuses.';
+
+  @override
+  String get clearRequestsNotificationTitle => 'Somebody asked to clear a chat';
+
+  @override
+  String clearRequestsNotificationBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count chats are waiting for your answer. Nothing has been erased.',
+      one: 'One chat is waiting for your answer. Nothing has been erased.',
+    );
+    return '$_temp0';
+  }
 }
