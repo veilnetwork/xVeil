@@ -26,6 +26,7 @@ import '../domain/call_log.dart';
 import '../domain/chat.dart'
     show Contact, ContactStatus, NotificationMuteMode, SignaturePolicy;
 import '../domain/device_sync.dart';
+import '../domain/clear_policy.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
 import 'device_history_backfill.dart'
@@ -59,6 +60,8 @@ Map<String, Object?> contactPrefsPayload(Contact c) => {
   'arc': c.archived,
   'ret': c.retentionDays,
   'apd': c.allowPeerDelete,
+  // A decision about MY history is mine on every device I own.
+  'clp': c.clearPolicy.name,
   // The retention policy travels WITH the preferences, carrying its own stamp
   // and setter so the sibling can run the same last-writer-wins rule a peer's
   // announcement goes through.
@@ -502,6 +505,14 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       archived: e.payload['arc'] == true,
       retentionDays: ret is int ? ret : null,
       allowPeerDelete: e.payload['apd'] != false,
+      // Absent means a sibling on an older build: fall back to what its one
+      // legacy bit can still say rather than to the default, or a device that
+      // had been told "never" would forget it on the next mirrored edit.
+      clearPolicy:
+          ClearRequestPolicy.fromName(e.payload['clp'] as String?) ??
+          clearRequestPolicyFromLegacy(
+            allowPeerDelete: e.payload['apd'] != false,
+          ),
       disappearing: disappearingFromPayload(e.payload),
     );
   }
