@@ -342,7 +342,30 @@ class _MessagingPeerSync {
       }
     }
 
-    final claimed = highWater[selfHex];
+    // WHAT THE PEER CALLS US, not what we call ourselves.
+    //
+    // Our own rows are labelled with `transport.nodeId()`; the peer labels the
+    // same rows with the address it knows us by, which is the IDENTITY. For an
+    // ordinary identity those are one string and this changes nothing. For a
+    // sovereign identity with more than one device they differ, and the
+    // lookup below missed every time — so the peer read as having acknowledged
+    // NOTHING, and we re-shipped the whole conversation on every round.
+    //
+    // Measured on the stand (2026-09-21), once a minute, in both directions:
+    //   xVeil[sync]: <- 636e6538 peerHw(me)=0 reship=13
+    //
+    // Fixed HERE rather than at the sender, because the sender cannot do it:
+    // it labels the peer's stream by the peer's identity and does not know the
+    // peer's device id to label it with instead. Only the receiver knows both
+    // of its own names.
+    final identityHex = await _owner.selfIdentityHex?.call();
+    var claimed = highWater[selfHex];
+    if (identityHex != null && identityHex != selfHex) {
+      final byIdentity = highWater[identityHex];
+      if (byIdentity is int && (claimed is! int || byIdentity > claimed)) {
+        claimed = byIdentity;
+      }
+    }
     var peerHighWater = claimed is int && claimed >= 0 ? claimed : 0;
     // Anti-forgery: a peer cannot acknowledge a sequence we never emitted.
     final ours = await _owner._storage.conversationSync(peer.hex);

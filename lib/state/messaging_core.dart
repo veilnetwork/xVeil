@@ -569,6 +569,16 @@ class MessagingService {
   /// ever be delivered, and a durable frame that names it re-drives forever.
   Future<bool> Function(NodeId peer)? isSovereignAuthority;
 
+  /// The address a PEER knows this identity by, when that differs from the
+  /// node this device runs on.
+  ///
+  /// `_selfHex()` is `transport.nodeId()` — the DEVICE. For an ordinary
+  /// identity the two are one string; for a sovereign identity with more than
+  /// one device they are not, and everything a peer says about "you" is said
+  /// in the identity's name. Installed by the identity layer, like the two
+  /// callbacks above, so this layer keeps knowing nothing about device groups.
+  Future<String?> Function()? selfIdentityHex;
+
   /// Epoch-encrypted group-call frame. Deliberately not contact-gated: the
   /// group layer authenticates the sender, current membership, epoch, AEAD,
   /// signature, replay id and TTL before emitting anything to the call FSM.
