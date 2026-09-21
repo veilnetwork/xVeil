@@ -106,6 +106,124 @@ void main() {
       await mB.dispose();
     });
 
+    /// THE SAME SCENARIO WHERE THE TWO SIDES DO NOT AGREE ON NAMES.
+    ///
+    /// The test below passes because both ends of this harness are ordinary
+    /// identities, for which the device a node runs on and the address a peer
+    /// knows it by are one string. Production is not always like that: a
+    /// sovereign identity with more than one device labels its own rows with
+    /// its DEVICE and is known to its peer by its IDENTITY, so every key in an
+    /// arriving clear watermark is a name the receiver has never used.
+    ///
+    /// Measured on the stand (2026-09-21): the frame arrives, is acked on
+    /// first receipt, and 29 messages stay put. Reproduced here from the
+    /// receiver's side, which is the whole of what can be wrong.
+    test('a clear from a multi-device peer still empties the conversation',
+        () async {
+      final theirIdentity = _id(9); // how WE know them
+      final theirDevice = _id(10); // how THEY label their own rows
+      final ourIdentity = _id(8); // how THEY know us
+      await sB.upsertContact(
+        Contact(nodeId: theirIdentity, status: ContactStatus.accepted),
+      );
+      mB.selfIdentityHex = () async => ourIdentity.hex;
+      addTearDown(() => mB.selfIdentityHex = null);
+
+      for (var seq = 1; seq <= 2; seq++) {
+        await mB.deliverInbound(
+          InboundMessage(
+            src: theirIdentity,
+            payload: WireEnvelope.message(
+              'theirs-$seq',
+              id: 'm$seq',
+              sentAtMs: DateTime.now().millisecondsSinceEpoch,
+              seq: seq,
+            ).encode(),
+            provenance: SenderProvenance.signed,
+          ),
+        );
+      }
+      await _until(
+        () async => (await sB.loadMessages(theirIdentity.hex)).length == 2,
+      );
+      expect(
+        (await sB.loadMessages(theirIdentity.hex)).length,
+        2,
+        reason: 'the premise: the conversation has something to clear',
+      );
+
+      // The watermark a multi-device peer actually builds: OUR stream under
+      // the name it knows us by, THEIR stream under the device they run on.
+      await mB.deliverInbound(
+        InboundMessage(
+          src: theirIdentity,
+          payload: WireEnvelope.clear(
+            jsonEncode({ourIdentity.hex: 0, theirDevice.hex: 2}),
+            seq: 3,
+          ).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await _until(
+        () async => (await sB.loadMessages(theirIdentity.hex)).isEmpty,
+      );
+
+      expect(
+        await sB.loadMessages(theirIdentity.hex),
+        isEmpty,
+        reason:
+            'every name in the watermark was one this device has never used, '
+            'so the bounding dropped them all and the clear erased nothing',
+      );
+    });
+
+    /// CONTROL. A watermark that names more than one stream we cannot account
+    /// for does not describe a pair, and a clear is not reversible — so their
+    /// half is dropped rather than guessed at.
+    test('an ambiguous watermark does not erase their half', () async {
+      final theirIdentity = _id(9);
+      final ourIdentity = _id(8);
+      await sB.upsertContact(
+        Contact(nodeId: theirIdentity, status: ContactStatus.accepted),
+      );
+      mB.selfIdentityHex = () async => ourIdentity.hex;
+      addTearDown(() => mB.selfIdentityHex = null);
+
+      await mB.deliverInbound(
+        InboundMessage(
+          src: theirIdentity,
+          payload: WireEnvelope.message(
+            'theirs',
+            id: 'm1',
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+            seq: 1,
+          ).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await _until(
+        () async => (await sB.loadMessages(theirIdentity.hex)).length == 1,
+      );
+
+      await mB.deliverInbound(
+        InboundMessage(
+          src: theirIdentity,
+          payload: WireEnvelope.clear(
+            jsonEncode({_id(10).hex: 5, _id(11).hex: 5}),
+            seq: 3,
+          ).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(
+        (await sB.loadMessages(theirIdentity.hex)).length,
+        1,
+        reason: 'two unaccountable names is not a pair, so nothing is assumed',
+      );
+    });
+
     test('A clears -> B converges to the same emptied state, and the clear '
         'frame carries ONLY a watermark (no message id/text)', () async {
       await mA.sendText(b, 'from A one');
