@@ -14,6 +14,16 @@ class _MessagingDeviceMirror {
   /// Fires after an ordinary 1:1 messaging write, never after [applyMessage].
   void Function(NodeId peer, Message stored)? onMessageStored;
 
+  /// Fires when one of OUR OWN outgoing messages moves on — the peer's
+  /// acknowledgement landed, or the send failed. Only this device hears that,
+  /// so a sibling has no other way to learn it.
+  ///
+  /// Never fired for a status applied FROM a sibling, for the same reason
+  /// [onMessageStored] is not fired by [applyMessage]: an event received from
+  /// the device group must not loop back into it.
+  void Function(NodeId peer, String msgId, MessageStatus status)?
+  onMessageStatusChanged;
+
   /// Lets the device bridge offer an additional authenticated content source.
   Future<void> Function(String contentId)? deviceContentPull;
 
@@ -33,6 +43,25 @@ class _MessagingDeviceMirror {
   /// The value the emit tap mirrors on is the STORED row's timestamp, so a
   /// stamp bounded on the device that received it from the wire travels to the
   /// siblings already bounded and is a no-op here.
+  /// Write a sibling's report of how far one of our messages has got.
+  ///
+  /// Silent when the message is not here yet: the mirror that carries it and
+  /// the status ride the same log, so the next fold replay applies this once
+  /// the message exists. Never fires [onMessageStatusChanged] — an event from
+  /// the device group must not loop back into it.
+  Future<void> applyMessageStatus({
+    required NodeId peer,
+    required String msgId,
+    required MessageStatus status,
+  }) async {
+    if (_owner._disposed) return;
+    try {
+      await _owner._storage.markMessageStatus(peer.hex, msgId, status);
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: mirrored status for $msgId failed: $e');
+    }
+  }
+
   Future<bool> applyMessage({
     required NodeId peer,
     required String msgId,

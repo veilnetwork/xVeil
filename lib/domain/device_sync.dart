@@ -14,6 +14,22 @@ enum DeviceSyncKind {
   /// A 1:1 message mirrored from the device that sent/received it.
   msgMirror,
 
+  /// How far one of MY OWN outgoing messages has got — sent, delivered,
+  /// failed. Keyed by the message id.
+  ///
+  /// NOT folded into [msgMirror], although it is about the same message: a
+  /// mirror's timestamp is the MESSAGE's own time, which is where the chat
+  /// puts it on screen. Re-posting a mirror to carry a newer status would have
+  /// to stamp it later to win the fold, and the message would jump in the
+  /// conversation every time a tick arrived.
+  ///
+  /// Only the sending device learns this — the acknowledgement comes back to
+  /// it alone — so without an event of its own a sibling shows the message at
+  /// the status it was stored with and never moves. Reported by the owner:
+  /// a message sent from one device stayed on one tick on the other while the
+  /// sender showed two.
+  msgStatus,
+
   /// A conversation read-watermark (peer + ts).
   readMark,
 

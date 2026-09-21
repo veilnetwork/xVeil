@@ -737,6 +737,85 @@ void main() {
     );
   });
 
+  /// ONLY THE SENDING DEVICE HEARS THE ACKNOWLEDGEMENT.
+  ///
+  /// The peer sends it to whoever it was talking to, and that is one device.
+  /// A sibling holds the mirrored copy at the status it was stored with, so
+  /// without an event of its own it sits on one tick forever while the sender
+  /// shows two. Reported by the owner: a message sent from one device stayed
+  /// unread-looking on the other.
+  group('a message moving on tells my other devices', () {
+    test('an ack that marks delivered raises the event', () async {
+      await mA.acceptContact(b);
+      final moved = <({String id, MessageStatus status})>[];
+      mA.onMessageStatusChanged = (peer, id, status) =>
+          moved.add((id: id, status: status));
+      addTearDown(() => mA.onMessageStatusChanged = null);
+
+      await mA.sendText(b, 'did it land?');
+      final sent = (await sA.loadMessages(b.hex)).last;
+      expect(
+        sent.status,
+        isNot(MessageStatus.delivered),
+        reason: 'the premise: it is not delivered until the peer says so',
+      );
+
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.ack(sent.id).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).last.status,
+        MessageStatus.delivered,
+        reason: 'the premise: this device did learn it',
+      );
+      expect(
+        moved.map((m) => m.id),
+        contains(sent.id),
+        reason:
+            'this device learned the message had landed and told nobody, so '
+            'the copy on my other device stays on one tick for good',
+      );
+      expect(moved.last.status, MessageStatus.delivered);
+    });
+
+    /// CONTROL. A status applied FROM a sibling must not be announced back, or
+    /// two devices trade the same tick forever. Same rule the mirrored WRITE
+    /// already follows.
+    test('a status applied from a sibling is not announced back', () async {
+      await mA.acceptContact(b);
+      await mA.sendText(b, 'echo check');
+      final sent = (await sA.loadMessages(b.hex)).last;
+
+      final moved = <String>[];
+      mA.onMessageStatusChanged = (peer, id, status) => moved.add(id);
+      addTearDown(() => mA.onMessageStatusChanged = null);
+
+      await mA.applyMirroredMessageStatus(
+        peer: b,
+        msgId: sent.id,
+        status: MessageStatus.delivered,
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).last.status,
+        MessageStatus.delivered,
+        reason: 'the premise: the sibling\'s report WAS applied',
+      );
+      expect(
+        moved,
+        isEmpty,
+        reason: 'the applied status was announced back into the device group',
+      );
+    });
+  });
+
   /// WHAT THE CONSENT GATE OWES ITS CARRIER.
   ///
   /// Dropping a message because the sender is not accepted HERE is right. Not
