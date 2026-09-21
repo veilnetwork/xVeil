@@ -18,6 +18,7 @@ import '../domain/call_signal.dart';
 import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/chat.dart';
+import '../domain/clear_policy.dart';
 import '../domain/chat_folder.dart';
 import '../domain/disappearing_messages.dart';
 import '../domain/inline_custom_emoji.dart';
@@ -530,6 +531,7 @@ class MessagingService {
     required bool archived,
     int? retentionDays,
     required bool allowPeerDelete,
+    required ClearRequestPolicy clearPolicy,
 
     /// The sibling's view of the retention policy, or null when the event came
     /// from a build that did not carry it — in which case the policy already
@@ -544,6 +546,7 @@ class MessagingService {
     archived: archived,
     retentionDays: retentionDays,
     allowPeerDelete: allowPeerDelete,
+    clearPolicy: clearPolicy,
     disappearing: disappearing,
   );
 

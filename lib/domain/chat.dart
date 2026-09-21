@@ -1,4 +1,5 @@
 import '../core/ids.dart';
+import 'clear_policy.dart';
 import 'inline_custom_emoji.dart';
 import 'p2p_policy.dart';
 
@@ -52,6 +53,7 @@ class Contact {
     this.disappearingSetBy = '',
     this.hideAfterReadSeconds,
     this.allowPeerDelete = true,
+    this.clearPolicy = kDefaultClearRequestPolicy,
     this.p2pOverride = kDefaultContactP2POverride,
   });
 
@@ -98,6 +100,16 @@ class Contact {
   /// them either. Encrypted + local-only (a receiver-side policy — the peer is
   /// never told whether it was honored, matching the no-oracle model).
   final bool allowPeerDelete;
+
+  /// Whose request to EMPTY this conversation this device will honour.
+  ///
+  /// Separate from [allowPeerDelete], which keeps its own job of gating a
+  /// single-message unsend: "ask me" is a sensible answer to "erase this whole
+  /// conversation" and an unbearable one to "take back this message", where it
+  /// would mean a prompt per message. Reader-side and never told to the
+  /// requester; synced between this identity's own devices, because a decision
+  /// about my own history is mine on all of them.
+  final ClearRequestPolicy clearPolicy;
 
   /// Whether direct P2P transport is allowed for this peer on THIS device.
   /// Local-only and encrypted. It gates location-revealing direct paths for
@@ -160,6 +172,7 @@ class Contact {
     int? disappearingSetAtMs,
     String? disappearingSetBy,
     bool? allowPeerDelete,
+    ClearRequestPolicy? clearPolicy,
     ContactP2POverride? p2pOverride,
   }) => Contact(
     nodeId: nodeId,
@@ -183,6 +196,7 @@ class Contact {
         ? this.hideAfterReadSeconds
         : hideAfterReadSeconds as int?,
     allowPeerDelete: allowPeerDelete ?? this.allowPeerDelete,
+    clearPolicy: clearPolicy ?? this.clearPolicy,
     p2pOverride: p2pOverride ?? this.p2pOverride,
   );
 }

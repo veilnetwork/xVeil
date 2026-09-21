@@ -307,6 +307,7 @@ class _MessagingDeviceMirror {
     required bool archived,
     int? retentionDays,
     required bool allowPeerDelete,
+    required ClearRequestPolicy clearPolicy,
     DisappearingSetting? disappearing,
   }) async {
     final existing = await _owner._storage.getContact(peer);
@@ -344,6 +345,7 @@ class _MessagingDeviceMirror {
         archived: archived,
         retentionDays: retentionDays,
         allowPeerDelete: allowPeerDelete,
+        clearPolicy: clearPolicy,
         disappearingTtlSeconds: policy.ttlSeconds,
         disappearingSetAtMs: policy.setAtMs,
         disappearingSetBy: policy.setBy,
