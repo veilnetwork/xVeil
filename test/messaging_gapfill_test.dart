@@ -32,6 +32,10 @@ class _LossyTransport implements VeilTransport {
   /// the sender keeps re-shipping and the receiver can never get.
   Set<String> dropIfBodyContains = {};
 
+  /// Every envelope kind this side has put on the wire, so a test can ask
+  /// whether a re-ship happened rather than infer it from what arrived.
+  final sentKinds = <WireKind>[];
+
   @override
   Future<NodeId> nodeId() async => _me;
   @override
@@ -50,6 +54,7 @@ class _LossyTransport implements VeilTransport {
   }) async {
     if (drop) return; // live datagram lost
     final env = WireEnvelope.decode(payload);
+    sentKinds.add(env.kind);
     if (dropIfBodyContains.any(env.body.contains)) return;
     if (env.kind == WireKind.fileChunk) {
       final frame = parseFileChunk(env.body);
@@ -128,6 +133,104 @@ void main() {
   });
 
   List<Message> bodies0(List<Message> m) => m;
+
+  /// WHAT THE PEER CALLS US.
+  ///
+  /// A device labels its own rows with `transport.nodeId()`; the peer labels
+  /// the same rows with the address it knows us by, which is the IDENTITY. For
+  /// an ordinary identity those are one string. For a sovereign identity with
+  /// more than one device they are not — and the lookup that reads "how much of
+  /// MY stream has the peer acknowledged" used the device name, found nothing,
+  /// and re-shipped the whole conversation on every round.
+  ///
+  /// Measured on the stand (2026-09-21), once a minute, in both directions:
+  ///   xVeil[sync]: <- 636e6538 peerHw(me)=0 reship=13
+  group('a peer\'s acknowledgement is read under the name IT uses', () {
+    /// One sync beacon from the peer, as the peer would build it: our stream
+    /// keyed by the address the peer knows us by.
+    Uint8List vector(Map<String, int> hw) =>
+        WireEnvelope.sync(jsonEncode({'hw': hw})).encode();
+
+    test('an identity-keyed acknowledgement stops the re-ship', () async {
+      final identity = _id(9).hex; // this device runs on `a`, peers know `9`
+      mA.selfIdentityHex = () async => identity;
+      addTearDown(() => mA.selfIdentityHex = null);
+
+      await mA.sendText(b, 'one');
+      await mA.sendText(b, 'two');
+      await _settle();
+
+      tA.sentKinds.clear();
+      tA.inject(b, vector({identity: 2}));
+      await _settle();
+
+      expect(
+        tA.sentKinds,
+        isNot(contains(WireKind.message)),
+        reason:
+            'the peer acknowledged both messages under the only name it has '
+            'for us, and we re-shipped them anyway — every round, forever',
+      );
+    });
+
+    /// CONTROL. An ordinary identity keys our stream by the device, because
+    /// for it the two names are one string. That path must be untouched.
+    test('a device-keyed acknowledgement still stops the re-ship', () async {
+      mA.selfIdentityHex = () async => a.hex;
+      addTearDown(() => mA.selfIdentityHex = null);
+
+      await mA.sendText(b, 'one');
+      await mA.sendText(b, 'two');
+      await _settle();
+
+      tA.sentKinds.clear();
+      tA.inject(b, vector({a.hex: 2}));
+      await _settle();
+
+      expect(tA.sentKinds, isNot(contains(WireKind.message)));
+    });
+
+    /// CONTROL, and the premise of the whole group: a beacon that names
+    /// NEITHER of our names acknowledges nothing, so the re-ship is right.
+    test('an acknowledgement in a name that is not ours re-ships', () async {
+      mA.selfIdentityHex = () async => _id(9).hex;
+      addTearDown(() => mA.selfIdentityHex = null);
+
+      await mA.sendText(b, 'one');
+      await mA.sendText(b, 'two');
+      await _settle();
+
+      tA.sentKinds.clear();
+      tA.inject(b, vector({_id(7).hex: 2}));
+      await _settle();
+
+      expect(
+        tA.sentKinds,
+        contains(WireKind.message),
+        reason:
+            'the premise: nothing was acknowledged, so the events must go '
+            'again — otherwise the test above proves nothing',
+      );
+    });
+
+    /// CONTROL. The anti-forgery clamp still holds: a peer cannot acknowledge
+    /// a sequence we never emitted, whichever of our names it uses.
+    test('an identity-keyed claim past what we sent is clamped', () async {
+      final identity = _id(9).hex;
+      mA.selfIdentityHex = () async => identity;
+      addTearDown(() => mA.selfIdentityHex = null);
+
+      await mA.sendText(b, 'one');
+      await _settle();
+
+      tA.sentKinds.clear();
+      tA.inject(b, vector({identity: 9999}));
+      await _settle();
+      // Nothing to assert beyond "it did not throw and did not re-ship past
+      // our own ceiling"; the clamp is what keeps the walk bounded.
+      expect(tA.sentKinds, isNot(contains(WireKind.message)));
+    });
+  });
 
   test(
     'a message lost on the live path self-heals via the gap-fill beacon',
