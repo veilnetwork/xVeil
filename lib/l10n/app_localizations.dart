@@ -5981,7 +5981,7 @@ abstract class AppL10n {
   /// No description provided for @chatMenuAllowPeerDeleteHint.
   ///
   /// In en, this message translates to:
-  /// **'When on, their unsend or clear removes your copy too. Off keeps your copies even if they delete for everyone.'**
+  /// **'When on, their unsend removes your copy of that message too. Clearing a whole chat is a separate setting.'**
   String get chatMenuAllowPeerDeleteHint;
 
   /// No description provided for @chatMenuUnblock.
@@ -13115,6 +13115,54 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Every message of that chat is erased here and on your other devices. It cannot be undone.'**
   String get clearRequestsConfirmBody;
+
+  /// No description provided for @chatMenuClearPolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'Who may clear this chat at me'**
+  String get chatMenuClearPolicy;
+
+  /// No description provided for @clearPolicyAnyone.
+  ///
+  /// In en, this message translates to:
+  /// **'Anyone in the chat'**
+  String get clearPolicyAnyone;
+
+  /// No description provided for @clearPolicyAdmins.
+  ///
+  /// In en, this message translates to:
+  /// **'Only an administrator'**
+  String get clearPolicyAdmins;
+
+  /// No description provided for @clearPolicyAsk.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask me each time'**
+  String get clearPolicyAsk;
+
+  /// No description provided for @clearPolicyNever.
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody'**
+  String get clearPolicyNever;
+
+  /// No description provided for @clearPolicyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Clearing history is a request, and this is your answer to it. Your own clear always applies here and on your other devices, whatever you choose. A 1:1 chat has no administrators, so \"only an administrator\" refuses.'**
+  String get clearPolicyHint;
+
+  /// No description provided for @clearRequestsNotificationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Somebody asked to clear a chat'**
+  String get clearRequestsNotificationTitle;
+
+  /// No description provided for @clearRequestsNotificationBody.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{One chat is waiting for your answer. Nothing has been erased.} other{{count} chats are waiting for your answer. Nothing has been erased.}}'**
+  String clearRequestsNotificationBody(int count);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

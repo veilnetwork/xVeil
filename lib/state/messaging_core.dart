@@ -1885,6 +1885,10 @@ class MessagingService {
   Future<void> setContactAllowPeerDelete(NodeId peer, bool allow) =>
       _conversationAdmin.setContactAllowPeerDelete(peer, allow);
 
+  /// Whose request to EMPTY this conversation this device will honour.
+  Future<void> setContactClearPolicy(NodeId peer, ClearRequestPolicy policy) =>
+      _conversationAdmin.setContactClearPolicy(peer, policy);
+
   Future<void> setContactP2POverride(NodeId peer, ContactP2POverride value) =>
       _conversationAdmin.setContactP2POverride(peer, value);
 

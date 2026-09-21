@@ -5,6 +5,7 @@ import '../../core/ids.dart';
 import '../../core/log.dart';
 import '../../data/transport/wire_envelope.dart' show disappearingMarker;
 import '../../domain/chat.dart';
+import '../../domain/clear_policy.dart';
 import '../../domain/disappearing_messages.dart';
 import '../../domain/p2p_policy.dart';
 import '../../l10n/app_localizations.dart';
@@ -188,10 +189,12 @@ Future<void> showConversationActions(
                 pickContactP2P(context, ref, peer, contact.p2pOverride);
               },
             ),
-            // Receiver policy: may this contact delete-for-everyone / clear our
-            // local copies? ON (default) = the peer's unsend removes our copy too.
+            // Receiver policy for a SINGLE-MESSAGE unsend. It used to gate the
+            // whole-chat clear as well, and could therefore only say always or
+            // never — the four-valued answer to that question now lives in the
+            // tile below, so this one no longer speaks for it.
             SwitchListTile(
-              secondary: const Icon(Icons.delete_sweep_outlined),
+              secondary: const Icon(Icons.undo_outlined),
               title: Text(l.chatMenuAllowPeerDelete),
               subtitle: Text(l.chatMenuAllowPeerDeleteHint),
               isThreeLine: true,
@@ -199,6 +202,18 @@ Future<void> showConversationActions(
               onChanged: (v) {
                 Navigator.of(sheet).pop();
                 svc.setContactAllowPeerDelete(peer, v);
+              },
+            ),
+            // Whose request to EMPTY this chat we honour. "Ask me" is the
+            // default, and it is a real question: the request waits in the
+            // list under Settings until it is answered.
+            ListTile(
+              leading: const Icon(Icons.delete_sweep_outlined),
+              title: Text(l.chatMenuClearPolicy),
+              subtitle: Text(_clearPolicyLabel(l, contact.clearPolicy)),
+              onTap: () {
+                Navigator.of(sheet).pop();
+                pickContactClearPolicy(context, ref, peer, contact.clearPolicy);
               },
             ),
             if (contact.status == ContactStatus.blocked)
@@ -255,6 +270,53 @@ String _contactP2PLabel(AppL10n l, ContactP2POverride value) => switch (value) {
   ContactP2POverride.allow => l.contactP2PAllow,
   ContactP2POverride.deny => l.contactP2PDeny,
 };
+
+String _clearPolicyLabel(AppL10n l, ClearRequestPolicy value) => switch (value) {
+  ClearRequestPolicy.anyone => l.clearPolicyAnyone,
+  ClearRequestPolicy.admins => l.clearPolicyAdmins,
+  ClearRequestPolicy.ask => l.clearPolicyAsk,
+  ClearRequestPolicy.never => l.clearPolicyNever,
+};
+
+/// Whose request to EMPTY this conversation this device will honour.
+///
+/// The person's OWN clear is not governed here and the hint says so: it always
+/// applies on this device and on their other devices. This answers only what
+/// somebody else may do to their copy.
+Future<void> pickContactClearPolicy(
+  BuildContext context,
+  WidgetRef ref,
+  NodeId peer,
+  ClearRequestPolicy current,
+) async {
+  // Taken BEFORE the dialog, checked before the write. See IdentityGuard.
+  final lease = ref.leaseIdentity();
+  final l = AppL10n.of(context);
+  final choice = await showDialog<ClearRequestPolicy>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: Text(l.chatMenuClearPolicy),
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+          child: Text(
+            l.clearPolicyHint,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+        for (final v in ClearRequestPolicy.values)
+          ListTile(
+            title: Text(_clearPolicyLabel(l, v)),
+            trailing: current == v ? const Icon(Icons.check) : null,
+            onTap: () => Navigator.of(context).pop(v),
+          ),
+      ],
+    ),
+  );
+  if (choice == null) return;
+  if (!ref.holdsIdentity(lease)) return;
+  await ref.read(messagingServiceProvider).setContactClearPolicy(peer, choice);
+}
 
 Future<void> pickContactP2P(
   BuildContext context,
