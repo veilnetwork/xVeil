@@ -10,7 +10,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart'
-    show Contact, ContactStatus, MessageStatus;
+    show Contact, ContactStatus, MessageStatus, MessageDirection;
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging.dart';
@@ -735,6 +735,78 @@ void main() {
       isEmpty,
       reason: 'a buffered delete must win over a later buffered edit',
     );
+  });
+
+  /// A BLOCK IS A DECISION, AND A SIBLING DOES NOT OVERRULE IT.
+  ///
+  /// Measured on the two-device stand (2026-09-21): the contact was blocked on
+  /// one device at the same moment they sent. That device refused the message
+  /// off the wire; the sibling had not learned the block yet and stored it; and
+  /// three minutes later the mirror carried it BACK, so the blocking device
+  /// stored it after all. The person blocked someone and their message arrived
+  /// anyway, on the very device where they blocked it.
+  group('a mirrored message does not walk around a block', () {
+    test('an incoming message from a blocked contact is refused', () async {
+      await mA.blockContact(b);
+      expect(
+        (await sA.getContact(b))?.status,
+        ContactStatus.blocked,
+        reason: 'the premise: this device blocked them',
+      );
+
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'mirrored-from-blocked',
+        direction: MessageDirection.incoming,
+        body: 'let me back in',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('mirrored-from-blocked')),
+        reason:
+            'the block was bypassed by this identity\'s own other device',
+      );
+    });
+
+    /// CONTROL. An accepted contact's mirror must still land, or the fix
+    /// silently turns off multi-device mirroring for everyone.
+    test('an accepted contact is mirrored as before', () async {
+      await mA.acceptContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'mirrored-from-accepted',
+        direction: MessageDirection.incoming,
+        body: 'ordinary',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        contains('mirrored-from-accepted'),
+      );
+    });
+
+    /// CONTROL. What WE sent them before the block is our own history, and a
+    /// sibling mirroring it back is not the blocked party reaching us.
+    test('our own outgoing message still mirrors after a block', () async {
+      await mA.blockContact(b);
+      await mA.applyMirroredMessage(
+        peer: b,
+        msgId: 'mine-to-them',
+        direction: MessageDirection.outgoing,
+        body: 'said before the block',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      await pumpEventQueue();
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        contains('mine-to-them'),
+        reason: 'a block must not erase this device\'s own side of the chat',
+      );
+    });
   });
 
   /// ONLY THE SENDING DEVICE HEARS THE ACKNOWLEDGEMENT.
