@@ -345,6 +345,24 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     }());
   };
 
+  // The message taken back. Tiny, and keyed by the message id so a second
+  // erase of the same id is the same row rather than another one.
+  messaging.onMessageDeleted = (peer, msgId) {
+    if (peer == service.selfId) return;
+    unawaited(() async {
+      if (await service.isMyDevice(peer)) return;
+      await service.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgGone,
+          key: msgId,
+          // The DELETION's time, not the message's: the erase is the event.
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          payload: {'peer': peer.hex},
+        ),
+      );
+    }());
+  };
+
   // Multi-device mirror apply: idempotent, content bytes remain opt-in.
   //
   // One handler for both arrivals — the live stream, and the folded state
@@ -418,9 +436,30 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     );
   }
 
+  /// A sibling erased this message, so erase it here.
+  ///
+  /// Idempotent both ways: erasing an id that is already gone does nothing,
+  /// and an id that has not arrived yet is parked until it does — so the fold
+  /// replay this runs on every app start converges whatever order the mirror
+  /// and the tombstone are in.
+  Future<void> applyGoneEvent(DeviceSyncEvent event) async {
+    if (event.kind != DeviceSyncKind.msgGone) return;
+    final peerHex = event.payload['peer'];
+    if (peerHex is! String ||
+        peerHex.isEmpty ||
+        peerHex == service.selfId.hex) {
+      return;
+    }
+    await messaging.applyMirroredDelete(
+      peer: NodeId.fromHex(peerHex),
+      msgId: event.key,
+    );
+  }
+
   ref.onDispose(
     ref.read(deviceSyncAppliersProvider).register(applyStatusEvent),
   );
+  ref.onDispose(ref.read(deviceSyncAppliersProvider).register(applyGoneEvent));
 
   // Reachable by an offline import too: a mirror out of an archive is the same
   // event a sibling would have sent, and `applyMirroredMessage` is keyed by
@@ -437,6 +476,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       applyMirrorEvent(event, attachmentThumb: message.attachment?.dataB64),
     );
     unawaited(applyStatusEvent(event));
+    unawaited(applyGoneEvent(event));
   });
   unawaited(() async {
     final folded = await service.deviceSyncState();
@@ -622,4 +662,5 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.isSovereignAuthority = null;
   messaging.onMessageStored = null;
   messaging.onMessageStatusChanged = null;
+  messaging.onMessageDeleted = null;
 }
