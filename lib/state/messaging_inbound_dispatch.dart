@@ -559,6 +559,16 @@ extension _MessagingInboundDispatch on MessagingService {
           // The watermark's VALUES are sequence numbers too, and take the same
           // bound as the frame's own — one opinion for both, not two.
           if (wm.values.any((hw) => !isAcceptableWireSeq(hw))) return;
+          // RE-SPELLED IN OUR NAMES before anything acts on it. The keys are
+          // the SENDER's, and the two sides do not use the same ones — see
+          // [clearWatermarkInOurNames], which is also where the measurement
+          // that found this lives.
+          wm = clearWatermarkInOurNames(
+            watermark: wm,
+            theirLabel: m.src.hex,
+            ourLabel: await _selfHex(),
+            ourIdentity: await selfIdentityHex?.call(),
+          );
           await _storage.applyRemoteClear(
             m.src,
             m.src.hex,

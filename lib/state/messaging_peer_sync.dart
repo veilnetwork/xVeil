@@ -79,6 +79,53 @@ Map<String, int> floorDeclaration({
   };
 }
 
+/// A clear watermark re-spelled in the names THIS device uses.
+///
+/// A clear travels as a per-author seq watermark and as nothing else, so the
+/// names in it decide everything. They are the SENDER's names, and the two
+/// sides do not use the same ones: each labels its own rows with the device it
+/// runs on (`transport.nodeId()`) and the other side's rows with the address it
+/// knows that side by — the IDENTITY. For a pair where at least one side is a
+/// sovereign identity with more than one device, every key in an arriving
+/// watermark is a string this device has never used, the receiver's bounding
+/// drops all of them, and a clear-for-everyone erases nothing at all.
+///
+/// Measured on the stand (2026-09-21) with a controlled experiment: the frame
+/// arrives, is acked on first receipt, and 29 messages stay put.
+///
+/// The translation needs nothing this device does not already know:
+///
+///  * OUR half is whatever the sender filed under the name it knows us by —
+///    our identity — falling back to our device name for a sender whose two
+///    names are one string. It is re-filed under the name our own rows carry.
+///  * THEIR half is the remaining key. A 1:1 watermark names two streams and
+///    we have just accounted for one of them, so the other is theirs, whatever
+///    it is called. It is re-filed under the name we give their rows.
+///
+/// FAIL CLOSED on ambiguity: more than one leftover key means the watermark
+/// does not describe a pair, and no leftover key is an honest "nothing of
+/// theirs". Either way their half is dropped rather than guessed at — a clear
+/// is not reversible.
+///
+/// Pure, because the decision IS the whole of what can be wrong here.
+Map<String, int> clearWatermarkInOurNames({
+  required Map<String, int> watermark,
+  required String theirLabel,
+  required String ourLabel,
+  required String? ourIdentity,
+}) {
+  final out = <String, int>{};
+  final ourNames = {ourLabel, ?ourIdentity};
+  final ours = watermark[ourIdentity] ?? watermark[ourLabel];
+  if (ours != null) out[ourLabel] = ours;
+  final leftover = [
+    for (final e in watermark.entries)
+      if (!ourNames.contains(e.key)) e,
+  ];
+  if (leftover.length == 1) out[theirLabel] = leftover.single.value;
+  return out;
+}
+
 class _MessagingPeerSync {
   _MessagingPeerSync(this._owner);
 
