@@ -388,6 +388,40 @@ class MessagingService {
     required String msgId,
   }) => _deviceMirror.applyDelete(peer: peer, msgId: msgId);
 
+  /// Receives a text replaced HERE, for projection to the other devices.
+  void Function(
+    NodeId peer,
+    String msgId,
+    String body,
+    List<InlineCustomEmoji> customEmoji,
+  )?
+  get onMessageEdited => _deviceMirror.onMessageEdited;
+
+  set onMessageEdited(
+    void Function(
+      NodeId peer,
+      String msgId,
+      String body,
+      List<InlineCustomEmoji> customEmoji,
+    )?
+    callback,
+  ) {
+    _deviceMirror.onMessageEdited = callback;
+  }
+
+  /// Replace a message's text because one of this identity's devices did.
+  Future<void> applyMirroredEdit({
+    required NodeId peer,
+    required String msgId,
+    required String body,
+    List<InlineCustomEmoji> customEmoji = const [],
+  }) => _deviceMirror.applyEdit(
+    peer: peer,
+    msgId: msgId,
+    body: body,
+    customEmoji: customEmoji,
+  );
+
   /// Receives a conversation cleared HERE, for projection to the other devices.
   void Function(
     NodeId peer,

@@ -363,6 +363,31 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     }());
   };
 
+  // The same message, different words. Keyed by the message so the fold holds
+  // the latest text rather than one row per change of mind.
+  messaging.onMessageEdited = (peer, msgId, body, customEmoji) {
+    if (peer == service.selfId) return;
+    unawaited(() async {
+      if (await service.isMyDevice(peer)) return;
+      await service.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgEdit,
+          key: msgId,
+          // The EDIT's time. The mirror's stamp is the message's own and
+          // decides where the chat puts it; this one only has to be newer than
+          // the last edit of the same message.
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          payload: {
+            'peer': peer.hex,
+            'body': body,
+            if (customEmoji.isNotEmpty)
+              'ce': encodeInlineCustomEmoji(customEmoji),
+          },
+        ),
+      );
+    }());
+  };
+
   // The whole conversation emptied. One row per conversation, not per message:
   // the watermark IS the event, and it is what a later-arriving mirror of a
   // message from before the clear is measured against.
@@ -510,7 +535,27 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     );
   }
 
+  /// A sibling replaced this message's text, so replace it here.
+  Future<void> applyEditEvent(DeviceSyncEvent event) async {
+    if (event.kind != DeviceSyncKind.msgEdit) return;
+    final peerHex = event.payload['peer'];
+    final body = event.payload['body'];
+    if (peerHex is! String ||
+        peerHex.isEmpty ||
+        body is! String ||
+        peerHex == service.selfId.hex) {
+      return;
+    }
+    await messaging.applyMirroredEdit(
+      peer: NodeId.fromHex(peerHex),
+      msgId: event.key,
+      body: body,
+      customEmoji: parseInlineCustomEmoji(body, event.payload['ce']),
+    );
+  }
+
   ref.onDispose(ref.read(deviceSyncAppliersProvider).register(applyGoneEvent));
+  ref.onDispose(ref.read(deviceSyncAppliersProvider).register(applyEditEvent));
   ref.onDispose(ref.read(deviceSyncAppliersProvider).register(applyClearEvent));
 
   // Reachable by an offline import too: a mirror out of an archive is the same
@@ -529,6 +574,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     );
     unawaited(applyStatusEvent(event));
     unawaited(applyGoneEvent(event));
+    unawaited(applyEditEvent(event));
     unawaited(applyClearEvent(event));
   });
   unawaited(() async {
@@ -716,5 +762,6 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.onMessageStored = null;
   messaging.onMessageStatusChanged = null;
   messaging.onMessageDeleted = null;
+  messaging.onMessageEdited = null;
   messaging.onConversationCleared = null;
 }
