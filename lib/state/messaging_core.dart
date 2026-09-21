@@ -374,6 +374,20 @@ class MessagingService {
     _deviceMirror.onMessageStored = callback;
   }
 
+  /// Receives an erase performed HERE, for projection to the other devices.
+  void Function(NodeId peer, String msgId)? get onMessageDeleted =>
+      _deviceMirror.onMessageDeleted;
+
+  set onMessageDeleted(void Function(NodeId peer, String msgId)? callback) {
+    _deviceMirror.onMessageDeleted = callback;
+  }
+
+  /// Erase a message because one of this identity's other devices erased it.
+  Future<void> applyMirroredDelete({
+    required NodeId peer,
+    required String msgId,
+  }) => _deviceMirror.applyDelete(peer: peer, msgId: msgId);
+
   /// Idempotently project a message received from another local device.
   /// Move a MIRRORED message on to the status a sibling reports.
   ///

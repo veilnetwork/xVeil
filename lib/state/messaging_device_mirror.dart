@@ -24,6 +24,10 @@ class _MessagingDeviceMirror {
   void Function(NodeId peer, String msgId, MessageStatus status)?
   onMessageStatusChanged;
 
+  /// Fires when a message is erased HERE — by this person, or by the peer who
+  /// sent it unsending it. Never fired for an erase applied FROM a sibling.
+  void Function(NodeId peer, String msgId)? onMessageDeleted;
+
   /// Lets the device bridge offer an additional authenticated content source.
   Future<void> Function(String contentId)? deviceContentPull;
 
@@ -59,6 +63,42 @@ class _MessagingDeviceMirror {
       await _owner._storage.markMessageStatus(peer.hex, msgId, status);
     } catch (e) {
       devLog(() => 'xVeil[devices]: mirrored status for $msgId failed: $e');
+    }
+  }
+
+  /// Erase a message because one of my other devices erased it.
+  ///
+  /// Goes straight to storage rather than through [deleteLocally]: that path
+  /// fires [onMessageDeleted], and an erase received from the device group
+  /// must not loop back into it.
+  ///
+  /// A tombstone can outrun the mirror that carries its message — both ride
+  /// the same log, but an oversized mirror is deferred to a later fetch window
+  /// while a tiny tombstone is not — and `Storage.deleteMessage` writes nothing
+  /// for a message it cannot find. So an erase with nothing to erase is PARKED
+  /// in the same pending buffer a peer's unsend uses, and [applyMessage] spends
+  /// it when the message finally lands.
+  Future<void> applyDelete({
+    required NodeId peer,
+    required String msgId,
+  }) async {
+    if (_owner._disposed) return;
+    try {
+      // Already erased here, so there is nothing to park. This is the COMMON
+      // case, not an edge one: the folded device-sync state is replayed into
+      // the appliers on every app start, so every tombstone the group has ever
+      // carried arrives again — and parking each one would churn a buffer of
+      // 512 that real pending operations share.
+      if (await _owner._storage.isMessageDeleted(peer.hex, msgId)) return;
+      if (!await _owner._mutations.hasMessage(peer, msgId)) {
+        _owner._mutations.bufferPending(peer, msgId, _PendingOp.delete());
+        return;
+      }
+      await _owner._storage.deleteMessage(peer.hex, msgId);
+      await _owner._storage.scrubDeleted();
+      _owner._signal();
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: mirrored delete of $msgId failed: $e');
     }
   }
 
@@ -123,6 +163,14 @@ class _MessagingDeviceMirror {
         customEmoji: customEmoji,
       ),
     );
+    // An erase that got here FIRST is spent now, exactly as the wire path
+    // spends a peer's unsend that outran its post: store, then tombstone, so
+    // the row never shows and the id is refused if it is mirrored again.
+    final pending = _owner._mutations.takePending(peer, msgId);
+    if (pending != null && pending.isDelete) {
+      await _owner._storage.deleteMessage(peer.hex, msgId);
+      await _owner._storage.scrubDeleted();
+    }
     _owner._signal();
     return true;
   }

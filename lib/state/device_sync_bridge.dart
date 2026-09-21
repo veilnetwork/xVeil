@@ -577,6 +577,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       // item in a map that is never read.
       case DeviceSyncKind.msgMirror:
       case DeviceSyncKind.msgStatus:
+      case DeviceSyncKind.msgGone:
         break; // applied by the group_service bridge (brick 3)
       case DeviceSyncKind.cloudEntry:
       case DeviceSyncKind.cloudReplica:
