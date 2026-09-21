@@ -26,6 +26,7 @@ import '../features/settings/appearance_settings_screen.dart';
 import '../features/settings/theme_picker_screen.dart';
 import '../features/settings/profile_screen.dart';
 import '../features/settings/chats_settings_screen.dart';
+import '../features/settings/clear_requests_screen.dart';
 import '../features/settings/devices_screen.dart';
 import '../features/settings/file_settings_screen.dart';
 import '../features/settings/data_transfer_screen.dart';
@@ -326,6 +327,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings/p2p-selected',
         builder: (_, _) => const P2PSelectedScreen(),
+      ),
+      GoRoute(
+        path: '/settings/clear-requests',
+        builder: (_, _) => const ClearRequestsScreen(),
       ),
       GoRoute(
         path: '/settings/chats',
