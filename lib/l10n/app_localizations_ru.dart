@@ -3087,7 +3087,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatDeleteForMeBody =>
-      'Оно будет безвозвратно стёрто с этого устройства.';
+      'Оно будет безвозвратно стёрто здесь и на ваших других устройствах.';
 
   @override
   String get chatDeleteForEveryoneBody =>
@@ -3452,7 +3452,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatClearHistoryBody =>
-      'Все сообщения этого чата будут стёрты с этого устройства. Контакт останется, переписку можно продолжить. Собеседник не будет уведомлён.';
+      'Все сообщения этого чата будут стёрты здесь и на ваших других устройствах, а собеседнику уйдёт запрос стереть его копию. Контакт останется, переписку можно продолжить.';
 
   @override
   String get chatClearHistoryConfirm => 'Очистить';
@@ -7548,4 +7548,36 @@ class AppL10nRu extends AppL10n {
   @override
   String get callWeakLinkAsked =>
       'Собеседника попросили передавать только звук';
+
+  @override
+  String get clearRequestsTitle => 'Запросы на очистку';
+
+  @override
+  String get clearRequestsHint =>
+      'Чаты, настроенные спрашивать перед очисткой, собирают запросы здесь. Ничего пока не стёрто, и собеседнику ничего не сообщается — ни так, ни иначе.';
+
+  @override
+  String get clearRequestsEmpty => 'Никто не просил очистить чат';
+
+  @override
+  String clearRequestsFrom(String who) {
+    return '$who просит очистить ваш чат';
+  }
+
+  @override
+  String get clearRequestsBody =>
+      'Стирание уберёт все сообщения этого чата с этого устройства и с ваших других устройств. Отменить нельзя.';
+
+  @override
+  String get clearRequestsKeep => 'Оставить';
+
+  @override
+  String get clearRequestsErase => 'Стереть';
+
+  @override
+  String get clearRequestsConfirmTitle => 'Стереть сообщения этого чата?';
+
+  @override
+  String get clearRequestsConfirmBody =>
+      'Все сообщения этого чата будут стёрты здесь и на ваших других устройствах. Отменить нельзя.';
 }

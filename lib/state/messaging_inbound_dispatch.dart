@@ -557,20 +557,6 @@ extension _MessagingInboundDispatch on MessagingService {
           requesterIsAdmin: false,
         );
         if (verdict == ClearRequestVerdict.decline) return;
-        if (verdict == ClearRequestVerdict.askThePerson) {
-          // NOT YET THE FINAL BEHAVIOUR, and deliberately not silent about it.
-          // "Ask" is only honest once an unanswered request has somewhere to be
-          // seen; until that surface exists, declining would be "never" wearing
-          // another name and applying would be the defect this setting exists
-          // to stop. The default is still `anyone` for exactly this reason, so
-          // nobody reaches this line without having chosen it.
-          devLog(
-            () =>
-                'xVeil[clear]: request from ${m.src.short} NOT applied — the '
-                'chat asks before clearing and there is nowhere yet to ask',
-          );
-          return;
-        }
         final cseq = env.seq;
         if (cseq != null) {
           Map<String, int> wm;
@@ -595,6 +581,27 @@ extension _MessagingInboundDispatch on MessagingService {
             ourLabel: await _selfHex(),
             ourIdentity: await selfIdentityHex?.call(),
           );
+          if (verdict == ClearRequestVerdict.askThePerson) {
+            // ASKING IS NOT ACTING. The messages stay exactly where they are;
+            // what is kept is the watermark, ALREADY in our names, because the
+            // translation depends on which names the requester used and the
+            // record does not keep those.
+            await _conversationAdmin.rememberClearRequest(
+              PendingClearRequest(
+                chatHex: m.src.hex,
+                requesterHex: m.src.hex,
+                atMs: _now().millisecondsSinceEpoch,
+                seq: cseq,
+                watermark: wm,
+              ),
+            );
+            devLog(
+              () =>
+                  'xVeil[clear]: request from ${m.src.short} held for an '
+                  'answer — this chat asks before clearing',
+            );
+            return;
+          }
           await _storage.applyRemoteClear(
             m.src,
             m.src.hex,

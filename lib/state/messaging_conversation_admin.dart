@@ -451,6 +451,65 @@ class _MessagingConversationAdmin {
     _owner._signal();
   }
 
+  // ── Requests to empty a conversation, waiting for an answer ──────────────
+  //
+  // Only a chat whose policy is [ClearRequestPolicy.ask] ever records one. The
+  // messages stay untouched; the record keeps what is needed to carry the
+  // request out later, unchanged, if the person says yes.
+
+  Future<List<PendingClearRequest>> pendingClearRequests() async =>
+      decodePendingClearRequests(
+        await _owner._storage.getSetting(kPendingClearRequestsKey),
+      );
+
+  /// Remember a request nobody has answered yet.
+  ///
+  /// The watermark is stored ALREADY in this device's names, because the
+  /// translation depends on which names the requester used and the record does
+  /// not keep those — re-deriving it a day later would be guessing.
+  Future<void> rememberClearRequest(PendingClearRequest request) async {
+    final folded = foldPendingClearRequest(
+      await pendingClearRequests(),
+      request,
+    );
+    await _owner._storage.putSetting(
+      kPendingClearRequestsKey,
+      encodePendingClearRequests(folded),
+    );
+    _owner._signal();
+  }
+
+  /// Answer one: [accept] carries it out, otherwise it is simply forgotten.
+  ///
+  /// Either way the record goes, and the requester is told nothing — the
+  /// no-oracle rule holds here as everywhere else in this layer. A request for
+  /// a chat whose messages have since been cleared by other means applies to
+  /// nothing, which is a no-op rather than an error.
+  Future<bool> answerClearRequest(
+    PendingClearRequest request, {
+    required bool accept,
+  }) async {
+    final remaining = [
+      for (final held in await pendingClearRequests())
+        if (held.key != request.key) held,
+    ];
+    await _owner._storage.putSetting(
+      kPendingClearRequestsKey,
+      encodePendingClearRequests(remaining),
+    );
+    if (accept) {
+      await _owner._storage.applyRemoteClear(
+        NodeId.fromHex(request.chatHex),
+        request.requesterHex,
+        request.seq,
+        request.watermark,
+        selfHex: await _owner._selfHex(),
+      );
+    }
+    _owner._signal();
+    return accept;
+  }
+
   Future<void> markRead(String conversationId) async {
     try {
       await _owner._storage.markRead(conversationId);

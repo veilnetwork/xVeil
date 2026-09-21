@@ -5333,7 +5333,7 @@ abstract class AppL10n {
   /// No description provided for @chatDeleteForMeBody.
   ///
   /// In en, this message translates to:
-  /// **'It is permanently erased from this device.'**
+  /// **'It is permanently erased here and on your other devices.'**
   String get chatDeleteForMeBody;
 
   /// No description provided for @chatDeleteForEveryoneBody.
@@ -6011,7 +6011,7 @@ abstract class AppL10n {
   /// No description provided for @chatClearHistoryBody.
   ///
   /// In en, this message translates to:
-  /// **'Every message in this chat is erased from this device. The contact stays, so you can keep messaging. The other person is not notified.'**
+  /// **'Every message in this chat is erased here and on your other devices, and the other person is asked to erase their copy too. The contact stays, so you can keep messaging.'**
   String get chatClearHistoryBody;
 
   /// No description provided for @chatClearHistoryConfirm.
@@ -13061,6 +13061,60 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Asked your contact to send audio only'**
   String get callWeakLinkAsked;
+
+  /// No description provided for @clearRequestsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Requests to clear'**
+  String get clearRequestsTitle;
+
+  /// No description provided for @clearRequestsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Chats set to ask you before clearing collect their requests here. Nothing has been erased, and the other person is not told either way.'**
+  String get clearRequestsHint;
+
+  /// No description provided for @clearRequestsEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'Nobody has asked to clear a chat'**
+  String get clearRequestsEmpty;
+
+  /// No description provided for @clearRequestsFrom.
+  ///
+  /// In en, this message translates to:
+  /// **'{who} asked to clear your chat'**
+  String clearRequestsFrom(String who);
+
+  /// No description provided for @clearRequestsBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Erasing removes every message of that chat from this device and your other devices. It cannot be undone.'**
+  String get clearRequestsBody;
+
+  /// No description provided for @clearRequestsKeep.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep'**
+  String get clearRequestsKeep;
+
+  /// No description provided for @clearRequestsErase.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase'**
+  String get clearRequestsErase;
+
+  /// No description provided for @clearRequestsConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase this chat\'s messages?'**
+  String get clearRequestsConfirmTitle;
+
+  /// No description provided for @clearRequestsConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Every message of that chat is erased here and on your other devices. It cannot be undone.'**
+  String get clearRequestsConfirmBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

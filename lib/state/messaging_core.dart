@@ -19,6 +19,7 @@ import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/chat.dart';
 import '../domain/clear_policy.dart';
+import '../domain/clear_request.dart';
 import '../domain/chat_folder.dart';
 import '../domain/disappearing_messages.dart';
 import '../domain/inline_custom_emoji.dart';
@@ -1940,6 +1941,18 @@ class MessagingService {
 
   Future<void> clearConversation(NodeId peer) =>
       _conversationAdmin.clearConversation(peer);
+
+  /// Requests to empty a conversation that nobody has answered yet — only a
+  /// chat whose policy is [ClearRequestPolicy.ask] ever makes one.
+  Future<List<PendingClearRequest>> pendingClearRequests() =>
+      _conversationAdmin.pendingClearRequests();
+
+  /// Answer one. [accept] carries it out; either way the record goes and the
+  /// requester is told nothing.
+  Future<bool> answerClearRequest(
+    PendingClearRequest request, {
+    required bool accept,
+  }) => _conversationAdmin.answerClearRequest(request, accept: accept);
 
   /// Fires only after a local read marker advances, for device mirroring.
   void Function(String conversationId, int tsMs)? onConversationRead;

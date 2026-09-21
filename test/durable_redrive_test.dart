@@ -13,6 +13,7 @@ import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/clear_policy.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -106,7 +107,14 @@ void main() {
       mB = MessagingService(tB, sB)..start();
       addTearDown(mB.dispose);
       await sB.upsertContact(
-        Contact(nodeId: a, status: ContactStatus.accepted),
+        // These tests are about the durable RE-DRIVE of a clear, not about
+        // whose request counts, so they name the policy instead of riding the
+        // default — which now asks rather than applies.
+        Contact(
+          nodeId: a,
+          status: ContactStatus.accepted,
+          clearPolicy: ClearRequestPolicy.anyone,
+        ),
       );
     });
 
@@ -270,6 +278,15 @@ void main() {
       await _settle();
       await mB.acceptContact(a);
       await _settle();
+      // These tests are about the durable RE-DRIVE of edit / delete / clear,
+      // not about whose request counts. The default now ASKS before letting
+      // anybody clear, so a test riding it would be asserting the policy
+      // rather than the re-drive it was written for.
+      await sB.upsertContact(
+        (await sB.getContact(a))!.copyWith(
+          clearPolicy: ClearRequestPolicy.anyone,
+        ),
+      );
     });
 
     /// One delivered message from A so there is something to edit/delete/clear.
@@ -403,6 +420,13 @@ void main() {
       await _settle();
       await mC.acceptContact(a);
       await _settle();
+      // The third party runs the same explicit policy as B — this test is
+      // about A's own outbox ids colliding, not about whose clear counts.
+      await sC.upsertContact(
+        (await sC.getContact(a))!.copyWith(
+          clearPolicy: ClearRequestPolicy.anyone,
+        ),
+      );
 
       tA.peer = tB;
       await seed('to B');
@@ -1085,10 +1109,19 @@ void main() {
       addTearDown(mA.dispose);
       addTearDown(mB.dispose);
       await sA.upsertContact(
-        Contact(nodeId: b, status: ContactStatus.accepted),
+        Contact(
+          nodeId: b,
+          status: ContactStatus.accepted,
+          clearPolicy: ClearRequestPolicy.anyone,
+        ),
       );
       await sB.upsertContact(
-        Contact(nodeId: a, status: ContactStatus.accepted),
+        // About the re-drive, not the policy — see the note above.
+        Contact(
+          nodeId: a,
+          status: ContactStatus.accepted,
+          clearPolicy: ClearRequestPolicy.anyone,
+        ),
       );
     });
 

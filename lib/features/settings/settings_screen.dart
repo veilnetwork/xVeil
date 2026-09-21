@@ -9,6 +9,7 @@ import '../../data/storage/app_profile.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import '../../state/messaging.dart';
 import 'app_update_tile.dart';
 import 'error_report.dart';
 
@@ -133,6 +134,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             subtitle: Text(l.settingsCatChatsHint),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => context.push('/settings/chats'),
+          ),
+          // Somewhere for an unanswered request to be SEEN. A chat set to ask
+          // before clearing is only telling the truth while this exists — the
+          // alternative is a policy that says "I will ask you" and behaves as
+          // "never". The count is what makes it findable without hunting, and
+          // it is the reason the default could move to asking at all.
+          ListTile(
+            leading: const Icon(Icons.delete_sweep_outlined),
+            title: Text(l.clearRequestsTitle),
+            subtitle: Text(l.clearRequestsHint),
+            isThreeLine: true,
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (ref.watch(pendingClearRequestsProvider).value?.length
+                    case final waiting? when waiting > 0)
+                  Badge(label: Text('$waiting')),
+                const Icon(Icons.chevron_right),
+              ],
+            ),
+            onTap: () => context.push('/settings/clear-requests'),
           ),
           ListTile(
             leading: const Icon(Icons.sd_storage_outlined),
