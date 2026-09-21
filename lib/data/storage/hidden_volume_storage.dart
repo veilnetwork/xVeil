@@ -3162,7 +3162,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   }
 
   @override
-  Future<void> markMessageStatus(
+  Future<bool> markMessageStatus(
     String conversationId,
     String messageId,
     MessageStatus status,
@@ -3183,9 +3183,9 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     } catch (_) {
       // Fail closed: without a readable target row we must not manufacture an
       // orphan status op for an arbitrary ACK id.
-      return;
+      return false;
     }
-    if (target == null || target.status == status) return;
+    if (target == null || target.status == status) return false;
     // Append-only log can't mutate a row, so record a status OP that [_scanLog]
     // folds onto the message (latest wins). Drives the outbox: an ack flips a
     // message to `delivered` so it is no longer re-sent. The op carries the
@@ -3200,6 +3200,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     await _commitAtNextMessageLogId(
       (namespace, logId) => [AppendLogOp(namespace, logId, _sk(payload))],
     );
+    return true;
   }
 
   @override

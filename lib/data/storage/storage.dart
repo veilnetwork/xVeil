@@ -201,7 +201,15 @@ abstract interface class Storage {
   /// for the same reason as [editMessage]: an ack is driven by a peer's wire
   /// envelope whose claimed id is attacker-chosen, so a status op only applies
   /// to a message that actually lives in that peer's conversation.
-  Future<void> markMessageStatus(
+  ///
+  /// Answers whether a status was actually RECORDED — false when the id names
+  /// no message of this conversation, and false when the message is already at
+  /// this status. Callers that tell other devices about the move need that
+  /// answer: an ack carries a FRAME id, and most durable frames are not
+  /// messages at all (an unsend, an edit, a clear, a content request), so
+  /// without it every control frame the peer acknowledges posts a status event
+  /// about a message that does not exist.
+  Future<bool> markMessageStatus(
     String conversationId,
     String messageId,
     MessageStatus status,
