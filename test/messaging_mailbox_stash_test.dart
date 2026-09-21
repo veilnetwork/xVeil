@@ -1109,6 +1109,33 @@ void main() {
       expect(moved.last.status, MessageStatus.delivered);
     });
 
+    /// AN ACK NAMES A FRAME, NOT A MESSAGE.
+    ///
+    /// Most durable frames are not messages at all — an unsend (`del:<id>`),
+    /// an edit, a clear, a content request — and the peer acknowledges every
+    /// one of them. Storage already refuses to write a status for an id that
+    /// names no message here; announcing it anyway put a row in the device
+    /// group per control frame ever acknowledged, keyed by something no device
+    /// can apply it to, and the fold is replayed on every app start. Seen on
+    /// the stand as `msgStatus|del:<id>` after a delete-for-everyone.
+    test('an ack for a frame that is not a message raises nothing', () async {
+      await mA.acceptContact(b);
+      final moved = <String>[];
+      mA.onMessageStatusChanged = (peer, id, status) => moved.add(id);
+      addTearDown(() => mA.onMessageStatusChanged = null);
+
+      await mA.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: WireEnvelope.ack('del:not-a-message').encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(moved, isEmpty);
+    });
+
     /// CONTROL. A status applied FROM a sibling must not be announced back, or
     /// two devices trade the same tick forever. Same rule the mirrored WRITE
     /// already follows.

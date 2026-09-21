@@ -990,6 +990,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/read_conv':
           await _readConvHook(req);
           return;
+        case '/clear_conv':
+          await _clearConvHook(req);
+          return;
         case '/contact_block':
           await _contactBlockHook(req);
           return;
@@ -4959,6 +4962,25 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'marker': await ref.read(storageProvider).readMarker(peer),
+    });
+  }
+
+  /// Clear a conversation, the way the chat screen's "clear history" does.
+  ///
+  /// Here so the multi-device campaign can measure what a clear reaches. A
+  /// clear is a DECISION, like a block or an erase, and this campaign has
+  /// found decisions staying on the device they were made on twice already.
+  Future<void> _clearConvHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = req.uri.queryParameters['peer'];
+    if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final id = NodeId.fromHex(peer);
+    final before = (await ref.read(storageProvider).loadMessages(peer)).length;
+    await ref.read(messagingServiceProvider).clearConversation(id);
+    return _json(req, {
+      'ok': true,
+      'before': before,
+      'after': (await ref.read(storageProvider).loadMessages(peer)).length,
     });
   }
 
