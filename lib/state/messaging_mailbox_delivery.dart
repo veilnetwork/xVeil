@@ -26,6 +26,34 @@ class _MessagingMailboxDelivery {
 
   bool _paused = false;
 
+  /// How many background deposits may be in flight at once.
+  ///
+  /// ONE, until it was measured. The number came from keeping CPU bursts off
+  /// the app during a call, and calls are already covered by [paused] — while
+  /// what the slot actually holds is mostly NETWORK: the comment on
+  /// [stashDeadline] beside it says a cold KEM resolve alone takes about eight
+  /// seconds, and that is a round trip, not arithmetic.
+  ///
+  /// Measured on the stand (2026-09-21), one ~80-second window: fourteen
+  /// deposits held the single slot for 67.5 seconds between them — 84% of the
+  /// window — with a median hold of 4.3 s and 132 deferred attempts behind
+  /// them. One held it for 14.5 seconds and deposited nothing at all. A
+  /// device-sync row waited eighteen seconds for its turn inside a
+  /// seventy-second end-to-end.
+  ///
+  /// STILL ONE, because widening it is not mine to decide.
+  ///
+  /// `messaging_outbox_test.dart` guards the opposite property in as many
+  /// words — "a durable backlog must not fan out KEM stashes in parallel" —
+  /// and that is a recorded intent, not an accident of a number. The cost it
+  /// is protecting against does not show on a desktop stand: three concurrent
+  /// seals on a phone are three CPU bursts, and the measurement above was
+  /// taken on a Mac with nothing else to do.
+  ///
+  /// So the finding stands and the change does not: raising this is a
+  /// trade-off between a slow deposit path and CPU on a handset, and the
+  /// person who has to live with the handset decides it. Tried at three,
+  /// reverted, written up.
   static const _maxBackgroundStashes = 1;
   static const _retryBackoff = Duration(seconds: 30);
 

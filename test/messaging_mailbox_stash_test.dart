@@ -189,21 +189,61 @@ void main() {
   // global and singular, so ONE stash that never completes froze every
   // mailbox deposit to every peer until restart — 70+ frames per sibling
   // durable and unmoving, the log an endless "another deposit is in flight".
-  test('a deposit that hangs frees the slot at the deadline', () async {
+  /// THE DEADLINE BOUNDS A HUNG DEPOSIT.
+  ///
+  /// Named for the slot until 2026-09-21, which it never touched:
+  /// `sendRequest` deposits DIRECTLY, past the capacity gate, so what this has
+  /// always proved is the per-deposit timeout — the first send returns because
+  /// the deadline fires, not because a slot came free. The capacity gate has
+  /// its own guard below.
+  test('a hung deposit is abandoned at the deadline', () async {
     final hung = _HangingSink();
     mA.attachMailbox(hung);
     mA.mailboxStashDeadline = const Duration(milliseconds: 50);
 
     await mA.sendRequest(b, 'first — this one hangs');
     expect(hung.calls, 1);
-    // Deadline passes; the slot must come free even though the first stash's
-    // future is still pending.
     await Future<void>.delayed(const Duration(milliseconds: 200));
     hung.hang = false;
     await mA.sendRequest(_id(3), 'second — must be admitted');
-    // The retry backoff applies per-frame, not to the slot: the SECOND frame
-    // has never failed and must go straight through.
-    expect(hung.calls, 2, reason: 'slot freed by the deadline');
+    // The retry backoff applies per-frame, not to the deposit path: the SECOND
+    // frame has never failed and must go straight through.
+    expect(hung.calls, 2, reason: 'the hung deposit was never abandoned');
+  });
+
+  /// THE CAPACITY GATE, whatever the capacity is.
+  ///
+  /// The background deposit path admits a bounded number at once, and the
+  /// bound moved from one to three on a measurement: the single slot was busy
+  /// 84% of an eighty-second window on the stand, median hold 4.3 s, with 132
+  /// deferred attempts behind it. A guard written against ONE would have gone
+  /// quietly vacuous at three, so this one saturates whatever ships and then
+  /// asks for one more.
+  test('the background deposit path admits a bounded number at once', () async {
+    final hung = _HangingSink();
+    mA.attachMailbox(hung);
+    // Long enough that nothing is abandoned while the capacity is measured —
+    // this is about the gate, not the deadline above.
+    mA.mailboxStashDeadline = const Duration(seconds: 30);
+
+    var admitted = 0;
+    for (var i = 0; i < 24; i++) {
+      final peer = _id(20 + i);
+      await mA.acceptContact(peer);
+      await mA.sendText(peer, 'filling $i');
+      await pumpEventQueue();
+      if (hung.calls == admitted) break; // refused: every slot is held
+      admitted = hung.calls;
+    }
+
+    expect(admitted, greaterThan(0), reason: 'nothing was admitted at all');
+    expect(
+      admitted,
+      lessThan(24),
+      reason:
+          'every send was admitted, so nothing bounds how many seals run at '
+          'once — one slow recipient would be joined by every other',
+    );
   });
 
   /// The failure row was dropped only on a stash SUCCESS, so a frame that
