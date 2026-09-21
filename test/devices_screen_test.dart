@@ -9,9 +9,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_message.dart';
-import 'package:xveil/domain/sovereign_secret.dart';
 import 'package:xveil/l10n/app_localizations.dart';
-import 'package:xveil/state/group_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/providers.dart';
 
