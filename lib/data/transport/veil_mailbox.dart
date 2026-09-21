@@ -229,11 +229,26 @@ abstract interface class VeilMailboxRelay {
   /// so lets the relay pass over it; the record is NOT deleted, and a relay
   /// that does not understand the field simply serves as before
   /// (report14 X14-M4).
+  ///
+  /// [skip] is what the RELAY is told, and the wire caps it. [neverCollect] is
+  /// what THIS NODE knows it cannot open, uncapped, and it governs only the
+  /// expensive local half: an ANNOUNCED blob is fetched window by window before
+  /// it can be opened at all, so collecting one that is already quarantined
+  /// spends seconds of network to reach a failure the caller predicted.
+  ///
+  /// The two are separate because the cap is a property of the request body,
+  /// not of what this device knows. Measured on the stand (2026-09-21): a
+  /// device held 272 unopenable content ids and could name only 64 of them to
+  /// the relay, so the rest were announced every pass and collected every
+  /// pass — 626 collections of 464 blobs, one of them 66 times in an hour,
+  /// inside a drain that ran for fourteen minutes and blocked all reception
+  /// behind it.
   Future<List<StoredMailboxBlob>> fetch({
     required NodeId me,
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
     List<Uint8List> skip = const [],
+    Set<String> neverCollect = const {},
   });
 
   /// Acknowledge (and let the relay drop) the blob [contentId] for [me].
@@ -276,6 +291,9 @@ class VeilFlutterMailboxRelay implements VeilMailboxRelay {
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [], // FFI resolves the relay internally,
     List<Uint8List> skip = const [],
+    // Nothing is collected window by window on this path — the FFI hands back
+    // whole blobs — so there is no expensive local half to govern.
+    Set<String> neverCollect = const {},
   }) async {
     final raw = await _mailbox.fetch(
       receiverId: me.bytes,
@@ -330,6 +348,7 @@ class InMemoryMailboxRelay implements VeilMailboxRelay {
     required Uint8List authCookie,
     List<NodeId> knownRelays = const [],
     List<Uint8List> skip = const [],
+    Set<String> neverCollect = const {},
   }) async {
     // HONOURED, as the real relay honours it (`Mailbox::fetch_skipping`). It
     // used to be accepted and ignored, which made this double unable to
