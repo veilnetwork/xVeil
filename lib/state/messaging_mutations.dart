@@ -70,6 +70,14 @@ class _MessagingMutations {
         seq: envelope.seq,
         customEmoji: envelope.customEmoji,
       );
+      // Only the device the peer reached heard this. The others keep showing
+      // the text the sender replaced.
+      _owner._deviceMirror.onMessageEdited?.call(
+        peer,
+        id,
+        envelope.body,
+        envelope.customEmoji,
+      );
     } else if (!await hasMessage(peer, id)) {
       bufferPending(
         peer,
@@ -203,6 +211,14 @@ class _MessagingMutations {
       messageId,
       trimmed,
       customEmoji: customEmoji,
+    );
+    // My other devices hold their own copy and hear no `edit:` — that frame
+    // goes to the PEER. Without this they show the superseded text for good.
+    _owner._deviceMirror.onMessageEdited?.call(
+      NodeId.fromHex(message.conversationId),
+      messageId,
+      trimmed,
+      customEmoji,
     );
     _owner._signal();
     final destination = NodeId.fromHex(message.conversationId);

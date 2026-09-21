@@ -46,6 +46,17 @@ enum DeviceSyncKind {
   /// it, while a deletion's own time is when it was decided.
   msgGone,
 
+  /// A message's TEXT replaced, keyed by the message id.
+  ///
+  /// The `edit:` frame goes to the PEER; only the device that sent or received
+  /// it hears about the change, so a sibling showed the superseded text for
+  /// good — including after the peer edited their own message, where the one
+  /// device the sender reached was the only one that learned.
+  ///
+  /// Keyed by the message so the fold keeps the LATEST text per message rather
+  /// than one row per keystroke of regret.
+  msgEdit,
+
   /// A whole conversation CLEARED, keyed by the peer hex.
   ///
   /// Not a list of [msgGone] events: a clear is a WATERMARK, and the watermark

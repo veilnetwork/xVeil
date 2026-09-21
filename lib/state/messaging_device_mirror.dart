@@ -28,6 +28,17 @@ class _MessagingDeviceMirror {
   /// sent it unsending it. Never fired for an erase applied FROM a sibling.
   void Function(NodeId peer, String msgId)? onMessageDeleted;
 
+  /// Fires when a message's TEXT is replaced HERE — by this person editing
+  /// their own, or by the peer editing theirs. Never fired for an edit applied
+  /// FROM a sibling.
+  void Function(
+    NodeId peer,
+    String msgId,
+    String body,
+    List<InlineCustomEmoji> customEmoji,
+  )?
+  onMessageEdited;
+
   /// Fires when a whole conversation is cleared HERE. Carries the clear EVENT,
   /// because a clear is not a list of erasures — it is a watermark, and the
   /// watermark is what stops a message from before it reappearing afterwards.
@@ -117,6 +128,50 @@ class _MessagingDeviceMirror {
       _owner._signal();
     } catch (e) {
       devLog(() => 'xVeil[devices]: mirrored delete of $msgId failed: $e');
+    }
+  }
+
+  /// Replace a message's text because one of my other devices replaced it.
+  ///
+  /// The seq is NOT carried across. A sibling's copy arrived as a mirror, and
+  /// storage allocated its (author, seq) locally on append — measured — so the
+  /// two devices do not agree on those numbers for the same message, and
+  /// folding a sibling's edit under the sender's slot would either miss or
+  /// land on somebody else's. Idempotence comes from the text instead: the
+  /// folded device-sync state is replayed into the appliers on every app start,
+  /// and an edit to the text already shown is nothing to do.
+  Future<void> applyEdit({
+    required NodeId peer,
+    required String msgId,
+    required String body,
+    List<InlineCustomEmoji> customEmoji = const [],
+  }) async {
+    if (_owner._disposed) return;
+    try {
+      if (await _owner._storage.isMessageDeleted(peer.hex, msgId)) return;
+      final target = await _owner._storage.loadMessageById(peer.hex, msgId);
+      if (target == null) {
+        // The edit outran the mirror that carries its message: both ride the
+        // same log, but an oversized mirror waits for a later fetch window.
+        // Parked in the buffer the wire path uses for the same race, and spent
+        // by [applyMessage] when the message lands.
+        _owner._mutations.bufferPending(
+          peer,
+          msgId,
+          _PendingOp.edit(body, customEmoji),
+        );
+        return;
+      }
+      if (target.body == body) return;
+      await _owner._storage.editMessage(
+        peer.hex,
+        msgId,
+        body,
+        customEmoji: customEmoji,
+      );
+      _owner._signal();
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: mirrored edit of $msgId failed: $e');
     }
   }
 
@@ -215,13 +270,21 @@ class _MessagingDeviceMirror {
         customEmoji: customEmoji,
       ),
     );
-    // An erase that got here FIRST is spent now, exactly as the wire path
-    // spends a peer's unsend that outran its post: store, then tombstone, so
-    // the row never shows and the id is refused if it is mirrored again.
+    // An erase or an edit that got here FIRST is spent now, exactly as the wire
+    // path spends a peer's unsend that outran its post: store, then apply, so
+    // the row never shows the superseded text and an erased id is refused if it
+    // is mirrored again.
     final pending = _owner._mutations.takePending(peer, msgId);
     if (pending != null && pending.isDelete) {
       await _owner._storage.deleteMessage(peer.hex, msgId);
       await _owner._storage.scrubDeleted();
+    } else if (pending != null && pending.body != null) {
+      await _owner._storage.editMessage(
+        peer.hex,
+        msgId,
+        pending.body!,
+        customEmoji: pending.customEmoji,
+      );
     }
     _owner._signal();
     return true;
