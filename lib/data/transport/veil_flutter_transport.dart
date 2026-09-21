@@ -117,6 +117,46 @@ abstract interface class CallMediaChannelOpener {
   });
 }
 
+/// Merge the two inboxes a device answers on into one lane.
+///
+/// Extracted so the MERGE can be tested without a live node — the same reason
+/// [peerFacingNodeIdOf] sits out here. What can go wrong with it is entirely
+/// about lifetime, and lifetime is invisible from a passing send.
+///
+/// Hand-rolled rather than `StreamGroup`: `package:async` is not a dependency
+/// of this app, and one merge does not earn one.
+///
+/// Closes only when BOTH sides are done. An inbox that ends first must not
+/// take the other's frames with it: the sibling inbox is the one that can be
+/// absent or fail, and the identity inbox carries every contact this person
+/// has.
+@visibleForTesting
+Stream<InboundMessage> mergeInboundStreams(
+  Stream<InboundMessage> a,
+  Stream<InboundMessage> b,
+) {
+  late final StreamController<InboundMessage> out;
+  StreamSubscription<InboundMessage>? subA;
+  StreamSubscription<InboundMessage>? subB;
+  var ended = 0;
+  void endOne() {
+    ended += 1;
+    if (ended == 2) out.close();
+  }
+
+  out = StreamController<InboundMessage>(
+    onListen: () {
+      subA = a.listen(out.add, onError: out.addError, onDone: endOne);
+      subB = b.listen(out.add, onError: out.addError, onDone: endOne);
+    },
+    onCancel: () async {
+      await subA?.cancel();
+      await subB?.cancel();
+    },
+  );
+  return out.stream;
+}
+
 /// Which node id a peer knows this endpoint by, given what the boot found.
 ///
 /// Extracted so the CHOICE can be tested without a live node: the defect it
@@ -151,6 +191,8 @@ class VeilFlutterTransport
     this._app,
     this._mediaApp,
     this._realtimeApp,
+    this._siblingClient,
+    this._siblingApp,
   );
 
   final String _socketPath;
@@ -163,6 +205,21 @@ class VeilFlutterTransport
   final AppHandle _app;
   final AppHandle _mediaApp;
   final AppHandle _realtimeApp;
+
+  /// The inbox a SIBLING device addresses, bound under this node's device id.
+  ///
+  /// Null on a node whose two names coincide — one with no sovereign document,
+  /// where the identity inbox already answers to the device id — and on an
+  /// older node that cannot bind device-scoped. Both mean the same thing here:
+  /// a sibling reaches this device through the mailbox only, exactly as it did
+  /// before this inbox existed.
+  final VeilClient? _siblingClient;
+  final AppHandle? _siblingApp;
+
+  /// Whether this node has an inbox a sibling device can address directly.
+  /// Read by the stand: "did the second bind take" is otherwise only visible
+  /// as a latency difference, which is the one thing it must not be judged by.
+  bool get debugHasSiblingInbox => _siblingApp != null;
   /// This identity's receive address, once the boot knows it.
   ///
   /// Set rather than constructed: the transport connects before the sovereign
@@ -246,7 +303,9 @@ class VeilFlutterTransport
     VeilClient? realtimeClient;
     VeilClient? mediaClient;
     VeilClient? mailboxClient;
+    VeilClient? siblingClient;
     AppHandle? realtimeApp;
+    AppHandle? siblingApp;
     try {
       // Node identity is immutable for this transport lifetime. Cache it while
       // the IPC connection is otherwise idle so call setup never queues a
@@ -301,6 +360,59 @@ class VeilFlutterTransport
         name: veilRealtimeName,
         endpointId: veilRealtimeEndpointId,
       );
+      // THE INBOX A SIBLING DEVICE CAN ADDRESS.
+      //
+      // `app` above answers to this node's PEER-FACING name, which for a
+      // device carrying an identity document is the IDENTITY — the address a
+      // contact holds. Every device of one person shares it, so it cannot say
+      // which of them a frame is for, and the device id it would be addressed
+      // by had no endpoint bound under it at all.
+      //
+      // Measured on a two-device stand 2026-09-21: with a live direct session
+      // up and `admitted=true` on both sides, twenty of twenty frames sent to
+      // a sibling's device id were dropped in silence — the transport took
+      // each one in 0 ms and reported no failure. Every arrival came from the
+      // mailbox within ~10 ms of a drain, while an ordinary contact on the
+      // same machine delivered 7 of 9 live.
+      //
+      // Its OWN IPC connection, not a second bind on `client`: the client-side
+      // dispatch table is keyed by endpoint id ALONE, so binding both inboxes
+      // at `veilChatEndpointId` over one connection would have the second
+      // registration replace the first and silence the identity inbox — the
+      // address every contact holds. The node's registry keys on
+      // (app_id, endpoint_id) and tells them apart; only this table does not.
+      //
+      // The endpoint id stays `veilChatEndpointId` deliberately: a sender
+      // already derives `chatAppIdFor(dst)` from whatever name it addresses,
+      // so a frame aimed at a device id matches this binding with NO change on
+      // the sending side and no new wire format.
+      siblingClient = await VeilClient.connect(socketPath);
+      try {
+        siblingApp = await siblingClient.bindDeviceScoped(
+          namespace: veilChatNamespace,
+          name: veilChatName,
+          endpointId: veilChatEndpointId,
+        );
+      } on Object catch (e) {
+        // EXPECTED on a node whose two names coincide — one with no sovereign
+        // document, where the device id IS the published address. There the
+        // identity inbox already answers to it and the node's registry refuses
+        // the duplicate (app_id, endpoint_id). Nothing is lost: this is the
+        // behaviour that shipped before the second inbox existed.
+        //
+        // Not swallowed silently, because the OTHER reason to land here is an
+        // old node without the device-scoped bind, and "sibling delivery is
+        // quietly back on the mailbox" must be readable in a log rather than
+        // inferred from latency.
+        devLog(
+          () =>
+              'xVeil[transport]: no device-scoped inbox ($e) — a sibling '
+              'reaches this device through the mailbox only',
+        );
+        await siblingClient.close();
+        siblingClient = null;
+        siblingApp = null;
+      }
       return VeilFlutterTransport._(
         socketPath,
         nodeId,
@@ -312,8 +424,12 @@ class VeilFlutterTransport
         app,
         mediaApp,
         realtimeApp,
+        siblingClient,
+        siblingApp,
       );
     } catch (_) {
+      await siblingApp?.close();
+      await siblingClient?.close();
       await realtimeApp?.close();
       await realtimeClient?.close();
       await mediaClient?.close();
@@ -942,15 +1058,28 @@ class VeilFlutterTransport
   static SenderProvenance _provenanceOf(IncomingMessage message) =>
       SenderProvenance.fromWire(message.provenance.wireByte);
 
-  @override
-  Stream<InboundMessage> messages() => _app.messages().map(
-    (message) => InboundMessage(
-      src: NodeId(message.srcNodeId),
-      payload: message.data,
-      replyId: message.replyId,
-      provenance: _provenanceOf(message),
-    ),
+  static InboundMessage _toInbound(IncomingMessage message) => InboundMessage(
+    src: NodeId(message.srcNodeId),
+    payload: message.data,
+    replyId: message.replyId,
+    provenance: _provenanceOf(message),
   );
+
+  /// Everything addressed to this device, by EITHER of its names.
+  ///
+  /// One lane, deliberately: a frame is the same frame whichever inbox it
+  /// landed in, and the messaging layer above already decides what to do with
+  /// it from its contents and its sender. Splitting them would push "which
+  /// address was this sent to" into every caller, and not one of them has a
+  /// use for the answer.
+  @override
+  Stream<InboundMessage> messages() {
+    final identity = _app.messages().map(_toInbound);
+    final sibling = _siblingApp?.messages();
+    if (sibling == null) return identity;
+    return mergeInboundStreams(identity, sibling.map(_toInbound));
+  }
+
 
   @override
   Stream<InboundMessage> realtimeMessages() =>
@@ -1012,9 +1141,11 @@ class VeilFlutterTransport
 
   @override
   Future<void> dispose() async {
+    await _siblingApp?.close();
     await _realtimeApp.close();
     await _mediaApp.close();
     await _app.close();
+    await _siblingClient?.close();
     await _realtimeClient.close();
     await _mediaClient.close();
     await _mailboxClient.close();
