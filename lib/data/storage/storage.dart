@@ -369,7 +369,12 @@ abstract interface class Storage {
   /// other device) reach the same emptied state on replay. Returns the event
   /// (author, seq, watermark) so the caller ships it on the wire. Only the
   /// watermark travels — no cleared id/text (no oracle).
-  Future<({String author, int seq, Map<String, int> watermark})>
+  ///
+  /// [atMs] is WHEN the clear happened, and it travels with the event: the
+  /// other devices apply minutes later and must bound by that moment, never by
+  /// their own clock, or they would sweep away everything that arrived in
+  /// between — messages sent AFTER the clear.
+  Future<({String author, int seq, Map<String, int> watermark, int atMs})>
   emitClearConversation(NodeId peer, String selfHex);
 
   /// Apply a clear event received from [author] for [peer]'s conversation: record
@@ -382,12 +387,21 @@ abstract interface class Storage {
   /// behind. [selfHex] is our own author id, needed because the entry for OUR
   /// stream is bounded here by what we actually hold: a sender can ask for what
   /// exists to go, never for what has not happened yet.
+  ///
+  /// [ownClearAtMs] applies only when [author] is [selfHex] — a clear of this
+  /// identity's own making, arriving from one of its other devices. The
+  /// bounding above drops every watermark key that is neither the author nor
+  /// ourselves, and when WE are the author the dropped key is THE PEER, which
+  /// is half the conversation; so our own clear is bounded by that moment as
+  /// well, held down to our own clock so a fast sibling cannot reach into our
+  /// future.
   Future<void> applyRemoteClear(
     NodeId peer,
     String author,
     int seq,
     Map<String, int> watermark, {
     required String selfHex,
+    int? ownClearAtMs,
   });
 
   /// FORENSICALLY erase this whole space — every namespace (identity, contacts,
