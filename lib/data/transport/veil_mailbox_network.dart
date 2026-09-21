@@ -999,24 +999,39 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
     // by window before the drain reports what it found.
     if (aggregated.any((b) => b.blob.isEmpty)) {
       final filled = <StoredMailboxBlob>[];
+      // A BUDGET, because this runs BEFORE anything is handed up.
+      //
+      // Every announced blob in the batch used to be walked window by window
+      // before the drain returned a single message, so the first message of a
+      // batch waited out the collection of every heavy blob behind it — and
+      // nothing else could start, because a pass in flight blocks the next one
+      // and relay wakes queue "for its end".
+      //
+      // Measured on the stand (2026-09-21): after a restart the first pass had
+      // collected 174 announced blobs and had still not finished eleven
+      // minutes later, while an ordinary message sent in that window had not
+      // been delivered at all.
+      //
+      // Leaving the rest costs nothing that was not already accepted: an
+      // uncollected blob is left UNACKED and the next pass asks again — which
+      // is exactly what this loop already does for one that fails to assemble.
+      final collect = announcedToCollect(
+        [for (final b in aggregated) if (b.blob.isEmpty) b.contentId],
+        neverCollect: neverCollect,
+        budget: _maxAnnouncedPerFetch,
+      );
       for (final b in aggregated) {
         if (b.blob.isNotEmpty) {
           filled.add(b);
           continue;
         }
-        // ALREADY KNOWN TO BE UNOPENABLE — do not pay for it.
-        //
-        // An announced blob is fetched window by window before anything can
-        // look at it, so this is seconds of network per blob, and the relay's
-        // skip hint cannot carry more than the wire allows. Everything past
-        // that cap was announced again on every pass and collected again on
-        // every pass.
-        if (neverCollect.contains(NodeId(b.contentId).hex)) {
+        if (!collect.contains(NodeId(b.contentId).hex)) {
           devLog(
             () =>
                 'xVeil[drain]: announced blob '
-                '${NodeId(b.contentId).short} left alone — this device already '
-                'knows it cannot open it',
+                '${NodeId(b.contentId).short} not walked this pass — either '
+                'this device knows it cannot open it, or the pass has spent '
+                'its budget of $_maxAnnouncedPerFetch',
           );
           continue;
         }
@@ -1102,6 +1117,48 @@ class VeilNetworkMailboxRelay implements VeilMailboxRelay {
   /// the only line about it named no relay and no cause. The node's own
   /// `mailbox_seal` learned this lesson already (`CertUnresolved`); this is
   /// the drain's copy of it.
+  /// Which of the announced [contentIds] this pass will actually walk.
+  ///
+  /// Two rules, and each was a measured failure:
+  ///
+  ///  * one this device already knows it cannot open is never walked. The
+  ///    relay's skip hint is capped by the request body, so everything past
+  ///    that cap was announced again and collected again on every pass — 626
+  ///    collections of 464 blobs on the stand, one of them 66 times in an
+  ///    hour.
+  ///  * and at most [budget] of the rest, because this runs BEFORE anything is
+  ///    handed up: the first message of a batch used to wait out the window-by-
+  ///    window walk of every heavy blob behind it, and a pass in flight blocks
+  ///    the next one.
+  ///
+  /// Order is preserved, so the oldest announced blob is the one that gets the
+  /// budget — the relay serves oldest-first and that is the one holding up the
+  /// queue.
+  @visibleForTesting
+  static Set<String> announcedToCollect(
+    List<Uint8List> contentIds, {
+    required Set<String> neverCollect,
+    required int budget,
+  }) {
+    final out = <String>{};
+    for (final cid in contentIds) {
+      if (out.length >= budget) break;
+      final hex = NodeId(cid).hex;
+      if (neverCollect.contains(hex)) continue;
+      out.add(hex);
+    }
+    return out;
+  }
+
+  /// How many ANNOUNCED blobs one fetch will walk before leaving the rest to
+  /// the next pass.
+  ///
+  /// Small on purpose: this work happens before the drain hands up anything at
+  /// all, so it is latency the person feels on every message that shares a
+  /// batch with a heavy blob. Two keeps a genuine oversized message moving
+  /// while bounding what a backlog can cost.
+  static const int _maxAnnouncedPerFetch = 2;
+
   Future<Uint8List?> _collectAnnounced({
     required Uint8List contentId,
     required List<Uint8List> relayIds,
