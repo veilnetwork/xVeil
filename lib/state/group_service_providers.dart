@@ -396,6 +396,12 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // The whole conversation emptied. One row per conversation, not per message:
   // the watermark IS the event, and it is what a later-arriving mirror of a
   // message from before the clear is measured against.
+  // A GROUP clear request the person has to answer joins the same list as the
+  // 1:1 ones, and the "yes" from that list comes back here — the messages it
+  // is about live in this service, not in the conversation store.
+  service.rememberClearRequest = messaging.rememberClearRequest;
+  messaging.onGroupClearAccepted = service.applyPendingGroupClear;
+
   messaging.onConversationCleared = (peer, author, seq, watermark, atMs) {
     if (peer == service.selfId) return;
     unawaited(() async {
@@ -770,4 +776,5 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.onMessageEdited = null;
   messaging.onConversationCleared = null;
   messaging.selfIdentityHex = null;
+  messaging.onGroupClearAccepted = null;
 }

@@ -566,7 +566,14 @@ class _MessagingConversationAdmin {
       kPendingClearRequestsKey,
       encodePendingClearRequests(remaining),
     );
-    if (accept) {
+    if (accept && request.isGroup) {
+      // A GROUP's messages live in the group service, not in this store, and
+      // the conversation store has no row under a group id to clear — so the
+      // group request goes where its messages are. Unwired means there is no
+      // group service to carry it out; saying yes then does nothing rather
+      // than clearing a 1:1 chat that happens to share nothing with it.
+      await _owner.onGroupClearAccepted?.call(request);
+    } else if (accept) {
       await _owner._storage.applyRemoteClear(
         NodeId.fromHex(request.chatHex),
         request.requesterHex,

@@ -15,6 +15,8 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/clear_policy.dart';
+import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/domain/cloud.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/device_link.dart';
@@ -2110,6 +2112,132 @@ void main() {
             'after a strict chain the owner hides it — and everything the '
             'author writes afterwards — without a word',
       );
+    });
+
+    // ASKING THE OTHERS. Captured sends, so each test hands the entry to the
+    // reader itself and asserts on what the READER did with it.
+    Future<(GroupService, GroupService, NodeId, List<String>)> askPair() async {
+      final ownerStore = FakeHvContainer().storage();
+      final bobStore = FakeHvContainer().storage();
+      await ownerStore.open(password: 'pw', createIfMissing: true);
+      await bobStore.open(password: 'pw', createIfMissing: true);
+      final fromBob = <String>[];
+      final ownerSvc = GroupService(ownerStore, _FakeSigner(owner));
+      final bobSvc = GroupService(
+        bobStore,
+        _FakeSigner(bob),
+        send: (peer, gid, json) async {
+          if (peer == owner) fromBob.add(json);
+        },
+      );
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+      final gid = await ownerSvc.createGroup('G');
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      expect(await ownerSvc.postMessage(gid, 'o1'), isTrue);
+      await ship(ownerSvc, bobSvc, gid, bob);
+      expect(await bobSvc.postMessage(gid, 'b1'), isTrue);
+      expect(await bobSvc.postMessage(gid, 'b2'), isTrue);
+      await ship(bobSvc, ownerSvc, gid, owner);
+      fromBob.clear();
+      return (ownerSvc, bobSvc, gid, fromBob);
+    }
+
+    test('"remove mine" erased here first still asks for what it erased', () async {
+      final (ownerSvc, bobSvc, gid, fromBob) = await askPair();
+      await ownerSvc.setGroupClearPolicy(gid, ClearRequestPolicy.anyone);
+      await bobSvc.eraseGroupRowsLocally(gid, whose: (a) => a == bob);
+
+      expect(await bobSvc.requestGroupClear(gid, kGroupClearOwn), 1);
+      final wm = (jsonDecode(fromBob.single) as Map)['wm'] as Map;
+      expect(
+        wm,
+        {bob.hex: 1},
+        reason:
+            'the rows are already gone here, so only the cut remembers how far '
+            'they went — built from rows alone this asks to erase nothing',
+      );
+
+      expect(await ownerSvc.ingestGroupEntry(bob, fromBob.single), isTrue);
+      expect(await bodies(ownerSvc, gid), ['o1']);
+    });
+
+    test('the default asks the person and erases nothing', () async {
+      final (ownerSvc, bobSvc, gid, fromBob) = await askPair();
+      final asked = <PendingClearRequest>[];
+      ownerSvc.rememberClearRequest = (r) async => asked.add(r);
+
+      await bobSvc.requestGroupClear(gid, kGroupClearOwn);
+      expect(await ownerSvc.ingestGroupEntry(bob, fromBob.single), isTrue);
+
+      expect(await bodies(ownerSvc, gid), containsAll(['o1', 'b1', 'b2']));
+      expect(asked.single.groupKind, kGroupClearOwn);
+      expect(asked.single.chatHex, gid.hex);
+      expect(asked.single.requesterHex, bob.hex);
+
+      // …and "yes" from the list carries out exactly what was asked.
+      await ownerSvc.applyPendingGroupClear(asked.single);
+      expect(await bodies(ownerSvc, gid), ['o1']);
+    });
+
+    test('"mine" that names someone else is not carried out', () async {
+      final (ownerSvc, _, gid, _) = await askPair();
+      await ownerSvc.setGroupClearPolicy(gid, ClearRequestPolicy.anyone);
+      final forged = jsonEncode({
+        'creq': 1,
+        'gid': gid.hex,
+        'k': kGroupClearOwn,
+        'wm': {owner.hex: 99},
+      });
+      expect(await ownerSvc.ingestGroupEntry(bob, forged), isFalse);
+      expect(await bodies(ownerSvc, gid), containsAll(['o1', 'b1', 'b2']));
+    });
+
+    test('a non-member is not heard', () async {
+      final (ownerSvc, _, gid, _) = await askPair();
+      await ownerSvc.setGroupClearPolicy(gid, ClearRequestPolicy.anyone);
+      final body = jsonEncode({
+        'creq': 1,
+        'gid': gid.hex,
+        'k': kGroupClearAll,
+        'wm': {owner.hex: 99, bob.hex: 99},
+      });
+      expect(await ownerSvc.ingestGroupEntry(stranger, body), isFalse);
+      expect(await bodies(ownerSvc, gid), containsAll(['o1', 'b1', 'b2']));
+    });
+
+    test('"never" and "admins" decline a plain member', () async {
+      for (final policy in [ClearRequestPolicy.never, ClearRequestPolicy.admins]) {
+        final (ownerSvc, bobSvc, gid, fromBob) = await askPair();
+        final asked = <PendingClearRequest>[];
+        ownerSvc.rememberClearRequest = (r) async => asked.add(r);
+        await ownerSvc.setGroupClearPolicy(gid, policy);
+        await bobSvc.requestGroupClear(gid, kGroupClearAll);
+        expect(await ownerSvc.ingestGroupEntry(bob, fromBob.single), isTrue);
+        expect(
+          await bodies(ownerSvc, gid),
+          containsAll(['o1', 'b1', 'b2']),
+          reason: '$policy erased on a plain member\'s word',
+        );
+        expect(asked, isEmpty, reason: '$policy put a question in the list');
+      }
+    });
+
+    test('"erase everyone\'s" stops at the watermark', () async {
+      final (ownerSvc, bobSvc, gid, fromBob) = await askPair();
+      await ownerSvc.setGroupClearPolicy(gid, ClearRequestPolicy.anyone);
+      await bobSvc.requestGroupClear(gid, kGroupClearAll);
+      // Written AFTER the request was built: not something bob could have
+      // asked about.
+      expect(await ownerSvc.postMessage(gid, 'o2'), isTrue);
+
+      expect(await ownerSvc.ingestGroupEntry(bob, fromBob.single), isTrue);
+      expect(await bodies(ownerSvc, gid), ['o2']);
     });
 
     test('a watermark bounds the erase', () async {
