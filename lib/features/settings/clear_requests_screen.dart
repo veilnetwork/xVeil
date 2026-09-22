@@ -109,7 +109,11 @@ class _ClearRequestTile extends StatelessWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (dialog) => AlertDialog(
-        title: Text(l.clearRequestsConfirmTitle),
+        title: Text(switch (request.groupKind) {
+          kGroupClearOwn => l.clearRequestsGroupOwnConfirmTitle,
+          kGroupClearAll => l.clearRequestsGroupAllConfirmTitle,
+          _ => l.clearRequestsConfirmTitle,
+        }),
         // Group requests erase on THIS device only; promising "your other
         // devices" would be a sentence the act does not keep.
         content: Text(
