@@ -842,6 +842,25 @@ class MessagingService {
     // side, so calling it from the single egress point is a map lookup per
     // frame. A conversation with no opt-in never reaches the network here.
     prepareDirectRoute?.call(dst);
+    // ADDRESS THE DEVICE A SESSION ACTUALLY ENDS AT, when one is known.
+    //
+    // `admitted(identity)` answers "some session exists to some device of
+    // this identity", so a dead device's entry keeps answering yes: measured
+    // on the stand 2026-09-22, with the device holding the session killed and
+    // the mailbox paused, both ends reported admitted and nothing arrived in
+    // 231 s. Addressing the device makes the question — and the route —
+    // specific.
+    //
+    // Sealing is unaffected: a certificate lives under the identity, and the
+    // daemon resolves it from the session's own proof rather than from
+    // whatever this names.
+    final routed = routeFor?.call(dst) ?? dst;
+    if (routed != dst) {
+      devLog(
+        () => 'xVeil[send]: routing ${dst.short} via device ${routed.short}',
+      );
+    }
+    dst = routed;
     // veil's own FFI timer says no send call takes 50 ms, yet a serve pays
     // ~600 ms per chunk. Time the transport call from THIS side: what is left
     // over is the glue between the two — the isolate a send is wrapped in.
@@ -1845,6 +1864,20 @@ class MessagingService {
   /// The implementation is expected to be self-throttled and to check the
   /// per-contact opt-in itself; null (loopback / dev stack / no real P2P) means
   /// the old behaviour exactly.
+  /// The name to ADDRESS a peer by, when a live session names one of its
+  /// devices; null keeps the identity the caller holds.
+  ///
+  /// A synchronous map lookup by contract: this is consulted on the egress
+  /// path of every message, ack and receipt, and the two things that could
+  /// answer it honestly — a policy read and an admission check — are a
+  /// storage hit and an FFI crossing. The P2P service refreshes the answer
+  /// behind its own ladder throttle instead.
+  ///
+  /// Only the ROUTE changes. A certificate is published under the identity
+  /// either way, and the daemon resolves it from the session's own proof, so
+  /// nothing about sealing depends on which of a peer's names is addressed.
+  NodeId? Function(NodeId peer)? routeFor;
+
   void Function(NodeId peer)? prepareDirectRoute;
 
   // ── Opt-in authorship attestation ─────────────────────────────────────────
