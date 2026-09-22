@@ -7647,4 +7647,68 @@ class AppL10nEs extends AppL10n {
     );
     return '$_temp0';
   }
+
+  @override
+  String get groupRemoveMine => 'Quitar mis mensajes';
+
+  @override
+  String get groupRemoveMineConfirmTitle =>
+      '¿Quitar tus mensajes de este dispositivo?';
+
+  @override
+  String get groupRemoveMineConfirmBody =>
+      'Todos los mensajes que escribiste en este grupo se borran de este dispositivo. Los demás miembros conservan sus copias salvo que decidan lo contrario. No se puede deshacer.';
+
+  @override
+  String get groupRemoveMineConfirm => 'Quitar';
+
+  @override
+  String get groupRemoveMineAskTitle =>
+      '¿Pedir a los demás que también los borren?';
+
+  @override
+  String get groupRemoveMineAskBody =>
+      'La app de cada miembro responde según el ajuste de su dueño: puede borrar al instante, preguntarle o negarse. No se te dice cuál.';
+
+  @override
+  String get groupRemoveMineAskNo => 'No pedir';
+
+  @override
+  String get groupRemoveMineAskYes => 'Pedir';
+
+  @override
+  String get groupEraseShared => 'Borrar mensajes para todos';
+
+  @override
+  String get groupEraseSharedConfirmTitle =>
+      '¿Borrar los mensajes de este grupo?';
+
+  @override
+  String get groupEraseSharedConfirmBody =>
+      'Todos los mensajes de este grupo se borran de este dispositivo y se pide a cada miembro que borre lo mismo. La app de cada uno responde según el ajuste de su dueño, y no se te dice cuál. No se puede deshacer.';
+
+  @override
+  String get groupEraseSharedConfirm => 'Borrar';
+
+  @override
+  String get groupClearPolicy =>
+      'Quién puede borrar los mensajes de este grupo en mi dispositivo';
+
+  @override
+  String get groupClearPolicyHint =>
+      'Borrar es una petición, y aquí está tu respuesta. Lo que borras tú se borra aquí elijas lo que elijas. «Solo administradores» son el dueño del grupo y sus administradores.';
+
+  @override
+  String clearRequestsGroupOwn(String who) {
+    return '$who pide borrar sus propios mensajes en un grupo';
+  }
+
+  @override
+  String clearRequestsGroupAll(String who) {
+    return '$who pide borrar los mensajes de un grupo';
+  }
+
+  @override
+  String get clearRequestsGroupBody =>
+      'Borrar quita esos mensajes de este dispositivo. No se puede deshacer.';
 }

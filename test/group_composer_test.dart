@@ -5,6 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
+import 'package:xveil/domain/clear_policy.dart';
+import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
@@ -564,6 +566,136 @@ void main() {
     expect(
       find.byKey(const ValueKey('composer-attachment-button')),
       findsOneWidget,
+    );
+  });
+  // ERASING, from the menu a member actually has. The engine is pinned in
+  // group_service_test; what is pinned here is that the menu reaches it, in
+  // the order the person is told — erase here, THEN offer to ask.
+  Future<(GroupService, GroupService, NodeId, List<String>)> erasable(
+    WidgetTester tester,
+  ) async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final owner = NodeId(Uint8List.fromList(List<int>.filled(32, 41)));
+    final member = NodeId(Uint8List.fromList(List<int>.filled(32, 42)));
+    final ownerSvc = GroupService(storage, _Signer(owner));
+    addTearDown(ownerSvc.dispose);
+    final groupId = await ownerSvc.createGroup('Kitchen');
+    await ownerSvc.addControlOp(
+      groupId,
+      ControlOp.addMember,
+      target: member,
+      role: GroupRole.member,
+    );
+    final asked = <String>[];
+    final memberSvc = GroupService(
+      storage,
+      _Signer(member),
+      // Only the clear requests: this sender also carries every post's delta.
+      send: (peer, gid, json) async {
+        if (json.contains('"creq"')) asked.add(json);
+      },
+    );
+    addTearDown(memberSvc.dispose);
+    expect(await ownerSvc.postMessage(groupId, 'from the owner'), isTrue);
+    expect(await memberSvc.postMessage(groupId, 'mine one'), isTrue);
+    expect(await memberSvc.postMessage(groupId, 'mine two'), isTrue);
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          storageProvider.overrideWithValue(storage),
+          groupServiceProvider.overrideWithValue(memberSvc),
+        ],
+        child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: GroupChatScreen(groupIdHex: groupId.hex),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    return (memberSvc, ownerSvc, groupId, asked);
+  }
+
+  testWidgets('"remove my messages" erases mine, then asks only if told to', (
+    tester,
+  ) async {
+    final (memberSvc, _, groupId, asked) = await erasable(tester);
+
+    await tester.tap(find.byKey(const ValueKey('group-owner-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-remove-mine')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-remove-mine-confirm')));
+    await tester.pumpAndSettle();
+
+    // The offer comes AFTER the erase, which already happened.
+    expect(find.byKey(const ValueKey('group-remove-mine-ask-yes')), findsOne);
+    final left = [
+      for (final m in await tester.runAsync(() => memberSvc.messagesOf(groupId))
+          ?? const <GroupMessage>[])
+        m.body,
+    ];
+    expect(left, ['from the owner']);
+    expect(asked, isEmpty, reason: 'nobody is asked before the person says so');
+
+    await tester.tap(find.byKey(const ValueKey('group-remove-mine-ask-yes')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    expect(asked, hasLength(1));
+    expect(asked.single, contains('"k":"$kGroupClearOwn"'));
+  });
+
+  testWidgets('declining the offer asks nobody', (tester) async {
+    final (_, _, _, asked) = await erasable(tester);
+    await tester.tap(find.byKey(const ValueKey('group-owner-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-remove-mine')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-remove-mine-confirm')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-remove-mine-ask-no')));
+    await tester.pumpAndSettle();
+    expect(asked, isEmpty);
+  });
+
+  testWidgets('"erase for everyone" asks everyone and erases every author here', (
+    tester,
+  ) async {
+    final (memberSvc, _, groupId, asked) = await erasable(tester);
+    await tester.tap(find.byKey(const ValueKey('group-owner-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-erase-shared')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-erase-shared-confirm')));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+
+    expect(asked, hasLength(1));
+    expect(asked.single, contains('"k":"$kGroupClearAll"'));
+    expect(
+      await tester.runAsync(() => memberSvc.messagesOf(groupId)),
+      isEmpty,
+      reason: "the owner's message goes here too — this one is not only mine",
+    );
+  });
+
+  testWidgets('the group\'s own answer to erase requests is set from the menu', (
+    tester,
+  ) async {
+    final (memberSvc, _, groupId, _) = await erasable(tester);
+    await tester.tap(find.byKey(const ValueKey('group-owner-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-clear-policy')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('group-clear-policy-admins')));
+    await tester.pumpAndSettle();
+    expect(
+      await tester.runAsync(() => memberSvc.groupClearPolicy(groupId)),
+      ClearRequestPolicy.admins,
     );
   });
 }

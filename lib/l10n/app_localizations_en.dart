@@ -7552,4 +7552,65 @@ class AppL10nEn extends AppL10n {
     );
     return '$_temp0';
   }
+
+  @override
+  String get groupRemoveMine => 'Remove my messages';
+
+  @override
+  String get groupRemoveMineConfirmTitle =>
+      'Remove your messages from this device?';
+
+  @override
+  String get groupRemoveMineConfirmBody =>
+      'Every message you wrote in this group is erased on this device. Other members keep their copies unless they choose otherwise. It cannot be undone.';
+
+  @override
+  String get groupRemoveMineConfirm => 'Remove';
+
+  @override
+  String get groupRemoveMineAskTitle => 'Ask the others to erase them too?';
+
+  @override
+  String get groupRemoveMineAskBody =>
+      'Each member\'s app answers by its owner\'s own setting: it may erase at once, ask its owner, or refuse. You are not told which.';
+
+  @override
+  String get groupRemoveMineAskNo => 'Don\'t ask';
+
+  @override
+  String get groupRemoveMineAskYes => 'Ask';
+
+  @override
+  String get groupEraseShared => 'Erase messages for everyone';
+
+  @override
+  String get groupEraseSharedConfirmTitle => 'Erase this group\'s messages?';
+
+  @override
+  String get groupEraseSharedConfirmBody =>
+      'Every message in this group is erased on this device, and every member is asked to erase the same. Each member\'s app answers by its owner\'s own setting, and you are not told which. It cannot be undone.';
+
+  @override
+  String get groupEraseSharedConfirm => 'Erase';
+
+  @override
+  String get groupClearPolicy => 'Who may erase this group\'s messages at me';
+
+  @override
+  String get groupClearPolicyHint =>
+      'Erasing is a request, and this is your answer to it. What you erase yourself is erased here whatever you choose. \"Administrators only\" means the group\'s owner and administrators.';
+
+  @override
+  String clearRequestsGroupOwn(String who) {
+    return '$who asks to erase their own messages in a group';
+  }
+
+  @override
+  String clearRequestsGroupAll(String who) {
+    return '$who asks to erase a group\'s messages';
+  }
+
+  @override
+  String get clearRequestsGroupBody =>
+      'Erasing removes those messages from this device. It cannot be undone.';
 }

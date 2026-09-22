@@ -7615,4 +7615,66 @@ class AppL10nRu extends AppL10n {
     );
     return '$_temp0';
   }
+
+  @override
+  String get groupRemoveMine => 'Убрать мои сообщения';
+
+  @override
+  String get groupRemoveMineConfirmTitle =>
+      'Убрать ваши сообщения с этого устройства?';
+
+  @override
+  String get groupRemoveMineConfirmBody =>
+      'Все сообщения, которые вы написали в этой группе, будут стёрты на этом устройстве. У остальных участников копии останутся, если они сами не решат иначе. Отменить нельзя.';
+
+  @override
+  String get groupRemoveMineConfirm => 'Убрать';
+
+  @override
+  String get groupRemoveMineAskTitle => 'Попросить остальных тоже их стереть?';
+
+  @override
+  String get groupRemoveMineAskBody =>
+      'Приложение каждого участника отвечает по настройке своего владельца: сотрёт сразу, спросит владельца или откажет. Какой был ответ, вам не сообщат.';
+
+  @override
+  String get groupRemoveMineAskNo => 'Не просить';
+
+  @override
+  String get groupRemoveMineAskYes => 'Попросить';
+
+  @override
+  String get groupEraseShared => 'Стереть переписку у всех';
+
+  @override
+  String get groupEraseSharedConfirmTitle => 'Стереть сообщения этой группы?';
+
+  @override
+  String get groupEraseSharedConfirmBody =>
+      'Все сообщения этой группы будут стёрты на этом устройстве, а каждого участника попросят стереть то же самое. Приложение каждого отвечает по настройке своего владельца, и какой был ответ, вам не сообщат. Отменить нельзя.';
+
+  @override
+  String get groupEraseSharedConfirm => 'Стереть';
+
+  @override
+  String get groupClearPolicy =>
+      'Кто может стереть сообщения этой группы у меня';
+
+  @override
+  String get groupClearPolicyHint =>
+      'Удаление — это запрос, а здесь ваш ответ на него. То, что вы стираете сами, стирается здесь при любом выборе. «Только администратор» — это владелец группы и её администраторы.';
+
+  @override
+  String clearRequestsGroupOwn(String who) {
+    return '$who просит стереть свои сообщения в группе';
+  }
+
+  @override
+  String clearRequestsGroupAll(String who) {
+    return '$who просит стереть сообщения группы';
+  }
+
+  @override
+  String get clearRequestsGroupBody =>
+      'Стирание уберёт эти сообщения с этого устройства. Отменить нельзя.';
 }
