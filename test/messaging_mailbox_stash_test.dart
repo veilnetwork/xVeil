@@ -1317,6 +1317,101 @@ void main() {
   /// `emitClearConversation` ("the peer, or, once multi-device lands, the
   /// author's own") and the wire handler for a peer's clear. The epic landed
   /// and neither was finished.
+  /// DELETING THE CHAT IS THE SAME DECISION ONE SCALE UP AGAIN — and it was
+  /// the one left unfinished.
+  ///
+  /// Clearing travels; deleting did not. So the strongest thing a person can do
+  /// to a conversation emptied it here and at the peer, and left it whole on a
+  /// device they also own — the threat this app is written against being a
+  /// container unlocked under coercion.
+  ///
+  /// What travels is the EMPTYING, not the contact. Removing a contact
+  /// everywhere from one tap cannot be undone; leaving it is a difference from
+  /// this device that a person can act on, and it is deliberate.
+  group('deleting a chat empties it on my other devices', () {
+    test('deleting raises the clear event, with a real watermark', () async {
+      await mA.acceptContact(b);
+      await mA.sendText(b, 'one');
+      await mA.sendText(b, 'two');
+
+      final cleared =
+          <({String peer, String author, int seq, Map<String, int> wm})>[];
+      mA.onConversationCleared = (peer, author, seq, wm, atMs) =>
+          cleared.add((peer: peer.hex, author: author, seq: seq, wm: wm));
+      addTearDown(() => mA.onConversationCleared = null);
+
+      await mA.deleteConversation(b);
+      await pumpEventQueue();
+
+      expect(
+        await sA.loadMessages(b.hex),
+        isEmpty,
+        reason: 'the premise: the chat is gone on THIS device',
+      );
+      expect(
+        cleared.map((c) => c.peer),
+        contains(b.hex),
+        reason:
+            'the chat was deleted here and nobody was told, so it stays whole '
+            'and readable on the other device the same person owns',
+      );
+      expect(
+        cleared.single.author,
+        isNotEmpty,
+        reason: 'the watermark is worthless without the author it belongs to',
+      );
+      // NOT ASSERTED, deliberately: that the emit happens BEFORE the removal.
+      // Moving the call after it left every assertion here green — the
+      // watermark comes from the conversation's sync high-water, which the
+      // removal does not touch — so the ordering is a tidiness rule about where
+      // the clear row lands, and pinning it with a green-either-way expectation
+      // would be a guard that proves nothing.
+    });
+
+    test('the contact goes here and is not swept from my other devices', () async {
+      await mA.acceptContact(b);
+      await mA.sendText(b, 'one');
+
+      final cleared = <String>[];
+      mA.onConversationCleared = (peer, author, seq, wm, atMs) =>
+          cleared.add(peer.hex);
+      addTearDown(() => mA.onConversationCleared = null);
+
+      await mA.deleteConversation(b);
+      await pumpEventQueue();
+
+      expect(
+        await sA.getContact(b),
+        isNull,
+        reason: 'the premise: deleting a chat removes the contact HERE',
+      );
+      expect(
+        cleared,
+        hasLength(1),
+        reason:
+            'exactly one thing is handed to my other devices, and it is the '
+            'emptying — a contact removed everywhere from one tap is not undoable',
+      );
+    });
+
+    test('deleting an empty chat still tells my devices', () async {
+      // CONTROL on the ordering guard above: with nothing sent there is no
+      // watermark to speak of, and the event must still go — a sibling may hold
+      // messages this device never did.
+      await mA.acceptContact(b);
+
+      final cleared = <String>[];
+      mA.onConversationCleared = (peer, author, seq, wm, atMs) =>
+          cleared.add(peer.hex);
+      addTearDown(() => mA.onConversationCleared = null);
+
+      await mA.deleteConversation(b);
+      await pumpEventQueue();
+
+      expect(cleared, contains(b.hex));
+    });
+  });
+
   group('clearing a conversation clears it on my other devices', () {
     test('clearing raises the event that carries the watermark', () async {
       await mA.acceptContact(b);
