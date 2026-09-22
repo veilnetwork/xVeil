@@ -76,6 +76,77 @@ void main() {
     });
   });
 
+  group('syncReplyTarget', () {
+    // MEASURED, 2026-09-22. The master logged `sync serve to 636e6538: 5 row(s)`
+    // — the IDENTITY — while the linked device's fold sat on a row from the
+    // previous boot for six minutes. A linked device's frames arrive under the
+    // identity, that resolves to one device, and the answer went to the
+    // responder's own node.
+    final peerIdentity = _id(0x11);
+    final asker = _id(0x12);
+    final stranger = _id(0x13);
+    final members = [peerIdentity, asker];
+
+    test('a device named in my own device group takes the answer', () {
+      expect(
+        syncReplyTarget(
+          isDeviceGroup: true,
+          members: members,
+          peer: peerIdentity,
+          claimed: asker.hex,
+        ),
+        asker,
+      );
+    });
+
+    test('a device that is NOT a member cannot steer the answer', () {
+      // The whole of this rule's safety. A claim ABOUT ONESELF decides where
+      // bytes go, so it is believed only for a member of my own device group.
+      expect(
+        syncReplyTarget(
+          isDeviceGroup: true,
+          members: members,
+          peer: peerIdentity,
+          claimed: stranger.hex,
+        ),
+        peerIdentity,
+      );
+    });
+
+    test('an ordinary group never redirects', () {
+      expect(
+        syncReplyTarget(
+          isDeviceGroup: false,
+          members: members,
+          peer: peerIdentity,
+          claimed: asker.hex,
+        ),
+        peerIdentity,
+      );
+    });
+
+    test('a missing or malformed claim leaves the sender as the answer', () {
+      for (final claimed in <Object?>[
+        null,
+        '',
+        'zz',
+        42,
+        asker.hex.substring(2),
+      ]) {
+        expect(
+          syncReplyTarget(
+            isDeviceGroup: true,
+            members: members,
+            peer: peerIdentity,
+            claimed: claimed,
+          ),
+          peerIdentity,
+          reason: 'claim $claimed changed the address',
+        );
+      }
+    });
+  });
+
   test('every announcement of the identity document carries the owner mark', () {
     // WHY A SOURCE GUARD. The fold keeps the newest event per (kind, key), so
     // a single unmarked re-announcement from the master retires its own mark
