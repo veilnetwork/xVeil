@@ -50,6 +50,15 @@ void setIdentityDocumentLookup(IdentityDocumentLookup? lookup) {
   _documentLookup = lookup;
 }
 
+/// The document the installed lookup holds for [identity] — this identity's
+/// own, or a peer's learned from a group snapshot. Null when none.
+///
+/// Read by the group layer to SEND a document alongside rows that need it: a
+/// member whose device key is not their identity key signs rows nobody else
+/// can verify without it, and nothing else would ever carry it to them.
+Uint8List? identityDocumentFor(NodeId identity) =>
+    _documentLookup?.call(identity);
+
 /// Stand observer: what the installed lookup answers for [identity] RIGHT
 /// NOW. The lookup's state (cached doc, resolved document identity) is
 /// otherwise invisible, and its misses are silent — a device that holds the
