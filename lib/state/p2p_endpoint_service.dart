@@ -140,6 +140,22 @@ class P2PEndpointService {
   /// strictly newer, so a stale mailbox delivery can't regress fresh addresses.
   final Map<String, int> _peerEndpointTs = {};
 
+  /// The device of a contact a live session actually terminates at.
+  ///
+  /// A PLAIN MAP, refreshed by the ladder, because [routeFor] is read on the
+  /// egress path of every message, ack and receipt — where the service's own
+  /// rule already stands: a policy read hits storage and an admission check
+  /// crosses the FFI, and neither belongs there.
+  ///
+  /// Why a device rather than the identity: `admitted(identity)` answers
+  /// "SOME session exists to some device of this identity", so a dead
+  /// device's entry keeps answering yes — measured on the stand 2026-09-22,
+  /// with the device holding the session killed, both ends still reported
+  /// admitted and nothing was delivered for 231 s. `admitted(device)` matches
+  /// the session's own `node_id`, which is the device, and is therefore the
+  /// precise question.
+  final Map<String, NodeId> _liveDevice = {};
+
   /// Which devices a CONTACT has told us about, keyed by that contact's
   /// identity.
   ///
@@ -160,6 +176,54 @@ class P2PEndpointService {
 
   /// Per-peer in-flight dial guard.
   final Set<String> _dialing = {};
+
+  /// Re-decide which of [peer]'s devices to address, off the hot path.
+  ///
+  /// Runs where an admission check already runs — behind the ladder's own
+  /// throttle — so the egress path stays a map lookup. A device that stops
+  /// answering is FORGOTTEN here rather than left standing: keeping a stale
+  /// choice is precisely the failure this exists to end, and falling back to
+  /// the identity is what the app did before any of this.
+  Future<void> _refreshRoute(NodeId peer) async {
+    final devices = _contactDevices[peer.hex];
+    if (devices == null || devices.isEmpty) return;
+    for (final device in devices.values) {
+      if (_disposed) return;
+      bool live;
+      try {
+        live = await _admitted(device);
+      } catch (_) {
+        live = false;
+      }
+      if (live) {
+        final previous = _liveDevice[peer.hex];
+        _liveDevice[peer.hex] = device;
+        if (previous != device) {
+          devLog(
+            () =>
+                'xVeil[p2p]: addressing ${peer.short} as device '
+                '${device.short}',
+          );
+        }
+        return;
+      }
+    }
+    if (_liveDevice.remove(peer.hex) != null) {
+      devLog(
+        () =>
+            'xVeil[p2p]: no device of ${peer.short} holds a session — back to '
+            'the identity',
+      );
+    }
+  }
+
+  /// The name to ADDRESS [peer] by, when a live session names one.
+  ///
+  /// Null means "as before": the identity the caller already holds. A
+  /// certificate is published under the identity either way — the daemon
+  /// resolves it from the session's own proof — so this changes the route a
+  /// frame takes and nothing about how it is sealed.
+  NodeId? routeFor(NodeId peer) => _liveDevice[peer.hex];
 
   /// Told when a peer that had NO direct route acquires one.
   ///
@@ -400,8 +464,15 @@ class P2PEndpointService {
     try {
       if (!await _messagingAllowsP2P(peer)) return;
       // Already direct — nothing to warm, and re-running the ladder here would
-      // reshare endpoints on a schedule the peer never asked for.
-      if (await _admitted(peer)) return;
+      // reshare endpoints on a schedule the peer never asked for. The ROUTE
+      // is still re-decided: a peer with a session is exactly the case where
+      // which of its devices holds one can have changed under us, and doing
+      // it only on the ladder's success path left that answer to go stale for
+      // as long as the session lasted.
+      if (await _admitted(peer)) {
+        await _refreshRoute(peer);
+        return;
+      }
       devLog(
         () =>
             'xVeil[p2p]: messaging warm — running the ladder for '
@@ -417,6 +488,7 @@ class P2PEndpointService {
       // a route appeared where there was none. Telling the outbox on a failed
       // warm would rewind a backoff that is doing its job.
       if (ok) onDirectSessionUp?.call(peer);
+      await _refreshRoute(peer);
     } catch (e) {
       // Best-effort by construction: the conversation is already delivering
       // over the mailbox, and a warm that throws must not touch that.
@@ -1075,6 +1147,9 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   // that peer should stop waiting out a backoff measured for a peer we could
   // not reach.
   svc.onDirectSessionUp = messaging.onDirectSessionUp;
+  // …and which of a peer's devices to address. A map lookup by contract: see
+  // MessagingService.routeFor.
+  messaging.routeFor = svc.routeFor;
   messaging.prepareDirectRoute = (peer) {
     // Never toward MYSELF. The master's node id IS the identity address, so
     // its own mirror sends named this node — and the warm then exchanged
@@ -1089,6 +1164,7 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   unawaited(svc.announceLocalEndpoints());
   ref.onDispose(() {
     messaging.prepareDirectRoute = null;
+    messaging.routeFor = null;
     svc.onDirectSessionUp = null;
     svc.dispose();
   });
