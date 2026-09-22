@@ -625,12 +625,18 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
               // Keyed by DEVICE id, not selfId: a phrase-restored sibling
               // SHARES our selfId and would drop the event as its own echo.
               final meDevice = await svc.resolveMyDevice();
+              // The owner mark travels on EVERY announcement of this row, not
+              // just the one at start-up. The fold keeps the newest event per
+              // (kind, key), so an unmarked re-announcement from the master
+              // would retire its own mark and drop every linked device back to
+              // addressing the identity — silently, and until the next boot.
+              final ownsGroup = await svc.ownsDeviceGroup();
               await svc.postDeviceEvent(
                 DeviceSyncEvent(
                   kind: DeviceSyncKind.identityDoc,
                   key: (meDevice ?? svc.selfId).hex,
                   tsMs: DateTime.now().millisecondsSinceEpoch,
-                  payload: {'d': base64Encode(doc)},
+                  payload: {'d': base64Encode(doc), if (ownsGroup) 'o': true},
                 ),
               );
             }
