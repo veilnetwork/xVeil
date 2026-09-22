@@ -15,6 +15,27 @@ import 'messaging.dart';
 import 'p2p_policy_controller.dart';
 import 'providers.dart';
 
+/// The name to address [peer] by on the live leg.
+///
+/// A contact's live device wins, as before. Otherwise, on a LINKED device, a
+/// send to MY OWN identity is a send to my master — a linked device does not
+/// answer to the identity, the master does — so it goes to the master's device,
+/// which the master itself announced. Null means "as addressed".
+///
+/// Pure so the rule can be pinned on its own: the wiring around it is a
+/// provider, and this is the one decision in it.
+NodeId? routeIncludingMaster({
+  required NodeId peer,
+  required NodeId? contactRoute,
+  required NodeId? masterDevice,
+  required NodeId? selfIdentity,
+}) {
+  if (contactRoute != null) return contactRoute;
+  if (masterDevice == null || selfIdentity == null) return null;
+  if (masterDevice == selfIdentity) return null;
+  return peer == selfIdentity ? masterDevice : null;
+}
+
 /// Outcome of one explicit call-path hole-punch attempt as the endpoint
 /// service consumes it: whether a direct session came up, plus a short,
 /// address-free reason (structured stage name) for the transport badge/log
@@ -1215,7 +1236,41 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   svc.onDirectSessionUp = messaging.onDirectSessionUp;
   // …and which of a peer's devices to address. A map lookup by contract: see
   // MessagingService.routeFor.
-  messaging.routeFor = svc.routeFor;
+  //
+  // PLUS MY OWN MASTER, on a linked device. Everything this device sends to its
+  // own identity is meant for the master — a linked device does not answer to
+  // the identity, the master does — and the identity resolves to one device
+  // and travels by the mailbox. Measured on the clean two-device stand
+  // (2026-09-22): with the master's device already known, every
+  // acknowledgement still went to the identity, live leg and deposit alike.
+  // Only the LIVE leg moves: a deposit keeps the identity, because the
+  // mailbox is registered under it and a deposit to a device id fails.
+  //
+  // Cached because this is read per frame and the answer comes from a fold of
+  // the device log; refreshed off the hot path. Null on the master itself and
+  // while the master has not named its device, which is the old behaviour.
+  NodeId? masterDevice;
+  Future<void> refreshMaster() async {
+    try {
+      masterDevice = await ref.read(groupServiceProvider)?.masterDeviceId();
+    } catch (_) {
+      // Keep the last answer: a failed read says nothing about the master.
+    }
+  }
+
+  unawaited(refreshMaster());
+  final masterTimer = Timer.periodic(
+    const Duration(seconds: 30),
+    (_) => unawaited(refreshMaster()),
+  );
+  messaging.routeFor = (peer) => routeIncludingMaster(
+    peer: peer,
+    contactRoute: svc.routeFor(peer),
+    masterDevice: masterDevice,
+    selfIdentity: masterDevice == null
+        ? null
+        : ref.read(groupServiceProvider)?.selfId,
+  );
   messaging.prepareDirectRoute = (peer) {
     // Never toward MYSELF. The master's node id IS the identity address, so
     // its own mirror sends named this node — and the warm then exchanged
@@ -1229,6 +1284,7 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   // boot is exactly when our listen port changes under everyone. Tell them.
   unawaited(svc.announceLocalEndpoints());
   ref.onDispose(() {
+    masterTimer.cancel();
     messaging.prepareDirectRoute = null;
     messaging.routeFor = null;
     svc.onDirectSessionUp = null;
