@@ -3578,5 +3578,7 @@
   "@clearRequestsGroupOwn": {"placeholders": {"who": {"type": "String"}}},
   "clearRequestsGroupAll": "{who} asks to erase a group's messages",
   "@clearRequestsGroupAll": {"placeholders": {"who": {"type": "String"}}},
-  "clearRequestsGroupBody": "Erasing removes those messages from this device. It cannot be undone."
+  "clearRequestsGroupBody": "Erasing removes those messages from this device. It cannot be undone.",
+  "clearRequestsGroupOwnConfirmTitle": "Erase this member's messages in the group?",
+  "clearRequestsGroupAllConfirmTitle": "Erase this group's messages?"
 }

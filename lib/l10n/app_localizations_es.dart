@@ -7711,4 +7711,12 @@ class AppL10nEs extends AppL10n {
   @override
   String get clearRequestsGroupBody =>
       'Borrar quita esos mensajes de este dispositivo. No se puede deshacer.';
+
+  @override
+  String get clearRequestsGroupOwnConfirmTitle =>
+      '¿Borrar los mensajes de este miembro en el grupo?';
+
+  @override
+  String get clearRequestsGroupAllConfirmTitle =>
+      '¿Borrar los mensajes de este grupo?';
 }

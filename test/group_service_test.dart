@@ -2362,6 +2362,37 @@ void main() {
       );
     });
 
+    test('a first read made while the store is locked is not the last', () async {
+      // The cold start: the wiring asks before the container is unlocked.
+      // Marked "loaded" on that failed read, the cache stayed empty for the
+      // whole run, and every group with a device-signed member read as a bare
+      // manifest after each restart — measured on the stand, two whole groups
+      // turned into one member and no keys the instant the app came back.
+      final container = FakeHvContainer();
+      final first = container.storage();
+      await first.open(password: 'pw', createIfMissing: true);
+      final writer = GroupService(first, _FakeSigner(bob))
+        ..documentNodeId = nameOf;
+      addTearDown(writer.dispose);
+      await writer.learnPeerDocuments({owner.hex: base64Encode(docFor(owner))});
+      await first.close();
+
+      final cold = container.storage(); // a fresh handle: locked
+      final reader = GroupService(cold, _FakeSigner(bob));
+      addTearDown(reader.dispose);
+      await reader.loadPeerDocuments();
+      expect(reader.peerDocumentsLoaded, isFalse);
+      expect(reader.peerDocument(owner), isNull);
+
+      await cold.open(password: 'pw');
+      await reader.loadPeerDocuments();
+      expect(
+        reader.peerDocument(owner),
+        docFor(owner),
+        reason: 'the read that failed while locked must not stand for the run',
+      );
+    });
+
     test('the lookup the verifier asks answers for a peer it has learned', () async {
       final (ownerSvc, bobSvc, gid, _) = await docPair();
       final b = (await ownerSvc.load(gid))!;
