@@ -30,6 +30,7 @@ import '../core/log.dart';
 import '../domain/clear_policy.dart';
 import '../domain/clear_request.dart';
 import '../crypto/blake3.dart';
+import '../data/node/embedded_node.dart';
 import '../domain/data_transfer.dart';
 import '../domain/chat.dart'
     show
@@ -6921,6 +6922,158 @@ class GroupService implements ArchiveGroups {
     }
     return erased;
   }
+
+  // ── Other members' identity documents ─────────────────────────────────────
+  //
+  // A member whose DEVICE key is not their IDENTITY key — every linked device,
+  // every restored one, a master whose node runs on a device key — signs rows
+  // that verify only against their identity document: the master signs each
+  // device key into it, and nothing else ties that key to the identity. The
+  // lookup that verification consults answered for this identity's own
+  // document and for nobody else's, so every such member's rows were
+  // rejected by everyone else. Measured on the stand 2026-09-22: a group made
+  // by such a master reached the invited member as a bare manifest — epoch 0,
+  // one member, no keys — while the lookup there answered null for the
+  // master's identity and 2670 bytes on the master itself.
+  //
+  // So documents travel with the rows that need them and are kept here. Trust
+  // is not taken from the wire: a document is filed only under the identity it
+  // names itself, and whether it vouches for a key is still decided natively,
+  // master binding and all, every time a row is verified.
+
+  static Map<String, String>? _nonEmpty(Map<String, String> docs) =>
+      docs.isEmpty ? null : docs;
+
+  static const _peerDocumentsKey = 'group.peer.documents.v1';
+
+  /// How many peers' documents are kept. Each is a few KB, and the set grows
+  /// from the network.
+  static const _maxPeerDocuments = 256;
+
+  final Map<String, Uint8List> _peerDocuments = {};
+  bool _peerDocumentsLoaded = false;
+
+  /// Which document a peer's bytes are for. Native by default; replaceable so
+  /// the filing rule can be tested without a node.
+  @visibleForTesting
+  NodeId Function(Uint8List document) documentNodeId = (document) =>
+      NodeId(EmbeddedNode.identityDocumentNodeId(document));
+
+  /// A peer's document, as learned from a group snapshot. Synchronous: the
+  /// verification lookup sits on the path of every row.
+  Uint8List? peerDocument(NodeId identity) => _peerDocuments[identity.hex];
+
+  Future<void> loadPeerDocuments() async {
+    if (_peerDocumentsLoaded) return;
+    _peerDocumentsLoaded = true;
+    try {
+      final raw = await _storage.getSetting(_peerDocumentsKey);
+      if (raw == null) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      decoded.forEach((key, value) {
+        if (key is String && value is String) {
+          try {
+            _peerDocuments.putIfAbsent(key, () => base64Decode(value));
+          } catch (_) {}
+        }
+      });
+    } catch (_) {
+      // A locked store: nothing learned yet, rows that need a document wait
+      // for the next serve, which carries it again.
+    }
+  }
+
+  /// File the documents a snapshot carried, each under the identity it names.
+  @visibleForTesting
+  Future<void> learnPeerDocuments(Object? raw) async {
+    if (raw is! Map || raw.isEmpty) return;
+    await loadPeerDocuments();
+    var changed = false;
+    for (final entry in raw.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (key is! String || value is! String) continue;
+      // Ours comes from the container, never from a peer's word about us.
+      if (key == _signer.selfId.hex) continue;
+      final Uint8List bytes;
+      try {
+        bytes = base64Decode(value);
+      } catch (_) {
+        continue;
+      }
+      if (bytes.isEmpty || bytes.length > 64 * 1024) continue;
+      final NodeId named;
+      try {
+        named = documentNodeId(bytes);
+      } catch (_) {
+        continue;
+      }
+      // Filed under the name it gives itself, or not at all: a document for
+      // someone else sent under this key is not this key's document.
+      if (named.hex != key) continue;
+      final held = _peerDocuments[key];
+      if (held != null && _listEquals(held, bytes)) continue;
+      if (held == null && _peerDocuments.length >= _maxPeerDocuments) {
+        _peerDocuments.remove(_peerDocuments.keys.first);
+      }
+      _peerDocuments.remove(key);
+      _peerDocuments[key] = bytes;
+      changed = true;
+    }
+    if (!changed) return;
+    try {
+      await _storage.putSetting(
+        _peerDocumentsKey,
+        jsonEncode({
+          for (final e in _peerDocuments.entries) e.key: base64Encode(e.value),
+        }),
+      );
+    } catch (_) {
+      // Kept in memory for this run; the next serve carries it again.
+    }
+  }
+
+  /// The documents a receiver needs to verify [signers] — only for authors
+  /// whose key is not their identity's, and only those this device holds.
+  Map<String, String> _documentsFor(
+    Iterable<(NodeId author, Uint8List key)> signers, {
+    Set<String>? alreadySent,
+  }) {
+    final out = <String, String>{};
+    for (final (author, key) in signers) {
+      if (key.length != 32 || out.containsKey(author.hex)) continue;
+      if (alreadySent != null && alreadySent.contains(author.hex)) continue;
+      if (_listEquals(blake3Hash(key), author.bytes)) continue;
+      final doc = author == _signer.selfId
+          ? identityDocumentFor(author)
+          : (peerDocument(author) ?? identityDocumentFor(author));
+      if (doc == null || doc.isEmpty) continue;
+      out[author.hex] = base64Encode(doc);
+    }
+    return out;
+  }
+
+  Iterable<(NodeId, Uint8List)> _signersOf({
+    Iterable<ControlEntry> control = const [],
+    Iterable<GroupMessage> messages = const [],
+    Iterable<GroupReaction> reactions = const [],
+  }) sync* {
+    for (final e in control) {
+      yield (e.author, e.authorPubKey);
+    }
+    for (final m in messages) {
+      yield (m.author, m.authorPubKey);
+    }
+    for (final r in reactions) {
+      yield (r.author, r.authorPubKey);
+    }
+  }
+
+  /// Per group, which authors' documents a delta has already carried to which
+  /// peer in this run. A delta is small and frequent; a document is a few KB,
+  /// and the receiver keeps it once it has it.
+  final Map<String, Set<String>> _documentsSentByDelta = {};
 
   // ── Asking the other members to erase ─────────────────────────────────────
   //
@@ -14686,6 +14839,16 @@ class GroupService implements ArchiveGroups {
               // keys, so old receivers are unaffected.
               'sn': DateTime.now().microsecondsSinceEpoch,
               'm': b.manifest.toJson(),
+              if (i == 0)
+                'docs': ?_nonEmpty(
+                  _documentsFor(
+                    _signersOf(
+                      control: missingCtl,
+                      messages: missingMsgs,
+                      reactions: missingRx,
+                    ),
+                  ),
+                ),
               'c': [
                 if (i == 0)
                   for (final e in missingCtl) e.toJson(),
@@ -14736,6 +14899,17 @@ class GroupService implements ArchiveGroups {
           'c': [for (final e in missingCtl) e.toJson()],
           'g': [for (final m in missingMsgs) m.toJson()],
           'r': [for (final r in missingRx) r.toJson()],
+          // The serve is what heals a member who missed a delta, so it
+          // carries every document its rows need, whatever was sent before.
+          'docs': ?_nonEmpty(
+            _documentsFor(
+              _signersOf(
+                control: missingCtl,
+                messages: missingMsgs,
+                reactions: missingRx,
+              ),
+            ),
+          ),
           if (missingPosts.isNotEmpty)
             'p': [for (final post in missingPosts) post.toJson()],
           if (missingPublicComments.isNotEmpty)
@@ -14799,6 +14973,9 @@ class GroupService implements ArchiveGroups {
     } catch (_) {
       return false; // malformed — drop
     }
+    // BEFORE anything is validated: the rows below may verify only against a
+    // document this very payload carries.
+    await learnPeerDocuments(decoded?['docs']);
     final pending = await _tryPendingDeviceSnapshot(peer, json);
     if (pending != null) return pending;
     PendingSpaceInvite? acceptedInvite;
@@ -16836,6 +17013,17 @@ class GroupService implements ArchiveGroups {
       // Carried only by a full-history push. Older builds ignore an unknown
       // envelope key, so this is safe in both directions on the wire.
       'tx': ?transferTag,
+      // Documents for every author whose rows below verify only with one — a
+      // joining member meets them all at once, here.
+      'docs': ?_nonEmpty(
+        _documentsFor(
+          _signersOf(
+            control: b.control,
+            messages: b.messages,
+            reactions: b.reactions,
+          ),
+        ),
+      ),
       // OUR OWN KEYS, to our own device, and only there.
       //
       // A group deliberately withholds old epoch keys from a NEW MEMBER —
@@ -17020,6 +17208,10 @@ class GroupService implements ArchiveGroups {
       final manifest = value is Map ? value['m'] : null;
       final gid = manifest is Map ? manifest['gid'] : null;
       if (gid is! String) return false;
+      // Every route into the ingest learns the documents first — a caller
+      // that reaches here without [ingestGroupEntry] must not validate rows
+      // against a document still sitting unread in the same payload.
+      if (value is Map) await learnPeerDocuments(value['docs']);
       return _serialized(
         NodeId.fromHex(gid),
         () => _ingestSnapshot(bundleJson, fromOwnDevice: fromOwnDevice),
@@ -19984,6 +20176,18 @@ class GroupService implements ArchiveGroups {
               post,
         ];
         final receipt = _beginSpaceReceipt(b, peer);
+        final sentDocs = _documentsSentByDelta.putIfAbsent(
+          '${groupId.hex}|${peer.hex}',
+          () => <String>{},
+        );
+        final docs = _documentsFor(
+          _signersOf(
+            control: control,
+            messages: peerMessages,
+            reactions: peerReactions,
+          ),
+          alreadySent: sentDocs,
+        );
         try {
           await send(
             peer,
@@ -19991,6 +20195,7 @@ class GroupService implements ArchiveGroups {
             jsonEncode({
               'm': b.manifest.toJson(),
               'c': control.map((entry) => entry.toJson()).toList(),
+              'docs': ?_nonEmpty(docs),
               'g': peerMessages.map((message) => message.toJson()).toList(),
               'r': peerReactions.map((reaction) => reaction.toJson()).toList(),
               if (peerPosts.isNotEmpty)
@@ -20031,6 +20236,10 @@ class GroupService implements ArchiveGroups {
           _cancelSpaceReceipt(receipt);
           rethrow;
         }
+        // Handed to the transport, which queues it durably: this peer has
+        // been given these documents, and a delta need not carry them again
+        // in this run. One it missed is carried by the next serve regardless.
+        sentDocs.addAll(docs.keys);
         n++;
       }
       for (final target in departed) {
