@@ -6797,6 +6797,96 @@ class GroupService implements ArchiveGroups {
   /// shared-content GC that runs after this sweep. The fail-closed
   /// hidden-through boundary of an unreadable encrypted policy never deletes
   /// anything. Bounded, idempotent, serialized per Space.
+  /// Delete, on THIS device, the messages of every author [whose] accepts,
+  /// through [throughSeq] per author hex — an author absent from the map loses
+  /// everything this device holds of theirs. Returns how many rows went.
+  ///
+  /// The deletion is PHYSICAL and it holds: each emptied chain gets a local
+  /// retention cut, the same record the retention sweep leaves, so the fold
+  /// hides a straggler, the ingest refuses to store one again, and the next
+  /// row the author writes re-anchors on the cut instead of looking like a
+  /// broken chain. Nothing is signed or sent — what other members hold is
+  /// theirs, and asking them is a separate act.
+  ///
+  /// Never the device group: that log is compacted state, and deleting from
+  /// it would drop settings, contacts and keys, not conversation.
+  Future<int> eraseGroupRowsLocally(
+    NodeId groupId, {
+    required bool Function(NodeId author) whose,
+    Map<String, int> throughSeq = const {},
+  }) async {
+    var erased = 0;
+    await _serialized(groupId, () async {
+      final b = await load(groupId);
+      if (b == null || b.manifest.isSovereignDevice) return;
+      final byChain = <String, List<GroupMessage>>{};
+      final untouched = <GroupMessage>[];
+      for (final m in b.messages) {
+        if (!whose(m.author)) {
+          untouched.add(m);
+          continue;
+        }
+        byChain
+            .putIfAbsent(
+              retentionCutKey(_messageChainScope(b.manifest, m), m.author),
+              () => [],
+            )
+            .add(m);
+      }
+      final cuts = <String, SpaceRetentionCut>{...b.retentionCuts};
+      final gone = <String>{};
+      for (final entry in byChain.entries) {
+        final rows = entry.value
+          ..sort((left, right) => left.seq.compareTo(right.seq));
+        final limit = throughSeq[rows.first.author.hex];
+        GroupMessage? last;
+        for (final m in rows) {
+          if (limit != null && m.seq > limit) break;
+          gone.add(groupMessageHash(m));
+          last = m;
+        }
+        if (last == null) continue;
+        final prior = cuts[entry.key];
+        if (prior == null || last.seq > prior.throughSeq) {
+          cuts[entry.key] = SpaceRetentionCut(
+            scope: _messageChainScope(b.manifest, last),
+            author: last.author,
+            throughSeq: last.seq,
+            throughHash: groupMessageHash(last),
+            throughCreatedAtMs: last.createdAtMs,
+          );
+        }
+      }
+      if (gone.isEmpty) return;
+      erased = gone.length;
+      await _save(
+        b.copyWith(
+          messages: [
+            ...untouched,
+            for (final rows in byChain.values)
+              for (final m in rows)
+                if (!gone.contains(groupMessageHash(m))) m,
+          ],
+          retentionCuts: cuts,
+        ),
+      );
+    });
+    // The rows are gone from the bundle; the container still holds the bytes
+    // of the version before it until they are scrubbed.
+    if (erased > 0) {
+      try {
+        await _storage.scrubDeleted();
+      } catch (caught) {
+        devLog(
+          () =>
+              'xVeil[groups]: erased $erased row(s) in ${groupId.short} — '
+              'scrub FAILED, the old bytes are still in the container: $caught',
+        );
+      }
+    }
+    return erased;
+  }
+
   /// Run [rotateStaleChannelKeys] across every Space this device holds.
   ///
   /// Lives in the hourly maintenance pass because that is what it is: a key
@@ -10234,9 +10324,19 @@ class GroupService implements ArchiveGroups {
     // Sovereign device groups are compacted LWW state logs, not user history:
     // removing superseded rows is intentional there, so they retain the
     // legacy unchained shape until that CRDT gets its own checkpoint protocol.
-    final prevHash = b.manifest.isSovereignDevice || acceptedScope.isEmpty
+    //
+    // A chain whose every row this device has DELETED still has a last row —
+    // the cut names it. Linking to the cut's hash is what keeps the next row in
+    // the chain for a member who still holds the deleted ones: an empty link
+    // after a strict chain reads to them as a downgrade, and their fold then
+    // hides this author's whole suffix — silently, for every message written
+    // afterwards. A member who deleted the same rows re-anchors on the same
+    // hash ([_acceptedMessageChain]), so one value serves both.
+    final prevHash = b.manifest.isSovereignDevice
         ? ''
-        : groupMessageHash(acceptedScope.last);
+        : acceptedScope.isNotEmpty
+        ? groupMessageHash(acceptedScope.last)
+        : (selfScopeCut?.throughHash ?? '');
     if (protectedChannel == null &&
         encryptionEstablished &&
         (descriptor == null ||
@@ -16953,6 +17053,16 @@ class GroupService implements ArchiveGroups {
     var ingestInvalid = 0;
     String? ingestInvalidWhy;
     for (final m in inMsgs) {
+      // BELOW A CUT THIS DEVICE HOLDS: the row was deleted here on purpose.
+      //
+      // The fold already hides it ([_acceptedMessageChain] filters at the
+      // cut), but hiding is not deleting: peers re-serve whole snapshots, and
+      // a deleted row that is written back to disk on every sync is a row this
+      // device only pretends to have erased — the plaintext sits in the
+      // container again. A message deleted here stays deleted HERE.
+      final localCut = existing
+          ?.retentionCuts[retentionCutKey(_messageChainScope(man, m), m.author)];
+      if (localCut != null && m.seq <= localCut.throughSeq) continue;
       if (!_validMessageFor(manifest.groupId, m)) {
         // The OTHER silent validity drop (its twin in _retainedMessageRows
         // is already voiced): a linked device lost every sibling-signed row
