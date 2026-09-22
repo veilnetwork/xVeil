@@ -1283,6 +1283,27 @@ class MessagingService {
 
   void _nudgeRetries(String peerHex) => _messageDelivery.nudge(peerHex);
 
+  /// A DIRECT SESSION TO [peer] JUST CAME UP — re-drive what is queued for it.
+  ///
+  /// The live-resend ladder starts at 20 s and doubles, so a message sent
+  /// before the path existed is typically two or three attempts deep by the
+  /// time the ladder finishes bringing a session up — measured on the stand at
+  /// about fifty seconds. Nothing told the outbox, so those frames sat out a
+  /// backoff of minutes while a working direct route stood idle beside them,
+  /// and the mailbox copy won every race.
+  ///
+  /// Measured 2026-09-22: a message sent cold reached the peer only from the
+  /// mailbox (with the drain paused it did not arrive at all in 180 s, and
+  /// within 47 s of unpausing it did). The same pair, with the session already
+  /// warm and the drain still paused, delivered LIVE in 18 s.
+  ///
+  /// This is the rewind [MessagingService._nudgeRetries] already performs when
+  /// authenticated inbound proves a peer alive; a session coming up is the
+  /// same news, earlier, and was the one source that never reported it. Frames
+  /// sent moments ago are left alone by the nudge's own grace window so their
+  /// ack can still land.
+  void onDirectSessionUp(NodeId peer) => _nudgeRetries(peer.hex);
+
   /// Our node (re)connected — reconcile now. Clear the per-peer gap-fill throttle
   /// so the [WireKind.sync] beacon fires IMMEDIATELY for every peer (a reconnect
   /// is exactly when a peer may have missed our events while we were down), then

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -816,6 +817,62 @@ void _messagingWarmTests() {
       reason:
           'already direct — re-running the ladder would reshare endpoints '
           'on a schedule the peer never asked for',
+    );
+  });
+
+  // A ROUTE THAT APPEARS IS NEWS THE QUEUE NEEDS.
+  //
+  // The warm is fire-and-forget, so the frame that triggered it goes out the
+  // old way and only the NEXT one was meant to benefit. That left everything
+  // already queued sitting out a live-resend ladder — 20 s doubling — measured
+  // against a session that takes about fifty seconds to come up. So the
+  // backoff was always deepest exactly when the route finally worked, and the
+  // mailbox copy won every race.
+  //
+  // Measured on the stand 2026-09-22, same pair, drain paused both times:
+  // sent cold it never arrived in 180 s; sent with the session already warm it
+  // arrived LIVE in 18 s.
+  test('a ladder that GETS a direct session tells the outbox', () async {
+    final h = _Harness()..messagingAllows = true;
+    final woken = <String>[];
+    h.svc.onDirectSessionUp = (peer) => woken.add(peer.hex);
+
+    // Admission has to ARRIVE DURING the ladder, which is the whole case:
+    // `warmForMessaging` returns early when a session already exists, and a
+    // peer that never becomes reachable is the control below.
+    final peer = _peer(0x31);
+    Timer(const Duration(milliseconds: 350), () => h.admitted = true);
+
+    await h.svc.warmForMessaging(peer);
+
+    expect(
+      woken,
+      [peer.hex],
+      reason:
+          'the ladder is the only thing that knows a route appeared where '
+          'there was none — nothing else reports it, and the queue waits out '
+          'minutes of backoff beside a working direct route',
+    );
+  });
+
+  test('a ladder that FAILS leaves the backoff alone', () async {
+    // The control. Without it the guard above also passes for a warm that
+    // rewinds on every attempt — which would turn a peer we genuinely cannot
+    // reach into a re-drive every few seconds, forever.
+    final h = _Harness()
+      ..messagingAllows = true
+      ..admitOnJoin = false;
+    final woken = <String>[];
+    h.svc.onDirectSessionUp = (peer) => woken.add(peer.hex);
+
+    await h.svc.warmForMessaging(_peer(0x32));
+
+    expect(
+      woken,
+      isEmpty,
+      reason:
+          'no route came up, so the backoff is doing its job and must not be '
+          'rewound',
     );
   });
 
