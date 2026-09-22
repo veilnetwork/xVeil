@@ -484,6 +484,37 @@ List<NodeId> addressedByDevice({
   ];
 }
 
+/// The device to send a sync ANSWER to, or [peer] when there is no better name.
+///
+/// A linked device's frames arrive under the IDENTITY — that is its peer-facing
+/// name — and the identity resolves to a single device. Measured on the stand
+/// 2026-09-22: the master logged `sync serve to 636e6538: 5 row(s)` while the
+/// asker's fold sat on a row from the previous boot for six minutes, because
+/// the answer went to the responder's own node.
+///
+/// Pure and separate because it is the one place a peer's claim ABOUT ITSELF
+/// decides where bytes go, and the whole of its safety is the membership test:
+/// a device group's members are this identity's own devices, so a stranger is
+/// not among them and cannot steer anything. Only the transport address comes
+/// from here — entitlement is still decided for the authenticated sender, and
+/// an epoch envelope still names the identity it was sealed for.
+NodeId syncReplyTarget({
+  required bool isDeviceGroup,
+  required List<NodeId> members,
+  required NodeId peer,
+  required Object? claimed,
+}) {
+  if (!isDeviceGroup || claimed is! String || claimed.length != 64) return peer;
+  if (claimed == peer.hex) return peer;
+  final NodeId device;
+  try {
+    device = NodeId.fromHex(claimed);
+  } catch (_) {
+    return peer;
+  }
+  return members.contains(device) ? device : peer;
+}
+
 class GroupService implements ArchiveGroups {
   GroupService(
     this._storage,
@@ -13756,6 +13787,21 @@ class GroupService implements ArchiveGroups {
       // failing the moment this nonce applied to it).
       if (b.manifest.name == kDeviceGroupName)
         'n': DateTime.now().microsecondsSinceEpoch,
+      // WHICH DEVICE IS ASKING, so the answer can come back to it.
+      //
+      // A linked device's frames carry its PEER-FACING name, which is the
+      // identity — so the responder serves the identity, that resolves to one
+      // device, and on the stand 2026-09-22 the serve went to the responder's
+      // own node and the asker learned nothing. Measured as
+      // `sync serve to 636e6538: 5 row(s)` on the master while the linked
+      // device's fold stayed on a row from the previous boot for six minutes.
+      //
+      // Only the TRANSPORT address is taken from this. Entitlement is still
+      // decided for the authenticated sender, and an epoch envelope still names
+      // the identity it was sealed for — a device is not a member and could not
+      // open one addressed to it.
+      if (b.manifest.isSovereignDevice && myDevice != null)
+        'dv': myDevice!.hex,
       // Legacy Space peers still consume the flat high-water vector. New
       // peers use `mg`, scoped by visible channel, so alternating between
       // channels cannot skip a lower-seq missing row.
@@ -13803,6 +13849,18 @@ class GroupService implements ArchiveGroups {
   /// vector's high-water per author, unseen author = everything). Non-members
   /// are dropped silently — no membership oracle. Returns whether a reply
   /// delta was sent.
+  NodeId _syncReplyTarget(
+    GroupBundle b,
+    GroupState state,
+    NodeId peer,
+    Object? claimed,
+  ) => syncReplyTarget(
+    isDeviceGroup: b.manifest.isSovereignDevice,
+    members: [for (final m in state.members.values) m.nodeId],
+    peer: peer,
+    claimed: claimed,
+  );
+
   Future<bool> handleGroupSyncRequest(NodeId peer, Map req) async {
     final send = _send;
     if (send == null) return false;
@@ -13830,6 +13888,15 @@ class GroupService implements ArchiveGroups {
     // run BEFORE anyone asked whether the sender was entitled to any of it.
     // A Space id is public by construction (it IS the group id), so that was
     // reachable with nothing but a transport session and a published id.
+    // WHERE THE ANSWER GOES, which is not the same question as who asked.
+    //
+    // [peer] is the authenticated sender and stays the subject of every
+    // entitlement decision below. It is the wrong TRANSPORT address for one of
+    // my own devices: a linked device's frames arrive under the identity, which
+    // resolves to a single device, so the serve went to this node itself and
+    // the asker was never answered. Only a device named in MY OWN device group
+    // can redirect it, so nothing a stranger sends can steer a reply.
+    final replyTo = _syncReplyTarget(b, state, peer, req['dv']);
     if (!SpaceAcl(state).allows(peer, SpacePermission.distributeContent)) {
       devLog(() => 'xVeil[groups]: sync request from non-member — drop');
       if (b.manifest.isSpace) {
@@ -14292,7 +14359,7 @@ class GroupService implements ArchiveGroups {
       try {
         for (var i = 0; i < batches.length; i++) {
           await send(
-            peer,
+            replyTo,
             gid,
             jsonEncode({
               // Salt, for the same reason the REQUEST carries a nonce: the
@@ -14333,7 +14400,11 @@ class GroupService implements ArchiveGroups {
                 : NodeId(blake3Hash(m.authorPubKey)).hex.substring(0, 8);
             byWriter[w] = (byWriter[w] ?? 0) + 1;
           }
-          return 'xVeil[devices]: sync serve to ${peer.short}: '
+          // The address it actually went to, and the name it asked under when
+          // those differ. Reading this line as "who asked" is what made the
+          // serve look healthy while it reached nobody.
+          return 'xVeil[devices]: sync serve to ${replyTo.short}'
+              '${replyTo == peer ? "" : " (asked as ${peer.short})"}: '
               '${missingMsgs.length} row(s) in ${batches.length} frame(s), '
               'writers: $byWriter';
         });
@@ -14345,7 +14416,7 @@ class GroupService implements ArchiveGroups {
     }
     try {
       await send(
-        peer,
+        replyTo,
         gid,
         jsonEncode({
           'm': b.manifest.toJson(),
