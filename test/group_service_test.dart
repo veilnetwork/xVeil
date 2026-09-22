@@ -46,6 +46,7 @@ import 'package:xveil/domain/space_rules.dart';
 import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/domain/space_retention.dart';
 import 'package:xveil/domain/inline_custom_emoji.dart';
+import 'package:xveil/state/group_crypto.dart';
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/space_observability.dart';
@@ -2253,6 +2254,122 @@ void main() {
       );
       expect(erased, 2);
       expect(await bodies(bobSvc, gid), ['b3']);
+    });
+  });
+
+  // OTHER MEMBERS' IDENTITY DOCUMENTS travel with the rows that need them.
+  //
+  // Measured on the stand 2026-09-22: a group made by a master whose device
+  // key is not its identity key reached the invited member as a bare manifest
+  // — every row refused, because the verification lookup answered only for
+  // the member's own identity. The fake signer here puts the author's id
+  // bytes where the key goes, so blake3(key) != author: every row is a
+  // "device-signed" row, which is exactly the case under test.
+  group('identity documents travel with the rows that need them', () {
+    Uint8List docFor(NodeId id) => Uint8List.fromList(utf8.encode('doc:${id.hex}'));
+    NodeId nameOf(Uint8List doc) =>
+        NodeId.fromHex(utf8.decode(doc).substring(4));
+
+    setUp(() {
+      // This identity holds ITS OWN document only — the production shape.
+      setIdentityDocumentLookup((id) => id == owner ? docFor(owner) : null);
+    });
+    tearDown(() => setIdentityDocumentLookup(null));
+
+    Future<(GroupService, GroupService, NodeId, List<String>)> docPair() async {
+      final ownerStore = FakeHvContainer().storage();
+      final bobStore = FakeHvContainer().storage();
+      await ownerStore.open(password: 'pw', createIfMissing: true);
+      await bobStore.open(password: 'pw', createIfMissing: true);
+      final toBob = <String>[];
+      final ownerSvc = GroupService(
+        ownerStore,
+        _FakeSigner(owner),
+        send: (peer, gid, json) async {
+          if (peer == bob) toBob.add(json);
+        },
+      );
+      final bobSvc = GroupService(bobStore, _FakeSigner(bob))
+        ..documentNodeId = nameOf;
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+      final gid = await ownerSvc.createGroup('G');
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      return (ownerSvc, bobSvc, gid, toBob);
+    }
+
+    test("a snapshot carries the author's document, and the reader keeps it", () async {
+      final (ownerSvc, bobSvc, gid, _) = await docPair();
+      final b = (await ownerSvc.load(gid))!;
+      final json = ownerSvc.snapshotJson(b, recipient: bob);
+      expect(
+        ((jsonDecode(json) as Map)['docs'] as Map?)?.keys,
+        contains(owner.hex),
+        reason: 'the rows below verify only with it, and nothing else carries it',
+      );
+      expect(bobSvc.peerDocument(owner), isNull);
+      await bobSvc.ingestSnapshot(json);
+      expect(bobSvc.peerDocument(owner), docFor(owner));
+    });
+
+    test('a document is filed only under the identity it names', () async {
+      final (_, bobSvc, _, _) = await docPair();
+      await bobSvc.learnPeerDocuments({
+        stranger.hex: base64Encode(docFor(owner)),
+      });
+      expect(bobSvc.peerDocument(stranger), isNull);
+      expect(
+        bobSvc.peerDocument(owner),
+        isNull,
+        reason: 'nor filed under its own name when sent under another',
+      );
+    });
+
+    test('a peer cannot tell me my own document', () async {
+      final (_, bobSvc, _, _) = await docPair();
+      await bobSvc.learnPeerDocuments({bob.hex: base64Encode(docFor(bob))});
+      expect(bobSvc.peerDocument(bob), isNull);
+    });
+
+    test('a delta carries a document to a peer once per run', () async {
+      final (ownerSvc, _, gid, toBob) = await docPair();
+      await pumpEventQueue();
+      toBob.clear();
+      for (final text in ['one', 'two', 'three']) {
+        expect(await ownerSvc.postMessage(gid, text), isTrue);
+        await pumpEventQueue();
+      }
+      // Deltas only: a full snapshot always carries every document it needs,
+      // by design — it is what a joining or healing member reads.
+      final deltas = [
+        for (final json in toBob)
+          if ((jsonDecode(json) as Map).containsKey('ov')) json,
+      ];
+      final withDocs = [
+        for (final json in deltas)
+          if ((jsonDecode(json) as Map).containsKey('docs')) json,
+      ];
+      expect(deltas.length, greaterThanOrEqualTo(3));
+      expect(
+        withDocs,
+        hasLength(1),
+        reason: 'a document is a few KB; a delta is small and frequent',
+      );
+    });
+
+    test('the lookup the verifier asks answers for a peer it has learned', () async {
+      final (ownerSvc, bobSvc, gid, _) = await docPair();
+      final b = (await ownerSvc.load(gid))!;
+      await bobSvc.ingestSnapshot(ownerSvc.snapshotJson(b, recipient: bob));
+      // The production wiring composes the two; the composition is what the
+      // stand showed missing, so it is asserted where it lives.
+      Uint8List? lookup(NodeId id) => id == bob ? docFor(bob) : bobSvc.peerDocument(id);
+      expect(lookup(owner), docFor(owner));
     });
   });
 

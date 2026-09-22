@@ -681,8 +681,16 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   }
 
   unawaited(readOwnDocument());
+  unawaited(service.loadPeerDocuments());
   setIdentityDocumentLookup((identity) {
     if (identity != ownIdentity && identity != documentIdentity) {
+      // ANOTHER identity: the document a group snapshot carried for it, if
+      // any. Without this the lookup answered only for ourselves, and every
+      // member whose device key is not their identity key was unverifiable
+      // to everyone else — measured as an invited member left holding a bare
+      // manifest while the owner's rows were refused one by one.
+      final peer = service.peerDocument(identity);
+      if (peer != null) return peer;
       // documentIdentity == null means UNRESOLVED, not foreign: a document
       // adopted mid-session (the production linking path) sets it only via
       // readOwnDocument, and the re-read below used to be unreachable from
