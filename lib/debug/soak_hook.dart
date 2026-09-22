@@ -2671,12 +2671,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             // Keyed by DEVICE id, not selfId: a phrase-restored sibling
             // SHARES our selfId and would drop the event as its own echo.
             final meDevice = await svc.resolveMyDevice();
+            // Marked like every other announcement of this row. The fold keeps
+            // the newest per (kind, key), so an unmarked one from the master
+            // retires its own mark — and this path runs on the stand, which is
+            // exactly where the mark is measured.
+            final ownsGroup = await svc.ownsDeviceGroup();
             await svc.postDeviceEvent(
               DeviceSyncEvent(
                 kind: DeviceSyncKind.identityDoc,
                 key: (meDevice ?? svc.selfId).hex,
                 tsMs: DateTime.now().millisecondsSinceEpoch,
-                payload: {'d': base64Encode(doc)},
+                payload: {'d': base64Encode(doc), if (ownsGroup) 'o': true},
               ),
             );
           }

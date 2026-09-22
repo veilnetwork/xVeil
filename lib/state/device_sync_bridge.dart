@@ -163,12 +163,24 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     final doc = files?[kIdentityDocumentFile];
     if (doc == null || doc.isEmpty) return;
     announceDevice ??= await svc.resolveMyDevice();
+    // WHICH DEVICE THE IDENTITY ANSWERS ON, said by the only device entitled to
+    // say it.
+    //
+    // A device group names its owner by the IDENTITY, so a linked device has no
+    // other name for its master and addresses that — which resolves to one
+    // device and travels by the mailbox (measured: 166 of 166 sends, none
+    // live). The row below is already keyed by the announcing DEVICE and
+    // already reaches every sibling; marking the master's turns it into the
+    // name they can dial, with no new event kind and no change to the group
+    // protocol. An older build never writes the mark and never reads it, so a
+    // mixed pair simply keeps its mailbox path.
+    final ownsGroup = await svc.ownsDeviceGroup();
     await svc.postDeviceEvent(
       DeviceSyncEvent(
         kind: DeviceSyncKind.identityDoc,
         key: (announceDevice ?? svc.selfId).hex,
         tsMs: nextTs(),
-        payload: {'d': base64.encode(doc)},
+        payload: {'d': base64.encode(doc), if (ownsGroup) 'o': true},
       ),
     );
   }
