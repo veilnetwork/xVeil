@@ -324,6 +324,27 @@ class _MessagingConversationAdmin {
     bool notifyPeer = false,
   }) async {
     if (notifyPeer) await _sendChatDeletedFarewell(peer);
+    // MY OTHER DEVICES KEEP THE WHOLE CHAT OTHERWISE.
+    //
+    // The same sentence [clearConversation] finishes, for the stronger action:
+    // deleting a chat emptied it here and at the peer and left it untouched on
+    // the person's other device — so the strongest thing they can do to a
+    // conversation still left it readable on a device they also own.
+    //
+    // The HISTORY travels, the CONTACT does not. Emptying is recoverable in the
+    // sense that matters (the contact is still there to write to), while
+    // removing a contact on every device from one tap is not — the peer would
+    // have to be added again, and nothing undoes it. So a sibling ends up with
+    // the conversation emptied and the contact intact, which is a deliberate
+    // difference from this device and not an omission.
+    //
+    // BEFORE the removal, so the clear row this appends does not land in a
+    // conversation that has just been tombstoned. Not for the watermark's sake:
+    // that comes from the conversation's SYNC high-water, which the removal
+    // leaves alone — checked by moving this call after the removal and watching
+    // the guard below pass, so the ordering is a tidiness rule and the tests do
+    // not pretend to prove more.
+    await _tellMyDevicesToEmpty(peer);
     await _owner._storage.removeConversation(peer);
     // The chat is gone; its ratchet must go with it. AFTER the farewell, which
     // is itself a send and would re-open a session we were about to drop.
@@ -337,6 +358,38 @@ class _MessagingConversationAdmin {
     _owner._mailboxDelivery.clearPeerBackoff(peer.hex);
     await _removeFromAllFolders(peer.hex);
     _owner._signal();
+  }
+
+  /// Tell my own devices to empty this conversation, as a clear would.
+  ///
+  /// Deliberately the clear event and not a delete of its own: emptying is
+  /// exactly the half of a delete that is safe to hand another device, the
+  /// applier for it is already written and measured, and the watermark is what
+  /// stops a mirror of a message from BEFORE the delete reappearing on a device
+  /// running minutes behind — which on a device group is the ordinary case.
+  ///
+  /// Best-effort by construction. A person asked for this chat to go, and a
+  /// device-group hiccup must not be what stands between them and that; the
+  /// refusal names itself so it is not read as success.
+  Future<void> _tellMyDevicesToEmpty(NodeId peer) async {
+    try {
+      final selfHex = await _owner._selfHex();
+      if (peer.hex == selfHex) return;
+      final ev = await _owner._storage.emitClearConversation(peer, selfHex);
+      _owner._deviceMirror.onConversationCleared?.call(
+        peer,
+        ev.author,
+        ev.seq,
+        ev.watermark,
+        ev.atMs,
+      );
+    } catch (caught) {
+      devLog(
+        () =>
+            'xVeil[chat]: deleting ${peer.short} — my other devices were NOT '
+            'told to empty it: $caught',
+      );
+    }
   }
 
   Future<void> _sendChatDeletedFarewell(NodeId peer) async {
