@@ -843,6 +843,61 @@ void _messagingWarmTests() {
   //
   // Every share already declares its sender's device, so keeping both costs
   // no new wire format — only the decision not to overwrite.
+  // WHICH NAME TO ADDRESS A PEER BY.
+  //
+  // `admitted(identity)` answers "some session exists to some device of this
+  // identity", so the entry of a device that has gone keeps answering yes —
+  // measured on the stand 2026-09-22 with that device killed and the mailbox
+  // paused: both ends reported admitted and nothing arrived in 231 s.
+  // `admitted(device)` matches the session's own node id and is the precise
+  // question.
+  test('a peer is addressed as the device its session ends at', () async {
+    final h = _Harness()..messagingAllows = true;
+    final contact = _peer(0x51);
+    final device = _peer(0x52);
+    h.messaging.onP2PEndpoints!(
+      contact,
+      jsonEncode({
+        'v': 1,
+        'ts': 7,
+        'd': device.hex,
+        'e': [_inviteUri(0x51, host: '192.168.1.51')],
+      }),
+    );
+    await pumpEventQueue();
+
+    expect(
+      h.svc.routeFor(contact),
+      isNull,
+      reason:
+          'nothing is admitted yet, so the identity the caller holds is still '
+          'the answer — this must never invent a route',
+    );
+
+    h.admitted = true;
+    await h.svc.warmForMessaging(contact);
+    expect(
+      h.svc.routeFor(contact)?.hex,
+      device.hex,
+      reason:
+          'a live session names a device, and addressing it is what makes the '
+          'route specific instead of "some device of this identity"',
+    );
+
+    // CONTROL: the device stops answering. Keeping a stale choice is exactly
+    // the failure this exists to end, so it must fall back rather than hold on.
+    h.admitted = false;
+    h.now = h.now.add(const Duration(minutes: 5));
+    await h.svc.warmForMessaging(contact);
+    expect(
+      h.svc.routeFor(contact),
+      isNull,
+      reason:
+          'a device that no longer holds a session must be forgotten — a stale '
+          'choice is what kept sends aimed at a device that had gone',
+    );
+  });
+
   test("a contact's two devices are both remembered", () async {
     final h = _Harness()..admitted = true; // isolate the fold from dialing
     final contact = _peer(0x41);
