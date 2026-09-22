@@ -4353,6 +4353,108 @@ void main() {
         isNot(contains(sovereign.nodeId.hex)),
       );
 
+      // THE MASTER HAS A DEVICE NAME, and the identity is the slow stand-in.
+      //
+      // Naming the master by the IDENTITY is correct and costly: it resolves
+      // to ONE device and the frame takes the mailbox. Measured on the
+      // two-device stand, the linked device addressed the identity 166 times
+      // out of 166 and not once went live. The master already announces its
+      // identity document keyed by its own DEVICE; marking that row as the
+      // owner's is what lets the other side dial it.
+      final masterDevice = _id(0xD7);
+      pairOwner.myDevice = masterDevice;
+      expect(await pairOwner.ownsDeviceGroup(), isTrue);
+      expect(
+        await linked.ownsDeviceGroup(),
+        isFalse,
+        reason: 'a linked device must never claim the identity is its to name',
+      );
+
+      // CONTROL, and the compatibility story: until the master says which
+      // device it is, every answer is exactly what it was before. This is what
+      // a pair of mixed builds falls back to.
+      expect(await linked.masterDeviceId(), isNull);
+      expect(
+        (await linked.addressableOwnDevices()).map((n) => n.hex),
+        contains(sovereign.nodeId.hex),
+      );
+
+      pairOwnerSent.clear();
+      expect(
+        await pairOwner.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: masterDevice.hex,
+            tsMs: 444,
+            payload: const {'d': 'ZG9j', 'o': true},
+          ),
+        ),
+        isTrue,
+      );
+      await drain();
+      for (final d in pairOwnerSent) {
+        await linked.ingestSnapshot(d);
+      }
+      await drain();
+
+      expect(await linked.masterDeviceId(), masterDevice);
+      final named = (await linked.addressableOwnDevices())
+          .map((n) => n.hex)
+          .toList();
+      expect(named, contains(masterDevice.hex));
+      expect(
+        named,
+        isNot(contains(sovereign.nodeId.hex)),
+        reason:
+            'keeping both names addresses the same master twice — once live '
+            'and once through the mailbox',
+      );
+
+      // THE EGRESS ITSELF, which is the whole point: what goes on the wire.
+      addressed.clear();
+      expect(
+        await linked.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'after-the-master-named-itself',
+            tsMs: 555,
+            payload: const {'v': '1'},
+          ),
+        ),
+        isTrue,
+      );
+      await drain();
+      expect(
+        addressed.map((n) => n.hex),
+        contains(masterDevice.hex),
+        reason: 'the push leg still addressed the identity',
+      );
+      expect(addressed.map((n) => n.hex), isNot(contains(sovereign.nodeId.hex)));
+
+      // AN UNMARKED RE-ANNOUNCEMENT RETIRES THE MARK, which is why the mark
+      // has to ride EVERY announcement of this row and not just the one at
+      // start-up. The fold keeps the newest event per (kind, key), so a later
+      // unmarked row from the master silently drops every linked device back
+      // to the mailbox — and nothing says so.
+      pairOwnerSent.clear();
+      expect(
+        await pairOwner.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: masterDevice.hex,
+            tsMs: 666,
+            payload: const {'d': 'ZG9j'},
+          ),
+        ),
+        isTrue,
+      );
+      await drain();
+      for (final d in pairOwnerSent) {
+        await linked.ingestSnapshot(d);
+      }
+      await drain();
+      expect(await linked.masterDeviceId(), isNull);
+
       // AND THE PULL LEG, which is the other half of the same conversation.
       //
       // Everything above is the PUSH: what this device sends when it has
