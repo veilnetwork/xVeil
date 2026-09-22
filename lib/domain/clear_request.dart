@@ -22,6 +22,7 @@ class PendingClearRequest {
     required this.atMs,
     required this.seq,
     required this.watermark,
+    this.groupKind,
   });
 
   /// The conversation this asks to empty — a peer's hex for a 1:1 chat.
@@ -43,9 +44,20 @@ class PendingClearRequest {
   /// The watermark, ALREADY in this device's names. See the header.
   final Map<String, int> watermark;
 
+  /// Non-null for a GROUP request, and then [chatHex] is the group's id.
+  ///
+  /// [kGroupClearOwn] asks to erase the requester's OWN messages there;
+  /// [kGroupClearAll] asks to erase everyone's. Two different questions a
+  /// person answers differently, so the kind travels with the record and
+  /// is what the list shows.
+  final String? groupKind;
+
+  bool get isGroup => groupKind != null;
+
   /// One pending request per (chat, requester): asking twice is still one
   /// question, and the later ask is the one to answer.
-  String get key => '$chatHex|$requesterHex';
+  String get key =>
+      '$chatHex|$requesterHex${groupKind == null ? '' : '|$groupKind'}';
 
   Map<String, dynamic> toJson() => {
     'c': chatHex,
@@ -53,6 +65,7 @@ class PendingClearRequest {
     't': atMs,
     'q': seq,
     'wm': watermark,
+    'gk': ?groupKind,
   };
 
   /// Null for anything this build cannot act on. A request that cannot be
@@ -70,6 +83,12 @@ class PendingClearRequest {
     if (requester is! String || requester.isEmpty) return null;
     if (at is! int || seq is! int) return null;
     if (wm is! Map) return null;
+    final kind = raw['gk'];
+    // An unknown kind is a request this build cannot carry out EXACTLY, and
+    // the header says what happens to those: they are not shown at all.
+    if (kind != null && kind != kGroupClearOwn && kind != kGroupClearAll) {
+      return null;
+    }
     final watermark = <String, int>{};
     wm.forEach((k, v) {
       if (k is String && v is int) watermark[k] = v;
@@ -80,9 +99,16 @@ class PendingClearRequest {
       atMs: at,
       seq: seq,
       watermark: watermark,
+      groupKind: kind as String?,
     );
   }
 }
+
+/// A group request to erase the requester's own messages.
+const String kGroupClearOwn = 'own';
+
+/// A group request to erase everyone's messages.
+const String kGroupClearAll = 'all';
 
 /// The settings key the list lives under, inside the deniable container.
 ///

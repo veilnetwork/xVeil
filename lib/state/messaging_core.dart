@@ -1878,6 +1878,10 @@ class MessagingService {
   /// nothing about sealing depends on which of a peer's names is addressed.
   NodeId? Function(NodeId peer)? routeFor;
 
+  /// Carries out a GROUP clear request the person said yes to. Set by the group
+  /// service's wiring; see [answerClearRequest].
+  Future<void> Function(PendingClearRequest request)? onGroupClearAccepted;
+
   void Function(NodeId peer)? prepareDirectRoute;
 
   // ── Opt-in authorship attestation ─────────────────────────────────────────
@@ -2007,6 +2011,11 @@ class MessagingService {
 
   /// Answer one. [accept] carries it out; either way the record goes and the
   /// requester is told nothing.
+  /// Put a request in the list a person answers — for a GROUP request, whose
+  /// arrival the group service decides, not this layer.
+  Future<void> rememberClearRequest(PendingClearRequest request) =>
+      _conversationAdmin.rememberClearRequest(request);
+
   Future<bool> answerClearRequest(
     PendingClearRequest request, {
     required bool accept,

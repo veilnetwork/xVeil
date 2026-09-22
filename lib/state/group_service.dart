@@ -27,6 +27,8 @@ import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../domain/clear_policy.dart';
+import '../domain/clear_request.dart';
 import '../crypto/blake3.dart';
 import '../domain/data_transfer.dart';
 import '../domain/chat.dart'
@@ -513,6 +515,39 @@ NodeId syncReplyTarget({
     return peer;
   }
   return members.contains(device) ? device : peer;
+}
+
+/// The per-author watermark a group clear request carries: the highest seq
+/// THIS device knows of, from the rows it holds and from the cuts it has
+/// already made.
+///
+/// The cuts matter for the ordinary case, not the exotic one: "remove mine"
+/// erases here first and asks the others second, so by the time the request
+/// is built the rows are gone and only the cut remembers how far they went.
+/// Built from rows alone, that request would ask everyone to erase nothing.
+///
+/// [kGroupClearOwn] keeps [me] only — a member asking to erase their own
+/// messages must not be able to name anybody else's.
+Map<String, int> groupClearWatermark({
+  required Iterable<GroupMessage> messages,
+  required Iterable<SpaceRetentionCut> cuts,
+  required String kind,
+  required NodeId me,
+}) {
+  final wm = <String, int>{};
+  void note(NodeId author, int seq) {
+    if (kind == kGroupClearOwn && author != me) return;
+    final key = author.hex;
+    if ((wm[key] ?? -1) < seq) wm[key] = seq;
+  }
+
+  for (final m in messages) {
+    note(m.author, m.seq);
+  }
+  for (final cut in cuts) {
+    note(cut.author, cut.throughSeq);
+  }
+  return wm;
 }
 
 class GroupService implements ArchiveGroups {
@@ -6885,6 +6920,184 @@ class GroupService implements ArchiveGroups {
       }
     }
     return erased;
+  }
+
+  // ── Asking the other members to erase ─────────────────────────────────────
+  //
+  // Two questions, one mechanism: erase MY messages ([kGroupClearOwn]), or
+  // erase everyone's ([kGroupClearAll]). Any member may ask; each reader
+  // decides whose requests it honours, per group, with the same four answers a
+  // 1:1 chat has — and "ask me" puts the request in the same list, beside the
+  // 1:1 ones, for the person to answer.
+  //
+  // The request is not a group row. A row would be kept, re-served and folded
+  // by every member forever, and an older build would show it as a message.
+  // It is a group ENTRY of its own kind: an older build routes it to the
+  // snapshot ingest, finds no manifest in it, and drops it.
+
+  /// Filled in by the wiring: puts a request in the list a person answers.
+  Future<void> Function(PendingClearRequest request)? rememberClearRequest;
+
+  static String _clearPolicyKey(NodeId groupId) =>
+      'group.clear.policy.${groupId.hex}';
+
+  /// Whose clear requests THIS device honours in [groupId].
+  Future<ClearRequestPolicy> groupClearPolicy(NodeId groupId) async {
+    try {
+      final raw = await _storage.getSetting(_clearPolicyKey(groupId));
+      for (final policy in ClearRequestPolicy.values) {
+        if (policy.name == raw) return policy;
+      }
+    } catch (_) {
+      // A locked store answers the default, which asks rather than acts.
+    }
+    return kDefaultClearRequestPolicy;
+  }
+
+  Future<void> setGroupClearPolicy(
+    NodeId groupId,
+    ClearRequestPolicy policy,
+  ) => _storage.putSetting(_clearPolicyKey(groupId), policy.name);
+
+  /// Ask every other member of [groupId] to erase messages of [kind], through
+  /// what this device knows of. Returns how many members it went to.
+  Future<int> requestGroupClear(NodeId groupId, String kind) async {
+    final send = _send;
+    if (send == null) return 0;
+    if (kind != kGroupClearOwn && kind != kGroupClearAll) return 0;
+    final b = await load(groupId);
+    if (b == null || b.manifest.isSovereignDevice) return 0;
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (e) => _validControlFor(b.manifest, e),
+    ).state;
+    final wm = groupClearWatermark(
+      messages: b.messages,
+      cuts: b.retentionCuts.values,
+      kind: kind,
+      me: _signer.selfId,
+    );
+    if (wm.isEmpty) return 0;
+    final body = jsonEncode({
+      'creq': 1,
+      'gid': groupId.hex,
+      'k': kind,
+      'wm': wm,
+      // A question, not state: asking again must not be deduplicated into
+      // silence against the first ask.
+      'n': DateTime.now().microsecondsSinceEpoch,
+    });
+    var told = 0;
+    for (final member in state.members.values) {
+      if (member.nodeId == _signer.selfId) continue;
+      try {
+        await send(member.nodeId, groupId, body);
+        told++;
+      } catch (_) {
+        // One unreachable member does not stop the rest being asked.
+      }
+    }
+    return told;
+  }
+
+  /// A member asks this device to erase. Returns true when the entry was
+  /// understood — WHATEVER the answer, which the requester is never told.
+  Future<bool> handleGroupClearRequest(NodeId peer, Map d) async {
+    final gidHex = d['gid'];
+    final kind = d['k'];
+    final rawWm = d['wm'];
+    if (gidHex is! String || rawWm is! Map) return false;
+    if (kind != kGroupClearOwn && kind != kGroupClearAll) return false;
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(gidHex);
+    } catch (_) {
+      return false;
+    }
+    final b = await load(groupId);
+    if (b == null || b.manifest.isSovereignDevice) return false;
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (e) => _validControlFor(b.manifest, e),
+    ).state;
+    // A MEMBER, by the authenticated sender. Anyone else is dropped with
+    // nothing said, like every other refusal in this layer.
+    final role = state.roleOf(peer);
+    if (role == null) return false;
+    final wm = <String, int>{};
+    for (final entry in rawWm.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (key is! String || key.length != 64 || value is! int || value < 0) {
+        return false;
+      }
+      wm[key] = value;
+    }
+    // "Mine" names the requester and nobody else. A request that says "mine"
+    // and lists another author is not a request this device can carry out as
+    // asked, so it is not carried out at all.
+    if (kind == kGroupClearOwn &&
+        (wm.length != 1 || wm.keys.single != peer.hex)) {
+      return false;
+    }
+    final verdict = clearRequestVerdict(
+      policy: await groupClearPolicy(groupId),
+      requesterIsAdmin: role.rank >= GroupRole.admin.rank,
+    );
+    switch (verdict) {
+      case ClearRequestVerdict.decline:
+        break;
+      case ClearRequestVerdict.askThePerson:
+        await rememberClearRequest?.call(
+          PendingClearRequest(
+            chatHex: groupId.hex,
+            requesterHex: peer.hex,
+            atMs: _now(),
+            seq: 0,
+            watermark: wm,
+            groupKind: kind as String,
+          ),
+        );
+      case ClearRequestVerdict.apply:
+        await applyGroupClear(groupId, kind as String, peer, wm);
+    }
+    devLog(
+      () =>
+          'xVeil[groups]: clear request ($kind) from ${peer.short} in '
+          '${groupId.short} — ${verdict.name}',
+    );
+    return true;
+  }
+
+  /// Carry out a clear request: the requester's own rows, or every author the
+  /// watermark names — and ONLY those, through the watermark. An author it
+  /// does not name had nothing at the requester, so there is nothing of
+  /// theirs this request is about.
+  Future<int> applyGroupClear(
+    NodeId groupId,
+    String kind,
+    NodeId requester,
+    Map<String, int> watermark,
+  ) => eraseGroupRowsLocally(
+    groupId,
+    whose: kind == kGroupClearOwn
+        ? (author) => author == requester
+        : (author) => watermark.containsKey(author.hex),
+    throughSeq: watermark,
+  );
+
+  /// The "yes" from the list of pending requests.
+  Future<void> applyPendingGroupClear(PendingClearRequest request) async {
+    final kind = request.groupKind;
+    if (kind == null) return;
+    await applyGroupClear(
+      NodeId.fromHex(request.chatHex),
+      kind,
+      NodeId.fromHex(request.requesterHex),
+      request.watermark,
+    );
   }
 
   /// Run [rotateStaleChannelKeys] across every Space this device holds.
@@ -14581,6 +14794,7 @@ class GroupService implements ArchiveGroups {
     try {
       final d = jsonDecode(json);
       if (d is Map && d['sreq'] == 1) return handleGroupSyncRequest(peer, d);
+      if (d is Map && d['creq'] == 1) return handleGroupClearRequest(peer, d);
       if (d is Map) decoded = d;
     } catch (_) {
       return false; // malformed — drop
