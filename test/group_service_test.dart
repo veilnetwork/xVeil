@@ -1991,6 +1991,143 @@ void main() {
     expect(msgs.length, 2, reason: 'stranger message was never stored');
   });
 
+  // ERASING MY MESSAGES HERE, and what that must not break everywhere else.
+  //
+  // Two separate stores, because every property worth pinning is about the
+  // OTHER side: the member who still holds the rows keeps serving them, and
+  // the member who erased keeps writing.
+  group('erasing group messages on this device', () {
+    Future<(GroupService, GroupService, NodeId)> pair() async {
+      final ownerStore = FakeHvContainer().storage();
+      final bobStore = FakeHvContainer().storage();
+      await ownerStore.open(password: 'pw', createIfMissing: true);
+      await bobStore.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(ownerStore, _FakeSigner(owner));
+      final bobSvc = GroupService(bobStore, _FakeSigner(bob));
+      addTearDown(ownerSvc.dispose);
+      addTearDown(bobSvc.dispose);
+      final gid = await ownerSvc.createGroup('G');
+      expect(
+        await ownerSvc.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      return (ownerSvc, bobSvc, gid);
+    }
+
+    Future<void> ship(
+      GroupService from,
+      GroupService to,
+      NodeId gid,
+      NodeId recipient,
+    ) async {
+      final b = (await from.load(gid))!;
+      await to.ingestSnapshot(from.snapshotJson(b, recipient: recipient));
+    }
+
+    Future<List<String>> bodies(GroupService svc, NodeId gid) async =>
+        [for (final m in await svc.messagesOf(gid)) m.body];
+
+    Future<List<String>> stored(GroupService svc, NodeId gid, NodeId who) async =>
+        [
+          for (final m in (await svc.load(gid))!.messages)
+            if (m.author == who) '${m.seq}',
+        ];
+
+    test('my rows go here, and only mine, and only here', () async {
+      final (ownerSvc, bobSvc, gid) = await pair();
+      expect(await ownerSvc.postMessage(gid, 'o1'), isTrue);
+      await ship(ownerSvc, bobSvc, gid, bob);
+      expect(await bobSvc.postMessage(gid, 'b1'), isTrue);
+      expect(await bobSvc.postMessage(gid, 'b2'), isTrue);
+      await ship(bobSvc, ownerSvc, gid, owner);
+      expect(await bodies(ownerSvc, gid), containsAll(['o1', 'b1', 'b2']));
+
+      final erased = await bobSvc.eraseGroupRowsLocally(
+        gid,
+        whose: (author) => author == bob,
+      );
+      expect(erased, 2);
+      expect(await stored(bobSvc, gid, bob), isEmpty);
+      expect(
+        await bodies(bobSvc, gid),
+        ['o1'],
+        reason: "someone else's message is not mine to erase",
+      );
+      expect(
+        await bodies(ownerSvc, gid),
+        containsAll(['b1', 'b2']),
+        reason: 'erasing HERE touched nothing anyone else holds',
+      );
+    });
+
+    test('a re-served copy is neither shown nor written back', () async {
+      final (ownerSvc, bobSvc, gid) = await pair();
+      await ship(ownerSvc, bobSvc, gid, bob);
+      expect(await bobSvc.postMessage(gid, 'b1'), isTrue);
+      expect(await bobSvc.postMessage(gid, 'b2'), isTrue);
+      await ship(bobSvc, ownerSvc, gid, owner);
+      await bobSvc.eraseGroupRowsLocally(gid, whose: (a) => a == bob);
+
+      // The owner still holds both rows and serves whole snapshots — the
+      // ordinary sync, not an attack.
+      await ship(ownerSvc, bobSvc, gid, bob);
+
+      expect(await bodies(bobSvc, gid), isEmpty);
+      expect(
+        await stored(bobSvc, gid, bob),
+        isEmpty,
+        reason:
+            'hidden is not deleted: a row written back on every sync puts the '
+            'plaintext in the container again',
+      );
+    });
+
+    test('what I write afterwards still reaches a member who kept the old '
+        'rows', () async {
+      final (ownerSvc, bobSvc, gid) = await pair();
+      await ship(ownerSvc, bobSvc, gid, bob);
+      expect(await bobSvc.postMessage(gid, 'b1'), isTrue);
+      expect(await bobSvc.postMessage(gid, 'b2'), isTrue);
+      await ship(bobSvc, ownerSvc, gid, owner);
+      await bobSvc.eraseGroupRowsLocally(gid, whose: (a) => a == bob);
+
+      expect(await bobSvc.postMessage(gid, 'b3'), isTrue);
+      final seqs = await stored(bobSvc, gid, bob);
+      expect(seqs, ['2'], reason: 'an erased seq must never be reused');
+      expect(await bodies(bobSvc, gid), ['b3']);
+
+      await ship(bobSvc, ownerSvc, gid, owner);
+      expect(
+        await bodies(ownerSvc, gid),
+        containsAll(['b1', 'b2', 'b3']),
+        reason:
+            'the new row must chain onto the erased head: with an empty link '
+            'after a strict chain the owner hides it — and everything the '
+            'author writes afterwards — without a word',
+      );
+    });
+
+    test('a watermark bounds the erase', () async {
+      final (ownerSvc, bobSvc, gid) = await pair();
+      await ship(ownerSvc, bobSvc, gid, bob);
+      for (final text in ['b1', 'b2', 'b3']) {
+        expect(await bobSvc.postMessage(gid, text), isTrue);
+      }
+      final erased = await bobSvc.eraseGroupRowsLocally(
+        gid,
+        whose: (a) => a == bob,
+        throughSeq: {bob.hex: 1},
+      );
+      expect(erased, 2);
+      expect(await bodies(bobSvc, gid), ['b3']);
+    });
+  });
+
   test('a muted member cannot post; unmute restores', () async {
     final (svc, member) = await setup();
     final gid = await svc.createGroup('G');
