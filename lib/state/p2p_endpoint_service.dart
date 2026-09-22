@@ -146,6 +146,20 @@ class P2PEndpointService {
   /// Per-peer in-flight dial guard.
   final Set<String> _dialing = {};
 
+  /// Told when a peer that had NO direct route acquires one.
+  ///
+  /// The ladder is fire-and-forget by design — a chat must not wait on it — so
+  /// the frame that triggered a warm goes out the old way and only the NEXT
+  /// one was meant to benefit. That left the queue behind: the live-resend
+  /// ladder starts at 20 s and doubles, and bringing a session up was measured
+  /// at about fifty seconds, so frames already queued sat out minutes of
+  /// backoff while a working direct route stood idle beside them.
+  ///
+  /// Wired to the messaging service's rewind, which it already performs when
+  /// authenticated inbound proves a peer alive. A session coming up is the
+  /// same news, earlier.
+  void Function(NodeId peer)? onDirectSessionUp;
+
   /// Short, address-free reason the last [ensureReady] ladder fell back to
   /// relay for a peer (structured hole-punch outcome / stage name). Read by
   /// the transport-badge/log layer; cleared when a direct session comes up.
@@ -384,6 +398,10 @@ class P2PEndpointService {
             'xVeil[p2p]: messaging warm for ${peer.short} '
             '${ok ? "got a direct session" : "stayed on the relay path"}',
       );
+      // Only on success, and only here: the ladder is the one place that knows
+      // a route appeared where there was none. Telling the outbox on a failed
+      // warm would rewind a backoff that is doing its job.
+      if (ok) onDirectSessionUp?.call(peer);
     } catch (e) {
       // Best-effort by construction: the conversation is already delivering
       // over the mailbox, and a warm that throws must not touch that.
@@ -987,6 +1005,10 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   // The link that gives a CONVERSATION a direct route. Without it the ladder
   // exists but nothing in messaging ever calls it, which is exactly the state
   // this replaces.
+  // …and the link back: when the ladder gets a route, whatever is queued for
+  // that peer should stop waiting out a backoff measured for a peer we could
+  // not reach.
+  svc.onDirectSessionUp = messaging.onDirectSessionUp;
   messaging.prepareDirectRoute = (peer) {
     // Never toward MYSELF. The master's node id IS the identity address, so
     // its own mirror sends named this node — and the warm then exchanged
@@ -1001,6 +1023,7 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   unawaited(svc.announceLocalEndpoints());
   ref.onDispose(() {
     messaging.prepareDirectRoute = null;
+    svc.onDirectSessionUp = null;
     svc.dispose();
   });
   return svc;
