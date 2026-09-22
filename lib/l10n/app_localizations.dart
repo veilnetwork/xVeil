@@ -13265,6 +13265,18 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Erasing removes those messages from this device. It cannot be undone.'**
   String get clearRequestsGroupBody;
+
+  /// No description provided for @clearRequestsGroupOwnConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase this member\'s messages in the group?'**
+  String get clearRequestsGroupOwnConfirmTitle;
+
+  /// No description provided for @clearRequestsGroupAllConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase this group\'s messages?'**
+  String get clearRequestsGroupAllConfirmTitle;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

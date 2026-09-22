@@ -7677,4 +7677,12 @@ class AppL10nRu extends AppL10n {
   @override
   String get clearRequestsGroupBody =>
       'Стирание уберёт эти сообщения с этого устройства. Отменить нельзя.';
+
+  @override
+  String get clearRequestsGroupOwnConfirmTitle =>
+      'Стереть сообщения этого участника в группе?';
+
+  @override
+  String get clearRequestsGroupAllConfirmTitle =>
+      'Стереть сообщения этой группы?';
 }

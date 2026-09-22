@@ -691,6 +691,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       // manifest while the owner's rows were refused one by one.
       final peer = service.peerDocument(identity);
       if (peer != null) return peer;
+      // Not read yet — on a cold start the first read runs while the
+      // container is still locked. Ask again; the next row will find it.
+      if (!service.peerDocumentsLoaded) unawaited(service.loadPeerDocuments());
       // documentIdentity == null means UNRESOLVED, not foreign: a document
       // adopted mid-session (the production linking path) sets it only via
       // readOwnDocument, and the re-read below used to be unreachable from
