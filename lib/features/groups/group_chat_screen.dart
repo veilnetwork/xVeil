@@ -17,6 +17,8 @@ import '../../core/ids.dart';
 import '../../data/serve_source.dart';
 import '../../domain/chat.dart';
 import '../../domain/call_signal.dart';
+import '../../domain/clear_policy.dart';
+import '../../domain/clear_request.dart';
 import '../../domain/group.dart';
 import '../../domain/media_object.dart' show kInlineImageMaxBytes;
 import '../../domain/group_message.dart';
@@ -73,6 +75,9 @@ enum _GroupOwnerAction {
   hideAfterRead,
   hideAfterReadLocal,
   convert,
+  removeMine,
+  eraseShared,
+  clearPolicy,
 }
 
 void _cancelGroupContentDownload(WidgetRef ref, String contentId) {
@@ -1117,6 +1122,127 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       ..push('/space/${_gid.hex}');
   }
 
+  Future<bool> _confirm(String title, String body, String action, Key key) async {
+    final l = AppL10n.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.actionCancel),
+          ),
+          FilledButton(
+            key: key,
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
+  /// Erase what I wrote HERE, then offer to ask the others.
+  ///
+  /// Two steps and in this order, because they are two decisions: the first is
+  /// mine alone and happens whatever anyone else does; the second is a request
+  /// every other member's app answers by its owner's own setting.
+  Future<void> _removeMine(GroupService svc) async {
+    final l = AppL10n.of(context);
+    if (!await _confirm(
+      l.groupRemoveMineConfirmTitle,
+      l.groupRemoveMineConfirmBody,
+      l.groupRemoveMineConfirm,
+      const ValueKey('group-remove-mine-confirm'),
+    )) {
+      return;
+    }
+    await svc.eraseGroupRowsLocally(
+      _gid,
+      whose: (author) => author == svc.selfId,
+    );
+    if (!mounted) return;
+    final ask = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.groupRemoveMineAskTitle),
+        content: Text(l.groupRemoveMineAskBody),
+        actions: [
+          TextButton(
+            key: const ValueKey('group-remove-mine-ask-no'),
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text(l.groupRemoveMineAskNo),
+          ),
+          FilledButton(
+            key: const ValueKey('group-remove-mine-ask-yes'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text(l.groupRemoveMineAskYes),
+          ),
+        ],
+      ),
+    );
+    if (ask == true) await svc.requestGroupClear(_gid, kGroupClearOwn);
+  }
+
+  /// Ask every member to erase the group's messages, and erase them here.
+  ///
+  /// The request is built BEFORE the local erase: it names how far each
+  /// author's messages went as this device knew it, and that is still true
+  /// afterwards only because the erase leaves cuts behind — asking first does
+  /// not lean on that.
+  Future<void> _eraseShared(GroupService svc) async {
+    final l = AppL10n.of(context);
+    if (!await _confirm(
+      l.groupEraseSharedConfirmTitle,
+      l.groupEraseSharedConfirmBody,
+      l.groupEraseSharedConfirm,
+      const ValueKey('group-erase-shared-confirm'),
+    )) {
+      return;
+    }
+    await svc.requestGroupClear(_gid, kGroupClearAll);
+    await svc.eraseGroupRowsLocally(_gid, whose: (_) => true);
+  }
+
+  Future<void> _pickClearPolicy(GroupService svc) async {
+    final l = AppL10n.of(context);
+    final current = await svc.groupClearPolicy(_gid);
+    if (!mounted) return;
+    String label(ClearRequestPolicy v) => switch (v) {
+      ClearRequestPolicy.anyone => l.clearPolicyAnyone,
+      ClearRequestPolicy.admins => l.clearPolicyAdmins,
+      ClearRequestPolicy.ask => l.clearPolicyAsk,
+      ClearRequestPolicy.never => l.clearPolicyNever,
+    };
+    final choice = await showDialog<ClearRequestPolicy>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(l.groupClearPolicy),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+            child: Text(
+              l.groupClearPolicyHint,
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+          ),
+          for (final v in ClearRequestPolicy.values)
+            ListTile(
+              key: ValueKey('group-clear-policy-${v.name}'),
+              title: Text(label(v)),
+              trailing: current == v ? const Icon(Icons.check) : null,
+              onTap: () => Navigator.of(ctx).pop(v),
+            ),
+        ],
+      ),
+    );
+    if (choice == null) return;
+    await svc.setGroupClearPolicy(_gid, choice);
+  }
+
   /// Confirm + leave the group: closes the member sheet and returns to the list.
   Future<void> _leaveGroup(GroupService svc) async {
     final l = AppL10n.of(context);
@@ -1543,6 +1669,9 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                     _GroupOwnerAction.hideAfterReadLocal =>
                       pickGroupHideAfterRead(context, svc, _gid, signed: false),
                     _GroupOwnerAction.convert => _convertToCommunity(svc),
+                    _GroupOwnerAction.removeMine => _removeMine(svc),
+                    _GroupOwnerAction.eraseShared => _eraseShared(svc),
+                    _GroupOwnerAction.clearPolicy => _pickClearPolicy(svc),
                   },
                   itemBuilder: (_) => [
                     if (ownedGroupChat) ...[
@@ -1568,6 +1697,29 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
                         value: _GroupOwnerAction.convert,
                         child: Text(l.groupConvertToCommunity),
                       ),
+                    // ERASING, to every member of a group chat: removing what
+                    // I wrote is mine to do, asking others is anyone's to
+                    // ask, and whose asks are heard is each reader's own
+                    // answer. A Space has its own retention and moderation.
+                    if (bundle.manifest.isLegacyGroup &&
+                        !bundle.manifest.isSpace) ...[
+                      const PopupMenuDivider(),
+                      PopupMenuItem(
+                        key: const ValueKey('group-remove-mine'),
+                        value: _GroupOwnerAction.removeMine,
+                        child: Text(l.groupRemoveMine),
+                      ),
+                      PopupMenuItem(
+                        key: const ValueKey('group-erase-shared'),
+                        value: _GroupOwnerAction.eraseShared,
+                        child: Text(l.groupEraseShared),
+                      ),
+                      PopupMenuItem(
+                        key: const ValueKey('group-clear-policy'),
+                        value: _GroupOwnerAction.clearPolicy,
+                        child: Text(l.groupClearPolicy),
+                      ),
+                    ],
                   ],
                 );
               },

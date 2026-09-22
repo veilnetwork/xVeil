@@ -13163,6 +13163,108 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'{count, plural, =1{One chat is waiting for your answer. Nothing has been erased.} other{{count} chats are waiting for your answer. Nothing has been erased.}}'**
   String clearRequestsNotificationBody(int count);
+
+  /// No description provided for @groupRemoveMine.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove my messages'**
+  String get groupRemoveMine;
+
+  /// No description provided for @groupRemoveMineConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove your messages from this device?'**
+  String get groupRemoveMineConfirmTitle;
+
+  /// No description provided for @groupRemoveMineConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Every message you wrote in this group is erased on this device. Other members keep their copies unless they choose otherwise. It cannot be undone.'**
+  String get groupRemoveMineConfirmBody;
+
+  /// No description provided for @groupRemoveMineConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove'**
+  String get groupRemoveMineConfirm;
+
+  /// No description provided for @groupRemoveMineAskTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask the others to erase them too?'**
+  String get groupRemoveMineAskTitle;
+
+  /// No description provided for @groupRemoveMineAskBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Each member\'s app answers by its owner\'s own setting: it may erase at once, ask its owner, or refuse. You are not told which.'**
+  String get groupRemoveMineAskBody;
+
+  /// No description provided for @groupRemoveMineAskNo.
+  ///
+  /// In en, this message translates to:
+  /// **'Don\'t ask'**
+  String get groupRemoveMineAskNo;
+
+  /// No description provided for @groupRemoveMineAskYes.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask'**
+  String get groupRemoveMineAskYes;
+
+  /// No description provided for @groupEraseShared.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase messages for everyone'**
+  String get groupEraseShared;
+
+  /// No description provided for @groupEraseSharedConfirmTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase this group\'s messages?'**
+  String get groupEraseSharedConfirmTitle;
+
+  /// No description provided for @groupEraseSharedConfirmBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Every message in this group is erased on this device, and every member is asked to erase the same. Each member\'s app answers by its owner\'s own setting, and you are not told which. It cannot be undone.'**
+  String get groupEraseSharedConfirmBody;
+
+  /// No description provided for @groupEraseSharedConfirm.
+  ///
+  /// In en, this message translates to:
+  /// **'Erase'**
+  String get groupEraseSharedConfirm;
+
+  /// No description provided for @groupClearPolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'Who may erase this group\'s messages at me'**
+  String get groupClearPolicy;
+
+  /// No description provided for @groupClearPolicyHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Erasing is a request, and this is your answer to it. What you erase yourself is erased here whatever you choose. \"Administrators only\" means the group\'s owner and administrators.'**
+  String get groupClearPolicyHint;
+
+  /// No description provided for @clearRequestsGroupOwn.
+  ///
+  /// In en, this message translates to:
+  /// **'{who} asks to erase their own messages in a group'**
+  String clearRequestsGroupOwn(String who);
+
+  /// No description provided for @clearRequestsGroupAll.
+  ///
+  /// In en, this message translates to:
+  /// **'{who} asks to erase a group\'s messages'**
+  String clearRequestsGroupAll(String who);
+
+  /// No description provided for @clearRequestsGroupBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Erasing removes those messages from this device. It cannot be undone.'**
+  String get clearRequestsGroupBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

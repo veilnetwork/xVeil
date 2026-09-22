@@ -72,8 +72,17 @@ class _ClearRequestTile extends StatelessWidget {
     return ListTile(
       isThreeLine: true,
       leading: const Icon(Icons.delete_sweep_outlined),
-      title: Text(l.clearRequestsFrom(who)),
-      subtitle: Text(l.clearRequestsBody),
+      // A GROUP request is a different question, and answering it does
+      // something different — erases here only, and only what was asked —
+      // so it must not wear the 1:1 wording.
+      title: Text(switch (request.groupKind) {
+        kGroupClearOwn => l.clearRequestsGroupOwn(who),
+        kGroupClearAll => l.clearRequestsGroupAll(who),
+        _ => l.clearRequestsFrom(who),
+      }),
+      subtitle: Text(
+        request.isGroup ? l.clearRequestsGroupBody : l.clearRequestsBody,
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -101,7 +110,13 @@ class _ClearRequestTile extends StatelessWidget {
       context: context,
       builder: (dialog) => AlertDialog(
         title: Text(l.clearRequestsConfirmTitle),
-        content: Text(l.clearRequestsConfirmBody),
+        // Group requests erase on THIS device only; promising "your other
+        // devices" would be a sentence the act does not keep.
+        content: Text(
+          request.isGroup
+              ? l.clearRequestsGroupBody
+              : l.clearRequestsConfirmBody,
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialog).pop(false),
