@@ -140,6 +140,21 @@ class P2PEndpointService {
   /// strictly newer, so a stale mailbox delivery can't regress fresh addresses.
   final Map<String, int> _peerEndpointTs = {};
 
+  /// Which devices a CONTACT has told us about, keyed by that contact's
+  /// identity.
+  ///
+  /// A contact's endpoints used to live in one slot per identity, so the
+  /// second device of a two-device peer overwrote the first — and the
+  /// staleness guard then threw the older share away for good. Measured on
+  /// the stand 2026-09-22: with the device that held the session killed and
+  /// the mailbox drain paused, nothing reached the surviving device in 202 s,
+  /// because this node held no address for it at all.
+  ///
+  /// Every share already declares its sender's device (`d` on the wire), so
+  /// this costs no new format — only the decision to keep what arrives
+  /// instead of overwriting it.
+  final Map<String, Map<String, NodeId>> _contactDevices = {};
+
   /// Last time we SENT our endpoints to a peer (reply throttle).
   final Map<String, DateTime> _lastSharedAt = {};
 
@@ -619,6 +634,42 @@ class P2PEndpointService {
           }
           _peerEndpointTs[peer.hex] = ts;
           _peerEndpoints[peer.hex] = uris;
+          // ALSO under the device that declared it, when one did.
+          //
+          // The identity slot above is kept byte-for-byte: it is what every
+          // existing dial, reply and test reads, and a contact on an older
+          // build declares nothing. This is the additional copy, and it is
+          // the only one that survives the peer's OTHER device sharing next
+          // — the identity slot holds whichever spoke last.
+          //
+          // Its own timestamp, because the guard is about one device's shares
+          // arriving out of order. Judged against the identity's would make
+          // the second device's newer share bury the first device's address,
+          // which is the failure this exists to stop.
+          NodeId? declared;
+          if (declaredDevice != null) {
+            try {
+              declared = NodeId.fromHex(declaredDevice);
+            } catch (_) {
+              // A malformed claim is no claim: the identity slot above already
+              // holds the address, so nothing is lost by ignoring it.
+              declared = null;
+            }
+          }
+          final device = declared;
+          if (device != null && device != peer && device != me) {
+            final prevDeviceTs = _peerEndpointTs[device.hex] ?? 0;
+            if (ts > prevDeviceTs) {
+              _peerEndpointTs[device.hex] = ts;
+              _peerEndpoints[device.hex] = uris;
+              (_contactDevices[peer.hex] ??= {})[device.hex] = device;
+              devLog(
+                () =>
+                    'xVeil[p2p]: …and filed under device ${device.short} of '
+                    '${peer.short} (${_contactDevices[peer.hex]!.length} known)',
+              );
+            }
+          }
           devLog(
             () =>
                 'xVeil[p2p]: peer ${peer.short} shared ${uris.length} '
@@ -630,6 +681,14 @@ class P2PEndpointService {
           // settles in one round trip each way rather than ping-ponging.
           unawaited(maybeShare(peer, force: reshareRequested));
           await _dialPeer(peer);
+          // Every device of this contact we hold an address for, not only the
+          // one that spoke last. A session to each is what lets delivery
+          // survive the device that held the old one going away.
+          for (final device in [...?_contactDevices[peer.hex]?.values]) {
+            if (_disposed) return;
+            if (device == peer) continue;
+            await _dialPeer(device, presentsIdentity: peer);
+          }
           return;
         }
         // MY OWN identity/device sent this. Mail between my devices is
@@ -762,7 +821,14 @@ class P2PEndpointService {
   /// session with, and register, a node we never chose. The daemon's own join
   /// path already pins its issuer (`expected_issuer_pk`); this is the app-side
   /// half of the same admission.
-  Future<void> _dialPeer(NodeId peer) async {
+  ///
+  /// [presentsIdentity] widens the pin for a CONTACT'S device: every device of
+  /// one identity mints under that identity's key, so a candidate filed under
+  /// a device presents the identity and not the device id — the same reason
+  /// [_isOwnDevice] widens it for our own siblings below. It accepts ONLY the
+  /// contact whose frame carried the address, so a candidate naming any third
+  /// party still dies exactly as before, which is the whole point of the pin.
+  Future<void> _dialPeer(NodeId peer, {NodeId? presentsIdentity}) async {
     if (_disposed) return;
     final key = peer.hex;
     final uris = _peerEndpoints[key];
@@ -778,8 +844,8 @@ class P2PEndpointService {
     // Widened for MY OWN DEVICES ONLY, and only to MY OWN identity key: a
     // candidate naming any third party still dies exactly as before, which is
     // the whole point of the pin.
-    NodeId? alsoAccepts;
-    if (await _isOwnDevice(peer)) {
+    NodeId? alsoAccepts = presentsIdentity;
+    if (alsoAccepts == null && await _isOwnDevice(peer)) {
       try {
         alsoAccepts = _myIdentity().nodeId;
       } catch (_) {
