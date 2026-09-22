@@ -113,6 +113,12 @@ class _Harness {
   /// identity is active NOW, not the one whose pipeline it sends on.
   int policyReads = 0;
 
+  /// How many times admission was asked. The route-staleness check sits on the
+  /// path of every frame, so "how often does it cross the FFI" is part of what
+  /// the tests have to pin — a check that asked per frame would be the probe
+  /// cost this service is written to avoid.
+  int admissionReads = 0;
+
   late final P2PEndpointService svc = P2PEndpointService(
     messaging,
     localAllowsP2P: (_) async {
@@ -124,7 +130,10 @@ class _Harness {
       joined.add(uri);
       if (admitOnJoin) admitted = true;
     },
-    pnetStatus: (_) async => (admitted: admitted, hasCert: false),
+    pnetStatus: (_) async {
+      admissionReads++;
+      return (admitted: admitted, hasCert: false);
+    },
     myIdentity: _identity,
     listenPort: () => 9000,
     listenScheme: () => listenScheme,
@@ -895,6 +904,132 @@ void _messagingWarmTests() {
       reason:
           'a device that no longer holds a session must be forgotten — a stale '
           'choice is what kept sends aimed at a device that had gone',
+    );
+  });
+
+  // A ROUTE THAT HAS DIED MUST NOT SURVIVE THE WARM WINDOW.
+  //
+  // The warm throttle paces an expensive ladder, and for a peer whose route is
+  // steady that is right. It is the wrong clock for "is the device I am
+  // addressing still there": while the window runs, every frame is aimed at a
+  // device that has gone, and the first thing that could notice is the warm the
+  // throttle is about to refuse. Measured on the stand 2026-09-22 as a
+  // 115-second switch to the peer's surviving device — about one whole window.
+  test('a route that dies is noticed without waiting out the warm throttle', () async {
+    final h = _Harness()..messagingAllows = true;
+    final contact = _peer(0x61);
+    final device = _peer(0x62);
+    h.messaging.onP2PEndpoints!(
+      contact,
+      jsonEncode({
+        'v': 1,
+        'ts': 7,
+        'd': device.hex,
+        'e': [_inviteUri(0x61, host: '192.168.1.61')],
+      }),
+    );
+    await pumpEventQueue();
+
+    h.admitted = true;
+    await h.svc.warmForMessaging(contact);
+    expect(h.svc.routeFor(contact)?.hex, device.hex);
+    final ladderRuns = h.messaging.sentEndpoints.length;
+
+    // The device goes, and the next frame is INSIDE the warm window — which is
+    // the whole case. Twenty-five seconds: past the route check, nowhere near
+    // the two-minute ladder throttle.
+    h.admitted = false;
+    h.now = h.now.add(const Duration(seconds: 25));
+    await h.svc.warmForMessaging(contact);
+
+    expect(
+      h.svc.routeFor(contact),
+      isNull,
+      reason:
+          'the route outlived the session — every frame until the window '
+          'expired would be addressed to a device that had gone',
+    );
+    expect(
+      h.messaging.sentEndpoints.length,
+      greaterThan(ladderRuns),
+      reason:
+          'forgetting the route is half of it; the ladder has to be allowed to '
+          'run NOW rather than after the rest of the window',
+    );
+  });
+
+  test('a live route is left alone inside the window', () async {
+    // CONTROL for the test above: the check must not cost a working route its
+    // place, nor re-run the ladder it is throttled out of.
+    final h = _Harness()..messagingAllows = true;
+    final contact = _peer(0x63);
+    final device = _peer(0x64);
+    h.messaging.onP2PEndpoints!(
+      contact,
+      jsonEncode({
+        'v': 1,
+        'ts': 7,
+        'd': device.hex,
+        'e': [_inviteUri(0x63, host: '192.168.1.63')],
+      }),
+    );
+    await pumpEventQueue();
+
+    h.admitted = true;
+    await h.svc.warmForMessaging(contact);
+    final ladderRuns = h.messaging.sentEndpoints.length;
+
+    h.now = h.now.add(const Duration(seconds: 25));
+    await h.svc.warmForMessaging(contact);
+
+    expect(h.svc.routeFor(contact)?.hex, device.hex);
+    expect(
+      h.messaging.sentEndpoints,
+      hasLength(ladderRuns),
+      reason: 'the ladder throttle still governs a peer whose route is fine',
+    );
+  });
+
+  test('the staleness check is throttled, not asked per frame', () async {
+    // The reason this check sits behind a clock at all. A conversation puts
+    // every ack and receipt through this call, and admission crosses the FFI —
+    // asking per frame is the probe cost this service is written to avoid.
+    final h = _Harness()..messagingAllows = true;
+    final contact = _peer(0x65);
+    final device = _peer(0x66);
+    h.messaging.onP2PEndpoints!(
+      contact,
+      jsonEncode({
+        'v': 1,
+        'ts': 7,
+        'd': device.hex,
+        'e': [_inviteUri(0x65, host: '192.168.1.65')],
+      }),
+    );
+    await pumpEventQueue();
+
+    h.admitted = true;
+    await h.svc.warmForMessaging(contact);
+    // The check's clock starts at the first frame that HAS a route to check —
+    // the warm above is the one that established it. Prime it, then measure.
+    await h.svc.warmForMessaging(contact);
+    final reads = h.admissionReads;
+
+    for (var i = 0; i < 8; i++) {
+      await h.svc.warmForMessaging(contact);
+    }
+    expect(
+      h.admissionReads,
+      reads,
+      reason: 'eight frames inside the check window asked the daemon anyway',
+    );
+
+    h.now = h.now.add(const Duration(seconds: 21));
+    await h.svc.warmForMessaging(contact);
+    expect(
+      h.admissionReads,
+      greaterThan(reads),
+      reason: 'past its own window the check has to actually run',
     );
   });
 
