@@ -3117,5 +3117,7 @@
   "groupClearPolicyHint": "Borrar es una petición, y aquí está tu respuesta. Lo que borras tú se borra aquí elijas lo que elijas. «Solo administradores» son el dueño del grupo y sus administradores.",
   "clearRequestsGroupOwn": "{who} pide borrar sus propios mensajes en un grupo",
   "clearRequestsGroupAll": "{who} pide borrar los mensajes de un grupo",
-  "clearRequestsGroupBody": "Borrar quita esos mensajes de este dispositivo. No se puede deshacer."
+  "clearRequestsGroupBody": "Borrar quita esos mensajes de este dispositivo. No se puede deshacer.",
+  "clearRequestsGroupOwnConfirmTitle": "¿Borrar los mensajes de este miembro en el grupo?",
+  "clearRequestsGroupAllConfirmTitle": "¿Borrar los mensajes de este grupo?"
 }

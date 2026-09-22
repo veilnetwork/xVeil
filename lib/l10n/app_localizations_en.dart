@@ -7613,4 +7613,12 @@ class AppL10nEn extends AppL10n {
   @override
   String get clearRequestsGroupBody =>
       'Erasing removes those messages from this device. It cannot be undone.';
+
+  @override
+  String get clearRequestsGroupOwnConfirmTitle =>
+      'Erase this member\'s messages in the group?';
+
+  @override
+  String get clearRequestsGroupAllConfirmTitle =>
+      'Erase this group\'s messages?';
 }

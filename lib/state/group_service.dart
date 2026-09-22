@@ -6963,26 +6963,46 @@ class GroupService implements ArchiveGroups {
   /// verification lookup sits on the path of every row.
   Uint8List? peerDocument(NodeId identity) => _peerDocuments[identity.hex];
 
-  Future<void> loadPeerDocuments() async {
-    if (_peerDocumentsLoaded) return;
-    _peerDocumentsLoaded = true;
-    try {
-      final raw = await _storage.getSetting(_peerDocumentsKey);
-      if (raw == null) return;
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) return;
-      decoded.forEach((key, value) {
-        if (key is String && value is String) {
-          try {
-            _peerDocuments.putIfAbsent(key, () => base64Decode(value));
-          } catch (_) {}
+  /// Read the kept documents into memory. Marked done only once a read has
+  /// actually SUCCEEDED.
+  ///
+  /// It is first asked at wiring time, and on a cold start that is before the
+  /// container is unlocked: the read throws. Marked done up front, that one
+  /// failure left the cache empty for the whole run — every row a
+  /// device-signed member ever wrote turned unverifiable at each restart, and
+  /// the groups read as a bare manifest (measured: two groups, whole before a
+  /// restart, one member and no keys the instant after). So a failed read
+  /// leaves the door open, and a lookup that misses asks again.
+  Future<void> loadPeerDocuments() {
+    if (_peerDocumentsLoaded) return Future.value();
+    return _peerDocumentsLoading ??= () async {
+      try {
+        final raw = await _storage.getSetting(_peerDocumentsKey);
+        if (raw != null) {
+          final decoded = jsonDecode(raw);
+          if (decoded is Map) {
+            decoded.forEach((key, value) {
+              if (key is String && value is String) {
+                try {
+                  _peerDocuments.putIfAbsent(key, () => base64Decode(value));
+                } catch (_) {}
+              }
+            });
+          }
         }
-      });
-    } catch (_) {
-      // A locked store: nothing learned yet, rows that need a document wait
-      // for the next serve, which carries it again.
-    }
+        _peerDocumentsLoaded = true;
+      } catch (_) {
+        // Locked, most likely: not loaded, and the next ask tries again.
+      } finally {
+        _peerDocumentsLoading = null;
+      }
+    }();
   }
+
+  Future<void>? _peerDocumentsLoading;
+
+  /// Whether the kept documents have been read in this run.
+  bool get peerDocumentsLoaded => _peerDocumentsLoaded;
 
   /// File the documents a snapshot carried, each under the identity it names.
   @visibleForTesting
