@@ -174,6 +174,12 @@ class P2PEndpointService {
   /// Last time we SENT our endpoints to a peer (reply throttle).
   final Map<String, DateTime> _lastSharedAt = {};
 
+  /// Last time we asked whether the device we are ADDRESSING still holds a
+  /// session. Its own clock, far shorter than the warm throttle, because the
+  /// two answer different questions: the warm throttle paces an expensive
+  /// ladder, this paces one admission lookup.
+  final Map<String, DateTime> _lastRouteCheckAt = {};
+
   /// Per-peer in-flight dial guard.
   final Set<String> _dialing = {};
 
@@ -209,10 +215,26 @@ class P2PEndpointService {
       }
     }
     if (_liveDevice.remove(peer.hex) != null) {
+      // A ROUTE THAT JUST DISAPPEARED IS THE ONE MOMENT THE LADDER IS WORTH
+      // RE-RUNNING, and the throttle is what stops it.
+      //
+      // The throttle exists to keep a busy conversation from re-dialling on
+      // every ack and receipt, and for a peer whose route is steady that is
+      // exactly right. A route that has gone is the opposite case: the frames
+      // being written now have nowhere to go, and waiting out the remainder of
+      // a two-minute window before even trying is a delay bought for nothing.
+      // Measured on the stand 2026-09-22: with the device holding the session
+      // killed, the switch to the surviving one took 115 s — about one whole
+      // throttle period.
+      //
+      // It cannot spin. This branch fires only on the transition from "some
+      // device held a session" to "none", and the entry is gone afterwards, so
+      // a peer that is simply offline earns one extra ladder run, not a loop.
+      _lastWarmAt.remove(peer.hex);
       devLog(
         () =>
             'xVeil[p2p]: no device of ${peer.short} holds a session — back to '
-            'the identity',
+            'the identity, and the next frame may re-run the ladder',
       );
     }
   }
@@ -278,6 +300,19 @@ class P2PEndpointService {
   /// because a warm that finds nothing should get another go within the life of
   /// a conversation, not three minutes later.
   static const _warmThrottle = Duration(minutes: 2);
+
+  /// How often to ask whether the device we are currently addressing still
+  /// holds a session.
+  ///
+  /// Much shorter than [_warmThrottle] because it buys something different and
+  /// costs far less: one admission lookup against ONE device, not a ladder on
+  /// both ends. It is what stops a route that has died from staying in use for
+  /// the remainder of a warm window — measured on the stand as a 115-second
+  /// switch to a peer's surviving device, about one whole warm period.
+  ///
+  /// Only paid while a route exists. A peer addressed by its identity — every
+  /// peer, before any of this — never reaches the lookup.
+  static const _routeCheckThrottle = Duration(seconds: 20);
   static const _maxEndpointsPerFrame = 4;
 
   /// Host/LAN-dial slice of the call-time ladder: how long to poll for the
@@ -455,8 +490,39 @@ class P2PEndpointService {
   Future<void> warmForMessaging(NodeId peer) async {
     if (_disposed) return;
     if (!_lanListenEnabled()) return; // loopback bind — nothing dialable
-    final last = _lastWarmAt[peer.hex];
     final now = _now();
+    // IS THE DEVICE WE ARE ADDRESSING STILL THERE? Asked BEFORE the warm
+    // throttle, because the throttle is precisely what hides the answer.
+    //
+    // Everything below this is governed by a two-minute window meant to pace a
+    // ladder. Route staleness is not that question: while the window runs, every
+    // frame is addressed to a device that has gone, and the first thing that
+    // could notice is the warm this throttle is about to refuse. That is the
+    // 115-second switch measured on the stand.
+    //
+    // One admission lookup against one device, at most every twenty seconds,
+    // and only for a peer that HAS a route. [_refreshRoute] does the rest: it
+    // picks a surviving device if there is one, and otherwise forgets the route
+    // and rewinds the warm throttle so the ladder may run now.
+    final routed = _liveDevice[peer.hex];
+    if (routed != null) {
+      final checked = _lastRouteCheckAt[peer.hex];
+      if (checked == null || now.difference(checked) >= _routeCheckThrottle) {
+        _lastRouteCheckAt[peer.hex] = now;
+        bool live;
+        try {
+          live = await _admitted(routed);
+        } catch (_) {
+          // A lookup that THREW says nothing about the session. Dropping a
+          // working route on it would turn a transient FFI failure into a
+          // conversation back on the mailbox.
+          live = true;
+        }
+        if (_disposed) return;
+        if (!live) await _refreshRoute(peer);
+      }
+    }
+    final last = _lastWarmAt[peer.hex];
     if (last != null && now.difference(last) < _warmThrottle) return;
     // Stamp BEFORE the awaits: two frames leaving back to back would otherwise
     // both pass the check and run the ladder twice.
