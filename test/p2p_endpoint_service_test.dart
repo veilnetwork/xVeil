@@ -832,6 +832,75 @@ void _messagingWarmTests() {
   // Measured on the stand 2026-09-22, same pair, drain paused both times:
   // sent cold it never arrived in 180 s; sent with the session already warm it
   // arrived LIVE in 18 s.
+  // A CONTACT'S SECOND DEVICE MUST NOT ERASE ITS FIRST.
+  //
+  // A contact's endpoints lived in one slot per identity, and the staleness
+  // guard is keyed the same way — so the second device of a two-device peer
+  // overwrote the first and the older share was then refused for good. When
+  // the device holding the session went away this node had no address for the
+  // survivor at all: measured on the stand 2026-09-22 with the mailbox drain
+  // paused, nothing reached it in 202 s.
+  //
+  // Every share already declares its sender's device, so keeping both costs
+  // no new wire format — only the decision not to overwrite.
+  test("a contact's two devices are both remembered", () async {
+    final h = _Harness()..admitted = true; // isolate the fold from dialing
+    final contact = _peer(0x41);
+    final dev1 = _peer(0x42);
+    final dev2 = _peer(0x43);
+
+    String share(int ts, NodeId device, String host) => jsonEncode({
+      'v': 1,
+      'ts': ts,
+      'd': device.hex,
+      'e': [_inviteUri(0x41, host: host)],
+    });
+
+    h.messaging.onP2PEndpoints!(contact, share(10, dev1, '192.168.1.41'));
+    await pumpEventQueue();
+    // The SECOND device speaks later — under one slot this is what buried the
+    // first one's address.
+    h.messaging.onP2PEndpoints!(contact, share(20, dev2, '192.168.1.42'));
+    await pumpEventQueue();
+
+    expect(
+      h.svc.knownEndpoints(dev1).single,
+      contains('192.168.1.41'),
+      reason:
+          'the first device is the one that survives the peer going away — '
+          'losing it is losing the only route to the survivor',
+    );
+    expect(
+      h.svc.knownEndpoints(dev2).single,
+      contains('192.168.1.42'),
+      reason: 'and the device that spoke last is remembered as itself',
+    );
+    expect(
+      h.svc.knownEndpoints(contact).single,
+      contains('192.168.1.42'),
+      reason:
+          'CONTROL: the identity slot still holds whoever spoke last, exactly '
+          'as before — every existing dial and reply reads it',
+    );
+  });
+
+  test('a share that declares no device still files under the identity', () async {
+    // CONTROL for the whole mechanism: an older build sends no `d`, and must
+    // keep working byte-for-byte.
+    final h = _Harness()..admitted = true;
+    final contact = _peer(0x44);
+    h.messaging.onP2PEndpoints!(
+      contact,
+      jsonEncode({
+        'v': 1,
+        'ts': 5,
+        'e': [_inviteUri(0x44, host: '192.168.1.44')],
+      }),
+    );
+    await pumpEventQueue();
+    expect(h.svc.knownEndpoints(contact).single, contains('192.168.1.44'));
+  });
+
   test('a ladder that GETS a direct session tells the outbox', () async {
     final h = _Harness()..messagingAllows = true;
     final woken = <String>[];
