@@ -168,6 +168,80 @@ class _Harness {
 }
 
 void main() {
+  // MY OWN MASTER, on the live leg. Measured on the clean two-device stand
+  // (2026-09-22): with the master's device already known to the linked side,
+  // every acknowledgement still went to the identity — which resolves to one
+  // device and travels by the mailbox.
+  group('routeIncludingMaster', () {
+    final identity = _peer(0x71);
+    final master = _peer(0x72);
+    final contact = _peer(0x73);
+    final contactDevice = _peer(0x74);
+
+    test('a send to my own identity goes to my master device', () {
+      expect(
+        routeIncludingMaster(
+          peer: identity,
+          contactRoute: null,
+          masterDevice: master,
+          selfIdentity: identity,
+        ),
+        master,
+      );
+    });
+
+    test("a contact's live device still wins", () {
+      expect(
+        routeIncludingMaster(
+          peer: contact,
+          contactRoute: contactDevice,
+          masterDevice: master,
+          selfIdentity: identity,
+        ),
+        contactDevice,
+      );
+    });
+
+    test('a contact is never routed to my master', () {
+      // The rewrite is for my own identity ONLY. A slip here would hand a
+      // contact's frames to my own other device.
+      expect(
+        routeIncludingMaster(
+          peer: contact,
+          contactRoute: null,
+          masterDevice: master,
+          selfIdentity: identity,
+        ),
+        isNull,
+      );
+    });
+
+    test('with no named master nothing changes', () {
+      // The master itself, and a pair whose master runs an older build.
+      expect(
+        routeIncludingMaster(
+          peer: identity,
+          contactRoute: null,
+          masterDevice: null,
+          selfIdentity: identity,
+        ),
+        isNull,
+      );
+    });
+
+    test('a master whose device IS the identity is not rewritten', () {
+      expect(
+        routeIncludingMaster(
+          peer: identity,
+          contactRoute: null,
+          masterDevice: identity,
+          selfIdentity: identity,
+        ),
+        isNull,
+      );
+    });
+  });
+
   _messagingWarmTests();
 
   test('maybeShare mints one bootstrap URI per LAN address', () async {
