@@ -3100,5 +3100,22 @@
   "clearPolicyHint": "Borrar el historial es una solicitud, y esto es tu respuesta. Tu propio borrado se aplica aquí y en tus otros dispositivos siempre, elijas lo que elijas. Un chat 1:1 no tiene administradores, así que \"solo un administrador\" rechaza.",
   "clearRequestsNotificationTitle": "Alguien pide borrar un chat",
   "clearRequestsNotificationBody": "{count, plural, =1{Un chat espera tu respuesta. No se ha borrado nada.} other{{count} chats esperan tu respuesta. No se ha borrado nada.}}",
-  "@clearRequestsNotificationBody": {"placeholders": {"count": {"type": "int"}}}
+  "@clearRequestsNotificationBody": {"placeholders": {"count": {"type": "int"}}},
+  "groupRemoveMine": "Quitar mis mensajes",
+  "groupRemoveMineConfirmTitle": "¿Quitar tus mensajes de este dispositivo?",
+  "groupRemoveMineConfirmBody": "Todos los mensajes que escribiste en este grupo se borran de este dispositivo. Los demás miembros conservan sus copias salvo que decidan lo contrario. No se puede deshacer.",
+  "groupRemoveMineConfirm": "Quitar",
+  "groupRemoveMineAskTitle": "¿Pedir a los demás que también los borren?",
+  "groupRemoveMineAskBody": "La app de cada miembro responde según el ajuste de su dueño: puede borrar al instante, preguntarle o negarse. No se te dice cuál.",
+  "groupRemoveMineAskNo": "No pedir",
+  "groupRemoveMineAskYes": "Pedir",
+  "groupEraseShared": "Borrar mensajes para todos",
+  "groupEraseSharedConfirmTitle": "¿Borrar los mensajes de este grupo?",
+  "groupEraseSharedConfirmBody": "Todos los mensajes de este grupo se borran de este dispositivo y se pide a cada miembro que borre lo mismo. La app de cada uno responde según el ajuste de su dueño, y no se te dice cuál. No se puede deshacer.",
+  "groupEraseSharedConfirm": "Borrar",
+  "groupClearPolicy": "Quién puede borrar los mensajes de este grupo en mi dispositivo",
+  "groupClearPolicyHint": "Borrar es una petición, y aquí está tu respuesta. Lo que borras tú se borra aquí elijas lo que elijas. «Solo administradores» son el dueño del grupo y sus administradores.",
+  "clearRequestsGroupOwn": "{who} pide borrar sus propios mensajes en un grupo",
+  "clearRequestsGroupAll": "{who} pide borrar los mensajes de un grupo",
+  "clearRequestsGroupBody": "Borrar quita esos mensajes de este dispositivo. No se puede deshacer."
 }
