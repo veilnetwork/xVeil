@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/log.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -673,6 +674,39 @@ void main() {
       );
     },
   );
+
+  test('a frame waiting for the slot says so once, not on every pass', () async {
+    // The flush offers every pending frame on every pass. Once the slot really
+    // was single, a frame that never won it logged a line per pass: 143 frames
+    // for one unreachable peer wrote 11 328 lines in seven minutes on the
+    // stand, and the 500-line ring lost everything else every ten seconds.
+    final mailbox = _BlockingMailboxSink();
+    addTearDown(mailbox.release);
+    mA.attachMailbox(mailbox);
+    tA.online = false;
+
+    final before = devLogSnapshot().total;
+    await mA.sendDurable(b, 'test:holder', const WireEnvelope.reconnect('h'));
+    await mA.sendDurable(b, 'test:waiter', const WireEnvelope.reconnect('w'));
+    for (var i = 0; i < 3; i++) {
+      await mA.flushOutbox();
+      await _pump();
+    }
+
+    final snap = devLogSnapshot(limit: 4000);
+    final fresh = snap.lines.skip(
+      (snap.lines.length - (snap.total - before)).clamp(0, snap.lines.length),
+    );
+    final deferred = fresh
+        .where((l) => l.contains('stash DEFERRED') && l.contains('test:waiter'))
+        .length;
+    expect(mailbox.calls, 1, reason: 'vacuity guard: the slot stays held');
+    expect(
+      deferred,
+      1,
+      reason: 'the same waiting frame, offered four times, is one line',
+    );
+  });
 
   test(
     'a call can pause background stash without losing the durable frame',
