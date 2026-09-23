@@ -583,6 +583,10 @@ class MessagingService {
   /// callbacks above, so this layer keeps knowing nothing about device groups.
   Future<String?> Function()? selfIdentityHex;
 
+  /// My other devices, by the DEVICE names they answer to. Installed by the
+  /// identity layer; null or empty on a single-device identity.
+  Future<List<NodeId>> Function()? myOtherDevices;
+
   /// Epoch-encrypted group-call frame. Deliberately not contact-gated: the
   /// group layer authenticates the sender, current membership, epoch, AEAD,
   /// signature, replay id and TTL before emitting anything to the call FSM.
@@ -981,9 +985,34 @@ class MessagingService {
     // bounds, so a sender on a stale direct address got no ack at all until
     // that send came back — and an un-acked sender is precisely the one that
     // re-sends forever.
+    // A SIBLING'S FRAME is answered at the sibling's DEVICE. It arrives
+    // under the identity, which on the master is this node's own address:
+    // the ack went to ourselves, the sibling never saw it, and re-drove the
+    // same frame for hours — measured on the stand 2026-09-23 as 143
+    // re-deposits of one linked-device post. Which device sent it is not in
+    // the frame, so every one of mine is told; an ack is a couple of hundred
+    // bytes. No mailbox copy: my own devices do not go through the mailbox.
+    final selfHex = await selfIdentityHex?.call();
+    if (selfHex != null && m.src.hex == selfHex) {
+      final devices = await myOtherDevices?.call() ?? const <NodeId>[];
+      if (devices.isNotEmpty) {
+        for (final device in devices) {
+          try {
+            await _send(device, ack);
+          } catch (_) {
+            // Best-effort: a re-drive asks again.
+          }
+        }
+        return;
+      }
+    }
     _stashInBackground(m.src, 'ack:$id', ack);
     await _send(m.src, ack);
   }
+
+  /// Stand/test seam onto [_ackTo].
+  @visibleForTesting
+  Future<void> debugAckTo(InboundMessage m, String id) => _ackTo(m, id);
 
   final _changes = StreamController<void>.broadcast();
   // Genuinely-new incoming messages (post-dedup), for the notification layer.
