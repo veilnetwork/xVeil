@@ -35,6 +35,7 @@ import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/state/group_service.dart';
+import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging_core.dart';
 
 import 'support/fake_hv_container.dart';
@@ -266,6 +267,50 @@ void main() {
     );
   });
 
+  test('nothing for my own device goes into the mailbox', () async {
+    final storage = await _storage();
+    final messaging = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 1)))),
+      storage,
+    );
+    addTearDown(messaging.dispose);
+    final identity = NodeId(Uint8List.fromList(List.filled(32, 0x8D)));
+    final sibling = NodeId(Uint8List.fromList(List.filled(32, 0xB2)));
+    messaging.selfIdentityHex = () async => identity.hex;
+    messaging.isOwnDevice = (peer) async => peer == sibling || peer == identity;
+    final sink = _RecordingSink();
+    messaging.attachMailbox(sink);
+
+    await storage.enqueueOutboxFrame(
+      'grpc:grp:aa:bb:${sibling.hex}:0',
+      sibling.hex,
+      Uint8List.fromList([1, 2, 3]),
+    );
+    await storage.enqueueOutboxFrame(
+      'grp:aa:cc:${identity.hex}',
+      identity.hex,
+      Uint8List.fromList([4, 5, 6]),
+    );
+    await messaging.debugFlushOutboxFrames();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(
+      sink.recipients,
+      isNot(contains(sibling)),
+      reason: 'a frame for my own device was deposited',
+    );
+    expect(
+      sink.recipients,
+      contains(identity),
+      reason: 'premise and fallback: the identity address still deposits',
+    );
+    expect(
+      (await storage.pendingOutboxFrames()).map((f) => f.peerHex),
+      contains(sibling.hex),
+      reason: 'the frame must stay queued for the live re-drive',
+    );
+  });
+
   test("a sibling's frame is acknowledged at the sibling, not at myself",
       () async {
     // The frame arrives under the identity, and on the master that is its own
@@ -424,4 +469,25 @@ class _RecordingTransport extends LoopbackTransport {
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
     sentTo.add(dst);
   }
+}
+
+class _RecordingSink implements MailboxSink {
+  final recipients = <NodeId>[];
+  @override
+  bool get isRegistered => true;
+  @override
+  bool backgroundDrainPaused = false;
+  @override
+  Future<void> stash({
+    required NodeId recipient,
+    required Uint8List payload,
+    required Uint8List contentId,
+  }) async {
+    recipients.add(recipient);
+  }
+
+  @override
+  void nudgeDrain() {}
+  @override
+  void noteActivity() {}
 }
