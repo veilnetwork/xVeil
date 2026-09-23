@@ -113,6 +113,23 @@ class _MessagingOutbox {
   /// (audit XV-02).
   static String _key(String peerHex, String frameId) => '$peerHex|$frameId';
   static const _nudgeGrace = Duration(seconds: 10);
+
+  /// How long after its last send a frame must wait before inbound from its
+  /// peer may rewind it — growing with the attempts, as the ladder itself does.
+  ///
+  /// A flat grace let any peer that talks steadily turn the ladder off: every
+  /// frame came due again ten seconds after each send, however many times it
+  /// had already gone unanswered. Measured on the stand as 12 frames re-driven
+  /// 76 times in one minute to a peer that was plainly reachable — it was the
+  /// ACKS that were going astray (to a sibling device of the sender), and no
+  /// amount of re-sending could fix that. The first rewinds stay quick, which
+  /// is what the rewind is for: a peer just back gets what it missed at once.
+  /// A frame that reachability has already failed to deliver several times
+  /// stops being pulled forward faster than its own ladder.
+  static Duration _nudgeGraceFor(int count) => Duration(
+    milliseconds: (_nudgeGrace.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
+        .clamp(0, _liveResendCap.inMilliseconds),
+  );
   static const _liveResend = Duration(seconds: 20);
   static const _callSignalLiveResend = Duration(milliseconds: 250);
   static const _fastCallRetryAttempts = 4;
@@ -197,7 +214,9 @@ class _MessagingOutbox {
     var nudged = false;
     for (final id in _liveBackoff.keys.toList()) {
       final backoff = _liveBackoff[id]!;
-      if (now.difference(backoff.lastSentAt) < _nudgeGrace) continue;
+      if (now.difference(backoff.lastSentAt) < _nudgeGraceFor(backoff.count)) {
+        continue;
+      }
       if (backoff.peer == peerHex && backoff.nextAt.isAfter(now)) {
         _liveBackoff[id] = (
           count: backoff.count,
