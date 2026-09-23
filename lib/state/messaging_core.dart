@@ -1002,8 +1002,20 @@ class MessagingService {
     // re-deposits of one linked-device post. Which device sent it is not in
     // the frame, so every one of mine is told; an ack is a couple of hundred
     // bytes. No mailbox copy: my own devices do not go through the mailbox.
+    //
+    // When the node names the device the frame came from, that device alone
+    // is answered: it is the one waiting.
+    final device = m.srcDevice;
     final selfHex = await selfIdentityHex?.call();
     if (selfHex != null && m.src.hex == selfHex) {
+      if (device != null && device != m.src) {
+        try {
+          await _send(device, ack);
+        } catch (_) {
+          // Best-effort: a re-drive asks again.
+        }
+        return;
+      }
       final devices = await myOtherDevices?.call() ?? const <NodeId>[];
       if (devices.isNotEmpty) {
         for (final device in devices) {
@@ -1017,7 +1029,13 @@ class MessagingService {
       }
     }
     _stashInBackground(m.src, 'ack:$id', ack);
-    await _send(m.src, ack);
+    // A CONTACT with several devices: live to the one that sent. Addressed to
+    // the identity, the ack went wherever routing pointed — measured on the
+    // stand 2026-09-23 as every ack for the master's frames landing on its
+    // linked device, the master re-driving 12 frames 76 times a minute and the
+    // linked device drowning. The mailbox copy above stays on the identity:
+    // it is the leg that works when no device is reachable at all.
+    await _send(device != null && device != m.src ? device : m.src, ack);
   }
 
   /// Stand/test seam onto [_ackTo].

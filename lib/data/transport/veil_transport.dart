@@ -59,9 +59,18 @@ class InboundMessage {
     this.replyId = 0,
     this.provenance = SenderProvenance.claimed,
     this.onDeclined,
+    this.srcDevice,
   });
   final NodeId src;
   final Uint8List payload;
+
+  /// The DEVICE this came from, when the node proved one — a direct session
+  /// proves its peer device. [src] names an identity, a family of devices;
+  /// this names which member to ANSWER. An acknowledgement sent to [src]
+  /// reached whichever sibling routing picked, and the device that had sent
+  /// kept re-sending into a flood of misrouted acks (stand, 2026-09-23). For
+  /// replies only, never for authorization. Null when the path could not say.
+  final NodeId? srcDevice;
 
   /// What this device knows about [src] (audit X/V-01). Defaults to
   /// [SenderProvenance.claimed] on purpose: a construction site that says
