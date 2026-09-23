@@ -1125,6 +1125,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/call_state':
           await _callState(req);
           return;
+        case '/ratchet_positions':
+          await _ratchetPositionsHook(req);
+          return;
+        case '/ratchet_forget':
+          await _ratchetForgetHook(req);
+          return;
         case '/p2p_status':
           await _p2pStatus(req);
           return;
@@ -2153,6 +2159,63 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   ///
   /// On a second device `transport` must differ from the first device's while
   /// `receive` matches it. Equal transport ids across two devices is the bug.
+  /// STAND ONLY. Where each ratchet conversation's sending chain stands.
+  ///
+  /// A conversation is named by a short hash of its key, never by the key:
+  /// the key names who this device talks to. Answers how far a sender has
+  /// run ahead of what the other side can still skip to (`MAX_SKIP`).
+  Future<void> _ratchetPositionsHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final native = ref.read(realStackProvider)?.ratchetState;
+    if (native == null) return _json(req, {'ok': false, 'error': 'no ratchet'});
+    String short(List<int> bytes) => blake3Hash(Uint8List.fromList(bytes))
+        .take(4)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return _json(req, {
+      'ok': true,
+      'conversations': [
+        for (final key in native.list())
+          {
+            'conv': short(key),
+            // `local_instance ‖ peer_node ‖ peer_instance`: the middle is a
+            // public node id, and which NAME the conversation was keyed by
+            // (an identity or a device) is exactly what this probe is for.
+            if (key.length == 64)
+              'peer': key
+                  .sublist(16, 20)
+                  .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                  .join(),
+            if (native.sendPosition(key) case final at?) ...{
+              'chain': short(at.chain),
+              'next': at.next,
+            },
+          },
+      ],
+    });
+  }
+
+  /// STAND ONLY. Drop every ratchet conversation with one peer, the way a
+  /// device that lost its state (a reinstall, a restore) has none: from
+  /// memory AND from the container, through the same path deleting a chat
+  /// takes, so it does not re-persist itself on the next flush. What the live
+  /// checks of a peer starting over, and of a frame for a conversation this
+  /// side no longer holds, need one end to be.
+  ///
+  /// `peer` is the full node id, identity or device, as the conversation key
+  /// names it (see `/ratchet_positions`).
+  Future<void> _ratchetForgetHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final hex = req.uri.queryParameters['peer'] ?? '';
+    if (hex.length != 64) {
+      return _json(req, {'ok': false, 'error': 'peer must be 64 hex'});
+    }
+    final ratchet = ref.read(messagingServiceProvider).ratchet;
+    if (ratchet == null) return _json(req, {'ok': false, 'error': 'no ratchet'});
+    final dropped = await ratchet.forgetPeer(NodeId.fromHex(hex));
+    return _json(req, {'ok': true, 'dropped': dropped});
+  }
+
   /// What the installed document lookup answers for a given identity, plus
   /// the native authorize verdict for an optional (identity, pubkey) pair —
   /// the two invisible halves of sibling-row verification.
