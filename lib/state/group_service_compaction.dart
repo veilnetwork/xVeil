@@ -187,18 +187,57 @@ class _LogCompaction {
   Future<GroupLogCompaction?> compactLocked(NodeId groupId) async {
     final b = await _owner.load(groupId);
     if (b == null) return null;
+    // A ROW THIS DEVICE CANNOT VERIFY RIGHT NOW IS NOT A ROW IT MAY DELETE.
+    //
+    // This pass used to rewrite every group keeping only what verified at
+    // that moment, and it runs the moment the app starts — before the cache
+    // of other members' identity documents has been read. A member whose
+    // device key is not their identity key signs rows that verify only
+    // against that document, so on a cold start every one of them failed,
+    // and the rewrite erased them from disk for good. Measured on the stand
+    // 2026-09-23, second by second after a restart: two members became one,
+    // the stored message went at +5 s, the epoch keys with it, and no later
+    // sync could bring them back.
+    //
+    // "Cannot verify yet" is not "invalid", and only one kind of row is
+    // provably not this group's business: one that names ANOTHER group.
+    // Everything else stays on disk; the fold ignores what it cannot verify
+    // and picks it up again once it can.
+    bool ownControl(ControlEntry e) =>
+        e.groupId == null || e.groupId == b.manifest.groupId;
     final control = [
       for (final e in b.control)
-        if (_owner._validControlFor(b.manifest, e)) e,
+        if (ownControl(e)) e,
     ];
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
       verify: (e) => _owner._validControlFor(b.manifest, e),
     ).state;
-    final messages = b.manifest.name == GroupService.kDeviceGroupName
-        ? compactDeviceMessages(groupId, b.messages, isMember: state.isMember)
-        : _owner._retainedMessageRows(b.manifest, b.messages);
+    final ownRows = [
+      for (final m in b.messages)
+        if (m.groupId == groupId) m,
+    ];
+    final List<GroupMessage> messages;
+    if (b.manifest.name == GroupService.kDeviceGroupName) {
+      // Superseded device-sync state is resolved among the rows that DO
+      // verify; the ones that do not yet are carried through untouched, so
+      // they neither win nor get deleted.
+      final unverified = [
+        for (final m in ownRows)
+          if (!_owner._validMessageFor(groupId, m)) m,
+      ];
+      messages = [
+        ...compactDeviceMessages(groupId, ownRows, isMember: state.isMember),
+        ...unverified,
+      ];
+    } else {
+      // Ordinary group messages are history and never compacted; the only
+      // rewrite here is dropping exact duplicates and foreign rows.
+      messages = {
+        for (final m in ownRows) groupMessageHash(m): m,
+      }.values.toList();
+    }
     final reactions = await _compactReactions(b);
     final posts = _owner._retainedPostRows(groupId, b.posts);
     final result = GroupLogCompaction(
