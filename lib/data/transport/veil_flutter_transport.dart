@@ -1058,11 +1058,22 @@ class VeilFlutterTransport
   static SenderProvenance _provenanceOf(IncomingMessage message) =>
       SenderProvenance.fromWire(message.provenance.wireByte);
 
+  /// Test seam onto [_toInbound], the one place a delivery becomes an
+  /// [InboundMessage] — and so the one place a field can be dropped on the
+  /// way (the origin device, say) without anything else noticing.
+  @visibleForTesting
+  static InboundMessage debugToInbound(IncomingMessage message) =>
+      _toInbound(message);
+
   static InboundMessage _toInbound(IncomingMessage message) => InboundMessage(
     src: NodeId(message.srcNodeId),
     payload: message.data,
     replyId: message.replyId,
     provenance: _provenanceOf(message),
+    srcDevice: switch (message.srcDevice) {
+      final device? => NodeId(device),
+      null => null,
+    },
   );
 
   /// Everything addressed to this device, by EITHER of its names.

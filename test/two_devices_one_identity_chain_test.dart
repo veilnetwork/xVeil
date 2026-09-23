@@ -348,6 +348,53 @@ void main() {
     expect(transport.sentTo, isNot(contains(sibling)));
   });
 
+  test('an ack goes to the device the frame came from, when the node names it',
+      () async {
+    // A contact with two devices: routing to its identity picked one of them
+    // for every ack, whichever sent the frame. On the stand the master's acks
+    // all landed on its linked device, the master re-drove 12 frames 76 times
+    // a minute, and the linked device drowned in acks that were not its own.
+    final contact = NodeId(Uint8List.fromList(List.filled(32, 0xC4)));
+    final master = NodeId(Uint8List.fromList(List.filled(32, 0x13)));
+    final transport = _RecordingTransport(
+      localNodeId: NodeId(Uint8List.fromList(List.filled(32, 0x58))),
+    );
+    final messaging = MessagingService(transport, await _storage());
+    addTearDown(messaging.dispose);
+
+    await messaging.debugAckTo(
+      InboundMessage(src: contact, payload: Uint8List(0), srcDevice: master),
+      'grp:aa:bb:ee',
+    );
+    expect(transport.sentTo, contains(master));
+    expect(
+      transport.sentTo,
+      isNot(contains(contact)),
+      reason: 'addressed to the identity, the ack goes wherever routing points',
+    );
+
+    // A single-device contact is its own device: nothing changes.
+    transport.sentTo.clear();
+    await messaging.debugAckTo(
+      InboundMessage(src: contact, payload: Uint8List(0), srcDevice: contact),
+      'grp:aa:bb:ef',
+    );
+    expect(transport.sentTo, [contact]);
+
+    // And one of MY devices is answered alone, not together with its siblings.
+    final identity = NodeId(Uint8List.fromList(List.filled(32, 0x8D)));
+    final sibling = NodeId(Uint8List.fromList(List.filled(32, 0xB7)));
+    final other = NodeId(Uint8List.fromList(List.filled(32, 0xB8)));
+    messaging.selfIdentityHex = () async => identity.hex;
+    messaging.myOtherDevices = () async => [sibling, other];
+    transport.sentTo.clear();
+    await messaging.debugAckTo(
+      InboundMessage(src: identity, payload: Uint8List(0), srcDevice: sibling),
+      'grp:aa:bb:f0',
+    );
+    expect(transport.sentTo, [sibling]);
+  });
+
   test('a membership append survives a concurrent snapshot ingest', () async {
     // The lost update, reproduced: the sibling's periodic device-group
     // snapshot ingests every few seconds, and an append that runs
