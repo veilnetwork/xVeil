@@ -30,6 +30,7 @@ class _MessagingMailboxDelivery {
   final Map<String, DateTime> _failedAt = {};
   final Map<String, ({int count, DateTime nextAt})> _peerUnresolvedBackoff = {};
   final Map<String, DateTime> _lastSuppressionLog = {};
+  final Map<String, DateTime> _lastDeferredLog = {};
 
   bool _paused = false;
 
@@ -158,6 +159,7 @@ class _MessagingMailboxDelivery {
   void removeStashed(String id) {
     _stashed.remove(id);
     _failedAt.remove(id);
+    _lastDeferredLog.remove(id);
   }
 
   /// Frames this subsystem still holds bookkeeping for. A test seam for the
@@ -310,12 +312,30 @@ class _MessagingMailboxDelivery {
     unawaited(maybeStash(peer, id, wire, awaitAck: awaitAck, background: true));
   }
 
-  void _noteDeferred(NodeId peer, String id) => devLog(
-    () =>
-        'xVeil[send]: stash DEFERRED dst=${peer.short} id=$id — '
-        '${_paused ? "a call has paused background deposits" : "another "
-                  "deposit is in flight"}; the outbox flush reconsiders it',
-  );
+  /// One line per frame per [_suppressionLogEvery], not one per offer.
+  ///
+  /// The flush offers every pending frame on every pass, three seconds apart,
+  /// and once the slot really was single a backlog that never won it said so
+  /// on every pass. Measured on the stand: 143 frames for one unreachable
+  /// peer, 11 328 lines in seven minutes — the 500-line log ring turned over
+  /// every ten seconds and took everything else with it.
+  void _noteDeferred(NodeId peer, String id) {
+    final now = DateTime.now();
+    final last = _lastDeferredLog[id];
+    if (last != null && now.difference(last) < _suppressionLogEvery) return;
+    if (_lastDeferredLog.length >= _maxFailedFrames) {
+      _lastDeferredLog.removeWhere(
+        (_, at) => now.difference(at) >= _suppressionLogEvery,
+      );
+    }
+    _lastDeferredLog[id] = now;
+    devLog(
+      () =>
+          'xVeil[send]: stash DEFERRED dst=${peer.short} id=$id — '
+          '${_paused ? "a call has paused background deposits" : "another "
+                    "deposit is in flight"}; the outbox flush reconsiders it',
+    );
+  }
 
   /// Whether a relay currently hosts this device's mailbox — i.e. whether
   /// anybody could deposit for us. False before the first registration, and
