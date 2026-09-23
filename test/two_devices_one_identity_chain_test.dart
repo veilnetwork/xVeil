@@ -33,6 +33,7 @@ import 'package:xveil/domain/group_reaction.dart';
 import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
+import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/state/group_service.dart';
 import 'package:xveil/state/messaging_core.dart';
 
@@ -265,6 +266,43 @@ void main() {
     );
   });
 
+  test("a sibling's frame is acknowledged at the sibling, not at myself",
+      () async {
+    // The frame arrives under the identity, and on the master that is its own
+    // address: the ack looped back to the master and the sibling re-drove the
+    // frame for hours (measured on the stand 2026-09-23: 143 re-deposits).
+    final identity = NodeId(Uint8List.fromList(List.filled(32, 0x8D)));
+    final sibling = NodeId(Uint8List.fromList(List.filled(32, 0xB7)));
+    final transport = _RecordingTransport(
+      localNodeId: NodeId(Uint8List.fromList(List.filled(32, 0x13))),
+    );
+    final messaging = MessagingService(transport, await _storage());
+    addTearDown(messaging.dispose);
+    messaging.selfIdentityHex = () async => identity.hex;
+    messaging.myOtherDevices = () async => [sibling];
+
+    await messaging.debugAckTo(
+      InboundMessage(src: identity, payload: Uint8List(0)),
+      'grp:aa:bb:cc',
+    );
+    expect(transport.sentTo, contains(sibling));
+    expect(
+      transport.sentTo,
+      isNot(contains(identity)),
+      reason: 'the ack went to this node itself',
+    );
+
+    // A contact's frame is still answered where it came from.
+    transport.sentTo.clear();
+    final contact = NodeId(Uint8List.fromList(List.filled(32, 0xC4)));
+    await messaging.debugAckTo(
+      InboundMessage(src: contact, payload: Uint8List(0)),
+      'grp:aa:bb:dd',
+    );
+    expect(transport.sentTo, contains(contact));
+    expect(transport.sentTo, isNot(contains(sibling)));
+  });
+
   test('a membership append survives a concurrent snapshot ingest', () async {
     // The lost update, reproduced: the sibling's periodic device-group
     // snapshot ingests every few seconds, and an append that runs
@@ -377,4 +415,13 @@ void main() {
       reason: 'a device that equivocated must not keep writing',
     );
   });
+}
+
+class _RecordingTransport extends LoopbackTransport {
+  _RecordingTransport({super.localNodeId});
+  final sentTo = <NodeId>[];
+  @override
+  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+    sentTo.add(dst);
+  }
 }

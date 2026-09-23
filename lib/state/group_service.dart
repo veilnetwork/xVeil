@@ -5231,6 +5231,36 @@ class GroupService implements ArchiveGroups {
     return hasAnchor;
   }
 
+  /// Whether an ordinary group's [cut] may anchor its author's chain here.
+  ///
+  /// Two conditions, and both are about what this device already holds. The
+  /// author must have SIGNED a row whose link is the cut's boundary — so the
+  /// cut says nothing the author did not already commit to. And no row of that
+  /// chain at or below the boundary may be held here — so accepting it hides
+  /// nothing: a member who kept the erased rows keeps showing them, anchored
+  /// the ordinary way.
+  bool _acceptableAnchorCut(
+    SpaceManifest manifest,
+    Iterable<GroupMessage> messages,
+    SpaceRetentionCut cut,
+  ) {
+    if (!cut.isStructurallyValid || cut.throughHash.isEmpty) return false;
+    var anchored = false;
+    for (final message in messages) {
+      if (message.author != cut.author ||
+          _messageChainScope(manifest, message) != cut.scope ||
+          !_validMessageFor(manifest.groupId, message)) {
+        continue;
+      }
+      if (message.seq <= cut.throughSeq) return false;
+      if (message.seq == cut.throughSeq + 1 &&
+          message.prevHash == cut.throughHash) {
+        anchored = true;
+      }
+    }
+    return anchored;
+  }
+
   Future<GroupReaction?> _materializeEncryptedReaction(
     GroupBundle bundle,
     GroupReaction reaction,
@@ -6151,7 +6181,7 @@ class GroupService implements ArchiveGroups {
     final gid = b.manifest.groupId.hex;
     final shared = _epochKeysSharedWithDevices.putIfAbsent(gid, () => <int>{});
     if (b.localEpochKeys.keys.every(shared.contains)) return;
-    final devices = await otherDeviceIds();
+    final devices = await _myOtherDevicesForGroups();
     if (devices.isEmpty) {
       // Nobody to tell. Recorded anyway: a device linked later is seeded in
       // full, so replaying every key at that point would be work for nothing.
@@ -15055,7 +15085,7 @@ class GroupService implements ArchiveGroups {
         return false;
       }
     }
-    final accepted = await ingestSnapshot(json);
+    final accepted = await ingestSnapshot(json, sender: peer);
     if (accepted && acceptedInvite != null) {
       await _consumeAcceptedSpaceInvite(acceptedInvite.invite.inviteId);
     }
@@ -15207,7 +15237,7 @@ class GroupService implements ArchiveGroups {
     }
     final accepted = acceptedJoinRequest == null
         ? await ingestSnapshotFromStranger(peer, json)
-        : await ingestSnapshot(json);
+        : await ingestSnapshot(json, sender: peer);
     if (accepted && decoded != null) {
       await _acknowledgeSpaceReceipt(peer, decoded);
       await _relayOverlayDelta(peer, decoded);
@@ -15470,7 +15500,7 @@ class GroupService implements ArchiveGroups {
     // hidden pending gap-fill, and the gap-fill request itself fanned out to
     // an empty list forever.
     if (!bundle.manifest.isSovereignDevice) {
-      for (final device in await otherDeviceIds()) {
+      for (final device in await _myOtherDevicesForGroups()) {
         if (!others.contains(device)) others.add(device);
       }
     }
@@ -16443,6 +16473,7 @@ class GroupService implements ArchiveGroups {
     return ingestSnapshot(
       bundleJson,
       fromOwnDevice: await isMyDeviceOrMaster(peer),
+      sender: peer,
     );
   }
 
@@ -17270,6 +17301,11 @@ class GroupService implements ArchiveGroups {
     /// snapshot may carry taken: from anyone else the field is ignored, so a
     /// peer cannot hand us key material and have it believed.
     bool fromOwnDevice = false,
+
+    /// Who handed this snapshot over, when the caller knows. Only used to
+    /// decide whether an unsigned retention cut in it may anchor an ordinary
+    /// group's chain — see [_acceptableAnchorCut].
+    NodeId? sender,
   }) async {
     try {
       final value = jsonDecode(bundleJson);
@@ -17282,7 +17318,11 @@ class GroupService implements ArchiveGroups {
       if (value is Map) await learnPeerDocuments(value['docs']);
       return _serialized(
         NodeId.fromHex(gid),
-        () => _ingestSnapshot(bundleJson, fromOwnDevice: fromOwnDevice),
+        () => _ingestSnapshot(
+          bundleJson,
+          fromOwnDevice: fromOwnDevice,
+          sender: sender,
+        ),
       );
     } catch (_) {
       return false;
@@ -17292,6 +17332,7 @@ class GroupService implements ArchiveGroups {
   Future<bool> _ingestSnapshot(
     String bundleJson, {
     bool fromOwnDevice = false,
+    NodeId? sender,
   }) async {
     Map<String, dynamic> d;
     try {
@@ -17536,12 +17577,19 @@ class GroupService implements ArchiveGroups {
       // container again. A message deleted here stays deleted HERE.
       final localCut = existing
           ?.retentionCuts[retentionCutKey(_messageChainScope(man, m), m.author)];
-      if (localCut != null && m.seq <= localCut.throughSeq) continue;
+      if (localCut != null && m.seq <= localCut.throughSeq) {
+        _ingestArm('below-local-cut');
+        continue;
+      }
       if (!_validMessageFor(manifest.groupId, m)) {
         // The OTHER silent validity drop (its twin in _retainedMessageRows
         // is already voiced): a linked device lost every sibling-signed row
         // right here, and nothing said which of the three conditions did it.
-        if (man.name == kDeviceGroupName) {
+        //
+        // Every group, not the device group alone: an ordinary group's row
+        // from my own other device vanished here just as silently (stand,
+        // 2026-09-23). One line per ingest, and only when something dropped.
+        {
           ingestInvalid++;
           ingestInvalidWhy ??= m.groupId != manifest.groupId
               ? 'group-id mismatch'
@@ -17560,7 +17608,7 @@ class GroupService implements ArchiveGroups {
         continue;
       }
       if (!_messageWithinLifecycleBoundary(man, mergedState, m)) {
-        if (man.name == kDeviceGroupName) _ingestArm('lifecycle');
+        _ingestArm('lifecycle');
         continue;
       }
       if (ingestRetention != null &&
@@ -17571,7 +17619,7 @@ class GroupService implements ArchiveGroups {
             message: m,
             atMs: ingestAtMs,
           )) {
-        if (man.name == kDeviceGroupName) _ingestArm('retention');
+        _ingestArm('retention');
         continue;
       }
       if (man.isSpace) {
@@ -17636,6 +17684,13 @@ class GroupService implements ArchiveGroups {
           if (key == null ||
               !_validLocalEpochKey(man, control, epoch, key) ||
               !mergedState.isMember(m.author)) {
+            _ingestArm(
+              key == null
+                  ? 'no-epoch-key:$epoch'
+                  : !mergedState.isMember(m.author)
+                  ? 'not-a-member'
+                  : 'epoch-key-invalid:$epoch',
+            );
             continue;
           }
           if (m.spacePostId != null) {
@@ -17655,11 +17710,9 @@ class GroupService implements ArchiveGroups {
         // Once a signed epoch descriptor exists, a clear v1 row is a
         // downgrade attempt. Historical local v1 rows remain readable but are
         // never newly imported into an encrypted group.
-        if (man.name == kDeviceGroupName) {
-          _ingestArm(
-            encryptionEstablished ? 'clear-into-encrypted' : 'not-a-member',
-          );
-        }
+        _ingestArm(
+          encryptionEstablished ? 'clear-into-encrypted' : 'not-a-member',
+        );
         continue;
       }
       // A signed `ts` no clock could have produced. The stamp itself is left
@@ -17709,6 +17762,32 @@ class GroupService implements ArchiveGroups {
         )) {
           continue;
         }
+        final key = retentionCutKey(cut.scope, cut.author);
+        final prior = mergedRetentionCuts[key];
+        if (prior == null || cut.throughSeq > prior.throughSeq) {
+          mergedRetentionCuts[key] = cut;
+        }
+      }
+    }
+    // AN ORDINARY GROUP'S CUT, taken as an anchor and as nothing more.
+    //
+    // Erasing my rows here leaves a cut, and my next row chains onto the
+    // erased head. A reader that never held that head — a new device, a new
+    // member — has nothing to anchor the row to, and nothing can gap-fill a
+    // deleted row: measured on the stand 2026-09-23 as the owner's two posts
+    // after "erase for everyone" reaching its linked device, keys and all, and
+    // showing on neither. The Space path above refuses the cut, because an
+    // ordinary group has no signed retention timeline to judge it by.
+    //
+    // A cut is unsigned, so it is taken only from the author itself or from
+    // my own device, and only where it hides nothing: see
+    // [_acceptableAnchorCut].
+    if (!man.isSpace) {
+      for (final cut in inRetentionCuts) {
+        if (!fromOwnDevice && (sender == null || cut.author != sender)) {
+          continue;
+        }
+        if (!_acceptableAnchorCut(man, messages, cut)) continue;
         final key = retentionCutKey(cut.scope, cut.author);
         final prior = mergedRetentionCuts[key];
         if (prior == null || cut.throughSeq > prior.throughSeq) {
@@ -18123,7 +18202,8 @@ class GroupService implements ArchiveGroups {
     if (ingestInvalid > 0) {
       devLog(
         () =>
-            'xVeil[devices]: ingest dropped $ingestInvalid device-group '
+            'xVeil[${man.name == kDeviceGroupName ? 'devices' : 'groups'}]: '
+            'ingest of ${man.groupId.short} dropped $ingestInvalid '
             'row(s) as INVALID — first cause: $ingestInvalidWhy',
       );
     }
@@ -18134,8 +18214,8 @@ class GroupService implements ArchiveGroups {
       _ingestArmCounts.clear();
       devLog(
         () =>
-            'xVeil[devices]: ingest dropped device-group row(s) by arm: '
-            '$summary',
+            'xVeil[${man.name == kDeviceGroupName ? 'devices' : 'groups'}]: '
+            'ingest of ${man.groupId.short} dropped row(s) by arm: $summary',
       );
     }
     if (man.name == kDeviceGroupName) {
@@ -18873,6 +18953,32 @@ class GroupService implements ArchiveGroups {
       (m) => m.nodeId == me && m.role != GroupRole.owner,
     );
     return linked ? b.manifest.owner : null;
+  }
+
+  /// Test seam for [_myOtherDevicesForGroups]: a device group with a named
+  /// master is a whole ceremony to build, and what is under test is only what
+  /// the push does with the list.
+  @visibleForTesting
+  Future<List<NodeId>> Function()? ownDevicesForGroupsOverride;
+
+  /// My other devices, as an ordinary group's push and pull address them.
+  ///
+  /// [otherDeviceIds] is the device group's MEMBERS, and the master is not one
+  /// — so on a linked device it named nobody but its siblings, and every
+  /// ordinary group's delta, sync request and key handover skipped the master:
+  /// measured on the stand 2026-09-23 as a restarted linked device asking a
+  /// group's only other member for it and never its master.
+  ///
+  /// The master joins by the DEVICE it announced, and only then. Unnamed, its
+  /// only name is the identity, which in an ordinary group is our own selfId:
+  /// addressing it there addresses ourselves.
+  Future<List<NodeId>> _myOtherDevicesForGroups() async {
+    final override = ownDevicesForGroupsOverride;
+    if (override != null) return override();
+    final ids = [...await otherDeviceIds()];
+    final master = await masterDeviceId();
+    if (master != null && !ids.contains(master)) ids.add(master);
+    return ids;
   }
 
   Future<List<NodeId>> otherDeviceIds() async {
@@ -20149,7 +20255,7 @@ class GroupService implements ArchiveGroups {
     // asks who else is ME. Deduped so a device that IS a member (the
     // master-key one, whose id is the identity) is not addressed twice.
     if (!b.manifest.isSovereignDevice) {
-      for (final device in await otherDeviceIds()) {
+      for (final device in await _myOtherDevicesForGroups()) {
         if (!candidates.contains(device)) candidates.add(device);
       }
     }
@@ -20212,14 +20318,29 @@ class GroupService implements ArchiveGroups {
               ))
         : null;
     if (deltaId != null) _rememberOverlayDelta(deltaId);
+    // MY OWN DEVICES READ AS THE IDENTITY. An epoch envelope names the
+    // identity, never a device, so asking "can this DEVICE open the epoch"
+    // said no for every encrypted row and the delta to my own device left
+    // empty: measured on the stand 2026-09-23 as the master acknowledging its
+    // linked device's post and ingesting zero rows, in both directions, for
+    // as long as the two were up. The same substitution [snapshotJson] makes
+    // for `ownDevice`; the keys themselves still travel only by that path.
+    final myDevices = b.manifest.isSovereignDevice
+        ? const <NodeId>{}
+        : {...await _myOtherDevicesForGroups()};
     var n = 0;
     try {
       for (final peer in peers) {
         if (exclude.contains(peer)) continue;
-        final epochEnvelopes = _epochEnvelopesFor(b, peer, controls: control);
+        final audience = myDevices.contains(peer) ? _signer.selfId : peer;
+        final epochEnvelopes = _epochEnvelopesFor(
+          b,
+          audience,
+          controls: control,
+        );
         final channelEpochEnvelopes = _channelEpochEnvelopesFor(
           b,
-          peer,
+          audience,
           controls: control,
         );
         final encryptionEstablished = _encryptionEstablished(
@@ -20232,7 +20353,7 @@ class GroupService implements ArchiveGroups {
                 (message.isChannelEncrypted
                     ? _peerCanDecryptChannelEpoch(
                         b,
-                        peer,
+                        audience,
                         message.channelId!,
                         message.channelEpoch!,
                       )
@@ -20240,7 +20361,7 @@ class GroupService implements ArchiveGroups {
                           (message.isEncrypted &&
                               _peerCanDecryptEpoch(
                                 b,
-                                peer,
+                                audience,
                                 message.membershipEpoch!,
                               ))))
               message,
@@ -20251,7 +20372,7 @@ class GroupService implements ArchiveGroups {
                 (reaction.isChannelEncrypted
                     ? _peerCanDecryptChannelEpoch(
                         b,
-                        peer,
+                        audience,
                         reaction.channelId!,
                         reaction.channelEpoch!,
                       )
@@ -20259,7 +20380,7 @@ class GroupService implements ArchiveGroups {
                           (reaction.isMembershipEncrypted &&
                               _peerCanDecryptEpoch(
                                 b,
-                                peer,
+                                audience,
                                 reaction.membershipEpoch!,
                               ))))
               reaction,
@@ -20268,7 +20389,7 @@ class GroupService implements ArchiveGroups {
           for (final post in posts)
             if (_postWithinLifecycleBoundary(state, post) &&
                 (!post.isEncrypted ||
-                    _peerCanDecryptEpoch(b, peer, post.membershipEpoch!)))
+                    _peerCanDecryptEpoch(b, audience, post.membershipEpoch!)))
               post,
         ];
         final receipt = _beginSpaceReceipt(b, peer);

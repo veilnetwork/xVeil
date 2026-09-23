@@ -101,6 +101,19 @@ class _DocGatedSigner extends _FakeSigner {
       _known(r.author) && super.verifyReaction(r);
 }
 
+/// One device of an identity: signs as the identity with its OWN device key,
+/// so two of them share an author and differ by writer — the real shape of a
+/// master and its linked device.
+class _DeviceKeySigner extends _FakeSigner {
+  _DeviceKeySigner(super.self, this._deviceKey);
+  final Uint8List _deviceKey;
+  @override
+  Uint8List get selfPubKey => _deviceKey;
+  @override
+  GroupMessage signMessage(GroupMessage u) =>
+      u.withSignature(Uint8List(64), _deviceKey);
+}
+
 class _FakeSigner implements GroupSigner {
   _FakeSigner(this._self);
   final NodeId _self;
@@ -1621,6 +1634,98 @@ void main() {
   /// dropped as a stranger's, and a group new to this device was refused
   /// outright. Every row the linked device took for the identity after that it
   /// acknowledged and could not store.
+  test('a row my linked device wrote is taken by my master', () async {
+    Future<GroupService> device(
+      int keyByte, {
+      List<String>? sent,
+      List<(NodeId, String)>? sentTo,
+    }) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(
+        storage,
+        _DeviceKeySigner(owner, Uint8List.fromList(List.filled(32, keyByte))),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        send: sent == null
+            ? null
+            : (p, g, j) async {
+                sent.add(j);
+                sentTo?.add((p, j));
+              },
+      );
+      addTearDown(svc.dispose);
+      return svc;
+    }
+
+    final master = await device(0xA1);
+    final linkedSent = <String>[];
+    final linkedSentTo = <(NodeId, String)>[];
+    final linked = await device(0xB2, sent: linkedSent, sentTo: linkedSentTo);
+    final gid = await master.createGroup('Shared by two devices');
+    expect(
+      await master.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect(await master.postMessage(gid, 'from master', broadcast: false), isTrue);
+    expect(
+      await linked.ingestGroupEntryFromStranger(
+        owner,
+        master.snapshotJson(
+          (await master.load(gid))!,
+          recipient: carol,
+          ownDevice: true,
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      (await linked.messagesOf(gid)).map((m) => m.body),
+      ['from master'],
+      reason: 'premise: the linked device reads the group',
+    );
+    expect(await linked.postMessage(gid, 'from linked', broadcast: false), isTrue);
+    await master.ingestGroupEntryFromStranger(
+      owner,
+      linked.snapshotJson((await linked.load(gid))!, recipient: owner),
+    );
+    expect(
+      (await master.messagesOf(gid)).map((m) => m.body),
+      containsAll(['from master', 'from linked']),
+    );
+
+    // THE DELTA, which is what the stand actually carries live — and to the
+    // master's DEVICE, the name a linked device pushes its rows to. Measured
+    // on the stand 2026-09-23: the master received it and ingested ZERO rows.
+    // The per-peer filter asked whether the DEVICE could open the epoch, and
+    // an envelope names the identity, so every encrypted row was cut from
+    // the delta before it left.
+    final masterDevice = _id(0xD7);
+    linked.ownDevicesForGroupsOverride = () async => [masterDevice];
+    linkedSent.clear();
+    expect(await linked.postMessage(gid, 'second from linked'), isTrue);
+    await pumpEventQueue();
+    final toMaster = [
+      for (final (peer, json) in linkedSentTo)
+        if (peer == masterDevice) json,
+    ];
+    expect(toMaster, isNotEmpty, reason: 'premise: a delta went to the master');
+    for (final json in toMaster) {
+      await master.ingestGroupEntryFromStranger(owner, json);
+    }
+    expect(
+      (await master.messagesOf(gid)).map((m) => m.body),
+      contains('second from linked'),
+      reason: "the master took the snapshot but not the linked device's delta",
+    );
+  });
+
   test('keys handed over by my master reach a device linked earlier', () async {
     final masterStorage = FakeHvContainer().storage();
     await masterStorage.open(password: 'pw', createIfMissing: true);
@@ -2224,6 +2329,96 @@ void main() {
             'the new row must chain onto the erased head: with an empty link '
             'after a strict chain the owner hides it — and everything the '
             'author writes afterwards — without a word',
+      );
+    });
+
+    // Measured on the stand 2026-09-23: after "erase for everyone" the owner's
+    // next two posts reached its linked device, keys and all, and it showed
+    // neither. The rows chain onto the erased head, and a reader that never
+    // held that head — a new device, a new member — has nothing to anchor
+    // them to: the cut that would has been refused, because remote cuts were
+    // only ever accepted for Spaces. Nothing can gap-fill a deleted row, so
+    // the author's chain stays hidden there for good.
+    test('what I write afterwards reaches a reader who never held the old '
+        'rows', () async {
+      final (ownerSvc, bobSvc, gid) = await pair();
+      expect(
+        await ownerSvc.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: carol,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      await ship(ownerSvc, bobSvc, gid, bob);
+      expect(await bobSvc.postMessage(gid, 'b1'), isTrue);
+      expect(await bobSvc.postMessage(gid, 'b2'), isTrue);
+      await ship(bobSvc, ownerSvc, gid, owner);
+      await bobSvc.eraseGroupRowsLocally(gid, whose: (a) => a == bob);
+      expect(await bobSvc.postMessage(gid, 'b3'), isTrue);
+
+      final wire = bobSvc.snapshotJson(
+        (await bobSvc.load(gid))!,
+        recipient: carol,
+      );
+      Future<GroupService> reader() async {
+        final store = FakeHvContainer().storage();
+        await store.open(password: 'pw', createIfMissing: true);
+        final svc = GroupService(store, _FakeSigner(carol));
+        addTearDown(svc.dispose);
+        return svc;
+      }
+
+      final carolSvc = await reader();
+      await carolSvc.ingestSnapshot(wire, sender: bob);
+      expect(
+        await stored(carolSvc, gid, bob),
+        ['2'],
+        reason: 'premise: the reader holds the new row and nothing before it',
+      );
+      expect(
+        await bodies(carolSvc, gid),
+        ['b3'],
+        reason: 'a row chained onto an erased head must still be shown',
+      );
+
+      // The cut must name the link the author actually signed: a boundary the
+      // held row does not point at anchors nothing.
+      final forged = jsonDecode(wire) as Map<String, dynamic>;
+      for (final cut in forged['rcut'] as List) {
+        (cut as Map)['h'] = 'ab' * 32;
+      }
+      final misled = await reader();
+      await misled.ingestSnapshot(jsonEncode(forged), sender: bob);
+      // Not by what is shown — the chain refuses a foreign link on its own —
+      // but by what is KEPT: a stored bogus cut would hide the author's older
+      // rows the day they arrive.
+      expect(
+        (await misled.load(gid))!.retentionCuts,
+        isEmpty,
+        reason: 'a cut was kept for a row that does not link to it',
+      );
+
+      // An unsigned cut is not taken from anyone but its author: relayed by a
+      // third party it could claim an author's in-flight rows were erased.
+      final relayed = await reader();
+      await relayed.ingestSnapshot(wire, sender: owner);
+      expect(
+        await bodies(relayed, gid),
+        isEmpty,
+        reason: "a cut about bob's chain was accepted from someone else",
+      );
+
+      // And where the erased rows are still held, the cut hides nothing.
+      await ownerSvc.ingestSnapshot(
+        bobSvc.snapshotJson((await bobSvc.load(gid))!, recipient: owner),
+        sender: bob,
+      );
+      expect(
+        await bodies(ownerSvc, gid),
+        containsAll(['b1', 'b2', 'b3']),
+        reason: 'a member who kept the old rows lost them to the cut',
       );
     });
 
@@ -5156,6 +5351,33 @@ void main() {
         reason: 'the push leg still addressed the identity',
       );
       expect(addressed.map((n) => n.hex), isNot(contains(sovereign.nodeId.hex)));
+
+      // AND IN EVERY OTHER GROUP. The push and the pull of an ordinary group
+      // append "my other devices" to the members, and that list was the
+      // device group's MEMBERS — which the master is not. Measured on the
+      // stand 2026-09-23: after a restart the linked device asked a group's
+      // only other member for it and never its master, so what the master
+      // alone held never came, and its own posts never went to the master.
+      final ordinary = await linked.createGroup('An ordinary group');
+      addressed.clear();
+      expect(
+        await linked.postMessage(ordinary, 'from the linked device'),
+        isTrue,
+      );
+      await drain();
+      expect(
+        addressed.map((n) => n.hex),
+        contains(masterDevice.hex),
+        reason: "a linked device's post in a group never went to its master",
+      );
+      addressed.clear();
+      await linked.nudgeGroupSync(ordinary);
+      await drain();
+      expect(
+        addressed.map((n) => n.hex),
+        contains(masterDevice.hex),
+        reason: 'a linked device never asked its master what it was missing',
+      );
 
       // AN UNMARKED RE-ANNOUNCEMENT RETIRES THE MARK, which is why the mark
       // has to ride EVERY announcement of this row and not just the one at
