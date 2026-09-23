@@ -81,6 +81,26 @@ NodeId _ordinalId(int value) {
 
 /// A fake signer: a deterministic "public key" per author (its node id bytes),
 /// signatures are a fixed marker, verification accepts anything well-formed.
+/// A signer that, like the real one, can verify another author's row only
+/// while it holds that author's identity document — the case of every member
+/// whose device key is not their identity key.
+class _DocGatedSigner extends _FakeSigner {
+  _DocGatedSigner(super.self);
+  bool _known(NodeId author) =>
+      author == selfId || identityDocumentFor(author) != null;
+  @override
+  bool verifyControl(ControlEntry e) =>
+      _known(e.author) && super.verifyControl(e);
+  @override
+  bool verifyControlAt(ControlEntry e, int atUnixSecs) => verifyControl(e);
+  @override
+  bool verifyMessage(GroupMessage m) =>
+      _known(m.author) && super.verifyMessage(m);
+  @override
+  bool verifyReaction(GroupReaction r) =>
+      _known(r.author) && super.verifyReaction(r);
+}
+
 class _FakeSigner implements GroupSigner {
   _FakeSigner(this._self);
   final NodeId _self;
@@ -2390,6 +2410,168 @@ void main() {
         reader.peerDocument(owner),
         docFor(owner),
         reason: 'the read that failed while locked must not stand for the run',
+      );
+    });
+
+    test('a cold start does not erase a device-signed member\'s rows from disk', () async {
+      // Measured on the stand 2026-09-23: groups whole before a restart held,
+      // after it, zero stored rows and no keys — ON DISK, not just on screen.
+      // ONE lookup serves both sides in this process, so the owner's own
+      // document may answer only while the OWNER is acting — otherwise the
+      // "cold" reader would find it too, and the test would prove nothing
+      // (the first draft of it passed on the defect for exactly that reason).
+      GroupService? bobNow;
+      var ownerActing = true;
+      setIdentityDocumentLookup(
+        (id) => id == owner && ownerActing
+            ? docFor(owner)
+            : bobNow?.peerDocument(id),
+      );
+      final ownerStore = FakeHvContainer().storage();
+      await ownerStore.open(password: 'pw', createIfMissing: true);
+      final toBob = <String>[];
+      final ownerSvc = GroupService(
+        ownerStore,
+        _FakeSigner(owner),
+        send: (peer, gid, json) async {
+          if (peer == bob) toBob.add(json);
+        },
+      );
+      addTearDown(ownerSvc.dispose);
+      final gid = await ownerSvc.createGroup('G');
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      expect(await ownerSvc.postMessage(gid, 'o1'), isTrue);
+
+      final container = FakeHvContainer();
+      final warm = container.storage();
+      await warm.open(password: 'pw', createIfMissing: true);
+      final bob1 = GroupService(warm, _DocGatedSigner(bob))
+        ..documentNodeId = nameOf;
+      bobNow = bob1;
+      final snapshot = ownerSvc.snapshotJson(
+        (await ownerSvc.load(gid))!,
+        recipient: bob,
+      );
+      ownerActing = false;
+      await bob1.ingestSnapshot(snapshot);
+      final before = (await bob1.load(gid))!;
+      expect(before.control, isNotEmpty, reason: 'premise: bob holds the log');
+      expect(before.messages, isNotEmpty);
+      bob1.dispose();
+      await warm.close();
+
+      // COLD START. The cache of documents has not been read yet, and the
+      // owner's next delta carries none — this run already sent one to bob.
+      final cold = container.storage();
+      await cold.open(password: 'pw');
+      final bob2 = GroupService(cold, _DocGatedSigner(bob))
+        ..documentNodeId = nameOf;
+      bobNow = bob2;
+      addTearDown(bob2.dispose);
+      await pumpEventQueue();
+      toBob.clear();
+      ownerActing = true;
+      expect(await ownerSvc.postMessage(gid, 'o2'), isTrue);
+      await pumpEventQueue();
+      ownerActing = false;
+      final delta = toBob.lastWhere(
+        (json) => (jsonDecode(json) as Map).containsKey('ov'),
+      );
+      await bob2.ingestGroupEntry(owner, delta);
+
+      final after = (await bob2.load(gid))!;
+      expect(
+        after.control.length,
+        greaterThanOrEqualTo(before.control.length),
+        reason: 'the stored control log shrank across a cold start',
+      );
+      expect(
+        after.messages.length,
+        greaterThanOrEqualTo(before.messages.length),
+        reason: 'stored messages shrank across a cold start',
+      );
+      expect(
+        after.localEpochKeys.keys,
+        containsAll(before.localEpochKeys.keys),
+        reason: 'stored epoch keys shrank across a cold start',
+      );
+    });
+
+    test('compaction on a cold start keeps rows it cannot verify yet', () async {
+      // THE ROOT OF THE STAND'S LOSS (2026-09-23): compaction runs the moment
+      // the app starts and rewrote each group keeping only rows that verified
+      // RIGHT THEN. Before the cache of documents is read, a device-signed
+      // member's rows do not — and the rewrite erased them from disk for
+      // good: two members became one, the messages and keys went with them.
+      // "Cannot verify yet" is not "invalid", and a rewrite must not turn the
+      // first into a deletion.
+      // ONE lookup serves both sides in this process, so the owner's own
+      // document may answer only while the OWNER is acting — otherwise the
+      // "cold" reader would find it too, and the test would prove nothing
+      // (the first draft of it passed on the defect for exactly that reason).
+      GroupService? bobNow;
+      var ownerActing = true;
+      setIdentityDocumentLookup(
+        (id) => id == owner && ownerActing
+            ? docFor(owner)
+            : bobNow?.peerDocument(id),
+      );
+      final ownerStore = FakeHvContainer().storage();
+      await ownerStore.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(ownerStore, _FakeSigner(owner));
+      addTearDown(ownerSvc.dispose);
+      final gid = await ownerSvc.createGroup('G');
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      expect(await ownerSvc.postMessage(gid, 'o1'), isTrue);
+
+      final container = FakeHvContainer();
+      final warm = container.storage();
+      await warm.open(password: 'pw', createIfMissing: true);
+      final bob1 = GroupService(warm, _DocGatedSigner(bob))
+        ..documentNodeId = nameOf;
+      bobNow = bob1;
+      final snapshot = ownerSvc.snapshotJson(
+        (await ownerSvc.load(gid))!,
+        recipient: bob,
+      );
+      ownerActing = false;
+      await bob1.ingestSnapshot(snapshot);
+      final before = (await bob1.load(gid))!;
+      expect(before.control, isNotEmpty);
+      expect(before.messages, isNotEmpty);
+      bob1.dispose();
+      await warm.close();
+
+      final cold = container.storage();
+      await cold.open(password: 'pw');
+      final bob2 = GroupService(cold, _DocGatedSigner(bob))
+        ..documentNodeId = nameOf;
+      bobNow = bob2; // its cache is not read yet — the cold start
+      addTearDown(bob2.dispose);
+      await bob2.compactStateLogs(gid);
+
+      // Read back with the documents available, as the next start would.
+      await bob2.loadPeerDocuments();
+      final after = (await bob2.load(gid))!;
+      expect(
+        after.control.length,
+        before.control.length,
+        reason: 'compaction erased control rows it merely could not verify',
+      );
+      expect(
+        after.messages.length,
+        before.messages.length,
+        reason: 'compaction erased messages it merely could not verify',
       );
     });
 

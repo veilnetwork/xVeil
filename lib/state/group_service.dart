@@ -6055,8 +6055,26 @@ class GroupService implements ArchiveGroups {
         reactions: reactions,
         publicComments: publicComments,
         publicReactions: publicReactions,
-        epochEnvelopes: material.envelopes,
-        localEpochKeys: material.keys,
+        // What the merge could not tie to a VERIFIED descriptor is kept, not
+        // dropped. The merge answers "which keys can I justify right now",
+        // and on a cold start — before other members' identity documents are
+        // read — that is none of a device-signed owner's epochs. Loading only
+        // the justified ones made the next save of this bundle, whoever did
+        // it, erase the rest from disk: the stand lost every key that way.
+        // Every use of a key checks it against its descriptor again, and a
+        // key that matches nothing opens nothing.
+        epochEnvelopes: [
+          ...material.envelopes,
+          for (final e in epochEnvelopes)
+            if (!material.envelopes.any(
+              (m) =>
+                  m.epoch == e.epoch &&
+                  m.recipient == e.recipient &&
+                  m.keyCommitment == e.keyCommitment,
+            ))
+              e,
+        ],
+        localEpochKeys: {...localEpochKeys, ...material.keys},
         channelEpochEnvelopes: channelMaterial.envelopes,
         localChannelEpochKeys: channelMaterial.keys,
         sovereignBundle: sovereignBundle,
