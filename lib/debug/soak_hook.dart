@@ -45,6 +45,8 @@ import '../data/storage/storage_write_census.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../state/thumbnail.dart' show makeRgbaThumbB64, makeInlineImageB64;
+import '../domain/clear_policy.dart';
+import '../domain/clear_request.dart';
 import '../domain/group_message.dart' show GroupMessage, MediaObject;
 
 import '../data/transport/veil_flutter_transport.dart';
@@ -704,6 +706,15 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/group_post':
           await _groupPostHook(req);
+          return;
+        case '/group_clear_policy':
+          await _groupClearPolicyHook(req);
+          return;
+        case '/group_erase':
+          await _groupEraseHook(req);
+          return;
+        case '/clear_requests':
+          await _clearRequestsHook(req);
           return;
         case '/group_post_image':
           await _groupPostImageHook(req);
@@ -5359,6 +5370,93 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'delivered': sent,
       'epoch': st?.epoch ?? 0,
       'encrypted': st?.epochDescriptor != null,
+    });
+  }
+
+  /// ?group= [&policy=anyone|admins|ask|never] — read or set whose erase
+  /// requests THIS device honours in that group. The same call the group
+  /// menu makes; here so a stand can drive it without a window in front.
+  Future<void> _groupClearPolicyHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final wanted = q['policy'];
+    if (wanted != null) {
+      final policy = ClearRequestPolicy.values
+          .where((p) => p.name == wanted)
+          .firstOrNull;
+      if (policy == null) {
+        return _json(req, {'ok': false, 'error': 'unknown policy'});
+      }
+      await svc.setGroupClearPolicy(gid, policy);
+    }
+    return _json(req, {
+      'ok': true,
+      'policy': (await svc.groupClearPolicy(gid)).name,
+    });
+  }
+
+  /// ?group=&scope=mine|all[&ask=1] — the two erase items of the group menu,
+  /// in the SAME order the menu runs them: "mine" erases here and then, only
+  /// if asked, requests the others; "all" requests first and erases here
+  /// second.
+  Future<void> _groupEraseHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final q = req.uri.queryParameters;
+    final gidHex = q['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    var told = 0;
+    var erased = 0;
+    switch (q['scope']) {
+      case 'mine':
+        erased = await svc.eraseGroupRowsLocally(
+          gid,
+          whose: (author) => author == svc.selfId,
+        );
+        if (q['ask'] == '1') {
+          told = await svc.requestGroupClear(gid, kGroupClearOwn);
+        }
+      case 'all':
+        told = await svc.requestGroupClear(gid, kGroupClearAll);
+        erased = await svc.eraseGroupRowsLocally(gid, whose: (_) => true);
+      default:
+        return _json(req, {'ok': false, 'error': 'scope must be mine|all'});
+    }
+    return _json(req, {'ok': true, 'erased': erased, 'asked': told});
+  }
+
+  /// Pending clear requests, and `?answer=N&accept=0|1` to answer one —
+  /// the list under Settings, without the screen.
+  Future<void> _clearRequestsHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final messaging = ref.read(messagingServiceProvider);
+    final list = await messaging.pendingClearRequests();
+    final q = req.uri.queryParameters;
+    final index = int.tryParse(q['answer'] ?? '');
+    if (index != null) {
+      if (index < 0 || index >= list.length) {
+        return _json(req, {'ok': false, 'error': 'no such request'});
+      }
+      await messaging.answerClearRequest(list[index], accept: q['accept'] == '1');
+    }
+    final now = await messaging.pendingClearRequests();
+    return _json(req, {
+      'ok': true,
+      'requests': [
+        for (final r in now)
+          {
+            'chat': r.chatHex.substring(0, 8),
+            'from': r.requesterHex.substring(0, 8),
+            'kind': r.groupKind,
+          },
+      ],
     });
   }
 
