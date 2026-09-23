@@ -2575,6 +2575,25 @@ void main() {
       );
     });
 
+    test('the documents are kept where a document fits', () {
+      // A settings record holds about 2 KiB; one identity document is 2.7 KB
+      // before base64. Kept there, every save threw, the catch held the cache
+      // in memory only, and every restart forgot every document (measured on
+      // the stand). The fake store here has no such cap, so this is asserted
+      // on the source: the cache goes to the chunked file store.
+      final src = File('lib/state/group_service.dart').readAsStringSync();
+      final start = src.indexOf('Future<void> learnPeerDocuments(');
+      final load = src.indexOf('Future<void> loadPeerDocuments()');
+      expect(start, greaterThan(0));
+      expect(load, greaterThan(0));
+      final learn = src.substring(start, src.indexOf('\n  }\n', start));
+      final read = src.substring(load, src.indexOf('\n  }\n', load));
+      expect(learn, contains('_storage.storeFile('));
+      expect(learn, isNot(contains('putSetting')));
+      expect(read, contains('_storage.loadFile('));
+      expect(read, isNot(contains('getSetting')));
+    });
+
     test('the lookup the verifier asks answers for a peer it has learned', () async {
       final (ownerSvc, bobSvc, gid, _) = await docPair();
       final b = (await ownerSvc.load(gid))!;
