@@ -211,8 +211,18 @@ class MessagingService {
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
   late final _MessagingRealtimeControl _realtimeControl =
       _MessagingRealtimeControl(this);
-  final _MessagingMailboxDelivery _mailboxDelivery =
-      _MessagingMailboxDelivery();
+  late final _MessagingMailboxDelivery _mailboxDelivery =
+      _MessagingMailboxDelivery(
+        ownDevice: (peer) => isOwnDevice == null ? null : _isSiblingDevice(peer),
+      );
+
+  /// One of my OTHER devices by its device id — not the identity address,
+  /// which every device of mine answers to and which the mailbox still serves.
+  Future<bool> _isSiblingDevice(NodeId peer) async {
+    final self = await selfIdentityHex?.call();
+    if (self != null && peer.hex == self) return false;
+    return await isOwnDevice?.call(peer) ?? false;
+  }
   late final _MessagingMessageDelivery _messageDelivery =
       _MessagingMessageDelivery(this);
   late final _MessagingFileTransfer _fileTransfer = _MessagingFileTransfer(

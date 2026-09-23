@@ -14448,7 +14448,22 @@ class GroupService implements ArchiveGroups {
     // resolves to a single device, so the serve went to this node itself and
     // the asker was never answered. Only a device named in MY OWN device group
     // can redirect it, so nothing a stranger sends can steer a reply.
-    final replyTo = _syncReplyTarget(b, state, peer, req['dv']);
+    var replyTo = _syncReplyTarget(b, state, peer, req['dv']);
+    // AN ORDINARY GROUP'S QUESTION FROM MY OWN IDENTITY is one of my devices
+    // asking, and on the master the identity is this node's own address — the
+    // answer went to ourselves. The asker names its device ('dv', sent only to
+    // my own devices), and the name is taken only if it IS one of mine.
+    if (!b.manifest.isSovereignDevice && peer == _signer.selfId) {
+      final claimed = req['dv'];
+      if (claimed is String && claimed.length == 64) {
+        for (final device in await _myOtherDevicesForGroups()) {
+          if (device.hex == claimed) {
+            replyTo = device;
+            break;
+          }
+        }
+      }
+    }
     if (!SpaceAcl(state).allows(peer, SpacePermission.distributeContent)) {
       devLog(() => 'xVeil[groups]: sync request from non-member — drop');
       if (b.manifest.isSpace) {
@@ -15431,7 +15446,14 @@ class GroupService implements ArchiveGroups {
 
   /// Starts one compact anti-entropy exchange with this chat's current XOR
   /// neighbours. Used at boot and immediately after changing the local `k`.
-  Future<int> nudgeGroupSync(NodeId groupId) async {
+  Future<int> nudgeGroupSync(
+    NodeId groupId, {
+
+    /// Ask my own other devices and nobody else — the pull of the owner's
+    /// push/pull scheme. Ignored for the device group, whose members already
+    /// are exactly my devices.
+    bool onlyMyDevices = false,
+  }) async {
     final send = _send;
     if (send == null) return 0;
     final bundle = await load(groupId);
@@ -15530,12 +15552,56 @@ class GroupService implements ArchiveGroups {
         }
       }
     }
+    // My own devices always, whatever the neighbour pick — and, for an
+    // ordinary group, ONLY them when that is what was asked.
+    final myDevices = bundle.manifest.isSovereignDevice
+        ? const <NodeId>[]
+        : await _myOtherDevicesForGroups();
+    if (onlyMyDevices && !bundle.manifest.isSovereignDevice) {
+      peersById.clear();
+    }
+    for (final device in myDevices) {
+      peersById[device.hex] = device;
+    }
     final peers = peersById.values.toList()
       ..sort((left, right) => left.hex.compareTo(right.hex));
+    // To my own devices the request names THIS device, so the answer can come
+    // back to it rather than to the identity (on the master: to itself). To
+    // anybody else it does not: which device of mine asked is not theirs.
+    final me = myDevices.isEmpty ? null : await resolveMyDevice();
+    final forMine = me == null ? null : jsonEncode({...req, 'dv': me.hex});
     for (final peer in peers) {
-      await send(peer, groupId, jsonEncode(req));
+      final mine = forMine != null && myDevices.contains(peer);
+      await send(peer, groupId, mine ? forMine : jsonEncode(req));
     }
     return peers.length;
+  }
+
+  /// Ask every one of my own devices what I am missing, in every group.
+  ///
+  /// The pull half of the owner's push/pull scheme (2026-09-23): run on a
+  /// timer and whenever a direct session to one of my devices comes up — the
+  /// moments when "nothing was missed" cannot be assumed.
+  Future<int> pullFromMyDevices() async {
+    var n = 0;
+    final deviceGroupHex = await deviceGroupIdHex();
+    if (deviceGroupHex != null) {
+      n += await nudgeGroupSync(NodeId.fromHex(deviceGroupHex));
+    }
+    if ((await _myOtherDevicesForGroups()).isEmpty) return n;
+    for (final entry in [...await listGroups(), ...await listSpaces()]) {
+      if (entry.groupId.hex == deviceGroupHex) continue;
+      try {
+        n += await nudgeGroupSync(entry.groupId, onlyMyDevices: true);
+      } catch (caught) {
+        devLog(
+          () =>
+              'xVeil[groups]: pulling ${entry.groupId.short} from my devices '
+              'failed: $caught',
+        );
+      }
+    }
+    return n;
   }
 
   /// The VALIDATED, time-ordered messages of [groupId]: signature ok AND the
@@ -18267,7 +18333,42 @@ class GroupService implements ArchiveGroups {
         _incomingPostCtl.add((spaceId: man.groupId, post: post));
       }
     }
+    // PUSH TO MY OWN DEVICES what arrived from outside. The author sends to
+    // the group's members, and my other devices are not among them — the
+    // identity is — so a row reaching only one of my devices stayed there
+    // until the others next asked. Forwarded after this ingest has finished
+    // (the delta takes the group's lock), never for what came from one of
+    // mine: that device already told everybody, and re-forwarding would echo.
+    // Messages only; reactions and control rows are left to the pull.
+    if (!man.isSovereignDevice &&
+        !fromOwnDevice &&
+        sender != null &&
+        fresh.isNotEmpty) {
+      final rows = [...fresh];
+      unawaited(
+        Future(() => _forwardToMyDevices(man.groupId, sender, rows)),
+      );
+    }
     return true;
+  }
+
+  Future<void> _forwardToMyDevices(
+    NodeId groupId,
+    NodeId sender,
+    List<GroupMessage> rows,
+  ) async {
+    try {
+      if (await isMyDeviceOrMaster(sender)) return;
+      final devices = await _myOtherDevicesForGroups();
+      if (devices.isEmpty) return;
+      await broadcastDelta(groupId, messages: rows, onlyTo: devices.toSet());
+    } catch (caught) {
+      devLog(
+        () =>
+            'xVeil[groups]: forwarding ${rows.length} row(s) of '
+            '${groupId.short} to my devices failed: $caught',
+      );
+    }
   }
 
   /// Fresh (post-dedup, verified, not-self) messages of MY device group — the
@@ -20163,6 +20264,10 @@ class GroupService implements ArchiveGroups {
     List<SpacePublicReaction> publicReactions = const [],
     Set<NodeId> exclude = const {},
     String? overlayId,
+
+    /// Send to exactly these and nobody else — the forward of rows received
+    /// from outside to my own devices.
+    Set<NodeId>? onlyTo,
   }) async {
     final send = _send;
     final b = await load(groupId);
@@ -20266,16 +20371,39 @@ class GroupService implements ArchiveGroups {
     // Only ask when it can change the answer: below the degree every candidate
     // is chosen anyway, so a liveness lookup there is pure cost on the send
     // path.
-    final peers = sparse
-        ? nearestGroupNodesByXor(
-            _signer.selfId,
-            candidates,
-            k: neighborCount,
-            reachable: candidates.length > neighborCount
-                ? await _reachableNow()
-                : null,
-          )
-        : candidates;
+    // MY OWN DEVICES READ AS THE IDENTITY. An epoch envelope names the
+    // identity, never a device, so asking "can this DEVICE open the epoch"
+    // said no for every encrypted row and the delta to my own device left
+    // empty: measured on the stand 2026-09-23 as the master acknowledging its
+    // linked device's post and ingesting zero rows, in both directions, for
+    // as long as the two were up. The same substitution [snapshotJson] makes
+    // for `ownDevice`; the keys themselves still travel only by that path.
+    final myDevices = b.manifest.isSovereignDevice
+        ? const <NodeId>{}
+        : {...await _myOtherDevicesForGroups()};
+    final List<NodeId> peers;
+    if (onlyTo != null) {
+      peers = onlyTo.toList();
+    } else {
+      final chosen = sparse
+          ? nearestGroupNodesByXor(
+              _signer.selfId,
+              candidates,
+              k: neighborCount,
+              reachable: candidates.length > neighborCount
+                  ? await _reachableNow()
+                  : null,
+            )
+          : candidates;
+      // My own devices always, whatever the neighbour pick: they are not
+      // "some members of a group" but the same person, and a big group's XOR
+      // selection has no reason to keep them.
+      peers = [
+        ...chosen,
+        for (final device in myDevices)
+          if (!chosen.contains(device)) device,
+      ];
+    }
     // The one place a membership-ending decision is handed to the person it
     // ends. `state` is folded AFTER the removal is already in the log, so the
     // target is gone from `state.members` and the ordinary recipient list above
@@ -20318,16 +20446,6 @@ class GroupService implements ArchiveGroups {
               ))
         : null;
     if (deltaId != null) _rememberOverlayDelta(deltaId);
-    // MY OWN DEVICES READ AS THE IDENTITY. An epoch envelope names the
-    // identity, never a device, so asking "can this DEVICE open the epoch"
-    // said no for every encrypted row and the delta to my own device left
-    // empty: measured on the stand 2026-09-23 as the master acknowledging its
-    // linked device's post and ingesting zero rows, in both directions, for
-    // as long as the two were up. The same substitution [snapshotJson] makes
-    // for `ownDevice`; the keys themselves still travel only by that path.
-    final myDevices = b.manifest.isSovereignDevice
-        ? const <NodeId>{}
-        : {...await _myOtherDevicesForGroups()};
     var n = 0;
     try {
       for (final peer in peers) {
