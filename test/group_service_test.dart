@@ -1613,6 +1613,98 @@ void main() {
     },
   );
 
+  /// Measured on the stand 2026-09-23: a group the master created AFTER the
+  /// link reached the linked device as one bare row — epoch 1, one member, no
+  /// messages — while the master kept sending it snapshots that carry the keys.
+  /// A sibling's frames arrive under the IDENTITY, which is the linked device's
+  /// own `selfId`, and "is this my device?" answers no to it; so the keys were
+  /// dropped as a stranger's, and a group new to this device was refused
+  /// outright. Every row the linked device took for the identity after that it
+  /// acknowledged and could not store.
+  test('keys handed over by my master reach a device linked earlier', () async {
+    final masterStorage = FakeHvContainer().storage();
+    await masterStorage.open(password: 'pw', createIfMissing: true);
+    final master = GroupService(
+      masterStorage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    addTearDown(master.dispose);
+    final gid = await master.createGroup('Made after the link');
+    expect(
+      await master.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect(await master.postMessage(gid, 'for us', broadcast: false), isTrue);
+    final wire = master.snapshotJson(
+      (await master.load(gid))!,
+      recipient: carol,
+      ownDevice: true,
+    );
+    expect(
+      (jsonDecode(wire) as Map)['kk'],
+      isA<Map>(),
+      reason: 'premise: the snapshot carries the keys',
+    );
+
+    // A crypto that opens no envelope: the device could not have been a
+    // recipient of any of them, so only the handed keys can make a row
+    // readable.
+    Future<GroupService> device() async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: carol),
+        ),
+      );
+      addTearDown(svc.dispose);
+      return svc;
+    }
+
+    final linked = await device();
+    expect(
+      await linked.ingestGroupEntryFromStranger(owner, wire),
+      isTrue,
+      reason: 'my own identity is not a stranger offering an unknown group',
+    );
+    expect(
+      (await linked.messagesOf(gid)).map((m) => m.body),
+      ['for us'],
+      reason: 'the keys my master handed over are my keys',
+    );
+
+    // Holding the group already, so a member passes the admission and the
+    // keys are the only thing left for the rule to refuse.
+    final other = await device();
+    expect(
+      await other.ingestSnapshot(
+        master.snapshotJson((await master.load(gid))!, recipient: bob),
+      ),
+      isTrue,
+      reason: 'premise: this device holds the group without its keys',
+    );
+    expect(
+      await other.ingestGroupEntryFromStranger(bob, wire),
+      isTrue,
+      reason: 'premise: a member is admitted, so the keys are what is judged',
+    );
+    expect(
+      (await other.messagesOf(gid)).where((m) => m.body.isNotEmpty),
+      isEmpty,
+      reason: 'another member never hands over keys',
+    );
+  });
+
   test(
     'epoch E2EE persists and wires only ciphertext for messages + reactions',
     () async {
@@ -4992,6 +5084,11 @@ void main() {
         (await linked.addressableOwnDevices()).map((n) => n.hex),
         contains(sovereign.nodeId.hex),
       );
+      expect(
+        await linked.isMyDeviceOrMaster(masterDevice),
+        isFalse,
+        reason: 'premise: an unnamed device is nobody',
+      );
 
       pairOwnerSent.clear();
       expect(
@@ -5012,6 +5109,21 @@ void main() {
       await drain();
 
       expect(await linked.masterDeviceId(), masterDevice);
+      // The name it dials must be a name it ADMITS. Measured on the stand
+      // 2026-09-23: the linked device's p2p gate said `policy denies 1372fa11
+      // … known=false` to its own master's device, answered none of its
+      // endpoint shares, and no session formed in either direction — every
+      // frame between the two, group keys included, fell to the mailbox.
+      expect(
+        await linked.isMyDeviceOrMaster(masterDevice),
+        isTrue,
+        reason: 'a linked device refuses the device its master announced',
+      );
+      expect(
+        await linked.isMyDeviceOrMaster(_id(0x5A)),
+        isFalse,
+        reason: 'naming the master widens to that one device and no other',
+      );
       final named = (await linked.addressableOwnDevices())
           .map((n) => n.hex)
           .toList();
@@ -5068,6 +5180,11 @@ void main() {
       }
       await drain();
       expect(await linked.masterDeviceId(), isNull);
+      expect(
+        await linked.isMyDeviceOrMaster(masterDevice),
+        isFalse,
+        reason: 'a retired mark admits nothing',
+      );
 
       // AND THE PULL LEG, which is the other half of the same conversation.
       //
