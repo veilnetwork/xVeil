@@ -304,6 +304,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // more than one device those are different strings — which is why a peer's
   // acknowledgement of our stream, keyed by the identity, was never found.
   messaging.selfIdentityHex = () async => service.selfId.hex;
+  messaging.myOtherDevices = service.addressableOwnDevices;
   messaging.groupBindingsOwner = service;
   unawaited(service.nudgeGroupSyncAll());
 
@@ -787,5 +788,6 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.onMessageEdited = null;
   messaging.onConversationCleared = null;
   messaging.selfIdentityHex = null;
+  messaging.myOtherDevices = null;
   messaging.onGroupClearAccepted = null;
 }
