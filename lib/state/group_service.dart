@@ -6995,9 +6995,9 @@ class GroupService implements ArchiveGroups {
     if (_peerDocumentsLoaded) return Future.value();
     return _peerDocumentsLoading ??= () async {
       try {
-        final raw = await _storage.getSetting(_peerDocumentsKey);
-        if (raw != null) {
-          final decoded = jsonDecode(raw);
+        final blob = await _storage.loadFile(_peerDocumentsKey);
+        if (blob != null) {
+          final decoded = jsonDecode(utf8.decode(blob));
           if (decoded is Map) {
             decoded.forEach((key, value) {
               if (key is String && value is String) {
@@ -7060,15 +7060,30 @@ class GroupService implements ArchiveGroups {
       changed = true;
     }
     if (!changed) return;
+    // The CHUNKED file store, not a setting. A settings record holds about
+    // 2 KiB and one identity document is 2.7 KB before base64: written there,
+    // every save threw PayloadTooLarge, the catch kept the cache in memory
+    // only, and each restart forgot every document — measured on the stand as
+    // a lookup answering null after every restart until the owner happened to
+    // re-send. The fake store has no such cap, which is why no test saw it.
     try {
-      await _storage.putSetting(
+      await _storage.storeFile(
         _peerDocumentsKey,
-        jsonEncode({
-          for (final e in _peerDocuments.entries) e.key: base64Encode(e.value),
-        }),
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              for (final e in _peerDocuments.entries)
+                e.key: base64Encode(e.value),
+            }),
+          ),
+        ),
       );
-    } catch (_) {
-      // Kept in memory for this run; the next serve carries it again.
+    } catch (caught) {
+      devLog(
+        () =>
+            'xVeil[groups]: could not keep ${_peerDocuments.length} peer '
+            'document(s) — held for this run only: $caught',
+      );
     }
   }
 
