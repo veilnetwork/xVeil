@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
+import 'group_service_providers.dart';
 import 'messaging_providers.dart';
 import 'providers.dart';
 
@@ -75,6 +76,9 @@ class _ResumeReconnectObserver with WidgetsBindingObserver {
       // Mail deposited while the node was dark is already at the relay;
       // surface it now instead of on the idle cadence.
       _ref.read(messagingServiceProvider).nudgeMailboxDrain();
+      // And ask my own devices what I missed while away — the pull of the
+      // push/pull scheme; a long absence is when it matters most.
+      unawaited(_ref.read(groupServiceProvider)?.pullFromMyDevices());
     } on Object catch (e) {
       devLog(() => 'xVeil[bootstrap]: resume redial failed: $e');
     } finally {

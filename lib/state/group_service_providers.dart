@@ -177,6 +177,9 @@ Future<void> _warnIfDocumentDisownsThisDevice(
   }
 }
 
+/// How often my own devices are asked what they hold that I do not.
+const kOwnDevicePullInterval = Duration(minutes: 15);
+
 final groupServiceProvider = Provider<GroupService?>((ref) {
   // Keep document ingress wired for this unlocked identity even before the
   // document UI exists; pending invites must survive until explicit adopt.
@@ -307,6 +310,15 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   messaging.myOtherDevices = service.addressableOwnDevices;
   messaging.groupBindingsOwner = service;
   unawaited(service.nudgeGroupSyncAll());
+  // THE PULL on a clock (owner's push/pull scheme, 2026-09-23): whatever a
+  // push lost between my own devices is asked for again, at most this long
+  // after it went missing. Boot runs the full sync above; a session coming up
+  // and a resume run the same pull between ticks.
+  final ownDevicePull = Timer.periodic(
+    kOwnDevicePullInterval,
+    (_) => unawaited(service.pullFromMyDevices()),
+  );
+  ref.onDispose(ownDevicePull.cancel);
 
   // Multi-device mirror emit: bytes remain lazy content references.
   //

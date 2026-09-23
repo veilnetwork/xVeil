@@ -7,7 +7,14 @@ part of 'messaging_core.dart';
 /// session deduplication and backoff needed to keep unreachable peers from
 /// waking worker isolates every retry tick.
 class _MessagingMailboxDelivery {
-  _MessagingMailboxDelivery();
+  _MessagingMailboxDelivery({this.ownDevice});
+
+  /// Whether a destination is one of MY OWN other devices, by its device id.
+  /// Those are never deposited for: see [maybeStash].
+  /// Answers null when there is nothing to ask — then no await is spent on
+  /// the deposit path, which callers time.
+  final Future<bool>? Function(NodeId peer)? ownDevice;
+  final Set<String> _ownDeviceSkipNoted = {};
 
   MailboxSink? _mailbox;
   final Set<String> _stashed = {};
@@ -329,6 +336,28 @@ class _MessagingMailboxDelivery {
     // stays durable regardless: the flush loop deposits it once the backoff
     // expires.
     if (suppressedByBackoff(peer.hex, DateTime.now(), 'maybeStash')) {
+      return false;
+    }
+    // MY OWN DEVICES DO NOT GO THROUGH THE MAILBOX (owner's decision,
+    // 2026-09-23). They are reached live, and what one misses the other pulls
+    // when they next meet; a relay copy only loaded the mailbox — measured as
+    // some 200 deposits in nine minutes from one master to its one linked
+    // device — and the sibling could not even open a copy addressed to its
+    // device id. The frame stays in the outbox and is re-driven live until the
+    // sibling acknowledges it.
+    //
+    // The IDENTITY address is not "a device" here and still deposits: it is
+    // the fallback for a master that has not named its device, where the
+    // mailbox is the only path that fans out per instance.
+    final mine = ownDevice?.call(peer);
+    if (mine != null && await mine) {
+      if (_ownDeviceSkipNoted.add(id)) {
+        devLog(
+          () =>
+              'xVeil[send]: stash SKIP dst=${peer.short} id=$id — my own '
+              'device, reached live only',
+        );
+      }
       return false;
     }
     // Deposit only what nobody has confirmed. A live send that reached ANY
