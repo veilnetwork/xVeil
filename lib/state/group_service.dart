@@ -6312,6 +6312,9 @@ class GroupService implements ArchiveGroups {
     // Not awaited: the write is what the caller was promised, and a sibling
     // that is slow to reach must not hold up a local save.
     unawaited(_shareNewEpochKeysWithMyDevices(b));
+    // The device journal is where the master names its device; a write to it
+    // may have changed that name, so the admission cache must not outlive it.
+    if (b.manifest.isSovereignDevice) _masterDeviceCachedAtMs = null;
     if (notify) changes.value++;
   }
 
@@ -16386,7 +16389,13 @@ class GroupService implements ArchiveGroups {
     // and was accepted by this device in the ceremony; a peer that is a member
     // of it is another device of THIS identity, which is to say it is us. Any
     // node that is not in that group gets the same "no" as before.
-    if (await isMyDevice(peer)) return true;
+    //
+    // "Another device" includes my master and my own identity: a sibling's
+    // frames arrive under the IDENTITY, which on a linked device is its own
+    // selfId and is never a member of the device group. Asked with the narrow
+    // question, every group the master created after the link was refused
+    // here as a stranger's (measured on the stand 2026-09-23).
+    if (await isMyDeviceOrMaster(peer)) return true;
     if (!(await _index()).contains(gidHex)) return false;
     final NodeId gid;
     try {
@@ -16427,8 +16436,14 @@ class GroupService implements ArchiveGroups {
     }
     // Our own device's snapshot is trusted to carry the identity's epoch keys;
     // nobody else's is. Asked here, where the SENDER is still known — by the
-    // time the parse runs there is only a blob.
-    return ingestSnapshot(bundleJson, fromOwnDevice: await isMyDevice(peer));
+    // time the parse runs there is only a blob. The WIDE question, for the
+    // reason given in [allowStrangerGroupSync]: the keys a master hands its
+    // linked device arrive under the identity, and were thrown away as a
+    // stranger's until this asked it.
+    return ingestSnapshot(
+      bundleJson,
+      fromOwnDevice: await isMyDeviceOrMaster(peer),
+    );
   }
 
   /// Returns null when [bundleJson] is unrelated to the pending ceremony,
@@ -19676,8 +19691,36 @@ class GroupService implements ArchiveGroups {
     // nothing arriving at the other.
     if (peer == _signer.selfId) return true;
     if (await isMyDevice(peer)) return true;
-    return await _deviceGroupOwnerIfLinked() == peer;
+    if (await _deviceGroupOwnerIfLinked() == peer) return true;
+    // AND THE DEVICE MY MASTER ANNOUNCED, which is the name this device dials
+    // it by ([masterDeviceId]). A name we dial and then refuse is a session
+    // that never forms: measured on the stand 2026-09-23 as `policy denies
+    // 1372fa11 … known=false` on the linked device, no endpoint answer, and
+    // every frame between the two — group keys included — left to the
+    // mailbox. Asked last: it reads the device journal.
+    final master = await _masterDeviceForAdmission();
+    return master != null && master == peer;
   }
+
+  /// [masterDeviceId] behind a short cache, for the admission question alone.
+  ///
+  /// That question is asked for every peer a p2p gate or a group ingress
+  /// meets, and for anyone who is not one of mine it gets this far — while
+  /// [masterDeviceId] re-reads and re-verifies the whole device journal. A
+  /// write to the device group clears it, which is the only way the answer
+  /// changes.
+  Future<NodeId?> _masterDeviceForAdmission() async {
+    final now = _now();
+    final at = _masterDeviceCachedAtMs;
+    if (at != null && now - at <= 30000) return _masterDeviceCached;
+    final master = await masterDeviceId();
+    _masterDeviceCached = master;
+    _masterDeviceCachedAtMs = now;
+    return master;
+  }
+
+  NodeId? _masterDeviceCached;
+  int? _masterDeviceCachedAtMs;
 
   Future<bool> isMyDevice(NodeId peer) async {
     while (true) {
