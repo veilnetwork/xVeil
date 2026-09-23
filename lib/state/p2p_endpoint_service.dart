@@ -1233,7 +1233,24 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
   // …and the link back: when the ladder gets a route, whatever is queued for
   // that peer should stop waiting out a backoff measured for a peer we could
   // not reach.
-  svc.onDirectSessionUp = messaging.onDirectSessionUp;
+  // …and when that route is to one of MY OWN devices, ask it what I missed:
+  // a session coming up is exactly when "nothing was lost meanwhile" cannot
+  // be assumed. Once a minute at most, whatever the ladder does.
+  DateTime? lastOwnDevicePull;
+  svc.onDirectSessionUp = (peer) {
+    messaging.onDirectSessionUp(peer);
+    unawaited(() async {
+      final group = ref.read(groupServiceProvider);
+      if (group == null || !await group.isMyDeviceOrMaster(peer)) return;
+      final now = DateTime.now();
+      final last = lastOwnDevicePull;
+      if (last != null && now.difference(last) < const Duration(minutes: 1)) {
+        return;
+      }
+      lastOwnDevicePull = now;
+      await group.pullFromMyDevices();
+    }());
+  };
   // …and which of a peer's devices to address. A map lookup by contract: see
   // MessagingService.routeFor.
   //

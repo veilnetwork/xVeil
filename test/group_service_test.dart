@@ -1726,6 +1726,198 @@ void main() {
     );
   });
 
+  test('a row from outside is pushed on to my own devices, once', () async {
+    // The author sends to the group's members, and my other devices are not
+    // members — the identity is. So what reached one of my devices stayed
+    // there until the others next asked (owner's push/pull, 2026-09-23).
+    final sibling = _id(0xB7);
+    final ownerStorage = FakeHvContainer().storage();
+    await ownerStorage.open(password: 'pw', createIfMissing: true);
+    final sentTo = <(NodeId, String)>[];
+    final me = GroupService(
+      ownerStorage,
+      _FakeSigner(owner),
+      send: (p, g, j) async => sentTo.add((p, j)),
+    )..ownDevicesForGroupsOverride = () async => [sibling];
+    addTearDown(me.dispose);
+    final gid = await me.createGroup('Forwarded');
+    expect(
+      await me.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    final bobStorage = FakeHvContainer().storage();
+    await bobStorage.open(password: 'pw', createIfMissing: true);
+    final bobSvc = GroupService(bobStorage, _FakeSigner(bob));
+    addTearDown(bobSvc.dispose);
+    await bobSvc.ingestSnapshot(
+      me.snapshotJson((await me.load(gid))!, recipient: bob),
+    );
+    expect(await bobSvc.postMessage(gid, 'from bob', broadcast: false), isTrue);
+    final fromBob = bobSvc.snapshotJson(
+      (await bobSvc.load(gid))!,
+      recipient: owner,
+    );
+
+    List<String> toSibling() => [
+      for (final (peer, json) in sentTo)
+        if (peer == sibling) json,
+    ];
+
+    sentTo.clear();
+    expect(await me.ingestGroupEntry(bob, fromBob), isTrue);
+    await pumpEventQueue();
+    expect(
+      toSibling().any((json) => json.contains('from bob')),
+      isTrue,
+      reason: "bob's row never reached my other device",
+    );
+
+    // What one of MY devices hands me is not forwarded again: it already
+    // told everybody, and passing it on would echo between us forever.
+    final otherStorage = FakeHvContainer().storage();
+    await otherStorage.open(password: 'pw', createIfMissing: true);
+    final sentByOther = <(NodeId, String)>[];
+    final other = GroupService(
+      otherStorage,
+      _FakeSigner(owner),
+      send: (p, g, j) async => sentByOther.add((p, j)),
+    )..ownDevicesForGroupsOverride = () async => [sibling];
+    addTearDown(other.dispose);
+    await other.ingestGroupEntryFromStranger(
+      owner,
+      me.snapshotJson((await me.load(gid))!, recipient: bob, ownDevice: true),
+    );
+    await pumpEventQueue();
+    expect(
+      [
+        for (final (peer, json) in sentByOther)
+          if (peer == sibling && json.contains('from bob')) json,
+      ],
+      isEmpty,
+      reason: 'a row from my own device was forwarded again',
+    );
+  });
+
+  test('my own device is never dropped by the neighbour pick', () async {
+    // A post in a big group goes to the few members nearest by XOR, and that
+    // pick has no reason to keep a device of mine that happens to sit far.
+    final far = NodeId(Uint8List.fromList(List.filled(32, 0xFE)));
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final addressed = <NodeId>[];
+    final me = GroupService(
+      storage,
+      _FakeSigner(owner),
+      send: (p, g, j) async => addressed.add(p),
+    )..ownDevicesForGroupsOverride = () async => [far];
+    addTearDown(me.dispose);
+    final gid = await me.createGroup('Big');
+    for (var i = 2; i < 2 + GroupService.kGroupSyncNeighbors + 6; i++) {
+      expect(
+        await me.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: _id(i),
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+    }
+    expect(
+      await me.postMessage(gid, 'to the few', broadcast: false),
+      isTrue,
+    );
+    final row = (await me.load(gid))!.messages.last;
+    addressed.clear();
+    await me.broadcastDelta(gid, messages: [row]);
+    await pumpEventQueue();
+    expect(
+      addressed.toSet().length,
+      lessThan(GroupService.kGroupSyncNeighbors + 6),
+      reason: 'premise: the post went to a neighbour pick, not to everyone',
+    );
+    expect(addressed, contains(far), reason: 'my own device was dropped');
+  });
+
+  test('the pull asks only my devices, and the answer finds the asker', () async {
+    final sibling = _id(0xB7);
+    final thisDevice = _id(0x13);
+    Future<(GroupService, List<(NodeId, String)>)> device() async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final sent = <(NodeId, String)>[];
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        send: (p, g, j) async => sent.add((p, j)),
+      )..ownDevicesForGroupsOverride = () async => [sibling];
+      addTearDown(svc.dispose);
+      return (svc, sent);
+    }
+
+    final (me, sent) = await device();
+    me.myDevice = thisDevice;
+    final gid = await me.createGroup('Pulled');
+    expect(
+      await me.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect(await me.postMessage(gid, 'held here', broadcast: false), isTrue);
+
+    sent.clear();
+    await me.pullFromMyDevices();
+    final asked = [for (final (peer, _) in sent) peer];
+    expect(asked, contains(sibling), reason: 'my own device was not asked');
+    expect(asked, isNot(contains(bob)), reason: 'the pull asked a member');
+    final request = jsonDecode(
+      sent.firstWhere((e) => e.$1 == sibling).$2,
+    ) as Map;
+    expect(request['dv'], thisDevice.hex, reason: 'the ask did not name me');
+
+    // THE ANSWER. A question from my own identity naming one of my devices is
+    // answered AT that device — on the master the identity is this node.
+    final (answering, answered) = await device();
+    await answering.ingestGroupEntryFromStranger(
+      owner,
+      me.snapshotJson((await me.load(gid))!, recipient: bob, ownDevice: true),
+    );
+    answered.clear();
+    // An ask from a device that holds nothing: no vectors at all.
+    await answering.handleGroupSyncRequest(owner, {
+      'sreq': 1,
+      'gid': gid.hex,
+      'dv': sibling.hex,
+    });
+    final to = {for (final (peer, _) in answered) peer};
+    expect(to, contains(sibling), reason: 'the answer never reached the asker');
+    expect(to, isNot(contains(owner)), reason: 'the answer went to myself');
+
+    // A device that is not mine steers nothing.
+    answered.clear();
+    await answering.handleGroupSyncRequest(owner, {
+      'sreq': 1,
+      'gid': gid.hex,
+      'dv': _id(0x77).hex,
+    });
+    final steered = {for (final (peer, _) in answered) peer};
+    expect(steered, isNotEmpty, reason: 'premise: it was answered at all');
+    expect(
+      steered,
+      isNot(contains(_id(0x77))),
+      reason: 'a claimed device outside my own steered the answer',
+    );
+  });
+
   test('keys handed over by my master reach a device linked earlier', () async {
     final masterStorage = FakeHvContainer().storage();
     await masterStorage.open(password: 'pw', createIfMissing: true);
