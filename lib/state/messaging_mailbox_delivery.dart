@@ -296,17 +296,26 @@ class _MessagingMailboxDelivery {
       unawaited(maybeStash(peer, id, wire));
       return;
     }
-    if (_paused || _inFlight.length >= _maxBackgroundStashes) {
-      devLog(
-        () =>
-            'xVeil[send]: stash DEFERRED dst=${peer.short} id=$id — '
-            '${_paused ? "a call has paused background deposits" : "another "
-                      "deposit is in flight"}; the outbox flush reconsiders it',
-      );
+    // A peer under the unresolved-peer backoff first: [maybeStash] would
+    // decline it anyway, and asking here keeps the line below for deposits
+    // that are really waiting. Measured on the stand: 3 205 "deferred" lines
+    // in an hour for one peer that was never going to be deposited for.
+    if (suppressedByBackoff(peer.hex, DateTime.now(), 'stashInBackground')) {
       return;
     }
-    unawaited(maybeStash(peer, id, wire, awaitAck: awaitAck));
+    if (_paused || _inFlight.length >= _maxBackgroundStashes) {
+      _noteDeferred(peer, id);
+      return;
+    }
+    unawaited(maybeStash(peer, id, wire, awaitAck: awaitAck, background: true));
   }
+
+  void _noteDeferred(NodeId peer, String id) => devLog(
+    () =>
+        'xVeil[send]: stash DEFERRED dst=${peer.short} id=$id — '
+        '${_paused ? "a call has paused background deposits" : "another "
+                  "deposit is in flight"}; the outbox flush reconsiders it',
+  );
 
   /// Whether a relay currently hosts this device's mailbox — i.e. whether
   /// anybody could deposit for us. False before the first registration, and
@@ -327,6 +336,9 @@ class _MessagingMailboxDelivery {
     String id,
     Uint8List wire, {
     bool awaitAck = false,
+    // Admitted by [stashInBackground] under the one-slot bound, which is
+    // checked again where the slot is actually taken. See there.
+    bool background = false,
   }) async {
     // The backoff belongs HERE, at the one place a deposit is attempted, not
     // at each call site. It was checked in the outbox flush loop only, so
@@ -432,7 +444,20 @@ class _MessagingMailboxDelivery {
     // Another attempt for this id is in flight — the initial send and the
     // flush loop race for the same stable id. Answering false would tell the
     // caller nothing went out while a deposit is being made.
-    if (!_inFlight.add(id)) return true;
+    if (_inFlight.contains(id)) return true;
+    // THE SLOT IS TAKEN WHERE IT IS CHECKED. [stashInBackground] asks first,
+    // but everything between there and here can await — the own-device lookup
+    // and the ack grace both do — and every deposit offered meanwhile passed
+    // the same empty slot. Measured on the stand after a restart: eleven group
+    // frames sealing at once, all eleven out of time at [stashDeadline] with
+    // nothing deposited, and every other deposit deferred behind them. Nothing
+    // awaits between this check and the add below.
+    if (background &&
+        (_paused || _inFlight.length >= _maxBackgroundStashes)) {
+      _noteDeferred(peer, id);
+      return false;
+    }
+    _inFlight.add(id);
     // HOW LONG THE ONE SLOT WAS HELD.
     //
     // The background deposit slot is global and singular, so everything else

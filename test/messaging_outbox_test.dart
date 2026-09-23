@@ -641,6 +641,40 @@ void main() {
   );
 
   test(
+    'the one deposit slot holds while the own-device question is awaited',
+    () async {
+      // The slot was checked in one place and claimed in another, with the
+      // own-device lookup awaited in between. Every deposit offered while the
+      // first was still asking passed the check, so a flush that walked a
+      // backlog sealed all of it at once. Measured on the stand after a
+      // restart: eleven group frames in the slot together, every one of them
+      // out of time at 45 s, nothing deposited, and every other deposit
+      // deferred behind them for the whole of it.
+      final mailbox = _BlockingMailboxSink();
+      addTearDown(mailbox.release);
+      mA.attachMailbox(mailbox);
+      mA.isOwnDevice = (_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        return false;
+      };
+      tA.online = false;
+
+      await Future.wait([
+        mA.sendDurable(b, 'test:one', const WireEnvelope.reconnect('one')),
+        mA.sendDurable(b, 'test:two', const WireEnvelope.reconnect('two')),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(
+        mailbox.calls,
+        1,
+        reason: 'a deposit admitted while another is in flight is a second '
+            'seal in parallel, which the single slot exists to prevent',
+      );
+    },
+  );
+
+  test(
     'a call can pause background stash without losing the durable frame',
     () async {
       final mailbox = _BlockingMailboxSink();
