@@ -327,6 +327,45 @@ void main() {
       );
     });
 
+    test('a peer that keeps talking does not turn the re-drive ladder off '
+        'while its acks go astray', () async {
+      final id = await seed('draft');
+      tB.online = false; // B receives, but every ack it sends is lost
+      var edits = 0;
+      final sub = tB.messages().listen((m) {
+        try {
+          if (WireEnvelope.decode(m.payload).kind == WireKind.edit) edits++;
+        } catch (_) {}
+      });
+      addTearDown(sub.cancel);
+      await mA.editOwnMessage(id, 'final text');
+      await _settle();
+      expect(edits, 1);
+
+      // B is plainly alive: something of its reaches A every 11 seconds, past
+      // the flat ten-second grace every time. Before, each one rewound the
+      // unacked edit and it went again on every step — eight copies here.
+      for (var step = 0; step < 8; step++) {
+        clock = clock.add(const Duration(seconds: 11));
+        tA.inject(
+          b,
+          WireEnvelope.callSignal(
+            const CallSignal(callId: 'beat', type: CallSignalType.health)
+                .encode(),
+          ).encode(),
+        );
+        await _settle();
+        await flushA();
+      }
+      expect(
+        edits - 1,
+        inInclusiveRange(1, 4),
+        reason: 'still re-driven (the durable guarantee), but on a growing '
+            'spacing rather than every time the peer speaks',
+      );
+      expect((await sB.loadMessageHistory(a.hex, id)).length, 2);
+    });
+
     test('a re-driven EDIT is processed once even while the acks are lost '
         '(receiver dedup), then converges when the ack path heals', () async {
       final id = await seed('draft');

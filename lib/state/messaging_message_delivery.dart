@@ -47,10 +47,17 @@ class _MessagingMessageDelivery {
   /// Any authenticated inbound proves the peer's path is healthy now. Rewind
   /// pending retry windows without resetting their exponential-backoff counts.
   void nudge(String peerHex) {
-    final now = DateTime.now();
+    // The throttle runs on the service's clock, like the outbox ladder it
+    // gates; it is only ever compared with itself. On the wall clock it let
+    // one nudge through per three REAL seconds, so a test stepping the
+    // service clock saw the rewinds it was asserting about only once, and
+    // stayed green whatever the ladder did.
+    final at = _owner._now();
     final last = _lastNudgeAt[peerHex];
-    if (last != null && now.difference(last) < _retryInterval) return;
-    _lastNudgeAt[peerHex] = now;
+    if (last != null && at.difference(last) < _retryInterval) return;
+    _lastNudgeAt[peerHex] = at;
+    // The message ladder below keeps the wall clock it was stamped with.
+    final now = DateTime.now();
     var nudged = false;
     for (final id in _retryBackoff.keys.toList()) {
       final backoff = _retryBackoff[id]!;
