@@ -49,7 +49,7 @@ void main() {
     final dir = await Directory.systemTemp.createTemp('xveil-ratchet-abi');
     final ipcSock = '${dir.path}/app.sock';
     final adminSock = '${dir.path}/admin.sock';
-    final identityToml = EmbeddedNode.mineConfig(0, lib: lib);
+    final identityToml = _fixtureIdentity(0);
     final config = EmbeddedNode.composeConfig(
       identityToml: identityToml,
       listenTransport: 'quic://127.0.0.1:9174',
@@ -316,12 +316,23 @@ class _LiveNode {
   }
 }
 
+/// A pre-mined identity, one per node this file boots (ports 9174..9176).
+///
+/// Mining one here is a 24-bit proof of work in a DEBUG build of the library:
+/// measured at 36 s to 160 s a node, random each time, which is what the 90 s
+/// budgets were actually spending — the assertions themselves take 40 ms. A
+/// node checks its own identity against the canonical difficulty, so the work
+/// cannot be made lighter for a test; it can only be done once, ahead of time.
+String _fixtureIdentity(int index) =>
+    File('test/native/fixtures/ratchet_state_identity_$index.toml')
+        .readAsStringSync();
+
 Future<_LiveNode> _bootNode(DynamicLibrary lib, int port) async {
   final dir = await Directory.systemTemp.createTemp('xveil-ratchet-abi');
   final ipcSock = '${dir.path}/app.sock';
   final adminSock = '${dir.path}/admin.sock';
   final config = EmbeddedNode.composeConfig(
-    identityToml: EmbeddedNode.mineConfig(0, lib: lib),
+    identityToml: _fixtureIdentity(port - 9174),
     listenTransport: 'quic://127.0.0.1:$port',
     ipcSocket: ipcSock,
     adminSocket: adminSock,
