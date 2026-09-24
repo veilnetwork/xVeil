@@ -2190,9 +2190,76 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'chain': short(at.chain),
               'next': at.next,
             },
+            if (native.export(key) case final blob?)
+              'tree': _ratchetTreeSummary(blob),
           },
       ],
     });
+  }
+
+  /// Which chains of one stored conversation are key trees — read out of the
+  /// exported blob, because no FFI call answers it and the stand needs to see
+  /// a live conversation move from hash chains to trees.
+  ///
+  /// Walks `VRC1` to the session, then the `VSR1` layout veil documents on
+  /// `RatchetSession::export_state` up to its version-2 tail. Counts and
+  /// modes only; no key byte leaves this function.
+  static Map<String, Object?> _ratchetTreeSummary(Uint8List blob) {
+    var at = 0;
+    int u8() => blob[at++];
+    int u16() => (u8() << 8) | u8();
+    int u32() => (u16() << 16) | u16();
+    void skip(int n) => at += n;
+    void opt32() {
+      if (u8() == 1) skip(32);
+    }
+
+    try {
+      skip(4 + 1 + 32 + 1 + 8); // VRC1, version, peer_ik, proven, last_used
+      if (u8() == 1) skip(u16()); // pending prologue
+      skip(4); // session length
+      skip(4); // VSR1
+      final version = u8();
+      if (version < 2) return {'state': version};
+      skip(32); // dh_sk
+      opt32(); // dh_pk_remote
+      skip(32); // rk
+      opt32(); // cks
+      opt32(); // ckr
+      skip(12 + 1); // ns, nr, pn, sent_any
+      skip(u32() * 68); // banked hash-chain keys
+      skip(64); // pq seed
+      if (u8() == 1) skip(1088); // pending ML-KEM ciphertext
+      final peerTree = u8() == 1;
+      final sendMode = switch (u8()) {
+        0 => 'undecided',
+        1 => 'chain',
+        2 => 'tree',
+        final other => 'bad:$other',
+      };
+      final recvTree = u8() == 1;
+      final sendNodes = u32();
+      skip(sendNodes * 37);
+      final chains = u32();
+      var nodes = 0;
+      for (var i = 0; i < chains; i++) {
+        skip(32);
+        final n = u32();
+        nodes += n;
+        skip(n * 37);
+      }
+      return {
+        'state': version,
+        'peer_tree': peerTree,
+        'send': sendMode,
+        'recv_tree': recvTree,
+        'send_nodes': sendNodes,
+        'tree_chains': chains,
+        'tree_nodes': nodes,
+      };
+    } on RangeError {
+      return {'error': 'blob shorter than its layout'};
+    }
   }
 
   /// STAND ONLY. Drop every ratchet conversation with one peer, the way a
