@@ -198,9 +198,24 @@ String _verdictKey({
     ..add(at.buffer.asUint8List())
     ..add(blake3Hash(message))
     ..addByte(document == null ? 0 : 1);
-  if (document != null) builder.add(blake3Hash(document));
+  if (document != null) builder.add(_documentHash(document));
   return base64Encode(blake3Hash(builder.takeBytes()));
 }
+
+/// A document's hash, remembered against the document object itself.
+///
+/// The lookup hands back the same bytes object for an identity until it
+/// learns a newer document, and a group read asks for it once per row: a
+/// hybrid identity's document is several kilobytes, and hashing it again for
+/// every row was most of what a cached read still cost (measured on the stand:
+/// 2 ms a row on the devices reading another identity's rows, 0.5 ms on the
+/// owner). A new document is a new object and is hashed afresh; an object's
+/// bytes are not expected to change under it, since nothing that holds one
+/// writes into it.
+final Expando<Uint8List> _documentHashes = Expando('document hash');
+
+Uint8List _documentHash(Uint8List document) =>
+    _documentHashes[document] ??= blake3Hash(document);
 
 bool _sameBytes(Uint8List a, Uint8List b) {
   if (a.length != b.length) return false;
