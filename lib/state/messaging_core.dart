@@ -1657,6 +1657,17 @@ class MessagingService {
     // The peer answered SOMETHING — return its sync beacon to base cadence.
     _peerSync.noteInbound(m.src);
     _nudgeRetries(m.src.hex);
+    var silenceEnded = _outbox.noteHeard(m.src.hex);
+    // And under the DEVICE it came from, when a direct session named one. My
+    // own devices are addressed by device id while their frames arrive under
+    // our shared identity, so a sibling coming back rewound nothing it was
+    // owed and never stopped counting as silent.
+    final device = m.srcDevice;
+    if (device != null && device != m.src) {
+      _nudgeRetries(device.hex);
+      if (_outbox.noteHeard(device.hex)) silenceEnded = true;
+    }
+    if (silenceEnded) unawaited(_retryFlush());
     // ...and revive any parked downloads that list it as a holder.
     noteInboundFromPeer(m.src);
     try {

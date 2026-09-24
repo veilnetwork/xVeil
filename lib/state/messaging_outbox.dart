@@ -586,6 +586,8 @@ class _MessagingOutbox {
       // after it: a frame that was never sent must not be told to wait longer
       // for the next try.
       if (redrive.length >= _maxLiveRedrivesPerPass) continue;
+      // Past the ceiling check, so a probe is spent only on a frame that goes.
+      if (!isCallSignal && !_takeSilentProbe(frame.peerHex, now)) continue;
       final count = (backoff?.count ?? 0) + 1;
       // Call control is useful only inside the ring window and therefore uses
       // a sub-second initial ladder; ordinary durable control starts at 20s. Both grow
@@ -624,6 +626,84 @@ class _MessagingOutbox {
       );
       await boundedLiveLeg(_owner._send(entry.peer, entry.frame.wire));
     }
+  }
+
+  /// When authenticated traffic last came from each peer, by the name it
+  /// came under — the identity and, for a direct session, the device.
+  final Map<String, DateTime> _lastHeard = {};
+  final Map<String, DateTime> _nextProbeAt = {};
+  final Set<String> _silenceNoted = {};
+
+  /// How long a peer may say nothing before its frames stop being re-driven
+  /// one by one. The re-drive ladder's own ceiling: by then every frame for
+  /// it is being tried at the slowest step anyway.
+  static const _silentAfter = Duration(minutes: 10);
+
+  /// How often ONE frame is re-driven to a silent peer.
+  ///
+  /// The ladder spaces each FRAME, and a peer that has gone away collects
+  /// frames: measured on a stand, an absent linked device of one node had 143
+  /// queued and drew 81% of that node's live sends — about thirty a minute,
+  /// each a route lookup for a device that was not there, for as long as the
+  /// node ran. One frame answers the only question a re-drive can: is it back?
+  /// Nothing is dropped and no attempt is counted against the frames that
+  /// wait; the first thing heard from the peer rewinds all of them.
+  static const _silentProbeEvery = Duration(minutes: 2);
+
+  /// Traffic from [peerHex] arrived: it is not silent, and its queue goes
+  /// back to the ordinary ladder at once.
+  ///
+  /// Returns whether this ENDED a silence, in which case every frame for the
+  /// peer is due now — the recently probed ones too. [nudge] spares a frame
+  /// sent moments ago so its ack can land, but a probe sent into a silence was
+  /// lost: had it arrived, the answer would have ended the silence sooner.
+  bool noteHeard(String peerHex) {
+    final now = _owner._now();
+    final heard = _lastHeard[peerHex];
+    final wasSilent = heard != null && now.difference(heard) >= _silentAfter;
+    _lastHeard[peerHex] = now;
+    _nextProbeAt.remove(peerHex);
+    _silenceNoted.remove(peerHex);
+    if (!wasSilent) return false;
+    for (final id in _liveBackoff.keys.toList()) {
+      final backoff = _liveBackoff[id]!;
+      if (backoff.peer != peerHex || !backoff.nextAt.isAfter(now)) continue;
+      _liveBackoff[id] = (
+        count: backoff.count,
+        nextAt: now,
+        peer: backoff.peer,
+        lastSentAt: backoff.lastSentAt,
+      );
+    }
+    devLog(
+      () =>
+          'xVeil[durable]: ${peerHex.substring(0, 8)} answered after '
+          '${now.difference(heard).inMinutes}m of silence — its queue is due now',
+    );
+    return true;
+  }
+
+  /// Whether a frame for [peerHex] may be re-driven this pass, and if the peer
+  /// is silent, spend its probe.
+  ///
+  /// A peer this process has not heard from is timed from the first pass that
+  /// had something for it, so a restart does not make every quiet peer silent
+  /// at once.
+  bool _takeSilentProbe(String peerHex, DateTime now) {
+    final heard = _lastHeard.putIfAbsent(peerHex, () => now);
+    if (now.difference(heard) < _silentAfter) return true;
+    final next = _nextProbeAt[peerHex];
+    if (next != null && now.isBefore(next)) return false;
+    _nextProbeAt[peerHex] = now.add(_silentProbeEvery);
+    if (_silenceNoted.add(peerHex)) {
+      devLog(
+        () =>
+            'xVeil[durable]: ${peerHex.substring(0, 8)} silent for '
+            '${now.difference(heard).inMinutes}m — one frame re-driven per '
+            '${_silentProbeEvery.inMinutes}m until it answers',
+      );
+    }
+    return true;
   }
 
   /// Frames dialled in one flush pass.
