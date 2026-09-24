@@ -4231,13 +4231,61 @@ class GroupService implements ArchiveGroups {
     SpaceManifest manifest,
     List<ControlEntry> control,
   ) {
+    final remembered = _acceptedControlFolds[control];
+    if (remembered != null &&
+        identical(remembered.manifest, manifest) &&
+        _sameEntries(remembered.entries, control)) {
+      return remembered.accepted;
+    }
     final folded = foldControlLog(
       owner: manifest.owner,
       entries: control,
       verify: (entry) => _validControlFor(manifest, entry),
       initialName: manifest.name,
     );
-    return folded.accepted;
+    final accepted = List<ControlEntry>.unmodifiable(folded.accepted);
+    _acceptedControlFolds[control] = (
+      manifest: manifest,
+      entries: List<ControlEntry>.of(control, growable: false),
+      accepted: accepted,
+    );
+    debugControlFolds++;
+    return accepted;
+  }
+
+  /// The accepted control log, remembered against the list it was folded
+  /// from.
+  ///
+  /// Every encrypted row checks its epoch key against the accepted log, and
+  /// the check folded the WHOLE log again for each row. Profiled on the stand
+  /// (debug build, 259 rows, 3 control entries): half of every group read was
+  /// that re-fold — signatures looked up, entries hashed, heads compared — to
+  /// answer the same question 259 times.
+  ///
+  /// Held on the list object, so it lives as long as the bundle that loaded
+  /// it: `load` decodes a fresh bundle each time, and nothing keeps one. It
+  /// is used only while the manifest is the same object and the list still
+  /// holds the same entries, so a list changed in place is folded afresh.
+  static final Expando<
+    ({
+      SpaceManifest manifest,
+      List<ControlEntry> entries,
+      List<ControlEntry> accepted,
+    })
+  >
+  _acceptedControlFolds = Expando('accepted control fold');
+
+  /// How many times the control log was actually folded by
+  /// [_acceptedControl] — for the test that holds the memo to its promise.
+  @visibleForTesting
+  static int debugControlFolds = 0;
+
+  static bool _sameEntries(List<ControlEntry> a, List<ControlEntry> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!identical(a[i], b[i])) return false;
+    }
+    return true;
   }
 
   List<SpaceControlHead> _controlHeads(Iterable<ControlEntry> accepted) {

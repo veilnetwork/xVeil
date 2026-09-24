@@ -2002,6 +2002,65 @@ void main() {
     );
   });
 
+  test('a read folds the control log a fixed number of times, not once per '
+      'encrypted row', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    final gid = await svc.createGroup('Encrypted');
+    Future<void> post(int n, String prefix) async {
+      for (var i = 0; i < n; i++) {
+        expect(await svc.postMessage(gid, '$prefix $i', broadcast: false), isTrue);
+      }
+    }
+
+    Future<int> foldsOfOneRead(int expected) async {
+      GroupService.debugControlFolds = 0;
+      final messages = await svc.messagesOf(gid);
+      expect(messages, hasLength(expected));
+      expect(
+        messages.every((m) => m.body.isNotEmpty),
+        isTrue,
+        reason: 'every row decrypts',
+      );
+      return GroupService.debugControlFolds;
+    }
+
+    await post(3, 'first');
+    expect(
+      (await svc.load(gid))!.messages.every((m) => m.isEncrypted),
+      isTrue,
+      reason: 'premise: the rows are sealed, so each one checks its key',
+    );
+    final few = await foldsOfOneRead(3);
+    await post(20, 'more');
+    final many = await foldsOfOneRead(23);
+    expect(many, few, reason: 'twenty more rows cost no more folds');
+
+    // A new epoch is a new log and a new bundle: nothing folded before it
+    // stands in for it.
+    expect(
+      await svc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    expect((await svc.stateOf(gid))!.epoch, 2);
+    await post(2, 'after');
+    final bodies = [for (final m in await svc.messagesOf(gid)) m.body];
+    expect(bodies, hasLength(25));
+    expect(bodies, containsAll(['first 0', 'more 19', 'after 1']));
+  });
+
   test(
     'epoch E2EE persists and wires only ciphertext for messages + reactions',
     () async {

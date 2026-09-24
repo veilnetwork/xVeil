@@ -58,13 +58,23 @@ class NodeId {
     return NodeId(out);
   }
 
+  /// Built from a digit table, not per byte through `toRadixString` and
+  /// `padLeft`: ids are compared and keyed by this string all over a group
+  /// read, and that per-byte form was a fifth of one (profiled on the stand).
+  /// Not cached — [bytes] is a plain list its holders can write into.
   String get hex {
-    final sb = StringBuffer();
-    for (final b in bytes) {
-      sb.write(b.toRadixString(16).padLeft(2, '0'));
+    final units = Uint8List(bytes.length * 2);
+    for (var i = 0; i < bytes.length; i++) {
+      final b = bytes[i];
+      units[i * 2] = _hexDigits[b >> 4];
+      units[i * 2 + 1] = _hexDigits[b & 0x0f];
     }
-    return sb.toString();
+    return String.fromCharCodes(units);
   }
+
+  static final Uint8List _hexDigits = Uint8List.fromList(
+    '0123456789abcdef'.codeUnits,
+  );
 
   /// First 8 hex chars — enough to disambiguate in the UI.
   String get short => hex.substring(0, 8);
