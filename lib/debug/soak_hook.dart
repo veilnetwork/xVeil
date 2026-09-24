@@ -1028,6 +1028,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_state':
           await _groupStateHook(req);
           return;
+        case '/group_timing':
+          await _groupTimingHook(req);
+          return;
         case '/group_invite':
           await _groupInviteHook(req);
           return;
@@ -5591,6 +5594,39 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   }
 
   /// Snapshot: ?group= → members/epoch/policyVersion + validated msg bodies.
+  /// Where the time of a group read goes: each service call `/group_state`
+  /// makes, timed on its own, `load` twice to show whether a second read is
+  /// cheaper. The same calls the chat screen makes, so a slow one here is a
+  /// slow screen. Milliseconds; no content leaves.
+  Future<void> _groupTimingHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final svc = _groupSvc();
+    if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
+    final gidHex = req.uri.queryParameters['group'];
+    if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final gid = NodeId.fromHex(gidHex);
+    final ms = <String, int>{};
+    Future<T> timed<T>(String name, Future<T> Function() f) async {
+      final sw = Stopwatch()..start();
+      final out = await f();
+      ms[name] = sw.elapsedMilliseconds;
+      return out;
+    }
+
+    final bundle = await timed('load', () => svc.load(gid));
+    await timed('load_again', () => svc.load(gid));
+    await timed('stateOf', () => svc.stateOf(gid));
+    final msgs = await timed('messagesOf', () => svc.messagesOf(gid));
+    await timed('reactionsOf', () => svc.reactionsOf(gid));
+    return _json(req, {
+      'ok': true,
+      'ms': ms,
+      'messages': msgs.length,
+      'stored_messages': bundle?.messages.length ?? 0,
+      'control_entries': bundle?.control.length ?? 0,
+    });
+  }
+
   Future<void> _groupStateHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();

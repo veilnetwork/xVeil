@@ -5,8 +5,11 @@
 // (node_id == BLAKE3(pubKey)) inside the native verifier, so a forged key
 // cannot impersonate a member.
 
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:typed_data';
+
+import 'package:meta/meta.dart' show visibleForTesting;
 
 import '../core/ids.dart';
 import '../crypto/blake3.dart';
@@ -88,17 +91,147 @@ bool _verifyAuthored({
   int atUnixSecs = 0,
   DynamicLibrary? lib,
 }) {
+  // Never throws: this is the `verify` a fold is handed, and a throw out of it
+  // would take the whole log down with one bad row.
   try {
-    if (EmbeddedNode.verifyMessage(
-      nodeId: author.bytes,
+    return _verifyAuthoredCached(
+      author: author,
       publicKey: publicKey,
       message: message,
       signature: signature,
+      atUnixSecs: atUnixSecs,
       lib: lib,
-    )) {
-      return true;
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+bool _verifyAuthoredCached({
+  required NodeId author,
+  required Uint8List publicKey,
+  required Uint8List message,
+  required Uint8List signature,
+  required int atUnixSecs,
+  DynamicLibrary? lib,
+}) {
+  // Bound by hash: the key IS the author, no document is involved, and the
+  // native check alone decides — as before, when it was tried first.
+  final hashBound = _sameBytes(blake3Hash(publicKey), author.bytes);
+  final document = hashBound ? null : _documentLookup?.call(author);
+  final key = _verdictKey(
+    author: author,
+    publicKey: publicKey,
+    message: message,
+    signature: signature,
+    atUnixSecs: atUnixSecs,
+    document: document,
+  );
+  final now = debugVerdictClock();
+  final cached = _verdicts[key];
+  if (cached != null && now.difference(cached.at) < _verdictTtl) {
+    return cached.ok;
+  }
+  final ok = _verifyAuthoredNatively(
+    author: author,
+    publicKey: publicKey,
+    message: message,
+    signature: signature,
+    atUnixSecs: atUnixSecs,
+    hashBound: hashBound,
+    document: document,
+    lib: lib,
+  );
+  // A throw is not a verdict: nothing is remembered, and the next read asks
+  // the native side again.
+  if (ok == null) return false;
+  _verdicts.remove(key);
+  _verdicts[key] = (ok: ok, at: now);
+  if (_verdicts.length > _maxVerdicts) _verdicts.remove(_verdicts.keys.first);
+  return ok;
+}
+
+/// Verdicts of [_verifyAuthored], so a row is verified once, not per read.
+///
+/// Every read of a group verifies every row again — `load` keeps no state —
+/// and the chat screen, the unread count and each sync pass all read. Measured
+/// on the stand (debug build): 94 rows cost 0.6 s on the device that owned the
+/// group and 2–5 s on the others, where each row signed by a device key also
+/// re-verifies the author's whole identity document, Falcon signature
+/// included. A row's verdict is a function of the row and the document alone,
+/// so it is keyed by exactly those: author, key, signature, the moment judged,
+/// the message's hash and the document's hash. A different document —
+/// renewed, or revoking the key — is a different key and is asked afresh.
+///
+/// Held for [_verdictTtl] because the document check also asks the CURRENT
+/// time (a document can lapse); five minutes against windows measured in days.
+final Map<String, ({bool ok, DateTime at})> _verdicts = {};
+const _verdictTtl = Duration(minutes: 5);
+const _maxVerdicts = 8192;
+
+/// How many times a signature went to the native side — for the tests that
+/// hold the cache to its promise.
+@visibleForTesting
+int debugNativeVerifications = 0;
+
+/// The clock verdicts are aged against. A test seam; production reads the
+/// wall clock.
+@visibleForTesting
+DateTime Function() debugVerdictClock = DateTime.now;
+
+@visibleForTesting
+void debugClearVerdicts() => _verdicts.clear();
+
+String _verdictKey({
+  required NodeId author,
+  required Uint8List publicKey,
+  required Uint8List message,
+  required Uint8List signature,
+  required int atUnixSecs,
+  required Uint8List? document,
+}) {
+  final at = ByteData(8)..setUint64(0, atUnixSecs);
+  final builder = BytesBuilder(copy: false)
+    ..add(author.bytes)
+    ..add(publicKey)
+    ..add(signature)
+    ..add(at.buffer.asUint8List())
+    ..add(blake3Hash(message))
+    ..addByte(document == null ? 0 : 1);
+  if (document != null) builder.add(blake3Hash(document));
+  return base64Encode(blake3Hash(builder.takeBytes()));
+}
+
+bool _sameBytes(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// The verification itself. Null when the native side threw.
+bool? _verifyAuthoredNatively({
+  required NodeId author,
+  required Uint8List publicKey,
+  required Uint8List message,
+  required Uint8List signature,
+  required int atUnixSecs,
+  required bool hashBound,
+  required Uint8List? document,
+  DynamicLibrary? lib,
+}) {
+  debugNativeVerifications++;
+  try {
+    if (hashBound) {
+      return EmbeddedNode.verifyMessage(
+        nodeId: author.bytes,
+        publicKey: publicKey,
+        message: message,
+        signature: signature,
+        lib: lib,
+      );
     }
-    final document = _documentLookup?.call(author);
     if (document == null || document.isEmpty) return false;
     final authorised = atUnixSecs > 0
         ? EmbeddedNode.identityDocumentAuthorizedAt(
@@ -126,7 +259,7 @@ bool _verifyAuthored({
       lib: lib,
     );
   } catch (_) {
-    return false;
+    return null;
   }
 }
 
