@@ -23,7 +23,11 @@ void main() {
 
   test('native signatures bind root, control and operation to node id', () {
     final lib = DynamicLibrary.open(dylib!);
-    final identityToml = EmbeddedNode.mineConfig(0, lib: lib);
+    // Pre-mined: any identity signs, and mining one at the canonical
+    // difficulty is all this test would otherwise spend its time on.
+    final identityToml = File(
+      'test/native/fixtures/cloud_document_identity.toml',
+    ).readAsStringSync();
     final probe = EmbeddedNode.signMessage(
       identityToml,
       Uint8List.fromList([1]),
