@@ -1,0 +1,45 @@
+# TEST-ONLY identity for test/native/ratchet_state_live_test.dart. The
+# private key is intentionally public and must never be used outside
+# isolated integration tests.
+[global]
+runtime_flavor = "multi_thread"
+admin_max_connections = 32
+logs = "stderr"
+log_level = "info"
+log_format = "text"
+announce_schedule = "always"
+meeting_points = "all"
+meeting_policy = "fallback"
+meeting_min_peers = 5
+bootstrap_dns_allow_system = true
+builtin_seed_policy = "auto"
+mlkem_rotation_secs = 691200
+tls_ech_grease = true
+
+[transport]
+bandwidth_mimicry_enabled = false
+
+[transport.rotation]
+min_lifetime_secs = 1800
+max_lifetime_secs = 3600
+
+[transport.tls_fingerprint]
+mode = "rotate"
+profile = "chrome"
+rotation = [
+    "chrome",
+    "firefox",
+    "safari",
+]
+sticky = true
+
+[Identity]
+algo = "ed25519"
+public_key = "pftM63p37vztyfcVmpZBrjxR/VHnNHcwG/z/G8ZXgUw="
+private_key = "JImlN2w+JfCikPeiq/qB+3d4lRvoR3iBDxXK101SXWo="
+nonce = "AFcNAg=="
+node_id = "8b0ab765e146182873a6cb7eec1f8ebd2ad73ce9f18647b7f0d3ee4c9b73e337"
+
+[mobile]
+low_battery_multiplier = 0
+background_keepalive_multiplier = 0
