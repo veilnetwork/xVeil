@@ -32,6 +32,10 @@ class _Link implements VeilTransport {
   /// of sending rather than on what arrived.
   int sent = 0;
 
+  /// The durable frame id of each sent frame that carries one — so a test can
+  /// count the frames it queued apart from everything else a flush sends.
+  final sentFrameIds = <String>[];
+
   @override
   Future<NodeId> nodeId() async => _me;
   @override
@@ -49,6 +53,10 @@ class _Link implements VeilTransport {
   }) async {
     if (!online) return; // our egress is down — drop
     sent++;
+    try {
+      final fid = WireEnvelope.decode(payload).frameId;
+      if (fid != null) sentFrameIds.add(fid);
+    } catch (_) {}
     final p = peer;
     if (p == null || p._me != dst) return; // routed by dst, like the real net
     p._inbound.add(
@@ -59,6 +67,18 @@ class _Link implements VeilTransport {
       ),
     );
   }
+
+  /// A delivery whose direct session named the DEVICE it came from, as veil
+  /// reports it for a device of a multi-device identity.
+  void injectFromDevice(NodeId from, NodeId device, Uint8List payload) =>
+      _inbound.add(
+        InboundMessage(
+          src: from,
+          srcDevice: device,
+          payload: payload,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
 
   void inject(NodeId from, Uint8List payload) => _inbound.add(
     InboundMessage(
@@ -364,6 +384,110 @@ void main() {
             'spacing rather than every time the peer speaks',
       );
       expect((await sB.loadMessageHistory(a.hex, id)).length, 2);
+    });
+
+    test('a peer that went away gets one probe at a time, and its whole '
+        'queue again the moment it is back', () async {
+      // B is GONE: A's sends leave but reach nobody, and B says nothing — its
+      // own timers would otherwise speak for it, which is exactly the signal
+      // that must end a silence.
+      tA.peer = null;
+      tB.online = false;
+      for (var i = 0; i < 30; i++) {
+        await mA.sendDurable(b, 'test:gone:$i', WireEnvelope.reconnect('$i'));
+      }
+      await _settle();
+
+      int queued() =>
+          tA.sentFrameIds.where((f) => f.startsWith('test:gone:')).length;
+      Future<int> sendsOver(Duration span) async {
+        final before = queued();
+        final end = clock.add(span);
+        while (clock.isBefore(end)) {
+          clock = clock.add(const Duration(seconds: 30));
+          await flushA();
+        }
+        return queued() - before;
+      }
+
+      // The first ten minutes are the ordinary ladder, untouched.
+      final early = await sendsOver(const Duration(minutes: 11));
+      expect(early, greaterThan(30), reason: 'vacuity: the ladder ran');
+
+      // Then B has said nothing for ten minutes. Thirty frames at the ladder's
+      // ten-minute ceiling would be about ninety sends in half an hour.
+      final silent = await sendsOver(const Duration(minutes: 30));
+      expect(
+        silent,
+        inInclusiveRange(10, 18),
+        reason: 'one probe per two minutes to a silent peer, not one per '
+            'frame per ladder step',
+      );
+      expect(
+        (await sA.pendingOutboxFrames()).length,
+        30,
+        reason: 'nothing is dropped while the peer is away',
+      );
+
+      // B comes back and says anything at all: the whole queue goes at once,
+      // is acked, and retires.
+      tA.peer = tB;
+      tB.online = true;
+      tA.inject(
+        b,
+        WireEnvelope.callSignal(
+          const CallSignal(callId: 'back', type: CallSignalType.health).encode(),
+        ).encode(),
+      );
+      await _settle();
+      for (var i = 0; i < 4; i++) {
+        clock = clock.add(const Duration(seconds: 3));
+        await flushA();
+      }
+      expect(
+        await sA.pendingOutboxFrames(),
+        isEmpty,
+        reason: 'the first thing heard from the peer ends its silence',
+      );
+    });
+
+    test('a device addressed by its own id ends its silence by speaking '
+        'under its identity', () async {
+      // One of the identity's devices, reached by device id — how my own
+      // siblings are addressed — while its traffic arrives under the identity.
+      final device = _id(0x2D);
+      mA.isOwnDevice = (p) async => p == device;
+      tA.peer = null;
+      tB.online = false;
+      for (var i = 0; i < 6; i++) {
+        await mA.sendDurable(device, 'test:dev:$i', WireEnvelope.reconnect('$i'));
+      }
+      await _settle();
+      int devFrames() =>
+          tA.sentFrameIds.where((f) => f.startsWith('test:dev:')).length;
+      final end = clock.add(const Duration(minutes: 25));
+      while (clock.isBefore(end)) {
+        clock = clock.add(const Duration(seconds: 30));
+        await flushA();
+      }
+      final beforeBack = devFrames();
+
+      // It speaks — under the IDENTITY, with its device named by the session.
+      tA.injectFromDevice(
+        b,
+        device,
+        WireEnvelope.callSignal(
+          const CallSignal(callId: 'back', type: CallSignalType.health).encode(),
+        ).encode(),
+      );
+      // No flush from the test: hearing the device must start one itself.
+      await _settle();
+      expect(
+        devFrames() - beforeBack,
+        6,
+        reason: 'every frame owed to the device goes at once, not one probe '
+            'per two minutes — it was heard, under its identity',
+      );
     });
 
     test('a re-driven EDIT is processed once even while the acks are lost '
