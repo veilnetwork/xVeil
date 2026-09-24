@@ -1,0 +1,45 @@
+# TEST-ONLY identity for test/native/cloud_document_crypto_live_test.dart. The
+# private key is intentionally public and must never be used outside
+# isolated integration tests.
+[global]
+runtime_flavor = "multi_thread"
+admin_max_connections = 32
+logs = "stderr"
+log_level = "info"
+log_format = "text"
+announce_schedule = "always"
+meeting_points = "all"
+meeting_policy = "fallback"
+meeting_min_peers = 5
+bootstrap_dns_allow_system = true
+builtin_seed_policy = "auto"
+mlkem_rotation_secs = 691200
+tls_ech_grease = true
+
+[transport]
+bandwidth_mimicry_enabled = false
+
+[transport.rotation]
+min_lifetime_secs = 1800
+max_lifetime_secs = 3600
+
+[transport.tls_fingerprint]
+mode = "rotate"
+profile = "chrome"
+rotation = [
+    "chrome",
+    "firefox",
+    "safari",
+]
+sticky = true
+
+[Identity]
+algo = "ed25519"
+public_key = "ONtCysAji86wNT4u6xDJn2KoGVXOSIEfd9lNXSSr0/M="
+private_key = "nbnYlBJXHkhVlTOvphNhbDPmR+H4nS24tTcmpu3rzTM="
+nonce = "AaI5VA=="
+node_id = "f8c819fdf0fc39ab227c9234c2d30d44fe5dd32875f84347dfce0106038da27d"
+
+[mobile]
+low_battery_multiplier = 0
+background_keepalive_multiplier = 0
