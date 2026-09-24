@@ -36,6 +36,23 @@ void main() {
       expect(id.hex, before, reason: 'the id changed under its owner');
       expect(map[NodeId(Uint8List(32)..fillRange(0, 32, 7))], 'value');
     });
+
+    test('hex is two lowercase digits per byte, for every byte value', () {
+      // Every stored key and every comparison of ids goes through this
+      // string; the table form must spell each byte exactly as the per-byte
+      // `toRadixString` form it replaced.
+      for (var start = 0; start < 256; start += 32) {
+        final bytes = Uint8List.fromList([
+          for (var i = 0; i < 32; i++) start + i,
+        ]);
+        final expected = [
+          for (final b in bytes) b.toRadixString(16).padLeft(2, '0'),
+        ].join();
+        final id = NodeId(bytes);
+        expect(id.hex, expected);
+        expect(NodeId.fromHex(id.hex), id);
+      }
+    });
   });
 
   test('a JSON object survives a round trip through jsonEncode', () {
