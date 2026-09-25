@@ -7002,6 +7002,30 @@ class AppL10nEs extends AppL10n {
       'Lleva mucho tiempo ausente: conviene desvincularlo';
 
   @override
+  String devicesUnlinkOfferTitle(String device) {
+    return '$device lleva más de un mes sin conectarse';
+  }
+
+  @override
+  String get devicesUnlinkOfferBody =>
+      'Si ya no existe, desvincúlalo: su clave dejará de aceptarse y no se le enviará nada más. Los mensajes que lo esperan se descartarán.';
+
+  @override
+  String get devicesUnlinkAction => 'Desvincular';
+
+  @override
+  String settingsDevicesUnlinkOffer(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count dispositivos llevan más de un mes ausentes: se pueden desvincular',
+      one: '1 dispositivo lleva más de un mes ausente: se puede desvincular',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get callNotificationIncoming => 'Llamada xVeil entrante';
 
   @override
