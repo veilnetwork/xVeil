@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import '../../state/device_silence.dart';
 import '../../state/keep_all_online_controller.dart';
 import '../../state/providers.dart';
 
@@ -196,10 +197,23 @@ class AccountSettingsScreen extends ConsumerWidget {
                   ? (master.$2 == null || ctrl.isIdentityAnonymous(master.$2!))
                   : ctrl.singleIdentityAnonymous;
               if (anonymous) return const SizedBox.shrink();
+              // A device silent for a month is offered for unlinking here as
+              // well, so the offer does not wait for someone to open the
+              // devices screen.
+              final away =
+                  ref.watch(devicesToSuggestUnlinkingProvider).value?.length ??
+                  0;
               return ListTile(
                 leading: const Icon(Icons.devices_outlined),
                 title: Text(l.settingsDevices),
-                subtitle: Text(l.settingsDevicesHint),
+                subtitle: away == 0
+                    ? Text(l.settingsDevicesHint)
+                    : Text(
+                        l.settingsDevicesUnlinkOffer(away),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push('/settings/devices'),
               );

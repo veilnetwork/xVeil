@@ -439,6 +439,14 @@ class _MessagingOutbox {
       _pendingByPeer[frame.peerHex] = (_pendingByPeer[frame.peerHex] ?? 0) + 1;
     }
     _pendingSeeded = true;
+    final oldest = <String, int>{};
+    for (final frame in pending) {
+      final at = frame.enqueuedAtMs;
+      if (at == null) continue;
+      final seen = oldest[frame.peerHex];
+      if (seen == null || at < seen) oldest[frame.peerHex] = at;
+    }
+    await _loadSilences(_pendingByPeer.keys, oldestQueued: oldest);
     // THE DEPOSITS ARE A PASS OF THEIR OWN, ahead of every dial.
     //
     // The queue is one flat list, so walking it as "admit, deposit, dial" put
@@ -628,27 +636,133 @@ class _MessagingOutbox {
     }
   }
 
-  /// When authenticated traffic last came from each peer, by the name it
-  /// came under — the identity and, for a direct session, the device.
+  /// When traffic last came from each peer, by the name it came under — the
+  /// identity and, for a direct session, the device. Seeded from the stored
+  /// "last seen" the first time a pass has something for the peer, so a
+  /// restart does not make a month of silence look like none.
   final Map<String, DateTime> _lastHeard = {};
-  final Map<String, DateTime> _nextProbeAt = {};
-  final Set<String> _silenceNoted = {};
+
+  /// When this process last probed each silent peer. Stored with
+  /// [_quietSince], so the probe cadence survives a restart too.
+  final Map<String, DateTime> _lastContact = {};
+
+  /// For a peer with no stored "last seen" at all: when a pass first had
+  /// something for it. Timing a silence from there, and remembering it, is
+  /// what keeps a device never heard since it was linked from being treated
+  /// as freshly quiet after every restart.
+  final Map<String, DateTime> _quietSince = {};
+
+  /// Peers whose stored silence has been read this process.
+  final Set<String> _silenceLoaded = {};
+
+  /// The probe interval each silent peer was last logged at.
+  final Map<String, Duration> _silenceNoted = {};
 
   /// How long a peer may say nothing before its frames stop being re-driven
   /// one by one. The re-drive ladder's own ceiling: by then every frame for
   /// it is being tried at the slowest step anyway.
   static const _silentAfter = Duration(minutes: 10);
 
-  /// How often ONE frame is re-driven to a silent peer.
+  static String _probeKey(String peerHex) => 'peer_probe:$peerHex';
+
+  /// How often ONE frame is re-driven to a peer that has been silent for
+  /// [silence] — the time from when it was last heard to when it was last
+  /// probed.
   ///
   /// The ladder spaces each FRAME, and a peer that has gone away collects
   /// frames: measured on a stand, an absent linked device of one node had 143
   /// queued and drew 81% of that node's live sends — about thirty a minute,
   /// each a route lookup for a device that was not there, for as long as the
   /// node ran. One frame answers the only question a re-drive can: is it back?
+  /// And the longer it has been away, the less often that is worth asking: a
+  /// device gone for a month is probed weekly, not every two minutes forever.
   /// Nothing is dropped and no attempt is counted against the frames that
-  /// wait; the first thing heard from the peer rewinds all of them.
-  static const _silentProbeEvery = Duration(minutes: 2);
+  /// wait; the first thing heard from the peer rewinds all of them. The
+  /// mailbox copy is offered on every pass regardless, so a slow probe delays
+  /// only the live half.
+  @visibleForTesting
+  static Duration silentProbeInterval(Duration silence) {
+    if (silence >= const Duration(days: 30)) return const Duration(days: 7);
+    if (silence >= const Duration(days: 7)) return const Duration(days: 1);
+    if (silence >= const Duration(days: 1)) return const Duration(hours: 2);
+    if (silence >= const Duration(hours: 3)) return const Duration(minutes: 30);
+    if (silence >= const Duration(hours: 1)) return const Duration(minutes: 15);
+    return const Duration(minutes: 2);
+  }
+
+  /// Read, once per process, what is stored about each peer's silence.
+  ///
+  /// A peer with nothing stored at all is timed from its OLDEST frame still
+  /// waiting, when the queue knows it ([oldestQueued], ms). A peer heard since
+  /// then would have acknowledged that frame and it would be gone, so its age
+  /// is a floor under the silence — and without it a device that has been
+  /// away since before this record existed would start its silence over, and
+  /// take a month to reach the cadence a month of silence has earned.
+  Future<void> _loadSilences(
+    Iterable<String> peers, {
+    Map<String, int> oldestQueued = const {},
+  }) async {
+    for (final peerHex in peers.toList()) {
+      if (!_silenceLoaded.add(peerHex)) continue;
+      DateTime? seen;
+      try {
+        seen = await _owner.lastSeen(NodeId.fromHex(peerHex));
+      } catch (_) {}
+      String? raw;
+      try {
+        raw = await _owner._storage.getSetting(_probeKey(peerHex));
+      } catch (_) {}
+      final parts = (raw ?? '').split(',');
+      DateTime? at(int i) {
+        final ms = parts.length > i ? int.tryParse(parts[i]) : null;
+        return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+      }
+
+      var quiet = at(0);
+      final contact = at(1);
+      final queuedMs = oldestQueued[peerHex];
+      // Stamped by the wall clock when queued; one from the future (a clock
+      // that moved back) says nothing about how long the peer has been away.
+      if (seen == null &&
+          quiet == null &&
+          queuedMs != null &&
+          queuedMs <= _owner._now().millisecondsSinceEpoch) {
+        quiet = DateTime.fromMillisecondsSinceEpoch(queuedMs);
+        _quietSince[peerHex] = quiet;
+        _storeSilence(peerHex);
+      }
+      final stored = quiet;
+      if (stored != null) _quietSince.putIfAbsent(peerHex, () => stored);
+      if (contact != null) _lastContact.putIfAbsent(peerHex, () => contact);
+      final heard = seen ?? quiet;
+      final current = _lastHeard[peerHex];
+      if (heard != null && (current == null || heard.isAfter(current))) {
+        _lastHeard[peerHex] = heard;
+      }
+    }
+  }
+
+  void _storeSilence(String peerHex) {
+    final quiet = _quietSince[peerHex]?.millisecondsSinceEpoch;
+    final contact = _lastContact[peerHex]?.millisecondsSinceEpoch;
+    final value = quiet == null && contact == null
+        ? ''
+        : '${quiet ?? ''},${contact ?? ''}';
+    unawaited(() async {
+      try {
+        await _owner._storage.putSetting(_probeKey(peerHex), value);
+      } catch (_) {
+        // Best-effort: a lost record costs one early probe after a restart.
+      }
+    }());
+  }
+
+  /// When [peer] was last heard from, or — never heard — since when a pass
+  /// has had something for it. Null when neither is known.
+  Future<DateTime?> silentSince(NodeId peer) async {
+    await _loadSilences([peer.hex]);
+    return _lastHeard[peer.hex];
+  }
 
   /// Traffic from [peerHex] arrived: it is not silent, and its queue goes
   /// back to the ordinary ladder at once.
@@ -662,8 +776,12 @@ class _MessagingOutbox {
     final heard = _lastHeard[peerHex];
     final wasSilent = heard != null && now.difference(heard) >= _silentAfter;
     _lastHeard[peerHex] = now;
-    _nextProbeAt.remove(peerHex);
     _silenceNoted.remove(peerHex);
+    // The silence is over, so what was stored about it is too. Written only
+    // when there was something, so an ordinary inbound frame costs no write.
+    final hadContact = _lastContact.remove(peerHex) != null;
+    final hadQuiet = _quietSince.remove(peerHex) != null;
+    if (hadContact || hadQuiet) _storeSilence(peerHex);
     if (!wasSilent) return false;
     for (final id in _liveBackoff.keys.toList()) {
       final backoff = _liveBackoff[id]!;
@@ -686,21 +804,35 @@ class _MessagingOutbox {
   /// Whether a frame for [peerHex] may be re-driven this pass, and if the peer
   /// is silent, spend its probe.
   ///
-  /// A peer this process has not heard from is timed from the first pass that
-  /// had something for it, so a restart does not make every quiet peer silent
-  /// at once.
+  /// A peer never heard from at all is timed from the first pass that had
+  /// something for it, and that moment is stored, so neither a restart nor a
+  /// fresh process makes a long-gone peer look freshly quiet.
   bool _takeSilentProbe(String peerHex, DateTime now) {
-    final heard = _lastHeard.putIfAbsent(peerHex, () => now);
+    var heard = _lastHeard[peerHex];
+    if (heard == null) {
+      heard = _quietSince.putIfAbsent(peerHex, () => now);
+      _lastHeard[peerHex] = heard;
+      _storeSilence(peerHex);
+    }
     if (now.difference(heard) < _silentAfter) return true;
-    final next = _nextProbeAt[peerHex];
-    if (next != null && now.isBefore(next)) return false;
-    _nextProbeAt[peerHex] = now.add(_silentProbeEvery);
-    if (_silenceNoted.add(peerHex)) {
+    // THE INTERVAL IS CHOSEN BY THE SILENCE AT THE LAST PROBE — how long the
+    // peer had said nothing when it was last asked. A probe from before the
+    // peer was last heard belongs to an earlier silence and does not count.
+    final last = _lastContact[peerHex];
+    if (last != null && last.isAfter(heard)) {
+      final every = silentProbeInterval(last.difference(heard));
+      if (now.isBefore(last.add(every))) return false;
+    }
+    _lastContact[peerHex] = now;
+    _storeSilence(peerHex);
+    final every = silentProbeInterval(now.difference(heard));
+    if (_silenceNoted[peerHex] != every) {
+      _silenceNoted[peerHex] = every;
       devLog(
         () =>
             'xVeil[durable]: ${peerHex.substring(0, 8)} silent for '
-            '${now.difference(heard).inMinutes}m — one frame re-driven per '
-            '${_silentProbeEvery.inMinutes}m until it answers',
+            '${now.difference(heard!).inMinutes}m — one frame re-driven per '
+            '${every.inMinutes}m until it answers',
       );
     }
     return true;
