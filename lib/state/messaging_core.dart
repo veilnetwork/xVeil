@@ -1839,6 +1839,22 @@ class MessagingService {
     }
   }
 
+  /// Device -> the identity it was proven to belong to, learned from
+  /// authenticated frames whose direct session named the device.
+  final Map<String, NodeId> _identityOfDevice = {};
+
+  /// The identity [device] speaks for, if this process has seen it prove so.
+  ///
+  /// Everything keyed by CONTACT — the P2P policy above all — is asked about
+  /// device ids too, since acks and device-scoped sends address a device. A
+  /// contact's device is not itself a contact, so every such question came
+  /// back "unknown": the direct-connection ladder toward any device of a
+  /// multi-device contact was refused, and a peer holding a direct session
+  /// to one of its devices never got one to the other (a stand: A->E 1.2 s
+  /// over the relay, E->A 0.2 s direct). Null when not seen; nothing is
+  /// guessed from a frame that did not prove its device.
+  NodeId? identityOfDevice(NodeId device) => _identityOfDevice[device.hex];
+
   /// How long [peer] has been silent, as the durable queue times it: from
   /// when it was last heard, or — never heard — from when the queue first had
   /// something for it. Null when neither is known. What the devices screen
