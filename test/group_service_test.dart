@@ -5954,10 +5954,10 @@ void main() {
       final encrypted = veil.createHybrid512SovereignBundle(phrase);
       final sourceStorage = FakeHvContainer().storage();
       await sourceStorage.open(password: 'pw', createIfMissing: true);
-      await sourceStorage.putSetting(
-        GroupService.kSovereignBundleSetting,
-        base64Encode(encrypted),
-      );
+      // Where a credential lives: the chunked file store. A settings record
+      // cannot hold one — the hybrid blob is ~3.1 KiB and the container
+      // refuses any value over 2048 bytes.
+      await sourceStorage.storeFile(GroupService.kSovereignBundleSetting, encrypted);
       final source = GroupService(
         sourceStorage,
         _NativeSovereignVerifier(owner),
@@ -6052,26 +6052,15 @@ void main() {
       signer.close();
       expect(await service.deviceGroupIdHex(), isNotNull);
 
-      // A pre-fix store that persisted a small credential in the legacy
-      // settings key keeps opening it (read fallback).
-      final legacyStorage = FakeHvContainer().storage();
-      await legacyStorage.open(password: 'pw', createIfMissing: true);
-      final legacyPhrase = veil.generateMasterPhrase();
-      final legacyBundle = veil.createHybrid512SovereignBundle(legacyPhrase);
-      await legacyStorage.putSetting(
-        GroupService.kSovereignBundleSetting,
-        base64Encode(legacyBundle),
-      );
-      final legacy = GroupService(
-        legacyStorage,
-        _NativeSovereignVerifier(owner),
-      );
-      expect(await legacy.localSovereignBundle(), legacyBundle);
-      final reopened = await legacy.openLocalSovereign(legacyPhrase);
-      expect(reopened.algorithm, 'ed25519+falcon512');
-      reopened.close();
+      // No legacy half. It planted a hybrid credential in the old settings
+      // key to prove the read fallback reopens it, but no real store can hold
+      // one there: the container refuses values over 2048 bytes, and the fake
+      // has modelled that since report27 — so the fixture itself was the one
+      // thing that could not exist, and this test had failed on every run
+      // with the native library since. The fallback read stays covered where
+      // its input is real: a corrupt settings record fails closed (the
+      // snapshot test above).
       await storage.close();
-      await legacyStorage.close();
     },
     skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test hybrid XVSB',
   );
