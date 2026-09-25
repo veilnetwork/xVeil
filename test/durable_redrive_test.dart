@@ -587,6 +587,36 @@ void main() {
       );
     });
 
+    test('a device its session proved is known as its identity\'s, and a '
+        'claimed one is not', () async {
+      final proven = _id(0x3A);
+      final claimed = _id(0x3B);
+      tA.injectFromDevice(
+        b,
+        proven,
+        WireEnvelope.callSignal(
+          const CallSignal(callId: 'p', type: CallSignalType.health).encode(),
+        ).encode(),
+      );
+      // The same shape with nothing verified: the sender only SAID who it is.
+      tA._inbound.add(
+        InboundMessage(
+          src: b,
+          srcDevice: claimed,
+          payload: WireEnvelope.callSignal(
+            const CallSignal(callId: 'c', type: CallSignalType.health).encode(),
+          ).encode(),
+        ),
+      );
+      await _settle();
+      expect(mA.identityOfDevice(proven), b);
+      expect(
+        mA.identityOfDevice(claimed),
+        isNull,
+        reason: 'a device is tied to an identity only on authenticated evidence',
+      );
+    });
+
     test('a device its session proved is recorded as seen under its own id',
         () async {
       final device = _id(0x2E);
