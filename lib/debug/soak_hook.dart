@@ -74,6 +74,7 @@ import '../domain/cloud_rich_text_crdt.dart';
 import '../domain/cloud_document.dart';
 import '../state/api_server.dart';
 import '../state/app_controller.dart';
+import '../state/device_silence.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart';
 import '../state/mailbox_service.dart';
@@ -3053,6 +3054,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // — a member list alone cannot distinguish "my other phone" from "a
       // handset wiped in August that still collects every snapshot".
       final seen = await messaging.lastSeen(m.nodeId);
+      // What the devices screen judges an unlink offer by: the queue's own
+      // silence, which a never-heard device has too.
+      final silent = await messaging.silentSince(m.nodeId);
       members.add({
         'id': m.nodeId.hex,
         'short': m.nodeId.short,
@@ -3060,6 +3064,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         'lastSeenMs': seen?.millisecondsSinceEpoch,
         'awayMs': seen == null ? null : now.difference(seen).inMilliseconds,
         'queued': messaging.debugPendingFor(m.nodeId.hex),
+        'silentSinceMs': silent?.millisecondsSinceEpoch,
+        'unlinkOffered': suggestUnlinking(silentSince: silent, now: now),
       });
     }
     return _json(req, {
