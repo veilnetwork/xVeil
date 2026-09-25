@@ -6909,6 +6909,30 @@ class AppL10nEn extends AppL10n {
   String get devicesAwayLong => 'Away a long time — consider unlinking';
 
   @override
+  String devicesUnlinkOfferTitle(String device) {
+    return '$device has not been in touch for over a month';
+  }
+
+  @override
+  String get devicesUnlinkOfferBody =>
+      'If it is gone for good, unlink it: its key stops being accepted and nothing more is sent to it. Messages still waiting for it are dropped.';
+
+  @override
+  String get devicesUnlinkAction => 'Unlink';
+
+  @override
+  String settingsDevicesUnlinkOffer(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count devices have been away for over a month — they can be unlinked',
+      one: '1 device has been away for over a month — it can be unlinked',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get callNotificationIncoming => 'Incoming xVeil call';
 
   @override

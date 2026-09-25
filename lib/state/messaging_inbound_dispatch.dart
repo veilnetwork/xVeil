@@ -140,6 +140,12 @@ extension _MessagingInboundDispatch on MessagingService {
       // `src` is a name the sender wrote, and a device that has been gone for
       // months must not look present because somebody claimed its id.
       unawaited(notePeerSeen(m.src));
+      // And the DEVICE the session proved, when it named one. My own devices
+      // are listed — and judged for unlinking — by device id, while their
+      // frames arrive under our shared identity: recorded under the identity
+      // alone, a sibling that talks every day read as never seen.
+      final device = m.srcDevice;
+      if (device != null && device != m.src) unawaited(notePeerSeen(device));
     }
 
     // ── X/V-01: the name is not the sender ────────────────────────────────

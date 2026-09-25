@@ -14,6 +14,7 @@ import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/clear_policy.dart';
+import 'package:xveil/state/device_silence.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -448,6 +449,161 @@ void main() {
         await sA.pendingOutboxFrames(),
         isEmpty,
         reason: 'the first thing heard from the peer ends its silence',
+      );
+    });
+
+    test('the probe interval grows with the silence', () {
+      Duration at(Duration silence) =>
+          MessagingService.silentProbeInterval(silence);
+      expect(at(const Duration(minutes: 10)), const Duration(minutes: 2));
+      expect(at(const Duration(minutes: 59)), const Duration(minutes: 2));
+      expect(at(const Duration(hours: 1)), const Duration(minutes: 15));
+      expect(at(const Duration(hours: 3)), const Duration(minutes: 30));
+      expect(at(const Duration(hours: 23)), const Duration(minutes: 30));
+      expect(at(const Duration(days: 1)), const Duration(hours: 2));
+      expect(at(const Duration(days: 7)), const Duration(days: 1));
+      expect(at(const Duration(days: 29)), const Duration(days: 1));
+      expect(at(const Duration(days: 30)), const Duration(days: 7));
+      expect(at(const Duration(days: 400)), const Duration(days: 7));
+    });
+
+    test('a long silence is probed on the long ladder, and a restart keeps '
+        'both the silence and the cadence', () async {
+      // B was heard during the handshake, then went away for good.
+      tA.peer = null;
+      tB.online = false;
+      for (var i = 0; i < 5; i++) {
+        await mA.sendDurable(b, 'test:far:$i', WireEnvelope.reconnect('$i'));
+      }
+      await _settle();
+      int far() => tA.sentFrameIds.where((f) => f.startsWith('test:far:')).length;
+      Future<int> sendsOver(
+        MessagingService m,
+        Duration span,
+        Duration step,
+      ) async {
+        final before = far();
+        final end = clock.add(span);
+        while (clock.isBefore(end)) {
+          clock = clock.add(step);
+          await m.flushOutbox();
+          await _settle();
+        }
+        return far() - before;
+      }
+
+      // The first silent minutes: the ordinary ladder, then two-minute probes.
+      await sendsOver(mA, const Duration(minutes: 12), const Duration(seconds: 30));
+
+      // Five hours on: the probe that wakes the ladder, then one per 30 min.
+      clock = clock.add(const Duration(hours: 5));
+      expect(await sendsOver(mA, const Duration(minutes: 1), const Duration(minutes: 1)), 1);
+      expect(
+        await sendsOver(mA, const Duration(minutes: 29), const Duration(minutes: 1)),
+        0,
+        reason: 'silent for five hours: the next probe is thirty minutes out',
+      );
+      expect(await sendsOver(mA, const Duration(minutes: 1), const Duration(minutes: 1)), 1);
+
+      // A restart. The last probe was a minute ago and B was last heard five
+      // hours before it; both are stored, so the new process neither starts
+      // a fresh ten-minute ladder nor probes at once.
+      await mA.dispose();
+      final mA2 = MessagingService(tA, sA, now: () => clock)..start();
+      addTearDown(mA2.dispose);
+      await _settle();
+      expect(
+        await sendsOver(mA2, const Duration(minutes: 28), const Duration(minutes: 1)),
+        0,
+        reason: 'the restart must not reset the silence or the cadence',
+      );
+      expect(await sendsOver(mA2, const Duration(minutes: 2), const Duration(minutes: 1)), 1);
+
+      // Eight days on: one probe a day.
+      clock = clock.add(const Duration(days: 8));
+      expect(await sendsOver(mA2, const Duration(hours: 1), const Duration(hours: 1)), 1);
+      expect(
+        await sendsOver(mA2, const Duration(hours: 22), const Duration(hours: 1)),
+        0,
+        reason: 'silent for over a week: one probe a day',
+      );
+      expect(await sendsOver(mA2, const Duration(hours: 2), const Duration(hours: 1)), 1);
+
+      // Past a month: one probe a week.
+      clock = clock.add(const Duration(days: 30));
+      expect(await sendsOver(mA2, const Duration(hours: 1), const Duration(hours: 1)), 1);
+      expect(
+        await sendsOver(mA2, const Duration(days: 6), const Duration(hours: 6)),
+        0,
+        reason: 'silent for over a month: one probe a week',
+      );
+      expect(
+        (await sA.pendingOutboxFrames()).length,
+        5,
+        reason: 'nothing is dropped for being away',
+      );
+      expect(
+        await mA2.silentSince(b),
+        isNotNull,
+        reason: 'the devices screen reads the same silence',
+      );
+    });
+
+    test('a device never heard is timed from its oldest waiting frame, so an '
+        'upgrade does not start a long silence over', () async {
+      final device = _id(0x2F);
+      mA.isOwnDevice = (p) async => p == device;
+      tA.peer = null;
+      for (var i = 0; i < 3; i++) {
+        await mA.sendDurable(device, 'test:old:$i', WireEnvelope.reconnect('$i'));
+      }
+      await _settle();
+      // Frames are stamped by the wall clock; forty days later, a fresh
+      // process that has nothing stored about this device.
+      await mA.dispose();
+      clock = DateTime.now().add(const Duration(days: 40));
+      final mA2 = MessagingService(tA, sA, now: () => clock)
+        ..isOwnDevice = (p) async => p == device;
+      mA2.start();
+      addTearDown(mA2.dispose);
+      await _settle();
+      int old() => tA.sentFrameIds.where((f) => f.startsWith('test:old:')).length;
+      final before = old();
+      for (var i = 0; i < 10; i++) {
+        clock = clock.add(const Duration(minutes: 1));
+        await mA2.flushOutbox();
+        await _settle();
+      }
+      expect(
+        old() - before,
+        1,
+        reason: 'forty days of silence: one probe, not the ten-minute ladder '
+            'over every frame',
+      );
+      expect(
+        suggestUnlinking(silentSince: await mA2.silentSince(device), now: clock),
+        isTrue,
+        reason: 'and the devices screen offers it for unlinking',
+      );
+    });
+
+    test('a device its session proved is recorded as seen under its own id',
+        () async {
+      final device = _id(0x2E);
+      expect(await mA.lastSeen(device), isNull);
+      tA.injectFromDevice(
+        b,
+        device,
+        WireEnvelope.callSignal(
+          const CallSignal(callId: 'hi', type: CallSignalType.health).encode(),
+        ).encode(),
+      );
+      await _settle();
+      expect(
+        await mA.lastSeen(device),
+        clock,
+        reason: 'siblings are listed by device id; recorded under the '
+            'identity alone, a device that talks daily read as never seen',
       );
     });
 

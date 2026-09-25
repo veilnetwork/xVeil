@@ -6966,6 +6966,31 @@ class AppL10nRu extends AppL10n {
       'Давно не появлялось — возможно, стоит отвязать';
 
   @override
+  String devicesUnlinkOfferTitle(String device) {
+    return '$device не выходит на связь больше месяца';
+  }
+
+  @override
+  String get devicesUnlinkOfferBody =>
+      'Если этого устройства больше нет, отвяжите его: его ключ перестанет приниматься, и ему больше ничего не будут отправлять. Сообщения, которые ждут его, будут удалены.';
+
+  @override
+  String get devicesUnlinkAction => 'Отвязать';
+
+  @override
+  String settingsDevicesUnlinkOffer(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count устройства не на связи больше месяца — их можно отвязать',
+      many: '$count устройств не на связи больше месяца — их можно отвязать',
+      few: '$count устройства не на связи больше месяца — их можно отвязать',
+      one: '$count устройство не на связи больше месяца — его можно отвязать',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get callNotificationIncoming => 'Входящий вызов xVeil';
 
   @override

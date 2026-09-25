@@ -1839,6 +1839,17 @@ class MessagingService {
     }
   }
 
+  /// How long [peer] has been silent, as the durable queue times it: from
+  /// when it was last heard, or — never heard — from when the queue first had
+  /// something for it. Null when neither is known. What the devices screen
+  /// asks before suggesting a device be unlinked.
+  Future<DateTime?> silentSince(NodeId peer) => _outbox.silentSince(peer);
+
+  /// The probe cadence for a peer silent for [silence]; see the queue.
+  @visibleForTesting
+  static Duration silentProbeInterval(Duration silence) =>
+      _MessagingOutbox.silentProbeInterval(silence);
+
   /// Drop every durable frame still queued for [peer].
   ///
   /// For a peer that is going away for good — a revoked device — the queue is

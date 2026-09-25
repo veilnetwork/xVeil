@@ -12170,6 +12170,30 @@ abstract class AppL10n {
   /// **'Away a long time — consider unlinking'**
   String get devicesAwayLong;
 
+  /// Card on the devices screen offering to unlink a device silent for a month or more.
+  ///
+  /// In en, this message translates to:
+  /// **'{device} has not been in touch for over a month'**
+  String devicesUnlinkOfferTitle(String device);
+
+  /// No description provided for @devicesUnlinkOfferBody.
+  ///
+  /// In en, this message translates to:
+  /// **'If it is gone for good, unlink it: its key stops being accepted and nothing more is sent to it. Messages still waiting for it are dropped.'**
+  String get devicesUnlinkOfferBody;
+
+  /// No description provided for @devicesUnlinkAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlink'**
+  String get devicesUnlinkAction;
+
+  /// No description provided for @settingsDevicesUnlinkOffer.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, one{1 device has been away for over a month — it can be unlinked} other{{count} devices have been away for over a month — they can be unlinked}}'**
+  String settingsDevicesUnlinkOffer(int count);
+
   /// Foreground-service notification title while a 1:1 call is ringing in.
   ///
   /// In en, this message translates to:
