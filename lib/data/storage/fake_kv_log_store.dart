@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'kv_log_store.dart';
@@ -120,9 +121,14 @@ class FakeKvLogStore implements KvLogStore, SyncCommitAnchorSource {
           // container would reject (report27 X31/X32/X33/X36). A fake more
           // permissive than the thing it stands for is how those shipped.
           if (value.length > kFakeMaxValueBytes) {
+            // Named by its key: the write that trips this is often a
+            // background one, whose stack ends at the storage call and says
+            // nothing of who made it.
             throw StateError(
               'value exceeds MAX_VALUE_LEN (${value.length} > '
-              '$kFakeMaxValueBytes): the container would refuse this write',
+              '$kFakeMaxValueBytes) under key '
+              '"${utf8.decode(key, allowMalformed: true)}": the container '
+              'would refuse this write',
             );
           }
           (_kv[namespace] ??= {})[_hexKey(key)] = value;

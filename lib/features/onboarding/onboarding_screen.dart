@@ -45,7 +45,7 @@ class OnboardingScreen extends ConsumerStatefulWidget {
     super.key,
     this.validatePhrase = veilPhraseValid,
     this.generatePhrase = veilGeneratePhrase,
-    this.mintIdentity = mintSovereignIdentity,
+    this.mintIdentity,
     this.saveCertificate,
     this.restoreCheck = nativeRecoveryCodeOpens,
     this.pickCertificate,
@@ -67,7 +67,13 @@ class OnboardingScreen extends ConsumerStatefulWidget {
   /// Mints the identity on the create path. Injectable for the same reason as
   /// the two above: it runs two Argon2 passes through the native library,
   /// which the test host does not load.
-  final MintedRecovery Function() mintIdentity;
+  ///
+  /// Null means the real mint, drawing its phrase from [generatePhrase]. It
+  /// drew from the native generator directly, so a screen told "this device
+  /// cannot make a phrase" minted anyway wherever the library was loaded, and
+  /// the test that asks for exactly that refusal passed only where the library
+  /// was absent — the environment dependence [generatePhrase] exists to end.
+  final MintedRecovery Function()? mintIdentity;
 
   /// Writes the certificate out. Injectable because the real one opens a file
   /// dialog and touches the disk; null means the real one.
@@ -547,7 +553,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             ),
             6 => _LinkStep(onNext: () => _go(3)),
             8 => RecoveryCertificateStep(
-              mintFresh: widget.mintIdentity,
+              mintFresh:
+                  widget.mintIdentity ??
+                  () => mintSovereignIdentity(
+                    generatePhrase: widget.generatePhrase,
+                  ),
               save: widget.saveCertificate,
               // Empty on the create path, which is now every create: the step
               // mints the identity itself and its code is the only secret.
