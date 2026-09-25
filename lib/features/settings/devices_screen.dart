@@ -34,6 +34,7 @@ import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
+import '../../state/device_silence.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/providers.dart';
 import '../contacts/qr_scan_screen.dart';
@@ -232,7 +233,12 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   /// Past this, a device is worth a nudge toward unlinking: it is long enough
   /// that a phone in a drawer over a holiday does not trip it, and short enough
   /// that a handset replaced months ago is obvious.
-  static const _awayIsLong = Duration(days: 30);
+  static const _awayIsLong = kDeviceAwayLong;
+
+  /// Devices this one may unlink that have been silent for [_awayIsLong]:
+  /// each gets a card at the top with the action on it, not only a red line
+  /// in the list.
+  List<NodeId> _unlinkOffers = const [];
   bool _loading = true;
   bool _hasSovereignBundle = false;
   bool _certificateSaved = true;
@@ -395,9 +401,21 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     for (final m in members) {
       seen[m.hex] = await messaging.lastSeen(m);
     }
+    final now = DateTime.now();
+    final offer = <NodeId>[];
+    for (final m in members) {
+      if (!revocable.contains(m.hex) || m == self) continue;
+      if (suggestUnlinking(
+        silentSince: await messaging.silentSince(m),
+        now: now,
+      )) {
+        offer.add(m);
+      }
+    }
     if (!mounted) return;
     setState(() {
       _lastSeen = seen;
+      _unlinkOffers = offer;
       _members = members;
       _revocable = revocable;
       _hasSovereignBundle = hasBundle;
@@ -799,6 +817,36 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
                 );
               },
             ),
+          if (!_loading)
+            for (final device in _unlinkOffers)
+              Card(
+                key: ValueKey('unlink-offer-${device.hex}'),
+                margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                color: Theme.of(context).colorScheme.secondaryContainer,
+                child: ListTile(
+                  leading: Icon(
+                    Icons.link_off,
+                    color: Theme.of(context).colorScheme.onSecondaryContainer,
+                  ),
+                  title: Text(
+                    l.devicesUnlinkOfferTitle(device.short),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                  subtitle: Text(
+                    l.devicesUnlinkOfferBody,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                  isThreeLine: true,
+                  trailing: TextButton(
+                    onPressed: () => _revoke(device),
+                    child: Text(l.devicesUnlinkAction),
+                  ),
+                ),
+              ),
           if (_loading)
             const LinearProgressIndicator()
           else if (_members.isEmpty)

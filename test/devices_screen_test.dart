@@ -17,6 +17,7 @@ import 'support/fake_hv_container.dart';
 
 void main() {
   _devicesRowActions();
+  _devicesUnlinkOffer();
   testWidgets(
     'shows both guided roles and disables them before node readiness',
     (tester) async {
@@ -208,6 +209,70 @@ class _Sovereign implements SovereignGroupSigner {
   Uint8List sign(Uint8List message) => _sig(publicKey, message);
   @override
   void close() {}
+}
+
+void _devicesUnlinkOffer() {
+  group('a device silent for a month is offered for unlinking', () {
+    Future<(AppL10n, NodeId)> pumpWithSilence(
+      WidgetTester tester,
+      Duration silence,
+    ) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(storage, _Signer(_id(1)));
+      addTearDown(svc.dispose);
+      final bob = _id(3);
+      expect(await svc.linkDevice(bob, sovereign: _Sovereign(_id(9))), isTrue);
+      // What the durable queue stores about a device it has had frames for
+      // and never heard: since when it has been waiting.
+      final since = DateTime.now().subtract(silence).millisecondsSinceEpoch;
+      await storage.putSetting('peer_probe:${bob.hex}', '$since,');
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            groupServiceProvider.overrideWithValue(svc),
+            storageProvider.overrideWithValue(storage as Storage),
+          ],
+          child: MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: const DevicesScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return (AppL10n.of(tester.element(find.byType(DevicesScreen))), bob);
+    }
+
+    testWidgets('with the action on it', (tester) async {
+      final (l, bob) = await pumpWithSilence(
+        tester,
+        const Duration(days: 40),
+      );
+      final card = find.byKey(ValueKey('unlink-offer-${bob.hex}'));
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.text(l.devicesUnlinkOfferTitle(bob.short)),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: card,
+          matching: find.widgetWithText(TextButton, l.devicesUnlinkAction),
+        ),
+        findsOneWidget,
+        reason: 'an offer with nothing to press is a notice, not an offer',
+      );
+    });
+
+    testWidgets('and not after a week', (tester) async {
+      final (_, bob) = await pumpWithSilence(tester, const Duration(days: 7));
+      expect(find.byKey(ValueKey('unlink-offer-${bob.hex}')), findsNothing);
+    });
+  });
 }
 
 void _devicesRowActions() {
