@@ -7,6 +7,7 @@ import '../data/storage/storage.dart';
 import '../domain/p2p_policy.dart';
 import 'app_controller.dart';
 import 'group_service_providers.dart';
+import 'messaging_providers.dart';
 import 'providers.dart';
 
 class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
@@ -104,7 +105,11 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
       // machine).
       final group = ref.read(groupServiceProvider);
       if (group != null && await group.isMyDeviceOrMaster(peer)) return true;
-      final contact = await ref.read(storageProvider).getContact(peer);
+      final contact = await policyContactFor(
+        peer,
+        getContact: ref.read(storageProvider).getContact,
+        identityOfDevice: ref.read(messagingServiceProvider).identityOfDevice,
+      );
       final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
       final allowed = p2pMessagingAllows(
         global: state,
@@ -143,7 +148,11 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
       // the sibling's own share on the floor, and the session never formed.
       final group = ref.read(groupServiceProvider);
       if (group != null && await group.isMyDeviceOrMaster(peer)) return true;
-      final contact = await ref.read(storageProvider).getContact(peer);
+      final contact = await policyContactFor(
+        peer,
+        getContact: ref.read(storageProvider).getContact,
+        identityOfDevice: ref.read(messagingServiceProvider).identityOfDevice,
+      );
       final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
       final accepted = contact?.status == ContactStatus.accepted;
       final blocked = contact?.status == ContactStatus.blocked;
@@ -178,3 +187,25 @@ final p2pPolicyProvider =
     NotifierProvider<P2PPolicyController, P2PGlobalPolicy>(
       P2PPolicyController.new,
     );
+
+/// The contact a P2P question about [peer] is really about: [peer] itself, or,
+/// for a device, the identity it was proven to speak for.
+///
+/// Acks and device-scoped sends address a DEVICE, and a contact's device is
+/// not itself a contact — so both P2P gates found no contact for it and
+/// refused as "unknown". With a direct session to one device of a
+/// multi-device contact, the ladder toward its other device was refused on
+/// every attempt and that half of the conversation stayed on the relay.
+/// The owner comes only from [identityOfDevice], which knows a device only
+/// once an authenticated session proved it; an unproven device stays unknown.
+Future<Contact?> policyContactFor(
+  NodeId peer, {
+  required Future<Contact?> Function(NodeId) getContact,
+  required NodeId? Function(NodeId) identityOfDevice,
+}) async {
+  final direct = await getContact(peer);
+  if (direct != null) return direct;
+  final owner = identityOfDevice(peer);
+  if (owner == null || owner == peer) return null;
+  return getContact(owner);
+}
