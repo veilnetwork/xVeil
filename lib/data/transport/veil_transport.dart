@@ -129,6 +129,7 @@ class PeerInfo {
     required this.direction,
     required this.transport,
     this.lastSeen,
+    this.relayCapable,
   });
 
   final NodeId nodeId;
@@ -142,6 +143,11 @@ class PeerInfo {
   /// When this device last observed the peer active. Null until first seen.
   final DateTime? lastSeen;
 
+  /// Whether the peer advertised in its handshake that it relays anonymity
+  /// circuits — the only kind of peer a mailbox can register with. Null when
+  /// the node does not know, which is NOT false: keep such a peer.
+  final bool? relayCapable;
+
   bool get isActive => state == PeerState.active;
 
   PeerInfo copyWith({PeerState? state, DateTime? lastSeen}) => PeerInfo(
@@ -150,6 +156,7 @@ class PeerInfo {
     direction: direction,
     transport: transport,
     lastSeen: lastSeen ?? this.lastSeen,
+    relayCapable: relayCapable,
   );
 }
 
