@@ -295,6 +295,7 @@ class _StreamLink
     implements VeilTransport, StreamTransport, P2PStreamTransport {
   _StreamLink(this._me);
   final NodeId _me;
+  NodeId get nodeIdSync => _me;
   final _in = StreamController<InboundMessage>.broadcast();
   _StreamLink? peer;
   final routes = <String, _StreamLink>{};
@@ -944,6 +945,67 @@ void main() {
       isNull,
       reason: 'the identity address may name a sibling without the bytes',
     );
+  });
+
+  test('a file my other device sent is pulled from that device', () async {
+    // B and A are two devices of identity X. A sent a file to someone else;
+    // B holds the mirrored message, whose source is X — its OWN identity,
+    // which is no contact and which this very device answers to. The stand
+    // said `no live offer` for every such file.
+    // As production builds them: the direct lane's accept loop runs, the
+    // contact policy says no — my own device goes direct regardless.
+    await mA.dispose();
+    await mB.dispose();
+    mA = MessagingService(
+      tA,
+      sA,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      p2pStreamAllowed: (_) async => false,
+    )..start();
+    mB = MessagingService(
+      tB,
+      sB,
+      contentPacing: Duration.zero,
+      plainFileStream: true,
+      p2pStreamAllowed: (_) async => false,
+    )..start();
+    final identity = _id(0x77);
+    final carol = _StreamLink(_id(0x33));
+    tA.routes[carol.nodeIdSync.hex] = carol;
+    await sA.upsertContact(
+      Contact(nodeId: carol.nodeIdSync, status: ContactStatus.accepted),
+    );
+    final data = _rnd(90000, 95);
+    await mA.sendFileStreaming(
+      carol.nodeIdSync,
+      'from-my-other-device.bin',
+      data.length,
+      (o, l) async => Uint8List.sublistView(data, o, o + l),
+      close: () async {},
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+    final cid = ContentManifest.fromBytes(
+      'from-my-other-device.bin',
+      data,
+    ).contentId;
+    mB.selfIdentityHex = () async => identity.hex;
+    mB.isOwnDevice = (p) async => p == a || p == identity;
+    mA.isOwnDevice = (p) async => p == b || p == identity;
+
+    // CONTROL: this device does not know its siblings — nothing to ask.
+    expect(
+      await mB.downloadContentFromAny([identity], cid),
+      ContentDownloadResult.noOffer,
+    );
+    expect(await sB.loadFile(cid), isNull);
+
+    mB.myOtherDevices = () async => [a];
+    expect(
+      await mB.downloadContentFromAny([identity], cid),
+      ContentDownloadResult.started,
+    );
+    expect(await sB.loadFile(cid), data);
   });
 
   test('a direct stream open that proves nothing is not served', () async {
