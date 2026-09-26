@@ -10130,6 +10130,18 @@ abstract class AppL10n {
   /// **'Prepare secure link'**
   String get devicesPrepare;
 
+  /// Switch on the join-an-identity sheet: pull files above the auto-download size along with the copied history.
+  ///
+  /// In en, this message translates to:
+  /// **'Also download heavy media from the history'**
+  String get devicesHistoryHeavyMedia;
+
+  /// No description provided for @devicesHistoryHeavyMediaHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Files above your auto-download size come with the history for the next 24 hours. Off: they stay as links and download when you open them.'**
+  String get devicesHistoryHeavyMediaHint;
+
   /// No description provided for @devicesAdoptionQrTitle.
   ///
   /// In en, this message translates to:

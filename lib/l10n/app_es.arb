@@ -2385,6 +2385,8 @@
   "devicesTargetInviteHint": "Escanea o pega la invitación de arranque que muestra el dispositivo nuevo",
   "devicesShowMyInvite": "Primero, enséñale esta invitación al dispositivo que ya tienes",
   "devicesPrepare": "Preparar el enlace seguro",
+  "devicesHistoryHeavyMedia": "Descargar también los archivos pesados del historial",
+  "devicesHistoryHeavyMediaHint": "Los archivos que superan tu límite de descarga automática llegarán con el historial durante las próximas 24 horas. Desactivado: quedan como enlaces y se descargan al abrirlos.",
   "devicesAdoptionQrTitle": "Escanea esto en el dispositivo nuevo",
   "devicesAdoptionQrHint": "Primero escanea allí este código de configuración. Después vuelve aquí y envía la configuración cifrada.",
   "devicesQrTooLarge": "Este código es demasiado largo para mostrarse como código QR. Cópialo y pégalo en el otro dispositivo, o envía la configuración cifrada por la red.",

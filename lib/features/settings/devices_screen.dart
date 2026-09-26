@@ -1761,6 +1761,10 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
   String? _error;
   bool _busy = false;
 
+  /// "Heavy media too?" — asked here, before the link, because this is the
+  /// one moment the person is deciding what this device should hold.
+  bool _heavyMedia = false;
+
   @override
   void initState() {
     super.initState();
@@ -1827,6 +1831,12 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
         throw StateError('admission rejected');
       }
       _token.clear();
+      if (_heavyMedia) {
+        await widget.service.storage.putSetting(
+          kHeavyHistoryMediaUntilKey,
+          '${DateTime.now().add(kHeavyHistoryMediaWindow).millisecondsSinceEpoch}',
+        );
+      }
       // The admission is on disk, so it survives the restart; the node comes
       // back as the identity the token names and takes the snapshot then.
       if (adoptionNeedsNodeRestart(
@@ -1924,7 +1934,15 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _heavyMedia,
+              onChanged: _busy ? null : (v) => setState(() => _heavyMedia = v),
+              title: Text(l.devicesHistoryHeavyMedia),
+              subtitle: Text(l.devicesHistoryHeavyMediaHint),
+            ),
+            const SizedBox(height: 8),
             FilledButton(
               onPressed: _busy ? null : _prepare,
               child: Text(l.devicesPrepare),
