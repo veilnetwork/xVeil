@@ -1942,22 +1942,44 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     // would inject a phantom gap into conversationSync). A LOCAL edit (seq null)
     // allocates the next gap-free value for the editing author and bumps that
     // author's cursor.
-    final editSeq = seq ?? await _nextConvSeq(conversationId, author);
+    // A LOCAL edit also numbers past every edit of this message already held:
+    // another device of this identity may have edited it from its own stream,
+    // and the counterpart keeps the edit with the higher seq. Numbered from
+    // the local cursor alone, a second device's later edit lost to the first
+    // device's earlier one.
+    var editSeq = seq ?? await _nextConvSeq(conversationId, author);
+    if (seq == null) {
+      for (final e in await _messageLogEntries()) {
+        final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
+        final held = m['sq'];
+        if (m['c'] == conversationId &&
+            m['tg'] == messageId &&
+            m['k'] == EventKind.edit.index &&
+            held is int &&
+            held >= editSeq) {
+          editSeq = held + 1;
+        }
+      }
+    }
     // A WIRE edit is idempotent on its (author, seq) slot, like applyRemoteVoid /
     // applyRemoteClear: the durable pipeline re-drives frames across restarts, and
     // without this each re-drive would append a duplicate k:edit row — log bloat
     // plus a duplicated version in loadMessageHistory. Slot occupied ⇒ applied.
     // (A LOCAL edit allocates a fresh seq above, so it can never collide.)
+    //
+    // THIS edit in the slot, not merely something. Every device of an identity
+    // numbers its own stream, and the counterpart files them all under the one
+    // author it knows — so a slot can hold another device's MESSAGE at the
+    // same number. Read as "applied", that dropped every edit a second device
+    // made: measured on the stand, B's edits of its own messages were acked by
+    // the counterpart and never shown, 0 of 3.
     if (seq != null) {
       final entries = await _messageLogEntries();
+      final thisEdit = '$messageId~e$seq';
       for (final e in entries) {
         final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-        if (m['c'] == conversationId &&
-            m['au'] == author &&
-            m['sq'] == seq &&
-            m['op'] != 'status' &&
-            m['op'] != 'sig') {
-          return editSeq; // slot present — already applied
+        if (m['c'] == conversationId && m['id'] == thisEdit) {
+          return editSeq; // this very edit — already applied
         }
       }
     }
@@ -2519,8 +2541,14 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] != conv || m['op'] == 'status' || m['op'] == 'sig') continue;
-      if (m['au'] == author && m['sq'] == seq) {
-        return; // slot present — already applied
+      // THIS clear in the slot, not whatever else holds the number: another
+      // device of the same identity numbers its own stream, so a slot can
+      // carry that device's message — read as "applied", a clear made on a
+      // second device was acked and never happened (see [editMessage]).
+      if (m['au'] == author &&
+          m['sq'] == seq &&
+          m['k'] == EventKind.clear.index) {
+        return; // this very clear — already applied
       }
       final sq = m['sq'];
       if (m['au'] == selfHex && sq is int && sq > ownCeiling) ownCeiling = sq;

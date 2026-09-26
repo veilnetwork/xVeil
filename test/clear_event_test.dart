@@ -534,6 +534,28 @@ void main() {
       },
     );
 
+    test('a clear whose seq another message of the author holds still '
+        'applies', () async {
+      // Another device of the peer's identity numbered its clear from its own
+      // stream; the number is taken here by a message from the first device.
+      await incoming(1, 'one');
+      await incoming(2, 'two');
+      await incoming(3, 'three');
+      await s.applyRemoteClear(conv, conv.hex, 3, {
+        conv.hex: 2,
+      }, selfHex: selfHex);
+      expect(
+        (await s.loadMessages(conv.hex)).map((m) => m.id),
+        ['m3'],
+        reason: 'the clear applied although slot 3 holds a message',
+      );
+      // Re-driven: this very clear is in its slot now, so nothing changes.
+      await s.applyRemoteClear(conv, conv.hex, 3, {
+        conv.hex: 2,
+      }, selfHex: selfHex);
+      expect((await s.loadMessages(conv.hex)).map((m) => m.id), ['m3']);
+    });
+
     test('a bounded clear takes the derived text of what it erased, and only '
         'that', () async {
       // A transcript and a translation are the message's content in another
