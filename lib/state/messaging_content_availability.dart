@@ -32,6 +32,16 @@ class _MessagingContentAvailability {
   final Map<String, _ContentManifestRefOffer> offeredRefs = {};
   final Set<String> _offerOrder = {};
 
+  /// The DEVICE each holder offered a content id from, when the node named
+  /// one: `contentId -> holder identity hex -> device`.
+  ///
+  /// The bytes live on the device that offered them, and an identity with
+  /// several devices publishes its stream address under ONE of them — so a
+  /// pull addressed to the identity lands on whichever sibling holds that
+  /// slot. Measured on the stand: every pull of a file a second device sent
+  /// was answered UNSERVED by the first, 480 times in three attempts.
+  final Map<String, Map<String, NodeId>> _holderDevices = {};
+
   /// Downloads parked until a manifest/ref reappears, or until an already
   /// active encrypted fetch completes and can be exported to this sink.
   final Map<String, _FetchSink?> _pending = {};
@@ -149,6 +159,24 @@ class _MessagingContentAvailability {
     offeredRefs.remove(contentId);
     _offerOrder.remove(contentId);
   }
+
+  /// Remember that [holder] offered [contentId] from [device].
+  void noteHolderDevice(String contentId, NodeId holder, NodeId? device) {
+    if (device == null || device == holder) return;
+    // Re-inserted, so the newest content id is the last to be evicted.
+    final byHolder = _holderDevices.remove(contentId) ?? <String, NodeId>{};
+    byHolder[holder.hex] = device;
+    _holderDevices[contentId] = byHolder;
+    // Bounded like the offers: the oldest mapping goes first.
+    while (_holderDevices.length > _maxOffers) {
+      _holderDevices.remove(_holderDevices.keys.first);
+    }
+  }
+
+  /// Where a stream pulling [contentId] from [holder] has to go: the device
+  /// that offered it, or the holder itself when no device was named.
+  NodeId streamTargetFor(NodeId holder, String contentId) =>
+      _holderDevices[contentId]?[holder.hex] ?? holder;
 
   Future<void> clearSession() async {
     for (final timer in _pendingTimers.values) {
