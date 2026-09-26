@@ -1619,7 +1619,9 @@ extension _MessagingContentPull on MessagingService {
       }
       if (_disposed || _contentStreams.closing) return null;
       stream ??= await _contentStreams.awaitOpen(
-        (t as StreamTransport).openStream(peer),
+        (t as StreamTransport).openStream(
+          _contentAvailability.streamTargetFor(peer, cid),
+        ),
       );
     } finally {
       slowLog.cancel();
@@ -1999,7 +2001,9 @@ extension _MessagingContentPull on MessagingService {
       }
       if (_disposed || _contentStreams.closing) return null;
       stream ??= await _contentStreams.awaitOpen(
-        streamTransport.openStream(peer),
+        streamTransport.openStream(
+          _contentAvailability.streamTargetFor(peer, cid),
+        ),
         timeout: timeout ?? _streamRequestTimeout,
       );
       if (stream == null) return null;

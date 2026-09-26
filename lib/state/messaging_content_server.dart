@@ -468,7 +468,16 @@ extension _MessagingContentServer on MessagingService {
             '${requestedLength > 0 ? ' +$requestedLength' : ''} '
             '<- ${peer.short}',
       );
-      final contact = await _storage.getContact(peer);
+      // An anonymous open names the DEVICE it came from — veil answers every
+      // stream at the opener's device address — so a contact's device asks
+      // under an id that is not the contact's. Its owner is the contact, when
+      // one of its frames has proven the pair (see [identityOfDevice]).
+      final owner = identityOfDevice(peer);
+      final contact =
+          await _storage.getContact(peer) ??
+          (owner == null || owner == peer
+              ? null
+              : await _storage.getContact(owner));
       // Serve accepted 1:1 contacts as always; a NON-contact group member is
       // served iff it holds a live membership grant for THIS cid (groups
       // content path — the grant was minted by the authorized signed request).
