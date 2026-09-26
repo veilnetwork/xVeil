@@ -1033,14 +1033,32 @@ class VeilFlutterTransport
   acceptP2PStream({
     Duration timeout = const Duration(milliseconds: 250),
   }) async {
+    // The device-scoped inbox first, and only glanced at. A sibling opens its
+    // direct stream at THIS device's id — `chatAppIdFor(dst)` of the name it
+    // addresses — which is the binding below, not the identity one. Only the
+    // identity inbox was ever accepted from, so a sibling's open was taken by
+    // the node and never answered: on the stand every pull of a file the other
+    // device had sent waited out its manifest timeout, attempt after attempt.
+    final sibling = _siblingApp;
+    if (sibling != null) {
+      final s = await sibling.acceptStream(
+        timeout: const Duration(milliseconds: 1),
+      );
+      if (s != null) {
+        return _acceptedP2P(s.stream, s.srcNodeId, s.provenance.wireByte);
+      }
+    }
     final r = await _app.acceptStream(timeout: timeout);
     if (r == null) return null;
-    return (
-      stream: _VeilReliableStream(r.stream),
-      src: NodeId(r.srcNodeId),
-      provenance: SenderProvenance.fromWire(r.provenance.wireByte),
-    );
+    return _acceptedP2P(r.stream, r.srcNodeId, r.provenance.wireByte);
   }
+
+  static ({ReliableStream stream, NodeId src, SenderProvenance provenance})
+  _acceptedP2P(VeilStream stream, Uint8List src, int provenanceByte) => (
+    stream: _VeilReliableStream(stream),
+    src: NodeId(src),
+    provenance: SenderProvenance.fromWire(provenanceByte),
+  );
 
   /// What veil KNOWS about the sender of a live frame, carried the whole way
   /// (audit X/V-01).

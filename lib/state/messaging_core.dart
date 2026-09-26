@@ -2731,12 +2731,14 @@ class MessagingService {
     final storedSources = await _storedContentSourcePeers(contentId);
     final sources = _filterGoneSources(
       contentId,
-      _uniquePeers([
-        ...peers,
-        if (offered != null) ...offered.peers.values,
-        if (offeredRef != null) ...offeredRef.peers.values,
-        ...storedSources,
-      ]),
+      await _withSiblingsForOwnIdentity(
+        _uniquePeers([
+          ...peers,
+          if (offered != null) ...offered.peers.values,
+          if (offeredRef != null) ...offeredRef.peers.values,
+          ...storedSources,
+        ]),
+      ),
     );
     final seen = <String>{};
     var attempted = 0;
@@ -2951,12 +2953,14 @@ class MessagingService {
     final offeredRef = _offeredRefs[contentId];
     final sources = _filterGoneSources(
       contentId,
-      _uniquePeers([
-        ...peers,
-        if (offered != null) ...offered.peers.values,
-        if (offeredRef != null) ...offeredRef.peers.values,
-        ...await _storedContentSourcePeers(contentId),
-      ]),
+      await _withSiblingsForOwnIdentity(
+        _uniquePeers([
+          ...peers,
+          if (offered != null) ...offered.peers.values,
+          if (offeredRef != null) ...offeredRef.peers.values,
+          ...await _storedContentSourcePeers(contentId),
+        ]),
+      ),
     );
     _recordPendingDownload(
       contentId,

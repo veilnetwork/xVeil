@@ -56,9 +56,35 @@ extension _MessagingContentPull on MessagingService {
     // aborted every ~18s against our own id, with the failure buried among
     // real ones in the log.
     if (peer.hex == await _selfHex()) return false;
+    // My other device holds what I sent from it; it is not a contact and
+    // never will be (see [_withSiblingsForOwnIdentity]).
+    if (await _isSiblingDevice(peer)) return true;
     final contact = await _storage.getContact(peer);
     return (contact != null && contact.status == ContactStatus.accepted) ||
         _groupPullSourceAllowed(peer, contentId);
+  }
+
+  /// [peers] with my own IDENTITY replaced by my other devices, first.
+  ///
+  /// A file I sent from another device reaches this one as a mirrored
+  /// message whose source is my identity, and every device of mine answers
+  /// to that address — this one included. It is not a contact, so it was
+  /// never an eligible source, and the only one left was the counterpart,
+  /// who need not have downloaded it: `no live offer` on the stand for every
+  /// file the sibling sent. The bytes are on a sibling; ask each by device.
+  Future<List<NodeId>> _withSiblingsForOwnIdentity(List<NodeId> peers) async {
+    final self = await selfIdentityHex?.call();
+    if (self == null || !peers.any((p) => p.hex == self)) return peers;
+    final me = await _selfHex();
+    final siblings = [
+      for (final device in await myOtherDevices?.call() ?? const <NodeId>[])
+        if (device.hex != me && device.hex != self) device,
+    ];
+    return _uniquePeers([
+      ...siblings,
+      for (final peer in peers)
+        if (peer.hex != self) peer,
+    ]);
   }
 
   /// The subset of [peers] worth asking for [contentId].
