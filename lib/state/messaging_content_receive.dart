@@ -37,6 +37,7 @@ extension _MessagingContentReceive on MessagingService {
     // contentId to fetch), NO blob yet — idempotent on the sender's per-send
     // msgId. The receiver decides whether to download (anti-spam + disk control).
     await _surfaceFileOffer(peer, m, route: 'manifest');
+    await _ackFileOffer(peer, m.msgId ?? m.contentId);
 
     // We ALREADY hold these exact bytes (a re-offer / dedup) → the offer renders
     // as downloaded; ack so the sender flips sent->delivered.
@@ -159,6 +160,24 @@ extension _MessagingContentReceive on MessagingService {
     }
   }
 
+  /// Acknowledge a file OFFER as received — the message has arrived, whether
+  /// or not anyone downloads the bytes.
+  ///
+  /// The ack used to wait for the download, so an offer the user had not
+  /// opened stayed `sent` at its sender and was re-offered for as long as it
+  /// stayed that way, every alive-now nudge rewinding the backoff: measured
+  /// on the stand as 174 manifests in two minutes for three untouched files,
+  /// burying everything else the recipient had to process. Nothing is lost by
+  /// acking early: serving is kept by its own TTL, not by the ack, and an offer
+  /// this side forgets across a restart is asked for again by `contentReoffer`.
+  Future<void> _ackFileOffer(NodeId peer, String ackId) async {
+    try {
+      await _send(peer, WireEnvelope.ack(ackId).encode());
+    } catch (_) {
+      // Best-effort: the next re-offer asks again.
+    }
+  }
+
   /// Parse and retain a holder advertisement that arrived through the
   /// membership-scoped group reply path. Unlike a normal 1:1 offer this must
   /// not materialise a direct-chat row, auto-download, or emit an ACK/read
@@ -239,6 +258,7 @@ extension _MessagingContentReceive on MessagingService {
       ts: ref.ts,
       thumb: ref.thumb,
     );
+    await _ackFileOffer(peer, ref.msgId ?? cid);
 
     if (await _storage.hasFile(cid)) {
       devLog(

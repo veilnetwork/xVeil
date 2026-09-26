@@ -1008,6 +1008,21 @@ void main() {
     expect(await sB.loadFile(cid), data);
   });
 
+  test('an offer the user has not opened is acknowledged as received', () async {
+    // The ack used to wait for the download, so the sender kept re-offering an
+    // untouched file for as long as it stayed `sent`: 174 manifests in two
+    // minutes on the stand for three such files.
+    final data = _rnd(90000, 96);
+    final cid = await advertiseFromA(data, name: 'not-opened.bin');
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    expect(await sB.loadFile(cid), isNull, reason: 'nobody downloaded it');
+    final sent = (await sA.loadMessages(b.hex)).where(
+      (m) => (m.fileContentId ?? m.fileId) == cid,
+    );
+    expect(sent, isNotEmpty);
+    expect(sent.first.status, MessageStatus.delivered);
+  });
+
   test('a direct stream open that proves nothing is not served', () async {
     await mA.dispose();
     await mB.dispose();
