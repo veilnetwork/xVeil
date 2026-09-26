@@ -318,6 +318,15 @@ class _StreamLink
   /// [SenderProvenance.sessionPeer]; a test lowers it to model an open that
   /// proves nothing about the name it arrives under.
   SenderProvenance p2pOpenProvenance = SenderProvenance.sessionPeer;
+
+  /// The id an ANONYMOUS open arrives under at the peer. Null = this node's
+  /// own id; production names the opener's DEVICE, which for an identity
+  /// with its own device key is not the identity.
+  NodeId? anonStreamSrc;
+
+  /// The device this node's frames prove they came from, as the node reports
+  /// it on inbound messages (`InboundMessage.srcDevice`).
+  NodeId? srcDevice;
   int localStreamCloses = 0;
   int activeAnonymousAccepts = 0;
   int maxConcurrentAnonymousAccepts = 0;
@@ -341,6 +350,7 @@ class _StreamLink
         src: _me,
         payload: payload,
         provenance: SenderProvenance.sessionPeer,
+        srcDevice: srcDevice,
       ),
     );
   }
@@ -383,7 +393,7 @@ class _StreamLink
     // Peer accepts the B-end; I keep the A-end.
     p._accepts.add((
       stream: peerStream,
-      src: _me,
+      src: anonStreamSrc ?? _me,
       // Anonymous lane: claimed by construction, as in production.
       provenance: SenderProvenance.claimed,
     ));
@@ -872,6 +882,70 @@ void main() {
   // nothing — whoever opened this stream is holding the other end of it.
   // Whoever we serve here is whoever gets the file, so the direct lane, which
   // is the one where veil actually knows the answer, must consult it.
+  test('a contact\'s DEVICE is served the file its identity was offered', () async {
+    // Veil answers every anonymous stream at the opener's device address, so
+    // the serving side sees B's device, not B. Measured on the stand as
+    // `stream-serve DENIED … (not accepted, no group grant)` for every pull
+    // between two identities with their own device keys.
+    final bDevice = _id(0x2D);
+    tB.anonStreamSrc = bDevice;
+
+    // CONTROL: A has never seen B's device prove whose it is — a stranger's
+    // id, and the serve is refused.
+    final first = _rnd(90000, 91);
+    final firstCid = await advertiseFromA(first, name: 'unproven-device.bin');
+    await mB.downloadContent(a, firstCid);
+    await Future<void>.delayed(const Duration(seconds: 3));
+    expect(await sB.loadFile(firstCid), isNull);
+
+    // B's frames now name the device they come from, which is how A learns
+    // the pair; the same pull is then served.
+    tB.srcDevice = bDevice;
+    await mB.sendText(a, 'hello from my device');
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(mA.identityOfDevice(bDevice), b);
+    final data = _rnd(90000, 92);
+    final cid = await advertiseFromA(data, name: 'proven-device.bin');
+    final got = mB.contentReceived.first;
+    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+    await got.timeout(const Duration(seconds: 20));
+    expect(await sB.loadFile(cid), data);
+  });
+
+  test('a pull goes to the DEVICE that offered the file', () async {
+    // An identity publishes its stream address under ONE of its devices, so a
+    // pull addressed to the identity lands on whichever sibling holds it.
+    // Measured on the stand: every pull of a file a second device sent was
+    // answered UNSERVED by the first. The offer names the device it came from.
+    final aDevice = _id(0x1D);
+    tB.routes[aDevice.hex] = tA;
+
+    // CONTROL: no device named — the pull goes to the identity.
+    final plain = _rnd(90000, 93);
+    final plainCid = await advertiseFromA(plain, name: 'no-device.bin');
+    final gotPlain = mB.contentReceived.first;
+    expect(await mB.downloadContent(a, plainCid), ContentDownloadResult.started);
+    await gotPlain.timeout(const Duration(seconds: 20));
+    expect(tB.openStreamAttemptsByPeer[aDevice.hex], isNull);
+    expect(tB.openStreamAttemptsByPeer[a.hex], greaterThan(0));
+
+    // The offer now arrives from A's device: the pull follows it there.
+    tA.srcDevice = aDevice;
+    tB.openStreamAttemptsByPeer.clear();
+    final data = _rnd(90000, 94);
+    final cid = await advertiseFromA(data, name: 'from-device.bin');
+    final got = mB.contentReceived.first;
+    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+    await got.timeout(const Duration(seconds: 20));
+    expect(await sB.loadFile(cid), data);
+    expect(tB.openStreamAttemptsByPeer[aDevice.hex], greaterThan(0));
+    expect(
+      tB.openStreamAttemptsByPeer[a.hex],
+      isNull,
+      reason: 'the identity address may name a sibling without the bytes',
+    );
+  });
+
   test('a direct stream open that proves nothing is not served', () async {
     await mA.dispose();
     await mB.dispose();

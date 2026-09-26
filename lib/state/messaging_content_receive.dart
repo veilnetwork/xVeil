@@ -5,14 +5,22 @@ part of 'messaging_core.dart';
 /// Manifest validation, offer surfacing and auto-download policy stay
 /// serialized with the owning [MessagingService] state.
 extension _MessagingContentReceive on MessagingService {
-  Future<void> _onContentManifest(NodeId peer, String body) async {
+  Future<void> _onContentManifest(
+    NodeId peer,
+    String body, {
+    NodeId? device,
+  }) async {
     final decoded = jsonDecode(body) as Map<String, dynamic>;
     final ref = _parseContentManifestRef(decoded);
     if (ref != null) {
+      _contentAvailability.noteHolderDevice(ref.contentId, peer, device);
       await _onContentManifestRef(peer, ref);
       return;
     }
     final m = ContentManifest.fromJson(decoded);
+    if (m != null) {
+      _contentAvailability.noteHolderDevice(m.contentId, peer, device);
+    }
     if (m == null) {
       devLog(
         () => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}',

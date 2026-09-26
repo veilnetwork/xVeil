@@ -698,7 +698,7 @@ extension _MessagingInboundDispatch on MessagingService {
               'xVeil[content]: manifest frame ${env.body.length}B '
               '<- ${m.src.short}',
         );
-        await _onContentManifest(m.src, env.body);
+        await _onContentManifest(m.src, env.body, device: m.srcDevice);
         return;
       case WireKind.groupContentManifest:
         // A live holder hint for an already-scoped group pull. The group
