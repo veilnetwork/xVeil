@@ -300,6 +300,7 @@ class _StreamLink
   _StreamLink? peer;
   final routes = <String, _StreamLink>{};
   final sentPayloads = <Uint8List>[];
+  final sentTo = <String>[];
   final _accepts =
       <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   final _p2pAccepts =
@@ -346,6 +347,7 @@ class _StreamLink
     bool anonymous = false,
   }) async {
     sentPayloads.add(Uint8List.fromList(payload));
+    sentTo.add(dst.hex);
     (routes[dst.hex] ?? peer)?._in.add(
       InboundMessage(
         src: _me,
@@ -468,6 +470,14 @@ class _StreamLink
     }
     return _p2pAccepts.isEmpty ? null : _p2pAccepts.removeAt(0);
   }
+}
+
+bool _sameBytes(Uint8List x, Uint8List y) {
+  if (x.length != y.length) return false;
+  for (var i = 0; i < x.length; i++) {
+    if (x[i] != y[i]) return false;
+  }
+  return true;
 }
 
 SpaceOpener _mem() {
@@ -1021,6 +1031,27 @@ void main() {
     );
     expect(sent, isNotEmpty);
     expect(sent.first.status, MessageStatus.delivered);
+  });
+
+  test('an offer from a contact\'s DEVICE is acknowledged at that device', () async {
+    // Addressed to the identity, the ack lands wherever routing points; a
+    // sibling that sent the offer keeps re-sending it.
+    final aDevice = _id(0x1E);
+    tB.routes[aDevice.hex] = tA;
+    tA.srcDevice = aDevice;
+    final data = _rnd(90000, 97);
+    final cid = await advertiseFromA(data, name: 'ack-the-device.bin');
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final msgId = (await sA.loadMessages(
+      b.hex,
+    )).firstWhere((m) => (m.fileContentId ?? m.fileId) == cid).id;
+    final ackWire = WireEnvelope.ack(msgId).encode();
+    final ackedTo = [
+      for (var i = 0; i < tB.sentPayloads.length; i++)
+        if (_sameBytes(tB.sentPayloads[i], ackWire)) tB.sentTo[i],
+    ];
+    expect(ackedTo, contains(aDevice.hex));
+    expect(ackedTo, isNot(contains(a.hex)));
   });
 
   test('a direct stream open that proves nothing is not served', () async {
