@@ -2462,6 +2462,7 @@ class RealVeilStack {
     // call in the middle of the boot — so the async half is done first, here.
     final storedRatchet = await loadStoredRatchetStates(storage);
 
+    listenPort = await firstFreeListenPort(listenPort, lanListen: lanListen);
     final lease = await RuntimeDirLease.acquire(runtimeDirBase);
     // From here on this process says, on a timer, that the directory is still
     // in use. A sibling launch that cannot ask the OS whether our pid is alive
@@ -3289,4 +3290,49 @@ class RealVeilStack {
       Error.throwWithStackTrace(failure.error, failure.stack);
     }
   }
+}
+
+/// A listener port nobody on this machine holds, starting from [preferred].
+///
+/// A profile's port is spread over base+1..99 and an all-online session takes
+/// its profile's port + 1 + i, so two running profiles can land on one port:
+/// measured on the stand, the second node's apply-config failed with
+/// EADDRINUSE and it came up with no listener at all. Probed on UDP, which is
+/// what the QUIC listener binds, without address reuse so the probe cannot
+/// share a port with a holder that allows it. The probe socket is closed at once;
+/// a port lost to a race in between fails exactly as it did before. Steps by
+/// 100 to stay clear of the profile range.
+@visibleForTesting
+Future<int> firstFreeListenPort(
+  int preferred, {
+  required bool lanListen,
+  int attempts = 16,
+  int step = 100,
+}) async {
+  if (preferred <= 0) return preferred;
+  final host = lanListen
+      ? InternetAddress.anyIPv4
+      : InternetAddress.loopbackIPv4;
+  for (var i = 0; i < attempts; i++) {
+    final port = preferred + i * step;
+    if (port > 65535) break;
+    try {
+      final probe = await RawDatagramSocket.bind(
+        host,
+        port,
+        reuseAddress: false,
+      );
+      probe.close();
+      if (port != preferred) {
+        devLog(
+          () =>
+              'xVeil[stack]: listen port $preferred is taken — using $port',
+        );
+      }
+      return port;
+    } on SocketException {
+      continue;
+    }
+  }
+  return preferred;
 }
