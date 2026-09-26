@@ -1132,6 +1132,7 @@ class VeilFlutterTransport
             state: _mapState(p.state),
             direction: _mapDir(p.direction),
             transport: p.transport,
+            relayCapable: p.anonymityRelay,
           ),
         )
         .toList(growable: false);
