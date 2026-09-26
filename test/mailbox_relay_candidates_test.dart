@@ -41,11 +41,12 @@ void main() {
           List<int>.generate(32, (i) => (seed + i) & 0xff),
         ));
 
-    PeerInfo peer(NodeId node, {bool active = true}) => PeerInfo(
+    PeerInfo peer(NodeId node, {bool active = true, bool? relay}) => PeerInfo(
           nodeId: node,
           state: active ? PeerState.active : PeerState.connecting,
           direction: PeerDirection.outbound,
           transport: 'quic://peer.example:9000',
+          relayCapable: relay,
         );
 
     test('a discovered peer can carry when nothing was configured', () {
@@ -75,6 +76,40 @@ void main() {
           peer(id(1), active: false),
         ]),
         isEmpty,
+      );
+    });
+
+    // A peer that is no relay does not refuse the key lookup, it lets it run
+    // to its timeout — measured at 3 s per such peer on the stand, paid ahead
+    // of every drain while registration keeps retrying.
+    test('a discovered peer that said it is no relay is not offered', () {
+      final relay = id(1);
+      final ordinary = id(2);
+      expect(
+        mergeMailboxRelayCandidates(const <NodeId>[], [
+          peer(ordinary, relay: false),
+          peer(relay, relay: true),
+        ]),
+        [relay],
+      );
+    });
+
+    test('a discovered peer whose flags are unknown is still offered', () {
+      final found = id(3);
+      expect(
+        mergeMailboxRelayCandidates(const <NodeId>[], [peer(found)]),
+        [found],
+        reason: 'unknown is what an older node reports; dropping on it empties '
+            'the list on a network whose configured part is empty by design',
+      );
+    });
+
+    test('a configured node is kept even if it said it is no relay', () {
+      final mine = id(4);
+      expect(
+        mergeMailboxRelayCandidates([mine], [peer(mine, relay: false)]),
+        [mine],
+        reason: 'the operator named it; the key lookup is the check',
       );
     });
 

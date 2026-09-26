@@ -37,8 +37,16 @@ List<NodeId> mailboxRelayCandidates(List<BootstrapPeerCfg> peers) {
 /// because they are the ones chosen deliberately and kept running. Discovered
 /// peers follow as the fallback that makes a stock install work. Neither is
 /// trusted by being here — [MailboxService.start] keeps only the candidates
-/// whose relay key actually resolves, so a peer that hosts no mailbox drops out
-/// on its own.
+/// whose relay key actually resolves.
+///
+/// A discovered peer that said in its handshake it is NOT a relay is left out
+/// before that. It would drop out there too, but not for free: a peer that is
+/// no relay does not answer the key lookup with "no", it lets it run to its
+/// timeout — 3 s on the stand, per such peer, ahead of every drain while
+/// registration keeps retrying — and discovery hands a device every ordinary
+/// peer it meets. A peer whose flags the node does not know stays: unknown is
+/// what an older node reports, and dropping on it would empty the list on the
+/// production network, where the configured part is empty by design.
 List<NodeId> mergeMailboxRelayCandidates(
   List<NodeId> configured,
   List<PeerInfo> peers,
@@ -50,6 +58,7 @@ List<NodeId> mergeMailboxRelayCandidates(
   }
   for (final peer in peers) {
     if (!peer.isActive) continue;
+    if (peer.relayCapable == false) continue;
     if (seen.add(peer.nodeId)) out.add(peer.nodeId);
   }
   return out;

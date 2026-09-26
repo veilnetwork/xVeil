@@ -10,6 +10,7 @@ import '../data/node/node_controller.dart';
 import '../data/serve_source.dart';
 import '../data/transport/relay_key_cache.dart';
 import '../data/transport/veil_flutter_transport.dart';
+import '../data/transport/veil_transport.dart' show PeerInfo;
 import '../data/transport/wire_envelope.dart' show isServiceEchoBody;
 import '../domain/chat.dart';
 import '../domain/clear_request.dart';
@@ -110,16 +111,20 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   Future<void> startWithLiveRelays(MailboxService m) =>
       startMailboxWhenCarriersExist(
         candidates: () async {
+          var found = const <PeerInfo>[];
           final relays = await liveMailboxRelayCandidates(
-            peers: transport.peers,
+            peers: () async => found = await transport.peers(),
             configured: configuredRelays,
           );
-          devLog(
-            () =>
-                'xVeil[mailbox]: candidates — ${configuredRelays.length} '
+          devLog(() {
+            final active = found.where((p) => p.isActive);
+            int count(bool? flag) =>
+                active.where((p) => p.relayCapable == flag).length;
+            return 'xVeil[mailbox]: candidates — ${configuredRelays.length} '
                 'configured + ${relays.length - configuredRelays.length} '
-                'discovered',
-          );
+                'discovered (active peers relay=${count(true)} '
+                'not=${count(false)} unknown=${count(null)})';
+          });
           return relays;
         },
         start: (relays) => m.start(relays: relays),
