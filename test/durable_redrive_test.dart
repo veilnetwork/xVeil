@@ -387,6 +387,62 @@ void main() {
       expect((await sB.loadMessageHistory(a.hex, id)).length, 2);
     });
 
+    test('a message is not re-sent on every frame of a peer that keeps '
+        'talking, and is the moment a silence ends', () async {
+      tB.online = false; // B receives, but every ack it sends is lost
+      var copies = 0;
+      const body = 'while you are busy';
+      final sub = tB.messages().listen((m) {
+        try {
+          final env = WireEnvelope.decode(m.payload);
+          if (env.kind == WireKind.message && env.body == body) copies++;
+        } catch (_) {}
+      });
+      addTearDown(sub.cancel);
+      await mA.sendText(b, body);
+      await _settle();
+      // The first pass puts it on the ladder (its first retry is immediate);
+      // without it there is nothing a rewind could touch, before or after.
+      await flushA();
+      final onLadder = copies;
+      expect(onLadder, 2, reason: 'vacuity: the message is on the ladder');
+
+      // B speaks every four seconds. Each frame used to rewind the un-acked
+      // message, so it went again on every one: after a restart on the stand
+      // the counterpart processed ~10 frames a second, nearly all re-sends,
+      // and a new message waited ~100 s behind them.
+      for (var step = 0; step < 10; step++) {
+        clock = clock.add(const Duration(seconds: 4));
+        tA.inject(
+          b,
+          WireEnvelope.callSignal(
+            const CallSignal(callId: 'beat', type: CallSignalType.health)
+                .encode(),
+          ).encode(),
+        );
+        await _settle();
+      }
+      expect(
+        copies,
+        onLadder,
+        reason: 'a talking peer rewinds nothing; the ladder alone re-sends',
+      );
+
+      // Thirty seconds of silence, then B speaks: that IS news, and the
+      // message goes at once rather than at the end of its backoff.
+      final before = copies;
+      clock = clock.add(const Duration(seconds: 30));
+      tA.inject(
+        b,
+        WireEnvelope.callSignal(
+          const CallSignal(callId: 'beat', type: CallSignalType.health)
+              .encode(),
+        ).encode(),
+      );
+      await _settle();
+      expect(copies, greaterThan(before), reason: 'a silence ending rewinds');
+    });
+
     test('a peer that went away gets one probe at a time, and its whole '
         'queue again the moment it is back', () async {
       // B is GONE: A's sends leave but reach nobody, and B says nothing — its

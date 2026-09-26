@@ -21,6 +21,10 @@ class _MessagingMessageDelivery {
   /// Bounds inbound-triggered retry rewinds to one per peer per retry interval.
   final Map<String, DateTime> _lastNudgeAt = {};
 
+  /// When each peer was last heard from, on the service clock — whether that
+  /// inbound rewound anything or not (see [nudge]).
+  final Map<String, DateTime> _lastHeardAt = {};
+
   /// Session early-cancel and ACK dedup. Durable delivered status remains the
   /// source of truth across restart.
   final Set<String> _delivered = {};
@@ -46,20 +50,32 @@ class _MessagingMessageDelivery {
 
   /// Any authenticated inbound proves the peer's path is healthy now. Rewind
   /// pending retry windows without resetting their exponential-backoff counts.
-  void nudge(String peerHex) {
+  ///
+  /// Messages are rewound only when a SILENCE ends ([force] for a direct
+  /// session coming up). A peer that keeps talking is not coming back, and
+  /// rewinding on its every frame re-sent every un-acked message each retry
+  /// interval: measured on the stand after a restart, the counterpart was
+  /// processing ~10 frames a second, nearly all of them re-sends, and a new
+  /// message waited ~100 s behind them — its ack later still, so the re-sends
+  /// fed the queue that delayed the acks that would have stopped them.
+  void nudge(String peerHex, {bool force = false}) {
     // The throttle runs on the service's clock, like the outbox ladder it
     // gates; it is only ever compared with itself. On the wall clock it let
     // one nudge through per three REAL seconds, so a test stepping the
     // service clock saw the rewinds it was asserting about only once, and
     // stayed green whatever the ladder did.
     final at = _owner._now();
+    final heard = _lastHeardAt[peerHex];
+    _lastHeardAt[peerHex] = at;
+    final silenceEnded =
+        force || heard == null || at.difference(heard) >= _maxRetryBackoff;
     final last = _lastNudgeAt[peerHex];
     if (last != null && at.difference(last) < _retryInterval) return;
     _lastNudgeAt[peerHex] = at;
     // The message ladder below keeps the wall clock it was stamped with.
     final now = DateTime.now();
     var nudged = false;
-    for (final id in _retryBackoff.keys.toList()) {
+    for (final id in silenceEnded ? _retryBackoff.keys.toList() : <String>[]) {
       final backoff = _retryBackoff[id]!;
       if (backoff.peer == peerHex && backoff.nextAt.isAfter(now)) {
         _retryBackoff[id] = (
