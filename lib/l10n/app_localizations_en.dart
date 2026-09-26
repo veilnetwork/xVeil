@@ -5740,6 +5740,14 @@ class AppL10nEn extends AppL10n {
   String get devicesPrepare => 'Prepare secure link';
 
   @override
+  String get devicesHistoryHeavyMedia =>
+      'Also download heavy media from the history';
+
+  @override
+  String get devicesHistoryHeavyMediaHint =>
+      'Files above your auto-download size come with the history for the next 24 hours. Off: they stay as links and download when you open them.';
+
+  @override
   String get devicesAdoptionQrTitle => 'Scan this on the new device';
 
   @override

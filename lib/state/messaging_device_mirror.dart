@@ -209,6 +209,16 @@ class _MessagingDeviceMirror {
     }
   }
 
+  /// Whether the person asked, when this device joined, for the heavy media of
+  /// the history too — and that answer still holds.
+  Future<bool> _heavyHistoryWanted() async {
+    final until = int.tryParse(
+      await _owner._storage.getSetting(kHeavyHistoryMediaUntilKey) ?? '',
+    );
+    return until != null &&
+        until > _owner._now().millisecondsSinceEpoch;
+  }
+
   Future<bool> applyMessage({
     required NodeId peer,
     required String msgId,
@@ -287,6 +297,21 @@ class _MessagingDeviceMirror {
       );
     }
     _owner._signal();
+    // A file under this device's auto-download policy comes WITH its message,
+    // as it would have off the wire. A newly linked device receives its whole
+    // history as mirrors (the owner's decision, 2026-09-26: everything, heavy
+    // media only when asked), and a conversation whose every photo waits for a
+    // tap is not the conversation the person left on their other device. The
+    // policy is what decides "heavy": above it the row stays a reference and
+    // the bytes follow the tap, exactly as for a live offer.
+    final cid = fileContentId;
+    if (cid != null &&
+        pending?.isDelete != true &&
+        (_owner._filePolicy.allowsAuto(fileSize, fileName) ||
+            await _heavyHistoryWanted()) &&
+        !await _owner._storage.hasFile(cid)) {
+      unawaited(deviceContentPull?.call(cid));
+    }
     return true;
   }
 

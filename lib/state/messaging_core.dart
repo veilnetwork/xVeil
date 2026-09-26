@@ -14,6 +14,7 @@ import '../data/storage/storage.dart';
 import '../data/transport/veil_mailbox.dart' show MailboxPeerUnresolved;
 import '../data/transport/veil_transport.dart';
 import '../data/transport/wire_envelope.dart';
+import '../domain/device_history_ask.dart' show kHeavyHistoryMediaUntilKey;
 import '../domain/call_signal.dart';
 import '../domain/group_call.dart';
 import '../domain/group_content.dart';

@@ -5785,6 +5785,14 @@ class AppL10nRu extends AppL10n {
   String get devicesPrepare => 'Подготовить защищённую связку';
 
   @override
+  String get devicesHistoryHeavyMedia =>
+      'Загрузить также тяжёлые медиа из истории';
+
+  @override
+  String get devicesHistoryHeavyMediaHint =>
+      'Файлы больше порога автозагрузки придут вместе с историей в ближайшие 24 часа. Если выключено — останутся ссылками и скачаются при открытии.';
+
+  @override
   String get devicesAdoptionQrTitle => 'Отсканируйте на новом устройстве';
 
   @override

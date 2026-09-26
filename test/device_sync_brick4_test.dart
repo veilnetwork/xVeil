@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/domain/device_history_ask.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
@@ -583,6 +584,84 @@ void main() {
       (await storage.loadMessages(peer.hex)).where((x) => x.id == 'fm1').length,
       1,
     );
+  });
+
+  test('a mirrored file under the auto-download policy is fetched with its '
+      'message; one above it waits for the tap', () async {
+    // A newly linked device receives its history as mirrors. Everything is
+    // copied (owner's decision), heavy media only when asked: the device's
+    // own auto-download policy draws that line, as it does for a live offer.
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+    await svc.setFileDownloadPolicy(
+      svc.fileDownloadPolicy.copyWith(autoMaxBytes: 50000),
+    );
+    final pulled = <String>[];
+    svc.deviceContentPull = (cid) async => pulled.add(cid);
+
+    Future<void> mirror(String id, String cid, int size) async {
+      expect(
+        await svc.applyMirroredMessage(
+          peer: peer,
+          msgId: id,
+          direction: MessageDirection.incoming,
+          body: '📎 $id.jpg',
+          tsMs: 7000,
+          fileContentId: cid,
+          fileName: '$id.jpg',
+          fileSize: size,
+        ),
+        isTrue,
+      );
+    }
+
+    await mirror('small', 'c0ffee01', 20000);
+    await mirror('heavy', 'c0ffee02', 5000000);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(pulled, ['c0ffee01']);
+  });
+
+  test('heavy history media the person asked for at the link is fetched '
+      'too, and only while that answer holds', () async {
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    var wall = DateTime.utc(2026, 9, 27, 1);
+    final svc = MessagingService(_Noop(me), storage, now: () => wall)..start();
+    addTearDown(svc.dispose);
+    await svc.setFileDownloadPolicy(
+      svc.fileDownloadPolicy.copyWith(autoMaxBytes: 50000),
+    );
+    final pulled = <String>[];
+    svc.deviceContentPull = (cid) async => pulled.add(cid);
+    await storage.putSetting(
+      kHeavyHistoryMediaUntilKey,
+      '${wall.add(kHeavyHistoryMediaWindow).millisecondsSinceEpoch}',
+    );
+
+    Future<void> mirror(String id, String cid) => svc.applyMirroredMessage(
+      peer: peer,
+      msgId: id,
+      direction: MessageDirection.incoming,
+      body: '📎 $id.mp4',
+      tsMs: 7000,
+      fileContentId: cid,
+      fileName: '$id.mp4',
+      fileSize: 5000000,
+    );
+
+    await mirror('heavy1', 'feed0001');
+    wall = wall.add(kHeavyHistoryMediaWindow + const Duration(minutes: 1));
+    await mirror('heavy2', 'feed0002');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(pulled, ['feed0001'], reason: 'asked for, then the answer lapsed');
   });
 
   test('a MIRRORED message stamped past the tolerated skew is stored at the '
