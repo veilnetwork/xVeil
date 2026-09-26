@@ -272,11 +272,41 @@ class CallService {
   /// Gate for honoring [CallSignal.onBehalfOf] — see the field's doc.
   Future<bool> Function(NodeId peer)? isOwnDevice;
 
-  /// callIds whose incoming ring reached us as a sibling RELAY, not from the
-  /// caller directly. Their reject stays local (see [reject]): the caller
-  /// still has other devices ringing, and one device's "no" must not end the
-  /// call for the hand that was reaching for "yes" on another.
-  final Set<String> _relayedIncoming = <String>{};
+  /// Call ids this device has finished with — ended here, or answered or
+  /// declined on a sibling — and when.
+  ///
+  /// Every device of an identity now receives the caller's offer itself (an
+  /// identity send is sealed per device), and each one also fans it out to
+  /// the others. So one call reaches a device two or more times, and a copy
+  /// can land AFTER the ring it belongs to is over. Measured on the stand: A
+  /// declined at 47.501, and at 47.668 the copy B had fanned out arrived and
+  /// A rang again, for a call its caller had already ended. An offer for an
+  /// id in here is history, not a call.
+  ///
+  /// Also recorded when a sibling's "answered/declined elsewhere" arrives
+  /// before this device's own copy of the offer, so that copy does not ring.
+  final _finishedCalls = <String, DateTime>{};
+  static const int _maxFinishedCalls = 64;
+
+  void _rememberFinished(String callId) {
+    _finishedCalls.remove(callId);
+    if (_finishedCalls.length >= _maxFinishedCalls) {
+      _finishedCalls.remove(_finishedCalls.keys.first);
+    }
+    _finishedCalls[callId] = _now();
+  }
+
+  /// An offer for this id would ring a call that is already over. Kept for
+  /// [_offerMaxAge]: past that, the offer is refused as stale anyway.
+  bool _isFinished(String callId) {
+    final at = _finishedCalls[callId];
+    if (at == null) return false;
+    if (_now().difference(at) > _offerMaxAge) {
+      _finishedCalls.remove(callId);
+      return false;
+    }
+    return true;
+  }
 
   /// An offer older than this is history, not a call: durable re-drives
   /// deliver offers to devices that were offline for hours, and ringing them
@@ -560,11 +590,14 @@ class CallService {
     // devices. Tell THEM (never the caller) it was answered here, so their
     // ringing stops without a missed call. `onBehalfOf` carries the caller so
     // each sibling can match its ringing (peer, callId) pair.
-    unawaited(_notifySiblingsAnsweredElsewhere(c));
+    unawaited(_notifySiblings(c, CallEndReason.answeredElsewhere));
     unawaited(_startMedia());
   }
 
-  Future<void> _notifySiblingsAnsweredElsewhere(Call c) async {
+  /// Tell this identity's other devices (never the caller) that the ring was
+  /// settled here — answered or declined — so theirs stops without a missed
+  /// call.
+  Future<void> _notifySiblings(Call c, CallEndReason reason) async {
     final list = ownSiblingDevices;
     if (list == null || _disposed) return;
     try {
@@ -578,7 +611,7 @@ class CallService {
       final signal = CallSignal(
         callId: c.callId,
         type: CallSignalType.cancel,
-        reason: CallEndReason.answeredElsewhere,
+        reason: reason,
         onBehalfOf: c.peer.hex,
         protocolVersion: _signalProtocolVersion,
         sentAtMs: _now().millisecondsSinceEpoch,
@@ -587,7 +620,7 @@ class CallService {
         unawaited(_messaging.sendCallSignal(device, signal));
       }
     } catch (e) {
-      devLog(() => 'xVeil[call-sig]: answered-elsewhere fan-out failed: $e');
+      devLog(() => 'xVeil[call-sig]: ${reason.name} fan-out failed: $e');
     }
   }
 
@@ -599,17 +632,16 @@ class CallService {
         c.status != CallStatus.ringing) {
       return;
     }
-    // Device fan-out: a RELAYED ring declines locally only. The caller still
-    // has this identity's other devices ringing — the device the offer
-    // actually reached among them — and one device's "no" must not hang up
-    // on the hand reaching for "yes" elsewhere. The caller ends on answer,
-    // its own cancel, or the ring timeout. (The directly-rung device keeps
-    // the old behavior: its reject IS the identity declining, v1 semantics —
-    // recorded in the campaign protocol for the case-38 refinement.)
-    if (_relayedIncoming.remove(c.callId)) {
-      _end(CallEndReason.declined);
-      return;
-    }
+    // A decline on ANY device is the identity declining (owner's decision,
+    // 2026-09-26): the caller hears it at once and every sibling stops.
+    //
+    // It used to depend on how the ring arrived — a ring relayed by a sibling
+    // declined locally only, a direct one declined for everybody. Since every
+    // device now receives the caller's offer itself, which copy counts as
+    // "direct" came down to arrival order, and the same tap either ended the
+    // call for the caller while the siblings rang on for 80 s, or left the
+    // caller dialing. Measured both ways on the stand, one after the other.
+    unawaited(_notifySiblings(c, CallEndReason.declined));
     // The user's decision must clear the UI instantly: the control signal's
     // durable leg awaits an encrypted-store outbox write, which can take
     // seconds. Send it in the background; _end() never depends on it.
@@ -878,9 +910,9 @@ class CallService {
         );
         return;
       }
-      if (sig.type == CallSignalType.offer) {
-        if (_offerIsStale(sig, relayed: true)) return;
-        _relayedIncoming.add(sig.callId);
+      if (sig.type == CallSignalType.offer &&
+          _offerIsStale(sig, relayed: true)) {
+        return;
       }
       _onSignal(caller, sig);
     }());
@@ -913,10 +945,11 @@ class CallService {
       case CallSignalType.busy:
         _onRemoteEnd(peer, sig, CallEndReason.busy);
       case CallSignalType.cancel:
-        if (sig.reason == CallEndReason.answeredElsewhere) {
-          // Sibling-only lane (see accept()): never sent by the remote peer,
-          // and _onWireSignal already proved the sender is my own device.
-          _onAnsweredElsewhere(peer, sig);
+        if (sig.reason == CallEndReason.answeredElsewhere ||
+            sig.reason == CallEndReason.declined) {
+          // Sibling-only lane (see [_notifySiblings]): a caller cancels with
+          // `cancelled`, never with either of these.
+          _onSettledElsewhere(peer, sig);
         } else {
           _onRemoteEnd(peer, sig, CallEndReason.cancelled);
         }
@@ -1157,6 +1190,14 @@ class CallService {
   );
 
   void _onOffer(NodeId peer, CallSignal sig) {
+    if (_isFinished(sig.callId)) {
+      devLog(
+        () =>
+            'xVeil[call-sig]: offer ${sig.callId} ignored — that call is '
+            'already over on this device',
+      );
+      return;
+    }
     final existing = _current;
     if (existing != null && existing.callId == sig.callId) {
       // A re-driven copy of the call we are already in (durable offers keep
@@ -1253,7 +1294,7 @@ class CallService {
   ///
   /// The reason travels unchanged: a sibling must record a cancelled call as
   /// missed, not as `answeredElsewhere`, which is a different lane with a
-  /// different meaning (see [_onAnsweredElsewhere]).
+  /// different meaning (see [_onSettledElsewhere]).
   void _relayEndToSiblings(NodeId caller, CallSignal sig) {
     if (!_fannedOffers.remove(sig.callId)) return;
     unawaited(() async {
@@ -1318,9 +1359,13 @@ class CallService {
     }
   }
 
-  /// Ringing ended on THIS device because a sibling answered. Local-only:
-  /// no missed-call the user has to dismiss, no signal to the caller.
-  void _onAnsweredElsewhere(NodeId caller, CallSignal sig) {
+  /// Ringing ended on THIS device because a sibling answered or declined.
+  /// Local-only: no missed call the user has to dismiss, no signal to the
+  /// caller — the sibling already answered it.
+  void _onSettledElsewhere(NodeId caller, CallSignal sig) {
+    // Remembered even when nothing rings here yet: this device's own copy of
+    // the offer may still be on its way, and it must not ring on arrival.
+    _rememberFinished(sig.callId);
     final c = _current;
     if (c == null ||
         c.callId != sig.callId ||
@@ -1328,12 +1373,14 @@ class CallService {
         c.status != CallStatus.ringing) {
       return;
     }
+    final declined = sig.reason == CallEndReason.declined;
     devLog(
       () =>
-          'xVeil[call-sig]: call ${sig.callId} answered on another '
-          'device — stopping this ring',
+          'xVeil[call-sig]: call ${sig.callId} '
+          '${declined ? 'declined' : 'answered'} on another device — '
+          'stopping this ring',
     );
-    _end(CallEndReason.answeredElsewhere);
+    _end(declined ? CallEndReason.declined : CallEndReason.answeredElsewhere);
   }
 
   void _onAnswer(NodeId peer, CallSignal sig) {
@@ -1684,7 +1731,7 @@ class CallService {
     _cancelRingTimeout();
     _cancelHeartbeat();
     final endingId = _current?.callId;
-    if (endingId != null) _relayedIncoming.remove(endingId);
+    if (endingId != null) _rememberFinished(endingId);
     _pendingRelayCallId = null;
     _pendingRelayPeer = null;
     _outgoingProposal = null;
