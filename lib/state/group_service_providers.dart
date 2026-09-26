@@ -387,6 +387,22 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     if (peer == service.selfId) return;
     unawaited(() async {
       if (await service.isMyDevice(peer)) return;
+      // The edit's place in the author's stream, as the counterpart holds it.
+      // A sibling that later edits the same message must number its edit past
+      // this one, or the counterpart keeps whichever edit has the higher seq —
+      // and every device numbers its own stream.
+      int? editSeq;
+      try {
+        final versions = await ref
+            .read(storageProvider)
+            .loadMessageHistory(peer.hex, msgId);
+        if (versions.isNotEmpty && !versions.last.isOriginal) {
+          editSeq = versions.last.seq;
+        }
+      } catch (_) {
+        // Without it the sibling numbers its next edit from its own stream,
+        // exactly as before.
+      }
       await service.postDeviceEvent(
         DeviceSyncEvent(
           kind: DeviceSyncKind.msgEdit,
@@ -400,6 +416,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
             'body': body,
             if (customEmoji.isNotEmpty)
               'ce': encodeInlineCustomEmoji(customEmoji),
+            'sq': ?editSeq,
           },
         ),
       );
@@ -574,9 +591,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         peerHex == service.selfId.hex) {
       return;
     }
+    final seq = event.payload['sq'];
     await messaging.applyMirroredEdit(
       peer: NodeId.fromHex(peerHex),
       msgId: event.key,
+      seq: seq is int && isAcceptableWireSeq(seq) ? seq : null,
       body: body,
       customEmoji: parseInlineCustomEmoji(body, event.payload['ce']),
     );

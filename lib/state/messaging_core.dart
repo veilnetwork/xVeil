@@ -427,8 +427,10 @@ class MessagingService {
     required NodeId peer,
     required String msgId,
     required String body,
+    int? seq,
     List<InlineCustomEmoji> customEmoji = const [],
   }) => _deviceMirror.applyEdit(
+    seq: seq,
     peer: peer,
     msgId: msgId,
     body: body,
