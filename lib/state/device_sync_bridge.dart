@@ -25,6 +25,7 @@ import '../data/veil_stack.dart';
 import '../domain/call_log.dart';
 import '../domain/chat.dart'
     show Contact, ContactStatus, NotificationMuteMode, SignaturePolicy;
+import '../domain/device_history_ask.dart';
 import '../domain/device_sync.dart';
 import '../domain/clear_policy.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
@@ -225,6 +226,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // DECISIONS ONLY, exactly like the live emitter below and for the same
   // reason: a pending status is the doorbell, every device hears it for itself,
   // and replaying one would give it a fresher stamp than a real accept.
+  // Bound below, once the serve queue exists; a link is only ever reported
+  // after this setup has finished.
+  late final void Function(DeviceSyncEvent) queueLinkHistory;
   svc.onMemberLinked = (device) async {
     try {
       final conversations = await ref.read(storageProvider).loadConversations();
@@ -253,6 +257,22 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         () =>
             'xVeil[devices]: replayed $replayed contact decision(s) to the '
             'device ${device.hex.substring(0, 8)} that just linked',
+      );
+      // AND ITS HISTORY. A device set up as a replacement is expected to open
+      // on the person's conversations; forward sync starts at the link, so it
+      // opened empty, with nothing on screen to say why (scenario 5, measured).
+      // The owner's decision (2026-09-26): a new device gets EVERYTHING, file
+      // messages as references — the bytes follow on demand or by the
+      // auto-download policy, so heavy media is never pushed unasked.
+      //
+      // The same serve the manual "pull history" runs, answering an ask the
+      // new device would have raised itself: the per-device watermark inside
+      // keeps a link from being served twice.
+      final me = await svc.resolveMyDevice() ?? svc.selfId;
+      queueLinkHistory(
+        DeviceHistoryAsk(
+          fromDeviceHex: me.hex,
+        ).toEvent(byDeviceHex: device.hex, tsMs: nextTs()),
       );
     } catch (e) {
       // Best-effort catch-up: a link that completed must not be undone by it.
@@ -490,6 +510,8 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       devLog(() => 'xVeil[devices]: history replay failed: $error');
     });
   }
+
+  queueLinkHistory = queueHistoryAsk;
 
   // ── APPLY: device-group event → local state. Ordering lives in the gate:
   // newest-wins per (kind, key) ranked exactly like foldDeviceSync, nothing
