@@ -1054,6 +1054,18 @@ void main() {
     expect(ackedTo, isNot(contains(a.hex)));
   });
 
+  test('a text to a contact not yet accepted is refused out loud', () async {
+    // The chat screen offers no composer here, but the API and the debug hook
+    // do, and they answered "ok" for a message that was never stored or sent.
+    final pending = _id(0x44);
+    await sA.upsertContact(
+      Contact(nodeId: pending, status: ContactStatus.pendingOutgoing),
+    );
+    expect(await mA.sendText(pending, 'too early'), isFalse);
+    expect(await sA.loadMessages(pending.hex), isEmpty);
+    expect(await mA.sendText(b, 'accepted'), isTrue, reason: 'control');
+  });
+
   test('a direct stream open that proves nothing is not served', () async {
     await mA.dispose();
     await mB.dispose();
