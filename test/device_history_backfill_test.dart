@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -252,6 +254,37 @@ void main() {
         );
       },
     );
+  });
+
+  test('the replay waits for room between batches, not only for a pause', () async {
+    // A full copy at the fixed pause overran the siblings' 256-frame
+    // replication backlog, and a backed-up sibling has its queued replication
+    // dropped. The room check is what paces a big history.
+    for (var i = 1; i <= 60; i++) {
+      await addMessage(alice, 'm$i', 'body $i', atMs: 1000 * i);
+    }
+    final sentWhenAsked = <int>[];
+    var held = true;
+    final release = Completer<void>();
+    final replaying = replayHistoryForAsk(
+      ask: everything,
+      storage: storage,
+      post: post,
+      pause: Duration.zero,
+      batch: 25,
+      awaitRoom: () async {
+        sentWhenAsked.add(sent.length);
+        if (held) await release.future;
+      },
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(sentWhenAsked, [25], reason: 'asked at the first batch boundary');
+    expect(sent.length, 25, reason: 'and nothing more went while it waited');
+    held = false;
+    release.complete();
+    final report = await replaying;
+    expect(report.messages, 60);
+    expect(sentWhenAsked.length, greaterThanOrEqualTo(2));
   });
 
   group('stopping', () {
