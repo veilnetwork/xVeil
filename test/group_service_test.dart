@@ -6162,6 +6162,77 @@ void main() {
     skip: hasVeilFfi ? false : 'set VEIL_FFI_DYLIB to test XVRC recovery',
   );
 
+  // Relayed, a sibling's frame arrives under the sending DEVICE's id, not the
+  // identity: only a direct session proves the device belongs to it. Asked
+  // about the identity alone, three freshly linked stand devices dropped every
+  // snapshot of their ceremony.
+  test(
+    'guided adoption takes the snapshot from the source DEVICE the token names',
+    () async {
+      final sourceInvite = BootstrapInvite(
+        publicKey: Uint8List.fromList(List.filled(32, 31)),
+        nonce: Uint8List.fromList([1, 2, 3, 4]),
+      );
+      final targetInvite = BootstrapInvite(
+        publicKey: Uint8List.fromList(List.filled(32, 32)),
+        nonce: Uint8List.fromList([4, 3, 2, 1]),
+      );
+      final sourceDevice = _id(88);
+      final sent = <({NodeId peer, String json})>[];
+      final sourceStorage = FakeHvContainer().storage();
+      await sourceStorage.open(password: 'pw', createIfMissing: true);
+      final source = GroupService(
+        sourceStorage,
+        _FakeSigner(sourceInvite.nodeId),
+        send: (peer, _, json) async => sent.add((peer: peer, json: json)),
+      );
+      expect(
+        await source.linkDevice(
+          targetInvite.nodeId,
+          sovereign: _FakeSovereign(_id(9)),
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final token = await source.createDeviceLinkToken(
+        sourceInvite,
+        sourceDevice: sourceDevice,
+      );
+      expect(token?.sourceDevice, sourceDevice);
+
+      final targetStorage = FakeHvContainer().storage();
+      await targetStorage.open(password: 'pw', createIfMissing: true);
+      final target = GroupService(
+        targetStorage,
+        _FakeSigner(targetInvite.nodeId),
+      );
+      expect(await target.prepareDeviceAdoption(token!), isTrue);
+      expect(await source.broadcastDeviceGroup(), 1);
+      final chunkGid = token.groupId.hex;
+
+      expect(
+        await target.allowStrangerGroupSync(sourceDevice, chunkGid),
+        isTrue,
+        reason: 'the chunked path must admit the source device',
+      );
+      expect(
+        await target.allowStrangerGroupSync(_id(77), chunkGid),
+        isFalse,
+        reason: 'anyone else is still a stranger',
+      );
+      expect(
+        await target.ingestSnapshotFromStranger(_id(77), sent.single.json),
+        isFalse,
+      );
+      expect(
+        await target.ingestSnapshotFromStranger(sourceDevice, sent.single.json),
+        isTrue,
+      );
+      expect(await target.deviceGroupIdHex(), chunkGid);
+      expect(await target.pendingDeviceAdoption(), isNull);
+    },
+  );
+
   test(
     'guided adoption admits one pinned stranger snapshot then auto-adopts',
     () async {
