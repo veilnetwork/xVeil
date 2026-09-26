@@ -1016,6 +1016,14 @@ void main() {
       ContentDownloadResult.started,
     );
     expect(await sB.loadFile(cid), data);
+    // ...and no chat with the sibling appeared for it: the file belongs to
+    // the conversation its message is in, not to the device it came from.
+    expect(
+      (await sB.loadMessages(a.hex)).where(
+        (m) => (m.fileContentId ?? m.fileId) == cid,
+      ),
+      isEmpty,
+    );
   });
 
   test('an offer the user has not opened is acknowledged as received', () async {
