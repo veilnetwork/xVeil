@@ -14,7 +14,7 @@ extension _MessagingContentReceive on MessagingService {
     final ref = _parseContentManifestRef(decoded);
     if (ref != null) {
       _contentAvailability.noteHolderDevice(ref.contentId, peer, device);
-      await _onContentManifestRef(peer, ref);
+      await _onContentManifestRef(peer, ref, device: device);
       return;
     }
     final m = ContentManifest.fromJson(decoded);
@@ -37,7 +37,7 @@ extension _MessagingContentReceive on MessagingService {
     // contentId to fetch), NO blob yet — idempotent on the sender's per-send
     // msgId. The receiver decides whether to download (anti-spam + disk control).
     await _surfaceFileOffer(peer, m, route: 'manifest');
-    await _ackFileOffer(peer, m.msgId ?? m.contentId);
+    await _ackFileOffer(peer, m.msgId ?? m.contentId, device: device);
 
     // We ALREADY hold these exact bytes (a re-offer / dedup) → the offer renders
     // as downloaded; ack so the sender flips sent->delivered.
@@ -170,9 +170,21 @@ extension _MessagingContentReceive on MessagingService {
   /// burying everything else the recipient had to process. Nothing is lost by
   /// acking early: serving is kept by its own TTL, not by the ack, and an offer
   /// this side forgets across a restart is asked for again by `contentReoffer`.
-  Future<void> _ackFileOffer(NodeId peer, String ackId) async {
+  ///
+  /// Through [_ackTo], so a contact's DEVICE that offered is the one answered:
+  /// addressed to the identity, the ack lands wherever routing points and a
+  /// sibling that sent the offer keeps re-sending it.
+  Future<void> _ackFileOffer(
+    NodeId peer,
+    String ackId, {
+    NodeId? device,
+  }) async {
     try {
-      await _send(peer, WireEnvelope.ack(ackId).encode());
+      await _ackTo(
+        InboundMessage(src: peer, payload: Uint8List(0), srcDevice: device),
+        ackId,
+        direct: true,
+      );
     } catch (_) {
       // Best-effort: the next re-offer asks again.
     }
@@ -238,8 +250,9 @@ extension _MessagingContentReceive on MessagingService {
 
   Future<void> _onContentManifestRef(
     NodeId peer,
-    _ContentManifestRef ref,
-  ) async {
+    _ContentManifestRef ref, {
+    NodeId? device,
+  }) async {
     final cid = ref.contentId;
     devLog(
       () =>
@@ -258,7 +271,7 @@ extension _MessagingContentReceive on MessagingService {
       ts: ref.ts,
       thumb: ref.thumb,
     );
-    await _ackFileOffer(peer, ref.msgId ?? cid);
+    await _ackFileOffer(peer, ref.msgId ?? cid, device: device);
 
     if (await _storage.hasFile(cid)) {
       devLog(
