@@ -16518,7 +16518,7 @@ class GroupService implements ArchiveGroups {
     // mint that token gets the same "no" as before.
     final pending = await pendingDeviceAdoption();
     if (pending != null &&
-        peer == pending.source &&
+        _isPendingSource(pending, peer) &&
         pending.groupId.hex == gidHex) {
       return true;
     }
@@ -16591,6 +16591,25 @@ class GroupService implements ArchiveGroups {
     );
   }
 
+  /// Whether [peer] is the source a pending adoption waits on: its identity,
+  /// or the source DEVICE the token names.
+  ///
+  /// A frame's sender is the identity only when a direct session proved the
+  /// device belongs to it. Relayed, a sibling's frame arrives under the
+  /// sending DEVICE's id — and since own-device copies no longer go through
+  /// the mailbox (2026-09-23), relayed is how a new device on another network
+  /// hears its source. Asked about the identity alone, every snapshot of the
+  /// ceremony was dropped: on the stand, three freshly linked devices got the
+  /// source's group chunks from its device id and adopted nothing for as long
+  /// as they were watched, while one given a direct session adopted at once.
+  ///
+  /// Nothing is granted by the transport claim: the token pins the group and
+  /// the exact manifest by hash, and the snapshot passes every signature check
+  /// before it is adopted.
+  bool _isPendingSource(DeviceLinkToken pending, NodeId peer) =>
+      peer == pending.source ||
+      (pending.sourceDevice != null && peer == pending.sourceDevice);
+
   /// Returns null when [bundleJson] is unrelated to the pending ceremony,
   /// otherwise consumes it (true) or rejects it (false). Shared by contact and
   /// non-contact ingress: prior contact status must not change adoption rules.
@@ -16599,7 +16618,7 @@ class GroupService implements ArchiveGroups {
     String bundleJson,
   ) async {
     final pending = await pendingDeviceAdoption();
-    if (pending == null || peer != pending.source) {
+    if (pending == null || !_isPendingSource(pending, peer)) {
       // Left silent when the rest of this method was given reasons, on the
       // grounds that "not our ceremony" is ordinary traffic. It is — except
       // during a ceremony, where it is the difference between "the snapshot
