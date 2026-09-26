@@ -2228,27 +2228,121 @@ void main() {
       },
     );
 
+    // A decline on ANY device is the identity declining (owner's decision,
+    // 2026-09-26). Every device now receives the caller's offer itself, so
+    // "was this ring relayed?" came down to which copy landed first, and the
+    // same tap either hung up on the caller with the siblings still ringing,
+    // or left the caller dialing — both measured on the stand.
+    for (final relayed in [false, true]) {
+      test(
+        'declining a ${relayed ? 'relayed' : 'direct'} ring declines for the '
+        'identity: the caller hears it and the siblings stop',
+        () async {
+          final fake = _FakeMessaging();
+          final svc = CallService(fake)..start();
+          svc.ownSiblingDevices = () async => [sibling];
+          svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+          fake.onCallSignal!(
+            relayed ? sibling : caller,
+            relayed ? offer('dec-1', onBehalfOf: caller.hex) : offer('dec-1'),
+          );
+          await pumpEventQueue();
+          expect(svc.current?.status, CallStatus.ringing);
+
+          await svc.reject();
+          await pumpEventQueue();
+
+          expect(svc.current, isNull);
+          final rejects = fake.sentTo
+              .where((r) => r.$2.type == CallSignalType.reject)
+              .toList();
+          expect(rejects.single.$1.hex, caller.hex);
+          final hushes = fake.sentTo
+              .where(
+                (r) =>
+                    r.$2.type == CallSignalType.cancel &&
+                    r.$2.reason == CallEndReason.declined,
+              )
+              .toList();
+          expect(hushes.single.$1.hex, sibling.hex);
+          expect(hushes.single.$2.onBehalfOf, caller.hex);
+          svc.dispose();
+        },
+      );
+    }
+
+    test('a sibling\'s decline stops this ring', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(caller, offer('dec-2'));
+      await pumpEventQueue();
+      fake.onCallSignal!(
+        sibling,
+        CallSignal(
+          callId: 'dec-2',
+          type: CallSignalType.cancel,
+          reason: CallEndReason.declined,
+          onBehalfOf: caller.hex,
+          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(svc.current, isNull);
+      expect(
+        fake.sentTo.where((r) => r.$2.type == CallSignalType.reject),
+        isEmpty,
+        reason: 'the sibling already told the caller; a second "no" is noise',
+      );
+      svc.dispose();
+    });
+
+    // Measured on the stand: A declined, and 167 ms later the copy of the
+    // offer its sibling had fanned out arrived and A rang again.
+    test('a late copy of an offer does not ring a declined call again', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(caller, offer('dec-3'));
+      await pumpEventQueue();
+      await svc.reject();
+      await pumpEventQueue();
+
+      fake.onCallSignal!(sibling, offer('dec-3', onBehalfOf: caller.hex));
+      await pumpEventQueue();
+      expect(svc.current, isNull);
+      svc.dispose();
+    });
+
     test(
-      'rejecting a RELAYED ring stays local — the caller hears nothing',
+      'a sibling\'s decline that beats this device\'s own copy of the offer '
+      'keeps that copy silent',
       () async {
         final fake = _FakeMessaging();
         final svc = CallService(fake)..start();
         svc.ownSiblingDevices = () async => [sibling];
         svc.isOwnDevice = (p) async => p.hex == sibling.hex;
 
-        fake.onCallSignal!(sibling, offer('fan-7', onBehalfOf: caller.hex));
-        await pumpEventQueue();
-        expect(svc.current?.status, CallStatus.ringing);
-
-        await svc.reject();
-        await pumpEventQueue();
-
-        expect(svc.current, isNull);
-        expect(
-          fake.sentTo.where((r) => r.$2.type == CallSignalType.reject),
-          isEmpty,
-          reason: 'other devices are still ringing; one "no" must not hang up',
+        fake.onCallSignal!(
+          sibling,
+          CallSignal(
+            callId: 'dec-4',
+            type: CallSignalType.cancel,
+            reason: CallEndReason.declined,
+            onBehalfOf: caller.hex,
+            sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          ),
         );
+        await pumpEventQueue();
+        fake.onCallSignal!(caller, offer('dec-4'));
+        await pumpEventQueue();
+        expect(svc.current, isNull);
         svc.dispose();
       },
     );
