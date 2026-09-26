@@ -7037,8 +7037,13 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     } catch (e) {
       return _json(req, {'ok': false, 'error': '$e'}, status: 400);
     }
-    await ref.read(messagingServiceProvider).sendText(peer, text);
-    return _json(req, {'ok': true, 'peer': peer.hex, 'text': text});
+    final sent = await ref.read(messagingServiceProvider).sendText(peer, text);
+    return _json(req, {
+      'ok': sent,
+      'peer': peer.hex,
+      'text': text,
+      if (!sent) 'error': 'not sent — not an accepted contact',
+    }, status: sent ? 200 : 409);
   }
 
   /// POST/GET /nickname_claim?name=X[&max_hashes=N] — mine (bounded) + sign

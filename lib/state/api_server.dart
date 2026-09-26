@@ -318,8 +318,13 @@ class ApiServerController extends Notifier<ApiConfig> {
       return 'invalid peer';
     }
     try {
-      await ref.read(messagingServiceProvider).sendText(peer, text);
-      return null;
+      final sent = await ref
+          .read(messagingServiceProvider)
+          .sendText(peer, text);
+      return sent
+          ? null
+          : 'not sent — the peer is not an accepted contact, or the text is '
+                'empty';
     } catch (e) {
       return '$e';
     }
