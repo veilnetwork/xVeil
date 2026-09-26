@@ -2575,7 +2575,21 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       )) {
         return _json(req, {'ok': false, 'error': 'admission rejected'});
       }
-      return _json(req, {'ok': true, 'group': token.groupId.hex});
+      // Same step as the sheet: a node still running as the throwaway
+      // identity restarts as the one it joined.
+      final restart = adoptionNeedsNodeRestart(
+        runningIdentity: stack.myInvite.nodeId,
+        token: token,
+      );
+      await _json(req, {
+        'ok': true,
+        'group': token.groupId.hex,
+        'restarting': restart,
+      });
+      if (restart) {
+        unawaited(ref.read(appControllerProvider.notifier).rebootHostedNodes());
+      }
+      return;
     } catch (caught) {
       return _json(req, {'ok': false, 'error': '$caught'});
     }
