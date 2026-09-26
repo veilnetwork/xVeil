@@ -153,6 +153,26 @@ class _MessagingPeerSync {
   static const _actInterval = Duration(seconds: 5);
   static const _reshipCap = 100;
 
+  /// Re-ship rounds at one unchanged peer high-water before we stop.
+  ///
+  /// A peer that asks from the same mark twice after we answered it did not
+  /// absorb the answer, and asking a third time will not change that. The
+  /// case that made it real: a device whose rows came from a mirror under
+  /// locally allocated numbers holds those messages already, drops every
+  /// re-shipped copy as a duplicate, and its mark never moves — measured on
+  /// the stand as 99-100 messages re-shipped on every beacon. A genuinely
+  /// missed message is new to the peer and lands in the first round.
+  static const _reshipRoundsWithoutProgress = 2;
+
+  /// How long re-shipping stays withheld from a mark that stopped moving.
+  static const _reshipPause = Duration(minutes: 10);
+  /// Per peer, per MARK: every device of an identity beacons under the same
+  /// peer name, and a sibling that is up to date interleaves its own mark with
+  /// the stuck one — tracked as one sequence, "the same mark twice in a row"
+  /// never happened (measured: 118 and 27 alternating, 91 re-shipped each
+  /// time the 27 came round).
+  final Map<String, Map<int, ({int rounds, DateTime at})>> _reshipRounds = {};
+
   /// How many beacons may name the SAME unmoved hole before we stop waiting
   /// for it.
   ///
@@ -389,7 +409,9 @@ class _MessagingPeerSync {
 
   /// Re-ship events authored by us above the peer's bounded, clamped high-water.
   Future<void> handle(NodeId peer, String body) async {
-    final now = DateTime.now();
+    // The service clock, like every other ladder here (and so a test can step
+    // it); in the app it is the wall clock.
+    final now = _owner._now();
     final lastActed = _lastActedAt[peer.hex];
     if (lastActed != null && now.difference(lastActed) < _actInterval) {
       sendBestEffort(peer);
@@ -468,12 +490,29 @@ class _MessagingPeerSync {
     // after fixing the re-ship loop the measurement could not tell "nothing
     // to re-ship" from "no beacon arrived". A `reship=0` is the evidence that
     // the round happened AND cost nothing.
+    var withheld = false;
+    if (events.isNotEmpty) {
+      final at = _owner._now();
+      final marks = _reshipRounds[peer.hex] ??= {};
+      final prev = marks[peerHighWater];
+      final fresh = prev == null || at.difference(prev.at) >= _reshipPause;
+      if (!fresh && prev.rounds >= _reshipRoundsWithoutProgress) {
+        withheld = true;
+      } else {
+        // A mark older than the pause starts over, so it is retried.
+        marks[peerHighWater] = (rounds: fresh ? 1 : prev.rounds + 1, at: at);
+        // Bounded: only the marks this peer actually sits at matter.
+        if (marks.length > 8) marks.remove(marks.keys.first);
+      }
+    }
     devLog(
       () =>
           'xVeil[sync]: <- ${peer.short} peerHw(me)=$peerHighWater '
-          'reship=${events.length}',
+          'reship=${withheld ? 0 : events.length}'
+          '${withheld ? ' (withheld: ${events.length} re-shipped twice from '
+                    'this mark without it moving)' : ''}',
     );
-    if (events.isNotEmpty) {
+    if (events.isNotEmpty && !withheld) {
       final byId = {
         for (final message in await _owner._storage.loadMessages(peer.hex))
           message.id: message,

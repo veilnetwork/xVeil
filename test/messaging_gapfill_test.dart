@@ -218,6 +218,67 @@ void main() {
       );
     });
 
+    test('a peer whose mark does not move after two re-ships is not re-shipped '
+        'to again until it moves or a pause passes', () async {
+      // A device whose rows came from a mirror under locally allocated
+      // numbers already holds the messages, drops every re-shipped copy as a
+      // duplicate, and its mark never moves: 99-100 re-shipped messages on
+      // every beacon on the stand.
+      await mA.dispose();
+      var clock = DateTime.utc(2026, 9, 27, 2);
+      mA = MessagingService(tA, sA, now: () => clock)..start();
+      mA.selfIdentityHex = () async => a.hex;
+      await mA.sendText(b, 'one');
+      await mA.sendText(b, 'two');
+      await _settle();
+
+      Future<bool> round(int mark) async {
+        clock = clock.add(const Duration(seconds: 6));
+        tA.sentKinds.clear();
+        tA.inject(b, vector({a.hex: mark}));
+        await _settle();
+        return tA.sentKinds.contains(WireKind.message);
+      }
+
+      expect(await round(0), isTrue, reason: 'first answer');
+      expect(await round(0), isTrue, reason: 'one more, in case it was lost');
+      expect(await round(0), isFalse, reason: 'the mark did not move');
+      expect(await round(0), isFalse);
+      // It moves: the peer absorbed something, so answering helps again.
+      expect(await round(1), isTrue);
+      // And a mark stuck again is retried once the pause has passed.
+      expect(await round(1), isTrue);
+      expect(await round(1), isFalse);
+      clock = clock.add(const Duration(minutes: 11));
+      expect(await round(1), isTrue, reason: 'the pause is not forever');
+    });
+
+    test('a stuck mark is recognised while an up-to-date sibling interleaves '
+        'its own beacons under the same identity', () async {
+      await mA.dispose();
+      var clock = DateTime.utc(2026, 9, 27, 3);
+      mA = MessagingService(tA, sA, now: () => clock)..start();
+      mA.selfIdentityHex = () async => a.hex;
+      await mA.sendText(b, 'one');
+      await mA.sendText(b, 'two');
+      await _settle();
+
+      Future<bool> beacon(int mark) async {
+        clock = clock.add(const Duration(seconds: 6));
+        tA.sentKinds.clear();
+        tA.inject(b, vector({a.hex: mark}));
+        await _settle();
+        return tA.sentKinds.contains(WireKind.message);
+      }
+
+      final stuck = <bool>[];
+      for (var i = 0; i < 4; i++) {
+        expect(await beacon(2), isFalse, reason: 'the sibling holds it all');
+        stuck.add(await beacon(0));
+      }
+      expect(stuck, [true, true, false, false]);
+    });
+
     /// THE SAME MISMATCH, THE OTHER HALF — and this one IS fixable at the
     /// sender, because the key names US and we know both of our own names.
     ///
