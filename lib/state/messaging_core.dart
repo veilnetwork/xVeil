@@ -1785,6 +1785,10 @@ class MessagingService {
   /// a queue without standing up the whole acknowledgement path. Named `debug`
   /// like the other test seams in this layer, which carry no annotation because
   /// this file has no `meta` import to hang one on.
+  /// Durable frames still undelivered to [peer] — what a bulk producer paces
+  /// itself against, so it never trips the replication backlog cap.
+  int pendingFramesFor(NodeId peer) => _outbox.pendingFor(peer.hex);
+
   void debugRetireOutboxFrame(String peerHex, String frameId) =>
       _retireOutboxFrame(peerHex, frameId);
 
