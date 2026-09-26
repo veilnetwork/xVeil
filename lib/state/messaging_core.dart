@@ -1378,7 +1378,8 @@ class MessagingService {
   /// same news, earlier, and was the one source that never reported it. Frames
   /// sent moments ago are left alone by the nudge's own grace window so their
   /// ack can still land.
-  void onDirectSessionUp(NodeId peer) => _nudgeRetries(peer.hex);
+  void onDirectSessionUp(NodeId peer) =>
+      _messageDelivery.nudge(peer.hex, force: true);
 
   /// Our node (re)connected — reconcile now. Clear the per-peer gap-fill throttle
   /// so the [WireKind.sync] beacon fires IMMEDIATELY for every peer (a reconnect
