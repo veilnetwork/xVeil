@@ -517,6 +517,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
         stack: stack,
         myDevice: _myDevice,
         myDocument: _myDocument,
+        restartNode: ref.read(appControllerProvider.notifier).rebootHostedNodes,
       ),
     );
     if (changed == true) await _reload();
@@ -1731,9 +1732,14 @@ class _TargetLinkSheet extends StatefulWidget {
     required this.stack,
     required this.myDevice,
     required this.myDocument,
+    required this.restartNode,
   });
   final GroupService service;
   final RealVeilStack stack;
+
+  /// Restarts this device's node under the identity it has just joined — see
+  /// [adoptionNeedsNodeRestart].
+  final Future<bool> Function() restartNode;
 
   /// Goes into the QR the source scans — this device's own key, the thing that
   /// tells it from its siblings and makes it addressable. Never in the contact
@@ -1821,6 +1827,16 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
         throw StateError('admission rejected');
       }
       _token.clear();
+      // The admission is on disk, so it survives the restart; the node comes
+      // back as the identity the token names and takes the snapshot then.
+      if (adoptionNeedsNodeRestart(
+        runningIdentity: widget.stack.myInvite.nodeId,
+        token: token,
+      )) {
+        if (mounted) Navigator.of(context).pop(true);
+        unawaited(widget.restartNode());
+        return;
+      }
       if (!mounted) return;
       setState(() => _pending = token);
       _poll?.cancel();

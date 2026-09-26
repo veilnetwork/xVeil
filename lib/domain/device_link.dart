@@ -217,3 +217,20 @@ class DeviceLinkToken {
     );
   }
 }
+
+/// Whether a device that has just accepted [token] must restart its node to
+/// become what it agreed to be.
+///
+/// A device joining an identity boots under a throwaway one of its own, and
+/// the running node cannot swap identities in place: re-reading the merged
+/// document is refused when the identity changes, so the node went on
+/// answering, publishing and decrypting as the throwaway. The source sealed
+/// for the identity it had just admitted, and the new device dropped every
+/// frame (111 on the stand) until someone happened to restart the app —
+/// linking only ever worked on the stand because devices were restarted
+/// by hand.
+bool adoptionNeedsNodeRestart({
+  required NodeId runningIdentity,
+  required DeviceLinkToken token,
+}) =>
+    runningIdentity != token.source;
