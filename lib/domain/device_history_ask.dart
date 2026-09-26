@@ -15,6 +15,16 @@
 
 import 'device_sync.dart';
 
+/// Until when (ms since epoch) this device pulls every file of the history it
+/// is receiving, not only those under its auto-download size — the person's
+/// answer to "heavy media too?" when the device joined an identity. Absent or
+/// past: the ordinary policy decides. Bounded so a one-time choice about a
+/// history copy does not become a standing rule for every future file.
+const kHeavyHistoryMediaUntilKey = 'device.history.heavy_until.v1';
+
+/// How long that answer holds after the device joins.
+const kHeavyHistoryMediaWindow = Duration(hours: 24);
+
 /// The scope of a history request, as it rides the device group.
 ///
 /// Absence means "everything" for the two narrowing fields, so the smallest
