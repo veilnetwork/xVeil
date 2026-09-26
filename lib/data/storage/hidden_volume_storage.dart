@@ -1504,9 +1504,21 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   Future<ConversationSync> _conversationSyncCritical(String conv) async {
     final seqsByAuthor = <String, Set<int>>{};
     final entries = await _messageLogEntries();
+    final rows = <Map<String, dynamic>>[];
+    // Whether this conversation holds OUR outgoing rows under our own author —
+    // what the app writes for every message it sends (see the skip below).
+    var ownAuthoredOutgoing = false;
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['c'] != conv) continue;
+      rows.add(m);
+      if (m['d'] == MessageDirection.outgoing.index &&
+          m['au'] is String &&
+          m['au'] != conv) {
+        ownAuthoredOutgoing = true;
+      }
+    }
+    for (final m in rows) {
       // A status op carries no (author, seq) and consumes no seq — skip it. Every
       // other row (post / edit / void / seq-bearing del tombstone) carries au+sq.
       if (m['op'] == 'status' || m['op'] == 'sig') continue;
@@ -1515,6 +1527,18 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       // A legacy pre-event-log row (or a tombstone of one) has no au/sq → it
       // contributes no high-water for its author (R17 mixed-pair degrade).
       if (au is! String || sq is! int || sq <= 0) continue;
+      // An OUTGOING row credited to the peer is not the peer's: a mirror from
+      // my other device used to land our own sent messages under the
+      // conversation's default author with a locally allocated seq. Counted,
+      // they ran the peer's high-water past what we hold of it, and the peer
+      // re-shipped nothing to a device that had missed its messages.
+      // Only where the app's own sent rows prove what "ours" looks like; a
+      // log written without authors credits every row to the peer by default.
+      if (ownAuthoredOutgoing &&
+          au == conv &&
+          m['d'] == MessageDirection.outgoing.index) {
+        continue;
+      }
       (seqsByAuthor[au] ??= <int>{}).add(sq);
     }
     final highWater = <String, int>{};

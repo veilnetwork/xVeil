@@ -12,7 +12,7 @@ import '../data/transport/bootstrap_invite.dart';
 import '../data/veil_stack.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
-import '../domain/chat.dart' show MessageDirection, MessageStatus;
+import '../domain/chat.dart' show MessageDirection, MessageStatus, isAcceptableWireSeq;
 import '../domain/device_sync.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/space_public_feed_transport.dart';
@@ -463,7 +463,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final fileName = event.payload['fname'];
     final fileSize = event.payload['fsize'];
     final customEmoji = parseInlineCustomEmoji(body, event.payload['ce']);
+    final author = event.payload['au'];
+    final seq = event.payload['sq'];
     await messaging.applyMirroredMessage(
+      author: author is String && author.isNotEmpty ? author : null,
+      seq: seq is int && isAcceptableWireSeq(seq) ? seq : null,
       peer: NodeId.fromHex(peerHex),
       msgId: event.key,
       direction: direction,

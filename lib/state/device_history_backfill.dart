@@ -55,6 +55,14 @@ import 'device_sync_bridge.dart' show contactPrefsPayload;
           'peer': peerHex,
           'dir': message.direction.name,
           'body': message.body,
+          // The row's place in its author's stream, so every device of mine
+          // holds the message under the SAME (author, seq) — the key gap-fill
+          // reconciles on. Allocated locally instead, a sibling's high-water for
+          // the peer ran ahead of what it held (192 against the peer's real 115
+          // on the stand), and the peer re-shipped nothing to a device that had
+          // missed its messages.
+          if (message.author != null) 'au': message.author,
+          if (message.seq != null) 'sq': message.seq,
           if (message.customEmoji.isNotEmpty)
             'ce': encodeInlineCustomEmoji(message.customEmoji),
         },
@@ -71,6 +79,8 @@ import 'device_sync_bridge.dart' show contactPrefsPayload;
         'peer': peerHex,
         'dir': message.direction.name,
         'body': message.body,
+        if (message.author != null) 'au': message.author,
+        if (message.seq != null) 'sq': message.seq,
         // The bytes stay where they are: the mirror carries the CONTENT ID and
         // the reference below is what lets the other device pull them.
         'cid': contentId,
