@@ -161,6 +161,11 @@ DeviceHistoryAsk? historyAskToServe({
 /// and SHARED with every other device, so a full copy is the heaviest thing
 /// this app can ask of it; pacing keeps the rest of the group's traffic — a
 /// message, a call invite — moving while it runs.
+/// How deep a sibling's undelivered queue may get before a history replay
+/// waits for it: half the 256-frame replication cap, past which queued
+/// replication is dropped.
+const int kHistoryReplayBacklogRoom = 128;
+
 Future<DeviceHistoryReplay> replayHistoryForAsk({
   required DeviceHistoryAsk ask,
   required Storage storage,
@@ -173,6 +178,12 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   void Function(int sent)? onProgress,
   int batch = 25,
   Duration pause = const Duration(milliseconds: 150),
+  // Awaited at every batch boundary: the replay's real speed limit is how
+  // fast the siblings drain what it queues, not a fixed pause. A full copy
+  // posted at the pause's ~160 frames/s overran the 256-frame replication
+  // backlog, and a backed-up peer has its queued replication DROPPED —
+  // leaving the rest of the history to the 15-minute pull, round after round.
+  Future<void> Function()? awaitRoom,
 }) async {
   var conversations = 0, messages = 0, contacts = 0, calls = 0, readMarks = 0;
   var sent = 0;
@@ -195,7 +206,10 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
     }
     sent++;
     onProgress?.call(sent);
-    if (sent % batch == 0) await Future<void>.delayed(pause);
+    if (sent % batch == 0) {
+      await Future<void>.delayed(pause);
+      await awaitRoom?.call();
+    }
     return true;
   }
 

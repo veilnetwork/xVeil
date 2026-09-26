@@ -31,7 +31,7 @@ import '../domain/clear_policy.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
 import 'device_history_backfill.dart'
-    show historyAskToServe, replayHistoryForAsk;
+    show historyAskToServe, kHistoryReplayBacklogRoom, replayHistoryForAsk;
 import 'device_settings_sync.dart';
 import 'device_sync_appliers.dart';
 import 'providers.dart' show realStackProvider, storageProvider;
@@ -490,6 +490,21 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           svc.postDeviceEvent(event, attachment: attachment),
       cancelled: () =>
           bridgeGone || !identical(ref.read(groupServiceProvider), svc),
+      // Hold while any sibling's queue is past half the replication cap; a
+      // bounded wait, so a sibling that has gone away does not stall the
+      // replay for good (the pull picks up what it then misses).
+      awaitRoom: () async {
+        final deadline = DateTime.now().add(const Duration(minutes: 2));
+        while (!bridgeGone && DateTime.now().isBefore(deadline)) {
+          var worst = 0;
+          for (final d in await svc.otherDeviceIds()) {
+            final n = messaging.pendingFramesFor(d);
+            if (n > worst) worst = n;
+          }
+          if (worst < kHistoryReplayBacklogRoom) return;
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+      },
     );
     devLog(
       () =>
