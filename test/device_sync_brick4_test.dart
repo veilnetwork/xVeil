@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/state/device_history_backfill.dart' show deviceMirrorOf;
 import 'package:xveil/domain/device_history_ask.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
@@ -662,6 +663,71 @@ void main() {
     await mirror('heavy2', 'feed0002');
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(pulled, ['feed0001'], reason: 'asked for, then the answer lapsed');
+  });
+
+  test('a mirrored message keeps its (author, seq), and our own sent rows '
+      'never count toward the peer\'s high-water', () async {
+    // The counterpart re-ships what our beacon says we lack. Mirrors used to
+    // arrive with a locally allocated seq, and our OWN sent messages landed
+    // under the peer's author: the beacon claimed 192 of a stream whose source
+    // had only reached 115, and nothing was ever re-shipped.
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+
+    // Out of order, as a log replay may deliver them: a local allocation would
+    // number them by arrival.
+    for (final seq in [3, 1, 2]) {
+      await svc.applyMirroredMessage(
+        peer: peer,
+        msgId: 'in$seq',
+        direction: MessageDirection.incoming,
+        body: 'from them $seq',
+        tsMs: 7000 + seq,
+        author: peer.hex,
+        seq: seq,
+      );
+    }
+    // A message this device sent, authored as the app authors them.
+    await storage.appendMessage(
+      Message(
+        id: 'mine-1',
+        conversationId: peer.hex,
+        direction: MessageDirection.outgoing,
+        body: 'sent here',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(8000),
+        status: MessageStatus.sent,
+        author: me.hex,
+      ),
+    );
+    // What an older mirror left behind: our sent message, credited to them.
+    await storage.appendMessage(
+      Message(
+        id: 'legacy-out',
+        conversationId: peer.hex,
+        direction: MessageDirection.outgoing,
+        body: 'mine',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(9000),
+        status: MessageStatus.sent,
+        author: peer.hex,
+        seq: 4,
+      ),
+    );
+    final rows = await storage.loadMessages(peer.hex);
+    expect(rows.singleWhere((m) => m.id == 'in3').seq, 3);
+    final sync = await storage.conversationSync(peer.hex);
+    expect(sync.highWater[peer.hex], 3);
+
+    final mirrored = deviceMirrorOf(
+      peer.hex,
+      rows.singleWhere((m) => m.id == 'in3'),
+    );
+    expect(mirrored.event.payload['sq'], 3);
+    expect(mirrored.event.payload['au'], peer.hex);
   });
 
   test('a MIRRORED message stamped past the tolerated skew is stored at the '
