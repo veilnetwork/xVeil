@@ -220,6 +220,8 @@ class _MessagingDeviceMirror {
   }
 
   Future<bool> applyMessage({
+    String? author,
+    int? seq,
     required NodeId peer,
     required String msgId,
     required MessageDirection direction,
@@ -278,6 +280,8 @@ class _MessagingDeviceMirror {
         fileSize: fileSize,
         thumb: thumb,
         customEmoji: customEmoji,
+        author: author,
+        seq: seq,
       ),
     );
     // An erase or an edit that got here FIRST is spent now, exactly as the wire

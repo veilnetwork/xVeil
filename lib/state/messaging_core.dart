@@ -491,6 +491,8 @@ class MessagingService {
   );
 
   Future<bool> applyMirroredMessage({
+    String? author,
+    int? seq,
     required NodeId peer,
     required String msgId,
     required MessageDirection direction,
@@ -502,6 +504,8 @@ class MessagingService {
     String? thumb,
     List<InlineCustomEmoji> customEmoji = const [],
   }) => _deviceMirror.applyMessage(
+    author: author,
+    seq: seq,
     peer: peer,
     msgId: msgId,
     direction: direction,
