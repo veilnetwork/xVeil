@@ -5811,6 +5811,14 @@ class AppL10nEs extends AppL10n {
   String get devicesPrepare => 'Preparar el enlace seguro';
 
   @override
+  String get devicesHistoryHeavyMedia =>
+      'Descargar también los archivos pesados del historial';
+
+  @override
+  String get devicesHistoryHeavyMediaHint =>
+      'Los archivos que superan tu límite de descarga automática llegarán con el historial durante las próximas 24 horas. Desactivado: quedan como enlaces y se descargan al abrirlos.';
+
+  @override
   String get devicesAdoptionQrTitle => 'Escanea esto en el dispositivo nuevo';
 
   @override
