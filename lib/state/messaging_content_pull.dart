@@ -2127,10 +2127,16 @@ extension _MessagingContentPull on MessagingService {
           'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
           '(${m.size}B) stored',
     );
+    // Pulled from MY OTHER DEVICE: the message already has its row in the
+    // conversation it belongs to. Surfaced under the source, it opened a
+    // conversation with the sibling itself — on the stand every file one
+    // device pulled from the other became an unread "incoming" row in a chat
+    // with that device, mirrored back to the device it came from.
+    final fromSibling = await _isSiblingDevice(peer);
     final persisted = await _persistReceivedContent(
       peer,
       m,
-      surfaceOffer: !groupScoped,
+      surfaceOffer: !groupScoped && !fromSibling,
     );
     if (persisted && !groupScoped) {
       await _send(peer, WireEnvelope.ack(ackId).encode());
