@@ -2125,7 +2125,12 @@ class MessagingService {
 
   Future<bool> applyMirroredReadMark(String conversationId, int tsMs) =>
       _conversationAdmin.applyMirroredReadMark(conversationId, tsMs);
-  Future<void> sendText(
+  /// Returns whether the message was stored and sent. `false` is a refusal —
+  /// empty or malformed text, or a peer that is not an accepted contact — and
+  /// nothing was stored. The chat screen cannot reach those cases (it offers
+  /// no composer to a pending contact), but the API and the debug hook can,
+  /// and they answered "ok" for a message that went nowhere.
+  Future<bool> sendText(
     NodeId dst,
     String text, {
     String? replyToId,
@@ -2133,12 +2138,14 @@ class MessagingService {
     List<InlineCustomEmoji> customEmoji = const [],
   }) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
-    if (isSpaceRecommendationMessageBody(trimmed)) return;
-    if (!isValidInlineCustomEmoji(trimmed, customEmoji)) return;
+    if (trimmed.isEmpty) return false;
+    if (isSpaceRecommendationMessageBody(trimmed)) return false;
+    if (!isValidInlineCustomEmoji(trimmed, customEmoji)) return false;
     // Consent gate — only free-message an accepted contact.
     final contact = await _storage.getContact(dst);
-    if (contact == null || contact.status != ContactStatus.accepted) return;
+    if (contact == null || contact.status != ContactStatus.accepted) {
+      return false;
+    }
     // One send time, used for BOTH our stored copy and the wire `sentAtMs`, so
     // both ends order this message identically. From the service clock ([_now])
     // so the per-message reconnect give-up age (and tests) share one timeline.
@@ -2188,6 +2195,7 @@ class MessagingService {
     // message feel laggy even when the live path delivers instantly. If the peer
     // is offline the deposit (or the outbox retry) still gets there.
     _stashInBackground(dst, id, wire, awaitAck: true);
+    return true;
   }
 
   /// Send one recommendation card after the caller's explicit recipient
