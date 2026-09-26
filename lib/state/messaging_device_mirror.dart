@@ -144,6 +144,7 @@ class _MessagingDeviceMirror {
     required NodeId peer,
     required String msgId,
     required String body,
+    int? seq,
     List<InlineCustomEmoji> customEmoji = const [],
   }) async {
     if (_owner._disposed) return;
@@ -167,6 +168,7 @@ class _MessagingDeviceMirror {
         peer.hex,
         msgId,
         body,
+        seq: seq,
         customEmoji: customEmoji,
       );
       _owner._signal();
