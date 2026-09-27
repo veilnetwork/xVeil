@@ -21,6 +21,7 @@
 
 import 'dart:async';
 
+import '../core/ids.dart';
 import '../data/storage/storage.dart';
 import '../domain/chat.dart' show Message;
 import '../domain/device_history_ask.dart';
@@ -184,6 +185,9 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   // backlog, and a backed-up peer has its queued replication DROPPED —
   // leaving the rest of the history to the 15-minute pull, round after round.
   Future<void> Function()? awaitRoom,
+  // A conversation with one of my own devices is not history to hand over:
+  // on the receiver it would describe a chat with a sibling (or with itself).
+  Future<bool> Function(NodeId peer)? isOwnDevice,
 }) async {
   var conversations = 0, messages = 0, contacts = 0, calls = 0, readMarks = 0;
   var sent = 0;
@@ -217,6 +221,7 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   for (final conversation in await storage.loadConversations()) {
     final peerHex = conversation.peer.nodeId.hex;
     if (wanted != null && !wanted.contains(peerHex)) continue;
+    if (await isOwnDevice?.call(conversation.peer.nodeId) ?? false) continue;
     conversations++;
 
     // THE CONTACT FIRST, and its status as its own key.

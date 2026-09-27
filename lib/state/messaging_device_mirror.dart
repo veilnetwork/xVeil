@@ -235,6 +235,14 @@ class _MessagingDeviceMirror {
     String? thumb,
     List<InlineCustomEmoji> customEmoji = const [],
   }) async {
+    // NEVER A CONVERSATION WITH MY OWN DEVICE. Every emitter already refuses
+    // to mirror one, but a sibling on an older build — or a history replay —
+    // can still carry it, and storing it here CREATES a chat, and a contact
+    // row, with a device of my own. Measured on the stand: a file pulled from
+    // the sibling surfaced as an offer in a chat with that sibling, the replay
+    // carried the chat back, and the device ended up with an unanswerable
+    // "pending" contact that was ITSELF.
+    if (await _owner._isSiblingDevice(peer)) return false;
     if (await _owner._hasMessage(peer, msgId)) return false;
     if (await _owner._storage.isMessageDeleted(peer.hex, msgId)) return false;
     // A BLOCK IS A DECISION, and a sibling does not get to overrule it.
@@ -341,6 +349,8 @@ class _MessagingDeviceMirror {
     required ClearRequestPolicy clearPolicy,
     DisappearingSetting? disappearing,
   }) async {
+    // See [applyMessage]: a contact record of my own device is not portable.
+    if (await _owner._isSiblingDevice(peer)) return false;
     final existing = await _owner._storage.getContact(peer);
     if (existing == null) return false;
     // The retention policy is decided by the SAME rule a peer's announcement
