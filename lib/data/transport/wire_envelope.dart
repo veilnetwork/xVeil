@@ -274,6 +274,17 @@ enum WireKind {
   /// older build maps it to [unknown] and drops it after having heard the
   /// sender anyway.
   presence,
+
+  /// Reconciling erasures between MY devices. Body JSON: an ask
+  /// `{d: <sender device>, q: <conversation>, k: [<key>...]}` — the keys (see
+  /// `ownEchoKey`) of the newest messages the sender holds there — or the
+  /// answer `{d, a: <conversation>, ids: [...]}`: those of them the answering
+  /// device has erased. An erase travels to my devices as a device-log event,
+  /// and one lost there left a message deleted on one device and shown on the
+  /// other for good. Own devices only (the owner's decision, 2026-09-27: never
+  /// trust the counterpart with this), live only, never acked. Appended
+  /// immediately before [unknown] (RULE WC).
+  deviceGone,
   unknown,
 }
 
@@ -352,6 +363,7 @@ const List<String> kWireKindOrder = [
   'modelInventoryOffer',
   'disappearingSet',
   'presence',
+  'deviceGone',
   'unknown',
 ];
 
@@ -566,6 +578,9 @@ class WireEnvelope {
   /// it no longer holds us as a contact (recovery handshake, §15.7).
   const WireEnvelope.reconnect(String greeting)
     : this(WireKind.reconnect, greeting);
+
+  /// See [WireKind.deviceGone].
+  const WireEnvelope.deviceGone(String json) : this(WireKind.deviceGone, json);
 
   /// See [WireKind.presence].
   WireEnvelope.presence(String deviceHex, {bool reply = false})

@@ -11,6 +11,123 @@ class _MessagingDeviceMirror {
 
   final MessagingService _owner;
 
+  /// Per sibling device: when this device last asked it about erasures.
+  final Map<String, DateTime> _erasureAskedAt = {};
+
+  /// How often one sibling is asked, at most.
+  static const _erasureAskEvery = Duration(minutes: 10);
+
+  /// Conversations compared per ask, the most recently active first…
+  static const _erasureConversations = 30;
+
+  /// …and how many of the newest messages of each.
+  static const _erasureWindow = 200;
+
+  /// Ask [device], one of MY devices, which of the messages this device still
+  /// shows it has erased (see [WireKind.deviceGone]).
+  ///
+  /// An erase reaches my other devices as a device-log event; one lost there
+  /// — measured on the stand when the device-post queue drowned under load —
+  /// left the message deleted on one device and shown on the other for good,
+  /// with nothing to notice. Every erase is mirrored to my devices, whatever
+  /// its route (mine, the peer's unsend, a disappearing window), so a sibling's
+  /// tombstone is a delete this device owes.
+  Future<void> askSiblingForErasures(NodeId device) async {
+    final now = _owner._now();
+    final last = _erasureAskedAt[device.hex];
+    if (last != null && now.difference(last) < _erasureAskEvery) return;
+    _erasureAskedAt[device.hex] = now;
+    try {
+      final selfHex = await _owner._selfHex();
+      final conversations = [
+        for (final c in await _owner._storage.loadConversations())
+          if (c.lastMessage != null) c,
+      ]..sort(
+          (a, b) => b.lastMessage!.timestamp.compareTo(a.lastMessage!.timestamp),
+        );
+      for (final c in conversations.take(_erasureConversations)) {
+        final peer = c.peer.nodeId;
+        if (await _owner._isSiblingDevice(peer)) continue;
+        final messages = await _owner._storage.loadMessages(peer.hex)
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+        if (messages.isEmpty) continue;
+        await _owner._send(
+          device,
+          WireEnvelope.deviceGone(
+            jsonEncode({
+              'd': selfHex,
+              'q': peer.hex,
+              'k': [
+                for (final m in messages.take(_erasureWindow)) ownEchoKey(m.id),
+              ],
+            }),
+          ).encode(),
+        );
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: erasure ask to ${device.short} failed: $e');
+    }
+  }
+
+  /// An ask or an answer from one of MY devices (the caller checked that).
+  Future<void> handleErasureFrame(InboundMessage m, String body) async {
+    try {
+      final d = jsonDecode(body);
+      if (d is! Map) return;
+      NodeId? device = m.srcDevice != null && m.srcDevice != m.src
+          ? m.srcDevice
+          : null;
+      final named = d['d'];
+      if (device == null && named is String) device = NodeId.fromHex(named);
+      if (device == null) return;
+      final mine = await _owner.myOtherDevices?.call() ?? const <NodeId>[];
+      if (!mine.contains(device)) return;
+      final ask = d['q'], keys = d['k'];
+      if (ask is String && keys is List) {
+        final wanted = {for (final k in keys) if (k is String) k};
+        final erased = [
+          for (final id in await _owner._storage.deletedMessageIds(ask))
+            if (wanted.contains(ownEchoKey(id))) id,
+        ];
+        if (erased.isEmpty) return;
+        await _owner._send(
+          device,
+          WireEnvelope.deviceGone(
+            jsonEncode({'d': await _owner._selfHex(), 'a': ask, 'ids': erased}),
+          ).encode(),
+        );
+        return;
+      }
+      final answer = d['a'], ids = d['ids'];
+      if (answer is! String || ids is! List) return;
+      // Only an answer to an ask of ours: a sibling cannot volunteer deletes.
+      final asked = _erasureAskedAt[device.hex];
+      if (asked == null ||
+          _owner._now().difference(asked) > const Duration(minutes: 15)) {
+        return;
+      }
+      final peer = NodeId.fromHex(answer);
+      var applied = 0;
+      for (final id in ids) {
+        if (id is! String) continue;
+        if (await _owner._storage.loadMessageById(peer.hex, id) == null) {
+          continue;
+        }
+        await applyDelete(peer: peer, msgId: id);
+        applied++;
+      }
+      if (applied > 0) {
+        devLog(
+          () =>
+              'xVeil[devices]: ${device!.short} had erased $applied message(s) '
+              'still shown here in ${peer.short} — erased here too',
+        );
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: erasure frame dropped: $e');
+    }
+  }
+
   /// Fires after an ordinary 1:1 messaging write, never after [applyMessage].
   void Function(NodeId peer, Message stored)? onMessageStored;
 
