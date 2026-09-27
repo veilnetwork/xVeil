@@ -262,6 +262,10 @@ class _MessagingOutbox {
     bool startLiveBeforeEnqueue = false,
   }) async {
     final wire = envelope.withFrameId(frameId).encode();
+    final skipLive =
+        !_MessagingMailboxDelivery.isCallSignalId(frameId) &&
+        !startLiveBeforeEnqueue &&
+        await _longSilent(peer.hex);
     Future<void> tryLive() async {
       final stopwatch = Stopwatch()..start();
       try {
@@ -325,7 +329,16 @@ class _MessagingOutbox {
     // `messaging_replication`), so ONE device on a stale direct address made
     // every later recipient's deposit wait out its dial too.
     _owner._stashInBackground(peer, frameId, wire);
-    if (earlyLive != null) {
+    if (skipLive) {
+      if (_liveSkipNoted.add(peer.hex)) {
+        devLog(
+          () =>
+              'xVeil[durable]: ${peer.short} silent for over a day — new '
+              'frames are queued without a live leg; the probe ladder and '
+              'its first answer reach them',
+        );
+      }
+    } else if (earlyLive != null) {
       if (awaitLive) await boundedLiveLeg(earlyLive);
     } else if (awaitLive) {
       await boundedLiveLeg(tryLive());
@@ -664,6 +677,34 @@ class _MessagingOutbox {
   static const _silentAfter = Duration(minutes: 10);
 
   static String _probeKey(String peerHex) => 'peer_probe:$peerHex';
+
+  /// A peer silent this long gets no live leg for a NEW frame, only the queue.
+  ///
+  /// The ladder spaces re-drives, but every new frame still dialled at once:
+  /// measured on the stand, a linked device dead for 29 hours drew 343 live
+  /// sends and 850 KB in fifteen minutes from its sibling, every device-log
+  /// delta dialled into nothing. The reason the first send was left alone —
+  /// an idle but living sibling would wait out the probe interval — does not
+  /// reach this far: a living device is heard from far more often than once
+  /// a day, and the first thing heard from it rewinds its whole queue.
+  static const _liveOnlyWhenHeardWithin = Duration(days: 1);
+
+  /// Peers already told about in the log, once each.
+  final Set<String> _liveSkipNoted = {};
+
+  Future<bool> _longSilent(String peerHex) async {
+    try {
+      await _loadSilences([peerHex]);
+    } catch (_) {
+      return false;
+    }
+    final heard = _lastHeard[peerHex];
+    if (heard == null) return false;
+    final silent =
+        _owner._now().difference(heard) >= _liveOnlyWhenHeardWithin;
+    if (!silent) _liveSkipNoted.remove(peerHex);
+    return silent;
+  }
 
   /// How often ONE frame is re-driven to a peer that has been silent for
   /// [silence] — the time from when it was last heard to when it was last
