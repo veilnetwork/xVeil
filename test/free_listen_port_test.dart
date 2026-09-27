@@ -8,11 +8,22 @@ void main() {
   // spreads over base+1..99, an all-online session takes port + 1 + i), and
   // the second node came up with no listener: EADDRINUSE on apply-config.
   test('a held listener port is stepped past, a free one is kept', () async {
-    final held = await RawDatagramSocket.bind(
+    // A port with room above it: stepping past one near 65535 runs out of
+    // range and falls back to the preferred port by design, which failed this
+    // test whenever the OS handed out an ephemeral port above 65435.
+    var held = await RawDatagramSocket.bind(
       InternetAddress.loopbackIPv4,
       0,
       reuseAddress: false,
     );
+    for (var i = 0; i < 64 && held.port > 60000; i++) {
+      held.close();
+      held = await RawDatagramSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+        reuseAddress: false,
+      );
+    }
     addTearDown(held.close);
     final port = held.port;
     expect(

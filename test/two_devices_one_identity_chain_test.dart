@@ -312,6 +312,38 @@ void main() {
     );
   });
 
+  test('a chunk of replicated state is acked live, never through the mailbox',
+      () async {
+    // Each mailbox ack is a blob of its own, announced and walked two per
+    // drain pass; a snapshot's chunk acks queued a text message behind them
+    // for 95 s on the stand.
+    final contact = NodeId(Uint8List.fromList(List.filled(32, 0x44)));
+    final transport = _RecordingTransport(
+      localNodeId: NodeId(Uint8List.fromList(List.filled(32, 0x13))),
+    );
+    final messaging = MessagingService(transport, await _storage());
+    addTearDown(messaging.dispose);
+    final sink = _RecordingSink();
+    messaging.attachMailbox(sink);
+
+    await messaging.debugAckTo(
+      InboundMessage(src: contact, payload: Uint8List(0)),
+      'grpc:grp:${'aa' * 32}:${'bb' * 32}:${contact.hex}:7',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(sink.recipients, isEmpty,
+        reason: 'a chunk ack went into the mailbox');
+    expect(transport.sentTo, contains(contact), reason: 'the live ack goes');
+
+    // Premise: an ordinary message's ack still takes the mailbox leg.
+    await messaging.debugAckTo(
+      InboundMessage(src: contact, payload: Uint8List(0)),
+      'c4604ec5-fd6a-4216-854b-7c6c8c4994c8',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(sink.recipients, contains(contact));
+  });
+
   test("a sibling's frame is acknowledged at the sibling, not at myself",
       () async {
     // The frame arrives under the identity, and on the master that is its own
