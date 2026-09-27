@@ -18737,6 +18737,13 @@ class GroupService implements ArchiveGroups {
       StreamController.broadcast();
   Stream<GroupMessage> get deviceIncoming => _deviceIncomingCtl.stream;
 
+  /// Every event THIS device posts to its device group, at the moment it is
+  /// posted. Synchronous, so a listener has seen it before anything arriving
+  /// from a sibling can be judged against it.
+  final StreamController<DeviceSyncEvent> _deviceOutgoingCtl =
+      StreamController.broadcast(sync: true);
+  Stream<DeviceSyncEvent> get deviceOutgoing => _deviceOutgoingCtl.stream;
+
   /// Genuinely-NEW inbound messages (post-dedup, signature-verified, not
   /// self-authored) — the notification/unread layer's feed, symmetric to
   /// MessagingService.incoming.
@@ -20426,6 +20433,7 @@ class GroupService implements ArchiveGroups {
     // left (report21 X21-H2). `false` is what this already returns when it
     // cannot post, so callers need no new case.
     if (_disposed) return Future.value(false);
+    _deviceOutgoingCtl.add(e);
     final done = Completer<bool>();
     _devicePostQueue.add((event: e, attachment: attachment, done: done));
     if (!_devicePostDraining) unawaited(_drainDevicePosts());
@@ -21316,6 +21324,7 @@ class GroupService implements ArchiveGroups {
     feedAccessChanges.dispose();
     await _groupCallIncomingCtl.close();
     await _deviceIncomingCtl.close();
+    await _deviceOutgoingCtl.close();
     await _incomingCtl.close();
     await _incomingCommentCtl.close();
     await _incomingPostCtl.close();

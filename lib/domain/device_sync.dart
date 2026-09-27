@@ -297,6 +297,36 @@ bool deviceSyncEffectiveAt(DeviceSyncEvent event, int nowMs) =>
 ///   then starting the work concurrently decides nothing — the applies are
 ///   read-modify-write against storage, so whichever finishes last is what the
 ///   user gets, which is not the same thing as whichever event is newest.
+/// Whether an event of [kind] that THIS device posted is also offered to its
+/// own apply gate.
+///
+/// The gate ranks the newest event per slot, but it only ever saw events from
+/// the device group's incoming stream. A local change is written straight to
+/// state and posted; the gate never heard of it, so a sibling's OLDER event
+/// that arrived afterwards found the slot empty (or older still) and wrote
+/// over it. The fold, which sees both, named the local one the winner, and the
+/// device showed the other one for good. Measured on the stand under a mixed
+/// load: A pinned one message at :23, B another at :27; A showed B's, B showed
+/// A's — each device the other's choice.
+///
+/// Offered like any sibling event, the local one takes the slot (re-applying
+/// its own value, which is idempotent) and the older arrival is refused; and a
+/// sibling event that slipped in between the local write and the post loses
+/// to it and is written over again.
+///
+/// Only the kinds that are one value per key. Rows keyed by their own id
+/// (messages, statuses, calls, reactions) do not compete, commands (a history
+/// ask) must not be run on the device that asked, and the identity document
+/// has its own merge.
+bool deviceSyncOwnEventRidesGate(DeviceSyncKind kind) => switch (kind) {
+  DeviceSyncKind.contactUp ||
+  DeviceSyncKind.settingSet ||
+  DeviceSyncKind.groupPref ||
+  DeviceSyncKind.groupNotify ||
+  DeviceSyncKind.msgPin => true,
+  _ => false,
+};
+
 class DeviceSyncApplyGate {
   /// [nowMs] is the reading device's wall clock — injected so tests can hold
   /// it still rather than race it.
