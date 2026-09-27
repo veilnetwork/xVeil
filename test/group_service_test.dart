@@ -7310,6 +7310,107 @@ void main() {
         reason: 'a restart handed the same key over again, as a full snapshot');
   });
 
+  group('a group keeps its messages in segments', () {
+    // Inline, every save rewrote the whole history: one post to a
+    // 259-message group wrote ~195 KB on each device on the stand.
+    late _CountingStorage storage;
+    late GroupService svc;
+    late NodeId gid;
+
+    setUp(() async {
+      final store = FakeKvLogStore();
+      storage = _CountingStorage(({required password, required bool create}) => store);
+      await storage.open(password: 'pw', createIfMissing: true);
+      svc = GroupService(storage, _FakeSigner(owner));
+      gid = await svc.createGroup('Segmented');
+      for (var i = 0; i < 300; i++) {
+        expect(
+          await svc.postMessage(gid, 'message $i ${'x' * 300}', broadcast: false),
+          isTrue,
+        );
+      }
+    });
+    tearDown(() => svc.dispose());
+
+    test('one more message writes the header and the tail, not the history',
+        () async {
+      final whole = [
+        for (final k in await _groupFiles(storage, gid))
+          await storage.fileSize(k) ?? 0,
+      ].fold<int>(0, (a, b) => a + b);
+      storage.storedBytes = 0;
+      storage.storedIds.clear();
+      expect(await svc.postMessage(gid, 'one more', broadcast: false), isTrue);
+
+      final segmentWrites =
+          storage.storedIds.where((k) => k.contains(':s:')).length;
+      expect(segmentWrites, 1, reason: 'only the tail segment changed');
+      expect(storage.storedBytes, lessThan(whole ~/ 3),
+          reason: 'a save rewrote most of the history '
+              '(${storage.storedBytes} of $whole bytes)');
+    });
+
+    test('a fresh service reads back every message', () async {
+      final again = GroupService(storage, _FakeSigner(owner));
+      addTearDown(again.dispose);
+      final bundle = (await again.load(gid))!;
+      expect(bundle.messages, hasLength(300));
+      expect(bundle.messages.last.body, startsWith('message 299 '));
+    });
+
+    test('a bundle written before segments still loads, and moves over',
+        () async {
+      // Rebuild the old layout: every row inline, no segment list.
+      final key = 'group:${gid.hex}';
+      final header = jsonDecode(utf8.decode((await storage.loadFile(key))!))
+          as Map<String, dynamic>;
+      final rows = <Object?>[];
+      for (final k in (header['gs'] as List).cast<String>()) {
+        rows.addAll(jsonDecode(utf8.decode((await storage.loadFile(k))!)) as List);
+      }
+      header
+        ..remove('gs')
+        ..['g'] = rows;
+      await storage.storeFile(key, Uint8List.fromList(utf8.encode(jsonEncode(header))));
+
+      final legacy = GroupService(storage, _FakeSigner(owner));
+      addTearDown(legacy.dispose);
+      expect((await legacy.load(gid))!.messages, hasLength(300));
+      expect(await legacy.postMessage(gid, 'after', broadcast: false), isTrue);
+      final moved = jsonDecode(utf8.decode((await storage.loadFile(key))!)) as Map;
+      expect(moved.containsKey('gs'), isTrue);
+      expect(moved.containsKey('g'), isFalse);
+      expect((await legacy.load(gid))!.messages, hasLength(301));
+    });
+
+    test('a segment a crash left behind is removed by the next save', () async {
+      final key = 'group:${gid.hex}';
+      final stray = '$key:s:${'e' * 32}';
+      await storage.storeFile(stray, Uint8List.fromList(utf8.encode('[]')));
+      final header = jsonDecode(utf8.decode((await storage.loadFile(key))!))
+          as Map<String, dynamic>;
+      header['gd'] = [stray];
+      await storage.storeFile(key, Uint8List.fromList(utf8.encode(jsonEncode(header))));
+
+      final next = GroupService(storage, _FakeSigner(owner));
+      addTearDown(next.dispose);
+      expect(await next.postMessage(gid, 'cleanup', broadcast: false), isTrue);
+      expect(await storage.hasFile(stray), isFalse);
+    });
+
+    test('a missing segment refuses the load rather than dropping its rows',
+        () async {
+      final key = 'group:${gid.hex}';
+      final header = jsonDecode(utf8.decode((await storage.loadFile(key))!))
+          as Map<String, dynamic>;
+      await storage.deleteStoredFile((header['gs'] as List).first as String);
+      final fresh = GroupService(storage, _FakeSigner(owner));
+      addTearDown(fresh.dispose);
+      expect(await fresh.load(gid), isNull,
+          reason: 'loading on would lose those rows at the next save');
+    });
+  });
+
   group('device-log rows about one message or call expire', () {
     // Keyed by an id that is never written twice, every such row won its own
     // key and the log grew ~720 bytes per message, forever, towards the one
@@ -23504,4 +23605,25 @@ void main() {
       );
     });
   });
+}
+
+/// Counts what goes through [storeFile], so a test can say how much one save
+/// wrote.
+class _CountingStorage extends HiddenVolumeStorage {
+  _CountingStorage(super.opener);
+  int storedBytes = 0;
+  final storedIds = <String>[];
+
+  @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) {
+    storedBytes += bytes.length;
+    storedIds.add(fileId);
+    return super.storeFile(fileId, bytes, name: name);
+  }
+}
+
+Future<List<String>> _groupFiles(HiddenVolumeStorage storage, NodeId gid) async {
+  final key = 'group:${gid.hex}';
+  final header = jsonDecode(utf8.decode((await storage.loadFile(key))!)) as Map;
+  return [key, ...((header['gs'] as List?) ?? const []).cast<String>()];
 }
