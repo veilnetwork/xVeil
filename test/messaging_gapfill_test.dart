@@ -1100,6 +1100,62 @@ void main() {
           reason: "the peer's own marker came back as a line I wrote");
     });
 
+    test('an edit my sibling made while this device was away is handed back',
+        () async {
+      await mB.dispose();
+      var clock = DateTime.now();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      mA.myOtherDevices = () async => [sibling];
+      final shared = (await sA.loadMessages(b.hex))
+          .singleWhere((m) => m.body == 'shared');
+      // The sibling's edit reached the counterpart, not this device.
+      await sB.editMessage(a.hex, shared.id, 'shared, edited', seq: 99);
+
+      Future<int> round() async {
+        clock = clock.add(const Duration(seconds: 6));
+        tB.sentSyncBodies.clear();
+        await mA.reconcileOnConnect();
+        await _settle();
+        return tB.sentSyncBodies.where((b) => b.contains('"e":')).length;
+      }
+
+      expect(await round(), 1, reason: 'the later text was not handed back');
+      final now = await sA.loadMessageById(b.hex, shared.id);
+      expect(now!.body, 'shared, edited',
+          reason: 'the counterpart held a later text and kept it to itself');
+      expect(now.edited, isTrue);
+      // This device now holds that edit, and says so: nothing comes back.
+      expect(await round(), 0,
+          reason: 'an edit already applied was handed back again');
+    });
+
+    test('the same text at another number is handed back once, not forever',
+        () async {
+      // An edit mirrored before edits carried their seq was numbered on this
+      // device: the text matches the counterpart's, the number does not, and
+      // every ask handed the same text back.
+      await mB.dispose();
+      var clock = DateTime.now();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      mA.myOtherDevices = () async => [sibling];
+      final shared = (await sA.loadMessages(b.hex))
+          .singleWhere((m) => m.body == 'shared');
+      await sA.editMessage(b.hex, shared.id, 'same text');
+      await sB.editMessage(a.hex, shared.id, 'same text', seq: 99);
+
+      Future<int> round() async {
+        clock = clock.add(const Duration(seconds: 6));
+        tB.sentSyncBodies.clear();
+        await mA.reconcileOnConnect();
+        await _settle();
+        return tB.sentSyncBodies.where((b) => b.contains('"e":')).length;
+      }
+
+      expect(await round(), 1, reason: 'premise: a higher number is news');
+      expect(await round(), 0,
+          reason: 'the same text came back on every ask');
+    });
+
     test('the same ask is answered twice, not on every beacon', () async {
       // A line I deleted on this device stays out of my list, so the peer
       // would hand it back on every round — the storm the re-ship had. Twice,
@@ -1336,6 +1392,43 @@ void main() {
         ).map((m) => m.$1),
         ['a', 'b'],
       );
+    });
+
+    group('an edit this device missed comes back too', () {
+      // (key, ts, editSeq or null)
+      List<String> pick(
+        List<(String, int, int?)> theirs,
+        Set<String> held,
+        Map<String, int> heldEdits,
+      ) => [
+        for (final m in ownEchoesEdited(
+          theirs: theirs,
+          keyOf: (m) => m.$1,
+          tsOf: (m) => m.$2,
+          editSeqOf: (m) => m.$3,
+          held: held,
+          heldEdits: heldEdits,
+          sinceMs: 0,
+        ))
+          m.$1,
+      ];
+
+      test('held as the original, edited at the counterpart: handed back', () {
+        // Measured on the stand: six messages edited on one device showed the
+        // original on the other device of mine for good ("already held").
+        expect(pick([('a', 5, 126), ('b', 6, null)], {'a', 'b'}, {}), ['a']);
+      });
+
+      test('held at the same edit, or a later one: not handed back', () {
+        expect(pick([('a', 5, 126)], {'a'}, {'a': 126}), isEmpty);
+        expect(pick([('a', 5, 126)], {'a'}, {'a': 130}), isEmpty,
+            reason: 'an edit made here and not yet at the counterpart');
+        expect(pick([('a', 5, 126)], {'a'}, {'a': 120}), ['a']);
+      });
+
+      test('not held: that is the missing-message echo, not this one', () {
+        expect(pick([('a', 5, 126)], {'x'}, {}), isEmpty);
+      });
     });
 
     test('most asks name the newest page; every 4th walks the older ones', () {
