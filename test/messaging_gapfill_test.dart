@@ -1144,6 +1144,29 @@ void main() {
           reason: "the peer's own marker came back as a line I wrote");
     });
 
+    test("a message handed back is filed as mine, not in the peer's stream",
+        () async {
+      // Stored without an author, the row was taken for the PEER's and
+      // numbered in the peer's stream from a local counter; an edit of it then
+      // landed there at a number from mine, where it can sit on a slot the
+      // peer's real message is still owed.
+      final identity = _id(9).hex;
+      mA.selfIdentityHex = () async => identity;
+      addTearDown(() => mA.selfIdentityHex = null);
+      mA.myOtherDevices = () async => [sibling];
+      final before = (await sA.conversationSync(b.hex)).highWater[b.hex];
+      await theSiblingWrote('sib-1', 'from the sibling, one');
+
+      await mA.reconcileOnConnect();
+      await _settle();
+
+      final row = await sA.loadMessageById(b.hex, 'sib-1');
+      expect(row, isNotNull, reason: 'premise: the message came back');
+      expect(row!.author, identity);
+      expect((await sA.conversationSync(b.hex)).highWater[b.hex], before,
+          reason: "my own message moved the peer's stream");
+    });
+
     test('an edit my sibling made while this device was away is handed back',
         () async {
       await mB.dispose();
