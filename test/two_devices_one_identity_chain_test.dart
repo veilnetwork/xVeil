@@ -24,6 +24,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/storage.dart';
+import 'package:xveil/domain/clear_policy.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_call.dart';
@@ -461,6 +462,82 @@ void main() {
     // And a real decision still lands: a block wins over an accept.
     await messaging.applyMirroredContactStatus(peer, ContactStatus.blocked);
     expect((await storage.getContact(peer))?.status, ContactStatus.blocked);
+  });
+
+  test('nothing mirrored makes a chat or a contact out of my own device',
+      () async {
+    // Measured on the stand: a file pulled from the sibling surfaced as an
+    // offer in a chat WITH the sibling, the history replay carried that chat
+    // to the sibling itself, and each device ended up with a "pending"
+    // contact that was one of its own — one of them, literally itself.
+    final storage = await _storage();
+    final messaging = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 1)))),
+      storage,
+    );
+    addTearDown(messaging.dispose);
+    final identity = NodeId(Uint8List.fromList(List.filled(32, 0x8D)));
+    final sibling = NodeId(Uint8List.fromList(List.filled(32, 0xB2)));
+    final stranger = NodeId(Uint8List.fromList(List.filled(32, 0x51)));
+    messaging.selfIdentityHex = () async => identity.hex;
+    messaging.isOwnDevice = (peer) async => peer == sibling || peer == identity;
+
+    for (final peer in [sibling, stranger]) {
+      await messaging.applyMirroredContactStatus(
+        peer,
+        ContactStatus.pendingOutgoing,
+      );
+      await messaging.applyMirroredMessage(
+        peer: peer,
+        msgId: 'offer-${peer.hex.substring(0, 4)}',
+        direction: MessageDirection.incoming,
+        body: '',
+        tsMs: 1000,
+        fileContentId: 'cid',
+        fileName: 'fresh3m.bin',
+        fileSize: 3000016,
+      );
+      await messaging.applyMirroredContact(
+        peer: peer,
+        name: 'renamed',
+        pinned: true,
+        archived: false,
+        allowPeerDelete: true,
+        clearPolicy: ClearRequestPolicy.values.first,
+      );
+    }
+
+    expect(
+      await storage.getContact(sibling),
+      isNull,
+      reason: 'a mirrored status created a contact with my own device',
+    );
+    expect(
+      await storage.loadMessages(sibling.hex),
+      isEmpty,
+      reason: 'a mirrored message opened a chat with my own device',
+    );
+    // Premise: the same events for anyone else still land.
+    expect((await storage.getContact(stranger))?.status,
+        ContactStatus.pendingOutgoing);
+    expect((await storage.getContact(stranger))?.name, 'renamed');
+    expect(await storage.loadMessages(stranger.hex), hasLength(1));
+
+    // A record that already exists (left by an older build) is not edited
+    // either: the preference mirror does not create, but it would update.
+    await storage.upsertContact(
+      Contact(nodeId: sibling, status: ContactStatus.pendingOutgoing),
+    );
+    await messaging.applyMirroredContact(
+      peer: sibling,
+      name: 'renamed',
+      pinned: true,
+      archived: false,
+      allowPeerDelete: true,
+      clearPolicy: ClearRequestPolicy.values.first,
+    );
+    expect((await storage.getContact(sibling))?.name, isNull,
+        reason: "a sibling's preferences were applied to my own device");
   });
 
   test('one device signing two rows at one seq is still equivocation',
