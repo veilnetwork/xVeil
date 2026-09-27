@@ -1151,6 +1151,117 @@ void main() {
           reason: 'an empty answer to the same ask withheld the real one');
     });
 
+    test('a message older than my newest hundred comes back on an older page',
+        () async {
+      // Nine messages a device wrote before it died were four days older than
+      // its sibling's newest hundred, and never came back.
+      await mB.dispose();
+      var clock = DateTime.now();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      mA.myOtherDevices = () async => [sibling];
+      final base = DateTime.now().subtract(const Duration(days: 10));
+      // 150 of my messages, held on both sides; the sibling's one sits among
+      // the OLDEST fifty.
+      for (var i = 0; i < 150; i++) {
+        final ts = base.add(Duration(minutes: i));
+        final id = 'own-$i';
+        await sA.appendMessage(Message(
+          id: id, conversationId: b.hex, direction: MessageDirection.outgoing,
+          body: id, timestamp: ts, status: MessageStatus.delivered,
+        ));
+        await sB.appendMessage(Message(
+          id: id, conversationId: a.hex, direction: MessageDirection.incoming,
+          body: id, timestamp: ts, status: MessageStatus.delivered,
+          author: a.hex, seq: 1000 + i,
+        ));
+      }
+      await sB.appendMessage(Message(
+        id: 'sib-old', conversationId: a.hex,
+        direction: MessageDirection.incoming, body: 'from the dead sibling',
+        timestamp: base.add(const Duration(minutes: 20, seconds: 30)),
+        status: MessageStatus.delivered, author: a.hex, seq: 2000,
+      ));
+
+      Future<bool> round() async {
+        clock = clock.add(const Duration(seconds: 6));
+        await mA.reconcileOnConnect();
+        await _settle();
+        return (await sA.loadMessages(b.hex)).any((m) => m.id == 'sib-old');
+      }
+
+      expect(await round(), isFalse, reason: 'premise: the newest page misses it');
+      var back = false;
+      for (var i = 0; i < 4 && !back; i++) {
+        back = await round();
+      }
+      expect(back, isTrue, reason: 'no older page ever asked for it');
+    });
+
+    test('history from before my first message comes back on the oldest page',
+        () async {
+      // A device linked later: its sibling wrote these before it existed,
+      // then died, and only the counterpart still holds them.
+      await mB.dispose();
+      var clock = DateTime.now();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      mA.myOtherDevices = () async => [sibling];
+      final base = DateTime.now().subtract(const Duration(days: 10));
+      await sB.appendMessage(Message(
+        id: 'before-me', conversationId: a.hex,
+        direction: MessageDirection.incoming, body: 'before this device',
+        timestamp: base.subtract(const Duration(days: 4)),
+        status: MessageStatus.delivered, author: a.hex, seq: 3000,
+      ));
+      for (var i = 0; i < 150; i++) {
+        final ts = base.add(Duration(minutes: i));
+        await sA.appendMessage(Message(
+          id: 'm-$i', conversationId: b.hex,
+          direction: MessageDirection.outgoing, body: 'm-$i', timestamp: ts,
+          status: MessageStatus.delivered,
+        ));
+        await sB.appendMessage(Message(
+          id: 'm-$i', conversationId: a.hex,
+          direction: MessageDirection.incoming, body: 'm-$i', timestamp: ts,
+          status: MessageStatus.delivered, author: a.hex, seq: 1000 + i,
+        ));
+      }
+      var back = false;
+      for (var i = 0; i < 5 && !back; i++) {
+        clock = clock.add(const Duration(seconds: 6));
+        await mA.reconcileOnConnect();
+        await _settle();
+        back = (await sA.loadMessages(b.hex)).any((m) => m.id == 'before-me');
+      }
+      expect(back, isTrue, reason: 'history older than my first message never came');
+    });
+
+    test('a conversation I cleared does not get its history back', () async {
+      await mB.dispose();
+      var clock = DateTime.now();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      mA.myOtherDevices = () async => [sibling];
+      await sB.appendMessage(Message(
+        id: 'before-clear', conversationId: a.hex,
+        direction: MessageDirection.incoming, body: 'said before the clear',
+        timestamp: DateTime.now().subtract(const Duration(days: 3)),
+        status: MessageStatus.delivered, author: a.hex, seq: 3000,
+      ));
+      await mA.clearConversation(b);
+      // Something of mine after the clear, so there is anything to ask with.
+      await mA.sendText(b, 'after the clear');
+      await _settle();
+      for (var i = 0; i < 5; i++) {
+        clock = clock.add(const Duration(seconds: 6));
+        await mA.reconcileOnConnect();
+        await _settle();
+      }
+      expect(
+        (await sA.loadMessages(b.hex)).map((m) => m.id),
+        isNot(contains('before-clear')),
+        reason: 'the echo put a cleared conversation\'s history back',
+      );
+    });
+
     test('a device with no other device of mine does not ask', () async {
       mA.myOtherDevices = () async => const [];
       await theSiblingWrote('sib-1', 'from the sibling, one');
@@ -1211,6 +1322,26 @@ void main() {
 
     test('an asker that lists nothing is answered with nothing', () {
       expect(pick([('x', 5)], {}, 0), isEmpty);
+    });
+
+    test('an older page is closed from above, exclusively', () {
+      expect(
+        ownEchoesMissing(
+          theirs: [('a', 5), ('b', 9), ('c', 10), ('d', 12)],
+          keyOf: (m) => m.$1,
+          tsOf: (m) => m.$2,
+          held: {'x'},
+          sinceMs: 4,
+          untilMs: 10,
+        ).map((m) => m.$1),
+        ['a', 'b'],
+      );
+    });
+
+    test('most asks name the newest page; every 4th walks the older ones', () {
+      final pages = [for (var r = 1; r <= 16; r++) ownEchoPage(round: r, pages: 3)];
+      expect(pages, [0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2]);
+      expect(ownEchoPage(round: 4, pages: 1), 0, reason: 'one page, no walk');
     });
 
     test('bounded to the NEWEST, in time order', () {
