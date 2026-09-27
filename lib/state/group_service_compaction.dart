@@ -7,6 +7,40 @@ part of 'group_service.dart';
 /// [_ChannelKeyRotation]: extension members cannot be overridden and dispatch
 /// statically. The public entry points and the per-group lock stay on the
 /// owner; this file holds the rules for what is superseded.
+/// Device-log kinds that describe ONE message or ONE call.
+///
+/// Every other kind is keyed by something that recurs — a setting, a contact,
+/// a conversation — so last-writer-wins keeps its row count bounded by the
+/// number of such things. These are keyed by an id that is never written
+/// twice, so every row wins its own key and nothing ever superseded one: the
+/// log grew by a row for every message the person sent or received, about
+/// 720 bytes each, and the whole group is ONE stored blob capped at
+/// [kMaxStoredFileBytes]. Measured: 639 live keys after ~400 messages on the
+/// stand, so the device log would stop saving — every setting, contact and
+/// read mark with it — somewhere around three and a half thousand messages.
+///
+/// Their job is done once the siblings have applied them: an own-device copy
+/// is live-only (the owner's decision of 2026-09-26), and a device that was
+/// away longer than the window catches up from its other devices and from the
+/// counterpart instead.
+const kDeviceLogPerItemKinds = {
+  DeviceSyncKind.msgMirror,
+  DeviceSyncKind.msgStatus,
+  DeviceSyncKind.msgEdit,
+  DeviceSyncKind.callLog,
+};
+
+/// How many per-item rows a device log keeps at most, newest first…
+const kDeviceLogPerItemRowsKept = 1000;
+
+/// …and how old one may be.
+const kDeviceLogPerItemMaxAge = Duration(days: 14);
+
+/// The device log's row count past which a save schedules a compaction
+/// instead of waiting for the hourly pass: a history replay posts thousands
+/// of rows in minutes.
+const kDeviceLogCompactAtRows = 2500;
+
 class _LogCompaction {
   _LogCompaction(this._owner);
 
@@ -146,11 +180,26 @@ class _LogCompaction {
         latest[key] = (event: event, message: m);
       }
     }
+    // Per-item rows past the window go, even as winners of their own key.
+    final perItem = [
+      for (final v in latest.values)
+        if (kDeviceLogPerItemKinds.contains(v.event.kind)) v,
+    ]..sort((a, b) => b.event.tsMs.compareTo(a.event.tsMs));
+    final oldestKept =
+        nowMs - kDeviceLogPerItemMaxAge.inMilliseconds;
+    final expired = <String>{
+      for (final (i, v) in perItem.indexed)
+        if (i >= kDeviceLogPerItemRowsKept || v.event.tsMs < oldestKept)
+          v.message.ref,
+    };
     final keep = <String>{
       ...unknown,
       ...branches,
       ...deferred,
-      for (final v in latest.values) v.message.ref,
+      for (final v in latest.values)
+        if (!expired.contains(v.message.ref)) v.message.ref,
+      // The author's newest row stays whatever it says: seq allocation and
+      // gap-fill read the high-water from it.
       for (final m in heads.values) m.ref,
     };
     return [
