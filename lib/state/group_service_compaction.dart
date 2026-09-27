@@ -31,15 +31,23 @@ const kDeviceLogPerItemKinds = {
 };
 
 /// How many per-item rows a device log keeps at most, newest first…
-const kDeviceLogPerItemRowsKept = 1000;
+///
+/// Small, because every event the devices exchange REWRITES the whole log:
+/// it is one stored blob. Measured on the stand with ~600 live rows: three
+/// sent messages wrote 4.2 MB on the sender and 4.1 MB on its sibling, and a
+/// ratchet save queued behind those writes for up to 20 s. The window only
+/// has to cover a sibling that is briefly away; a longer absence is caught up
+/// from the other devices and from the counterpart.
+const kDeviceLogPerItemRowsKept = 250;
 
 /// …and how old one may be.
-const kDeviceLogPerItemMaxAge = Duration(days: 14);
+const kDeviceLogPerItemMaxAge = Duration(days: 7);
 
 /// The device log's row count past which a save schedules a compaction
 /// instead of waiting for the hourly pass: a history replay posts thousands
-/// of rows in minutes.
-const kDeviceLogCompactAtRows = 2500;
+/// of rows in minutes, and between passes every row is rewritten on every
+/// save.
+const kDeviceLogCompactAtRows = 400;
 
 class _LogCompaction {
   _LogCompaction(this._owner);
