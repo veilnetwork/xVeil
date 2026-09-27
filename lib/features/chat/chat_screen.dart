@@ -254,14 +254,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final encoded = encodePinned(m.id, body);
     setState(() => _pinned = decodePinned(encoded));
     try {
-      await _storage.putSetting('pin:${widget.peerHex}', encoded);
+      await _messaging.setPinnedMessage(NodeId.fromHex(widget.peerHex), encoded);
     } catch (_) {}
   }
 
   Future<void> _clearPin() async {
     setState(() => _pinned = null);
     try {
-      await _storage.putSetting('pin:${widget.peerHex}', '');
+      await _messaging.setPinnedMessage(NodeId.fromHex(widget.peerHex), '');
     } catch (_) {}
   }
 

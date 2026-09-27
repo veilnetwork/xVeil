@@ -145,7 +145,13 @@ enum DeviceSyncKind {
   /// one device showing 👍, its sibling 🔥, and the counterpart 🔥 (it keeps
   /// one reaction per identity). Applied on the sibling as ITS OWN reaction,
   /// so every device converges on the identity's latest, as the peer does.
-  reaction;
+  reaction,
+
+  /// The message pinned at the top of a 1:1 chat, keyed by the peer hex;
+  /// payload `{'v': <encoded pin>}`, empty for "unpinned". The chat pin, the
+  /// alias and the mute already travel between my devices — this one stayed
+  /// on the device where it was set.
+  msgPin;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {

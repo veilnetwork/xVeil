@@ -337,6 +337,19 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // conversation, 'g:<gidHex>' for a group. The device-pair conversation is
   // excluded — each side names it by the other device's id, so the key would
   // not be portable.
+  messaging.onPinnedChanged = (peer, encoded) {
+    unawaited(() async {
+      if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgPin,
+          key: peer.hex,
+          tsMs: nextTs(),
+          payload: {'v': encoded},
+        ),
+      );
+    }());
+  };
   messaging.onReactionSent = (peer, msgId, emoji, atMs) {
     unawaited(() async {
       if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
@@ -649,6 +662,19 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       // Not through the gate either: one row per message would park in its
       // map forever. The applier orders by the stamp itself (a reaction older
       // than the one applied is ignored), so a replay is harmless.
+      case DeviceSyncKind.msgPin:
+        gate.offer(e, () {
+          final v = e.payload['v'];
+          if (v is! String) return null;
+          final NodeId peer;
+          try {
+            peer = NodeId.fromHex(e.key);
+          } catch (_) {
+            return null;
+          }
+          if (peer == svc.selfId) return null;
+          return () => messaging.applyMirroredPin(peer, v);
+        });
       case DeviceSyncKind.reaction:
         final cut = e.key.indexOf('|');
         final emoji = e.payload['e'];

@@ -981,6 +981,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/react':
           await _reactHook(req);
           return;
+        case '/pin':
+          await _pinHook(req);
+          return;
         case '/reactions':
           await _reactionsHook(req);
           return;
@@ -5004,6 +5007,25 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         .read(messagingServiceProvider)
         .sendReaction(NodeId.fromHex(peerHex), msg, q['emoji'] ?? '');
     return _json(req, {'ok': true});
+  }
+
+  /// `/pin?peer=<hex>` reads the chat's pinned message; `&set=<encoded>`
+  /// (empty = unpin) changes it through the real setter.
+  Future<void> _pinHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final peerHex = q['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final set = q['set'];
+    if (set != null) {
+      await ref
+          .read(messagingServiceProvider)
+          .setPinnedMessage(NodeId.fromHex(peerHex), set);
+    }
+    return _json(req, {
+      'ok': true,
+      'pin': await ref.read(storageProvider).getSetting('pin:$peerHex'),
+    });
   }
 
   /// `/reactions?peer=<hex>` — message id -> reactor -> emoji.
