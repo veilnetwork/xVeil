@@ -6532,14 +6532,19 @@ class GroupService implements ArchiveGroups {
     // Left over by a save that did not get to its deletes, and what this
     // header just replaced.
     final gone = {...previous.pending, ...dropped}.difference(live);
+    final failed = <String>{};
     for (final k in gone) {
       try {
         await _storage.deleteStoredFile(k);
       } catch (_) {
         // Named in the header as pending; the next save tries again.
+        failed.add(k);
       }
     }
-    _segmentIndex[key] = (live: live, pending: <String>{});
+    // Only what is still there. The header just written names every one of
+    // [gone] and is not rewritten for a delete that went through, so the
+    // stored list is stale from here on; this is the one that is not.
+    _segmentIndex[key] = (live: live, pending: failed);
   }
 
   /// The file id of a message segment, less the `group:` prefix.
@@ -6640,7 +6645,15 @@ class GroupService implements ArchiveGroups {
       rows.addAll(list);
     }
     d['g'] = rows;
-    _segmentIndex[key] = (live: live, pending: _segmentKeys(d['gd'], key));
+    // The stored pending list is only news to a process that has not yet
+    // saved this bundle: after its own save the header still names segments
+    // that save already deleted. Taking it back on every load carried them
+    // into the next header, one more per save, each deleted again under the
+    // file lock — 1144 of them on a device log that had lived a day.
+    _segmentIndex[key] = (
+      live: live,
+      pending: _segmentIndex[key]?.pending ?? _segmentKeys(d['gd'], key),
+    );
     return true;
   }
 
