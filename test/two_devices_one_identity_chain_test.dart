@@ -312,11 +312,14 @@ void main() {
     );
   });
 
-  test('a chunk of replicated state is acked live, never through the mailbox',
-      () async {
-    // Each mailbox ack is a blob of its own, announced and walked two per
-    // drain pass; a snapshot's chunk acks queued a text message behind them
-    // for 95 s on the stand.
+  test('a chunk of replicated state keeps its mailbox ack', () async {
+    // TRIED AND REVERTED (88db1a12). Dropping the mailbox leg for chunk acks
+    // looked like pure savings — 38 of 45 deposits in one window were chunk
+    // acks — but for a sender with several devices the live ack reaches the
+    // ONE device routing picks when the frame did not name its device, and
+    // the copy in the identity's mailbox is the leg that reaches the sibling
+    // whose frame is waiting. The saving was never shown on the stand either:
+    // delivery spread 1.5-116 s across rounds with and without the change.
     final contact = NodeId(Uint8List.fromList(List.filled(32, 0x44)));
     final transport = _RecordingTransport(
       localNodeId: NodeId(Uint8List.fromList(List.filled(32, 0x13))),
@@ -331,17 +334,9 @@ void main() {
       'grpc:grp:${'aa' * 32}:${'bb' * 32}:${contact.hex}:7',
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(sink.recipients, isEmpty,
-        reason: 'a chunk ack went into the mailbox');
-    expect(transport.sentTo, contains(contact), reason: 'the live ack goes');
-
-    // Premise: an ordinary message's ack still takes the mailbox leg.
-    await messaging.debugAckTo(
-      InboundMessage(src: contact, payload: Uint8List(0)),
-      'c4604ec5-fd6a-4216-854b-7c6c8c4994c8',
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(sink.recipients, contains(contact));
+    expect(sink.recipients, contains(contact),
+        reason: 'a chunk ack lost its mailbox leg');
+    expect(transport.sentTo, contains(contact), reason: 'and the live one');
   });
 
   test("a sibling's frame is acknowledged at the sibling, not at myself",
