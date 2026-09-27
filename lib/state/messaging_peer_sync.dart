@@ -1156,7 +1156,16 @@ class _MessagingPeerSync {
       );
       return;
     }
+    // MINE, under the name the peer files it by. Left empty, the store took
+    // the conversation — the PEER — for its author and numbered the row in the
+    // peer's stream from a counter the peer's own events never move; an edit
+    // of it then landed in that stream at a number from mine, where it can sit
+    // on a slot the peer's real message is still owed. Never this DEVICE's
+    // name: a row numbered in my own stream is re-shipped as a new send.
+    final identity = await _owner.selfIdentityHex?.call();
+    final selfHex = await _owner._selfHex();
     final stored = await _owner._deviceMirror.applyMessage(
+      author: identity != null && identity != selfHex ? identity : null,
       peer: peer,
       msgId: id,
       direction: MessageDirection.outgoing,
@@ -1217,7 +1226,10 @@ class _MessagingPeerSync {
       peer: peer,
       msgId: id,
       body: body,
-      seq: seq,
+      // The number is from MY stream. A row of mine stored before echoes
+      // carried an author is filed under the peer, and an edit at that number
+      // would land in the peer's stream; numbered locally, it cannot.
+      seq: held!.author == peer.hex ? null : seq,
       customEmoji: parseInlineCustomEmoji(body, customEmoji),
     );
     devLog(
