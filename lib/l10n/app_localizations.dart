@@ -3392,6 +3392,24 @@ abstract class AppL10n {
   /// **'You blocked this contact'**
   String get chatBlockedContact;
 
+  /// No description provided for @chatHeldWhileBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'{count, plural, =1{1 message arrived while this contact was blocked} other{{count} messages arrived while this contact was blocked}}'**
+  String chatHeldWhileBlocked(int count);
+
+  /// No description provided for @chatHeldShow.
+  ///
+  /// In en, this message translates to:
+  /// **'Show'**
+  String get chatHeldShow;
+
+  /// No description provided for @chatHeldDiscard.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get chatHeldDiscard;
+
   /// No description provided for @chatRequestHint.
   ///
   /// In en, this message translates to:

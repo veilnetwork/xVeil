@@ -23,6 +23,7 @@ import '../../core/log.dart';
 import 'attachment_preview.dart';
 import 'chat_actions.dart';
 import 'chat_search.dart';
+import 'held_while_blocked_banner.dart';
 import 'message_markdown.dart';
 import 'model_bundle_card.dart';
 import 'shared_theme_card.dart';
@@ -2609,6 +2610,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            HeldWhileBlockedBanner(peer: _peer),
             if (_replyingTo != null)
               _ReplyBanner(
                 message: _replyingTo!,

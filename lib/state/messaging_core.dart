@@ -2234,6 +2234,18 @@ class MessagingService {
 
   Future<void> unblockContact(NodeId peer) => _contacts.unblockContact(peer);
 
+  /// Messages from [peer] kept aside while it was blocked (see
+  /// [WireKind.message] handling for a blocked sender).
+  Future<int> heldWhileBlocked(NodeId peer) => _contacts.heldWhileBlocked(peer);
+
+  /// Show the messages kept aside while [peer] was blocked; returns how many.
+  Future<int> releaseHeldWhileBlocked(NodeId peer) =>
+      _contacts.releaseHeld(peer);
+
+  /// Forget the messages kept aside while [peer] was blocked.
+  Future<void> discardHeldWhileBlocked(NodeId peer) =>
+      _contacts.discardHeld(peer);
+
   // Local contact preferences, folders, read markers, and destructive chat
   // actions live in _MessagingConversationAdmin. These forwarding methods keep
   // MessagingService's established public API and callback ownership intact.

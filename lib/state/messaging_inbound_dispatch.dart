@@ -119,6 +119,32 @@ extension _MessagingInboundDispatch on MessagingService {
     }
     final existing = await _storage.getContact(m.src);
     if (existing?.status == ContactStatus.blocked) {
+      // A MESSAGE from a blocked contact is kept aside, out of the chat, and
+      // acknowledged so its sender stops re-sending it. Dropped unacked, it
+      // was re-driven until the block was lifted and then simply appeared.
+      // The owner's decision (2026-09-27): hold it hidden, and on unblock let
+      // the person choose to see it or not.
+      if (env.kind == WireKind.message &&
+          m.provenance.isAuthenticated &&
+          env.id != null) {
+        if (await _contacts.holdWhileBlocked(m.src, env.id!, m.payload)) {
+          // Acked as a message is — by its id, not a frame id (it has none).
+          await _ackTo(m, env.id!, direct: true);
+          // And its place in the sender's stream is taken, or gap-fill finds
+          // the hole and re-sends it into the chat the moment the block is
+          // lifted — measured on the stand, 3 s after unblocking, unasked.
+          final seq = env.seq;
+          if (seq != null) {
+            await _storage.applyRemoteVoid(m.src.hex, m.src.hex, seq);
+          }
+          devLog(
+            () =>
+                'xVeil[recv]: message from blocked ${m.src.short} held aside '
+                '— shown only if the person asks after unblocking',
+          );
+          return;
+        }
+      }
       devLog(
         () =>
             'xVeil[recv]: ${env.kind.name} from ${m.src.short} DROPPED — '

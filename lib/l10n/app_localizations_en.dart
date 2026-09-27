@@ -1948,6 +1948,23 @@ class AppL10nEn extends AppL10n {
   String get chatBlockedContact => 'You blocked this contact';
 
   @override
+  String chatHeldWhileBlocked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count messages arrived while this contact was blocked',
+      one: '1 message arrived while this contact was blocked',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get chatHeldShow => 'Show';
+
+  @override
+  String get chatHeldDiscard => 'Delete';
+
+  @override
   String get chatRequestHint => 'Write a connection request…';
 
   @override
