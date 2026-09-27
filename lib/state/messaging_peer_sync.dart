@@ -79,6 +79,65 @@ Map<String, int> floorDeclaration({
   };
 }
 
+/// How many of my latest sent messages a beacon names when another device of
+/// mine may have written in the same chat.
+const kOwnEchoWindow = 100;
+
+/// The most of my own messages one answer hands back.
+const kOwnEchoCap = 50;
+
+/// The short name a message id travels under in an echo ask.
+///
+/// Hashed, not truncated: ids are not all random (a file id is the content
+/// id's prefix, a test writes `m1`), and a truncated one could collide with a
+/// neighbour for good.
+String ownEchoKey(String messageId) => crypto.sha256
+    .convert(utf8.encode(messageId))
+    .toString()
+    .substring(0, 8);
+
+/// Which of MY messages the counterpart holds and the asking device of mine
+/// does not.
+///
+/// THE COUNTERPART IS THE ONLY OTHER HOLDER. Each device of an identity numbers
+/// its own stream, and the counterpart files them all under one author, so the
+/// seq gap-fill cannot say what a device of mine missed from its sibling — and
+/// the sibling itself may be gone for good (measured on the stand: nine
+/// messages a device wrote before it died, held by the counterpart, never seen
+/// by its sibling).
+///
+/// [held] is the asker's keys for its newest [kOwnEchoWindow] sent messages
+/// BY TIME, and [sinceMs] the time of the oldest of them. Only what the
+/// counterpart holds from AFTER that moment is a candidate: anything older is
+/// outside the asker's window whether it holds it or not, and handing it back
+/// would resurrect a history the device dropped. By time, not by position:
+/// neither side's log is in time order (a gap-filled row lands where it
+/// arrives), and a positional anchor handed back 50 messages the asker already
+/// held — measured on the stand, 50 of 53 — while the cap cut off the three it
+/// was missing.
+///
+/// The NEWEST [cap] of them, for the same reason: what a device just missed is
+/// what the person is looking for.
+///
+/// Pure, so the selection is testable without two devices and a peer.
+List<T> ownEchoesMissing<T>({
+  required List<T> theirs,
+  required String Function(T) keyOf,
+  required int Function(T) tsOf,
+  required Set<String> held,
+  required int sinceMs,
+  int cap = kOwnEchoCap,
+}) {
+  if (held.isEmpty) return const [];
+  final missing = [
+    for (final m in theirs)
+      if (tsOf(m) > sinceMs && !held.contains(keyOf(m))) m,
+  ]..sort((a, b) => tsOf(a).compareTo(tsOf(b)));
+  return missing.length > cap
+      ? missing.sublist(missing.length - cap)
+      : missing;
+}
+
 /// A clear watermark re-spelled in the names THIS device uses.
 ///
 /// A clear travels as a per-author seq watermark and as nothing else, so the
@@ -151,6 +210,18 @@ class _MessagingPeerSync {
   final Map<String, int> _quiet = {};
 
   static const _actInterval = Duration(seconds: 5);
+
+  /// When this device last named its own messages to the peer. An echo is
+  /// taken only as the answer to such an ask, so a counterpart cannot write
+  /// "my" messages into this chat unprompted.
+  final Map<String, DateTime> _ownAskedAt = {};
+
+  /// Echo answers already given, per peer: the ask and answer's signature, how
+  /// many times, and when first. Every device of the identity asks under the same
+  /// peer name, so several are kept, as for [_reshipRounds].
+  final Map<String, Map<String, ({int rounds, DateTime at})>> _ownAnswered =
+      {};
+  static const _ownAskTtl = Duration(minutes: 15);
   static const _reshipCap = 100;
 
   /// Re-ship rounds at one unchanged peer high-water before we stop.
@@ -305,13 +376,16 @@ class _MessagingPeerSync {
       identityHex: identityHex,
       ownFloor: ownFloor,
     );
+    if (throttled) return; // judged above; the wire frame is what we skip
+    final ownAsk = await _ownEchoAsk(peer);
     final body = jsonEncode({
       'hw': sync.highWater,
       if (holes.isNotEmpty) 'holes': holes,
       if (declaredFloor.isNotEmpty) 'fl': declaredFloor,
+      if (ownAsk != null) 'ow': ownAsk.keys,
+      if (ownAsk != null) 'os': ownAsk.sinceMs,
       'ep': now.millisecondsSinceEpoch,
     });
-    if (throttled) return; // judged above; the wire frame is what we skip
     // Count the quiet round only on a round that actually SENDS: a throttled
     // pass emits nothing, so letting it escalate would back the cadence off
     // for beacons that were never on the wire.
@@ -409,6 +483,20 @@ class _MessagingPeerSync {
 
   /// Re-ship events authored by us above the peer's bounded, clamped high-water.
   Future<void> handle(NodeId peer, String body) async {
+    Map<String, dynamic> json;
+    try {
+      json = jsonDecode(body) as Map<String, dynamic>;
+    } catch (_) {
+      return;
+    }
+    // One of my own messages handed back. Before the throttle: they come in a
+    // burst, one frame each, and the throttle is for beacons.
+    final echo = json['echo'];
+    if (echo is Map) {
+      await _applyOwnEcho(peer, echo);
+      return;
+    }
+
     // The service clock, like every other ladder here (and so a test can step
     // it); in the app it is the wall clock.
     final now = _owner._now();
@@ -419,15 +507,14 @@ class _MessagingPeerSync {
     }
     _lastActedAt[peer.hex] = now;
 
-    Map<String, dynamic> json;
-    try {
-      json = jsonDecode(body) as Map<String, dynamic>;
-    } catch (_) {
-      return;
-    }
     final highWater = json['hw'];
     if (highWater is! Map) return;
     final selfHex = await _owner._selfHex();
+
+    final ownAsk = json['ow'], ownSince = json['os'];
+    if (ownAsk is List && ownSince is int) {
+      await _answerOwnEchoAsk(peer, ownAsk, ownSince);
+    }
 
     // A peer may void only a prefix of its own authenticated author stream.
     // The prefix takes the same bound as any other sequence off the wire: a
@@ -596,5 +683,166 @@ class _MessagingPeerSync {
       }
     }
     sendBestEffort(peer);
+  }
+
+  /// The keys of my newest sent messages in this chat, and the time of the
+  /// oldest of them, when a device of mine other than this one may have
+  /// written in it too; null otherwise.
+  Future<({List<String> keys, int sinceMs})?> _ownEchoAsk(NodeId peer) async {
+    try {
+      final siblings = await _owner.myOtherDevices?.call() ?? const <NodeId>[];
+      if (siblings.isEmpty) return null;
+      // BY TIME: the log is in arrival order, and "the last hundred" of it is
+      // not the newest hundred once gap-fill and mirrors have filled it in.
+      final sent = [
+        for (final m in await _owner._storage.loadMessages(peer.hex))
+          if (m.direction == MessageDirection.outgoing) m,
+      ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      if (sent.isEmpty) return null;
+      final window = sent.length > kOwnEchoWindow
+          ? sent.sublist(sent.length - kOwnEchoWindow)
+          : sent;
+      _ownAskedAt[peer.hex] = _owner._now();
+      return (
+        keys: [for (final m in window) ownEchoKey(m.id)],
+        sinceMs: window.first.timestamp.millisecondsSinceEpoch,
+      );
+    } catch (_) {
+      return null; // advisory: a beacon goes out without it
+    }
+  }
+
+  /// Hand a device of the peer back what the peer sent me that this device
+  /// of theirs does not hold.
+  ///
+  /// Only messages the peer AUTHORED — carrying the peer's seq, never a marker
+  /// this device wrote into the chat itself — and only as many as
+  /// [kOwnEchoCap]. The same answer to the same ask is given twice and then
+  /// not again for [_reshipPause]: a message the asker deleted on purpose
+  /// stays missing from its list, and would otherwise be handed back on every
+  /// beacon.
+  Future<void> _answerOwnEchoAsk(
+    NodeId peer,
+    List<dynamic> ask,
+    int sinceMs,
+  ) async {
+    final held = <String>{
+      for (final k in ask.take(kOwnEchoWindow))
+        if (k is String && k.length == 8) k,
+    };
+    if (held.isEmpty) return;
+    final theirs = [
+      for (final m in await _owner._storage.loadMessages(peer.hex))
+        if (m.direction == MessageDirection.incoming &&
+            m.seq != null &&
+            (m.author == null || m.author == peer.hex) &&
+            !m.body.startsWith('sys:'))
+          m,
+    ];
+    final missing = ownEchoesMissing(
+      theirs: theirs,
+      keyOf: (m) => ownEchoKey(m.id),
+      tsOf: (m) => m.timestamp.millisecondsSinceEpoch,
+      held: held,
+      sinceMs: sinceMs,
+    );
+    if (missing.isEmpty) {
+      devLog(
+        () =>
+            'xVeil[sync]: <- ${peer.short} own-echo ask of ${held.length} '
+            '-> nothing missing',
+      );
+      return;
+    }
+    // THE SAME ANSWER, not the same ask. An asker that went away keeps its
+    // list, while the messages it is missing keep arriving here — keyed by the
+    // ask alone, the answer "nothing yet" silenced the real one for ten
+    // minutes (measured on the stand: the ask came in, was answered empty,
+    // three messages arrived, and the same list was then withheld).
+    //
+    // And TWICE before withholding, as the re-ship does: the answer is live
+    // and can be lost, and the asker that lost it asks again with the very
+    // same list (measured: an answer sent while the asker was shutting down,
+    // eleven minutes for three messages).
+    final signature = ownEchoKey(
+      '$sinceMs:${(held.toList()..sort()).join()}:'
+      '${[for (final m in missing) m.id].join(',')}',
+    );
+    final now = _owner._now();
+    final answered = _ownAnswered[peer.hex] ??= {};
+    final prev = answered[signature];
+    final fresh = prev == null || now.difference(prev.at) >= _reshipPause;
+    if (!fresh && prev.rounds >= _reshipRoundsWithoutProgress) {
+      devLog(
+        () =>
+            'xVeil[sync]: <- ${peer.short} own-echo answer of '
+            '${missing.length} withheld (given ${prev.rounds}x already)',
+      );
+      return;
+    }
+    answered[signature] = (
+      rounds: fresh ? 1 : prev.rounds + 1,
+      at: fresh ? now : prev.at,
+    );
+    if (answered.length > 8) answered.remove(answered.keys.first);
+    devLog(
+      () =>
+          'xVeil[sync]: <- ${peer.short} own-echo ask of ${held.length} '
+          '-> ${missing.length} handed back',
+    );
+    for (final m in missing) {
+      final cid = m.fileContentId;
+      await _owner._send(
+        peer,
+        WireEnvelope.sync(
+          jsonEncode({
+            'echo': {
+              'id': m.id,
+              'b': m.body,
+              'ts': m.timestamp.millisecondsSinceEpoch,
+              if (m.customEmoji.isNotEmpty)
+                'ce': encodeInlineCustomEmoji(m.customEmoji),
+              'cid': ?cid,
+              if (m.fileName != null) 'fn': m.fileName,
+              if (m.fileSize != null) 'fs': m.fileSize,
+            },
+          }),
+        ).encode(),
+      );
+    }
+  }
+
+  /// Store one of my own messages the peer handed back, as sent by me.
+  ///
+  /// Taken only as the answer to an ask this device made recently, and through
+  /// the same path a sibling's mirror takes — so a message deleted here stays
+  /// deleted and a block still holds. DELIVERED: the peer holding it is the
+  /// proof, and a `sent` row would be re-sent by the outbox to the peer that
+  /// just handed it over.
+  Future<void> _applyOwnEcho(NodeId peer, Map<dynamic, dynamic> echo) async {
+    final asked = _ownAskedAt[peer.hex];
+    if (asked == null || _owner._now().difference(asked) > _ownAskTtl) return;
+    final id = echo['id'], body = echo['b'], ts = echo['ts'];
+    if (id is! String || id.isEmpty || body is! String || ts is! int) return;
+    final cid = echo['cid'], name = echo['fn'], size = echo['fs'];
+    final stored = await _owner._deviceMirror.applyMessage(
+      peer: peer,
+      msgId: id,
+      direction: MessageDirection.outgoing,
+      body: body,
+      tsMs: ts,
+      status: MessageStatus.delivered,
+      fileContentId: cid is String && cid.isNotEmpty ? cid : null,
+      fileName: name is String ? name : null,
+      fileSize: size is int ? size : null,
+      customEmoji: parseInlineCustomEmoji(body, echo['ce']),
+    );
+    if (stored) {
+      devLog(
+        () =>
+            'xVeil[sync]: <- ${peer.short} own message $id handed back '
+            'by the peer',
+      );
+    }
   }
 }
