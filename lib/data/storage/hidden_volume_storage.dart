@@ -807,6 +807,17 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     }
     final effTs = <String, int>{}; // message id -> effective ts (ms)
     for (final stream in byAuthor.values) {
+      // ONE AUTHOR, MORE THAN ONE STREAM: the floor assumes an author's seqs
+      // are one causal sequence, and for a sovereign identity with several
+      // devices they are not — each device numbers its own messages from 1,
+      // and this side files them all under the identity. Ordered by seq, a
+      // device's fresh seq 5 then lifted another device's day-old 6..140 to
+      // "now": measured on the stand, 143 of 305 rows of such a chat shown
+      // below a newer one, the last line on screen from four hours earlier.
+      // Two distinct messages at one seq are the mark of it (one device never
+      // writes two), so such a stream keeps its honest timestamps.
+      final seen = <int>{};
+      if (stream.any((m) => !seen.add(m.seq!))) continue;
       stream.sort((a, b) => a.seq!.compareTo(b.seq!));
       var runningMax = 0;
       for (final m in stream) {
