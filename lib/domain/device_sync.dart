@@ -136,7 +136,16 @@ enum DeviceSyncKind {
   /// never leave the sovereign device group. Devices from before this
   /// vocabulary entry skip the kind entirely (unknown-kind events parse to
   /// null), so mixed device groups degrade to a flat view, never to loss.
-  cloudFolder;
+  cloudFolder,
+
+  /// MY reaction to a message in a 1:1 chat, keyed `<peer hex>|<message id>`.
+  ///
+  /// The reaction frame goes to the PEER; nothing told my other devices, so
+  /// each showed only the reaction it had made itself — measured on the stand:
+  /// one device showing 👍, its sibling 🔥, and the counterpart 🔥 (it keeps
+  /// one reaction per identity). Applied on the sibling as ITS OWN reaction,
+  /// so every device converges on the identity's latest, as the peer does.
+  reaction;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {

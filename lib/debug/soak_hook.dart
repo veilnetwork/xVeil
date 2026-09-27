@@ -978,6 +978,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/disappearing':
           await _disappearingHook(req);
           return;
+        case '/react':
+          await _reactHook(req);
+          return;
+        case '/reactions':
+          await _reactionsHook(req);
+          return;
         case '/anon_routing':
           await _anonRoutingHook(req);
           return;
@@ -4983,6 +4989,30 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'setAtMs': d.setAtMs,
       'setBy': d.setBy,
     });
+  }
+
+  /// `/react?peer=<hex>&msg=<id>&emoji=<e>` reacts in a 1:1 chat through the
+  /// real sender (empty emoji removes the reaction).
+  Future<void> _reactHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final peerHex = q['peer'], msg = q['msg'];
+    if (peerHex == null || msg == null) {
+      return _json(req, {'ok': false, 'error': 'peer and msg required'});
+    }
+    await ref
+        .read(messagingServiceProvider)
+        .sendReaction(NodeId.fromHex(peerHex), msg, q['emoji'] ?? '');
+    return _json(req, {'ok': true});
+  }
+
+  /// `/reactions?peer=<hex>` — message id -> reactor -> emoji.
+  Future<void> _reactionsHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peerHex = req.uri.queryParameters['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final r = await ref.read(messagingServiceProvider).loadReactions(peerHex);
+    return _json(req, {'ok': true, 'reactions': r});
   }
 
   Future<void> _contactInfoHook(HttpRequest req) async {
