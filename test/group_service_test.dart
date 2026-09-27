@@ -7524,6 +7524,34 @@ void main() {
       expect(await storage.hasFile(stray), isFalse);
     });
 
+    test('a load that a save overtakes reads the new header, not a refusal',
+        () async {
+      // Measured on the stand: every device log refused to load again and
+      // again while it was being written ("segment named by the header is
+      // missing"). The load read the header, a save then wrote new segments,
+      // a new header, and deleted the old tail — which the load was about to
+      // read. A refused load reads as "no such group" to its caller.
+      final key = 'group:${gid.hex}';
+      storage.beforeLoadFile = (id) async {
+        if (!id.contains(':s:')) {
+          storage.beforeLoadFile = (id) async {
+            // The header is read; now a save overtakes the load.
+            expect(
+              await svc.postMessage(gid, 'overtaking', broadcast: false),
+              isTrue,
+            );
+          };
+        }
+      };
+      final fresh = GroupService(storage, _FakeSigner(owner));
+      addTearDown(fresh.dispose);
+      final bundle = await fresh.load(gid);
+      expect(bundle, isNotNull,
+          reason: 'a load overtaken by a save refused the group');
+      expect(bundle!.messages.length, greaterThanOrEqualTo(300));
+      expect(await storage.loadFile(key), isNotNull);
+    });
+
     test('a missing segment refuses the load rather than dropping its rows',
         () async {
       final key = 'group:${gid.hex}';
@@ -23740,6 +23768,20 @@ class _CountingStorage extends HiddenVolumeStorage {
   int storedBytes = 0;
   final storedIds = <String>[];
   final deletedIds = <String>[];
+
+  /// Called before each file read, once per arming; a test uses it to run a
+  /// save in the middle of a load.
+  Future<void> Function(String fileId)? beforeLoadFile;
+
+  @override
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
+    final hook = beforeLoadFile;
+    if (hook != null) {
+      beforeLoadFile = null;
+      await hook(fileId);
+    }
+    return super.loadFile(fileId, maxBytes: maxBytes);
+  }
 
   @override
   Future<void> deleteStoredFile(String fileId) {
