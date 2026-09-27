@@ -7565,6 +7565,85 @@ void main() {
     });
   });
 
+  group('a delta of rows can leave its manifest out', () {
+    // Every delta carried the whole manifest (~2.5 KB): one device-log event
+    // went out as 5–8 KB in three chunks on the stand. Owner's decision
+    // (2026-09-27), in two releases: the receiver puts it back first.
+    late GroupService ownerSvc, bobSvc;
+    late List<(NodeId, String)> sent;
+    late NodeId gid;
+
+    setUp(() async {
+      final ownerStorage = FakeHvContainer().storage();
+      await ownerStorage.open(password: 'pw', createIfMissing: true);
+      final bobStorage = FakeHvContainer().storage();
+      await bobStorage.open(password: 'pw', createIfMissing: true);
+      sent = [];
+      ownerSvc = GroupService(
+        ownerStorage,
+        _FakeSigner(owner),
+        send: (peer, _, json) async => sent.add((peer, json)),
+      );
+      bobSvc = GroupService(bobStorage, _FakeSigner(bob));
+      gid = await ownerSvc.createGroup('Lean deltas');
+      expect(
+        await ownerSvc.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await bobSvc.ingestSnapshot(
+          ownerSvc.snapshotJson((await ownerSvc.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+    });
+    tearDown(() async {
+      await ownerSvc.dispose();
+      await bobSvc.dispose();
+    });
+
+    Future<String> postTo(String body) async {
+      sent.clear();
+      expect(await ownerSvc.postMessage(gid, body), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      return sent.firstWhere((e) => e.$1 == bob && e.$2.contains('"g":')).$2;
+    }
+
+    test('off by default: a delta still carries its manifest', () async {
+      expect(kDeltaOmitsManifest, isFalse,
+          reason: 'a build without the receiving half would refuse it');
+      final wire = jsonDecode(await postTo('with manifest')) as Map;
+      expect(wire['m'], isNotNull);
+    });
+
+    test('a member who holds the group puts the manifest back', () async {
+      ownerSvc.omitManifest = true;
+      final lean = await postTo('without manifest');
+      final wire = jsonDecode(lean) as Map;
+      expect(wire['m'], isNull, reason: 'premise: the manifest was left out');
+      expect(wire['mid'], gid.hex);
+
+      expect(await bobSvc.ingestGroupEntry(owner, lean), isTrue);
+      expect(
+        (await bobSvc.load(gid))!.messages.map((m) => m.body),
+        contains('without manifest'),
+        reason: 'a delta without its manifest was refused by a member',
+      );
+    });
+
+    test('a manifest that does not match is not put back', () async {
+      ownerSvc.omitManifest = true;
+      final wire = jsonDecode(await postTo('wrong hash')) as Map;
+      final forged = jsonEncode({...wire, 'mh': '0' * 32});
+      expect(await bobSvc.ingestGroupEntry(owner, forged), isFalse);
+    });
+  });
+
   group('device-log rows about one message or call expire', () {
     // Keyed by an id that is never written twice, every such row won its own
     // key and the log grew ~720 bytes per message, forever, towards the one
