@@ -642,6 +642,58 @@ void main() {
     });
   });
 
+  group('flushes inside the coalescing window are batched', () {
+    test('ten sends in a burst cost two writes, and every one of them lands',
+        () async {
+      // One container commit per send and per receive: 190–310 s of flush
+      // work per node in fifteen minutes on the stand under load, for states
+      // of a few KB — the cost is the commit, not the bytes.
+      final log = <String>[];
+      final space = _space();
+      final counted = _OrderedStorage(
+        ({required Uint8List password, required bool create}) =>
+            password.isEmpty ? null : space.store,
+        log,
+      );
+      await counted.open(password: 'pw', createIfMissing: true);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(
+        native: node,
+        storage: counted,
+        coalesce: const Duration(milliseconds: 200),
+      );
+      final keys = [
+        for (var i = 0; i < 10; i++) _convKey(local: 3, peerNode: 40 + i),
+      ];
+      for (final k in keys) {
+        node.seal(k);
+        await run.flush();
+      }
+      expect(log.where((e) => e == 'ratchet'), hasLength(1),
+          reason: 'the first write goes at once, the rest wait for the window');
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      expect(log.where((e) => e == 'ratchet'), hasLength(2),
+          reason: 'one write at the end of the window takes the rest');
+      expect(await counted.ratchetConversationKeys(), hasLength(10),
+          reason: 'a batched write left a conversation out');
+    });
+
+    test('a caller that must know it is on disk is not batched', () async {
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(
+        native: node,
+        storage: storage,
+        coalesce: const Duration(milliseconds: 200),
+      );
+      final a = _convKey(local: 3, peerNode: 60), b = _convKey(local: 3, peerNode: 61);
+      node.seal(a);
+      await run.flush();
+      node.seal(b);
+      await run.flush(now: true);
+      expect(await storage.ratchetConversationKeys(), hasLength(2));
+    });
+  });
+
   group('the dirty loop finishes the remainder', () {
     test('a buffer smaller than the dirty list loses nothing', () async {
       // veil bounds `take_dirty` by the caller's buffer and leaves the rest

@@ -985,6 +985,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/pin':
           await _pinHook(req);
           return;
+        case '/ratchet_sizes':
+          return _ratchetSizesHook(req);
         case '/msg_state':
           await _msgStateHook(req);
           return;
@@ -5032,6 +5034,28 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'pin': await ref.read(storageProvider).getSetting('pin:$peerHex'),
+    });
+  }
+
+  /// `/ratchet_sizes` — the exported state size of every conversation the
+  /// ratchet holds: what one flush of that conversation writes.
+  Future<void> _ratchetSizesHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final native = ref.read(realStackProvider)?.ratchetState;
+    if (native == null) return _json(req, {'ok': false, 'error': 'no ratchet'});
+    final sizes = <String, int>{};
+    for (final key in native.list()) {
+      final blob = native.export(key);
+      final hex = [
+        for (final b in key) b.toRadixString(16).padLeft(2, '0'),
+      ].join();
+      sizes[hex] = blob?.length ?? -1;
+    }
+    return _json(req, {
+      'ok': true,
+      'conversations': sizes.length,
+      'total': sizes.values.fold<int>(0, (a, b) => a + (b > 0 ? b : 0)),
+      'sizes': sizes,
     });
   }
 

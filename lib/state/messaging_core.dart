@@ -1205,7 +1205,7 @@ class MessagingService {
     final ratchet = this.ratchet;
     if (ratchet == null || !ratchet.degraded) return;
     try {
-      await ratchet.flush(why: 'send-precondition');
+      await ratchet.flush(why: 'send-precondition', now: true);
     } catch (e) {
       throw RatchetNotDurable(e);
     }
