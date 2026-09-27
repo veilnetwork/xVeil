@@ -7235,6 +7235,87 @@ void main() {
     );
   });
 
+  group('device-log rows about one message or call expire', () {
+    // Keyed by an id that is never written twice, every such row won its own
+    // key and the log grew ~720 bytes per message, forever, towards the one
+    // blob's hard cap — 639 live keys after ~400 messages on the stand.
+    late GroupService svc;
+    late NodeId deviceGid;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final old = now - const Duration(days: 20).inMilliseconds;
+
+    Future<void> mirror(String id, int ts) => svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.msgMirror,
+        key: id,
+        tsMs: ts,
+        payload: {'peer': _id(77).hex, 'dir': 'incoming', 'body': id},
+      ),
+    );
+
+    setUp(() async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      svc = GroupService(storage, _FakeSigner(owner));
+      await svc.linkDevice(bob, sovereign: sovereign);
+      deviceGid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+    });
+
+    test('past the window they go; state keyed by something that recurs stays',
+        () async {
+      await mirror('old-1', old);
+      await mirror('old-2', old + 1);
+      await svc.postDeviceEvent(
+        const DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'theme',
+          tsMs: 1,
+          payload: {'v': 'dark'},
+        ),
+      );
+      await mirror('fresh', now);
+
+      final compacted = (await svc.compactStateLogs(deviceGid))!;
+
+      expect(compacted.messagesAfter, 2, reason: 'fresh mirror + theme');
+      final state = await svc.deviceSyncState();
+      expect(state.keys, isNot(contains((DeviceSyncKind.msgMirror, 'old-1'))));
+      expect(state.keys, contains((DeviceSyncKind.msgMirror, 'fresh')));
+      expect(state[(DeviceSyncKind.settingSet, 'theme')]!.payload['v'], 'dark',
+          reason: 'a setting is state, whatever its age');
+    });
+
+    test('at most the newest $kDeviceLogPerItemRowsKept stay', () async {
+      const extra = 5;
+      for (var i = 0; i < kDeviceLogPerItemRowsKept + extra; i++) {
+        await mirror('m$i', now - 100000 + i);
+      }
+
+      final compacted = (await svc.compactStateLogs(deviceGid))!;
+
+      expect(compacted.messagesAfter, kDeviceLogPerItemRowsKept);
+      final state = await svc.deviceSyncState();
+      expect(state.keys, isNot(contains((DeviceSyncKind.msgMirror, 'm0'))),
+          reason: 'the oldest went');
+      expect(state.keys, contains((DeviceSyncKind.msgMirror, 'm$extra')));
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('a log past its row budget compacts on save, not an hour later',
+        () async {
+      svc.deviceLogCompactAtRows = 4;
+      for (var i = 0; i < 4; i++) {
+        await mirror('old-$i', old + i);
+      }
+      await mirror('fresh', now);
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+
+      expect((await svc.load(deviceGid))!.messages, hasLength(1),
+          reason: 'a replay can post thousands of rows before the hourly pass');
+    });
+  });
+
   test(
     'device-group compaction must not collapse an unresolved note DAG: '
     'every branch of a note is a row under the SAME key (the item id), so a '
@@ -8226,11 +8307,13 @@ void main() {
       expect(await sibling.adoptDeviceGroup(gid), isTrue);
 
       // Same key, and the sibling's row is NEWER — so on wall clock it wins.
+      // A kind keyed by something that recurs: per-message kinds also expire
+      // by age, and these stamps are from 1970.
       const key = 'chat|contested';
       Future<void> post(GroupService svc, int tsMs, String body) =>
           svc.postDeviceEvent(
             DeviceSyncEvent(
-              kind: DeviceSyncKind.msgMirror,
+              kind: DeviceSyncKind.settingSet,
               key: key,
               tsMs: tsMs,
               payload: {'peer': 'aa', 'dir': 'outgoing', 'body': body},
@@ -8244,7 +8327,7 @@ void main() {
       // the bug.
       await primary.postDeviceEvent(
         DeviceSyncEvent(
-          kind: DeviceSyncKind.msgMirror,
+          kind: DeviceSyncKind.settingSet,
           key: 'chat|later',
           tsMs: 30,
           payload: const {'peer': 'bb', 'dir': 'outgoing', 'body': 'later'},
