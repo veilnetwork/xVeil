@@ -516,6 +516,50 @@ void main() {
     },
   );
 
+  test('a hole given up on is asked for again later, and filled', () async {
+    // Giving up floors past the hole, and then nothing ever asked for it: the
+    // peer re-ships from our high-water, which sits above it. Measured on the
+    // stand: five of the counterpart's messages missing on one device for
+    // good, held by the counterpart and by the other device.
+    await mA.dispose();
+    await mB.dispose();
+    var clock = DateTime.now();
+    mA = MessagingService(tA, sA, now: () => clock)..start();
+    mB = MessagingService(tB, sB, now: () => clock)..start();
+    await mA.sendText(b, 'keep'); // seq 1
+    await _settle();
+    tA.dropIfBodyContains = {'stuck'};
+    await mA.sendText(b, 'stuck'); // seq 2 — lost for now
+    await _settle();
+    await mA.sendText(b, 'after'); // seq 3
+    await _settle();
+    for (var round = 0; round < 8; round++) {
+      await mB.reconcileOnConnect();
+      await _settle();
+    }
+    expect((await sB.conversationSync(a.hex)).highWater[a.hex], 3,
+        reason: 'premise: B gave up on the hole');
+    expect((await sB.loadMessages(a.hex)).map((m) => m.body),
+        isNot(contains('stuck')));
+
+    // Whatever ate it is gone; an hour later it is asked for, and arrives.
+    tA.dropIfBodyContains = {};
+    clock = clock.add(const Duration(minutes: 61));
+    await mA.sendText(b, 'an hour on'); // the peer is plainly answering
+    await _settle();
+    await mB.reconcileOnConnect();
+    await _settle();
+    expect((await sB.loadMessages(a.hex)).map((m) => m.body),
+        contains('stuck'),
+        reason: 'a hole given up on was never asked for again');
+
+    // Filled: the next due ask forgets it instead of asking once more.
+    clock = clock.add(const Duration(minutes: 61));
+    await mB.reconcileOnConnect();
+    await _settle();
+    expect(await sB.getSetting('syncgaveup:${a.hex}'), anyOf(isNull, ''));
+  });
+
   test('a file lost on the live path self-heals via gap-fill (filePost)', () async {
     await mA.sendText(b, 'hi'); // seq 1 — so the file is seq 2 in the stream
     await _settle();
