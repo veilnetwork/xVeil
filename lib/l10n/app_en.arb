@@ -830,6 +830,14 @@
   "chatRequestCancelTitle": "Cancel request?",
   "chatRequestCancelBody": "Removes this request and conversation from your device. If it already reached them, they may have seen it.",
   "chatBlockedContact": "You blocked this contact",
+  "chatHeldWhileBlocked": "{count, plural, =1{1 message arrived while this contact was blocked} other{{count} messages arrived while this contact was blocked}}",
+  "@chatHeldWhileBlocked": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "chatHeldShow": "Show",
+  "chatHeldDiscard": "Delete",
   "chatRequestHint": "Write a connection request…",
   "chatAttachTooltip": "Attach a file",
   "chatVoiceMicDenied": "Microphone access denied",

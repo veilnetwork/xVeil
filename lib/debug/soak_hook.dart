@@ -985,6 +985,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/pin':
           await _pinHook(req);
           return;
+        case '/held':
+          return _heldHook(req);
         case '/ratchet_sizes':
           return _ratchetSizesHook(req);
         case '/msg_state':
@@ -5034,6 +5036,29 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'pin': await ref.read(storageProvider).getSetting('pin:$peerHex'),
+    });
+  }
+
+  /// `/held?peer=<hex>[&act=show|discard]` — messages kept aside while the
+  /// peer was blocked: how many, and optionally show or drop them.
+  Future<void> _heldHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final peerHex = q['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final svc = ref.read(messagingServiceProvider);
+    final peer = NodeId.fromHex(peerHex);
+    int? shown;
+    switch (q['act']) {
+      case 'show':
+        shown = await svc.releaseHeldWhileBlocked(peer);
+      case 'discard':
+        await svc.discardHeldWhileBlocked(peer);
+    }
+    return _json(req, {
+      'ok': true,
+      'held': await svc.heldWhileBlocked(peer),
+      'shown': ?shown,
     });
   }
 
