@@ -2459,8 +2459,8 @@ class MessagingService {
   void _sendSyncBestEffort(NodeId peer, {bool force = false}) =>
       _peerSync.sendBestEffort(peer, force: force);
 
-  Future<void> _handlePeerSync(NodeId peer, String body) =>
-      _peerSync.handle(peer, body);
+  Future<void> _handlePeerSync(NodeId peer, String body, {NodeId? device}) =>
+      _peerSync.handle(peer, body, device: device);
 
   /// Best-effort offline deposit of [wire] (the message envelope) for [peer],
   /// keyed by a stable 32-byte content id derived from the message [id]. No-op

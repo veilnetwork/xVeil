@@ -582,7 +582,16 @@ class _MessagingPeerSync {
   }
 
   /// Re-ship events authored by us above the peer's bounded, clamped high-water.
-  Future<void> handle(NodeId peer, String body) async {
+  ///
+  /// [device], when the node names it, is the device of [peer] that sent this
+  /// beacon: what it asks for goes back to IT. Addressed to the identity, the
+  /// answer went wherever routing pointed — measured on the stand, a
+  /// counterpart routing every frame for a two-device identity through one
+  /// device, so the other's holes were re-shipped to the device that already
+  /// held them, the mark never moved, the re-ship was withheld, and the
+  /// asking device gave up on them: 20 messages missing on it after a load run.
+  Future<void> handle(NodeId peer, String body, {NodeId? device}) async {
+    final to = device != null && device != peer ? device : peer;
     Map<String, dynamic> json;
     try {
       json = jsonDecode(body) as Map<String, dynamic>;
@@ -616,6 +625,7 @@ class _MessagingPeerSync {
     if (ownAsk is List && ownSince is int) {
       await _answerOwnEchoAsk(
         peer,
+        to,
         ownAsk,
         ownSince,
         ownUntil is int ? ownUntil : null,
@@ -756,7 +766,7 @@ class _MessagingPeerSync {
               event.body ?? '',
             );
             await _owner._send(
-              peer,
+              to,
               (recommendation == null
                       ? WireEnvelope.message(
                           event.body ?? '',
@@ -778,7 +788,7 @@ class _MessagingPeerSync {
           case EventKind.edit:
             if (event.target == null) continue;
             await _owner._send(
-              peer,
+              to,
               WireEnvelope.edit(
                 event.target!,
                 event.body ?? '',
@@ -787,7 +797,7 @@ class _MessagingPeerSync {
               ).encode(),
             );
           case EventKind.void_:
-            await _owner._send(peer, WireEnvelope.voidSeq(event.seq).encode());
+            await _owner._send(to, WireEnvelope.voidSeq(event.seq).encode());
           case EventKind.delete:
           case EventKind.clear:
             continue;
@@ -991,6 +1001,7 @@ class _MessagingPeerSync {
   /// beacon.
   Future<void> _answerOwnEchoAsk(
     NodeId peer,
+    NodeId to,
     List<dynamic> ask,
     int sinceMs,
     int? untilMs, {
@@ -1037,7 +1048,7 @@ class _MessagingPeerSync {
     }
     for (final m in edited) {
       await _owner._send(
-        peer,
+        to,
         WireEnvelope.sync(
           jsonEncode({
             'echo': {
@@ -1101,7 +1112,7 @@ class _MessagingPeerSync {
     for (final m in missing) {
       final cid = m.fileContentId;
       await _owner._send(
-        peer,
+        to,
         WireEnvelope.sync(
           jsonEncode({
             'echo': {
