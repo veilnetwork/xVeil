@@ -164,7 +164,16 @@ enum DeviceSyncKind {
   /// honour — which a 1:1 chat already carries between my devices, and which
   /// left one device erasing a group's history on a member's request while
   /// the other kept it.
-  groupPref;
+  groupPref,
+
+  /// The COUNTERPART's reaction to a message in a 1:1 chat, keyed
+  /// `<peer hex>|<message id>`, payload `{'e': emoji}` ('' = removed), stamped
+  /// with the reaction's own time. The peer sends it to my identity, which
+  /// lands it on ONE of my devices; nothing told the others — measured on the
+  /// stand, the second device saw the counterpart's reaction in 1 of 3 tries
+  /// (only when a mailbox copy happened to reach it). Messages from the peer
+  /// already travel this way; its reactions did not.
+  peerReaction;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {
