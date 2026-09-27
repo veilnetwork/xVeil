@@ -1136,5 +1136,22 @@ void _readClockTests() {
       expect((await sA.loadMessages(c.hex)).map((m) => m.id), ['keep'],
           reason: 'a conversation without a window was swept');
     });
+
+    test('a retention in days is applied without opening the chat too',
+        () async {
+      await sA.appendMessage(Message(
+        id: 'old', conversationId: b.hex,
+        direction: MessageDirection.incoming, body: 'ten days old',
+        timestamp: clock.subtract(const Duration(days: 10)),
+        status: MessageStatus.delivered,
+      ));
+      await sA.upsertContact(
+        (await sA.getContact(b))!.copyWith(retentionDays: 7),
+      );
+      await mA.sweepAllDisappearing();
+      expect((await sA.loadMessages(b.hex)).map((m) => m.id),
+          isNot(contains('old')),
+          reason: 'retention waited for the chat to be opened');
+    });
   });
 }
