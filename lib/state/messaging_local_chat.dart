@@ -9,10 +9,37 @@ class _MessagingLocalChat {
 
   final MessagingService _owner;
 
+  /// Reactions and their stamps live in the FILE store, not a setting.
+  ///
+  /// One settings record per conversation grew by an entry for every reaction
+  /// and was never pruned; past a few dozen reactions it no longer fitted a
+  /// record, every write threw `PayloadTooLarge`, and reacting in that chat
+  /// stopped working for good (measured on the stand under a mixed load). The
+  /// file store chunks a large value. The old setting is still READ, so what
+  /// was stored there moves over on the next write.
+  Future<String?> _readReactionBlob(String key) async {
+    final blob = await _owner._storage.loadFile(key);
+    if (blob != null) return utf8.decode(blob);
+    return _owner._storage.getSetting(key);
+  }
+
+  Future<void> _writeReactionBlob(String key, String json) async {
+    await _owner._storage.storeFile(
+      key,
+      Uint8List.fromList(utf8.encode(json)),
+      name: 'reactions',
+    );
+    // Retire the old record so a later read cannot fall back to stale data
+    // and the settings index stops carrying it.
+    if (await _owner._storage.getSetting(key) != null) {
+      await _owner._storage.putSetting(key, '');
+    }
+  }
+
   /// Load all reactions for a conversation: msgId → (reactorHex → emoji).
   Future<Map<String, Map<String, String>>> loadReactions(String convId) async {
     try {
-      final raw = await _owner._storage.getSetting('rx:$convId');
+      final raw = await _readReactionBlob('rx:$convId');
       if (raw == null || raw.isEmpty) return {};
       final j = jsonDecode(raw);
       if (j is! Map) return {};
@@ -36,7 +63,7 @@ class _MessagingLocalChat {
     String convId,
   ) async {
     try {
-      final raw = await _owner._storage.getSetting('rxat:$convId');
+      final raw = await _readReactionBlob('rxat:$convId');
       if (raw == null || raw.isEmpty) return {};
       final j = jsonDecode(raw);
       if (j is! Map) return {};
@@ -70,7 +97,7 @@ class _MessagingLocalChat {
       final seen = stamps[msgId]?[reactorHex];
       if (seen != null && atMs < seen) return;
       (stamps[msgId] ??= <String, int>{})[reactorHex] = atMs;
-      await _owner._storage.putSetting('rxat:$convId', jsonEncode(stamps));
+      await _writeReactionBlob('rxat:$convId', jsonEncode(stamps));
     }
     final all = await loadReactions(convId);
     final forMsg = all[msgId] ?? <String, String>{};
@@ -84,7 +111,7 @@ class _MessagingLocalChat {
     } else {
       all[msgId] = forMsg;
     }
-    await _owner._storage.putSetting('rx:$convId', jsonEncode(all));
+    await _writeReactionBlob('rx:$convId', jsonEncode(all));
   }
 
   /// Apply a reaction locally and persist its durable wire frame for a peer.
