@@ -7235,6 +7235,38 @@ void main() {
     );
   });
 
+  test('asking whether a contact is one of my devices does not re-read the '
+      'device journal for every frame', () async {
+    // Asked for every inbound frame from every contact, in one serialized
+    // lane: uncached it cost ~570 ms a frame on the stand and held a
+    // sibling's mirrors behind a contact's chunks for over ten minutes.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    addTearDown(svc.dispose);
+    await svc.linkDevice(bob, sovereign: sovereign);
+    final contact = _id(77);
+
+    for (var i = 0; i < 5; i++) {
+      expect(await svc.isMyDeviceOrMaster(contact), isFalse);
+    }
+    expect(svc.deviceOwnerReads, 1, reason: 'the journal was re-read per frame');
+
+    // A write to the device group is the one thing that changes the answer.
+    await svc.postDeviceEvent(
+      const DeviceSyncEvent(
+        kind: DeviceSyncKind.settingSet,
+        key: 'theme',
+        tsMs: 1,
+        payload: {'v': 'dark'},
+      ),
+    );
+    expect(await svc.isMyDeviceOrMaster(contact), isFalse);
+    expect(svc.deviceOwnerReads, 2, reason: 'a device-group write must clear it');
+    // And the answer for a real device of mine is unchanged.
+    expect(await svc.isMyDeviceOrMaster(bob), isTrue);
+  });
+
   test('epoch keys handed to my devices are not handed again after a restart',
       () async {
     // Held only in memory, the "already shared" mark came back empty on every

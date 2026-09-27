@@ -6434,7 +6434,10 @@ class GroupService implements ArchiveGroups {
     unawaited(_shareNewEpochKeysWithMyDevices(b));
     // The device journal is where the master names its device; a write to it
     // may have changed that name, so the admission cache must not outlive it.
-    if (b.manifest.isSovereignDevice) _masterDeviceCachedAtMs = null;
+    if (b.manifest.isSovereignDevice) {
+      _masterDeviceCachedAtMs = null;
+      _deviceOwnerCachedAtMs = null;
+    }
     if (notify) changes.value++;
     // The device log is one stored blob with a hard cap; the hourly pass is
     // too slow for a history replay posting thousands of rows. Queued behind
@@ -19166,7 +19169,38 @@ class GroupService implements ArchiveGroups {
 
   /// The device group's owner, but only when THIS device is a linked member of
   /// it — null on the device the group is owned by, where the owner is us.
+  /// [_deviceGroupOwnerIfLinkedUncached] behind a short cache.
+  ///
+  /// The admission question reaches it for every sender that is not one of
+  /// mine — every frame from every contact — and uncached it loaded the device
+  /// journal and re-verified its whole control log each time. Measured on the
+  /// stand: ~570 ms per inbound frame from the counterpart, in the ONE
+  /// serialized inbound lane, so a few hundred re-driven group chunks from a
+  /// contact held a sibling's mirrors behind them for over ten minutes. A
+  /// write to the device group clears it, as it does [_masterDeviceCached].
   Future<NodeId?> _deviceGroupOwnerIfLinked() async {
+    final now = _now();
+    final at = _deviceOwnerCachedAtMs;
+    if (at != null && now - at <= 30000) return _deviceOwnerCached;
+    final generation = _deviceMembersCacheGeneration;
+    final owner = await _deviceGroupOwnerIfLinkedUncached();
+    // A membership change that landed while this read was in flight wins.
+    if (generation == _deviceMembersCacheGeneration) {
+      _deviceOwnerCached = owner;
+      _deviceOwnerCachedAtMs = now;
+    }
+    return owner;
+  }
+
+  NodeId? _deviceOwnerCached;
+  int? _deviceOwnerCachedAtMs;
+
+  /// How many times the device journal was actually read for the owner.
+  @visibleForTesting
+  int deviceOwnerReads = 0;
+
+  Future<NodeId?> _deviceGroupOwnerIfLinkedUncached() async {
+    deviceOwnerReads++;
     final me = await resolveMyDevice();
     if (me == null) return null;
     final hex = await deviceGroupIdHex();
@@ -20098,10 +20132,12 @@ class GroupService implements ArchiveGroups {
   void _invalidateDeviceMembersCache() {
     _deviceMembersCache = null;
     _deviceMembersCacheGeneration++;
+    _deviceOwnerCachedAtMs = null;
   }
 
   void _publishDeviceMembersCache(SpaceManifest manifest, GroupState state) {
     _deviceMembersCacheGeneration++;
+    _deviceOwnerCachedAtMs = null;
     _deviceMembersCache = {
       for (final member in state.members.values)
         if (member.nodeId != manifest.owner) member.nodeId.hex,
