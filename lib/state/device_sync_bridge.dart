@@ -488,6 +488,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       storage: svc.storage,
       post: (event, {attachment}) =>
           svc.postDeviceEvent(event, attachment: attachment),
+      isOwnDevice: svc.isMyDeviceOrMaster,
       cancelled: () =>
           bridgeGone || !identical(ref.read(groupServiceProvider), svc),
       // Hold while any sibling's queue is past half the replication cap; a

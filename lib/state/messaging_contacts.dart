@@ -58,6 +58,9 @@ class _MessagingContacts {
     NodeId peer,
     ContactStatus status,
   ) async {
+    // This one CREATES a record, so it is where a contact with my own device
+    // would be born — refused, as the emitters refuse to post one.
+    if (await _owner._isSiblingDevice(peer)) return false;
     final existing = await _owner._storage.getContact(peer);
     if (existing?.status == status) return false;
     // A DOORBELL NEVER OVERWRITES A DECISION. Both devices receive the raw
