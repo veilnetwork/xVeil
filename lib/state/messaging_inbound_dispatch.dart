@@ -1011,6 +1011,12 @@ extension _MessagingInboundDispatch on MessagingService {
           atMs: env.sentAtMs,
         );
         _signal();
+        onPeerReactionReceived?.call(
+          m.src,
+          targetId,
+          env.body,
+          env.sentAtMs ?? _now().millisecondsSinceEpoch,
+        );
         return;
       case WireKind.groupEntry:
         // A group snapshot from a member (groups epic); the durable frame was

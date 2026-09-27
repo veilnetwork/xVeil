@@ -29,6 +29,7 @@ const kDeviceLogPerItemKinds = {
   DeviceSyncKind.msgEdit,
   DeviceSyncKind.callLog,
   DeviceSyncKind.reaction,
+  DeviceSyncKind.peerReaction,
 };
 
 /// How many per-item rows a device log keeps at most, newest first…
