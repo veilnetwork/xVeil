@@ -378,6 +378,43 @@ void main() {
     },
   );
 
+  test(
+    'two devices of one identity under one author are shown by time, not '
+    'lifted by each other\'s seqs',
+    () async {
+      // Each device numbers its own messages from 1; the counterpart files
+      // them all under the identity. Floored by seq, device B's fresh seq 2
+      // lifted device A's older seq 3..4 above itself.
+      final c = _id(7).hex;
+      final identity = _id(33).hex;
+      Message ev(String id, int seq, DateTime ts) => Message(
+        id: id,
+        conversationId: c,
+        direction: MessageDirection.incoming,
+        body: id,
+        timestamp: ts,
+        author: identity,
+        seq: seq,
+      );
+      final day = DateTime(2026, 9, 26, 10);
+      await storage.appendMessage(ev('a1', 1, day));
+      await storage.appendMessage(ev('a2', 2, day.add(const Duration(minutes: 1))));
+      await storage.appendMessage(ev('a3', 3, day.add(const Duration(minutes: 2))));
+      await storage.appendMessage(ev('a4', 4, day.add(const Duration(minutes: 3))));
+      final next = day.add(const Duration(days: 1));
+      await storage.appendMessage(ev('b1', 1, next));
+      await storage.appendMessage(ev('b2', 2, next.add(const Duration(minutes: 1))));
+      expect((await storage.loadMessages(c)).map((m) => m.body), [
+        'a1',
+        'a2',
+        'a3',
+        'a4',
+        'b1',
+        'b2',
+      ]);
+    },
+  );
+
   test('honest timestamps from two authors still interleave by time', () async {
     final c = _id(6).hex;
     final me = _id(31).hex;
