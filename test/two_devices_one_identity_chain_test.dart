@@ -339,6 +339,47 @@ void main() {
     expect(transport.sentTo, contains(contact), reason: 'and the live one');
   });
 
+  test("a contact's frame that named no device is acked at each of its devices",
+      () async {
+    // Routed by the identity, the ack reached one device; the other one,
+    // whose frame it was, re-drove it 5-6 times on the stand.
+    final contact = NodeId(Uint8List.fromList(List.filled(32, 0x44)));
+    final devA = NodeId(Uint8List.fromList(List.filled(32, 0xA1)));
+    final devB = NodeId(Uint8List.fromList(List.filled(32, 0xB1)));
+    final transport = _RecordingTransport(
+      localNodeId: NodeId(Uint8List.fromList(List.filled(32, 0x13))),
+    );
+    final messaging = MessagingService(transport, await _storage());
+    addTearDown(messaging.dispose);
+    messaging
+      ..debugNoteDeviceOf(devA, contact)
+      ..debugNoteDeviceOf(devB, contact);
+
+    await messaging.debugAckTo(
+      InboundMessage(src: contact, payload: Uint8List(0)),
+      'grpc:grp:${'aa' * 32}:${'bb' * 32}:${'cc' * 32}:3',
+    );
+    expect(transport.sentTo, containsAll([devA, devB]),
+        reason: 'the live ack must reach whichever device sent the frame');
+
+    // A frame that names its device is answered there alone.
+    transport.sentTo.clear();
+    await messaging.debugAckTo(
+      InboundMessage(src: contact, payload: Uint8List(0), srcDevice: devB),
+      'grpc:grp:${'aa' * 32}:${'bb' * 32}:${'cc' * 32}:4',
+    );
+    expect(transport.sentTo, [devB]);
+
+    // Nothing known about its devices: the identity, as before.
+    transport.sentTo.clear();
+    final stranger = NodeId(Uint8List.fromList(List.filled(32, 0x55)));
+    await messaging.debugAckTo(
+      InboundMessage(src: stranger, payload: Uint8List(0)),
+      'grpc:grp:${'aa' * 32}:${'bb' * 32}:${'cc' * 32}:5',
+    );
+    expect(transport.sentTo, [stranger]);
+  });
+
   test("a sibling's frame is acknowledged at the sibling, not at myself",
       () async {
     // The frame arrives under the identity, and on the master that is its own

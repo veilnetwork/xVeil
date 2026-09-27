@@ -1042,8 +1042,42 @@ class MessagingService {
     // linked device, the master re-driving 12 frames 76 times a minute and the
     // linked device drowning. The mailbox copy above stays on the identity:
     // it is the leg that works when no device is reachable at all.
-    await _send(device != null && device != m.src ? device : m.src, ack);
+    if (device != null && device != m.src) {
+      await _send(device, ack);
+      return;
+    }
+    // A frame that did NOT name its device — relayed, or drained from the
+    // mailbox — is answered at every device of that identity this node has
+    // seen prove itself. Routed by the identity, the live ack reached one
+    // device, and when the frame had come from the other it re-drove until a
+    // mailbox copy happened to be drained by the right one: measured on the
+    // stand as every chunk of one sibling's snapshot acked only on its 5th or
+    // 6th attempt, all nine acks in a window routed to the other device. A
+    // device that does not hold the frame retires nothing.
+    final known = _devicesOfIdentity(m.src);
+    if (known.isEmpty) {
+      await _send(m.src, ack);
+      return;
+    }
+    for (final d in known) {
+      try {
+        await _send(d, ack);
+      } catch (_) {
+        // Best-effort per device: the mailbox copy and a re-drive remain.
+      }
+    }
   }
+
+  /// Devices seen proving they speak for [identity] (see [identityOfDevice]).
+  List<NodeId> _devicesOfIdentity(NodeId identity) => [
+    for (final e in _identityOfDevice.entries)
+      if (e.value == identity && e.key != identity.hex) NodeId.fromHex(e.key),
+  ];
+
+  /// Test seam: record that [device] proved it speaks for [identity].
+  @visibleForTesting
+  void debugNoteDeviceOf(NodeId device, NodeId identity) =>
+      _identityOfDevice[device.hex] = identity;
 
   /// Stand/test seam onto [_ackTo].
   @visibleForTesting
