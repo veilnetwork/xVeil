@@ -1967,6 +1967,25 @@ class AppL10nRu extends AppL10n {
   String get chatBlockedContact => 'Вы заблокировали этот контакт';
 
   @override
+  String chatHeldWhileBlocked(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count сообщения пришли, пока контакт был заблокирован',
+      many: '$count сообщений пришли, пока контакт был заблокирован',
+      few: '$count сообщения пришли, пока контакт был заблокирован',
+      one: '1 сообщение пришло, пока контакт был заблокирован',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get chatHeldShow => 'Показать';
+
+  @override
+  String get chatHeldDiscard => 'Удалить';
+
+  @override
   String get chatRequestHint => 'Напишите запрос на связь…';
 
   @override
