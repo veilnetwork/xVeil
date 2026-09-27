@@ -5967,6 +5967,8 @@ class GroupService implements ArchiveGroups {
       devLog(() => 'xVeil[group]: load ${groupId.short} refused — $why');
 
   Future<GroupBundle?> load(NodeId groupId) async {
+    final batched = _batchBundles[groupId.hex];
+    if (batched != null) return batched;
     final raw = await _loadBundleRaw(groupId);
     if (raw == null) {
       _loadRefused(groupId, 'no bundle in the file store nor the legacy key');
@@ -6376,6 +6378,11 @@ class GroupService implements ArchiveGroups {
   }
 
   Future<void> _save(GroupBundle b, {bool notify = true}) async {
+    if (_batchBundles.containsKey(b.manifest.groupId.hex)) {
+      // A batch is building on this bundle; it saves once, at its end.
+      _batchBundles[b.manifest.groupId.hex] = b;
+      return;
+    }
     b = _admitControlRowsSignedByLiveKeys(b);
     final controlReceipts = _notedControlReceipts(b);
     // Chunked file-store (not putSetting): the bundle carries inline media that
@@ -20377,12 +20384,12 @@ class GroupService implements ArchiveGroups {
     _deviceMembersCacheAtMs = _now();
   }
 
-  /// Serializes [postDeviceEvent] appends: sync emits are fire-and-forget
-  /// (message taps, settings toggles, journal rows), so two can race the
-  /// group log's read-modify-write and the later save silently drops the
-  /// earlier append. Caught live in the brick-4 device verify (pin landed,
-  /// the same-call archive edit vanished from BOTH devices' folds).
-  Future<void> _devicePostChain = Future.value();
+  // [postDeviceEvent] appends are serialized by the ONE drainer of
+  // [_devicePostQueue]: sync emits are fire-and-forget (message taps, settings
+  // toggles, journal rows), so two could race the group log's
+  // read-modify-write and the later save silently dropped the earlier append.
+  // Caught live in the brick-4 device verify (pin landed, the same-call
+  // archive edit vanished from BOTH devices' folds).
 
   /// Per-ingest drop-arm counters for DEVICE-group rows (diagnostic voice;
   /// cleared after each summary line).
@@ -20406,19 +20413,106 @@ class GroupService implements ArchiveGroups {
     // left (report21 X21-H2). `false` is what this already returns when it
     // cannot post, so callers need no new case.
     if (_disposed) return Future.value(false);
-    final done = _devicePostChain.then((_) async {
-      if (_disposed) return false;
-      final hex = await deviceGroupIdHex();
-      if (hex == null) return false;
-      return postMessage(
-        NodeId.fromHex(hex),
-        e.toBody(),
-        attachment: attachment,
-      );
-    });
-    _devicePostChain = done.then((_) {}, onError: (_) {});
-    return done;
+    final done = Completer<bool>();
+    _devicePostQueue.add((event: e, attachment: attachment, done: done));
+    if (!_devicePostDraining) unawaited(_drainDevicePosts());
+    return done.future;
   }
+
+  /// Device events waiting for the drainer, in the order they were posted.
+  final List<
+    ({DeviceSyncEvent event, MediaObject? attachment, Completer<bool> done})
+  >
+  _devicePostQueue = [];
+  bool _devicePostDraining = false;
+
+  /// At most this many queued events go into one load-and-save.
+  static const int kDevicePostBatch = 64;
+
+  /// Post what has queued up, as few load-and-saves as possible.
+  ///
+  /// ONE ROW, ONE FULL CYCLE was the rule: every event loaded the device
+  /// journal, signed its row and saved the bundle, and the next one waited in
+  /// line. Measured on the stand under a mixed load: a cycle took 2–30 s, so
+  /// a burst of a message, its status and a reaction queued the next post for
+  /// 60–75 s and it never caught up — a sibling's copies stopped arriving at
+  /// all while the load lasted (58 messages missing on the other device).
+  /// Everything that queued while one batch ran now goes out in the next one:
+  /// one load, the rows signed in order on the same working bundle, one save,
+  /// one delta.
+  Future<void> _drainDevicePosts() async {
+    _devicePostDraining = true;
+    try {
+      while (_devicePostQueue.isNotEmpty) {
+        final take = _devicePostQueue.length < kDevicePostBatch
+            ? _devicePostQueue.length
+            : kDevicePostBatch;
+        final batch = _devicePostQueue.sublist(0, take);
+        _devicePostQueue.removeRange(0, take);
+        List<bool> results;
+        try {
+          final hex = _disposed ? null : await deviceGroupIdHex();
+          results = hex == null
+              ? List.filled(batch.length, false)
+              : await _serialized(
+                  NodeId.fromHex(hex),
+                  () => _postDeviceBatch(NodeId.fromHex(hex), batch),
+                );
+        } catch (_) {
+          results = List.filled(batch.length, false);
+        }
+        for (var i = 0; i < batch.length; i++) {
+          if (!batch[i].done.isCompleted) batch[i].done.complete(results[i]);
+        }
+      }
+    } finally {
+      _devicePostDraining = false;
+    }
+  }
+
+  Future<List<bool>> _postDeviceBatch(
+    NodeId gid,
+    List<
+      ({DeviceSyncEvent event, MediaObject? attachment, Completer<bool> done})
+    >
+    batch,
+  ) async {
+    if (_disposed) return List.filled(batch.length, false);
+    final start = await load(gid);
+    if (start == null) return List.filled(batch.length, false);
+    final before = {for (final m in start.messages) m.ref};
+    // While this is set, [load] answers the working bundle and [_save] only
+    // records it: each row is built on the one before it, exactly as if it had
+    // been saved, and nothing is written until the batch is done.
+    _batchBundles[gid.hex] = start;
+    final results = <bool>[];
+    GroupBundle working;
+    try {
+      for (final item in batch) {
+        results.add(
+          await _postMessage(
+            gid,
+            item.event.toBody(),
+            attachment: item.attachment,
+            broadcast: false,
+          ),
+        );
+      }
+    } finally {
+      working = _batchBundles.remove(gid.hex)!;
+    }
+    final fresh = [
+      for (final m in working.messages)
+        if (!before.contains(m.ref)) m,
+    ];
+    if (fresh.isEmpty) return results;
+    await _save(working);
+    unawaited(broadcastDelta(gid, messages: fresh));
+    return results;
+  }
+
+  /// Working bundles of batches in progress, by group id hex.
+  final Map<String, GroupBundle> _batchBundles = {};
 
   /// The folded device-sync state: newest event per (kind, key), from the
   /// VALIDATED device-group log. Empty before adoption.
