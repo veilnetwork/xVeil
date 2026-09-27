@@ -551,6 +551,15 @@ Map<String, int> groupClearWatermark({
   return wm;
 }
 
+/// Whether a delta of rows only leaves its manifest out (`mid` + `mh`).
+///
+/// OFF in this release, on purpose: a build from before the receiving half
+/// ([GroupService._restoreOmittedManifest]) refuses such a delta, the sender
+/// re-drives it, and the two devices stop converging. Turn on in the release
+/// AFTER the one that shipped the receiving half (owner's decision,
+/// 2026-09-27: two releases).
+const kDeltaOmitsManifest = false;
+
 class GroupService implements ArchiveGroups {
   GroupService(
     this._storage,
@@ -15419,6 +15428,7 @@ class GroupService implements ArchiveGroups {
   /// snapshot/delta ingest. The wire wiring points here instead of calling
   /// [ingestSnapshot] directly.
   Future<bool> ingestGroupEntry(NodeId peer, String json) async {
+    json = await _restoreOmittedManifest(json);
     Map? decoded;
     try {
       final d = jsonDecode(json);
@@ -16868,6 +16878,7 @@ class GroupService implements ArchiveGroups {
     NodeId peer,
     String bundleJson,
   ) async {
+    bundleJson = await _restoreOmittedManifest(bundleJson);
     String? gidHex;
     try {
       final d = jsonDecode(bundleJson);
@@ -17747,6 +17758,7 @@ class GroupService implements ArchiveGroups {
     NodeId? sender,
   }) async {
     try {
+      bundleJson = await _restoreOmittedManifest(bundleJson);
       final value = jsonDecode(bundleJson);
       final manifest = value is Map ? value['m'] : null;
       final gid = manifest is Map ? manifest['gid'] : null;
@@ -17767,6 +17779,37 @@ class GroupService implements ArchiveGroups {
       return false;
     }
   }
+
+  /// A delta that left its manifest out (`mid` + `mh` instead of `m`) gets
+  /// back the one this device holds for that group — if it holds one, and it
+  /// is the same manifest the sender had (by hash). Anything else is left as
+  /// it came, and is refused as a delta with no manifest always was.
+  ///
+  /// Every delta carried the whole manifest, ~2.5 KB: measured on the stand,
+  /// one device-log event went out as 5–8 KB in three chunks. The owner's
+  /// decision (2026-09-27): stop sending it, in two releases — this is the
+  /// first, the receiving half; [kDeltaOmitsManifest] is the second.
+  Future<String> _restoreOmittedManifest(String json) async {
+    if (!json.contains('"mid":')) return json;
+    try {
+      final d = jsonDecode(json);
+      if (d is! Map || d['m'] != null) return json;
+      final gid = d['mid'], hash = d['mh'];
+      if (gid is! String || hash is! String) return json;
+      final held = await load(NodeId.fromHex(gid));
+      if (held == null || manifestHash(held.manifest) != hash) return json;
+      return jsonEncode({...d, 'm': held.manifest.toJson()});
+    } catch (_) {
+      return json;
+    }
+  }
+
+  /// What a delta names its manifest by when it leaves it out.
+  @visibleForTesting
+  static String manifestHash(SpaceManifest manifest) => crypto.sha256
+      .convert(utf8.encode(jsonEncode(manifest.toJson())))
+      .toString()
+      .substring(0, 32);
 
   Future<bool> _ingestSnapshot(
     String bundleJson, {
@@ -20778,6 +20821,10 @@ class GroupService implements ArchiveGroups {
   /// every member: roster/key changes carry per-recipient epoch material and
   /// cannot safely depend on a relay that does not own everybody's envelope.
   /// A new member still gets a full [broadcast] on join.
+  /// Test seam and release switch for [kDeltaOmitsManifest].
+  @visibleForTesting
+  bool omitManifest = kDeltaOmitsManifest;
+
   Future<int> broadcastDelta(
     NodeId groupId, {
     List<ControlEntry> control = const [],
@@ -21052,7 +21099,15 @@ class GroupService implements ArchiveGroups {
             peer,
             groupId,
             jsonEncode({
-              'm': b.manifest.toJson(),
+              // A delta of rows only names its manifest instead of carrying
+              // it, once every receiver can put it back (see
+              // [_restoreOmittedManifest]). One that changes the control log
+              // carries it whole: that is how a new member learns the group.
+              if (omitManifest && control.isEmpty) ...{
+                'mid': groupId.hex,
+                'mh': manifestHash(b.manifest),
+              } else
+                'm': b.manifest.toJson(),
               'c': control.map((entry) => entry.toJson()).toList(),
               'docs': ?_nonEmpty(docs),
               'g': peerMessages.map((message) => message.toJson()).toList(),
