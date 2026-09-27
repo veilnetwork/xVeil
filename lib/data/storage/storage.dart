@@ -140,6 +140,11 @@ abstract interface class Storage {
   /// compare texts by it.
   Future<Map<String, int>> editSeqs(String conversationId);
 
+  /// Ids of the messages of [conversationId] this store holds a tombstone
+  /// for — erased here, by any route. Legacy tombstones without a
+  /// conversation are not listed.
+  Future<Set<String>> deletedMessageIds(String conversationId);
+
   /// Persist [message] and return it AS STORED — with its event-log (author,
   /// seq) filled in (the caller passes seq for a wire-delivered event to keep
   /// the sender's; otherwise storage allocates the next gap-free one). The
