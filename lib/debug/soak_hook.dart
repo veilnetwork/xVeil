@@ -985,6 +985,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/pin':
           await _pinHook(req);
           return;
+        case '/stickers':
+          return _stickersHook(req);
         case '/held':
           return _heldHook(req);
         case '/ratchet_sizes':
@@ -5036,6 +5038,29 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'pin': await ref.read(storageProvider).getSetting('pin:$peerHex'),
+    });
+  }
+
+  /// `/stickers` — every pack: id, name, stickers, and how many have their
+  /// image bytes here.
+  Future<void> _stickersHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final ctrl = ref.read(stickerControllerProvider.notifier);
+    final packs = await ref.read(stickerControllerProvider.future);
+    return _json(req, {
+      'ok': true,
+      'packs': [
+        for (final p in packs)
+          {
+            'id': p.id,
+            'name': p.name,
+            'items': p.items.length,
+            'withBytes': [
+              for (final i in p.items)
+                if (await ctrl.bytesFor(i) != null) i,
+            ].length,
+          },
+      ],
     });
   }
 

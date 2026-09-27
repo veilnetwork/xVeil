@@ -40,6 +40,9 @@ import 'locale_controller.dart';
 import 'messaging.dart';
 import 'reactions_visibility_controller.dart';
 import 'signature_policy_controller.dart';
+import 'sticker_message.dart' show kStickerPackFileExt;
+import 'sticker_store.dart';
+import '../domain/media_object.dart';
 
 /// Wires the brick-4 sync kinds. Eagerly watched from the app scope (next to
 /// [groupServiceProvider]); rebuilds with the service on identity switch.
@@ -376,6 +379,71 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       );
     }());
   };
+  // ── STICKER PACKS → my other devices, with their images ─────────────────
+  // What was last told (or applied) per pack: its content id, '' for an empty
+  // pack. An own event coming back through the gate is recognised by it, and
+  // at start only a pack never told before is announced — announcing every
+  // pack would make this device's copy the newest, over a change a sibling
+  // made while it was off.
+  String announcedKey(String packId) => 'stickers.announced.v1:$packId';
+  final stickers = ref.read(stickerControllerProvider.notifier);
+  Future<void> emitPack(String packId, {bool deleted = false}) async {
+    try {
+      if (deleted) {
+        await svc.storage.putSetting(announcedKey(packId), '');
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.stickerPack,
+            key: packId,
+            tsMs: nextTs(),
+            payload: const {'del': true},
+          ),
+        );
+        return;
+      }
+      final form = await stickers.syncForm(packId);
+      if (form == null) return;
+      final blob = form.blob;
+      final cid = blob == null
+          ? null
+          : await messaging.registerGroupContent(
+              blob,
+              name: 'stickers$kStickerPackFileExt',
+            );
+      await svc.storage.putSetting(announcedKey(packId), cid ?? '');
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.stickerPack,
+          key: packId,
+          tsMs: nextTs(),
+          payload: {'name': form.name, 'cid': ?cid},
+        ),
+        attachment: cid == null
+            ? null
+            : MediaObject(kind: 'file', dataB64: 'AA==', w: 1, h: 1, cid: cid),
+      );
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: sticker pack $packId not sent: $e');
+    }
+  }
+
+  stickers.onLocalPackChange = (packId, {bool deleted = false}) =>
+      unawaited(emitPack(packId, deleted: deleted));
+  ref.onDispose(() => stickers.onLocalPackChange = null);
+  unawaited(() async {
+    try {
+      await ref.read(stickerControllerProvider.future);
+      await stickers.giveDefaultPackItsOwnId();
+      for (final id in await stickers.packIds()) {
+        if (await svc.storage.getSetting(announcedKey(id)) == null) {
+          await emitPack(id);
+        }
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: sticker packs not announced: $e');
+    }
+  }());
+
   final lastReadEmitted = <String, int>{};
   messaging.onConversationRead = (convId, ts) {
     if ((lastReadEmitted[convId] ?? 0) >= ts) return;
@@ -449,7 +517,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     if (!pulling.add(cid)) return;
     try {
       final gidHex = await svc.deviceGroupIdHex();
-      if (gidHex == null) return;
+      if (gidHex == null) {
+        devLog(() => 'xVeil[devices]: content pull — no device group');
+        return;
+      }
       final gid = NodeId.fromHex(gidHex);
       final referenced = await svc.referencedContentIds(gid);
       if (!referenced.contains(cid)) {
@@ -465,7 +536,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         return;
       }
       final st = await svc.stateOf(gid);
-      if (st == null) return;
+      if (st == null) {
+        devLog(() => 'xVeil[devices]: content pull — device group has no state');
+        return;
+      }
       // Who NOT to ask, and both exclusions name a device, not the identity.
       //
       // The sovereign OWNER is a signing key, not a node — pulling from it
@@ -480,12 +554,26 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           : null;
       await svc.resolveMyDevice();
       final me = svc.myDevice;
-      for (final m in st.members.values) {
-        if (owner != null && m.nodeId == owner) continue;
-        if (me != null && m.nodeId == me) continue;
-        if (me == null && m.nodeId == svc.selfId) continue;
-        await svc.fetchGroupContent(gid, cid, m.nodeId);
+      var asked = 0;
+      // Every device of mine that can be dialled — the members AND the
+      // master's device, which is not a member when it has named one.
+      final holders = <NodeId>{
+        for (final m in st.members.values) m.nodeId,
+        ...await svc.addressableOwnDevices(),
+      };
+      for (final holder in holders) {
+        if (owner != null && holder == owner) continue;
+        if (me != null && holder == me) continue;
+        if (me == null && holder == svc.selfId) continue;
+        await svc.fetchGroupContent(gid, cid, holder);
+        asked++;
       }
+      devLog(
+        () =>
+            'xVeil[devices]: content pull '
+            '${cid.length > 12 ? cid.substring(0, 12) : cid} asked '
+            '$asked device(s) of mine',
+      );
     } finally {
       // Free the slot on the next tick — enough to cover the synchronous
       // re-entry from our own pull, while a later user retry still works.
@@ -748,6 +836,59 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             e.tsMs,
           ),
         );
+      case DeviceSyncKind.stickerPack:
+        gate.offer(e, () {
+          final deleted = e.payload['del'] == true;
+          final name = e.payload['name'];
+          final cid = e.payload['cid'];
+          if (!deleted && name is! String) return null;
+          return () async {
+            await ref.read(stickerControllerProvider.future);
+            final told = await svc.storage.getSetting(announcedKey(e.key));
+            // This device's own pack, back through the gate: nothing to do.
+            if (!deleted && told != null && told == (cid is String ? cid : '')) {
+              return;
+            }
+            if (deleted) {
+              await stickers.applyMirroredPack(e.key, name: '', deleted: true);
+              await svc.storage.putSetting(announcedKey(e.key), '');
+              return;
+            }
+            Uint8List? blob;
+            if (cid is String) {
+              blob = await svc.storage.loadFile(cid);
+              if (blob == null) {
+                unawaited(messaging.deviceContentPull?.call(cid));
+                for (var i = 0; i < 60 && blob == null; i++) {
+                  await Future<void>.delayed(const Duration(seconds: 2));
+                  blob = await svc.storage.loadFile(cid);
+                }
+              }
+              if (blob == null) {
+                devLog(
+                  () =>
+                      'xVeil[devices]: sticker pack ${e.key} — its images '
+                      'did not arrive; tried again at the next start',
+                );
+                return;
+              }
+            }
+            await stickers.applyMirroredPack(
+              e.key,
+              name: name as String,
+              blob: blob,
+            );
+            await svc.storage.putSetting(
+              announcedKey(e.key),
+              cid is String ? cid : '',
+            );
+            devLog(
+              () =>
+                  'xVeil[devices]: sticker pack "$name" from my other device '
+                  'applied',
+            );
+          };
+        });
       case DeviceSyncKind.peerReaction:
         final cut = e.key.indexOf('|');
         final emoji = e.payload['e'];

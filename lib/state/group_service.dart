@@ -17034,27 +17034,39 @@ class GroupService implements ArchiveGroups {
     String cid,
     NodeId holder,
   ) async {
-    final pullAny = startContentPullFromAny;
-    final pullOne = startContentPull;
-    if (pullAny == null && pullOne == null) return false;
-    final state = await stateOf(groupId);
-    if (state == null ||
-        !SpaceAcl(
-          state,
-        ).allows(_signer.selfId, SpacePermission.distributeContent)) {
+    // Every refusal says so: a fetch that ends here looks exactly like one
+    // that never started.
+    bool refused(String why) {
+      devLog(
+        () =>
+            'xVeil[groups]: content fetch '
+            '${cid.length > 12 ? cid.substring(0, 12) : cid} in '
+            '${groupId.short} refused — $why',
+      );
       return false;
     }
+
+    final pullAny = startContentPullFromAny;
+    final pullOne = startContentPull;
+    if (pullAny == null && pullOne == null) return refused('no pull path');
+    final state = await stateOf(groupId);
+    if (state == null) return refused('no group state');
+    if (!SpaceAcl(
+      state,
+    ).allows(_signer.selfId, SpacePermission.distributeContent)) {
+      return refused('this node may not distribute content here');
+    }
     final bundle = await load(groupId);
-    if (bundle == null) return false;
+    if (bundle == null) return refused('group does not load');
     final fetchScope = await _contentFetchScope(
       bundle,
       state,
       cid,
       preferredHolder: holder,
     );
-    if (fetchScope == null) return false;
+    if (fetchScope == null) return refused('content is not referenced here');
     final members = fetchScope.candidates;
-    if (members.isEmpty) return false;
+    if (members.isEmpty) return refused('nobody to ask');
     final candidates = <NodeId>[
       if (members.contains(holder)) holder,
       for (final member in members)
@@ -17180,6 +17192,20 @@ class GroupService implements ArchiveGroups {
               acl.allows(member.nodeId, SpacePermission.distributeContent))
             member.nodeId,
       ]..sort((left, right) => left.hex.compareTo(right.hex));
+      // THE MASTER'S DEVICE, when it has named one. It is not a member — the
+      // identity is, as the signing authority excluded above — so a sibling
+      // pulling what the master holds had nobody to ask: measured on the
+      // stand, "asked 0 device(s)" for a sticker pack the master had just
+      // registered.
+      if (isDeviceGroup) {
+        final master = await masterDeviceId();
+        if (master != null &&
+            master != meDevice &&
+            master != bundle.manifest.owner &&
+            !candidates.contains(master)) {
+          candidates.add(master);
+        }
+      }
       return (
         channelId: null,
         channelEpoch: null,
