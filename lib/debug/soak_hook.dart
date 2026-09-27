@@ -975,6 +975,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/contact_info':
           await _contactInfoHook(req);
           return;
+        case '/disappearing':
+          await _disappearingHook(req);
+          return;
         case '/anon_routing':
           await _anonRoutingHook(req);
           return;
@@ -4956,6 +4959,32 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
   /// The FULL stored preference fields of contact ?peer= — brick-4 verify
   /// (the /contacts list stays lean).
+  /// `/disappearing?peer=<hex>` reads the conversation's disappearing
+  /// setting; `&set=<seconds>` (0 = off) changes it through the real setter.
+  Future<void> _disappearingHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final peerHex = q['peer'];
+    if (peerHex == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final peer = NodeId.fromHex(peerHex);
+    final messaging = ref.read(messagingServiceProvider);
+    final set = q['set'];
+    if (set != null) {
+      final secs = int.tryParse(set);
+      if (secs == null || secs < 0) {
+        return _json(req, {'ok': false, 'error': 'bad set'});
+      }
+      await messaging.setContactDisappearing(peer, secs == 0 ? null : secs);
+    }
+    final d = await messaging.disappearingOf(peer);
+    return _json(req, {
+      'ok': true,
+      'ttlSeconds': d.ttlSeconds,
+      'setAtMs': d.setAtMs,
+      'setBy': d.setBy,
+    });
+  }
+
   Future<void> _contactInfoHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final peerHex = req.uri.queryParameters['peer'];
