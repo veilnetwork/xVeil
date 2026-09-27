@@ -37,6 +37,7 @@ import 'package:xveil/domain/space_moderation.dart';
 import 'package:xveil/domain/space_post.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/state/group_service.dart';
 import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging_core.dart';
@@ -440,6 +441,57 @@ void main() {
     await messaging.applyMirroredPin(sibling, '{"id":"x","t":"y"}');
     expect(await storage.getSetting('pin:${sibling.hex}'), isNull,
         reason: 'a chat with my own device got a pin');
+  });
+
+  test("the counterpart's reaction reaches my other devices", () async {
+    // The peer sends a reaction to my identity, which lands it on ONE of my
+    // devices; the other saw it in 1 of 3 tries on the stand, only when a
+    // mailbox copy happened to reach it.
+    final storage = await _storage();
+    final messaging = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 1)))),
+      storage,
+    )..start();
+    addTearDown(messaging.dispose);
+    final peer = NodeId(Uint8List.fromList(List.filled(32, 0x44)));
+    await storage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    final told = <(NodeId, String, String, int)>[];
+    messaging.onPeerReactionReceived = (p, m, e, at) => told.add((p, m, e, at));
+    await messaging.deliverInbound(
+      InboundMessage(
+        src: peer,
+        payload: const WireEnvelope.reaction('m1', 'up', sentAtMs: 5000).encode(),
+        provenance: SenderProvenance.signed,
+      ),
+    );
+    for (var i = 0; i < 100 && told.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(told, [(peer, 'm1', 'up', 5000)],
+        reason: "the peer's reaction never reached my other devices");
+
+    // On the sibling: applied as the PEER's, not as mine.
+    final siblingStorage = await _storage();
+    final sibling = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 2)))),
+      siblingStorage,
+    );
+    addTearDown(sibling.dispose);
+    await siblingStorage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.accepted),
+    );
+    await sibling.applyMirroredPeerReaction(peer, 'm1', 'up', 5000);
+    expect((await sibling.loadReactions(peer.hex))['m1'], {peer.hex: 'up'});
+
+    // Blocked HERE: the sibling does not overrule that.
+    await siblingStorage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.blocked),
+    );
+    await sibling.applyMirroredPeerReaction(peer, 'm2', 'up', 6000);
+    expect((await sibling.loadReactions(peer.hex))['m2'], isNull,
+        reason: 'a blocked contact reacted through my other device');
   });
 
   test("my sibling's reaction becomes mine, and the latest one wins", () async {

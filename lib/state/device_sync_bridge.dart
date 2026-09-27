@@ -363,6 +363,19 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       );
     }());
   };
+  messaging.onPeerReactionReceived = (peer, msgId, emoji, atMs) {
+    unawaited(() async {
+      if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.peerReaction,
+          key: '${peer.hex}|$msgId',
+          tsMs: atMs,
+          payload: {'e': emoji},
+        ),
+      );
+    }());
+  };
   final lastReadEmitted = <String, int>{};
   messaging.onConversationRead = (convId, ts) {
     if ((lastReadEmitted[convId] ?? 0) >= ts) return;
@@ -729,6 +742,25 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         if (peer == svc.selfId) return;
         unawaited(
           messaging.applyMirroredReaction(
+            peer,
+            e.key.substring(cut + 1),
+            emoji,
+            e.tsMs,
+          ),
+        );
+      case DeviceSyncKind.peerReaction:
+        final cut = e.key.indexOf('|');
+        final emoji = e.payload['e'];
+        if (cut <= 0 || emoji is! String) return;
+        final NodeId peer;
+        try {
+          peer = NodeId.fromHex(e.key.substring(0, cut));
+        } catch (_) {
+          return;
+        }
+        if (peer == svc.selfId) return;
+        unawaited(
+          messaging.applyMirroredPeerReaction(
             peer,
             e.key.substring(cut + 1),
             emoji,

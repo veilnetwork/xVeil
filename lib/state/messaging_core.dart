@@ -1576,6 +1576,26 @@ class MessagingService {
   void Function(NodeId peer, String msgId, String emoji, int atMs)?
   onReactionSent;
 
+  /// Fires after the COUNTERPART's reaction arrived here, for my other devices.
+  void Function(NodeId peer, String msgId, String emoji, int atMs)?
+  onPeerReactionReceived;
+
+  /// The counterpart's reaction, received by one of my other devices. Refused
+  /// where that contact is not accepted HERE: a block is this device's
+  /// decision too, and a sibling does not overrule it.
+  Future<void> applyMirroredPeerReaction(
+    NodeId peer,
+    String msgId,
+    String emoji,
+    int atMs,
+  ) async {
+    if (await _isSiblingDevice(peer)) return;
+    final contact = await _storage.getContact(peer);
+    if (contact?.status != ContactStatus.accepted) return;
+    await _applyReaction(peer.hex, msgId, peer.hex, emoji, atMs: atMs);
+    _signal();
+  }
+
   /// A reaction one of my other devices made, applied as this device's own:
   /// the peer keeps one reaction per identity, and so must every device of it.
   Future<void> applyMirroredReaction(
