@@ -380,6 +380,33 @@ void main() {
     expect(transport.sentTo, [stranger]);
   });
 
+  test('a pinned message travels to my other devices', () async {
+    final storage = await _storage();
+    final messaging = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 1)))),
+      storage,
+    );
+    addTearDown(messaging.dispose);
+    final peer = NodeId(Uint8List.fromList(List.filled(32, 0x44)));
+    final sibling = NodeId(Uint8List.fromList(List.filled(32, 0xB2)));
+    messaging.isOwnDevice = (p) async => p == sibling;
+    final told = <(NodeId, String)>[];
+    messaging.onPinnedChanged = (p, v) => told.add((p, v));
+
+    await messaging.setPinnedMessage(peer, '{"id":"m1","t":"hi"}');
+    expect(await storage.getSetting('pin:${peer.hex}'), '{"id":"m1","t":"hi"}');
+    expect(told, [(peer, '{"id":"m1","t":"hi"}')],
+        reason: 'a pin never reached my other devices');
+
+    await messaging.applyMirroredPin(peer, '');
+    expect(await storage.getSetting('pin:${peer.hex}'), '',
+        reason: "the sibling's unpin did not apply");
+
+    await messaging.applyMirroredPin(sibling, '{"id":"x","t":"y"}');
+    expect(await storage.getSetting('pin:${sibling.hex}'), isNull,
+        reason: 'a chat with my own device got a pin');
+  });
+
   test("my sibling's reaction becomes mine, and the latest one wins", () async {
     // Each device showed only the reaction it had made itself: 👍 on one,
     // 🔥 on the other, while the counterpart (one reaction per identity)
