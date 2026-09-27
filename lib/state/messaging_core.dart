@@ -1430,7 +1430,10 @@ class MessagingService {
     // guard silences the callback but not the timer).
     _disappearingSweepTimer = Timer.periodic(
       kDisappearingSweepEvery,
-      (_) => unawaited(sweepAllDisappearing()),
+      (_) {
+        unawaited(sweepAllDisappearing());
+        unawaited(_askSiblingsForErasures());
+      },
     );
     _settingsGcTimer = Timer(const Duration(seconds: 20), () {
       unawaited(() async {
@@ -1501,6 +1504,22 @@ class MessagingService {
   }
 
   DateTime? _presenceAnnouncedAt;
+
+  DateTime? _erasuresComparedAt;
+
+  /// Once an hour, compare erasures with every one of my other devices (see
+  /// [WireKind.deviceGone]); also done whenever one says it is online.
+  Future<void> _askSiblingsForErasures() async {
+    final now = _now();
+    final last = _erasuresComparedAt;
+    if (last != null && now.difference(last) < const Duration(hours: 1)) {
+      return;
+    }
+    _erasuresComparedAt = now;
+    for (final device in await myOtherDevices?.call() ?? const <NodeId>[]) {
+      await _deviceMirror.askSiblingForErasures(device);
+    }
+  }
 
   /// Tell my other devices this one is online (see [WireKind.presence]).
   ///
