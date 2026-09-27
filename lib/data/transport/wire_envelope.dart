@@ -260,6 +260,18 @@ enum WireKind {
   /// appended immediately before [unknown] (RULE WC) so an older build maps
   /// the out-of-range index to [unknown] and drops it.
   disappearingSet,
+
+  /// "I am online" from one of MY devices to the others, sent when a node
+  /// (re)connects. Its value is that it ARRIVES: any authenticated frame from
+  /// a device ends that device's silence and rewinds the queue held for it, so
+  /// a device that was away for over a day — whose new frames are no longer
+  /// dialled live — gets them the moment it is back instead of at the next
+  /// probe. Body `''`; `'r'` for the one answer it gets, so the device that
+  /// just came up learns the same about the others. Own devices only, live
+  /// only, never acked. Appended immediately before [unknown] (RULE WC): an
+  /// older build maps it to [unknown] and drops it after having heard the
+  /// sender anyway.
+  presence,
   unknown,
 }
 
@@ -337,6 +349,7 @@ const List<String> kWireKindOrder = [
   'modelInventoryRequest',
   'modelInventoryOffer',
   'disappearingSet',
+  'presence',
   'unknown',
 ];
 
@@ -551,6 +564,10 @@ class WireEnvelope {
   /// it no longer holds us as a contact (recovery handshake, §15.7).
   const WireEnvelope.reconnect(String greeting)
     : this(WireKind.reconnect, greeting);
+
+  /// See [WireKind.presence].
+  const WireEnvelope.presence({bool reply = false})
+    : this(WireKind.presence, reply ? 'r' : '');
 
   /// Opt-in attestation request: [id] is the message id to attest, [body] is
   /// the exact text the requester wants the author to sign (so the author can

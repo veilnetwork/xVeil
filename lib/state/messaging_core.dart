@@ -1496,7 +1496,33 @@ class MessagingService {
     // A (re)connect is exactly when interrupted downloads become resumable
     // again — reset the failure backoff and probe each pending one.
     _downloadResume.reconcileOnConnect();
+    unawaited(_announcePresence());
     await flushOutbox();
+  }
+
+  DateTime? _presenceAnnouncedAt;
+
+  /// Tell my other devices this one is online (see [WireKind.presence]).
+  Future<void> _announcePresence() async {
+    final now = _now();
+    final last = _presenceAnnouncedAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
+      return;
+    }
+    _presenceAnnouncedAt = now;
+    final devices = await myOtherDevices?.call() ?? const <NodeId>[];
+    for (final device in devices) {
+      try {
+        await _send(device, const WireEnvelope.presence().encode());
+      } catch (_) {
+        // Best-effort: the probe ladder still reaches it.
+      }
+    }
+    if (devices.isNotEmpty) {
+      devLog(
+        () => 'xVeil[devices]: told ${devices.length} device(s) I am online',
+      );
+    }
   }
 
   void _signal() {

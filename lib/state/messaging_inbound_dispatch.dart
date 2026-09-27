@@ -1085,6 +1085,21 @@ extension _MessagingInboundDispatch on MessagingService {
           _outbox.remember(m.src.hex, fid);
         }
         return;
+      case WireKind.presence:
+        // Already did its work: hearing the device ended its silence above.
+        // Answered once, so the device that just came up hears back too.
+        final device = m.srcDevice;
+        if (env.body == 'r' || device == null || device == m.src) return;
+        if (!(await isOwnDevice?.call(m.src) ?? false) &&
+            m.src.hex != await selfIdentityHex?.call()) {
+          return;
+        }
+        try {
+          await _send(device, const WireEnvelope.presence(reply: true).encode());
+        } catch (_) {
+          // Best-effort: its own queue to us rewinds at our next frame anyway.
+        }
+        return;
       case WireKind.disappearingSet:
         // The peer chose a disappearing window for this conversation. Accepted
         // contacts only: the window governs what THIS device deletes, so a
