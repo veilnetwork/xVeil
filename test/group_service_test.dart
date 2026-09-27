@@ -7630,6 +7630,33 @@ void main() {
       expect(state.keys, contains((DeviceSyncKind.msgMirror, 'm$extra')));
     }, timeout: const Timeout(Duration(minutes: 3)));
 
+    test('a reaction is not pushed out by a flood of message mirrors',
+        () async {
+      // Under load, a mirror and a status per message pushed every reaction
+      // out of the one shared window within minutes, and a sibling that
+      // lagged longer never applied it.
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.reaction,
+          key: '${_id(77).hex}|m-reacted',
+          tsMs: now - 200000,
+          payload: const {'e': 'up'},
+        ),
+      );
+      for (var i = 0; i < kDeviceLogPerItemRowsKept + 5; i++) {
+        await mirror('m$i', now - 100000 + i);
+      }
+
+      await svc.compactStateLogs(deviceGid);
+
+      final state = await svc.deviceSyncState();
+      expect(state.keys,
+          contains((DeviceSyncKind.reaction, '${_id(77).hex}|m-reacted')),
+          reason: 'the mirrors pushed the reaction out of the window');
+      expect(state.keys, isNot(contains((DeviceSyncKind.msgMirror, 'm0'))),
+          reason: 'the bulk is still bounded');
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
     test('a log past its row budget compacts on save, not an hour later',
         () async {
       svc.deviceLogCompactAtRows = 4;
