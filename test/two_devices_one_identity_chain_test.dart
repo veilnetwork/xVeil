@@ -23,6 +23,8 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/fake_kv_log_store.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/clear_policy.dart';
 import 'package:xveil/domain/chat.dart';
@@ -158,6 +160,18 @@ bool _bytesEqual(Uint8List a, Uint8List b) {
     if (a[i] != b[i]) return false;
   }
   return true;
+}
+
+/// A store that refuses an oversized settings record, as the container does.
+class _CappedSettingsStorage extends HiddenVolumeStorage {
+  _CappedSettingsStorage(super.opener);
+  @override
+  Future<void> putSetting(String key, String value) {
+    if (value.length > 2048) {
+      throw StateError('PayloadTooLarge: payload exceeds chunk capacity');
+    }
+    return super.putSetting(key, value);
+  }
 }
 
 Future<Storage> _storage() async {
@@ -378,6 +392,27 @@ void main() {
       'grpc:grp:${'aa' * 32}:${'bb' * 32}:${'cc' * 32}:5',
     );
     expect(transport.sentTo, [stranger]);
+  });
+
+  test('a chat keeps taking reactions after a hundred of them', () async {
+    // One settings record per chat grew with every reaction; past a few
+    // dozen it no longer fitted and every reaction in that chat threw.
+    final store = FakeKvLogStore();
+    final storage = _CappedSettingsStorage(
+      ({required password, required bool create}) => store,
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+    final messaging = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 1)))),
+      storage,
+    );
+    addTearDown(messaging.dispose);
+    final peer = NodeId(Uint8List.fromList(List.filled(32, 0x44)));
+    for (var i = 0; i < 100; i++) {
+      await messaging.applyMirroredReaction(peer, 'message-$i', 'up', 1000 + i);
+    }
+    final all = await messaging.loadReactions(peer.hex);
+    expect(all, hasLength(100));
   });
 
   test('a pinned message travels to my other devices', () async {
