@@ -6205,7 +6205,45 @@ class GroupService implements ArchiveGroups {
   /// receiving device, which saves, which looks for keys to share — and would
   /// answer back forever without it. With it, the second device finds nothing
   /// fresh on the return leg and the exchange converges after one round.
+  ///
+  /// PERSISTED, per group. Held only in memory, it came back empty on every
+  /// start, and the first save of every encrypted group sent every one of my
+  /// devices a FULL snapshot again — 237 chunks for one 259-message group on
+  /// the stand, from each device to the other, plus one to a device long dead
+  /// that re-drove for good. The mirrors of the device group queued behind it:
+  /// a sibling's copy of a message took 25–94 s, or did not arrive at all.
   final Map<String, Set<int>> _epochKeysSharedWithDevices = {};
+
+  static String _epochKeysSharedSetting(String gid) =>
+      'devices.epoch_keys_shared.$gid';
+
+  Future<Set<int>> _epochKeysSharedFor(String gid) async {
+    final held = _epochKeysSharedWithDevices[gid];
+    if (held != null) return held;
+    final stored = <int>{};
+    try {
+      final raw = await _storage.getSetting(_epochKeysSharedSetting(gid));
+      for (final part in (raw ?? '').split(',')) {
+        final epoch = int.tryParse(part);
+        if (epoch != null) stored.add(epoch);
+      }
+    } catch (_) {
+      // Unreadable is "nothing shared yet": the cost is one extra snapshot.
+    }
+    // Another call may have filled it while this one read.
+    return _epochKeysSharedWithDevices.putIfAbsent(gid, () => stored);
+  }
+
+  Future<void> _noteEpochKeysShared(String gid, Set<int> shared) async {
+    try {
+      await _storage.putSetting(
+        _epochKeysSharedSetting(gid),
+        (shared.toList()..sort()).join(','),
+      );
+    } catch (_) {
+      // Best-effort: the in-memory mark still holds for this run.
+    }
+  }
 
   /// Hand any epoch key this identity has just gained to its other devices.
   ///
@@ -6227,18 +6265,23 @@ class GroupService implements ArchiveGroups {
     final send = _send;
     if (send == null || b.localEpochKeys.isEmpty) return;
     final gid = b.manifest.groupId.hex;
-    final shared = _epochKeysSharedWithDevices.putIfAbsent(gid, () => <int>{});
+    final shared = await _epochKeysSharedFor(gid);
     if (b.localEpochKeys.keys.every(shared.contains)) return;
+    final fresh = b.localEpochKeys.keys
+        .where((e) => !shared.contains(e))
+        .length;
+    // Marked BEFORE the sends: two saves of one group in quick succession
+    // both found the key fresh and both sent the whole snapshot (measured:
+    // "shared 0 new epoch key(s)" logged right after "shared 1"). A send that
+    // fails is not retried from here either way — it never was.
+    shared.addAll(b.localEpochKeys.keys);
+    await _noteEpochKeysShared(gid, shared);
     final devices = await _myOtherDevicesForGroups();
     if (devices.isEmpty) {
       // Nobody to tell. Recorded anyway: a device linked later is seeded in
       // full, so replaying every key at that point would be work for nothing.
-      shared.addAll(b.localEpochKeys.keys);
       return;
     }
-    final fresh = b.localEpochKeys.keys
-        .where((e) => !shared.contains(e))
-        .length;
     for (final device in devices) {
       try {
         await send(
@@ -6260,7 +6303,6 @@ class GroupService implements ArchiveGroups {
         );
       }
     }
-    shared.addAll(b.localEpochKeys.keys);
     devLog(
       () =>
           'xVeil[devices]: shared $fresh new epoch key(s) of '
