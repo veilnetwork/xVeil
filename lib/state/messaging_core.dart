@@ -1093,6 +1093,51 @@ class MessagingService {
   /// The one-shot post-unlock settings-GC delay — cancellable so dispose()
   /// (provider teardown, widget tests) retracts it; see [start].
   Timer? _settingsGcTimer;
+
+  /// The background half of disappearing messages; see
+  /// [sweepAllDisappearing].
+  Timer? _disappearingSweepTimer;
+  bool _disappearingSweeping = false;
+
+  /// How often every conversation's disappearing window is enforced.
+  static const kDisappearingSweepEvery = Duration(seconds: 30);
+
+  @visibleForTesting
+  bool get disappearingSweepArmed => _disappearingSweepTimer?.isActive ?? false;
+
+  /// Delete what has outlived its window in EVERY conversation that has one.
+  ///
+  /// The window was enforced only where someone was looking: on opening the
+  /// chat, every 15 s while it stayed open, and when the setting changed. A
+  /// conversation nobody opened kept its "disappearing" messages in the
+  /// container for as long as it stayed closed — measured on the stand: a
+  /// message under a 120 s window still there six minutes later on the device
+  /// that sent it, and on the other two. The feature exists for the moment the
+  /// container is opened by someone else, and that person does not open the
+  /// chat first.
+  Future<int> sweepAllDisappearing() async {
+    if (_disposed || _disappearingSweeping) return 0;
+    _disappearingSweeping = true;
+    var removed = 0;
+    try {
+      for (final c in await _storage.loadConversations()) {
+        if (_disposed) break;
+        if (c.peer.disappearingTtlSeconds == null &&
+            c.peer.hideAfterReadSeconds == null) {
+          continue;
+        }
+        removed += await sweepDisappearing(c.peer.nodeId);
+      }
+    } catch (e) {
+      devLog(() => 'xVeil[disappearing]: background sweep failed: $e');
+    } finally {
+      _disappearingSweeping = false;
+    }
+    if (removed > 0) {
+      devLog(() => 'xVeil[disappearing]: background sweep removed $removed');
+    }
+    return removed;
+  }
   bool _flushing = false;
 
   /// Frames the mailbox subsystem still holds per-frame bookkeeping for.
@@ -1368,6 +1413,10 @@ class MessagingService {
     // retract the pending delay itself, or every widget test that touches the
     // service dies on "A Timer is still pending" at teardown (the _disposed
     // guard silences the callback but not the timer).
+    _disappearingSweepTimer = Timer.periodic(
+      kDisappearingSweepEvery,
+      (_) => unawaited(sweepAllDisappearing()),
+    );
     _settingsGcTimer = Timer(const Duration(seconds: 20), () {
       unawaited(() async {
         if (_disposed) return;
@@ -3716,6 +3765,8 @@ class MessagingService {
     _retryTimer = null;
     _settingsGcTimer?.cancel();
     _settingsGcTimer = null;
+    _disappearingSweepTimer?.cancel();
+    _disappearingSweepTimer = null;
     await _downloadResume.dispose();
     await _sub?.cancel();
     _sub = null;
