@@ -6483,6 +6483,12 @@ class GroupService implements ArchiveGroups {
     final dropped = previous.live.difference(live);
     final json = jsonEncode({
       ...header,
+      // NOT A LIST, on purpose. A build from before segments reads messages as
+      // `d['g'] as List?`: absent, it would see the group EMPTY and its next
+      // save would write a header naming no segments — the history gone for
+      // good. A map fails that cast, and that build's load refuses the group
+      // instead ("threw while decoding"), which loses nothing.
+      'g': const {'segmented': 1},
       'gs': [for (final seg in segments) seg.key],
       // Segments this header replaced: deleted right after it is written, and
       // named here so a crash in between leaves them for the next save.

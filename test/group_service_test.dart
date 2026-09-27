@@ -7398,6 +7398,19 @@ void main() {
               '(${storage.storedBytes} of $whole bytes)');
     });
 
+    test('a build from before segments refuses the header, not empties it',
+        () async {
+      // Such a build reads messages as `d['g'] as List?`. Absent, the group
+      // would load EMPTY and its next save drop the segments for good.
+      final header = jsonDecode(utf8.decode(
+        (await storage.loadFile('group:${gid.hex}'))!,
+      )) as Map<String, dynamic>;
+      expect(header['g'], isNot(isA<List>()));
+      expect(header['g'], isNotNull,
+          reason: 'absent reads as an empty list to the old cast');
+      expect(() => header['g'] as List?, throwsA(isA<TypeError>()));
+    });
+
     test('a fresh service reads back every message', () async {
       final again = GroupService(storage, _FakeSigner(owner));
       addTearDown(again.dispose);
@@ -7427,7 +7440,8 @@ void main() {
       expect(await legacy.postMessage(gid, 'after', broadcast: false), isTrue);
       final moved = jsonDecode(utf8.decode((await storage.loadFile(key))!)) as Map;
       expect(moved.containsKey('gs'), isTrue);
-      expect(moved.containsKey('g'), isFalse);
+      expect(moved['g'], isNot(isA<List>()),
+          reason: 'the messages moved out of the header');
       expect((await legacy.load(gid))!.messages, hasLength(301));
     });
 
