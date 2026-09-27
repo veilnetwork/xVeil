@@ -1098,6 +1098,11 @@ class MessagingService {
   /// [sweepAllDisappearing].
   Timer? _disappearingSweepTimer;
   bool _disappearingSweeping = false;
+  DateTime? _lastRetentionSweep;
+
+  /// How often the per-conversation RETENTION (in days) is enforced by the
+  /// same background pass. Hourly: the unit is a day.
+  static const kRetentionSweepEvery = Duration(hours: 1);
 
   /// How often every conversation's disappearing window is enforced.
   static const kDisappearingSweepEvery = Duration(seconds: 30);
@@ -1119,9 +1124,19 @@ class MessagingService {
     if (_disposed || _disappearingSweeping) return 0;
     _disappearingSweeping = true;
     var removed = 0;
+    // Retention is the same "enforced only on open" gap, in days: applied
+    // when the chat opened or the setting changed, never otherwise.
+    final now = _now();
+    final last = _lastRetentionSweep;
+    final retentionDue =
+        last == null || now.difference(last) >= kRetentionSweepEvery;
+    if (retentionDue) _lastRetentionSweep = now;
     try {
       for (final c in await _storage.loadConversations()) {
         if (_disposed) break;
+        if (retentionDue && (c.peer.retentionDays ?? 0) > 0) {
+          await pruneConversation(c.peer.nodeId);
+        }
         if (c.peer.disappearingTtlSeconds == null &&
             c.peer.hideAfterReadSeconds == null) {
           continue;
