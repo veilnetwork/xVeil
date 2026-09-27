@@ -134,6 +134,12 @@ abstract interface class Storage {
   /// name exactly.
   Future<Message?> loadMessageById(String conversationId, String messageId);
 
+  /// Message id -> the seq of the edit whose text it now shows, for every
+  /// edited message of the conversation. A row's own `seq` is its POST's; the
+  /// edit that won is numbered separately, and two holders of one message
+  /// compare texts by it.
+  Future<Map<String, int>> editSeqs(String conversationId);
+
   /// Persist [message] and return it AS STORED — with its event-log (author,
   /// seq) filled in (the caller passes seq for a wire-delivered event to keep
   /// the sender's; otherwise storage allocates the next gap-free one). The

@@ -145,6 +145,45 @@ List<T> ownEchoesMissing<T>({
       : missing;
 }
 
+/// Which of MY messages the asking device holds with an OLDER text than the
+/// counterpart's.
+///
+/// The echo above brings back what a device is missing, and nothing brought
+/// back an EDIT it missed: the message is held, so it is "already held", and
+/// the old text stays for good. Measured on the stand after a load run: six
+/// messages edited on one device showed the edit on the sibling that made it
+/// and on the counterpart, and the original on the other device of mine.
+///
+/// [heldEdits] is the asker's edit seq per key, for the messages it holds
+/// edited; absent means it holds the original. An edit numbers past every
+/// edit of its message already held (so the counterpart keeps the higher
+/// seq), which makes a higher seq here the LATER text: one the asker made
+/// itself and has not yet reached the counterpart is not overwritten.
+///
+/// Pure, so the selection is testable without two devices and a peer.
+List<T> ownEchoesEdited<T>({
+  required List<T> theirs,
+  required String Function(T) keyOf,
+  required int Function(T) tsOf,
+  required int? Function(T) editSeqOf,
+  required Set<String> held,
+  required Map<String, int> heldEdits,
+  required int sinceMs,
+  int? untilMs,
+  int cap = kOwnEchoCap,
+}) {
+  final stale = [
+    for (final m in theirs)
+      if (editSeqOf(m) case final seq?)
+        if (tsOf(m) > sinceMs &&
+            (untilMs == null || tsOf(m) < untilMs) &&
+            held.contains(keyOf(m)) &&
+            seq > (heldEdits[keyOf(m)] ?? -1))
+          m,
+  ]..sort((a, b) => tsOf(a).compareTo(tsOf(b)));
+  return stale.length > cap ? stale.sublist(stale.length - cap) : stale;
+}
+
 /// Which page of my sent history the [round]-th ask names.
 ///
 /// Page 0 is the newest [kOwnEchoWindow] messages and is what nearly every
@@ -237,6 +276,13 @@ class _MessagingPeerSync {
   /// taken only as the answer to such an ask, so a counterpart cannot write
   /// "my" messages into this chat unprompted.
   final Map<String, DateTime> _ownAskedAt = {};
+
+  /// Message id -> an edit seq the counterpart handed back whose text this
+  /// device already showed. Its own row keeps a different number (an edit
+  /// mirrored before edits carried their seq was numbered here), and without
+  /// this the counterpart would hand the same text back on every ask. In
+  /// memory: after a restart it costs one more hand-back per message.
+  final Map<String, int> _ownEditSettled = {};
 
   /// Asks made to each peer, for [ownEchoPage].
   final Map<String, int> _ownAskRounds = {};
@@ -410,6 +456,7 @@ class _MessagingPeerSync {
       if (ownAsk != null) 'ow': ownAsk.keys,
       if (ownAsk != null) 'os': ownAsk.sinceMs,
       if (ownAsk?.untilMs != null) 'ou': ownAsk!.untilMs,
+      if (ownAsk != null && ownAsk.edits.isNotEmpty) 'oe': ownAsk.edits,
       'ep': now.millisecondsSinceEpoch,
     });
     // Count the quiet round only on a round that actually SENDS: a throttled
@@ -538,12 +585,19 @@ class _MessagingPeerSync {
     final selfHex = await _owner._selfHex();
 
     final ownAsk = json['ow'], ownSince = json['os'], ownUntil = json['ou'];
+    final ownEdits = json['oe'];
     if (ownAsk is List && ownSince is int) {
       await _answerOwnEchoAsk(
         peer,
         ownAsk,
         ownSince,
         ownUntil is int ? ownUntil : null,
+        edits: {
+          if (ownEdits is Map)
+            for (final e in ownEdits.entries)
+              if (e.key is String && e.value is int)
+                e.key as String: e.value as int,
+        },
       );
     }
 
@@ -719,9 +773,10 @@ class _MessagingPeerSync {
   /// The keys of my newest sent messages in this chat, and the time of the
   /// oldest of them, when a device of mine other than this one may have
   /// written in it too; null otherwise.
-  Future<({List<String> keys, int sinceMs, int? untilMs})?> _ownEchoAsk(
-    NodeId peer,
-  ) async {
+  Future<
+    ({List<String> keys, Map<String, int> edits, int sinceMs, int? untilMs})?
+  >
+  _ownEchoAsk(NodeId peer) async {
     try {
       final siblings = await _owner.myOtherDevices?.call() ?? const <NodeId>[];
       if (siblings.isEmpty) return null;
@@ -741,9 +796,19 @@ class _MessagingPeerSync {
       final end = sent.length - page * kOwnEchoWindow;
       final start = end > kOwnEchoWindow ? end - kOwnEchoWindow : 0;
       final window = sent.sublist(start, end);
+      final editSeqs = await _owner._storage.editSeqs(peer.hex);
       _ownAskedAt[peer.hex] = _owner._now();
       return (
         keys: [for (final m in window) ownEchoKey(m.id)],
+        // What I hold EDITED, and at which edit: the counterpart hands back a
+        // later text than this one — see [ownEchoesEdited].
+        edits: {
+          for (final m in window)
+            if (editSeqs[m.id] case final seq?)
+              ownEchoKey(m.id): (_ownEditSettled[m.id] ?? 0) > seq
+                  ? _ownEditSettled[m.id]!
+                  : seq,
+        },
         // The OLDEST page is open below. What the counterpart holds from
         // before my first message here is history this device was not
         // present for — a device linked later, whose sibling that wrote it is
@@ -776,8 +841,9 @@ class _MessagingPeerSync {
     NodeId peer,
     List<dynamic> ask,
     int sinceMs,
-    int? untilMs,
-  ) async {
+    int? untilMs, {
+    Map<String, int> edits = const {},
+  }) async {
     final held = <String>{
       for (final k in ask.take(kOwnEchoWindow))
         if (k is String && k.length == 8) k,
@@ -799,6 +865,43 @@ class _MessagingPeerSync {
       sinceMs: sinceMs,
       untilMs: untilMs,
     );
+    final editSeqs = await _owner._storage.editSeqs(peer.hex);
+    final edited = ownEchoesEdited(
+      theirs: theirs,
+      keyOf: (m) => ownEchoKey(m.id),
+      tsOf: (m) => m.timestamp.millisecondsSinceEpoch,
+      editSeqOf: (m) => editSeqs[m.id],
+      held: held,
+      heldEdits: edits,
+      sinceMs: sinceMs,
+      untilMs: untilMs,
+    );
+    if (edited.isNotEmpty) {
+      devLog(
+        () =>
+            'xVeil[sync]: <- ${peer.short} own-echo ask -> '
+            '${edited.length} later edit(s) handed back',
+      );
+    }
+    for (final m in edited) {
+      await _owner._send(
+        peer,
+        WireEnvelope.sync(
+          jsonEncode({
+            'echo': {
+              'id': m.id,
+              'b': m.body,
+              'ts': m.timestamp.millisecondsSinceEpoch,
+              // The edit's seq: marks this as a later TEXT of a message the
+              // asker holds, not a message it is missing.
+              'e': editSeqs[m.id],
+              if (m.customEmoji.isNotEmpty)
+                'ce': encodeInlineCustomEmoji(m.customEmoji),
+            },
+          }),
+        ).encode(),
+      );
+    }
     if (missing.isEmpty) {
       devLog(
         () =>
@@ -877,6 +980,11 @@ class _MessagingPeerSync {
     if (asked == null || _owner._now().difference(asked) > _ownAskTtl) return;
     final id = echo['id'], body = echo['b'], ts = echo['ts'];
     if (id is! String || id.isEmpty || body is! String || ts is! int) return;
+    final editSeq = echo['e'];
+    if (editSeq is int) {
+      await _applyOwnEchoEdit(peer, id, body, editSeq, echo['ce']);
+      return;
+    }
     final cid = echo['cid'], name = echo['fn'], size = echo['fs'];
     // SAID, not swallowed: a refusal here is a message the person will not
     // see, and "why not" is the first question anyone asks about it.
@@ -912,6 +1020,58 @@ class _MessagingPeerSync {
       () =>
           'xVeil[sync]: <- ${peer.short} own message $id handed back '
           '${stored ? 'by the peer' : '— REFUSED by the mirror path'}',
+    );
+  }
+
+  /// A later text of one of my messages, which the peer holds and this device
+  /// missed (see [ownEchoesEdited]). Through the path a sibling's mirrored
+  /// edit takes, at the edit's own seq — so it is idempotent, and a deletion
+  /// here still wins. Refused when this device holds the same edit or a
+  /// later one: the ask said which, but the answer may cross a newer edit.
+  Future<void> _applyOwnEchoEdit(
+    NodeId peer,
+    String id,
+    String body,
+    int seq,
+    Object? customEmoji,
+  ) async {
+    final held = await _owner._storage.loadMessageById(peer.hex, id);
+    final heldSeq = (await _owner._storage.editSeqs(peer.hex))[id];
+    final String? refused;
+    if (held == null) {
+      refused = 'not held';
+    } else if (held.direction != MessageDirection.outgoing) {
+      refused = 'not mine';
+    } else if (heldSeq != null && heldSeq >= seq) {
+      refused = 'a later edit is held';
+    } else if (held.body == body) {
+      _ownEditSettled[id] = seq;
+      if (_ownEditSettled.length > 4096) {
+        _ownEditSettled.remove(_ownEditSettled.keys.first);
+      }
+      refused = 'this text is already shown';
+    } else {
+      refused = null;
+    }
+    if (refused != null) {
+      devLog(
+        () =>
+            'xVeil[sync]: <- ${peer.short} edit of own message $id handed '
+            'back, not applied — $refused',
+      );
+      return;
+    }
+    await _owner._deviceMirror.applyEdit(
+      peer: peer,
+      msgId: id,
+      body: body,
+      seq: seq,
+      customEmoji: parseInlineCustomEmoji(body, customEmoji),
+    );
+    devLog(
+      () =>
+          'xVeil[sync]: <- ${peer.short} edit of own message $id handed back '
+          'by the peer',
     );
   }
 }

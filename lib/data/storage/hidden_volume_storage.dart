@@ -870,6 +870,17 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   });
 
   @override
+  Future<Map<String, int>> editSeqs(String conversationId) =>
+      _serialized(() async {
+        await _foldCritical();
+        final prefix = '$conversationId\u001f';
+        return {
+          for (final e in _scanEditWinSeq.entries)
+            if (e.key.startsWith(prefix)) e.key.substring(prefix.length): e.value,
+        };
+      });
+
+  @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) =>
       // Serialize against other stores so the multi-commit read-base/bump-last
       // sequence can't interleave and collide chunk log-ids (see [_fileGate]).
