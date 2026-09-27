@@ -342,6 +342,27 @@ class _MessagingPeerSync {
   /// peer answering normally sees no change.
   static const _holeGiveUpAfter = Duration(minutes: 2);
 
+  /// A hole given up on is asked for again this often…
+  ///
+  /// Giving up floors past it, and nothing asks for those seqs again: the
+  /// peer re-ships from our high-water, which now sits above them. The only
+  /// other route is a sibling's mirror, and under load that was lost too —
+  /// measured on the stand, five of the counterpart's messages missing on one
+  /// device for good, held by the counterpart and by the other device, with no
+  /// hole left to name them. The owner's rule is that a device pulls what it
+  /// missed from the counterpart.
+  static const _gaveUpRetryEvery = Duration(hours: 1);
+
+  /// …at most this many times (a day of hourly asks), since a source that
+  /// erased them for itself only will never have them.
+  static const _gaveUpMaxTries = 24;
+
+  /// Ranges remembered per conversation; the oldest go first.
+  static const _gaveUpMaxRanges = 16;
+
+  /// Per (peer, author, lo): when this range was last asked for again.
+  final Map<String, DateTime> _gaveUpTriedAt = {};
+
   /// Per (peer, author): the hole's signature, how many beacons have named it
   /// unmoved, and when we first saw it.
   final Map<String, (String, int, DateTime)> _holeStreak = {};
@@ -449,8 +470,13 @@ class _MessagingPeerSync {
     );
     if (throttled) return; // judged above; the wire frame is what we skip
     final ownAsk = await _ownEchoAsk(peer);
+    final retry = await _givenUpDue(peer);
     final body = jsonEncode({
-      'hw': sync.highWater,
+      // A range given up on, asked for again: this one beacon claims that
+      // author only up to just below it, and the peer re-ships from there.
+      'hw': retry == null
+          ? sync.highWater
+          : {...sync.highWater, retry.author: retry.from - 1},
       if (holes.isNotEmpty) 'holes': holes,
       if (declaredFloor.isNotEmpty) 'fl': declaredFloor,
       if (ownAsk != null) 'ow': ownAsk.keys,
@@ -534,6 +560,7 @@ class _MessagingPeerSync {
             '${waited.inSeconds}s — flooring past it',
       );
       await _owner._storage.applyAuthorSyncFloor(peer.hex, author, first.$2);
+      await _rememberGivenUp(peer, author, first.$1, first.$2);
       changed = true;
     }
     // Forget counters for authors whose holes are gone, so a NEW hole later
@@ -768,6 +795,131 @@ class _MessagingPeerSync {
       }
     }
     sendBestEffort(peer);
+  }
+
+  String _givenUpKey(NodeId peer) => 'syncgaveup:${peer.hex}';
+
+  /// author -> [[lo, hi, tries], ...] for one conversation.
+  Future<Map<String, List<List<int>>>> _loadGivenUp(NodeId peer) async {
+    try {
+      final raw = await _owner._storage.getSetting(_givenUpKey(peer));
+      if (raw == null || raw.isEmpty) return {};
+      final d = jsonDecode(raw);
+      if (d is! Map) return {};
+      return {
+        for (final e in d.entries)
+          if (e.key is String && e.value is List)
+            e.key as String: [
+              for (final r in e.value as List)
+                if (r is List && r.length == 3 && r.every((x) => x is int))
+                  r.cast<int>(),
+            ],
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _saveGivenUp(
+    NodeId peer,
+    Map<String, List<List<int>>> ranges,
+  ) async {
+    ranges.removeWhere((_, v) => v.isEmpty);
+    await _owner._storage.putSetting(
+      _givenUpKey(peer),
+      ranges.isEmpty ? '' : jsonEncode(ranges),
+    );
+  }
+
+  Future<void> _rememberGivenUp(
+    NodeId peer,
+    String author,
+    int lo,
+    int hi,
+  ) async {
+    try {
+      final ranges = await _loadGivenUp(peer);
+      final list = ranges[author] ??= [];
+      list.add([lo, hi, 0]);
+      final total = ranges.values.fold<int>(0, (n, v) => n + v.length);
+      if (total > _gaveUpMaxRanges) list.removeAt(0);
+      // Not straight away: the waiting that just ended is the first try.
+      _gaveUpTriedAt['${peer.hex}|$author|$lo'] = _owner._now();
+      await _saveGivenUp(peer, ranges);
+    } catch (_) {
+      // Advisory: without it the range is lost as it was before.
+    }
+  }
+
+  /// The one range given up on that is due to be asked for again, from its
+  /// first seq still missing; null when none is. A range whose every seq has
+  /// since arrived — by a mirror, a re-ship, any route — is forgotten, and so
+  /// is one asked for [_gaveUpMaxTries] times.
+  Future<({String author, int from})?> _givenUpDue(NodeId peer) async {
+    try {
+      final ranges = await _loadGivenUp(peer);
+      if (ranges.isEmpty) return null;
+      final now = _owner._now();
+      var changed = false;
+      ({String author, int from})? due;
+      for (final e in ranges.entries) {
+        final author = e.key;
+        final keep = <List<int>>[];
+        for (final r in e.value) {
+          final lo = r[0], hi = r[1], tries = r[2];
+          final key = '${peer.hex}|$author|$lo';
+          final last = _gaveUpTriedAt[key];
+          if (due != null ||
+              (last != null && now.difference(last) < _gaveUpRetryEvery)) {
+            keep.add(r);
+            continue;
+          }
+          final held = {
+            for (final ev in await _owner._storage.loadEventsSince(
+              peer.hex,
+              author,
+              lo - 1,
+              limit: hi - lo + 1,
+            ))
+              ev.seq,
+          };
+          int? from;
+          for (var q = lo; q <= hi; q++) {
+            if (!held.contains(q)) {
+              from = q;
+              break;
+            }
+          }
+          if (from == null || tries >= _gaveUpMaxTries) {
+            _gaveUpTriedAt.remove(key);
+            changed = true;
+            devLog(
+              () =>
+                  'xVeil[sync]: -> ${peer.short} given-up range $lo-$hi of '
+                  '${author.substring(0, 8)} '
+                  '${from == null ? 'filled since' : 'dropped after $tries tries'}',
+            );
+            continue;
+          }
+          _gaveUpTriedAt[key] = now;
+          keep.add([lo, hi, tries + 1]);
+          changed = true;
+          due = (author: author, from: from);
+          devLog(
+            () =>
+                'xVeil[sync]: -> ${peer.short} asking again for $from-$hi of '
+                '${author.substring(0, 8)} (given up on, try ${tries + 1})',
+          );
+        }
+        e.value
+          ..clear()
+          ..addAll(keep);
+      }
+      if (changed) await _saveGivenUp(peer, ranges);
+      return due;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// The keys of my newest sent messages in this chat, and the time of the

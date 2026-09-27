@@ -47,6 +47,7 @@ import 'package:veil_media/veil_media.dart';
 import '../state/thumbnail.dart' show makeRgbaThumbB64, makeInlineImageB64;
 import '../domain/clear_policy.dart';
 import '../domain/clear_request.dart';
+import '../domain/event.dart';
 import '../domain/group_message.dart' show GroupMessage, MediaObject;
 
 import '../data/transport/veil_flutter_transport.dart';
@@ -983,6 +984,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/pin':
           await _pinHook(req);
+          return;
+        case '/msg_state':
+          await _msgStateHook(req);
           return;
         case '/group_header_sizes':
           await _groupHeaderSizesHook(req);
@@ -5028,6 +5032,55 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'pin': await ref.read(storageProvider).getSetting('pin:$peerHex'),
+    });
+  }
+
+  /// `/msg_state?peer=<hex>&ids=<id,id,...>` — per message: held here, and
+  /// tombstoned here; plus the conversation's gap-fill view per author.
+  Future<void> _msgStateHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final q = req.uri.queryParameters;
+    final peer = q['peer'];
+    if (peer == null) return _json(req, {'ok': false, 'error': 'no peer'});
+    final storage = ref.read(storageProvider);
+    final ids = (q['ids'] ?? '').split(',').where((s) => s.isNotEmpty);
+    final sync = await storage.conversationSync(peer);
+    // `author=<hex>&from=<seq>&n=<count>`: that author's events from a seq.
+    final author = q['author'];
+    final from = int.tryParse(q['from'] ?? '');
+    final events = author == null || from == null
+        ? const <LogEvent>[]
+        : await storage.loadEventsSince(
+            peer,
+            author,
+            from - 1,
+            limit: int.tryParse(q['n'] ?? '') ?? 10,
+          );
+    return _json(req, {
+      'events': [
+        for (final e in events)
+          {
+            'seq': e.seq,
+            'kind': e.kind.name,
+            'id': e.id,
+            'target': e.target,
+            'body': e.body,
+            'ts': e.ts,
+          },
+      ],
+      'ok': true,
+      'messages': {
+        for (final id in ids)
+          id: {
+            'held': await storage.loadMessageById(peer, id) != null,
+            'deleted': await storage.isMessageDeleted(peer, id),
+          },
+      },
+      'highWater': sync.highWater,
+      'holes': {
+        for (final e in sync.holes.entries)
+          e.key: [for (final (lo, hi) in e.value) [lo, hi]],
+      },
     });
   }
 
