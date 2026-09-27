@@ -1555,6 +1555,23 @@ class MessagingService {
   Future<void> sendReaction(NodeId peer, String msgId, String emoji) =>
       _localChat.sendReaction(peer, msgId, emoji);
 
+  /// Fires after the pinned message of a chat is changed HERE.
+  void Function(NodeId peer, String encoded)? onPinnedChanged;
+
+  /// Pin (or with [encoded] empty, unpin) a message at the top of a chat.
+  Future<void> setPinnedMessage(NodeId peer, String encoded) async {
+    await _storage.putSetting('pin:${peer.hex}', encoded);
+    onPinnedChanged?.call(peer, encoded);
+    _signal();
+  }
+
+  /// A pin one of my other devices set.
+  Future<void> applyMirroredPin(NodeId peer, String encoded) async {
+    if (await _isSiblingDevice(peer)) return;
+    await _storage.putSetting('pin:${peer.hex}', encoded);
+    _signal();
+  }
+
   /// Fires after a reaction of MINE is applied and sent, for my other devices.
   void Function(NodeId peer, String msgId, String emoji, int atMs)?
   onReactionSent;
