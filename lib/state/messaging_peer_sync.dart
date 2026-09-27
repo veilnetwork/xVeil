@@ -119,6 +119,9 @@ String ownEchoKey(String messageId) => crypto.sha256
 /// The NEWEST [cap] of them, for the same reason: what a device just missed is
 /// what the person is looking for.
 ///
+/// [untilMs], when given, closes the window from above (exclusive): an OLDER
+/// page of the asker's history, see [ownEchoPage].
+///
 /// Pure, so the selection is testable without two devices and a peer.
 List<T> ownEchoesMissing<T>({
   required List<T> theirs,
@@ -126,16 +129,35 @@ List<T> ownEchoesMissing<T>({
   required int Function(T) tsOf,
   required Set<String> held,
   required int sinceMs,
+  int? untilMs,
   int cap = kOwnEchoCap,
 }) {
   if (held.isEmpty) return const [];
   final missing = [
     for (final m in theirs)
-      if (tsOf(m) > sinceMs && !held.contains(keyOf(m))) m,
+      if (tsOf(m) > sinceMs &&
+          (untilMs == null || tsOf(m) < untilMs) &&
+          !held.contains(keyOf(m)))
+        m,
   ]..sort((a, b) => tsOf(a).compareTo(tsOf(b)));
   return missing.length > cap
       ? missing.sublist(missing.length - cap)
       : missing;
+}
+
+/// Which page of my sent history the [round]-th ask names.
+///
+/// Page 0 is the newest [kOwnEchoWindow] messages and is what nearly every
+/// ask carries: what a device just missed is what matters. Every 4th ask names
+/// one OLDER page instead, walking them in turn, so a device eventually
+/// reconciles its whole history with the counterpart — measured on the stand:
+/// nine messages a device wrote before it died, four days older than its
+/// sibling's newest hundred, never came back.
+///
+/// Pure, so the rotation is testable without a clock.
+int ownEchoPage({required int round, required int pages}) {
+  if (pages <= 1 || round % 4 != 0) return 0;
+  return 1 + ((round ~/ 4) - 1) % (pages - 1);
 }
 
 /// A clear watermark re-spelled in the names THIS device uses.
@@ -215,6 +237,9 @@ class _MessagingPeerSync {
   /// taken only as the answer to such an ask, so a counterpart cannot write
   /// "my" messages into this chat unprompted.
   final Map<String, DateTime> _ownAskedAt = {};
+
+  /// Asks made to each peer, for [ownEchoPage].
+  final Map<String, int> _ownAskRounds = {};
 
   /// Echo answers already given, per peer: the ask and answer's signature, how
   /// many times, and when first. Every device of the identity asks under the same
@@ -384,6 +409,7 @@ class _MessagingPeerSync {
       if (declaredFloor.isNotEmpty) 'fl': declaredFloor,
       if (ownAsk != null) 'ow': ownAsk.keys,
       if (ownAsk != null) 'os': ownAsk.sinceMs,
+      if (ownAsk?.untilMs != null) 'ou': ownAsk!.untilMs,
       'ep': now.millisecondsSinceEpoch,
     });
     // Count the quiet round only on a round that actually SENDS: a throttled
@@ -511,9 +537,14 @@ class _MessagingPeerSync {
     if (highWater is! Map) return;
     final selfHex = await _owner._selfHex();
 
-    final ownAsk = json['ow'], ownSince = json['os'];
+    final ownAsk = json['ow'], ownSince = json['os'], ownUntil = json['ou'];
     if (ownAsk is List && ownSince is int) {
-      await _answerOwnEchoAsk(peer, ownAsk, ownSince);
+      await _answerOwnEchoAsk(
+        peer,
+        ownAsk,
+        ownSince,
+        ownUntil is int ? ownUntil : null,
+      );
     }
 
     // A peer may void only a prefix of its own authenticated author stream.
@@ -688,7 +719,9 @@ class _MessagingPeerSync {
   /// The keys of my newest sent messages in this chat, and the time of the
   /// oldest of them, when a device of mine other than this one may have
   /// written in it too; null otherwise.
-  Future<({List<String> keys, int sinceMs})?> _ownEchoAsk(NodeId peer) async {
+  Future<({List<String> keys, int sinceMs, int? untilMs})?> _ownEchoAsk(
+    NodeId peer,
+  ) async {
     try {
       final siblings = await _owner.myOtherDevices?.call() ?? const <NodeId>[];
       if (siblings.isEmpty) return null;
@@ -699,13 +732,31 @@ class _MessagingPeerSync {
           if (m.direction == MessageDirection.outgoing) m,
       ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       if (sent.isEmpty) return null;
-      final window = sent.length > kOwnEchoWindow
-          ? sent.sublist(sent.length - kOwnEchoWindow)
-          : sent;
+      final round = _ownAskRounds[peer.hex] = (_ownAskRounds[peer.hex] ?? 0) + 1;
+      final pages = (sent.length + kOwnEchoWindow - 1) ~/ kOwnEchoWindow;
+      final page = ownEchoPage(round: round, pages: pages);
+      // Page p is the p-th hundred counted back from the newest, and it runs
+      // up to where the NEWER page starts — so consecutive pages meet, and what
+      // the counterpart holds between two of my messages is inside one of them.
+      final end = sent.length - page * kOwnEchoWindow;
+      final start = end > kOwnEchoWindow ? end - kOwnEchoWindow : 0;
+      final window = sent.sublist(start, end);
       _ownAskedAt[peer.hex] = _owner._now();
       return (
         keys: [for (final m in window) ownEchoKey(m.id)],
-        sinceMs: window.first.timestamp.millisecondsSinceEpoch,
+        // The OLDEST page is open below. What the counterpart holds from
+        // before my first message here is history this device was not
+        // present for — a device linked later, whose sibling that wrote it is
+        // gone (measured: nine messages four days older than the device
+        // itself). It cannot bring back what was dropped here: a deletion or
+        // a retention cut leaves a tombstone the store refuses, and my own
+        // clear bounds the conversation by time in the fold.
+        sinceMs: start == 0
+            ? 0
+            : window.first.timestamp.millisecondsSinceEpoch,
+        untilMs: page == 0
+            ? null
+            : sent[end].timestamp.millisecondsSinceEpoch,
       );
     } catch (_) {
       return null; // advisory: a beacon goes out without it
@@ -725,6 +776,7 @@ class _MessagingPeerSync {
     NodeId peer,
     List<dynamic> ask,
     int sinceMs,
+    int? untilMs,
   ) async {
     final held = <String>{
       for (final k in ask.take(kOwnEchoWindow))
@@ -745,6 +797,7 @@ class _MessagingPeerSync {
       tsOf: (m) => m.timestamp.millisecondsSinceEpoch,
       held: held,
       sinceMs: sinceMs,
+      untilMs: untilMs,
     );
     if (missing.isEmpty) {
       devLog(
@@ -825,6 +878,24 @@ class _MessagingPeerSync {
     final id = echo['id'], body = echo['b'], ts = echo['ts'];
     if (id is! String || id.isEmpty || body is! String || ts is! int) return;
     final cid = echo['cid'], name = echo['fn'], size = echo['fs'];
+    // SAID, not swallowed: a refusal here is a message the person will not
+    // see, and "why not" is the first question anyone asks about it.
+    final String? refused;
+    if (await _owner._hasMessage(peer, id)) {
+      refused = 'already held';
+    } else if (await _owner._storage.isMessageDeleted(peer.hex, id)) {
+      refused = 'deleted here';
+    } else {
+      refused = null;
+    }
+    if (refused != null) {
+      devLog(
+        () =>
+            'xVeil[sync]: <- ${peer.short} own message $id handed back, '
+            'not stored — $refused',
+      );
+      return;
+    }
     final stored = await _owner._deviceMirror.applyMessage(
       peer: peer,
       msgId: id,
@@ -837,12 +908,10 @@ class _MessagingPeerSync {
       fileSize: size is int ? size : null,
       customEmoji: parseInlineCustomEmoji(body, echo['ce']),
     );
-    if (stored) {
-      devLog(
-        () =>
-            'xVeil[sync]: <- ${peer.short} own message $id handed back '
-            'by the peer',
-      );
-    }
+    devLog(
+      () =>
+          'xVeil[sync]: <- ${peer.short} own message $id handed back '
+          '${stored ? 'by the peer' : '— REFUSED by the mirror path'}',
+    );
   }
 }
