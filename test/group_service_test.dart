@@ -7310,6 +7310,28 @@ void main() {
         reason: 'a restart handed the same key over again, as a full snapshot');
   });
 
+  test("a group's mute reaches my other devices", () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final here = GroupService(storage, _FakeSigner(owner));
+    addTearDown(here.dispose);
+    final gid = await here.createGroup('Muted');
+    final told = <(String, String)>[];
+    here.onGroupNotificationPolicyChanged = (g, v) => told.add((g, v));
+    final until = DateTime.now().add(const Duration(hours: 8));
+    await here.setGroupNotificationPolicy(gid, NotificationMuteMode.none, until);
+    expect(told, hasLength(1), reason: 'a group mute never left this device');
+
+    final otherStorage = FakeHvContainer().storage();
+    await otherStorage.open(password: 'pw', createIfMissing: true);
+    final there = GroupService(otherStorage, _FakeSigner(owner));
+    addTearDown(there.dispose);
+    await there.applyMirroredGroupNotificationPolicy(told.single.$1, told.single.$2);
+    final policy = await there.groupNotificationPolicy(gid);
+    expect(policy.mode, NotificationMuteMode.none);
+    expect(policy.until?.millisecondsSinceEpoch, until.millisecondsSinceEpoch);
+  });
+
   group('a group keeps its messages in segments', () {
     // Inline, every save rewrote the whole history: one post to a
     // 259-message group wrote ~195 KB on each device on the stand.
