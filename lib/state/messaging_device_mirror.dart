@@ -229,6 +229,9 @@ class _MessagingDeviceMirror {
     required MessageDirection direction,
     required String body,
     required int tsMs,
+    // Outgoing rows default to `sent`; a caller that KNOWS the peer holds the
+    // message says so, or the outbox re-sends it.
+    MessageStatus? status,
     String? fileContentId,
     String? fileName,
     int? fileSize,
@@ -282,9 +285,11 @@ class _MessagingDeviceMirror {
         timestamp: DateTime.fromMillisecondsSinceEpoch(
           messageTsOnReceipt(tsMs, _owner._now().millisecondsSinceEpoch),
         ),
-        status: direction == MessageDirection.outgoing
-            ? MessageStatus.sent
-            : MessageStatus.delivered,
+        status:
+            status ??
+            (direction == MessageDirection.outgoing
+                ? MessageStatus.sent
+                : MessageStatus.delivered),
         fileContentId: fileContentId,
         fileName: fileName,
         fileSize: fileSize,
