@@ -87,6 +87,34 @@ void main() {
 
   const everything = DeviceHistoryAsk(fromDeviceHex: 'aa');
 
+  test('a chat with one of my own devices is not handed over', () async {
+    // On the receiver it would be a chat with its sibling — or with itself.
+    final sibling = _id(0x5B);
+    await storage.upsertContact(
+      Contact(nodeId: sibling, status: ContactStatus.pendingOutgoing),
+    );
+    await addMessage(sibling, 'own', 'offer', contentId: 'c1');
+    await addMessage(alice, 'm1', 'first');
+
+    final report = await replayHistoryForAsk(
+      ask: everything,
+      storage: storage,
+      post: post,
+      pause: Duration.zero,
+      isOwnDevice: (peer) async => peer == sibling,
+    );
+
+    final touched = {
+      for (final s in sent)
+        s.event.payload['peer'] as String? ??
+            (s.event.key.startsWith('s:') ? s.event.key.substring(2) : s.event.key),
+    };
+    expect(touched, isNot(contains(sibling.hex)),
+        reason: 'the replay handed over a chat with my own device');
+    expect(touched, contains(alice.hex), reason: 'premise: others still go');
+    expect(report.conversations, 2, reason: 'alice and bob, not the sibling');
+  });
+
   test(
     'a full ask carries the conversations, the contacts and the calls',
     () async {
