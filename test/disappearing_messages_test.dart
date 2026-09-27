@@ -1071,4 +1071,70 @@ void _readClockTests() {
       }
     });
   });
+
+  group('the window is enforced without anyone opening the chat', () {
+    // Swept only on opening the chat, while it stayed open, and on a setting
+    // change: on the stand a message under a 120 s window was still stored
+    // six minutes later on all three devices.
+    late NodeId a, b, c;
+    late _FakeTransport tA, tB;
+    late HiddenVolumeStorage sA, sB;
+    late MessagingService mA, mB;
+    late DateTime clock;
+
+    setUp(() async {
+      a = _id(1);
+      b = _id(2);
+      c = _id(3);
+      clock = DateTime.now();
+      tA = _FakeTransport(a);
+      tB = _FakeTransport(b);
+      tA.peer = tB;
+      tB.peer = tA;
+      sA = HiddenVolumeStorage(_memOpener());
+      sB = HiddenVolumeStorage(_memOpener());
+      await sA.open(password: 'a', createIfMissing: true);
+      await sB.open(password: 'b', createIfMissing: true);
+      mA = MessagingService(tA, sA, now: () => clock)..start();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      await mA.sendRequest(b, 'hi');
+      await _pump();
+      await mB.acceptContact(a);
+      await _pump();
+    });
+
+    tearDown(() async {
+      await mA.dispose();
+      await mB.dispose();
+      await tA.dispose();
+      await tB.dispose();
+    });
+
+    test('an expired message goes on the background sweep', () async {
+      await mA.setContactDisappearing(b, 60);
+      await _pump();
+      await mB.sendText(a, 'gone soon');
+      await _pump();
+      // A conversation with no window at all, holding an old message.
+      await sA.appendMessage(Message(
+        id: 'keep', conversationId: c.hex,
+        direction: MessageDirection.incoming, body: 'no window here',
+        timestamp: clock.subtract(const Duration(days: 1)),
+        status: MessageStatus.delivered,
+      ));
+      expect((await sA.loadMessages(b.hex)).map((m) => m.body),
+          contains('gone soon'));
+
+      clock = clock.add(const Duration(minutes: 2));
+      expect(mA.disappearingSweepArmed, isTrue,
+          reason: 'nothing runs the sweep unless the chat is open');
+      await mA.sweepAllDisappearing();
+
+      expect((await sA.loadMessages(b.hex)).map((m) => m.body),
+          isNot(contains('gone soon')),
+          reason: 'an expired message stayed in the store');
+      expect((await sA.loadMessages(c.hex)).map((m) => m.id), ['keep'],
+          reason: 'a conversation without a window was swept');
+    });
+  });
 }
