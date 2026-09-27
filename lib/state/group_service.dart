@@ -19167,8 +19167,6 @@ class GroupService implements ArchiveGroups {
     return null;
   }
 
-  /// The device group's owner, but only when THIS device is a linked member of
-  /// it — null on the device the group is owned by, where the owner is us.
   /// [_deviceGroupOwnerIfLinkedUncached] behind a short cache.
   ///
   /// The admission question reaches it for every sender that is not one of
@@ -19199,6 +19197,8 @@ class GroupService implements ArchiveGroups {
   @visibleForTesting
   int deviceOwnerReads = 0;
 
+  /// The device group's owner, but only when THIS device is a linked member of
+  /// it — null on the device the group is owned by, where the owner is us.
   Future<NodeId?> _deviceGroupOwnerIfLinkedUncached() async {
     deviceOwnerReads++;
     final me = await resolveMyDevice();
