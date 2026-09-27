@@ -85,7 +85,8 @@ void main() {
     // Moved from 48 when `disappearingSet` was appended before it. That is the
     // sentinel doing its job: every append shifts it, and this line is where a
     // build says out loud how many kinds it knows.
-    expect(WireKind.unknown.index, 49);
+    // And from 49 when `presence` was.
+    expect(WireKind.unknown.index, 50);
 
     final report = WireEnvelope.decode(
       const WireEnvelope.spaceAbuseReport('{"kind":"report"}').encode(),
