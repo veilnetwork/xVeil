@@ -5974,6 +5974,7 @@ class GroupService implements ArchiveGroups {
     }
     try {
       final d = jsonDecode(raw) as Map<String, dynamic>;
+      if (!await _joinSegments(groupId, d)) return null;
       final manifest = SpaceManifest.fromJson(d['m']);
       if (manifest == null || !_validManifest(manifest)) {
         _loadRefused(
@@ -6380,10 +6381,18 @@ class GroupService implements ArchiveGroups {
     // Chunked file-store (not putSetting): the bundle carries inline media that
     // overflows the single-setting cap. storeFile replaces the prior blob (or
     // no-ops if byte-identical) and chunks large values across commits.
-    final json = jsonEncode({
+    // THE MESSAGES LIVE APART, in content-addressed segments. Inline, every
+    // save rewrote the group's whole history: on the stand one post to a
+    // 259-message group wrote ~195 KB on each device, and a busy group's log
+    // grows that per message, forever — into the container, and into the one
+    // storage gate everything else waits behind. Segment boundaries depend
+    // only on the rows before them, so an append rewrites the tail segment
+    // and the header, nothing else.
+    final key = _key(b.manifest.groupId);
+    final segments = _encodeMessageSegments(key, b.messages);
+    final header = <String, Object?>{
       'm': b.manifest.toJson(),
       'c': b.control.map((e) => e.toJson()).toList(),
-      'g': b.messages.map((m) => m.toJson()).toList(),
       if (b.posts.isNotEmpty)
         'p': b.posts.map((post) => post.toJson()).toList(),
       'r': b.reactions.map((x) => x.toJson()).toList(),
@@ -6415,12 +6424,15 @@ class GroupService implements ArchiveGroups {
       if (b.postReceipts.isNotEmpty) 'prx': b.postReceipts,
       if (b.channelEpochReceipts.isNotEmpty) 'cex': b.channelEpochReceipts,
       if (controlReceipts.isNotEmpty) 'crx': controlReceipts,
-    });
-    // Published while the two writes below are in flight so a concurrent read
+    };
+    // Published while the writes below are in flight so a concurrent read
     // waits for the new bytes instead of reading the half-replaced blob as a
-    // missing group.
-    final key = _key(b.manifest.groupId);
-    final write = _writeBundleBytes(key, b, json);
+    // missing group. ONE AT A TIME per bundle: two saves racing would both
+    // take the same stored header as "previous", and the first one's cleanup
+    // could delete a segment the second one's header names.
+    final write = (_bundleWrites[key] ?? Future<void>.value())
+        .then<void>((_) {}, onError: (_) {})
+        .then((_) => _writeBundleBytes(key, b, header, segments: segments));
     _bundleWrites[key] = write;
     try {
       await write;
@@ -6460,16 +6472,170 @@ class GroupService implements ArchiveGroups {
   @visibleForTesting
   int deviceLogCompactAtRows = kDeviceLogCompactAtRows;
 
-  Future<void> _writeBundleBytes(String key, GroupBundle b, String json) async {
+  Future<void> _writeBundleBytes(
+    String key,
+    GroupBundle b,
+    Map<String, Object?> header, {
+    required List<({String key, String json})> segments,
+  }) async {
+    final previous = await _storedSegmentsOf(key);
+    final live = {for (final seg in segments) seg.key};
+    final dropped = previous.live.difference(live);
+    final json = jsonEncode({
+      ...header,
+      'gs': [for (final seg in segments) seg.key],
+      // Segments this header replaced: deleted right after it is written, and
+      // named here so a crash in between leaves them for the next save.
+      if (dropped.isNotEmpty || previous.pending.isNotEmpty)
+        'gd': [...dropped, ...previous.pending.difference(live)],
+    });
     // Hint first: a crash between the two writes may only claim MORE than
     // the stored blob (e.g. a retention row the old blob lacks), which makes
     // maintenance load the bundle — never skip one it must enforce.
     await _writeGroupKindHint(b.manifest.groupId.hex, _computeGroupKindHint(b));
+    // ORDER IS THE ATOMICITY. New segments first: until the header names them
+    // nothing reads them. Then the header. Only then are the old segments
+    // removed — a crash anywhere before that leaves the old header pointing
+    // at segments that still exist.
+    for (final seg in segments) {
+      // Content-addressed: a key the stored header already names holds these
+      // very bytes — if it is still there. Asked, not assumed: a wholesale
+      // erase of the file store does not tell this cache, and a header naming
+      // a segment that is gone refuses to load for good.
+      if (previous.live.contains(seg.key) && await _storage.hasFile(seg.key)) {
+        continue;
+      }
+      await _storage.storeFile(
+        seg.key,
+        Uint8List.fromList(utf8.encode(seg.json)),
+        name: 'group-segment',
+      );
+    }
     await _storage.storeFile(
       key,
       Uint8List.fromList(utf8.encode(json)),
       name: 'group',
     );
+    // Left over by a save that did not get to its deletes, and what this
+    // header just replaced.
+    final gone = {...previous.pending, ...dropped}.difference(live);
+    for (final k in gone) {
+      try {
+        await _storage.deleteStoredFile(k);
+      } catch (_) {
+        // Named in the header as pending; the next save tries again.
+      }
+    }
+    _segmentIndex[key] = (live: live, pending: <String>{});
+  }
+
+  /// The file id of a message segment, less the `group:` prefix.
+  static final RegExp _segmentFileId = RegExp(r'^([0-9a-f]{64}):s:[0-9a-f]{32}$');
+
+  /// Rows per segment are packed up to this many encoded bytes.
+  static const int _kSegmentTargetBytes = 64 * 1024;
+
+  /// Per bundle key: the segments its stored header names, and those it still
+  /// lists as pending deletion.
+  final Map<String, ({Set<String> live, Set<String> pending})> _segmentIndex =
+      {};
+
+  /// Pack [messages] into segments whose boundaries depend only on the rows
+  /// before them, keyed by their content.
+  List<({String key, String json})> _encodeMessageSegments(
+    String bundleKey,
+    List<GroupMessage> messages,
+  ) {
+    final out = <({String key, String json})>[];
+    var rows = <String>[];
+    var bytes = 0;
+    void close() {
+      if (rows.isEmpty) return;
+      final json = '[${rows.join(',')}]';
+      final digest = crypto.sha256
+          .convert(utf8.encode(json))
+          .toString()
+          .substring(0, 32);
+      out.add((key: '$bundleKey:s:$digest', json: json));
+      rows = <String>[];
+      bytes = 0;
+    }
+
+    for (final m in messages) {
+      final row = jsonEncode(m.toJson());
+      rows.add(row);
+      bytes += row.length;
+      if (bytes >= _kSegmentTargetBytes) close();
+    }
+    close();
+    return out;
+  }
+
+  /// What the stored header of [bundleKey] names, read once per process.
+  Future<({Set<String> live, Set<String> pending})> _storedSegmentsOf(
+    String bundleKey,
+  ) async {
+    final known = _segmentIndex[bundleKey];
+    if (known != null) return known;
+    var live = <String>{}, pending = <String>{};
+    try {
+      final raw = await _storage.loadFile(bundleKey);
+      if (raw != null) {
+        final d = jsonDecode(utf8.decode(raw));
+        if (d is Map) {
+          live = _segmentKeys(d['gs'], bundleKey);
+          pending = _segmentKeys(d['gd'], bundleKey);
+        }
+      }
+    } catch (_) {
+      // Unreadable header: nothing is known to delete, which only costs space.
+    }
+    return _segmentIndex[bundleKey] = (live: live, pending: pending);
+  }
+
+  /// Segment keys from a header field — only keys under this bundle's own
+  /// prefix, so a damaged or hostile header cannot make a save delete another
+  /// group's files.
+  Set<String> _segmentKeys(Object? raw, String bundleKey) => {
+    if (raw is List)
+      for (final k in raw)
+        if (k is String && k.startsWith('$bundleKey:s:')) k,
+  };
+
+  /// Put the messages of a segmented header back where [load] expects them.
+  /// False when a segment the header names cannot be read: loading on
+  /// without it would lose those rows at the next save, for good.
+  Future<bool> _joinSegments(NodeId groupId, Map<String, dynamic> d) async {
+    final raw = d['gs'];
+    if (raw is! List) return true; // a header from before segments: inline
+    final key = _key(groupId);
+    final live = _segmentKeys(raw, key);
+    final rows = <Object?>[];
+    for (final k in raw) {
+      if (k is! String || !live.contains(k)) continue;
+      final blob = await _storage.loadFile(k);
+      if (blob == null) {
+        _loadRefused(groupId, 'message segment ${k.substring(k.length - 8)} '
+            'named by the header is missing');
+        return false;
+      }
+      final list = jsonDecode(utf8.decode(blob));
+      if (list is! List) {
+        _loadRefused(groupId, 'message segment is not a list');
+        return false;
+      }
+      rows.addAll(list);
+    }
+    d['g'] = rows;
+    _segmentIndex[key] = (live: live, pending: _segmentKeys(d['gd'], key));
+    return true;
+  }
+
+  /// Every stored file of one bundle: the header and its segments.
+  Future<List<String>> _bundleFileKeys(NodeId groupId) async {
+    final key = _key(groupId);
+    final segs = await _storedSegmentsOf(key);
+    return [key, ...segs.live, ...segs.pending];
   }
 
   Map<String, int>? _decodeContentGcMarks(Uint8List raw) {
@@ -6636,6 +6802,10 @@ class GroupService implements ArchiveGroups {
           groupId = rest.substring(0, cut);
         }
         if (groupId == null) continue;
+        // A message SEGMENT of a group: `<group id>:s:<digest>`. It names its
+        // group, and the group is what this pass needs.
+        final segment = _segmentFileId.firstMatch(groupId);
+        if (segment != null) groupId = segment.group(1)!;
         if (!_sharedContentIdPattern.hasMatch(groupId)) {
           devLog(() => 'xVeil[content-gc]: group index holds a malformed id');
           return (groupIds: groupIds, complete: false);
@@ -7803,7 +7973,13 @@ class GroupService implements ArchiveGroups {
               purgedAtMs: now,
             ),
           );
-          await _storage.deleteStoredFile(_key(spaceId));
+          final files = await _bundleFileKeys(spaceId);
+          // Header first: a segment without a header is unreachable, a header
+          // without its segments would refuse to load.
+          for (final k in files) {
+            await _storage.deleteStoredFile(k);
+          }
+          _segmentIndex.remove(_key(spaceId));
           await _clearGroupKindHint(spaceId.hex);
           return true;
         });
@@ -19360,7 +19536,9 @@ class GroupService implements ArchiveGroups {
   Future<int> archivableGroupBytes() async {
     var total = 0;
     for (final hex in await archivableGroupIds()) {
-      total += await _storage.fileSize(_key(NodeId.fromHex(hex))) ?? 0;
+      for (final k in await _bundleFileKeys(NodeId.fromHex(hex))) {
+        total += await _storage.fileSize(k) ?? 0;
+      }
     }
     return total;
   }
