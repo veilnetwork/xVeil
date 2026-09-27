@@ -266,9 +266,11 @@ enum WireKind {
   /// a device ends that device's silence and rewinds the queue held for it, so
   /// a device that was away for over a day — whose new frames are no longer
   /// dialled live — gets them the moment it is back instead of at the next
-  /// probe. Body `''`; `'r'` for the one answer it gets, so the device that
-  /// just came up learns the same about the others. Own devices only, live
-  /// only, never acked. Appended immediately before [unknown] (RULE WC): an
+  /// probe. Body: the sending DEVICE's id, then `|r` on the one answer it
+  /// gets, so the device that just came up learns the same about the others.
+  /// The id is in the body because the first frame after a start often comes
+  /// through a relay, which does not name the device, and a silence is kept
+  /// per device. Own devices only, live only, never acked. Appended immediately before [unknown] (RULE WC): an
   /// older build maps it to [unknown] and drops it after having heard the
   /// sender anyway.
   presence,
@@ -566,8 +568,8 @@ class WireEnvelope {
     : this(WireKind.reconnect, greeting);
 
   /// See [WireKind.presence].
-  const WireEnvelope.presence({bool reply = false})
-    : this(WireKind.presence, reply ? 'r' : '');
+  WireEnvelope.presence(String deviceHex, {bool reply = false})
+    : this(WireKind.presence, reply ? '$deviceHex|r' : deviceHex);
 
   /// Opt-in attestation request: [id] is the message id to attest, [body] is
   /// the exact text the requester wants the author to sign (so the author can

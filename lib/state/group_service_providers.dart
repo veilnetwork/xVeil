@@ -308,6 +308,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // acknowledgement of our stream, keyed by the identity, was never found.
   messaging.selfIdentityHex = () async => service.selfId.hex;
   messaging.myOtherDevices = service.addressableOwnDevices;
+  // The node may have connected before this was known: say it now as well.
+  unawaited(messaging.announcePresence());
   messaging.groupBindingsOwner = service;
   unawaited(service.nudgeGroupSyncAll());
   // THE PULL on a clock (owner's push/pull scheme, 2026-09-23): whatever a

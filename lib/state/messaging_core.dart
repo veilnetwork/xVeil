@@ -1496,33 +1496,42 @@ class MessagingService {
     // A (re)connect is exactly when interrupted downloads become resumable
     // again — reset the failure backoff and probe each pending one.
     _downloadResume.reconcileOnConnect();
-    unawaited(_announcePresence());
+    unawaited(announcePresence());
     await flushOutbox();
   }
 
   DateTime? _presenceAnnouncedAt;
 
   /// Tell my other devices this one is online (see [WireKind.presence]).
-  Future<void> _announcePresence() async {
+  ///
+  /// Called on (re)connect AND when my devices become known: at start the node
+  /// connects before the device group has said who they are, and a call that
+  /// found nobody to tell must not use up the window.
+  Future<void> announcePresence() async {
+    final devices = await myOtherDevices?.call() ?? const <NodeId>[];
+    if (devices.isEmpty) return;
     final now = _now();
     final last = _presenceAnnouncedAt;
     if (last != null && now.difference(last) < const Duration(seconds: 30)) {
       return;
     }
-    _presenceAnnouncedAt = now;
-    final devices = await myOtherDevices?.call() ?? const <NodeId>[];
+    var told = 0;
     for (final device in devices) {
       try {
-        await _send(device, const WireEnvelope.presence().encode());
+        await _send(device, WireEnvelope.presence(await _selfHex()).encode());
+        told++;
       } catch (_) {
         // Best-effort: the probe ladder still reaches it.
       }
     }
-    if (devices.isNotEmpty) {
-      devLog(
-        () => 'xVeil[devices]: told ${devices.length} device(s) I am online',
-      );
-    }
+    // Only a call that reached somebody uses up the window: one made before
+    // the node was connected must not silence the one made when it is.
+    if (told > 0) _presenceAnnouncedAt = now;
+    devLog(
+      () =>
+          'xVeil[devices]: told $told of ${devices.length} device(s) I am '
+          'online',
+    );
   }
 
   void _signal() {
