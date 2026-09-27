@@ -402,6 +402,7 @@ abstract interface class Storage {
     Map<String, int> watermark, {
     required String selfHex,
     int? ownClearAtMs,
+    bool fromOwnDevice = false,
   });
 
   /// FORENSICALLY erase this whole space — every namespace (identity, contacts,

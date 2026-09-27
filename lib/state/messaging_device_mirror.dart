@@ -204,6 +204,10 @@ class _MessagingDeviceMirror {
         // message that arrived in between, which is every message sent AFTER
         // the clear.
         ownClearAtMs: atMs,
+        // A sibling's clear is OURS, whoever authored it: the whole
+        // conversation up to the moment it was made, the counterpart's
+        // messages included.
+        fromOwnDevice: true,
       );
       _owner._signal();
     } catch (e) {

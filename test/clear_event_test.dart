@@ -512,6 +512,34 @@ void main() {
           ),
         );
 
+    test("a clear from my other device empties the counterpart's messages too",
+        () async {
+      // The sibling authors under its own device id, so judged by the author
+      // alone its clear was taken for a PEER's: every key but the sibling's
+      // own stream was dropped, with no time bound. On the stand a clear made
+      // on one device left 7 of 12 messages on the other — every one of them
+      // the counterpart's.
+      final sibling = _id(4).hex;
+      await incoming(1, 'one');
+      await incoming(2, 'two');
+      await incoming(3, 'after the clear');
+      final clearedAt = 2500; // between seq 2 (2000 ms) and seq 3 (3000 ms)
+
+      await s.applyRemoteClear(
+        conv,
+        sibling,
+        5,
+        {sibling: 1, conv.hex: 3},
+        selfHex: selfHex,
+        ownClearAtMs: clearedAt,
+        fromOwnDevice: true,
+      );
+
+      expect((await s.loadMessages(conv.hex)).map((m) => m.id), ['m3'],
+          reason: 'what the sibling emptied must be empty here too, and '
+              'nothing after the moment it did');
+    });
+
     test(
       'applyRemoteClear erases <= watermark but KEEPS newer messages',
       () async {
