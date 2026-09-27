@@ -7491,6 +7491,24 @@ void main() {
       expect((await legacy.load(gid))!.messages, hasLength(301));
     });
 
+    test('a deleted segment is not deleted again by every later save',
+        () async {
+      // Every load read the header's pending list back into the index, though
+      // the save that wrote it had already deleted them: each load-then-save
+      // carried the list forward and grew it by one. On the stand the device
+      // log's header listed 1144 long-gone segments (123 KB of 132 KB), each
+      // deleted again, under the file lock, by every save.
+      final key = 'group:${gid.hex}';
+      final header = jsonDecode(utf8.decode((await storage.loadFile(key))!))
+          as Map;
+      expect((header['gd'] as List?)?.length ?? 0, lessThanOrEqualTo(1),
+          reason: 'the header lists segments deleted many saves ago');
+      storage.deletedIds.clear();
+      expect(await svc.postMessage(gid, 'one more', broadcast: false), isTrue);
+      expect(storage.deletedIds.length, lessThanOrEqualTo(2),
+          reason: 'one save deleted ${storage.deletedIds.length} segments');
+    });
+
     test('a segment a crash left behind is removed by the next save', () async {
       final key = 'group:${gid.hex}';
       final stray = '$key:s:${'e' * 32}';
@@ -23721,6 +23739,13 @@ class _CountingStorage extends HiddenVolumeStorage {
   _CountingStorage(super.opener);
   int storedBytes = 0;
   final storedIds = <String>[];
+  final deletedIds = <String>[];
+
+  @override
+  Future<void> deleteStoredFile(String fileId) {
+    deletedIds.add(fileId);
+    return super.deleteStoredFile(fileId);
+  }
 
   @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) {

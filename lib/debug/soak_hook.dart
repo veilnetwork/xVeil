@@ -984,6 +984,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/pin':
           await _pinHook(req);
           return;
+        case '/group_header_sizes':
+          await _groupHeaderSizesHook(req);
+          return;
         case '/reactions':
           await _reactionsHook(req);
           return;
@@ -5025,6 +5028,29 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     return _json(req, {
       'ok': true,
       'pin': await ref.read(storageProvider).getSetting('pin:$peerHex'),
+    });
+  }
+
+  /// `/group_header_sizes?group=<hex>` — the encoded size of every field of a
+  /// group's stored header, to see what a save rewrites.
+  Future<void> _groupHeaderSizesHook(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final gid = req.uri.queryParameters['group'];
+    if (gid == null) return _json(req, {'ok': false, 'error': 'no group'});
+    final raw = await ref.read(storageProvider).loadFile('group:$gid');
+    if (raw == null) return _json(req, {'ok': false, 'error': 'no header'});
+    final d = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    return _json(req, {
+      'ok': true,
+      'total': raw.length,
+      'fields': {
+        for (final e in d.entries)
+          e.key: {
+            'bytes': jsonEncode(e.value).length,
+            if (e.value is List) 'items': (e.value as List).length,
+            if (e.value is Map) 'items': (e.value as Map).length,
+          },
+      },
     });
   }
 
