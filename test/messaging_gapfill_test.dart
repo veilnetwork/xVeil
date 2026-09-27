@@ -40,6 +40,9 @@ class _LossyTransport implements VeilTransport {
   /// read what it DECLARED rather than infer it from the peer's behaviour.
   final sentSyncBodies = <String>[];
 
+  /// Where each envelope went, by kind.
+  final sentTo = <(NodeId, WireKind)>[];
+
   @override
   Future<NodeId> nodeId() async => _me;
   @override
@@ -59,6 +62,7 @@ class _LossyTransport implements VeilTransport {
     if (drop) return; // live datagram lost
     final env = WireEnvelope.decode(payload);
     sentKinds.add(env.kind);
+    sentTo.add((dst, env.kind));
     if (env.kind == WireKind.sync) sentSyncBodies.add(env.body);
     if (dropIfBodyContains.any(env.body.contains)) return;
     if (env.kind == WireKind.fileChunk) {
@@ -515,6 +519,41 @@ void main() {
       );
     },
   );
+
+  test('a beacon is answered at the device that sent it', () async {
+    // A counterpart routing every frame for a two-device identity through one
+    // device re-shipped the other's holes to the device that already held
+    // them; the mark never moved, the re-ship was withheld, and the asking
+    // device gave up — 20 messages missing on it after a load run.
+    tA.drop = true; // B never gets these live
+    await mA.sendText(b, 'one');
+    await mA.sendText(b, 'two');
+    await _settle();
+    tA.drop = false;
+    tA.sentTo.clear();
+    final device = _id(0x5A);
+    await mA.deliverInbound(
+      InboundMessage(
+        src: b,
+        srcDevice: device,
+        payload: WireEnvelope.sync(
+          jsonEncode({
+            'hw': {a.hex: 0},
+            'ep': DateTime.now().millisecondsSinceEpoch,
+          }),
+        ).encode(),
+        provenance: SenderProvenance.signed,
+      ),
+    );
+    await _settle();
+    final reshipped = [
+      for (final (to, kind) in tA.sentTo)
+        if (kind == WireKind.message) to,
+    ];
+    expect(reshipped, hasLength(2), reason: 'premise: the beacon was answered');
+    expect(reshipped.toSet(), {device},
+        reason: 'the re-ship went where routing pointed, not to the asker');
+  });
 
   test('a hole given up on is asked for again later, and filled', () async {
     // Giving up floors past the hole, and then nothing ever asked for it: the

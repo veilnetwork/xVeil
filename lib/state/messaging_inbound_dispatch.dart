@@ -535,7 +535,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // Consent-gated (R2) — never reconcile a conversation with a non-accepted
         // node. We also beacon back so the peer heals OUR gaps in the same round.
         if (existing?.status != ContactStatus.accepted) return;
-        await _handlePeerSync(m.src, env.body);
+        await _handlePeerSync(m.src, env.body, device: m.srcDevice);
         return;
       case WireKind.voidSeq:
         // An inert seq placeholder from the peer's gap-fill: record the void slot
