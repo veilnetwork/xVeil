@@ -1033,4 +1033,191 @@ void main() {
       );
     });
   });
+
+  /// OWNER'S DECISION 2(b): a device pulls what it missed from the COUNTERPART.
+  ///
+  /// The seq gap-fill cannot do it for messages MY OTHER DEVICE wrote: each
+  /// device numbers its own stream and the counterpart files them all under
+  /// one author, so nothing says which of them this device lacks. Measured on
+  /// the stand: nine messages a device sent before it died, held by the
+  /// counterpart and by nobody else, never seen by its sibling.
+  group('my own messages come back from the counterpart', () {
+    final sibling = _id(7);
+    late DateTime at;
+
+    Future<void> theSiblingWrote(String id, String body) {
+      at = at.add(const Duration(seconds: 1));
+      return sB.appendMessage(
+        Message(
+          id: id,
+          conversationId: a.hex,
+          direction: MessageDirection.incoming,
+          body: body,
+          timestamp: at,
+          status: MessageStatus.delivered,
+          author: a.hex,
+          seq: 40 + at.second,
+        ),
+      );
+    }
+
+    setUp(() async {
+      await mA.sendText(b, 'shared');
+      await _settle();
+      at = DateTime.now();
+    });
+
+    test('what my sibling sent while this device was away is handed back',
+        () async {
+      mA.myOtherDevices = () async => [sibling];
+      await theSiblingWrote('sib-1', 'from the sibling, one');
+      await theSiblingWrote('sib-2', 'from the sibling, two');
+      // A line the counterpart wrote into the chat itself is not mine.
+      at = at.add(const Duration(seconds: 1));
+      await sB.appendMessage(
+        Message(
+          id: 'marker',
+          conversationId: a.hex,
+          direction: MessageDirection.incoming,
+          body: kChatDeletedMarkerBody,
+          timestamp: at,
+        ),
+      );
+
+      await mA.reconcileOnConnect();
+      await _settle();
+
+      final mine = {
+        for (final m in await sA.loadMessages(b.hex)) m.id: m,
+      };
+      expect(mine.keys, containsAll(['sib-1', 'sib-2']),
+          reason: 'the counterpart held my messages and did not hand them back');
+      expect(mine['sib-1']!.direction, MessageDirection.outgoing,
+          reason: 'my own message came back as if the peer had written it');
+      expect(mine['sib-1']!.status, MessageStatus.delivered,
+          reason: 'a sent row would be re-sent by the outbox to the peer');
+      expect(mine.keys, isNot(contains('marker')),
+          reason: "the peer's own marker came back as a line I wrote");
+    });
+
+    test('the same ask is answered twice, not on every beacon', () async {
+      // A line I deleted on this device stays out of my list, so the peer
+      // would hand it back on every round — the storm the re-ship had. Twice,
+      // because the answer is live and an asker that lost it asks again with
+      // the same list (measured: eleven minutes for three messages).
+      await mB.dispose();
+      var clock = DateTime.now();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      mA.myOtherDevices = () async => [sibling];
+      await theSiblingWrote('sib-1', 'from the sibling, one');
+
+      Future<int> round() async {
+        clock = clock.add(const Duration(seconds: 6));
+        tB.sentSyncBodies.clear();
+        await mA.reconcileOnConnect();
+        await _settle();
+        return tB.sentSyncBodies.where((b) => b.contains('"echo"')).length;
+      }
+
+      expect(await round(), 1, reason: 'premise: the first ask is answered');
+      await sA.deleteMessage(b.hex, 'sib-1');
+      expect(await round(), 1, reason: 'a lost answer must get a second go');
+      expect(await round(), 0, reason: 'the same ask was answered a third time');
+      clock = clock.add(const Duration(minutes: 11));
+      expect(await round(), 1, reason: 'the pause is not forever');
+    });
+
+    test('an answer of "nothing yet" does not hold back the real one',
+        () async {
+      await mB.dispose();
+      var clock = DateTime.now();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      mA.myOtherDevices = () async => [sibling];
+
+      Future<int> round() async {
+        clock = clock.add(const Duration(seconds: 6));
+        tB.sentSyncBodies.clear();
+        await mA.reconcileOnConnect();
+        await _settle();
+        return tB.sentSyncBodies.where((b) => b.contains('"echo"')).length;
+      }
+
+      expect(await round(), 0, reason: 'premise: nothing missing yet');
+      expect(await round(), 0);
+      expect(await round(), 0);
+      // The same list from the asker, but now there IS something for it.
+      await theSiblingWrote('sib-1', 'from the sibling, one');
+      expect(await round(), 1,
+          reason: 'an empty answer to the same ask withheld the real one');
+    });
+
+    test('a device with no other device of mine does not ask', () async {
+      mA.myOtherDevices = () async => const [];
+      await theSiblingWrote('sib-1', 'from the sibling, one');
+
+      await mA.reconcileOnConnect();
+      await _settle();
+
+      expect(tA.sentSyncBodies.where((b) => b.contains('"ow"')), isEmpty);
+      expect((await sA.loadMessages(b.hex)).map((m) => m.id),
+          isNot(contains('sib-1')));
+    });
+
+    test('an echo nobody asked for is not stored', () async {
+      tA.inject(
+        b,
+        WireEnvelope.sync(
+          jsonEncode({
+            'echo': {'id': 'forged', 'b': 'I never said this', 'ts': 1},
+          }),
+        ).encode(),
+      );
+      await _settle();
+
+      expect((await sA.loadMessages(b.hex)).map((m) => m.id),
+          isNot(contains('forged')),
+          reason: 'a counterpart wrote a line into my history unprompted');
+    });
+  });
+
+  group('which of my messages the counterpart hands back', () {
+    // (key, time) pairs; the log order is deliberately NOT time order.
+    List<String> pick(
+      List<(String, int)> theirs,
+      Set<String> held,
+      int since, {
+      int cap = 50,
+    }) => [
+      for (final m in ownEchoesMissing(
+        theirs: theirs,
+        keyOf: (m) => m.$1,
+        tsOf: (m) => m.$2,
+        held: held,
+        sinceMs: since,
+        cap: cap,
+      ))
+        m.$1,
+    ];
+
+    test('only what is newer than the oldest message the asker listed', () {
+      // `old` sits AFTER `shared` in the log (it was gap-filled late) but is
+      // older than the asker's window: measured on the stand, a positional
+      // anchor handed back 50 such messages the asker already held.
+      expect(
+        pick([('shared', 10), ('old', 5), ('y', 12), ('z', 13)], {'shared', 'z'}, 10),
+        ['y'],
+      );
+    });
+
+    test('an asker that lists nothing is answered with nothing', () {
+      expect(pick([('x', 5)], {}, 0), isEmpty);
+    });
+
+    test('bounded to the NEWEST, in time order', () {
+      expect(
+        pick([('c', 4), ('a', 2), ('b', 3), ('s', 1)], {'s'}, 1, cap: 2),
+        ['b', 'c'],
+      );
+    });
+  });
 }
