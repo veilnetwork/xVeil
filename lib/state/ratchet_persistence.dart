@@ -33,8 +33,26 @@ RatchetPersistence? ratchetPersistenceFor(
 ) {
   final native = stack?.ratchetState;
   if (native == null) return null;
-  return RatchetPersistence(native: native, storage: storage);
+  return RatchetPersistence(
+    native: native,
+    storage: storage,
+    coalesce: kRatchetFlushCoalesce,
+  );
 }
+
+/// How long after one ratchet write the next may wait, gathering whatever
+/// changed meanwhile into one.
+///
+/// Every send and every receive flushed, one container commit each: measured
+/// on the stand under load, 190–310 s of flush work per node in fifteen
+/// minutes, a third of the node's time, while the state written was 1.5–3.7
+/// KB per conversation — the cost is the commit, not the bytes. The owner's
+/// decision (2026-09-27): batch it, with this window. A send is not what it
+/// risks: [RatchetPersistence.reserveBeforePublish] already makes the sending
+/// position durable ahead of time. What it risks is a crash inside the window
+/// taking back up to this much of the ratchet's progress, which the session
+/// repair already handles.
+const kRatchetFlushCoalesce = Duration(milliseconds: 200);
 
 /// Durable half of the hybrid ratchet: what veil holds in memory, kept in the
 /// deniable container so it survives a restart.
@@ -60,9 +78,15 @@ class RatchetPersistence {
     required RatchetStateHandle native,
     required Storage storage,
     int dirtyBatch = 32,
-  }) : this._(native, storage, dirtyBatch);
+    Duration coalesce = Duration.zero,
+  }) : this._(native, storage, dirtyBatch, coalesce);
 
-  RatchetPersistence._(this._native, this._storage, this._dirtyBatch) {
+  RatchetPersistence._(
+    this._native,
+    this._storage,
+    this._dirtyBatch,
+    this._coalesce,
+  ) {
     if (_dirtyBatch <= 0) {
       throw ArgumentError.value(_dirtyBatch, 'dirtyBatch', 'must be positive');
     }
@@ -70,6 +94,15 @@ class RatchetPersistence {
 
   final RatchetStateHandle _native;
   final Storage _storage;
+
+  /// See [kRatchetFlushCoalesce]. Zero: every flush writes before it returns.
+  final Duration _coalesce;
+
+  /// When the last flush STARTED, for the coalescing window.
+  DateTime? _lastFlushAt;
+
+  /// The one flush scheduled for the end of the window, if any.
+  Future<int>? _trailing;
 
   /// Conversation keys read per `take_dirty` call.
   ///
@@ -263,7 +296,35 @@ class RatchetPersistence {
   /// holding are gone.
   ///
   /// Returns how many conversations were written.
-  Future<int> flush({String why = 'unknown'}) {
+  ///
+  /// [now] skips the coalescing window: for a caller that must know the state
+  /// is on disk before it goes on.
+  Future<int> flush({String why = 'unknown', bool now = false}) {
+    if (now || _coalesce == Duration.zero) {
+      _lastFlushAt = DateTime.now();
+      return _flushNow(why);
+    }
+    final at = DateTime.now();
+    final last = _lastFlushAt;
+    // Nothing written for a window: write now and wait, as always. Inside the
+    // window: one flush at its end writes everything that changed meanwhile,
+    // and the caller does not wait for it — a receive lane that awaited it
+    // would pay the window on every frame.
+    if (last == null || at.difference(last) >= _coalesce) {
+      _lastFlushAt = at;
+      return _flushNow(why);
+    }
+    _trailing ??= Future<void>.delayed(_coalesce - at.difference(last)).then(
+      (_) {
+        _trailing = null;
+        _lastFlushAt = DateTime.now();
+        return _flushNow('$why (batched)');
+      },
+    ).catchError((Object _) => 0);
+    return Future.value(0);
+  }
+
+  Future<int> _flushNow(String why) {
     // Debug-only, and tagged at the ENTRY rather than at the three call sites
     // that are easy to find: a caller nobody grepped for shows up as 'unknown'
     // instead of not showing up at all, which is the whole reason the idle
