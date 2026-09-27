@@ -7358,6 +7358,52 @@ void main() {
     expect(policy.until?.millisecondsSinceEpoch, until.millisecondsSinceEpoch);
   });
 
+  test('a burst of device events goes out in a few saves, all of it, in order',
+      () async {
+    // One full load-sign-save per event could not keep up: under a mixed load
+    // posts queued for 60-75 s and a sibling's copies stopped arriving.
+    final store = FakeKvLogStore();
+    final storage = _CountingStorage(
+      ({required password, required bool create}) => store,
+    );
+    await storage.open(password: 'pw', createIfMissing: true);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    addTearDown(svc.dispose);
+    await svc.linkDevice(bob, sovereign: sovereign);
+    final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+    final before = (await svc.load(gid))!.messages.length;
+    storage.storedIds.clear();
+
+    final posts = [
+      for (var i = 0; i < 30; i++)
+        svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'k$i',
+            tsMs: 1000 + i,
+            payload: {'v': '$i'},
+          ),
+        ),
+    ];
+    expect(await Future.wait(posts), everyElement(isTrue));
+
+    final rows = (await svc.load(gid))!.messages;
+    expect(rows.length - before, 30, reason: 'an event was lost in the batch');
+    final mine = [
+      for (final m in rows)
+        if (m.author == owner) m.seq,
+    ];
+    expect(mine.toSet(), hasLength(mine.length), reason: 'two rows shared a seq');
+    final headerWrites =
+        storage.storedIds.where((k) => k == 'group:${gid.hex}').length;
+    expect(headerWrites, lessThan(10),
+        reason: 'every event still paid its own save ($headerWrites)');
+    final state = await svc.deviceSyncState();
+    for (var i = 0; i < 30; i++) {
+      expect(state[(DeviceSyncKind.settingSet, 'k$i')]?.payload['v'], '$i');
+    }
+  });
+
   group('a group keeps its messages in segments', () {
     // Inline, every save rewrote the whole history: one post to a
     // 259-message group wrote ~195 KB on each device on the stand.
