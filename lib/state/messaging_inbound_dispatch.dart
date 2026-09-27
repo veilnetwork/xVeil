@@ -1086,16 +1086,32 @@ extension _MessagingInboundDispatch on MessagingService {
         }
         return;
       case WireKind.presence:
-        // Already did its work: hearing the device ended its silence above.
-        // Answered once, so the device that just came up hears back too.
-        final device = m.srcDevice;
-        if (env.body == 'r' || device == null || device == m.src) return;
-        if (!(await isOwnDevice?.call(m.src) ?? false) &&
-            m.src.hex != await selfIdentityHex?.call()) {
+        // One of MY devices is online: it is heard, its queue rewinds, and —
+        // unless this is already the answer — it is answered once.
+        if (m.src.hex != await selfIdentityHex?.call() &&
+            !(await isOwnDevice?.call(m.src) ?? false)) {
           return;
         }
+        final parts = env.body.split('|');
+        NodeId? device = m.srcDevice != null && m.srcDevice != m.src
+            ? m.srcDevice
+            : null;
+        if (device == null) {
+          try {
+            device = NodeId.fromHex(parts.first);
+          } catch (_) {
+            return;
+          }
+        }
+        final mine = await myOtherDevices?.call() ?? const <NodeId>[];
+        if (!mine.contains(device)) return;
+        if (_outbox.noteHeard(device.hex)) unawaited(_retryFlush());
+        if (parts.length > 1 && parts[1] == 'r') return;
         try {
-          await _send(device, const WireEnvelope.presence(reply: true).encode());
+          await _send(
+            device,
+            WireEnvelope.presence(await _selfHex(), reply: true).encode(),
+          );
         } catch (_) {
           // Best-effort: its own queue to us rewinds at our next frame anyway.
         }

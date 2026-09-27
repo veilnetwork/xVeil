@@ -79,12 +79,13 @@ void main() {
     m.selfIdentityHex = () async => identity.hex;
     m.isOwnDevice = (p) async => p == identity || p == _id(0x91);
     final device = _id(0x91);
+    m.myOtherDevices = () async => [device];
 
     await m.deliverInbound(
       InboundMessage(
         src: identity,
         srcDevice: device,
-        payload: const WireEnvelope.presence().encode(),
+        payload: WireEnvelope.presence(device.hex).encode(),
         provenance: SenderProvenance.signed,
       ),
     );
@@ -92,7 +93,7 @@ void main() {
       InboundMessage(
         src: identity,
         srcDevice: device,
-        payload: const WireEnvelope.presence(reply: true).encode(),
+        payload: WireEnvelope.presence(device.hex, reply: true).encode(),
         provenance: SenderProvenance.signed,
       ),
     );
@@ -104,7 +105,7 @@ void main() {
     ];
     expect(answers, hasLength(1), reason: 'an answer was answered again');
     expect(answers.single.$1, device);
-    expect(answers.single.$3, 'r');
+    expect(answers.single.$3, '${sibling.hex}|r');
   });
 
   test('a stranger saying it is online gets no answer', () async {
@@ -117,11 +118,35 @@ void main() {
       InboundMessage(
         src: _id(0x55),
         srcDevice: _id(0x56),
-        payload: const WireEnvelope.presence().encode(),
+        payload: WireEnvelope.presence(_id(0x56).hex).encode(),
         provenance: SenderProvenance.signed,
       ),
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(t.sent.where((e) => e.$2 == WireKind.presence), isEmpty);
+  });
+
+  test('named only in the body (a relayed frame), the device is still '
+      'answered', () async {
+    final t = _Capture(sibling);
+    final m = await _service(t);
+    addTearDown(m.dispose);
+    final device = _id(0x91);
+    m.selfIdentityHex = () async => identity.hex;
+    m.isOwnDevice = (p) async => p == identity || p == device;
+    m.myOtherDevices = () async => [device];
+    await m.deliverInbound(
+      InboundMessage(
+        src: identity,
+        payload: WireEnvelope.presence(device.hex).encode(),
+        provenance: SenderProvenance.signed,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(
+      [for (final e in t.sent) if (e.$2 == WireKind.presence) e.$1],
+      [device],
+      reason: 'a relayed presence was not traced to its device',
+    );
   });
 }
