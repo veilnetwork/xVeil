@@ -14,6 +14,10 @@ class _MessagingDeviceMirror {
   /// Per sibling device: when this device last asked it about erasures.
   final Map<String, DateTime> _erasureAskedAt = {};
 
+  /// Per sibling device: asks made, for walking older pages (see
+  /// [ownEchoPage]) — a lost erase is not always among the newest messages.
+  final Map<String, int> _erasureRounds = {};
+
   /// How often one sibling is asked, at most.
   static const _erasureAskEvery = Duration(minutes: 10);
 
@@ -37,6 +41,8 @@ class _MessagingDeviceMirror {
     final last = _erasureAskedAt[device.hex];
     if (last != null && now.difference(last) < _erasureAskEvery) return;
     _erasureAskedAt[device.hex] = now;
+    final round = _erasureRounds[device.hex] =
+        (_erasureRounds[device.hex] ?? 0) + 1;
     try {
       final selfHex = await _owner._selfHex();
       final conversations = [
@@ -51,6 +57,8 @@ class _MessagingDeviceMirror {
         final messages = await _owner._storage.loadMessages(peer.hex)
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         if (messages.isEmpty) continue;
+        final pages = (messages.length + _erasureWindow - 1) ~/ _erasureWindow;
+        final page = ownEchoPage(round: round, pages: pages);
         await _owner._send(
           device,
           WireEnvelope.deviceGone(
@@ -58,7 +66,10 @@ class _MessagingDeviceMirror {
               'd': selfHex,
               'q': peer.hex,
               'k': [
-                for (final m in messages.take(_erasureWindow)) ownEchoKey(m.id),
+                for (final m in messages.skip(page * _erasureWindow).take(
+                  _erasureWindow,
+                ))
+                  ownEchoKey(m.id),
               ],
             }),
           ).encode(),
