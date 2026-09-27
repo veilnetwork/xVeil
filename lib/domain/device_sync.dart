@@ -157,7 +157,14 @@ enum DeviceSyncKind {
   /// `{'v': <stored policy>}`, empty for "notify". A 1:1 chat's mute already
   /// travels between my devices; a group's stayed on the device that set it,
   /// so muting a group on one device left the other ringing.
-  groupNotify;
+  groupNotify,
+
+  /// Any other per-group preference of mine, keyed `<pref>|<group id hex>`,
+  /// payload `{'v': <stored value>}`. Today `clp`: whose clear requests I
+  /// honour — which a 1:1 chat already carries between my devices, and which
+  /// left one device erasing a group's history on a member's request while
+  /// the other kept it.
+  groupPref;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {
