@@ -5364,9 +5364,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (svc == null) return _json(req, {'ok': false, 'error': 'no signer'});
     final gidHex = req.uri.queryParameters['group'];
     if (gidHex == null) return _json(req, {'ok': false, 'error': 'no group'});
-    final on = req.uri.queryParameters['on'] == '1';
+    final on = req.uri.queryParameters['on'];
     final gid = NodeId.fromHex(gidHex);
-    await svc.setGroupMuted(gid, on);
+    // Without ?on= the hook only reads.
+    if (on != null) await svc.setGroupMuted(gid, on == '1');
     return _json(req, {'ok': true, 'muted': await svc.isGroupMuted(gid)});
   }
 

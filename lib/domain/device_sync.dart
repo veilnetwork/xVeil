@@ -151,7 +151,13 @@ enum DeviceSyncKind {
   /// payload `{'v': <encoded pin>}`, empty for "unpinned". The chat pin, the
   /// alias and the mute already travel between my devices — this one stayed
   /// on the device where it was set.
-  msgPin;
+  msgPin,
+
+  /// A group's notification policy (mute), keyed by the group id hex; payload
+  /// `{'v': <stored policy>}`, empty for "notify". A 1:1 chat's mute already
+  /// travels between my devices; a group's stayed on the device that set it,
+  /// so muting a group on one device left the other ringing.
+  groupNotify;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {

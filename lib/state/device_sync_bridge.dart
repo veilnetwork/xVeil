@@ -383,6 +383,18 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       );
     }());
   };
+  svc.onGroupNotificationPolicyChanged = (gidHex, stored) {
+    unawaited(
+      svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.groupNotify,
+          key: gidHex,
+          tsMs: nextTs(),
+          payload: {'v': stored},
+        ),
+      ),
+    );
+  };
   svc.onGroupSeen = (gidHex, ts) {
     final key = 'g:$gidHex';
     if ((lastReadEmitted[key] ?? 0) >= ts) return;
@@ -662,6 +674,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       // Not through the gate either: one row per message would park in its
       // map forever. The applier orders by the stamp itself (a reaction older
       // than the one applied is ignored), so a replay is harmless.
+      case DeviceSyncKind.groupNotify:
+        gate.offer(e, () {
+          final v = e.payload['v'];
+          if (v is! String) return null;
+          return () => svc.applyMirroredGroupNotificationPolicy(e.key, v);
+        });
       case DeviceSyncKind.msgPin:
         gate.offer(e, () {
           final v = e.payload['v'];
