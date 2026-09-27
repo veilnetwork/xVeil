@@ -309,4 +309,54 @@ void main() {
     expect(w1.payload, w2.payload, reason: 'devices must agree on the winner');
     expect(w1.payload['v'], 'zzz');
   });
+  test('a pin set here is not overwritten by an older one arriving from a '
+      'sibling afterwards', () async {
+    // The stand, under a mixed load: A pinned one message at :23, B another
+    // at :27. The gate only heard of events from the device group, so B's own
+    // pin never took its slot, and A's older pin, arriving at B after it,
+    // was written over it. The fold named B's the winner; B showed A's.
+    const now = 1000000;
+    final gate = DeviceSyncApplyGate(nowMs: () => now);
+    var shown = '';
+    void handle(DeviceSyncEvent e) => gate.offer(
+      e,
+      () => () async => shown = e.payload['v'] as String,
+    );
+    // What the bridge does with this device's own post.
+    void posted(DeviceSyncEvent e) {
+      if (deviceSyncOwnEventRidesGate(e.kind)) handle(e);
+    }
+
+    // B pins locally (state written, then posted)...
+    shown = 'mine';
+    posted(ev(DeviceSyncKind.msgPin, 'peer', now - 3000, {'v': 'mine'}));
+    await _pump();
+    // ...and A's older pin arrives afterwards.
+    handle(ev(DeviceSyncKind.msgPin, 'peer', now - 7000, {'v': 'theirs'}));
+    await _pump();
+    expect(shown, 'mine', reason: 'an older sibling pin overwrote a newer one');
+
+    // A sibling's pin that slipped in between the local write and its post
+    // loses to the post, which writes the local value back.
+    handle(ev(DeviceSyncKind.msgPin, 'peer2', now - 9000, {'v': 'theirs'}));
+    await _pump();
+    posted(ev(DeviceSyncKind.msgPin, 'peer2', now - 2000, {'v': 'mine2'}));
+    await _pump();
+    expect(shown, 'mine2');
+  });
+
+  test('every one-value-per-key kind rides the gate on this device too', () {
+    for (final k in [
+      DeviceSyncKind.contactUp,
+      DeviceSyncKind.settingSet,
+      DeviceSyncKind.groupPref,
+      DeviceSyncKind.groupNotify,
+      DeviceSyncKind.msgPin,
+    ]) {
+      expect(deviceSyncOwnEventRidesGate(k), isTrue, reason: k.name);
+    }
+    // A command run on the device that issued it would serve its own ask.
+    expect(deviceSyncOwnEventRidesGate(DeviceSyncKind.historyAsk), isFalse);
+    expect(deviceSyncOwnEventRidesGate(DeviceSyncKind.msgMirror), isFalse);
+  });
 }

@@ -843,6 +843,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     if (e == null) return;
     handleEvent(e);
   });
+  // What this device posts takes its slot too — see
+  // [deviceSyncOwnEventRidesGate] for why the gate must hear of it.
+  final ownSub = svc.deviceOutgoing.listen((e) {
+    if (deviceSyncOwnEventRidesGate(e.kind)) handleEvent(e);
+  });
+  ref.onDispose(ownSub.cancel);
   // REPLAY THE FOLD, once, at start. The live stream only carries what
   // arrives while this bridge is listening, and an event can land any other
   // way — in a snapshot chunk while the app was busy, in a mailbox drain
