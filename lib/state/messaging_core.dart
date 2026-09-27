@@ -1035,7 +1035,19 @@ class MessagingService {
         return;
       }
     }
-    _stashInBackground(m.src, 'ack:$id', ack);
+    // NOT FOR REPLICATED STATE. A group or document snapshot travels as
+    // hundreds of chunk frames, and each ack deposited at the sender's mailbox
+    // is a blob of its own — to a multi-device identity about 13 KB, one KEM
+    // envelope per device, over the reply budget, so ANNOUNCED and walked at
+    // two per drain pass alongside everything else. Measured on the stand: 38
+    // of the 45 deposits one device made to its counterpart in four minutes
+    // were chunk acks, and a text message queued behind them in the peer's
+    // mailbox for 95 s. A lost chunk ack costs a re-drive the receiver answers
+    // again; a sender that cannot be reached live hits the replication backlog
+    // cap and recovers the state by asking, which is what the cap is for.
+    if (!_isReplicationFrame(id)) {
+      _stashInBackground(m.src, 'ack:$id', ack);
+    }
     // A CONTACT with several devices: live to the one that sent. Addressed to
     // the identity, the ack went wherever routing pointed — measured on the
     // stand 2026-09-23 as every ack for the master's frames landing on its
