@@ -7235,6 +7235,49 @@ void main() {
     );
   });
 
+  test('epoch keys handed to my devices are not handed again after a restart',
+      () async {
+    // Held only in memory, the "already shared" mark came back empty on every
+    // start and each encrypted group sent every device of mine a FULL
+    // snapshot again — 237 chunks for one group on the stand, both ways.
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final device = _id(42);
+    Future<(GroupService, List<NodeId>)> start() async {
+      final to = <NodeId>[];
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        send: (peer, g, j) async => to.add(peer),
+      );
+      svc.ownDevicesForGroupsOverride = () async => [device];
+      return (svc, to);
+    }
+
+    Future<void> settle() async {
+      for (var i = 0; i < 10; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+
+    final (first, firstSent) = await start();
+    final gid = await first.createGroup('Keys once');
+    expect(await first.postMessage(gid, 'one', broadcast: false), isTrue);
+    await settle();
+    expect(firstSent, contains(device), reason: 'premise: the key went once');
+    first.dispose();
+
+    final (second, secondSent) = await start();
+    addTearDown(second.dispose);
+    expect(await second.postMessage(gid, 'two', broadcast: false), isTrue);
+    await settle();
+    expect(secondSent, isNot(contains(device)),
+        reason: 'a restart handed the same key over again, as a full snapshot');
+  });
+
   group('device-log rows about one message or call expire', () {
     // Keyed by an id that is never written twice, every such row won its own
     // key and the log grew ~720 bytes per message, forever, towards the one
