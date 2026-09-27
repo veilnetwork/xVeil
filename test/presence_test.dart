@@ -42,12 +42,16 @@ class _Capture implements VeilTransport {
   Future<void> dispose() async => _in.close();
 }
 
-Future<MessagingService> _service(_Capture t, [HiddenVolumeStorage? into]) async {
+Future<MessagingService> _service(
+  _Capture t, [
+  HiddenVolumeStorage? into,
+  DateTime Function()? now,
+]) async {
   final store = FakeKvLogStore();
   final storage = into ??
       HiddenVolumeStorage(({required password, required bool create}) => store);
   if (into == null) await storage.open(password: 'pw', createIfMissing: true);
-  return MessagingService(t, storage)..start();
+  return MessagingService(t, storage, now: now)..start();
 }
 
 Future<HiddenVolumeStorage> _storage() async {
@@ -59,7 +63,12 @@ Future<HiddenVolumeStorage> _storage() async {
   return s;
 }
 
-Future<void> _hold(HiddenVolumeStorage s, NodeId peer, String id) async {
+Future<void> _hold(
+  HiddenVolumeStorage s,
+  NodeId peer,
+  String id, {
+  DateTime? at,
+}) async {
   await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
   await s.appendMessage(
     Message(
@@ -67,7 +76,7 @@ Future<void> _hold(HiddenVolumeStorage s, NodeId peer, String id) async {
       conversationId: peer.hex,
       direction: MessageDirection.incoming,
       body: 'text of $id',
-      timestamp: DateTime.now(),
+      timestamp: at ?? DateTime.now(),
       status: MessageStatus.delivered,
     ),
   );
@@ -245,6 +254,72 @@ void main() {
           reason: 'erased on the sibling, still shown here');
       expect(await myStore.loadMessageById(peer.hex, 'kept'), isNotNull,
           reason: 'what the sibling kept must stay');
+    });
+
+    test('an erase older than the newest page is caught up too', () async {
+      // The three measured on the stand sat 1400 messages deep.
+      var clock = DateTime.now();
+      final base = clock.subtract(const Duration(days: 1));
+      final sibStore = await _storage();
+      await _hold(sibStore, peer, 'm0', at: base);
+      await sibStore.deleteMessage(peer.hex, 'm0');
+      final sibT = _Capture(sibling);
+      final sib = await _service(sibT, sibStore);
+      addTearDown(sib.dispose);
+      sib.selfIdentityHex = () async => identity.hex;
+      sib.isOwnDevice = (p) async => p == identity || p == me;
+      sib.myOtherDevices = () async => [me];
+
+      final myStore = await _storage();
+      for (var i = 0; i < 250; i++) {
+        await _hold(myStore, peer, 'm$i', at: base.add(Duration(seconds: i)));
+      }
+      final myT = _Capture(me);
+      final mine = await _service(myT, myStore, () => clock);
+      addTearDown(mine.dispose);
+      mine.selfIdentityHex = () async => identity.hex;
+      mine.isOwnDevice = (p) async => p == identity || p == sibling;
+      mine.myOtherDevices = () async => [sibling];
+
+      Future<void> carry(_Capture from, MessagingService to, NodeId dev) async {
+        final frames = [
+          for (final e in from.sent)
+            if (e.$2 == WireKind.deviceGone) e.$3,
+        ];
+        from.sent.clear();
+        for (final body in frames) {
+          await to.deliverInbound(
+            InboundMessage(
+              src: identity,
+              srcDevice: dev,
+              payload: WireEnvelope.deviceGone(body).encode(),
+              provenance: SenderProvenance.signed,
+            ),
+          );
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+      }
+
+      for (var round = 1; round <= 4; round++) {
+        clock = clock.add(const Duration(minutes: 11));
+        await mine.deliverInbound(
+          InboundMessage(
+            src: identity,
+            srcDevice: sibling,
+            payload: WireEnvelope.presence(sibling.hex, reply: true).encode(),
+            provenance: SenderProvenance.signed,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await carry(myT, sib, me);
+        await carry(sibT, mine, sibling);
+        if (round < 4) {
+          expect(await myStore.loadMessageById(peer.hex, 'm0'), isNotNull,
+              reason: 'vacuity: the old page is not asked every round');
+        }
+      }
+      expect(await myStore.loadMessageById(peer.hex, 'm0'), isNull,
+          reason: 'an erase below the newest page was never compared');
     });
 
     test('an answer nobody asked for erases nothing', () async {
