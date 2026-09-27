@@ -380,6 +380,42 @@ void main() {
     expect(transport.sentTo, [stranger]);
   });
 
+  test("my sibling's reaction becomes mine, and the latest one wins", () async {
+    // Each device showed only the reaction it had made itself: 👍 on one,
+    // 🔥 on the other, while the counterpart (one reaction per identity)
+    // showed 🔥.
+    final storage = await _storage();
+    final messaging = MessagingService(
+      LoopbackTransport(localNodeId: NodeId(Uint8List.fromList(List.filled(32, 1)))),
+      storage,
+    );
+    addTearDown(messaging.dispose);
+    final peer = NodeId(Uint8List.fromList(List.filled(32, 0x44)));
+    final sibling = NodeId(Uint8List.fromList(List.filled(32, 0xB2)));
+    final identity = NodeId(Uint8List.fromList(List.filled(32, 0x8D)));
+    messaging.selfIdentityHex = () async => identity.hex;
+    messaging.isOwnDevice = (p) async => p == sibling || p == identity;
+    final sent = <(String, String, int)>[];
+    messaging.onReactionSent = (p, m, e, at) => sent.add((m, e, at));
+    final me = await messaging.savedSelfHex();
+
+    await messaging.sendReaction(peer, 'm1', '👍');
+    expect(sent.single.$1, 'm1', reason: 'my reaction never reached my devices');
+    final myAt = sent.single.$3;
+
+    await messaging.applyMirroredReaction(peer, 'm1', '🔥', myAt + 1000);
+    expect((await messaging.loadReactions(peer.hex))['m1'], {me: '🔥'},
+        reason: "the sibling's later reaction did not replace mine");
+
+    await messaging.applyMirroredReaction(peer, 'm1', '😢', myAt + 500);
+    expect((await messaging.loadReactions(peer.hex))['m1'], {me: '🔥'},
+        reason: 'an older reaction undid a newer one');
+
+    await messaging.applyMirroredReaction(sibling, 'm1', '👎', myAt + 2000);
+    expect(await messaging.loadReactions(sibling.hex), isEmpty,
+        reason: 'a chat with my own device got a reaction');
+  });
+
   test("a sibling's frame is acknowledged at the sibling, not at myself",
       () async {
     // The frame arrives under the identity, and on the master that is its own

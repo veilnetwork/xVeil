@@ -337,6 +337,19 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // conversation, 'g:<gidHex>' for a group. The device-pair conversation is
   // excluded — each side names it by the other device's id, so the key would
   // not be portable.
+  messaging.onReactionSent = (peer, msgId, emoji, atMs) {
+    unawaited(() async {
+      if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.reaction,
+          key: '${peer.hex}|$msgId',
+          tsMs: atMs,
+          payload: {'e': emoji},
+        ),
+      );
+    }());
+  };
   final lastReadEmitted = <String, int>{};
   messaging.onConversationRead = (convId, ts) {
     if ((lastReadEmitted[convId] ?? 0) >= ts) return;
@@ -633,6 +646,28 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
               ? svc.applyMirroredGroupSeen(e.key.substring(2), e.tsMs)
               : messaging.applyMirroredReadMark(e.key, e.tsMs);
         });
+      // Not through the gate either: one row per message would park in its
+      // map forever. The applier orders by the stamp itself (a reaction older
+      // than the one applied is ignored), so a replay is harmless.
+      case DeviceSyncKind.reaction:
+        final cut = e.key.indexOf('|');
+        final emoji = e.payload['e'];
+        if (cut <= 0 || emoji is! String) return;
+        final NodeId peer;
+        try {
+          peer = NodeId.fromHex(e.key.substring(0, cut));
+        } catch (_) {
+          return;
+        }
+        if (peer == svc.selfId) return;
+        unawaited(
+          messaging.applyMirroredReaction(
+            peer,
+            e.key.substring(cut + 1),
+            emoji,
+            e.tsMs,
+          ),
+        );
       // Deliberately not offered: this bridge applies none of these, so giving
       // them a slot would only park a row per mirrored message and per cloud
       // item in a map that is never read.
