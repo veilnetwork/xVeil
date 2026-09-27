@@ -1555,6 +1555,23 @@ class MessagingService {
   Future<void> sendReaction(NodeId peer, String msgId, String emoji) =>
       _localChat.sendReaction(peer, msgId, emoji);
 
+  /// Fires after a reaction of MINE is applied and sent, for my other devices.
+  void Function(NodeId peer, String msgId, String emoji, int atMs)?
+  onReactionSent;
+
+  /// A reaction one of my other devices made, applied as this device's own:
+  /// the peer keeps one reaction per identity, and so must every device of it.
+  Future<void> applyMirroredReaction(
+    NodeId peer,
+    String msgId,
+    String emoji,
+    int atMs,
+  ) async {
+    if (await _isSiblingDevice(peer)) return;
+    await _applyReaction(peer.hex, msgId, await _selfHex(), emoji, atMs: atMs);
+    _signal();
+  }
+
   /// Test seam: apply an inbound reaction with an explicit stamp, so the
   /// unordered-delivery ordering rule can be driven without a mailbox.
   Future<void> debugApplyReaction(

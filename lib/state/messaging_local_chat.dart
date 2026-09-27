@@ -95,6 +95,7 @@ class _MessagingLocalChat {
     _owner._signal();
     // Saved Messages is local-only: never address a reaction to ourselves.
     if (peer.hex == selfHex) return;
+    _owner.onReactionSent?.call(peer, msgId, emoji, atMs);
     // The frame id must carry the VERSION, not just the message: every
     // reaction to one message used to share `rx:<msgId>`, so the receiver's
     // generic dedup gate ACKED the change/removal and then dropped it. The
