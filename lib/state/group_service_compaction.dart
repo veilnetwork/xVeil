@@ -45,6 +45,21 @@ const kDeviceLogPerItemRowsKept = 250;
 /// …and how old one may be.
 const kDeviceLogPerItemMaxAge = Duration(days: 7);
 
+/// Which window a per-item row counts against.
+///
+/// One window for all of them let the bulk — a mirror and a status for every
+/// message — push the rare rows out in minutes. Measured on the stand under a
+/// load run: 14 reaction rows left, the oldest 20 minutes old, and a sibling
+/// that lagged longer than that never applied a reaction made on the other
+/// device — there is no catch-up from the counterpart for reactions. The bulk
+/// kinds share one window as before; each rare kind has its own, so the log
+/// grows by at most that many rows per rare kind, and in practice by the
+/// handful actually made.
+String deviceLogPerItemPool(DeviceSyncKind kind) => switch (kind) {
+  DeviceSyncKind.msgMirror || DeviceSyncKind.msgStatus => 'bulk',
+  _ => kind.name,
+};
+
 /// The device log's row count past which a save schedules a compaction
 /// instead of waiting for the hourly pass: a history replay posts thousands
 /// of rows in minutes, and between passes every row is rewritten on every
@@ -197,9 +212,16 @@ class _LogCompaction {
     ]..sort((a, b) => b.event.tsMs.compareTo(a.event.tsMs));
     final oldestKept =
         nowMs - kDeviceLogPerItemMaxAge.inMilliseconds;
+    final seenInPool = <String, int>{};
     final expired = <String>{
-      for (final (i, v) in perItem.indexed)
-        if (i >= kDeviceLogPerItemRowsKept || v.event.tsMs < oldestKept)
+      for (final v in perItem)
+        if ((seenInPool.update(
+                  deviceLogPerItemPool(v.event.kind),
+                  (n) => n + 1,
+                  ifAbsent: () => 1,
+                ) >
+                kDeviceLogPerItemRowsKept) ||
+            v.event.tsMs < oldestKept)
           v.message.ref,
     };
     final keep = <String>{
