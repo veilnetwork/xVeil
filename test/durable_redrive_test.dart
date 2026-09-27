@@ -605,6 +605,48 @@ void main() {
       );
     });
 
+    test('a peer silent for over a day gets no live leg for a new frame, '
+        'and the frame goes the moment it is heard', () async {
+      // A linked device dead for 29 hours drew 343 live sends and 850 KB in
+      // fifteen minutes from its sibling: the ladder spaced re-drives, but
+      // every NEW frame was dialled into nothing at once.
+      tA.peer = null;
+      tB.online = false;
+      await mA.sendDurable(b, 'test:old:0', WireEnvelope.reconnect('0'));
+      await _settle();
+      clock = clock.add(const Duration(hours: 30));
+      await mA.flushOutbox();
+      await _settle();
+
+      int sent(String id) => tA.sentFrameIds.where((f) => f == id).length;
+      await mA.sendDurable(b, 'test:new:1', WireEnvelope.reconnect('1'));
+      await _settle();
+      expect(sent('test:new:1'), 0,
+          reason: 'a new frame was dialled to a peer silent for a day');
+      expect(
+        (await sA.pendingOutboxFrames()).map((f) => f.frameId),
+        contains('test:new:1'),
+        reason: 'the frame waits in the queue',
+      );
+
+      // B is back: the first thing heard from it sends the frame.
+      tA.peer = tB;
+      tB.online = true;
+      tA.inject(
+        b,
+        WireEnvelope.callSignal(
+          const CallSignal(callId: 'back', type: CallSignalType.health).encode(),
+        ).encode(),
+      );
+      await _settle();
+      for (var i = 0; i < 4; i++) {
+        clock = clock.add(const Duration(seconds: 3));
+        await flushA();
+      }
+      expect(sent('test:new:1'), greaterThan(0),
+          reason: 'the frame stayed behind after the peer came back');
+    });
+
     test('a device never heard is timed from its oldest waiting frame, so an '
         'upgrade does not start a long silence over', () async {
       final device = _id(0x2F);
