@@ -5969,14 +5969,32 @@ class GroupService implements ArchiveGroups {
   Future<GroupBundle?> load(NodeId groupId) async {
     final batched = _batchBundles[groupId.hex];
     if (batched != null) return batched;
-    final raw = await _loadBundleRaw(groupId);
+    var raw = await _loadBundleRaw(groupId);
     if (raw == null) {
       _loadRefused(groupId, 'no bundle in the file store nor the legacy key');
       return null;
     }
     try {
-      final d = jsonDecode(raw) as Map<String, dynamic>;
-      if (!await _joinSegments(groupId, d)) return null;
+      var d = jsonDecode(raw) as Map<String, dynamic>;
+      // A SAVE MAY OVERTAKE THIS READ. It writes new segments, then the
+      // header, then deletes what the old header named — which this load,
+      // holding the old header, may be about to read. The new header is
+      // written before anything it replaced is deleted, so reading it again
+      // gives a set that exists. Measured on the stand: every device log
+      // refused to load again and again while it was being written, and a
+      // refused load reads to its caller as "no such group".
+      var missing = await _joinSegments(groupId, d);
+      for (var retry = 0; missing != null && retry < 3; retry++) {
+        final again = await _loadBundleRaw(groupId);
+        if (again == null || again == raw) break;
+        raw = again;
+        d = jsonDecode(again) as Map<String, dynamic>;
+        missing = await _joinSegments(groupId, d);
+      }
+      if (missing != null) {
+        _loadRefused(groupId, missing);
+        return null;
+      }
       final manifest = SpaceManifest.fromJson(d['m']);
       if (manifest == null || !_validManifest(manifest)) {
         _loadRefused(
@@ -6621,11 +6639,11 @@ class GroupService implements ArchiveGroups {
   };
 
   /// Put the messages of a segmented header back where [load] expects them.
-  /// False when a segment the header names cannot be read: loading on
-  /// without it would lose those rows at the next save, for good.
-  Future<bool> _joinSegments(NodeId groupId, Map<String, dynamic> d) async {
+  /// Null when done, else why not: a segment the header names cannot be read,
+  /// and loading on without it would lose those rows at the next save.
+  Future<String?> _joinSegments(NodeId groupId, Map<String, dynamic> d) async {
     final raw = d['gs'];
-    if (raw is! List) return true; // a header from before segments: inline
+    if (raw is! List) return null; // a header from before segments: inline
     final key = _key(groupId);
     final live = _segmentKeys(raw, key);
     final rows = <Object?>[];
@@ -6633,28 +6651,23 @@ class GroupService implements ArchiveGroups {
       if (k is! String || !live.contains(k)) continue;
       final blob = await _storage.loadFile(k);
       if (blob == null) {
-        _loadRefused(groupId, 'message segment ${k.substring(k.length - 8)} '
-            'named by the header is missing');
-        return false;
+        return 'message segment ${k.substring(k.length - 8)} named by the '
+            'header is missing';
       }
       final list = jsonDecode(utf8.decode(blob));
-      if (list is! List) {
-        _loadRefused(groupId, 'message segment is not a list');
-        return false;
-      }
+      if (list is! List) return 'message segment is not a list';
       rows.addAll(list);
     }
     d['g'] = rows;
-    // The stored pending list is only news to a process that has not yet
-    // saved this bundle: after its own save the header still names segments
-    // that save already deleted. Taking it back on every load carried them
-    // into the next header, one more per save, each deleted again under the
-    // file lock — 1144 of them on a device log that had lived a day.
-    _segmentIndex[key] = (
-      live: live,
-      pending: _segmentIndex[key]?.pending ?? _segmentKeys(d['gd'], key),
-    );
-    return true;
+    // ONLY where this process has not yet saved the bundle. After its own
+    // save the index is exact and the stored header lags it: that header's
+    // pending list names segments the save already deleted (taken back on
+    // every load, it grew by one per save — 1144 on a device log that had
+    // lived a day), and a load that read the header just before a save
+    // overtook it would put the OLD segment list back, orphaning the new ones
+    // at the next save.
+    _segmentIndex[key] ??= (live: live, pending: _segmentKeys(d['gd'], key));
+    return null;
   }
 
   /// Every stored file of one bundle: the header and its segments.
