@@ -1085,6 +1085,13 @@ extension _MessagingInboundDispatch on MessagingService {
           _outbox.remember(m.src.hex, fid);
         }
         return;
+      case WireKind.deviceGone:
+        if (m.src.hex != await selfIdentityHex?.call() &&
+            !(await isOwnDevice?.call(m.src) ?? false)) {
+          return;
+        }
+        await _deviceMirror.handleErasureFrame(m, env.body);
+        return;
       case WireKind.presence:
         // One of MY devices is online: it is heard, its queue rewinds, and —
         // unless this is already the answer — it is answered once.
@@ -1106,6 +1113,9 @@ extension _MessagingInboundDispatch on MessagingService {
         final mine = await myOtherDevices?.call() ?? const <NodeId>[];
         if (!mine.contains(device)) return;
         if (_outbox.noteHeard(device.hex)) unawaited(_retryFlush());
+        // A sibling that is back may have erased what this device still
+        // shows, or the other way round: compare while both are here.
+        unawaited(_deviceMirror.askSiblingForErasures(device));
         if (parts.length > 1 && parts[1] == 'r') return;
         try {
           await _send(

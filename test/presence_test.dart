@@ -7,6 +7,8 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
+import 'package:xveil/domain/chat.dart';
+import 'dart:convert';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
@@ -40,13 +42,35 @@ class _Capture implements VeilTransport {
   Future<void> dispose() async => _in.close();
 }
 
-Future<MessagingService> _service(_Capture t) async {
+Future<MessagingService> _service(_Capture t, [HiddenVolumeStorage? into]) async {
   final store = FakeKvLogStore();
-  final storage = HiddenVolumeStorage(
+  final storage = into ??
+      HiddenVolumeStorage(({required password, required bool create}) => store);
+  if (into == null) await storage.open(password: 'pw', createIfMissing: true);
+  return MessagingService(t, storage)..start();
+}
+
+Future<HiddenVolumeStorage> _storage() async {
+  final store = FakeKvLogStore();
+  final s = HiddenVolumeStorage(
     ({required password, required bool create}) => store,
   );
-  await storage.open(password: 'pw', createIfMissing: true);
-  return MessagingService(t, storage)..start();
+  await s.open(password: 'pw', createIfMissing: true);
+  return s;
+}
+
+Future<void> _hold(HiddenVolumeStorage s, NodeId peer, String id) async {
+  await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
+  await s.appendMessage(
+    Message(
+      id: id,
+      conversationId: peer.hex,
+      direction: MessageDirection.incoming,
+      body: 'text of $id',
+      timestamp: DateTime.now(),
+      status: MessageStatus.delivered,
+    ),
+  );
 }
 
 void main() {
@@ -148,5 +172,102 @@ void main() {
       [device],
       reason: 'a relayed presence was not traced to its device',
     );
+  });
+
+  group('erasures are compared between my devices', () {
+    // An erase reaches my other devices as a device-log event, and one lost
+    // there left the message deleted on one device and shown on the other
+    // for good. Owner's decision (2026-09-27): reconcile between OWN devices,
+    // never on the counterpart's word.
+    final peer = _id(0x44);
+    final me = _id(0x91);
+
+    test('a sibling answers with what it erased of what I still show, and I '
+        'erase it too', () async {
+      // The sibling: erased 'gone', still holds 'kept'.
+      final sibStore = await _storage();
+      await _hold(sibStore, peer, 'gone');
+      await _hold(sibStore, peer, 'kept');
+      await sibStore.deleteMessage(peer.hex, 'gone');
+      final sibT = _Capture(sibling);
+      final sib = await _service(sibT, sibStore);
+      addTearDown(sib.dispose);
+      sib.selfIdentityHex = () async => identity.hex;
+      sib.isOwnDevice = (p) async => p == identity || p == me;
+      sib.myOtherDevices = () async => [me];
+
+      // This device: holds both.
+      final myStore = await _storage();
+      await _hold(myStore, peer, 'gone');
+      await _hold(myStore, peer, 'kept');
+      final myT = _Capture(me);
+      final mine = await _service(myT, myStore);
+      addTearDown(mine.dispose);
+      mine.selfIdentityHex = () async => identity.hex;
+      mine.isOwnDevice = (p) async => p == identity || p == sibling;
+      mine.myOtherDevices = () async => [sibling];
+
+      Future<void> carry(_Capture from, MessagingService to, NodeId dev) async {
+        final frames = [
+          for (final e in from.sent)
+            if (e.$2 == WireKind.deviceGone) e.$3,
+        ];
+        from.sent.clear();
+        for (final body in frames) {
+          await to.deliverInbound(
+            InboundMessage(
+              src: identity,
+              srcDevice: dev,
+              payload: WireEnvelope.deviceGone(body).encode(),
+              provenance: SenderProvenance.signed,
+            ),
+          );
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+
+      // The sibling says it is online; this device answers and compares.
+      await mine.deliverInbound(
+        InboundMessage(
+          src: identity,
+          srcDevice: sibling,
+          payload: WireEnvelope.presence(sibling.hex).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(myT.sent.where((e) => e.$2 == WireKind.deviceGone), isNotEmpty,
+          reason: 'premise: the comparison was asked for');
+      await carry(myT, sib, me);
+      await carry(sibT, mine, sibling);
+
+      expect(await myStore.loadMessageById(peer.hex, 'gone'), isNull,
+          reason: 'erased on the sibling, still shown here');
+      expect(await myStore.loadMessageById(peer.hex, 'kept'), isNotNull,
+          reason: 'what the sibling kept must stay');
+    });
+
+    test('an answer nobody asked for erases nothing', () async {
+      final myStore = await _storage();
+      await _hold(myStore, peer, 'mine');
+      final myT = _Capture(me);
+      final mine = await _service(myT, myStore);
+      addTearDown(mine.dispose);
+      mine.selfIdentityHex = () async => identity.hex;
+      mine.isOwnDevice = (p) async => p == identity || p == sibling;
+      mine.myOtherDevices = () async => [sibling];
+      await mine.deliverInbound(
+        InboundMessage(
+          src: identity,
+          srcDevice: sibling,
+          payload: WireEnvelope.deviceGone(
+            jsonEncode({'d': sibling.hex, 'a': peer.hex, 'ids': ['mine']}),
+          ).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(await myStore.loadMessageById(peer.hex, 'mine'), isNotNull);
+    });
   });
 }

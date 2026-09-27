@@ -870,6 +870,17 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   });
 
   @override
+  Future<Set<String>> deletedMessageIds(String conversationId) =>
+      _serialized(() async {
+        await _foldCritical();
+        final prefix = '$conversationId\u001f';
+        return {
+          for (final k in _scanDeletedKeys)
+            if (k.startsWith(prefix)) k.substring(prefix.length),
+        };
+      });
+
+  @override
   Future<Map<String, int>> editSeqs(String conversationId) =>
       _serialized(() async {
         await _foldCritical();
