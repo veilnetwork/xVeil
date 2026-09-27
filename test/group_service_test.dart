@@ -7310,6 +7310,32 @@ void main() {
         reason: 'a restart handed the same key over again, as a full snapshot');
   });
 
+  test("a group's clear policy reaches my other devices", () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final here = GroupService(storage, _FakeSigner(owner));
+    addTearDown(here.dispose);
+    final gid = await here.createGroup('Clear policy');
+    final told = <(String, String, String)>[];
+    here.onGroupPrefChanged = (p, g, v) => told.add((p, g, v));
+    final chosen = ClearRequestPolicy.values.firstWhere(
+      (p) => p != kDefaultClearRequestPolicy,
+    );
+    await here.setGroupClearPolicy(gid, chosen);
+    expect(told, hasLength(1), reason: 'the policy never left this device');
+
+    final otherStorage = FakeHvContainer().storage();
+    await otherStorage.open(password: 'pw', createIfMissing: true);
+    final there = GroupService(otherStorage, _FakeSigner(owner));
+    addTearDown(there.dispose);
+    final (pref, g, v) = told.single;
+    await there.applyMirroredGroupPref(pref, g, v);
+    expect(await there.groupClearPolicy(gid), chosen);
+    await there.applyMirroredGroupPref('clp', g, 'no-such-policy');
+    expect(await there.groupClearPolicy(gid), chosen,
+        reason: 'a value this build does not know replaced a real one');
+  });
+
   test("a group's mute reaches my other devices", () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);

@@ -7478,7 +7478,34 @@ class GroupService implements ArchiveGroups {
   Future<void> setGroupClearPolicy(
     NodeId groupId,
     ClearRequestPolicy policy,
-  ) => _storage.putSetting(_clearPolicyKey(groupId), policy.name);
+  ) async {
+    await _storage.putSetting(_clearPolicyKey(groupId), policy.name);
+    onGroupPrefChanged?.call('clp', groupId.hex, policy.name);
+  }
+
+  /// Fires after a LOCAL change of a per-group preference, for my devices.
+  void Function(String pref, String gidHex, String value)? onGroupPrefChanged;
+
+  /// A per-group preference one of my other devices set. Unknown [pref]s are
+  /// skipped: a newer build may carry more.
+  Future<void> applyMirroredGroupPref(
+    String pref,
+    String gidHex,
+    String value,
+  ) async {
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(gidHex);
+    } catch (_) {
+      return;
+    }
+    switch (pref) {
+      case 'clp':
+        if (!ClearRequestPolicy.values.any((p) => p.name == value)) return;
+        await _storage.putSetting(_clearPolicyKey(groupId), value);
+        changes.value++;
+    }
+  }
 
   /// Ask every other member of [groupId] to erase messages of [kind], through
   /// what this device knows of. Returns how many members it went to.
