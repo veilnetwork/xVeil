@@ -6394,7 +6394,26 @@ class GroupService implements ArchiveGroups {
     // may have changed that name, so the admission cache must not outlive it.
     if (b.manifest.isSovereignDevice) _masterDeviceCachedAtMs = null;
     if (notify) changes.value++;
+    // The device log is one stored blob with a hard cap; the hourly pass is
+    // too slow for a history replay posting thousands of rows. Queued behind
+    // the caller's own serialized section, never inside it.
+    if (b.manifest.name == kDeviceGroupName &&
+        b.messages.length > deviceLogCompactAtRows &&
+        _deviceLogCompactionQueued.add(key)) {
+      unawaited(
+        compactStateLogs(b.manifest.groupId)
+            .catchError((Object _) => null)
+            .whenComplete(() => _deviceLogCompactionQueued.remove(key)),
+      );
+    }
   }
+
+  /// Device logs with a size-triggered compaction already queued.
+  final Set<String> _deviceLogCompactionQueued = {};
+
+  /// [kDeviceLogCompactAtRows], settable so a test need not post thousands.
+  @visibleForTesting
+  int deviceLogCompactAtRows = kDeviceLogCompactAtRows;
 
   Future<void> _writeBundleBytes(String key, GroupBundle b, String json) async {
     // Hint first: a crash between the two writes may only claim MORE than
