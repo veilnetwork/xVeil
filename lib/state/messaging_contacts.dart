@@ -298,6 +298,91 @@ class _MessagingContacts {
     _owner._signal();
   }
 
+  /// Messages kept aside per blocked contact, at most.
+  static const kHeldWhileBlockedMax = 200;
+
+  String _heldKey(NodeId peer) => 'held-while-blocked:${peer.hex}';
+
+  Future<List<({String id, String wire})>> _loadHeld(NodeId peer) async {
+    try {
+      final raw = await _owner._storage.loadFile(_heldKey(peer));
+      if (raw == null) return [];
+      final list = jsonDecode(utf8.decode(raw));
+      if (list is! List) return [];
+      return [
+        for (final e in list)
+          if (e is Map && e['i'] is String && e['w'] is String)
+            (id: e['i'] as String, wire: e['w'] as String),
+      ];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _saveHeld(
+    NodeId peer,
+    List<({String id, String wire})> held,
+  ) async {
+    if (held.isEmpty) {
+      await _owner._storage.deleteStoredFile(_heldKey(peer));
+      return;
+    }
+    await _owner._storage.storeFile(
+      _heldKey(peer),
+      Uint8List.fromList(
+        utf8.encode(
+          jsonEncode([
+            for (final h in held) {'i': h.id, 'w': h.wire},
+          ]),
+        ),
+      ),
+      name: 'held-while-blocked',
+    );
+  }
+
+  /// Keep [wire] (a message envelope from blocked [peer]) aside. False when
+  /// the store is full: past [kHeldWhileBlockedMax] a blocked contact is
+  /// dropped as before — a block must not become a way to fill the store.
+  Future<bool> holdWhileBlocked(NodeId peer, String id, Uint8List wire) async {
+    final held = await _loadHeld(peer);
+    if (held.any((h) => h.id == id)) return true;
+    if (held.length >= kHeldWhileBlockedMax) return false;
+    held.add((id: id, wire: base64Encode(wire)));
+    await _saveHeld(peer, held);
+    _owner._signal();
+    return true;
+  }
+
+  /// How many messages from [peer] arrived while it was blocked here.
+  Future<int> heldWhileBlocked(NodeId peer) async =>
+      (await _loadHeld(peer)).length;
+
+  /// Show them: each goes through the ordinary receive path, as if it had
+  /// just arrived — now that the contact is no longer blocked.
+  Future<int> releaseHeld(NodeId peer) async {
+    final contact = await _owner._storage.getContact(peer);
+    if (contact?.status == ContactStatus.blocked) return 0;
+    final held = await _loadHeld(peer);
+    await _saveHeld(peer, const []);
+    for (final h in held) {
+      await _owner.deliverInbound(
+        InboundMessage(
+          src: peer,
+          payload: base64Decode(h.wire),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+    }
+    _owner._signal();
+    return held.length;
+  }
+
+  /// Forget them, unread.
+  Future<void> discardHeld(NodeId peer) async {
+    await _saveHeld(peer, const []);
+    _owner._signal();
+  }
+
   /// Lift a block — the peer becomes an accepted contact again so their
   /// messages are delivered (and we can message them). Local-only: the peer is
   /// never told they were blocked or unblocked (no presence/relationship
