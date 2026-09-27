@@ -2538,6 +2538,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     Map<String, int> watermark, {
     required String selfHex,
     int? ownClearAtMs,
+    bool fromOwnDevice = false,
   }) async {
     // Apply a clear received from [author]. Record the watermark, scrub +
     // tombstone every local message AT/BELOW it (keep anything newer), and occupy
@@ -2615,7 +2616,13 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     // touching. The moment that counts is when the clear HAPPENED, and it
     // travels with it. Held down to our own clock as well, so a sibling running
     // fast cannot reach into our future.
-    final own = author == selfHex;
+    // OURS when it came from this device OR from another device of this
+    // identity. Each device authors under its own id, so a sibling's clear
+    // names the sibling — and judged by the author alone it was taken for a
+    // PEER's: no time bound, and every key but the sibling's own stream
+    // dropped. Measured on the stand: a clear made on one device left 7 of
+    // 12 messages on the other, every one of them the counterpart's.
+    final own = author == selfHex || fromOwnDevice;
     final ownAt = own
         ? ((ownClearAtMs ?? at) < at ? (ownClearAtMs ?? at) : at)
         : null;
