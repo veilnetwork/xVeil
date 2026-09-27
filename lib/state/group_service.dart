@@ -18781,15 +18781,36 @@ class GroupService implements ArchiveGroups {
     DateTime? until,
   ) async {
     final clear = mode == NotificationMuteMode.all || until == null;
-    await _storage.putSetting(
-      _groupNotificationPolicyKey(groupId),
-      clear
-          ? ''
-          : jsonEncode({
-              'mode': mode.name,
-              'until': until.millisecondsSinceEpoch,
-            }),
-    );
+    final stored = clear
+        ? ''
+        : jsonEncode({'mode': mode.name, 'until': until.millisecondsSinceEpoch});
+    await _storeGroupNotificationPolicy(groupId, stored);
+    onGroupNotificationPolicyChanged?.call(groupId.hex, stored);
+  }
+
+  /// Fires after a LOCAL change of a group's notification policy, for my
+  /// other devices.
+  void Function(String gidHex, String stored)? onGroupNotificationPolicyChanged;
+
+  /// A group notification policy one of my other devices set.
+  Future<void> applyMirroredGroupNotificationPolicy(
+    String gidHex,
+    String stored,
+  ) async {
+    final NodeId groupId;
+    try {
+      groupId = NodeId.fromHex(gidHex);
+    } catch (_) {
+      return;
+    }
+    await _storeGroupNotificationPolicy(groupId, stored);
+  }
+
+  Future<void> _storeGroupNotificationPolicy(
+    NodeId groupId,
+    String stored,
+  ) async {
+    await _storage.putSetting(_groupNotificationPolicyKey(groupId), stored);
     // Clear the legacy flag so it cannot shadow an explicit new policy.
     await _storage.putSetting('group.muted:${groupId.hex}', '');
     changes.value++;
