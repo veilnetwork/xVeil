@@ -134,7 +134,7 @@ void main() {
     addTearDown(c.dispose);
     await ctrl.importImages([_png1x1, _png1x1]);
 
-    final blob = await ctrl.packToBlob(kDefaultStickerPackId);
+    final blob = await ctrl.packToBlob(await ctrl.defaultPackId());
     expect(blob, isNotNull);
     final bundle = decodeStickerPack(blob!)!;
     expect(bundle.isSigned, isTrue);
@@ -167,7 +167,7 @@ void main() {
     final (c, ctrl) = await _library();
     addTearDown(c.dispose);
     await ctrl.importImages([_png1x1]);
-    final blob = (await ctrl.packToBlob(kDefaultStickerPackId))!;
+    final blob = (await ctrl.packToBlob(await ctrl.defaultPackId()))!;
     // Flip a byte inside the covered prefix (the name area) — the container
     // still parses, the signature no longer matches.
     final tampered = Uint8List.fromList(blob);
@@ -204,7 +204,7 @@ void main() {
     final (c, ctrl) = await _library(canSign: false);
     addTearDown(c.dispose);
     await ctrl.importImages([_png1x1]);
-    final blob = (await ctrl.packToBlob(kDefaultStickerPackId))!;
+    final blob = (await ctrl.packToBlob(await ctrl.defaultPackId()))!;
     expect(decodeStickerPack(blob)!.isSigned, isFalse);
   });
 
@@ -212,7 +212,7 @@ void main() {
     final (c, ctrl) = await _library();
     addTearDown(c.dispose);
     await ctrl.importImages([_png1x1, _png1x1]);
-    final blob = (await ctrl.packToBlob(kDefaultStickerPackId))!;
+    final blob = (await ctrl.packToBlob(await ctrl.defaultPackId()))!;
 
     final (c2, ctrl2) = await _library();
     addTearDown(c2.dispose);
@@ -255,7 +255,7 @@ void main() {
     final itemKeys = memes.items.map(stickerFileKey).toList();
     await ctrl.deletePack(id);
     packs = c.read(stickerControllerProvider).value!;
-    expect(packs.map((p) => p.id), [kDefaultStickerPackId]);
+    expect(packs.map((p) => p.id), [await ctrl.defaultPackId()]);
     for (final key in itemKeys) {
       expect(await storage.loadFile(key), isNull);
     }
@@ -319,5 +319,84 @@ void main() {
       ids.length,
       reason: 'two packs share an item id — the delete needs a refcount again',
     );
+  });
+
+  group('a pack travels to my other devices with its images', () {
+    // Owner's decision (2026-09-27): stickers sync between my devices,
+    // images included.
+    test('what one device has, the other gets, under the same pack id',
+        () async {
+      final (c1, a) = await _library();
+      final (c2, b) = await _library();
+      addTearDown(c1.dispose);
+      addTearDown(c2.dispose);
+      final told = <(String, bool)>[];
+      a.onLocalPackChange = (id, {bool deleted = false}) => told.add((id, deleted));
+
+      final packId = await a.createPack('Cats');
+      await a.importImages([_png1x1, _png1x1], packId: packId);
+      expect(told, hasLength(2),
+          reason: 'a local change was not told to my other devices');
+      expect(told.map((e) => e.$1), everyElement(packId));
+
+      final form = (await a.syncForm(packId))!;
+      await b.applyMirroredPack(packId, name: form.name, blob: form.blob);
+      final got = c2.read(stickerControllerProvider).value!
+          .singleWhere((p) => p.id == packId);
+      expect(got.name, 'Cats');
+      expect(got.items, hasLength(2));
+      expect(await b.bytesFor(got.items.first), isNotNull,
+          reason: 'the pack came without its images');
+
+      // A later change replaces it; a deletion removes it.
+      await a.removeSticker(packId, c1.read(stickerControllerProvider).value!
+          .singleWhere((p) => p.id == packId).items.first);
+      final after = (await a.syncForm(packId))!;
+      await b.applyMirroredPack(packId, name: after.name, blob: after.blob);
+      expect(c2.read(stickerControllerProvider).value!
+          .singleWhere((p) => p.id == packId).items, hasLength(1));
+      await b.applyMirroredPack(packId, name: '', deleted: true);
+      expect(c2.read(stickerControllerProvider).value!
+          .where((p) => p.id == packId), isEmpty);
+    });
+
+    test('a sibling-applied pack is not told back', () async {
+      final (c1, a) = await _library();
+      final (c2, b) = await _library();
+      addTearDown(c1.dispose);
+      addTearDown(c2.dispose);
+      final packId = await a.createPack('Dogs');
+      await a.importImages([_png1x1], packId: packId);
+      final form = (await a.syncForm(packId))!;
+      var echoed = 0;
+      b.onLocalPackChange = (id, {bool deleted = false}) => echoed++;
+      await b.applyMirroredPack(packId, name: form.name, blob: form.blob);
+      expect(echoed, 0);
+    });
+
+    test('each device has its own default pack, so two cannot collide',
+        () async {
+      final (c1, a) = await _library();
+      final (c2, b) = await _library();
+      addTearDown(c1.dispose);
+      addTearDown(c2.dispose);
+      await a.importImages([_png1x1]);
+      await b.importImages([_png1x1]);
+      expect(await a.defaultPackId(), isNot(await b.defaultPackId()),
+          reason: 'one id on both devices: the newest replaces the other');
+    });
+
+    test('a legacy shared default pack is given an id of its own', () async {
+      final (c1, a) = await _library();
+      addTearDown(c1.dispose);
+      await a.importImages([_png1x1], packId: null);
+      // Simulate a pack from before: under the fixed id.
+      await a.applyMirroredPack(kDefaultStickerPackId, name: 'Old', blob: null);
+      expect(await a.defaultPackId(), kDefaultStickerPackId);
+      expect(await a.giveDefaultPackItsOwnId(), isTrue);
+      final ids = await a.packIds();
+      expect(ids, isNot(contains(kDefaultStickerPackId)));
+      expect(ids, contains(await a.defaultPackId()));
+    });
   });
 }

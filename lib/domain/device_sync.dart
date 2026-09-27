@@ -173,7 +173,13 @@ enum DeviceSyncKind {
   /// stand, the second device saw the counterpart's reaction in 1 of 3 tries
   /// (only when a mailbox copy happened to reach it). Messages from the peer
   /// already travel this way; its reactions did not.
-  peerReaction;
+  peerReaction,
+
+  /// One of my sticker packs, keyed by its id: payload `{name, cid?}` — the
+  /// pack container, as group content the other devices pull (see the
+  /// attachment on the event) — or `{del: true}`. The owner's decision
+  /// (2026-09-27): stickers go to my other devices together with their images.
+  stickerPack;
 
   static DeviceSyncKind? fromName(String? n) {
     for (final k in values) {
@@ -332,7 +338,8 @@ bool deviceSyncOwnEventRidesGate(DeviceSyncKind kind) => switch (kind) {
   DeviceSyncKind.settingSet ||
   DeviceSyncKind.groupPref ||
   DeviceSyncKind.groupNotify ||
-  DeviceSyncKind.msgPin => true,
+  DeviceSyncKind.msgPin ||
+  DeviceSyncKind.stickerPack => true,
   _ => false,
 };
 

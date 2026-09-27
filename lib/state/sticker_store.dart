@@ -91,8 +91,14 @@ class StickerPack {
   );
 }
 
-/// The pack a bare import (no explicit target) lands in.
+/// The pack a bare import landed in before each device had its own (see
+/// [StickerController.defaultPackId]); still honoured while it exists.
 const String kDefaultStickerPackId = 'my';
+
+/// This device's default pack id. Per device, because packs travel to my
+/// other devices by id: one fixed id on every device made two different
+/// packs look like one, and the newest would replace the other's stickers.
+const String _defaultPackSetting = 'stickers.default_pack.v1';
 
 class StickerController extends AsyncNotifier<List<StickerPack>> {
   /// The storage THIS build belongs to.
@@ -105,6 +111,12 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   /// a person chose and shares under a signature; which of their identities
   /// holds them is not a detail (report17 XV17-H3).
   late Storage _storage;
+
+  /// Set by the device-sync bridge: told after every change made HERE, so my
+  /// other devices get the pack (the owner's decision, 2026-09-27: stickers
+  /// travel to my devices with their images). Never called for a pack applied
+  /// FROM a sibling ([applyMirroredPack]), which would echo it back.
+  void Function(String packId, {bool deleted})? onLocalPackChange;
 
   @override
   Future<List<StickerPack>> build() {
@@ -162,7 +174,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   }) async {
     final storage = _storage;
     final packs = List<StickerPack>.of(state.value ?? await _load(storage));
-    final targetId = packId ?? kDefaultStickerPackId;
+    final targetId = packId ?? await defaultPackId();
     var idx = packs.indexWhere((p) => p.id == targetId);
     if (idx < 0) {
       if (packId != null) return 0; // explicit target vanished — don't guess
@@ -189,6 +201,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
       packs[idx],
     )).copyWith(items: items);
     await _save(storage, packs);
+    onLocalPackChange?.call(packs[idx].id);
     return added;
   }
 
@@ -199,6 +212,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
     final id = const Uuid().v4();
     packs.add(StickerPack(id: id, name: name, items: const []));
     await _save(storage, packs);
+    onLocalPackChange?.call(id);
     return id;
   }
 
@@ -215,6 +229,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
       packs[idx],
     )).copyWith(name: name);
     await _save(storage, packs);
+    onLocalPackChange?.call(packId);
   }
 
   /// Delete [packId] outright: its manifest entry, every sticker blob it
@@ -235,6 +250,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
     } catch (_) {}
     packs.removeAt(idx);
     await _save(storage, packs);
+    onLocalPackChange?.call(packId, deleted: true);
   }
 
   /// Remove a sticker from its pack, and take its bytes with it.
@@ -262,6 +278,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
       packs[idx],
     )).copyWith(items: items);
     await _save(storage, packs);
+    onLocalPackChange?.call(packId);
     // Unconditional, and this is why: installing a shared pack MINTS fresh
     // item ids rather than carrying the sender's, so no second pack can be
     // naming these bytes. A reference count was written here and removed —
@@ -366,7 +383,179 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
       ),
     );
     await _save(storage, packs);
+    onLocalPackChange?.call(packId);
     return items.length;
+  }
+
+  /// The pack a bare import lands in: the legacy [kDefaultStickerPackId]
+  /// while this device still has it, else this device's own, minted once.
+  Future<String> defaultPackId() async {
+    final storage = _storage;
+    final packs = state.value ?? await _load(storage);
+    if (packs.any((p) => p.id == kDefaultStickerPackId)) {
+      return kDefaultStickerPackId;
+    }
+    final stored = await storage.getSetting(_defaultPackSetting);
+    if (stored != null && stored.isNotEmpty) return stored;
+    final id = const Uuid().v4();
+    await storage.putSetting(_defaultPackSetting, id);
+    return id;
+  }
+
+  /// The ids of every pack held here.
+  Future<List<String>> packIds() async =>
+      [for (final p in state.value ?? await _load(_storage)) p.id];
+
+  /// [packId] as it travels to my other devices: its name, signature state,
+  /// and — when it has any stickers — the pack container. A signed pack goes
+  /// as its ORIGINAL blob, so the author's signature survives the copy; any
+  /// other as a fresh unsigned one (it is the same person's own collection,
+  /// and a device may not be able to sign). Null when there is no such pack.
+  Future<({String name, Uint8List? blob, bool signed})?> syncForm(
+    String packId,
+  ) async {
+    final storage = _storage;
+    final packs = state.value ?? await _load(storage);
+    final pack = packs.where((p) => p.id == packId).firstOrNull;
+    if (pack == null) return null;
+    if (pack.signed) {
+      final original = await storage.loadFile(stickerPackBlobKey(packId));
+      if (original != null && original.isNotEmpty) {
+        return (name: pack.name, blob: original, signed: true);
+      }
+    }
+    final images = <Uint8List>[];
+    for (final id in pack.items) {
+      final bytes = await storage.loadFile(stickerFileKey(id));
+      if (bytes != null && bytes.isNotEmpty) images.add(bytes);
+    }
+    return (
+      name: pack.name,
+      blob: images.isEmpty ? null : encodeStickerPack(pack.name, images),
+      signed: false,
+    );
+  }
+
+  /// Make [packId] here what one of my other devices has: [blob] replaces its
+  /// stickers (null: none), or [deleted] removes it. Keeps the pack's id, so a
+  /// later change on either device lands on the same pack. A signed blob must
+  /// verify, as for any install. Never told back through [onLocalPackChange].
+  Future<void> applyMirroredPack(
+    String packId, {
+    required String name,
+    Uint8List? blob,
+    bool deleted = false,
+  }) async {
+    final storage = _storage;
+    final packs = List<StickerPack>.of(state.value ?? await _load(storage));
+    final idx = packs.indexWhere((p) => p.id == packId);
+    final old = idx < 0 ? null : packs[idx];
+    Future<void> dropFiles(StickerPack p) async {
+      for (final itemId in p.items) {
+        try {
+          await storage.deleteStoredFile(stickerFileKey(itemId));
+        } catch (_) {}
+      }
+      try {
+        await storage.deleteStoredFile(stickerPackBlobKey(p.id));
+      } catch (_) {}
+    }
+
+    if (deleted) {
+      if (old == null) return;
+      packs.removeAt(idx);
+      await _save(storage, packs);
+      await dropFiles(old);
+      return;
+    }
+    final bundle = blob == null ? null : decodeStickerPack(blob);
+    if (bundle != null && bundle.isSigned) {
+      final ok = await ref.read(stickerPackCryptoProvider).verify(bundle);
+      if (!ok) throw StickerPackBadSignature();
+    }
+    final items = <String>[];
+    for (final img in bundle?.images ?? const <Uint8List>[]) {
+      final norm = await normalizeStickerBytes(img);
+      if (norm == null) continue;
+      final itemId = const Uuid().v4();
+      await storage.storeFile(
+        stickerFileKey(itemId),
+        norm,
+        name: 'sticker$kStickerFileExt',
+      );
+      items.add(itemId);
+    }
+    final signed = bundle?.isSigned ?? false;
+    final next = StickerPack(
+      id: packId,
+      name: name,
+      items: items,
+      authorHex: signed
+          ? NodeId(Uint8List.fromList(bundle!.authorId!)).hex
+          : null,
+      signed: signed,
+    );
+    if (idx < 0) {
+      packs.add(next);
+    } else {
+      packs[idx] = next;
+    }
+    // New files first, manifest next, old files last: a crash in between
+    // leaves orphans, never a manifest naming bytes that are gone.
+    if (signed) {
+      await storage.storeFile(
+        stickerPackBlobKey(packId),
+        blob!,
+        name: 'pack$kStickerPackFileExt',
+      );
+    }
+    await _save(storage, packs);
+    if (old != null) {
+      for (final itemId in old.items) {
+        try {
+          await storage.deleteStoredFile(stickerFileKey(itemId));
+        } catch (_) {}
+      }
+      if (old.signed && !signed) {
+        try {
+          await storage.deleteStoredFile(stickerPackBlobKey(packId));
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// The default pack is created on each device on first use under ONE id,
+  /// so two devices that each had one hold two different packs by the same
+  /// id — and the newest would replace the other's stickers once they sync.
+  /// Moved to an id of its own, once, before this device's packs are first
+  /// told to the others. Returns whether anything moved.
+  Future<bool> giveDefaultPackItsOwnId() async {
+    final storage = _storage;
+    final packs = List<StickerPack>.of(state.value ?? await _load(storage));
+    final idx = packs.indexWhere((p) => p.id == kDefaultStickerPackId);
+    if (idx < 0) return false;
+    final p = packs[idx];
+    final id = const Uuid().v4();
+    await storage.putSetting(_defaultPackSetting, id);
+    packs[idx] = StickerPack(
+      id: id,
+      name: p.name,
+      items: p.items,
+      authorHex: p.authorHex,
+      signed: p.signed,
+    );
+    if (p.signed) {
+      final original = await storage.loadFile(stickerPackBlobKey(p.id));
+      if (original != null) {
+        await storage.storeFile(
+          stickerPackBlobKey(id),
+          original,
+          name: 'pack$kStickerPackFileExt',
+        );
+      }
+    }
+    await _save(storage, packs);
+    return true;
   }
 }
 
