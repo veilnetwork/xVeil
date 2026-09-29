@@ -18,6 +18,7 @@ class _Capture implements VeilTransport {
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
   final sent = <(NodeId, WireKind, String)>[];
+  Future<void> Function(NodeId)? beforeSend;
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -25,6 +26,7 @@ class _Capture implements VeilTransport {
   Stream<InboundMessage> messages() => _in.stream;
   @override
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) async {
+    await beforeSend?.call(dst);
     final env = WireEnvelope.decode(payload);
     sent.add((dst, env.kind, env.body));
   }
@@ -101,6 +103,70 @@ void main() {
     expect(
       t.sent.where((e) => e.$2 == WireKind.presence).map((e) => e.$1),
       [sibling],
+    );
+  });
+
+  test('simultaneous announcements use one send window', () async {
+    final t = _Capture(_id(0x91));
+    final m = await _service(t);
+    addTearDown(m.dispose);
+    m.myOtherDevices = () async => [sibling];
+    final release = Completer<void>();
+    t.beforeSend = (_) => release.future;
+
+    final first = m.announcePresence();
+    final second = m.announcePresence();
+    release.complete();
+    await Future.wait([first, second]);
+    expect(t.sent.where((e) => e.$2 == WireKind.presence), hasLength(1));
+  });
+
+  test('an unreachable sibling does not delay another presence send', () async {
+    final t = _Capture(_id(0x91));
+    final m = await _service(t);
+    addTearDown(m.dispose);
+    final slow = _id(0x93);
+    final release = Completer<void>();
+    t.beforeSend = (device) =>
+        device == slow ? release.future : Future<void>.value();
+    m.myOtherDevices = () async => [slow, sibling];
+    m.liveLegDeadline = const Duration(milliseconds: 50);
+
+    await m.announcePresence();
+    expect(
+      [for (final e in t.sent) if (e.$2 == WireKind.presence) e.$1],
+      [sibling],
+    );
+    release.complete();
+  });
+
+  test('a device added during an announcement is told in the next pass',
+      () async {
+    final t = _Capture(_id(0x91));
+    final m = await _service(t);
+    addTearDown(m.dispose);
+    final slow = _id(0x93);
+    final devices = <NodeId>[slow];
+    m.myOtherDevices = () async => List<NodeId>.of(devices);
+    final entered = Completer<void>();
+    final release = Completer<void>();
+    t.beforeSend = (device) {
+      if (device == slow) {
+        entered.complete();
+        return release.future;
+      }
+      return Future<void>.value();
+    };
+
+    final first = m.announcePresence();
+    await entered.future;
+    devices.add(sibling);
+    final afterLink = m.announcePresence();
+    release.complete();
+    await Future.wait([first, afterLink]);
+    expect(
+      [for (final e in t.sent) if (e.$2 == WireKind.presence) e.$1],
+      [slow, sibling],
     );
   });
 
