@@ -14780,7 +14780,11 @@ class GroupService implements ArchiveGroups {
     final send = _send;
     if (send == null) return false;
     final gidHex = req['gid'];
-    if (gidHex is! String || !(await _index()).contains(gidHex)) return false;
+    if (gidHex is! String ||
+        (!(await _index()).contains(gidHex) &&
+            gidHex != await deviceGroupIdHex())) {
+      return false;
+    }
     final NodeId gid;
     try {
       gid = NodeId.fromHex(gidHex);
@@ -15773,9 +15777,9 @@ class GroupService implements ArchiveGroups {
   /// Cheap when in sync (one small JSON), and the reply path ships only what
   /// this device actually lacks.
   Future<void> nudgeGroupSyncAll() async {
-    // The device group has its own pointer and is absent from _index(). Ask
-    // about it here too; otherwise the bridge has to resend its entire log on
-    // every boot just to recover a missed row.
+    // The device group also has a dedicated pointer. Include it even when a
+    // restored index lacks its entry, so boot catch-up does not depend on a
+    // full snapshot from the bridge.
     final deviceGroupHex = await deviceGroupIdHex();
     final ids = <String>{
       ?deviceGroupHex,
