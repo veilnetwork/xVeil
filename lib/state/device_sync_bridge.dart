@@ -100,11 +100,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   final hub = ref.read(deviceSettingsSyncHubProvider);
   final callLog = ref.read(callLogStoreProvider);
 
-  // Boot catch-up (brick 4e): ship the full device-group snapshot to my other
-  // devices once per bridge build. Deltas posted during a total entry-node
-  // outage never redrive into the GROUP log (unlike 1:1 durable frames), so
-  // without this a sibling that missed them stays diverged until re-link.
-  unawaited(svc.nudgeDeviceSync());
+  // Boot catch-up is owned by groupServiceProvider's nudgeGroupSyncAll(). It
+  // includes the device group and asks peers for missing rows. A full snapshot
+  // here resent the whole device log on every restart and provider rebuild.
 
   // The settings allowlist: registering an applier is what admits a key.
   hub.register(
