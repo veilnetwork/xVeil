@@ -59,6 +59,59 @@ void main() {
     }
   });
 
+  test('boot reuses an unchanged identity document announcement', () {
+    expect(
+      identityDocumentAnnouncementNeeded(
+        null,
+        documentB64: 'document-v1',
+        ownsGroup: true,
+      ),
+      isTrue,
+      reason: 'a first announcement is still needed',
+    );
+    final held = ev(DeviceSyncKind.identityDoc, 'my-device', 10, {
+      'd': 'document-v1',
+      'o': true,
+    });
+    expect(
+      identityDocumentAnnouncementNeeded(
+        held,
+        documentB64: 'document-v1',
+        ownsGroup: true,
+      ),
+      isFalse,
+      reason: 'an offline sibling can fetch the retained group event',
+    );
+    expect(
+      identityDocumentAnnouncementNeeded(
+        held,
+        documentB64: 'document-v2',
+        ownsGroup: true,
+      ),
+      isTrue,
+      reason: 'a newly linked device changes the document',
+    );
+    expect(
+      identityDocumentAnnouncementNeeded(
+        held,
+        documentB64: 'document-v1',
+        ownsGroup: false,
+      ),
+      isTrue,
+      reason: 'the master-device marker must not remain stale',
+    );
+    expect(
+      identityDocumentAnnouncementNeeded(
+        ev(DeviceSyncKind.identityDoc, 'linked-device', 11, {
+          'd': 'document-v1',
+        }),
+        documentB64: 'document-v1',
+        ownsGroup: false,
+      ),
+      isFalse,
+    );
+  });
+
   test('an event may not take effect before its own timestamp, give or take '
       'the tolerated skew (XV-12)', () {
     const now = 1700000000000;
