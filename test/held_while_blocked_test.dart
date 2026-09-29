@@ -231,6 +231,30 @@ void main() {
     expect(await storage.loadMessageById(peer.hex, 'm202'), isNotNull);
   });
 
+  test('a full held-file still records and acknowledges the overflow', () async {
+    Future<void> large(String id, int seq) => m.deliverInbound(
+      InboundMessage(
+        src: peer,
+        payload: WireEnvelope.message('x' * 1700000, id: id, seq: seq).encode(),
+        provenance: SenderProvenance.signed,
+      ),
+    );
+
+    await large('large-1', 1);
+    expect(await m.heldWhileBlocked(peer), 1);
+    await large('large-2', 2);
+    expect(await m.heldWhileBlocked(peer), 1,
+        reason: 'the whole held queue exceeded the stored-file byte limit');
+    expect(await storage.isBlockedMessage(peer.hex, 'large-2'), isTrue);
+    expect((await storage.conversationSync(peer.hex)).highWater[peer.hex], 2);
+    expect(t.sent.where((e) => e.$2 == WireKind.ack).length, 2);
+
+    await m.unblockContact(peer);
+    await large('large-2', 2);
+    expect(await storage.loadMessageById(peer.hex, 'large-2'), isNull,
+        reason: 'an overflow retry appeared in the chat after unblock');
+  });
+
   test('Show keeps a held copy if replay fails', () async {
     await m.unblockContact(peer);
     await storage.storeFile(
