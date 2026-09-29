@@ -397,7 +397,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         messaging.registerGroupContent(blob, name: stickerPackSyncFileName),
     postEvent: svc.postDeviceEvent,
     nextTimestamp: nextTs,
+    canPost: () async => await svc.deviceGroupIdHex() != null,
   );
+  ref.onDispose(stickerSync.dispose);
 
   stickers.onLocalPackChange = (packId, {bool deleted = false}) =>
       unawaited(stickerSync.emit(packId, deleted: deleted));

@@ -14,6 +14,11 @@ import 'package:xveil/state/sticker_store.dart';
 
 import 'support/fake_hv_container.dart';
 
+final _png1x1 = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
+  'awAAAABJRU5ErkJggg==',
+);
+
 Future<
   ({
     ProviderContainer container,
@@ -22,10 +27,12 @@ Future<
     StickerDeviceSync sync,
     List<DeviceSyncEvent> posted,
     void Function(bool) allowPost,
+    void Function(bool) allowReady,
+    int Function() registrations,
     void Function(Future<void> Function()?) delayNextPost,
   })
 >
-_fixture() async {
+_fixture({Duration retryDelay = const Duration(minutes: 1)}) async {
   final storage = FakeHvContainer().storage();
   await storage.open(password: 'pw', createIfMissing: true);
   final container = ProviderContainer(
@@ -35,13 +42,17 @@ _fixture() async {
   await container.read(stickerControllerProvider.future);
   final posted = <DeviceSyncEvent>[];
   var accepts = true;
+  var ready = true;
+  var registrations = 0;
   var timestamp = 0;
   Future<void> Function()? nextPostDelay;
   final sync = StickerDeviceSync(
     storage: storage,
     stickers: stickers,
-    registerContent: (Uint8List blob) async =>
-        ContentManifest.fromBytes(stickerPackSyncFileName, blob).contentId,
+    registerContent: (Uint8List blob) async {
+      registrations++;
+      return ContentManifest.fromBytes(stickerPackSyncFileName, blob).contentId;
+    },
     postEvent: (event, {MediaObject? attachment}) async {
       final delay = nextPostDelay;
       nextPostDelay = null;
@@ -50,7 +61,10 @@ _fixture() async {
       return accepts;
     },
     nextTimestamp: () => ++timestamp,
+    canPost: () async => ready,
+    retryDelay: retryDelay,
   );
+  addTearDown(sync.dispose);
   return (
     container: container,
     storage: storage,
@@ -58,6 +72,8 @@ _fixture() async {
     sync: sync,
     posted: posted,
     allowPost: (value) => accepts = value,
+    allowReady: (value) => ready = value,
+    registrations: () => registrations,
     delayNextPost: (delay) => nextPostDelay = delay,
   );
 }
@@ -84,11 +100,7 @@ void main() {
     final f = await _fixture();
     addTearDown(f.container.dispose);
     final id = await f.stickers.createPack('Images');
-    final png = base64Decode(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
-      'awAAAABJRU5ErkJggg==',
-    );
-    expect(await f.stickers.importImages([png], packId: id), 1);
+    expect(await f.stickers.importImages([_png1x1], packId: id), 1);
     await f.sync.emit(id);
     final cid = f.posted.single.payload['cid'] as String;
     expect(cid, isNotEmpty);
@@ -123,6 +135,33 @@ void main() {
     await f.sync.reconcile();
     expect(f.posted, hasLength(2), reason: 'an unchanged pack was reannounced');
   });
+
+  test(
+    'a refused post retries when a device group appears in this session',
+    () async {
+      final f = await _fixture(retryDelay: const Duration(milliseconds: 20));
+      addTearDown(f.container.dispose);
+      final id = await f.stickers.createPack('Before link');
+      expect(await f.stickers.importImages([_png1x1], packId: id), 1);
+      f.allowReady(false); // no device group yet
+      await f.sync.emit(id);
+      expect(f.posted, isEmpty);
+      expect(f.registrations(), 0);
+
+      f.allowReady(true); // link completed without restarting the app
+      for (var i = 0; i < 50 && f.posted.isEmpty; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(f.posted, hasLength(1));
+      expect(f.posted.single.payload['name'], 'Before link');
+      expect(f.posted.single.payload['cid'], isA<String>());
+      expect(f.registrations(), 1);
+      expect(
+        await f.storage.getSetting('stickers.announced.v1:$id'),
+        startsWith('v2:'),
+      );
+    },
+  );
 
   test(
     'a deletion interrupted before its callback is repaired at startup',
