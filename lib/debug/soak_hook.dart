@@ -5407,8 +5407,8 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     });
   }
 
-  /// Ship the FULL device-group snapshot to my other devices right now — the
-  /// brick-4e catch-up nudge (normally fired once per boot by the bridge).
+  /// Explicitly ship the FULL device-group snapshot to my other devices.
+  /// Boot uses the group sync vector and only asks for missing rows.
   Future<void> _deviceSyncNowHook(HttpRequest req) async {
     if (!_requireReady(req)) return;
     final svc = _groupSvc();
