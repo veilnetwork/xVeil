@@ -1503,7 +1503,8 @@ class MessagingService {
     await flushOutbox();
   }
 
-  DateTime? _presenceAnnouncedAt;
+  final Map<String, DateTime> _presenceAnnouncedTo = {};
+  Future<void>? _presenceInFlight;
 
   DateTime? _erasuresComparedAt;
 
@@ -1526,31 +1527,66 @@ class MessagingService {
   /// Called on (re)connect AND when my devices become known: at start the node
   /// connects before the device group has said who they are, and a call that
   /// found nobody to tell must not use up the window.
-  Future<void> announcePresence() async {
-    final devices = await myOtherDevices?.call() ?? const <NodeId>[];
-    if (devices.isEmpty) return;
-    final now = _now();
-    final last = _presenceAnnouncedAt;
-    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
-      return;
+  Future<void> announcePresence() {
+    final pending = _presenceInFlight;
+    if (pending != null) {
+      // The device list may have grown while that send was waiting on a slow
+      // sibling. Re-read it after the in-flight pass; per-device windows make
+      // this a no-op for recipients the first pass already reached.
+      return pending.then((_) => announcePresence());
     }
-    var told = 0;
-    for (final device in devices) {
-      try {
-        await _send(device, WireEnvelope.presence(await _selfHex()).encode());
+    late final Future<void> run;
+    run = _announcePresence().whenComplete(() {
+      if (identical(_presenceInFlight, run)) _presenceInFlight = null;
+    });
+    _presenceInFlight = run;
+    return run;
+  }
+
+  Future<void> _announcePresence() async {
+    try {
+      final devices = await myOtherDevices?.call() ?? const <NodeId>[];
+      if (devices.isEmpty) return;
+      final now = _now();
+      _presenceAnnouncedTo.removeWhere(
+        (_, at) => now.difference(at) >= const Duration(seconds: 30),
+      );
+      final due = [
+        for (final device in devices)
+          if (!_presenceAnnouncedTo.containsKey(device.hex)) device,
+      ];
+      if (due.isEmpty) return;
+      final frame = WireEnvelope.presence(await _selfHex()).encode();
+      // A dead sibling must not delay the announcement to one that is here.
+      final sent = await Future.wait([
+        for (final device in due)
+          () async {
+            try {
+              await _send(device, frame).timeout(liveLegDeadline);
+              return true;
+            } catch (_) {
+              // Best-effort: the probe ladder still reaches it.
+              return false;
+            }
+          }(),
+      ]);
+      final completedAt = _now();
+      var told = 0;
+      for (var i = 0; i < due.length; i++) {
+        if (!sent[i]) continue;
+        _presenceAnnouncedTo[due[i].hex] = completedAt;
         told++;
-      } catch (_) {
-        // Best-effort: the probe ladder still reaches it.
       }
+      // A failed send does not use up that device's window. At boot the node
+      // can connect before the device group is ready, so a later pass matters.
+      devLog(
+        () =>
+            'xVeil[devices]: told $told of ${due.length} device(s) I am '
+            'online',
+      );
+    } catch (error) {
+      devLog(() => 'xVeil[devices]: presence announcement failed: $error');
     }
-    // Only a call that reached somebody uses up the window: one made before
-    // the node was connected must not silence the one made when it is.
-    if (told > 0) _presenceAnnouncedAt = now;
-    devLog(
-      () =>
-          'xVeil[devices]: told $told of ${devices.length} device(s) I am '
-          'online',
-    );
   }
 
   void _signal() {
