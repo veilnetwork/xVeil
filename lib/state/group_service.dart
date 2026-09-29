@@ -14451,7 +14451,17 @@ class GroupService implements ArchiveGroups {
         final authored = rows.where((message) => message.author == author);
         if (authored.isEmpty) continue;
         final scope = _messageChainScope(b.manifest, authored.first);
-        final chain = _acceptedMessageChain(b.manifest, rows, author, scope);
+        // An erased prefix leaves the first retained row linked to a row no
+        // longer on disk. The same cut that re-anchors message reads must
+        // re-anchor this frontier; otherwise the request advertises s=-1
+        // and every restart asks peers to resend the whole retained suffix.
+        final chain = _acceptedMessageChain(
+          b.manifest,
+          rows,
+          author,
+          scope,
+          cut: b.retentionCuts[retentionCutKey(scope, author)],
+        );
         final fork = forks['$scope|${author.hex}'];
         // WHICH ROWS, not just how far.
         //
