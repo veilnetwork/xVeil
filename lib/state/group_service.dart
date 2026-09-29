@@ -15777,6 +15777,11 @@ class GroupService implements ArchiveGroups {
   /// Cheap when in sync (one small JSON), and the reply path ships only what
   /// this device actually lacks.
   Future<void> nudgeGroupSyncAll() async {
+    // Verification is synchronous, but peer documents are loaded from the
+    // encrypted file store. Without this wait a cold-start vector can claim
+    // to hold none of the device-signed rows already on disk, provoking a
+    // whole-history reply from every sibling.
+    await loadPeerDocuments();
     // The device group also has a dedicated pointer. Include it even when a
     // restored index lacks its entry, so boot catch-up does not depend on a
     // full snapshot from the bridge.
@@ -15832,6 +15837,9 @@ class GroupService implements ArchiveGroups {
   }) async {
     final send = _send;
     if (send == null) return 0;
+    // Session and resume pulls may race the boot pass. They need the same
+    // signer documents before they describe which rows this device holds.
+    await loadPeerDocuments();
     final bundle = await load(groupId);
     if (bundle == null) return 0;
     final req = _buildGroupSyncRequest(bundle);

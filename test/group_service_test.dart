@@ -2951,6 +2951,67 @@ void main() {
       );
     });
 
+    test('boot sync loads peer documents before describing stored rows',
+        () async {
+      GroupService? reader;
+      var ownerActing = true;
+      setIdentityDocumentLookup(
+        (id) => id == owner && ownerActing
+            ? docFor(owner)
+            : reader?.peerDocument(id),
+      );
+      final ownerStore = FakeHvContainer().storage();
+      await ownerStore.open(password: 'pw', createIfMissing: true);
+      final ownerSvc = GroupService(ownerStore, _FakeSigner(owner));
+      addTearDown(ownerSvc.dispose);
+      final gid = await ownerSvc.createGroup('document boot vector');
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      expect(await ownerSvc.postMessage(gid, 'already-held'), isTrue);
+
+      final container = FakeHvContainer();
+      final warm = container.storage();
+      await warm.open(password: 'pw', createIfMissing: true);
+      final warmReader = GroupService(warm, _DocGatedSigner(bob))
+        ..documentNodeId = nameOf;
+      reader = warmReader;
+      final snapshot = ownerSvc.snapshotJson(
+        (await ownerSvc.load(gid))!,
+        recipient: bob,
+      );
+      ownerActing = false;
+      expect(await warmReader.ingestSnapshot(snapshot), isTrue);
+      expect((await warmReader.messagesOf(gid)).length, 1);
+      warmReader.dispose();
+      await warm.close();
+
+      final cold = container.storage();
+      await cold.open(password: 'pw');
+      final sent = <String>[];
+      final coldReader = GroupService(
+        cold,
+        _DocGatedSigner(bob),
+        send: (peer, group, json) async => sent.add(json),
+      )..documentNodeId = nameOf;
+      reader = coldReader;
+      addTearDown(coldReader.dispose);
+      expect(coldReader.peerDocumentsLoaded, isFalse);
+
+      await coldReader.nudgeGroupSyncAll();
+
+      expect(coldReader.peerDocumentsLoaded, isTrue);
+      expect(sent, hasLength(1));
+      final request = jsonDecode(sent.single) as Map;
+      expect(request['sreq'], 1);
+      expect(request['gid'], gid.hex);
+      expect(request['ms'] as Map, isNotEmpty,
+          reason: 'stored rows must not look missing after a restart');
+    });
+
     test('a cold start does not erase a device-signed member\'s rows from disk', () async {
       // Measured on the stand 2026-09-23: groups whole before a restart held,
       // after it, zero stored rows and no keys — ON DISK, not just on screen.
