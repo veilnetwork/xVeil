@@ -191,6 +191,22 @@ void main() {
     final peer = _id(0x44);
     final me = _id(0x91);
 
+    test('each pass checks the newest page and advances through old pages', () {
+      expect(erasureComparisonPages(round: 1, pages: 1), [0]);
+      expect(
+        [
+          for (var round = 1; round <= 4; round++)
+            erasureComparisonPages(round: round, pages: 4),
+        ],
+        [
+          [0, 1],
+          [0, 2],
+          [0, 3],
+          [0, 1],
+        ],
+      );
+    });
+
     test('a sibling answers with what it erased of what I still show, and I '
         'erase it too', () async {
       // The sibling: erased 'gone', still holds 'kept'.
@@ -257,7 +273,8 @@ void main() {
     });
 
     test('an erase older than the newest page is caught up too', () async {
-      // The three measured on the stand sat 1400 messages deep.
+      // The measured cases on the stand sat deep enough that a new session's
+      // first comparison could not reach them.
       var clock = DateTime.now();
       final base = clock.subtract(const Duration(days: 1));
       final sibStore = await _storage();
@@ -271,12 +288,12 @@ void main() {
       sib.myOtherDevices = () async => [me];
 
       final myStore = await _storage();
-      for (var i = 0; i < 250; i++) {
+      for (var i = 0; i < 401; i++) {
         await _hold(myStore, peer, 'm$i', at: base.add(Duration(seconds: i)));
       }
       final myT = _Capture(me);
-      final mine = await _service(myT, myStore, () => clock);
-      addTearDown(mine.dispose);
+      var mine = await _service(myT, myStore, () => clock);
+      addTearDown(() => mine.dispose());
       mine.selfIdentityHex = () async => identity.hex;
       mine.isOwnDevice = (p) async => p == identity || p == sibling;
       mine.myOtherDevices = () async => [sibling];
@@ -300,7 +317,14 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 30));
       }
 
-      for (var round = 1; round <= 4; round++) {
+      for (var round = 1; round <= 2; round++) {
+        if (round == 2) {
+          await mine.dispose();
+          mine = await _service(myT, myStore, () => clock);
+          mine.selfIdentityHex = () async => identity.hex;
+          mine.isOwnDevice = (p) async => p == identity || p == sibling;
+          mine.myOtherDevices = () async => [sibling];
+        }
         clock = clock.add(const Duration(minutes: 11));
         await mine.deliverInbound(
           InboundMessage(
@@ -313,13 +337,19 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 30));
         await carry(myT, sib, me);
         await carry(sibT, mine, sibling);
-        if (round < 4) {
-          expect(await myStore.loadMessageById(peer.hex, 'm0'), isNotNull,
-              reason: 'vacuity: the old page is not asked every round');
+        if (round == 1) {
+          expect(
+            await myStore.loadMessageById(peer.hex, 'm0'),
+            isNotNull,
+            reason: 'the first older page does not reach this message',
+          );
         }
       }
-      expect(await myStore.loadMessageById(peer.hex, 'm0'), isNull,
-          reason: 'an erase below the newest page was never compared');
+      expect(
+        await myStore.loadMessageById(peer.hex, 'm0'),
+        isNull,
+        reason: 'an erase below the newest page was never compared',
+      );
     });
 
     test('an answer nobody asked for erases nothing', () async {
