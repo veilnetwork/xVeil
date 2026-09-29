@@ -145,9 +145,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // under that id, the last publisher displaces the rest, and the displaced
   // devices stay online believing they are reachable.
   //
-  // Announced on every bridge build rather than once at linking: a device that
-  // was off when another joined has no other moment to learn of it, and the
-  // exchange is idempotent — a document that changes nothing is not answered.
+  // Checked on every bridge build rather than once at linking. A device that
+  // was off when another joined retrieves the retained announcement through
+  // group sync; writing the same document again would send a new multi-frame
+  // group delta at every restart.
   // The announcer's DEVICE id, for keying the announcement and skipping its
   // echo. NOT selfId: on a phrase-restored device selfId IS the identity
   // address, which its master shares — keyed by selfId, the master's and the
@@ -177,12 +178,23 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     // protocol. An older build never writes the mark and never reads it, so a
     // mixed pair simply keeps its mailbox path.
     final ownsGroup = await svc.ownsDeviceGroup();
+    final key = (announceDevice ?? svc.selfId).hex;
+    final documentB64 = base64.encode(doc);
+    final current = (await svc
+        .deviceSyncState())[(DeviceSyncKind.identityDoc, key)];
+    if (!identityDocumentAnnouncementNeeded(
+      current,
+      documentB64: documentB64,
+      ownsGroup: ownsGroup,
+    )) {
+      return;
+    }
     await svc.postDeviceEvent(
       DeviceSyncEvent(
         kind: DeviceSyncKind.identityDoc,
-        key: (announceDevice ?? svc.selfId).hex,
+        key: key,
         tsMs: nextTs(),
-        payload: {'d': base64.encode(doc), if (ownsGroup) 'o': true},
+        payload: {'d': documentB64, if (ownsGroup) 'o': true},
       ),
     );
   }
