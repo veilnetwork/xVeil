@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/event.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
@@ -46,6 +48,7 @@ void main() {
   // sender, and appeared the moment the block was lifted. Owner's decision
   // (2026-09-27): keep it aside, acknowledge it, and let the person choose.
   final peer = _id(0x44);
+  late FakeKvLogStore store;
   late HiddenVolumeStorage storage;
   late _Capture t;
   late MessagingService m;
@@ -53,7 +56,7 @@ void main() {
 
   setUp(() async {
     nextSeq = 0;
-    final store = FakeKvLogStore();
+    store = FakeKvLogStore();
     storage = HiddenVolumeStorage(
       ({required password, required bool create}) => store,
     );
@@ -66,8 +69,8 @@ void main() {
   });
   tearDown(() => m.dispose());
 
-  Future<void> arrive(String id) async {
-    nextSeq++;
+  Future<void> arrive(String id, {int? seq, bool settle = true}) async {
+    if (seq == null) nextSeq++;
     await m.deliverInbound(
       InboundMessage(
         src: peer,
@@ -75,12 +78,23 @@ void main() {
           'text $id',
           id: id,
           sentAtMs: DateTime.now().millisecondsSinceEpoch,
-          seq: nextSeq,
+          seq: seq ?? nextSeq,
         ).encode(),
         provenance: SenderProvenance.signed,
       ),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    if (settle) await Future<void>.delayed(const Duration(milliseconds: 20));
+  }
+
+  Future<void> restart() async {
+    await m.dispose();
+    await storage.close();
+    storage = HiddenVolumeStorage(
+      ({required password, required bool create}) => store,
+    );
+    await storage.open(password: 'pw', createIfMissing: false);
+    t = _Capture(_id(1));
+    m = MessagingService(t, storage)..start();
   }
 
   test('held aside and acknowledged, not shown', () async {
@@ -93,6 +107,14 @@ void main() {
     expect((await storage.conversationSync(peer.hex)).highWater[peer.hex], 1,
         reason: 'a hole at its seq: gap-fill re-sends it into the chat the '
             'moment the block is lifted');
+    expect(await storage.isBlockedMessage(peer.hex, 'm1'), isTrue);
+    expect(await storage.isMessageDeleted(peer.hex, 'm1'), isFalse,
+        reason: 'a local block must not look like a deletion to my devices');
+    expect(await storage.deletedMessageIds(peer.hex), isEmpty);
+    final recovery = await storage.loadEventsSince(peer.hex, peer.hex, 0);
+    expect(recovery.single.kind, EventKind.void_);
+    expect(recovery.single.id, isEmpty,
+        reason: 'the recovery wire must not reveal the blocked message id');
   });
 
   test('after unblocking, shown only when asked', () async {
@@ -108,12 +130,120 @@ void main() {
     expect(await m.heldWhileBlocked(peer), 0);
   });
 
+  test('a retry after unblocking waits for Show too', () async {
+    await arrive('m1');
+    await m.unblockContact(peer);
+    await arrive('m1', seq: 1);
+    expect(await storage.loadMessageById(peer.hex, 'm1'), isNull);
+    expect(await m.heldWhileBlocked(peer), 1);
+    expect(await m.releaseHeldWhileBlocked(peer), 1);
+    expect(await storage.loadMessageById(peer.hex, 'm1'), isNotNull);
+  });
+
+  test('the retry gate survives a restart', () async {
+    await arrive('m1');
+    await m.unblockContact(peer);
+    await restart();
+
+    await arrive('m1', seq: 1);
+    expect(await storage.loadMessageById(peer.hex, 'm1'), isNull);
+    expect(await m.heldWhileBlocked(peer), 1);
+    expect(await m.releaseHeldWhileBlocked(peer), 1);
+    expect(await storage.loadMessageById(peer.hex, 'm1'), isNotNull);
+  });
+
+  test('a legacy message without a sequence waits for Show', () async {
+    final wire = WireEnvelope.message(
+      'legacy',
+      id: 'old',
+      sentAtMs: DateTime.now().millisecondsSinceEpoch,
+    ).encode();
+    Future<void> deliver() => m.deliverInbound(
+          InboundMessage(
+            src: peer,
+            payload: wire,
+            provenance: SenderProvenance.signed,
+          ),
+        );
+    await deliver();
+    await m.unblockContact(peer);
+    await deliver();
+    expect(await storage.loadMessageById(peer.hex, 'old'), isNull);
+    expect(await m.releaseHeldWhileBlocked(peer), 1);
+    expect(await storage.loadMessageById(peer.hex, 'old'), isNotNull);
+  });
+
+  test('a held copy from an earlier build also stops a retry', () async {
+    final wire = WireEnvelope.message(
+      'older held copy',
+      id: 'earlier',
+      sentAtMs: DateTime.now().millisecondsSinceEpoch,
+      seq: 1,
+    ).encode();
+    await storage.storeFile(
+      'held-while-blocked:${peer.hex}',
+      Uint8List.fromList(
+        utf8.encode(jsonEncode([
+          {'i': 'earlier', 'w': base64Encode(wire)},
+        ])),
+      ),
+      name: 'held-while-blocked',
+    );
+    await m.unblockContact(peer);
+    await m.deliverInbound(
+      InboundMessage(
+        src: peer,
+        payload: wire,
+        provenance: SenderProvenance.signed,
+      ),
+    );
+    expect(await storage.loadMessageById(peer.hex, 'earlier'), isNull);
+    expect(await m.releaseHeldWhileBlocked(peer), 1);
+    expect(await storage.loadMessageById(peer.hex, 'earlier'), isNotNull);
+  });
+
   test('or deleted unread', () async {
     await arrive('m1');
     await m.unblockContact(peer);
     await m.discardHeldWhileBlocked(peer);
     expect(await m.heldWhileBlocked(peer), 0);
     expect(await storage.loadMessageById(peer.hex, 'm1'), isNull);
+    await arrive('m1', seq: 1);
+    expect(await storage.loadMessageById(peer.hex, 'm1'), isNull,
+        reason: 'a sender retry resurrected a discarded message');
+    await arrive('m2');
+    expect(await storage.loadMessageById(peer.hex, 'm2'), isNotNull,
+        reason: 'discarding old messages must not block new ones');
+  });
+
+  test('the 201st blocked message is dropped and acknowledged', () async {
+    for (var i = 1; i <= 201; i++) {
+      await arrive('m$i', settle: false);
+    }
+    expect(await m.heldWhileBlocked(peer), 200);
+    expect((await storage.conversationSync(peer.hex)).highWater[peer.hex], 201);
+    expect(t.sent.where((e) => e.$2 == WireKind.ack).length, 201);
+    await m.unblockContact(peer);
+    await restart();
+    await arrive('m201', seq: 201);
+    expect(await storage.loadMessageById(peer.hex, 'm201'), isNull);
+    await arrive('m202');
+    expect(await storage.loadMessageById(peer.hex, 'm202'), isNotNull);
+  });
+
+  test('Show keeps a held copy if replay fails', () async {
+    await m.unblockContact(peer);
+    await storage.storeFile(
+      'held-while-blocked:${peer.hex}',
+      Uint8List.fromList(
+        utf8.encode(jsonEncode([
+          {'i': 'broken', 'w': base64Encode([0xff])},
+        ])),
+      ),
+      name: 'held-while-blocked',
+    );
+    expect(await m.releaseHeldWhileBlocked(peer), 0);
+    expect(await m.heldWhileBlocked(peer), 1);
   });
 
   test('not shown while still blocked, even if asked', () async {
