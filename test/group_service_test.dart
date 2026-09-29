@@ -2583,6 +2583,31 @@ void main() {
       );
     });
 
+    test('sync advertises rows retained after an erased prefix', () async {
+      final (ownerSvc, bobSvc, gid) = await pair();
+      await ship(ownerSvc, bobSvc, gid, bob);
+      expect(await bobSvc.postMessage(gid, 'erased-0'), isTrue);
+      expect(await bobSvc.postMessage(gid, 'erased-1'), isTrue);
+      expect(
+        await bobSvc.eraseGroupRowsLocally(gid, whose: (a) => a == bob),
+        2,
+      );
+      expect(await bobSvc.postMessage(gid, 'retained-2'), isTrue);
+      expect(await bobSvc.postMessage(gid, 'retained-3'), isTrue);
+      expect(await bodies(bobSvc, gid), ['retained-2', 'retained-3']);
+
+      final request = (await bobSvc.buildGroupSyncRequest(gid))!;
+      final scopes = request['ms'] as Map;
+      final bobFrontiers = [
+        for (final scope in scopes.values)
+          if (scope is Map && scope[bob.hex] is Map)
+            scope[bob.hex] as Map,
+      ];
+      expect(bobFrontiers, hasLength(1));
+      expect(bobFrontiers.single['s'], 3,
+          reason: 'the peer already holds the retained chain head');
+    });
+
     // Measured on the stand 2026-09-23: after "erase for everyone" the owner's
     // next two posts reached its linked device, keys and all, and it showed
     // neither. The rows chain onto the erased head, and a reader that never
