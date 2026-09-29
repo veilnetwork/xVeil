@@ -145,6 +145,20 @@ abstract interface class Storage {
   /// conversation are not listed.
   Future<Set<String>> deletedMessageIds(String conversationId);
 
+  /// A blocked contact's message was received and intentionally kept out of
+  /// the chat. Unlike a deletion, this local marker does not propagate to my
+  /// other devices; a later sender retry must wait for the person's choice.
+  /// [seq] may be absent on messages from older peers. When present, the marker
+  /// also fills the sender's gap-fill slot without exposing the message body.
+  Future<void> recordBlockedMessage(
+    String conversationId,
+    String author,
+    String messageId,
+    int? seq,
+  );
+
+  Future<bool> isBlockedMessage(String conversationId, String messageId);
+
   /// Persist [message] and return it AS STORED — with its event-log (author,
   /// seq) filled in (the caller passes seq for a wire-delivered event to keep
   /// the sender's; otherwise storage allocates the next gap-free one). The
