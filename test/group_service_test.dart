@@ -8023,6 +8023,39 @@ void main() {
         reason: 'an unchanged group must not resend its manifest and log');
   });
 
+  test('device group sync works when its index entry is missing', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sent = <String>[];
+    final svc = GroupService(
+      storage,
+      _FakeSigner(owner),
+      send: (peer, group, json) async => sent.add(json),
+    );
+    expect(
+      await svc.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false),
+      isTrue,
+    );
+    final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+    await storage.storeFile(
+      'groups.index',
+      Uint8List.fromList(utf8.encode('[]')),
+    );
+    sent.clear();
+
+    await svc.nudgeGroupSyncAll();
+    expect(sent, hasLength(1));
+    expect((jsonDecode(sent.single) as Map)['sreq'], 1);
+
+    sent.clear();
+    expect(
+      await svc.handleGroupSyncRequest(bob, {'sreq': 1, 'gid': gid.hex}),
+      isTrue,
+      reason: 'the pointer must also admit replies to a returning device',
+    );
+    expect(sent, isNotEmpty);
+  });
+
   /// report27 X08 — a group leaves in an archive as a whole snapshot and comes
   /// back with the key that makes its history readable.
   ///
