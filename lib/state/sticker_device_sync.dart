@@ -29,6 +29,8 @@ class StickerDeviceSync {
     required this.registerContent,
     required this.postEvent,
     required this.nextTimestamp,
+    this.canPost,
+    this.retryDelay = const Duration(minutes: 1),
   });
 
   final Storage storage;
@@ -36,7 +38,34 @@ class StickerDeviceSync {
   final StickerContentRegistration registerContent;
   final StickerEventPost postEvent;
   final int Function() nextTimestamp;
+  final Future<bool> Function()? canPost;
+  final Duration retryDelay;
   final Map<String, Future<void>> _queued = {};
+  Timer? _retryTimer;
+  bool _disposed = false;
+
+  void dispose() {
+    _disposed = true;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
+
+  void _retryLater() {
+    if (_disposed || _retryTimer != null) return;
+    _retryTimer = Timer(retryDelay, () {
+      _retryTimer = null;
+      if (!_disposed) unawaited(_retryPending());
+    });
+  }
+
+  Future<void> _retryPending() async {
+    try {
+      await reconcile();
+    } catch (e) {
+      devLog(() => 'xVeil[devices]: sticker pack retry failed: $e');
+      _retryLater();
+    }
+  }
 
   static const _prefix = 'stickers.announced.v1:';
   static const _deleted = 'v2:deleted';
@@ -70,6 +99,10 @@ class StickerDeviceSync {
       if (deleted) {
         if (await storage.getSetting(_key(packId)) == _deleted) return;
         await storage.putSetting(_key(packId), '$_pending$_deleted');
+        if (canPost != null && !await canPost!()) {
+          _retryLater();
+          return;
+        }
         final posted = await postEvent(
           DeviceSyncEvent(
             kind: DeviceSyncKind.stickerPack,
@@ -78,7 +111,11 @@ class StickerDeviceSync {
             payload: const {'del': true},
           ),
         );
-        if (posted) await storage.putSetting(_key(packId), _deleted);
+        if (posted) {
+          await storage.putSetting(_key(packId), _deleted);
+        } else {
+          _retryLater();
+        }
         return;
       }
 
@@ -87,6 +124,10 @@ class StickerDeviceSync {
       final marker = _marker(form.name, _contentId(form.blob));
       if (await storage.getSetting(_key(packId)) == marker) return;
       await storage.putSetting(_key(packId), '$_pending$marker');
+      if (canPost != null && !await canPost!()) {
+        _retryLater();
+        return;
+      }
       final cid = form.blob == null ? null : await registerContent(form.blob!);
       final posted = await postEvent(
         DeviceSyncEvent(
@@ -99,9 +140,14 @@ class StickerDeviceSync {
             ? null
             : MediaObject(kind: 'file', dataB64: 'AA==', w: 1, h: 1, cid: cid),
       );
-      if (posted) await storage.putSetting(_key(packId), marker);
+      if (posted) {
+        await storage.putSetting(_key(packId), marker);
+      } else {
+        _retryLater();
+      }
     } catch (e) {
       devLog(() => 'xVeil[devices]: sticker pack $packId not sent: $e');
+      _retryLater();
     }
   }
 
