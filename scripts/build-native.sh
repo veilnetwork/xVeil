@@ -7,6 +7,7 @@
 #
 # Debug by default; pass --release for optimized artifacts. Pass --ffi-only
 # when the caller embeds the node and does not ship the standalone veil-cli.
+# Pass --no-compiled-in-seeds for a build with no built-in seed list.
 # Prints the absolute artifact paths so callers can wire VEIL_FFI_DYLIB / link
 # steps.
 set -euo pipefail
@@ -14,6 +15,11 @@ set -euo pipefail
 PROFILE="debug"
 CARGO_FLAGS=()
 BUILD_CLI=true
+# This selects only the compiled-in seed list. Runtime discovery through DHT,
+# Nostr, or the local network is separate; the island harness disables those
+# meeting points in its config. Keep this override out of the shared network
+# rule: the Dart half (lib/data/node/network_flavor.dart) has no matching flavor.
+SEED_FEATURE_OVERRIDE=""
 for arg in "$@"; do
   case "$arg" in
     --release)
@@ -22,6 +28,9 @@ for arg in "$@"; do
       ;;
     --ffi-only)
       BUILD_CLI=false
+      ;;
+    --no-compiled-in-seeds)
+      SEED_FEATURE_OVERRIDE="allow-empty-seeds"
       ;;
     *)
       echo "unknown option: $arg" >&2
@@ -55,7 +64,12 @@ echo "==> Building veilclient-ffi ($PROFILE, node-embedded,packet-tunnel)"
 # path and mirrored by the Dart half (lib/data/node/network_flavor.dart).
 # shellcheck source=scripts/veil-network.sh
 source "$(dirname "${BASH_SOURCE[0]}")/veil-network.sh"
-echo "==> Network: $XVEIL_NETWORK (veil feature: $SEED_FEATURE)"
+if [[ -n "$SEED_FEATURE_OVERRIDE" ]]; then
+  SEED_FEATURE="$SEED_FEATURE_OVERRIDE"
+  echo "==> No compiled-in seeds (veil feature: $SEED_FEATURE; $XVEIL_NETWORK flavor overridden)"
+else
+  echo "==> Network: $XVEIL_NETWORK (veil feature: $SEED_FEATURE)"
+fi
 VEIL_FEATURES="node-embedded,$SEED_FEATURE,packet-tunnel"
 ( cd "$VEIL" && cargo build -p veilclient-ffi --features "$VEIL_FEATURES" ${CARGO_FLAGS[@]+"${CARGO_FLAGS[@]}"} )
 
