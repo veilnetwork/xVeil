@@ -7959,9 +7959,8 @@ void main() {
     expect(await folded(), 'skewed', reason: 'past the skew bound, deferred');
   });
 
-  test('nudgeDeviceSync (brick 4e): ships the FULL device-group snapshot to '
-      'every other device — the boot catch-up for deltas lost during a total '
-      'outage; no-op on a solo install', () async {
+  test('nudgeDeviceSync explicitly ships the FULL device-group snapshot to '
+      'every other device; no-op on a solo install', () async {
     final s = FakeHvContainer().storage();
     await s.open(password: 'pw', createIfMissing: true);
     final sent = <String>[];
@@ -7994,6 +7993,34 @@ void main() {
     expect(snap['m'], isNotNull);
     expect((snap['c'] as List), isNotEmpty);
     expect((snap['g'] as List).length, 1, reason: 'carries the missed event');
+  });
+
+  test('boot sync includes the device group as a vector, not a full snapshot',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sent = <({NodeId group, String json})>[];
+    final svc = GroupService(
+      storage,
+      _FakeSigner(owner),
+      send: (peer, group, json) async => sent.add((group: group, json: json)),
+    );
+    expect(
+      await svc.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false),
+      isTrue,
+    );
+    final deviceGroup = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+    sent.clear();
+
+    await svc.nudgeGroupSyncAll();
+
+    expect(sent, hasLength(1));
+    expect(sent.single.group, deviceGroup);
+    final request = jsonDecode(sent.single.json) as Map;
+    expect(request['sreq'], 1);
+    expect(request['gid'], deviceGroup.hex);
+    expect(request.containsKey('m'), isFalse,
+        reason: 'an unchanged group must not resend its manifest and log');
   });
 
   /// report27 X08 — a group leaves in an archive as a whole snapshot and comes

@@ -797,9 +797,8 @@ void main() {
       reason: 'not a time — stored as the moment of receipt',
     );
 
-    // ONCE. nudgeDeviceSync re-ships the FULL device-group snapshot on every
-    // boot, so this exact event is offered again and again against a clock that
-    // has moved on. The stamp must not move with it.
+    // ONCE. A missed event can be served again by the boot sync vector, against
+    // a clock that has moved on. The stamp must not move with it.
     wall = wall.add(const Duration(hours: 5));
     expect(
       await svc.applyMirroredMessage(

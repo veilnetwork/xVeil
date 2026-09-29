@@ -15773,7 +15773,15 @@ class GroupService implements ArchiveGroups {
   /// Cheap when in sync (one small JSON), and the reply path ships only what
   /// this device actually lacks.
   Future<void> nudgeGroupSyncAll() async {
-    for (final gidHex in await _index()) {
+    // The device group has its own pointer and is absent from _index(). Ask
+    // about it here too; otherwise the bridge has to resend its entire log on
+    // every boot just to recover a missed row.
+    final deviceGroupHex = await deviceGroupIdHex();
+    final ids = <String>{
+      ?deviceGroupHex,
+      ...await _index(),
+    };
+    for (final gidHex in ids) {
       final NodeId gid;
       try {
         gid = NodeId.fromHex(gidHex);
@@ -20345,14 +20353,9 @@ class GroupService implements ArchiveGroups {
     );
   }
 
-  /// Catch-up for the device group (brick 4e): ship my FULL device-group
-  /// snapshot to every other device. Deltas posted while every entry node was
-  /// down can be lost for good (the join-time full broadcast is the only
-  /// recovery today — found live in the 2026-07-11 seed outage), so each
-  /// device nudges once per boot; [ingestSnapshot] merges by (author, seq),
-  /// so a redundant nudge costs bandwidth, never correctness. Returns how
-  /// many devices it was shipped to (0 = no device group / solo install).
-  /// Ship the device group to the other devices.
+  /// Ship the FULL device group to the other devices on explicit request.
+  /// Boot catch-up uses [nudgeGroupSyncAll] so an unchanged group does not
+  /// travel again, while a newly joined device still gets a full snapshot.
   ///
   /// [reseed] marks the calls that exist for a device which may hold nothing —
   /// adoption and the explicit snapshot send. The boot catch-up does NOT set
