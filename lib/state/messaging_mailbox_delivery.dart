@@ -465,6 +465,13 @@ class _MessagingMailboxDelivery {
     // flush loop race for the same stable id. Answering false would tell the
     // caller nothing went out while a deposit is being made.
     if (_inFlight.contains(id)) return true;
+    // Several frames can pass the first backoff check while their own-device
+    // lookups are pending. The first failed seal may arm a peer-wide backoff
+    // before the others reach this point; do not seal every queued frame for
+    // the same unresolved peer after that failure.
+    if (suppressedByBackoff(peer.hex, DateTime.now(), 'maybeStash admission')) {
+      return false;
+    }
     // THE SLOT IS TAKEN WHERE IT IS CHECKED. [stashInBackground] asks first,
     // but everything between there and here can await — the own-device lookup
     // and the ack grace both do — and every deposit offered meanwhile passed
