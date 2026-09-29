@@ -692,6 +692,38 @@ void main() {
       await run.flush(now: true);
       expect(await storage.ratchetConversationKeys(), hasLength(2));
     });
+
+    test('final save cancels a trailing write before the store closes',
+        () async {
+      final log = <String>[];
+      final space = _space();
+      final counted = _OrderedStorage(
+        ({required Uint8List password, required bool create}) =>
+            password.isEmpty ? null : space.store,
+        log,
+      );
+      await counted.open(password: 'pw', createIfMissing: true);
+      final node = _FakeRatchetNode();
+      final run = RatchetPersistence(
+        native: node,
+        storage: counted,
+        coalesce: const Duration(milliseconds: 200),
+      );
+      final first = _convKey(local: 3, peerNode: 60);
+      final second = _convKey(local: 3, peerNode: 61);
+      node.seal(first);
+      await run.flush();
+      node.seal(second);
+      await run.flush(); // scheduled for the end of the window
+      expect(log, ['ratchet']);
+
+      await run.saveAll();
+      expect(await counted.ratchetConversationKeys(), hasLength(2));
+      final writesAtClose = log.length;
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      expect(log, hasLength(writesAtClose),
+          reason: 'a timer wrote ratchet state after final save returned');
+    });
   });
 
   group('the dirty loop finishes the remainder', () {
