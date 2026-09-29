@@ -3908,14 +3908,14 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
-    // The lanes are quiet and the container is still open: the last chance to
-    // write anything the ratchet changed. Everything here should already be on
-    // disk — each send and each receive wrote before it finished — so this is
-    // the belt to that pair of braces, cheap because `list` consumes nothing
-    // and the dirty marks it leaves alone are what a crash after this point
-    // would still be able to act on.
-    await _saveAllRatchet();
+    // A serve may still be finishing its last chunk and ratchet flush. Join
+    // those jobs before the final snapshot, while the container is open.
     await contentStreamsDisposed;
+    // The lanes are quiet and the container is still open: the last chance to
+    // write anything the ratchet changed. A coalesced write may still be
+    // scheduled; saveAll cancels that timer and writes the current state. The
+    // dirty marks stay in place so a crash during teardown cannot hide work.
+    await _saveAllRatchet();
     await _clearServingState();
     _groupContent.clear();
     await _contentFetching.clear();
