@@ -119,31 +119,39 @@ extension _MessagingInboundDispatch on MessagingService {
     }
     final existing = await _storage.getContact(m.src);
     if (existing?.status == ContactStatus.blocked) {
-      // A MESSAGE from a blocked contact is kept aside, out of the chat, and
-      // acknowledged so its sender stops re-sending it. Dropped unacked, it
-      // was re-driven until the block was lifted and then simply appeared.
+      // A MESSAGE from a blocked contact is kept aside up to the payload cap,
+      // out of the chat, and acknowledged so its sender stops re-sending it.
+      // When it was dropped without an ACK, the sender re-drove it until the
+      // block lifted and it simply appeared.
       // The owner's decision (2026-09-27): hold it hidden, and on unblock let
       // the person choose to see it or not.
       if (env.kind == WireKind.message &&
           m.provenance.isAuthenticated &&
           env.id != null) {
-        if (await _contacts.holdWhileBlocked(m.src, env.id!, m.payload)) {
-          // Acked as a message is — by its id, not a frame id (it has none).
-          await _ackTo(m, env.id!, direct: true);
-          // And its place in the sender's stream is taken, or gap-fill finds
-          // the hole and re-sends it into the chat the moment the block is
-          // lifted — measured on the stand, 3 s after unblocking, unasked.
-          final seq = env.seq;
-          if (seq != null) {
-            await _storage.applyRemoteVoid(m.src.hex, m.src.hex, seq);
-          }
-          devLog(
-            () =>
-                'xVeil[recv]: message from blocked ${m.src.short} held aside '
-                '— shown only if the person asks after unblocking',
-          );
-          return;
-        }
+        final held = await _contacts.holdWhileBlocked(
+          m.src,
+          env.id!,
+          m.payload,
+        );
+        // Keep an id-local marker even at the 200-message cap. A retry after
+        // unblock must neither show a held message before Show nor resurrect
+        // one the person discarded. The marker also fills its gap-fill slot.
+        await _storage.recordBlockedMessage(
+          m.src.hex,
+          m.src.hex,
+          env.id!,
+          env.seq,
+        );
+        // Acked as a message is — by its id, not a frame id (it has none).
+        await _ackTo(m, env.id!, direct: true);
+        devLog(
+          () => held
+              ? 'xVeil[recv]: message from blocked ${m.src.short} held aside '
+                    '— shown only if the person asks after unblocking'
+              : 'xVeil[recv]: message from blocked ${m.src.short} dropped '
+                    'at the 200-message cap',
+        );
+        return;
       }
       devLog(
         () =>
@@ -393,6 +401,16 @@ extension _MessagingInboundDispatch on MessagingService {
                 'xVeil[recv]: message $id from ${m.src.short} DROPPED — marked '
                 'deleted here; acked so the sender stops',
           );
+          await _ackTo(m, id, direct: true);
+          return;
+        }
+        if (id != null &&
+            !_contacts.isReleasingHeld(m.src, id) &&
+            (await _storage.isBlockedMessage(m.src.hex, id) ||
+                await _contacts.isHeld(m.src, id))) {
+          // A sender can retry after unblock because its earlier ack was lost.
+          // That retry is not the person's choice to Show, even if the held
+          // copy was later discarded or the 200-message cap dropped it.
           await _ackTo(m, id, direct: true);
           return;
         }
