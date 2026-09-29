@@ -5,7 +5,7 @@
 # so in one line nobody reads. That reads as "hardware-dependent", but most of
 # them are not: they need the same dylibs build-native.sh already produces, and
 # they cover the parts the fakes cannot — real BIP-39, identity provisioning,
-# the external blob store, cloud-document crypto, and three real nodes forming
+# cloud-document crypto, and three real nodes forming
 # a holder quorum. Passing on fakes says nothing about any of it.
 #
 # What this does NOT run, and why (each needs something outside this machine):
@@ -71,7 +71,6 @@ fi
 flutter test \
   test/native/veil_bip39_live_test.dart \
   test/native/identity_origin_live_test.dart \
-  test/native/external_blob_store_native_test.dart \
   test/native/cloud_document_crypto_live_test.dart \
   test/group_service_test.dart \
   "$@"

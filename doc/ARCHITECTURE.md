@@ -72,17 +72,34 @@ UI (features/*)  ──►  Riverpod state (state/*)  ──►  Ports (data/*) 
 real transport (`send`/`messages`); **two-node real chat**; bootstrap-invite contact
 exchange (QR + paste); `RealVeilStack` composition; consent gate (request/accept);
 `MasterVault`; recovery-phrase input; app icons; lock-screen "start over" recovery.
-Test harness: ~52 unit/widget tests + env-gated live tests in `test/native/`.
+Test harness: ~5,700 tests in 566 files. Live cases in `test/native/` and
+`test/e2e/` skip under a plain `flutter test` when their native libraries are
+missing; the multi-device harness also needs a `veil-cli` from the same build.
+`.github/workflows/nightly.yml` builds these artifacts and schedules the
+locally runnable live cases, while the push CI covers the regular Dart suite.
 
-**Roadmap (next):**
-- Veil FFI follow-ups: `veil_config_init` (in-process identity mining for mobile
-  onboarding), `apply_config` (deferred mode), iOS dylib bundling + TCP-loopback IPC.
-- Identity restore/import (real veil master-phrase, via veil_flutter FFI).
-- Username claiming (rarity-proportional PoW; needs a veil-side FFI).
-- Multi-device pairing; mailbox offline delivery + push.
-- File / image / video transfer (chunked over the transport).
-- Audio / video calls over veil (or P2P).
-- Built-in S3-style object storage across identities.
-- Proxy/VPN (oproxy/ogate), SSH node provisioning, Lua extension VM.
+**Shipped since this section was written** — each was roadmap here, each is wired into
+the app rather than merely present as a file:
+
+- Veil FFI follow-ups: `veil_config_init` and `apply_config` (deferred mode) are bound
+  and called from `RealVeilStack`; iOS dylib bundling is `scripts/build-mobile.sh ios`, TCP-loopback IPC is in `embedded_node.dart`.
+- Identity restore/import, via `veil_config_init_from_phrase`.
+- Username claiming — rarity-proportional PoW through `veil_flutter`
+  (`claimNickname`/`resolveNickname`), UI in `features/settings/nickname_screen.dart`.
+- Multi-device pairing (`device_link_invite`), mailbox offline delivery
+  (`mailbox_service` + `mailbox_orchestrator`).
+- File / image / video transfer (`messaging_file_transfer`).
+- Audio / video calls (`call_service`, `group_call_service`).
+- Built-in S3-style object storage across identities (`cloud_*`).
+- Proxy/VPN (oproxy/ogate), SSH node provisioning.
+
+**Not built:**
+- Remote push. Notifications are local-only (`flutter_local_notifications`): the
+  notification layer displays what the caller hands it and holds no policy, and there
+  is no FCM/APNs registration anywhere in `lib/`. A sleeping device stays asleep until
+  it wakes and drains its mailbox on its own.
+- The Lua extension VM. The ARB strings are kept (`networkExtTitle`) and the row was
+  taken out of the network screen, because a chevron leading to a "coming later"
+  snackbar reads as a feature that exists and is merely switched off.
 
 See `doc/SECURITY-NOTES.md` for the threat-model constraints these features inherit.

@@ -281,6 +281,9 @@ class E2eDevice {
         // NEVER the shared seeds. Same rule as the relay island, on the other
         // side of the wire.
         useBundledSeeds: false,
+        // The island already supplies its loopback peers. Leave no other
+        // discovery path open to DHT, Nostr, or the local network.
+        meetingPoints: const <String>[],
       );
       _stack = stack;
       _nodeId = _deviceIdOf(identityToml);

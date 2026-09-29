@@ -225,6 +225,15 @@ class RelayCluster {
           '"never", so this test could dial the production seed list',
         );
       }
+      if (!RegExp(
+        r'^[ \t]*meeting_points[ \t]*=[ \t]*"off"',
+        multiLine: true,
+      ).hasMatch(toml)) {
+        throw StateError(
+          'relay ${node.label} is not sealed: meeting_points is not "off", '
+          'so this test could discover nodes outside the island',
+        );
+      }
     }
   }
 
@@ -414,6 +423,13 @@ class RelayCluster {
     toml = policy.hasMatch(toml)
         ? toml.replaceAll(policy, 'builtin_seed_policy = "never"')
         : toml.replaceFirst('[global]\n', '[global]\nbuiltin_seed_policy = "never"\n');
+    final meetingPoints = RegExp(
+      r'^[ \t]*meeting_points[ \t]*=.*$',
+      multiLine: true,
+    );
+    toml = meetingPoints.hasMatch(toml)
+        ? toml.replaceAll(meetingPoints, 'meeting_points = "off"')
+        : toml.replaceFirst('[global]\n', '[global]\nmeeting_points = "off"\n');
     await File(node.configPath).writeAsString(toml);
 
     await _run(['-c', node.configPath, 'listen', 'add',

@@ -28,8 +28,7 @@ flutter test test/e2e/multi_device_e2e_test.dart --plain-name "case 3/8"
 Build the binaries first — the suite never builds anything itself:
 
 ```bash
-scripts/build-native.sh          # debug: libveilclient_ffi + libhidden_volume_ffi + veil-cli
-scripts/build-native.sh --release
+scripts/build-native.sh --no-compiled-in-seeds  # debug: both FFI libraries + veil-cli
 ```
 
 **`veil-cli` and `libveilclient_ffi` must come from the SAME build.** They talk
@@ -53,6 +52,15 @@ later as "the node never came up", which is the one thing it does not mean.
 With any of them unset the whole suite **skips cleanly** with a message naming
 what is missing — an ordinary `flutter test` stays green. The one file that
 always runs is `convergence_oracle_test.dart`; see below for why.
+
+It runs nightly anyway, in `.github/workflows/nightly.yml`, on a Linux runner with
+the libraries built from the same tree the way the section above says to build
+them. Everything here except case 10 runs, and `mailbox_carriers_live_test` runs
+without gating the result: it is the one case that leaves the island, so a red
+there can mean somebody else's relay rather than this code. Case 10 is excluded by
+name for the reason in its own section below, and belongs back in the moment that
+closes. Nothing here has ever run on Linux before that workflow, so the timings
+below are this machine's, not the runner's.
 
 Optional knobs:
 
@@ -185,16 +193,16 @@ Three `veil-cli` processes on loopback, mirroring `scripts/dev-mailbox-onion.sh`
   be built.
 
 All three are pairwise peered and every one of them is written with
-`builtin_seed_policy = "never"`, which `RelayCluster.assertSealed()` re-reads off
-the config **file** before the suite proceeds. A test must never dial the
-production or testnet seed list: it would put test traffic on an operator's
-network and make the result depend on somebody else's uptime. The app devices
-are sealed from the other side too (`useBundledSeeds: false`).
+`builtin_seed_policy = "never"` and `meeting_points = "off"`, which
+`RelayCluster.assertSealed()` re-reads off the config **file** before the suite
+proceeds. The app devices also disable bundled seeds and meeting points. These
+checks keep the island on its configured loopback peers instead of discovering
+nodes on another network.
 
-`--features allow-empty-seeds` is the documented shape for a local island and is
-worth building with, but note that `builtin_seed_policy = "never"` is what
-actually does the sealing — a stock binary logs
-`builtin seeds refused (policy=never)` and stays on the island.
+`--features allow-empty-seeds` builds without a seed list. It does not disable
+meeting-point discovery by itself; the explicit `meeting_points = "off"` and
+`builtin_seed_policy = "never"` settings seal the relay config. A stock binary
+logs `builtin seeds refused (policy=never)` when it rejects that list.
 
 ### The devices
 
