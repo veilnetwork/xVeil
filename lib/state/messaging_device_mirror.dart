@@ -1,5 +1,12 @@
 part of 'messaging_core.dart';
 
+/// Compare recent erasures on every pass and one older page on each pass.
+/// The older page advances by the persisted round, including across restarts.
+List<int> erasureComparisonPages({required int round, required int pages}) => [
+  if (pages > 0) 0,
+  if (pages > 1) 1 + (round - 1) % (pages - 1),
+];
+
 /// Multi-device projections owned by the messaging layer.
 ///
 /// Mirrored writes deliberately bypass the ordinary local callbacks so an
@@ -13,10 +20,6 @@ class _MessagingDeviceMirror {
 
   /// Per sibling device: when this device last asked it about erasures.
   final Map<String, DateTime> _erasureAskedAt = {};
-
-  /// Per sibling device: asks made, for walking older pages (see
-  /// [ownEchoPage]) — a lost erase is not always among the newest messages.
-  final Map<String, int> _erasureRounds = {};
 
   /// How often one sibling is asked, at most.
   static const _erasureAskEvery = Duration(minutes: 10);
@@ -41,9 +44,14 @@ class _MessagingDeviceMirror {
     final last = _erasureAskedAt[device.hex];
     if (last != null && now.difference(last) < _erasureAskEvery) return;
     _erasureAskedAt[device.hex] = now;
-    final round = _erasureRounds[device.hex] =
-        (_erasureRounds[device.hex] ?? 0) + 1;
     try {
+      // A device often runs only briefly. A RAM cursor restarted at page zero
+      // on every launch, so deep history was never compared on such devices.
+      final cursorKey = 'device.erasure.round.v1:${device.hex}';
+      final previous =
+          int.tryParse(await _owner._storage.getSetting(cursorKey) ?? '') ?? 0;
+      final round = (previous < 0 ? 0 : previous) + 1;
+      await _owner._storage.putSetting(cursorKey, '$round');
       final selfHex = await _owner._selfHex();
       final conversations = [
         for (final c in await _owner._storage.loadConversations())
@@ -58,22 +66,23 @@ class _MessagingDeviceMirror {
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         if (messages.isEmpty) continue;
         final pages = (messages.length + _erasureWindow - 1) ~/ _erasureWindow;
-        final page = ownEchoPage(round: round, pages: pages);
-        await _owner._send(
-          device,
-          WireEnvelope.deviceGone(
-            jsonEncode({
-              'd': selfHex,
-              'q': peer.hex,
-              'k': [
-                for (final m in messages.skip(page * _erasureWindow).take(
-                  _erasureWindow,
-                ))
-                  ownEchoKey(m.id),
-              ],
-            }),
-          ).encode(),
-        );
+        for (final page in erasureComparisonPages(round: round, pages: pages)) {
+          await _owner._send(
+            device,
+            WireEnvelope.deviceGone(
+              jsonEncode({
+                'd': selfHex,
+                'q': peer.hex,
+                'k': [
+                  for (final m in messages.skip(page * _erasureWindow).take(
+                    _erasureWindow,
+                  ))
+                    ownEchoKey(m.id),
+                ],
+              }),
+            ).encode(),
+          );
+        }
       }
     } catch (e) {
       devLog(() => 'xVeil[devices]: erasure ask to ${device.short} failed: $e');
