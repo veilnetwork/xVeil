@@ -518,6 +518,45 @@ void main() {
     },
   );
 
+  test('queued seals recheck peer backoff after own-device lookup', () async {
+    final mailbox = _UnresolvedMailboxSink();
+    mA.attachMailbox(mailbox);
+    tA.online = false;
+    final lookups = <Completer<bool>>[];
+    mA.isOwnDevice = (_) {
+      final lookup = Completer<bool>();
+      lookups.add(lookup);
+      return lookup.future;
+    };
+    addTearDown(() {
+      for (final lookup in lookups) {
+        if (!lookup.isCompleted) lookup.complete(false);
+      }
+    });
+
+    await mA.sendDurable(b, 'test:one', const WireEnvelope.reconnect('one'));
+    await mA.sendDurable(b, 'test:two', const WireEnvelope.reconnect('two'));
+    await _pump();
+    expect(lookups.length, 2);
+
+    lookups.first.complete(false);
+    await _pump();
+    expect(mailbox.calls, 1, reason: 'the first seal arms peer backoff');
+
+    lookups.last.complete(false);
+    await _pump();
+    expect(
+      mailbox.calls,
+      1,
+      reason: 'the second seal was queued before backoff but must honor it',
+    );
+    expect(
+      (await sA.pendingOutboxFrames()).map((frame) => frame.frameId),
+      containsAll(['test:one', 'test:two']),
+      reason: 'both frames remain durable until the peer can receive them',
+    );
+  });
+
   test(
     'hearing from the peer clears the backoff instead of waiting it out',
     () async {
