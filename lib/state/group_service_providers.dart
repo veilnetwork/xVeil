@@ -311,7 +311,6 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // The node may have connected before this was known: say it now as well.
   unawaited(messaging.announcePresence());
   messaging.groupBindingsOwner = service;
-  unawaited(service.nudgeGroupSyncAll());
   // THE PULL on a clock (owner's push/pull scheme, 2026-09-23): whatever a
   // push lost between my own devices is asked for again, at most this long
   // after it went missing. Boot runs the full sync above; a session coming up
@@ -718,8 +717,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     }
   }
 
-  unawaited(readOwnDocument());
-  unawaited(service.loadPeerDocuments());
+  final ownDocumentReady = readOwnDocument();
+  final peerDocumentsReady = service.loadPeerDocuments();
   setIdentityDocumentLookup((identity) {
     if (identity != ownIdentity && identity != documentIdentity) {
       // ANOTHER identity: the document a group snapshot carried for it, if
@@ -782,6 +781,15 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       algo: fields.algo,
     ).nodeId;
   };
+  // Boot sync must run after both document reads AND after the synchronous
+  // verifier lookup above is installed. A linked device otherwise describes
+  // its stored, device-signed history as empty and asks its siblings to send
+  // the entire group again at every restart.
+  unawaited(() async {
+    await ownDocumentReady;
+    await peerDocumentsReady;
+    if (!service.isDisposed) await service.nudgeGroupSyncAll();
+  }());
   return service;
 });
 
