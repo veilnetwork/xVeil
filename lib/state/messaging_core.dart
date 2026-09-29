@@ -1507,12 +1507,12 @@ class MessagingService {
 
   DateTime? _erasuresComparedAt;
 
-  /// Once an hour, compare erasures with every one of my other devices (see
+  /// Every 30 minutes, compare erasures with every one of my other devices (see
   /// [WireKind.deviceGone]); also done whenever one says it is online.
   Future<void> _askSiblingsForErasures() async {
     final now = _now();
     final last = _erasuresComparedAt;
-    if (last != null && now.difference(last) < const Duration(hours: 1)) {
+    if (last != null && now.difference(last) < const Duration(minutes: 30)) {
       return;
     }
     _erasuresComparedAt = now;
