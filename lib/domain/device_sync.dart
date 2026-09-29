@@ -356,6 +356,13 @@ bool deviceSyncOwnEventRidesGate(DeviceSyncKind kind) => switch (kind) {
   _ => false,
 };
 
+/// The event is valid, but an attachment it needs has not arrived yet.
+/// A later retry may offer the same event without counting this as a failed
+/// local write or letting it outrank a newer event admitted in the meantime.
+class DeviceSyncApplyDeferred implements Exception {
+  const DeviceSyncApplyDeferred();
+}
+
 class DeviceSyncApplyGate {
   /// [nowMs] is the reading device's wall clock — injected so tests can hold
   /// it still rather than race it.
@@ -439,8 +446,8 @@ class DeviceSyncApplyGate {
           // rollback below restores this, not the admission it displaced.
           _committed[slot] = event;
         })
-        .catchError((Object _) {
-          _failedApplies += 1;
+        .catchError((Object error) {
+          if (error is! DeviceSyncApplyDeferred) _failedApplies += 1;
           if (!identical(_applied[slot], event)) return;
           // NOT `previous`. Two events for one slot are admitted before
           // either writes, so `previous` can be an event that is ALSO still

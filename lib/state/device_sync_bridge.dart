@@ -660,6 +660,20 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // refuse: it must leave no watermark, or the honest event ranked under it is
   // dropped without ever being looked at.
   final gate = DeviceSyncApplyGate();
+  final stickerRetryTimers = <String, Timer>{};
+  final stickerRetryCounts = <String, int>{};
+  void clearStickerRetry(String packId) {
+    stickerRetryTimers.remove(packId)?.cancel();
+    stickerRetryCounts.remove(packId);
+  }
+
+  ref.onDispose(() {
+    for (final timer in stickerRetryTimers.values) {
+      timer.cancel();
+    }
+    stickerRetryTimers.clear();
+    stickerRetryCounts.clear();
+  });
 
   // Shared by the live pref apply and the post-materialization replay below.
   Future<bool> applyPrefs(NodeId peer, DeviceSyncEvent e) {
@@ -823,6 +837,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
                   name as String,
                   cid is String ? cid : null,
                 )) {
+              clearStickerRetry(e.key);
               return;
             }
             if (deleted) {
@@ -833,25 +848,49 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
                 cid: null,
                 deleted: true,
               );
+              clearStickerRetry(e.key);
               return;
             }
             Uint8List? blob;
             if (cid is String) {
               blob = await svc.storage.loadFile(cid);
               if (blob == null) {
-                unawaited(messaging.deviceContentPull?.call(cid));
+                unawaited(() async {
+                  try {
+                    await messaging.deviceContentPull?.call(cid);
+                  } catch (error) {
+                    devLog(
+                      () =>
+                          'xVeil[devices]: sticker pack ${e.key} content '
+                          'pull failed: $error',
+                    );
+                  }
+                }());
                 for (var i = 0; i < 60 && blob == null; i++) {
                   await Future<void>.delayed(const Duration(seconds: 2));
                   blob = await svc.storage.loadFile(cid);
                 }
               }
               if (blob == null) {
+                stickerRetryTimers.remove(e.key)?.cancel();
+                if (!bridgeGone) {
+                  final failures = stickerRetryCounts[e.key] ?? 0;
+                  stickerRetryCounts[e.key] = failures + 1;
+                  final seconds = 30 << (failures < 7 ? failures : 7);
+                  stickerRetryTimers[e.key] = Timer(
+                    Duration(seconds: seconds > 3600 ? 3600 : seconds),
+                    () {
+                      stickerRetryTimers.remove(e.key);
+                      if (!bridgeGone) handleEvent(e);
+                    },
+                  );
+                }
                 devLog(
                   () =>
                       'xVeil[devices]: sticker pack ${e.key} — its images '
-                      'did not arrive; tried again at the next start',
+                      'did not arrive; will retry',
                 );
-                return;
+                throw const DeviceSyncApplyDeferred();
               }
             }
             await stickers.applyMirroredPack(
@@ -864,6 +903,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
               name: name,
               cid: cid is String ? cid : null,
             );
+            clearStickerRetry(e.key);
             devLog(
               () =>
                   'xVeil[devices]: sticker pack "$name" from my other device '

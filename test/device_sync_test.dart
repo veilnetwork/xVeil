@@ -296,6 +296,33 @@ void main() {
     );
   });
 
+  test('a missing attachment leaves its event retryable without a failed write',
+      () async {
+    const now = 1700000000000;
+    final gate = DeviceSyncApplyGate(nowMs: () => now);
+    final older = ev(DeviceSyncKind.stickerPack, 'pack', now - 2000);
+    final newer = ev(DeviceSyncKind.stickerPack, 'pack', now - 1000);
+
+    expect(
+      gate.offer(older, () => () async {
+        throw const DeviceSyncApplyDeferred();
+      }),
+      isTrue,
+    );
+    await gate.settle();
+    expect(gate.failedApplies, 0);
+
+    var applied = 0;
+    expect(gate.offer(older, () => () async => applied++), isTrue);
+    await gate.settle();
+    expect(applied, 1, reason: 'the same event can apply when its blob arrives');
+
+    expect(gate.offer(newer, () => () async => applied++), isTrue);
+    await gate.settle();
+    expect(gate.offer(older, () => () async => applied++), isFalse);
+    expect(applied, 2, reason: 'a late retry cannot overwrite the newer pack');
+  });
+
   test('one key applies serially, different keys apply in parallel — deciding '
       'an order and then starting the work concurrently decides nothing '
       '(XV-12)', () async {
