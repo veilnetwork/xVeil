@@ -1,0 +1,167 @@
+# The half of the suite that a push cannot run.
+#
+# `flutter test` skips live cases rather than failing on them: the env-gated
+# suites under test/native/ and test/e2e/ need
+# built native artifacts, so on every push they report skipped and the suite
+# still goes green. That is much of what the fakes cannot cover — real BIP-39,
+# real identity provisioning, cloud-document crypto,
+# three real nodes forming a holder quorum, and the whole multi-device harness.
+# `scripts/test-native.sh` was written for exactly this and had no caller in CI.
+#
+# Nightly rather than per-push because both jobs build the Rust workspace from
+# the submodules, and that is a different order of cost from `flutter analyze` +
+# `flutter test`, which is what ci.yml is and should stay. The repo is public, so
+# the minutes are free; the first run after a submodule bump pays the cold build
+# and every run after it does not.
+#
+# Nothing here gates a merge. A nightly that nobody can merge past is a nightly
+# people start ignoring, and an ignored nightly reports nothing.
+name: Nightly
+
+on:
+  schedule:
+    # 03:20 UTC. Off the hour, because every other nightly in the world is on it.
+    - cron: '20 3 * * *'
+  workflow_dispatch:
+
+# Not cancel-in-progress: a run that is killed halfway leaves no result, and
+# nothing queues behind a nightly worth finishing.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: '3.44.0'
+
+jobs:
+  native:
+    name: the gated native suite (what the fakes cannot cover)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+
+      # The toolchain the submodules pin in their own rust-toolchain.toml. An
+      # unpinned stable is what once turned `cargo fmt --all --check` red on
+      # files nobody had touched; the same argument applies to a nightly whose
+      # only change since last night was somebody else's toolchain.
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: '1.97.1'
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          # Disposable, and keyed on what actually changes the artifact. The
+          # e2e job keys differently on purpose: it builds a different feature
+          # set, and two jobs sharing a key would evict each other every night.
+          key: nightly-native
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - run: flutter pub get
+
+      # The script prints the absolute artifact paths it produced; it resolves
+      # the same paths itself, so the test script needs nothing handed to it.
+      - name: build the native libraries
+        run: ./scripts/build-native.sh
+
+      - name: run them
+        run: ./scripts/test-native.sh
+
+  e2e:
+    name: the multi-device harness
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          toolchain: '1.97.1'
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: nightly-e2e
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - run: flutter pub get
+
+      # lan_listen_bind_live_test asks lsof which address the embedded node
+      # actually bound. Keep that command explicit in case the runner image
+      # changes; without it the test would fail before observing the socket.
+      - name: ensure lsof is available
+        run: |
+          if ! command -v lsof >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y lsof
+          fi
+
+      # The island build. The harness seals itself with
+      # `builtin_seed_policy = "never"` and re-reads that off the config file
+      # before it proceeds. It also turns meeting points off. Compiling the
+      # seed list out adds another guard against a policy regression. The flag
+      # is the build script's own, so the shared network rule stays unchanged.
+      - name: build the native libraries (no compiled-in seeds)
+        run: ./scripts/build-native.sh --no-compiled-in-seeds
+
+      # Absolute paths, and the harness refuses a path that is not absolute and
+      # does not exist rather than failing later as "the node never came up".
+      - name: point the harness at them
+        run: |
+          set -euo pipefail
+          {
+            echo "HIDDEN_VOLUME_FFI_DYLIB=$PWD/third_party/hidden-volume/target/debug/libhidden_volume_ffi.so"
+            echo "VEIL_FFI_DYLIB=$PWD/third_party/veil/target/debug/libveilclient_ffi.so"
+            echo "XVEIL_E2E_VEIL_CLI=$PWD/third_party/veil/target/debug/veil-cli"
+          } >> "$GITHUB_ENV"
+
+      # The self-contained half: a local relay island, no network egress, and
+      # nothing here that depends on anybody else's uptime.
+      - name: the harness, self-contained half
+        run: |
+          set -euo pipefail
+          flutter test --concurrency=1 \
+            test/e2e/convergence_oracle_test.dart \
+            test/e2e/relay_cluster_test.dart \
+            test/e2e/device_fixture_test.dart \
+            test/e2e/fs_beneath_live_test.dart \
+            test/e2e/lan_listen_bind_live_test.dart
+
+      # Case 10 is not in this list. It fails today, for a documented reason
+      # (test/e2e/README.md, "case 10 is failing, and what it reports"): with B
+      # asleep, A's outbox towards B sits at 2 for the whole five-minute
+      # deadline and never falls back to a mailbox deposit. That is a product
+      # finding, not flake, and running it here would turn this job red every
+      # night for something already known — which is how a nightly stops being
+      # read. Put it back the moment the diagnosis closes.
+      #
+      - name: the harness, the cases that pass
+        run: |
+          set -euo pipefail
+          flutter test test/e2e/multi_device_e2e_test.dart --plain-name "case 3/8"
+          flutter test test/e2e/multi_device_e2e_test.dart --plain-name "case 20"
+
+      # Runs, but does not gate. This is the one case here that leaves the
+      # island: it starts a node with no compiled-in seeds and waits up to six
+      # minutes for it to find anybody on its own, so a red here can mean the
+      # network rather than the code. Worth running nightly for exactly that
+      # reason — it is the only place the "a stock install still finds carriers"
+      # claim is checked against a real network — but not worth a red nightly
+      # that somebody else's relay caused.
+      - name: the harness, the case that needs the network
+        continue-on-error: true
+        run: flutter test test/e2e/mailbox_carriers_live_test.dart
