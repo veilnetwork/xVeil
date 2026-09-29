@@ -225,6 +225,25 @@ void main() {
     expect(t.sent.where((e) => e.$2 == WireKind.presence), isEmpty);
   });
 
+  test('a claimed own-device presence gets no answer or erasure ask', () async {
+    final t = _Capture(_id(0x91));
+    final m = await _service(t);
+    addTearDown(m.dispose);
+    m.selfIdentityHex = () async => identity.hex;
+    m.isOwnDevice = (p) async => p == identity || p == sibling;
+    m.myOtherDevices = () async => [sibling];
+    await m.deliverInbound(
+      InboundMessage(
+        src: identity,
+        srcDevice: sibling,
+        payload: WireEnvelope.presence(sibling.hex).encode(),
+        provenance: SenderProvenance.claimed,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(t.sent, isEmpty);
+  });
+
   test('named only in the body (a relayed frame), the device is still '
       'answered', () async {
     final t = _Capture(sibling);
@@ -271,6 +290,50 @@ void main() {
           [0, 1],
         ],
       );
+    });
+
+    test('a later pass asks about conversations beyond the newest 30',
+        () async {
+      final myStore = await _storage();
+      final base = DateTime.now().subtract(const Duration(days: 1));
+      for (var i = 1; i <= 32; i++) {
+        await _hold(myStore, _id(i), 'm$i', at: base.add(Duration(seconds: i)));
+      }
+      var clock = DateTime.now();
+      final myT = _Capture(me);
+      final mine = await _service(myT, myStore, () => clock);
+      addTearDown(mine.dispose);
+      mine.selfIdentityHex = () async => identity.hex;
+      mine.isOwnDevice = (p) async => p == identity || p == sibling;
+      mine.myOtherDevices = () async => [sibling];
+
+      Future<Set<String>> ask() async {
+        await mine.deliverInbound(
+          InboundMessage(
+            src: identity,
+            srcDevice: sibling,
+            payload: WireEnvelope.presence(sibling.hex, reply: true).encode(),
+            provenance: SenderProvenance.signed,
+          ),
+        );
+        for (var i = 0; i < 100; i++) {
+          if (myT.sent.where((e) => e.$2 == WireKind.deviceGone).length >= 31) {
+            break;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+        final asked = {
+          for (final e in myT.sent)
+            if (e.$2 == WireKind.deviceGone)
+              jsonDecode(e.$3)['q'] as String,
+        };
+        myT.sent.clear();
+        return asked;
+      }
+
+      expect(await ask(), contains(_id(2).hex));
+      clock = clock.add(const Duration(minutes: 11));
+      expect(await ask(), contains(_id(1).hex));
     });
 
     test('a sibling answers with what it erased of what I still show, and I '
@@ -439,6 +502,50 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(await myStore.loadMessageById(peer.hex, 'mine'), isNotNull);
+    });
+
+    test('an answer can erase only authenticated, requested message IDs',
+        () async {
+      final myStore = await _storage();
+      await _hold(myStore, peer, 'asked');
+      final myT = _Capture(me);
+      final mine = await _service(myT, myStore);
+      addTearDown(mine.dispose);
+      mine.selfIdentityHex = () async => identity.hex;
+      mine.isOwnDevice = (p) async => p == identity || p == sibling;
+      mine.myOtherDevices = () async => [sibling];
+
+      await mine.deliverInbound(
+        InboundMessage(
+          src: identity,
+          srcDevice: sibling,
+          payload: WireEnvelope.presence(sibling.hex, reply: true).encode(),
+          provenance: SenderProvenance.signed,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(myT.sent.where((e) => e.$2 == WireKind.deviceGone), isNotEmpty);
+
+      // This row arrived after the ask and was never named in it.
+      await _hold(myStore, peer, 'late');
+      Future<void> answer(List<String> ids, SenderProvenance provenance) =>
+          mine.deliverInbound(
+            InboundMessage(
+              src: identity,
+              srcDevice: sibling,
+              payload: WireEnvelope.deviceGone(
+                jsonEncode({'d': sibling.hex, 'a': peer.hex, 'ids': ids}),
+              ).encode(),
+              provenance: provenance,
+            ),
+          );
+
+      await answer(['asked'], SenderProvenance.claimed);
+      expect(await myStore.loadMessageById(peer.hex, 'asked'), isNotNull);
+      await answer(['late'], SenderProvenance.signed);
+      expect(await myStore.loadMessageById(peer.hex, 'late'), isNotNull);
+      await answer(['asked'], SenderProvenance.signed);
+      expect(await myStore.loadMessageById(peer.hex, 'asked'), isNull);
     });
   });
 }

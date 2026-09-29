@@ -1138,6 +1138,7 @@ extension _MessagingInboundDispatch on MessagingService {
         }
         return;
       case WireKind.deviceGone:
+        if (!m.provenance.isAuthenticated) return;
         if (m.src.hex != await selfIdentityHex?.call() &&
             !(await isOwnDevice?.call(m.src) ?? false)) {
           return;
@@ -1147,6 +1148,7 @@ extension _MessagingInboundDispatch on MessagingService {
       case WireKind.presence:
         // One of MY devices is online: it is heard, its queue rewinds, and —
         // unless this is already the answer — it is answered once.
+        if (!m.provenance.isAuthenticated) return;
         if (m.src.hex != await selfIdentityHex?.call() &&
             !(await isOwnDevice?.call(m.src) ?? false)) {
           return;

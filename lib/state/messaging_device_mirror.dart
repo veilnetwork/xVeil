@@ -7,6 +7,16 @@ List<int> erasureComparisonPages({required int round, required int pages}) => [
   if (pages > 1) 1 + (round - 1) % (pages - 1),
 ];
 
+/// Keep recent conversations current while eventually visiting every older one.
+List<int> erasureComparisonConversations({
+  required int round,
+  required int count,
+  int recent = 30,
+}) => [
+  for (var i = 0; i < count && i < recent; i++) i,
+  if (count > recent) recent + (round - 1) % (count - recent),
+];
+
 /// Multi-device projections owned by the messaging layer.
 ///
 /// Mirrored writes deliberately bypass the ordinary local callbacks so an
@@ -21,10 +31,14 @@ class _MessagingDeviceMirror {
   /// Per sibling device: when this device last asked it about erasures.
   final Map<String, DateTime> _erasureAskedAt = {};
 
+  /// Exact message keys requested in the current pass, by device and peer.
+  /// A sibling's answer may only erase messages named in that pass.
+  final Map<String, Map<String, Set<String>>> _erasureAskedKeys = {};
+
   /// How often one sibling is asked, at most.
   static const _erasureAskEvery = Duration(minutes: 10);
 
-  /// Conversations compared per ask, the most recently active first…
+  /// Recent conversations compared on every ask; one older one rotates in.
   static const _erasureConversations = 30;
 
   /// …and how many of the newest messages of each.
@@ -53,13 +67,22 @@ class _MessagingDeviceMirror {
       final round = (previous < 0 ? 0 : previous) + 1;
       await _owner._storage.putSetting(cursorKey, '$round');
       final selfHex = await _owner._selfHex();
-      final conversations = [
-        for (final c in await _owner._storage.loadConversations())
-          if (c.lastMessage != null) c,
-      ]..sort(
-          (a, b) => b.lastMessage!.timestamp.compareTo(a.lastMessage!.timestamp),
-        );
-      for (final c in conversations.take(_erasureConversations)) {
+      final conversations =
+          [
+            for (final c in await _owner._storage.loadConversations())
+              if (c.lastMessage != null) c,
+          ]..sort(
+            (a, b) =>
+                b.lastMessage!.timestamp.compareTo(a.lastMessage!.timestamp),
+          );
+      final requested = <String, Set<String>>{};
+      _erasureAskedKeys[device.hex] = requested;
+      for (final index in erasureComparisonConversations(
+        round: round,
+        count: conversations.length,
+        recent: _erasureConversations,
+      )) {
+        final c = conversations[index];
         final peer = c.peer.nodeId;
         if (await _owner._isSiblingDevice(peer)) continue;
         final messages = await _owner._storage.loadMessages(peer.hex)
@@ -67,19 +90,18 @@ class _MessagingDeviceMirror {
         if (messages.isEmpty) continue;
         final pages = (messages.length + _erasureWindow - 1) ~/ _erasureWindow;
         for (final page in erasureComparisonPages(round: round, pages: pages)) {
+          final keys = [
+            for (final m
+                in messages.skip(page * _erasureWindow).take(_erasureWindow))
+              ownEchoKey(m.id),
+          ];
+          // Register before sending: an immediate reply may arrive before the
+          // send Future completes.
+          requested.putIfAbsent(peer.hex, () => <String>{}).addAll(keys);
           await _owner._send(
             device,
             WireEnvelope.deviceGone(
-              jsonEncode({
-                'd': selfHex,
-                'q': peer.hex,
-                'k': [
-                  for (final m in messages.skip(page * _erasureWindow).take(
-                    _erasureWindow,
-                  ))
-                    ownEchoKey(m.id),
-                ],
-              }),
+              jsonEncode({'d': selfHex, 'q': peer.hex, 'k': keys}),
             ).encode(),
           );
         }
@@ -104,7 +126,10 @@ class _MessagingDeviceMirror {
       if (!mine.contains(device)) return;
       final ask = d['q'], keys = d['k'];
       if (ask is String && keys is List) {
-        final wanted = {for (final k in keys) if (k is String) k};
+        final wanted = {
+          for (final k in keys)
+            if (k is String) k,
+        };
         final erased = [
           for (final id in await _owner._storage.deletedMessageIds(ask))
             if (wanted.contains(ownEchoKey(id))) id,
@@ -127,9 +152,12 @@ class _MessagingDeviceMirror {
         return;
       }
       final peer = NodeId.fromHex(answer);
+      final requested = _erasureAskedKeys[device.hex]?[peer.hex];
+      if (requested == null) return;
       var applied = 0;
       for (final id in ids) {
         if (id is! String) continue;
+        if (!requested.contains(ownEchoKey(id))) continue;
         if (await _owner._storage.loadMessageById(peer.hex, id) == null) {
           continue;
         }
