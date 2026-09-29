@@ -85,6 +85,8 @@ void main() {
       lanListen: lan,
       // Never the shared seeds from a test.
       useBundledSeeds: false,
+      // This test observes a bind, not discovery. Keep its two nodes local.
+      meetingPoints: const <String>[],
     );
   }
 

@@ -20,11 +20,18 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Everything that builds the native library, and must therefore say which
 /// network it is building for.
+///
+/// The nightly workflow is in this list because it is a build path too. It calls
+/// `scripts/build-native.sh` rather than naming a feature, so it is clean today
+/// — but nothing else would notice if the next edit stopped doing that, and the
+/// whole point of this file is that the copy nobody was watching is the one that
+/// ships.
 const _buildPaths = [
   'scripts/build-native.sh',
   'scripts/build-mobile.sh',
   'scripts/build-packet-tunnel-macos.sh',
   'builder.py',
+  '.github/workflows/nightly.yml',
 ];
 
 void main() {
