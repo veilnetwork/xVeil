@@ -68,9 +68,10 @@ const kRatchetFlushCoalesce = Duration(milliseconds: 200);
 ///     that was not restored cannot be opened, and unlike a dropped packet the
 ///     sender has already advanced its chain — nothing will re-send it in a
 ///     readable form.
-///  2. [flush] runs after EVERY send and EVERY receive, before the operation
-///     counts as finished. A skipped write is a message key that exists
-///     nowhere, and the message that needed it never opens and never says why.
+///  2. [flush] is called after every send and receive. Calls inside the
+///     coalescing window share one later write; [saveAll] absorbs that pending
+///     write before a clean shutdown. A skipped write is a message key that
+///     exists nowhere after a restart.
 ///  3. The bytes are stored encrypted, because every one of them is key
 ///     material. That is what the hidden volume is.
 class RatchetPersistence {
@@ -101,8 +102,9 @@ class RatchetPersistence {
   /// When the last flush STARTED, for the coalescing window.
   DateTime? _lastFlushAt;
 
-  /// The one flush scheduled for the end of the window, if any.
-  Future<int>? _trailing;
+  /// The one flush scheduled for the end of the window, if any. Cancelled by
+  /// [saveAll] before shutdown so it cannot touch a closed node or container.
+  Timer? _trailingTimer;
 
   /// Conversation keys read per `take_dirty` call.
   ///
@@ -301,6 +303,8 @@ class RatchetPersistence {
   /// is on disk before it goes on.
   Future<int> flush({String why = 'unknown', bool now = false}) {
     if (now || _coalesce == Duration.zero) {
+      _trailingTimer?.cancel();
+      _trailingTimer = null;
       _lastFlushAt = DateTime.now();
       return _flushNow(why);
     }
@@ -311,16 +315,16 @@ class RatchetPersistence {
     // and the caller does not wait for it — a receive lane that awaited it
     // would pay the window on every frame.
     if (last == null || at.difference(last) >= _coalesce) {
+      _trailingTimer?.cancel();
+      _trailingTimer = null;
       _lastFlushAt = at;
       return _flushNow(why);
     }
-    _trailing ??= Future<void>.delayed(_coalesce - at.difference(last)).then(
-      (_) {
-        _trailing = null;
-        _lastFlushAt = DateTime.now();
-        return _flushNow('$why (batched)');
-      },
-    ).catchError((Object _) => 0);
+    _trailingTimer ??= Timer(_coalesce - at.difference(last), () {
+      _trailingTimer = null;
+      _lastFlushAt = DateTime.now();
+      unawaited(_flushNow('$why (batched)').catchError((Object _) => 0));
+    });
     return Future.value(0);
   }
 
@@ -431,7 +435,13 @@ class RatchetPersistence {
   /// `list` rather than `take_dirty` on purpose: the marks are the record of
   /// what still needs writing, and a shutdown save that consumed them would
   /// leave a crash between here and process exit with nothing to notice.
-  Future<int> saveAll() => _exclusive(_saveAll);
+  Future<int> saveAll() {
+    // The final snapshot subsumes a scheduled coalesced flush. An already
+    // started flush is still joined by [_exclusive]'s per-container gate.
+    _trailingTimer?.cancel();
+    _trailingTimer = null;
+    return _exclusive(_saveAll);
+  }
 
   Future<int> _saveAll() async {
     final entries = exportRatchetStates(_native, _native.list());
