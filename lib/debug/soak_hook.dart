@@ -8194,13 +8194,12 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // that was simply away.
       final kinds = <String, int>{};
       var bytes = 0;
-      // A replication frame id embeds the snapshot digest:
+      // A group-entry frame id embeds the payload digest:
       //   grp:<group>:<digest>:<dst>          one whole snapshot
       //   grpc:grp:<group>:<digest>:<dst>:<i> one chunk of one snapshot
-      // Counting DISTINCT digests separates "one peer was away while the group
-      // changed a hundred times" from "something emitted one absurd snapshot" —
-      // a depth alone cannot tell those apart, and they are different defects.
-      final transfers = <String>{};
+      // Counting DISTINCT digests separates many deltas from one large entry.
+      final transferFrames = <String, int>{};
+      final transferOldestQueuedAt = <String, int>{};
       final ages = <int>[];
       final now = DateTime.now().millisecondsSinceEpoch;
       for (final OutboxFrame frame in frames) {
@@ -8208,10 +8207,19 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         final kind = parts.first;
         kinds[kind] = (kinds[kind] ?? 0) + 1;
         bytes += frame.wire.length;
+        String? transfer;
         if (kind == 'grp' && parts.length >= 4) {
-          transfers.add('${parts[1]}:${parts[2]}');
+          transfer = '${parts[1]}:${parts[2]}';
         } else if (kind == 'grpc' && parts.length >= 6) {
-          transfers.add('${parts[2]}:${parts[3]}');
+          transfer = '${parts[2]}:${parts[3]}';
+        }
+        if (transfer != null) {
+          transferFrames[transfer] = (transferFrames[transfer] ?? 0) + 1;
+          final queuedAt = frame.enqueuedAtMs;
+          final oldest = transferOldestQueuedAt[transfer];
+          if (queuedAt != null && (oldest == null || queuedAt < oldest)) {
+            transferOldestQueuedAt[transfer] = queuedAt;
+          }
         }
         try {
           final sentAt = WireEnvelope.decode(frame.wire).sentAtMs;
@@ -8222,13 +8230,31 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         }
       }
       ages.sort();
+      final largestTransfers = transferFrames.entries.toList()
+        ..sort((a, b) {
+          final byCount = b.value.compareTo(a.value);
+          return byCount != 0 ? byCount : a.key.compareTo(b.key);
+        });
       peers.add({
         'peer': peerHex,
         'short': peerHex.length >= 8 ? peerHex.substring(0, 8) : peerHex,
         'pending': frames.length,
         'kinds': kinds,
         'bytes': bytes,
-        'snapshots': transfers.length,
+        'snapshots': transferFrames.length,
+        // A large pending transfer present BEFORE restart and with the same
+        // digest AFTER restart is an outbox re-drive, not a new group serve.
+        'largestGroupTransfers': [
+          for (final transfer in largestTransfers.take(5))
+            {
+              'group': transfer.key.split(':')[0],
+              'digest': transfer.key
+                  .split(':')[1]
+                  .substring(0, min(16, transfer.key.split(':')[1].length)),
+              'pendingFrames': transfer.value,
+              'oldestQueuedAtMs': ?transferOldestQueuedAt[transfer.key],
+            },
+        ],
         if (ages.isNotEmpty) ...{
           'ageMinNewestMs': ages.first,
           'ageMaxOldestMs': ages.last,

@@ -113,8 +113,8 @@ class _MessagingReplication {
   /// Last backlog complaint per peer, so the line above is a signal not a spam.
   final Map<String, DateTime> _backlogLoggedAt = {};
 
-  /// Ship a group snapshot to [dst] durably (direct fanout; keyed per group so
-  /// a later snapshot of the SAME group supersedes an un-acked earlier one).
+  /// Ship a group entry to [dst] durably. This path carries full snapshots,
+  /// deltas and sync vectors; distinct entries must keep distinct frame ids.
   Future<void> sendGroupSnapshot(
     NodeId dst,
     String groupIdHex,
@@ -135,10 +135,12 @@ class _MessagingReplication {
     // on a key it already has, so only the first member's frame was ever
     // persisted and every other member lost its re-drive. This is the same
     // defect the `gcr:` content request had (audit XV-02), fixed the same way.
-    final tid =
-        'grp:$groupIdHex:'
-        '${_replicationDigest(_kGroupSnapshotDigestDomain, groupIdHex, bytes)}'
-        ':${dst.hex}';
+    final digest = _replicationDigest(
+      _kGroupSnapshotDigestDomain,
+      groupIdHex,
+      bytes,
+    );
+    final tid = 'grp:$groupIdHex:$digest:${dst.hex}';
     // Small snapshot (control/text updates): one frame, as before (brick 4).
     if (bytes.length <= _groupChunkBytes) {
       await _owner.sendDurable(dst, tid, WireEnvelope.groupEntry(bundleJson));
@@ -149,6 +151,28 @@ class _MessagingReplication {
     // a durable frame keyed per (snapshot, index) so it acks/dedups on its own;
     // the receiver reassembles by (sender, [tid]) and ingests the joined bundle.
     final count = (bytes.length + _groupChunkBytes - 1) ~/ _groupChunkBytes;
+    if (count >= 16) {
+      // One line per large NEW transfer. Outbox re-drives log separately, so
+      // this distinguishes a fresh boot-time serve from old queued chunks.
+      devLog(() {
+        Map? payload;
+        try {
+          final decoded = jsonDecode(bundleJson);
+          if (decoded is Map) payload = decoded;
+        } catch (_) {}
+        int rows(String key) =>
+            payload?[key] is List ? (payload![key] as List).length : 0;
+        return 'xVeil[group]: queue large entry '
+            'gid=${groupIdHex.substring(0, groupIdHex.length.clamp(0, 8))} '
+            'dst=${dst.short} digest=${digest.substring(0, 16)} '
+            'bytes=${bytes.length} chunks=$count '
+            "control=${rows('c')} messages=${rows('g')} "
+            "reactions=${rows('r')} "
+            "syncRequest=${payload?['sreq'] == 1} "
+            "seed=${payload?['tx'] != null} "
+            "deviceServe=${payload?['sn'] != null}";
+      });
+    }
     for (var i = 0; i < count; i++) {
       final start = i * _groupChunkBytes;
       final end = start + _groupChunkBytes < bytes.length
