@@ -128,11 +128,6 @@ extension _MessagingInboundDispatch on MessagingService {
       if (env.kind == WireKind.message &&
           m.provenance.isAuthenticated &&
           env.id != null) {
-        final held = await _contacts.holdWhileBlocked(
-          m.src,
-          env.id!,
-          m.payload,
-        );
         // Keep an id-local marker even at the 200-message cap. A retry after
         // unblock must neither show a held message before Show nor resurrect
         // one the person discarded. The marker also fills its gap-fill slot.
@@ -142,6 +137,19 @@ extension _MessagingInboundDispatch on MessagingService {
           env.id!,
           env.seq,
         );
+        // Fix the refusal durably before storing the optional held body. A
+        // file-write fault must not leave an unmarked message whose retry can
+        // enter the ordinary chat after unblock.
+        var held = false;
+        try {
+          held = await _contacts.holdWhileBlocked(m.src, env.id!, m.payload);
+        } catch (error) {
+          devLog(
+            () =>
+                'xVeil[recv]: blocked message ${env.id} could not be held: '
+                '$error',
+          );
+        }
         // Acked as a message is — by its id, not a frame id (it has none).
         await _ackTo(m, env.id!, direct: true);
         devLog(
