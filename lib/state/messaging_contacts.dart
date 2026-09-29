@@ -319,6 +319,15 @@ class _MessagingContacts {
 
   String _heldKey(NodeId peer) => 'held-while-blocked:${peer.hex}';
 
+  Uint8List _encodeHeld(List<({String id, String wire})> held) =>
+      Uint8List.fromList(
+        utf8.encode(
+          jsonEncode([
+            for (final h in held) {'i': h.id, 'w': h.wire},
+          ]),
+        ),
+      );
+
   Future<List<({String id, String wire})>> _loadHeld(NodeId peer) async {
     try {
       final raw = await _owner._storage.loadFile(_heldKey(peer));
@@ -337,8 +346,9 @@ class _MessagingContacts {
 
   Future<void> _saveHeld(
     NodeId peer,
-    List<({String id, String wire})> held,
-  ) async {
+    List<({String id, String wire})> held, {
+    Uint8List? encoded,
+  }) async {
     if (held.isEmpty) {
       await _owner._storage.deleteStoredFile(_heldKey(peer));
       _heldIdsByPeer[peer.hex] = {};
@@ -346,13 +356,7 @@ class _MessagingContacts {
     }
     await _owner._storage.storeFile(
       _heldKey(peer),
-      Uint8List.fromList(
-        utf8.encode(
-          jsonEncode([
-            for (final h in held) {'i': h.id, 'w': h.wire},
-          ]),
-        ),
-      ),
+      encoded ?? _encodeHeld(held),
       name: 'held-while-blocked',
     );
     _heldIdsByPeer[peer.hex] = {for (final h in held) h.id};
@@ -366,7 +370,12 @@ class _MessagingContacts {
     if (held.any((h) => h.id == id)) return true;
     if (held.length >= kHeldWhileBlockedMax) return false;
     held.add((id: id, wire: base64Encode(wire)));
-    await _saveHeld(peer, held);
+    final encoded = _encodeHeld(held);
+    // The whole queue is one encrypted file. Its byte limit can arrive
+    // before the 200-message count limit; treat that as the same overflow so
+    // the caller still records a void and ACKs the message while blocked.
+    if (encoded.length > kMaxStoredFileBytes) return false;
+    await _saveHeld(peer, held, encoded: encoded);
     _owner._signal();
     return true;
   }
