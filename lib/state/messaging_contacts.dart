@@ -301,6 +301,22 @@ class _MessagingContacts {
   /// Messages kept aside per blocked contact, at most.
   static const kHeldWhileBlockedMax = 200;
 
+  final Map<String, Set<String>> _heldIdsByPeer = {};
+  final Set<String> _releasingHeldIds = {};
+
+  String _heldIdKey(NodeId peer, String id) => '${peer.hex}\u001f$id';
+
+  bool isReleasingHeld(NodeId peer, String id) =>
+      _releasingHeldIds.contains(_heldIdKey(peer, id));
+
+  Future<bool> isHeld(NodeId peer, String id) async {
+    final cached = _heldIdsByPeer[peer.hex];
+    if (cached != null) return cached.contains(id);
+    final held = await _loadHeld(peer);
+    final ids = _heldIdsByPeer[peer.hex] = {for (final h in held) h.id};
+    return ids.contains(id);
+  }
+
   String _heldKey(NodeId peer) => 'held-while-blocked:${peer.hex}';
 
   Future<List<({String id, String wire})>> _loadHeld(NodeId peer) async {
@@ -325,6 +341,7 @@ class _MessagingContacts {
   ) async {
     if (held.isEmpty) {
       await _owner._storage.deleteStoredFile(_heldKey(peer));
+      _heldIdsByPeer[peer.hex] = {};
       return;
     }
     await _owner._storage.storeFile(
@@ -338,11 +355,12 @@ class _MessagingContacts {
       ),
       name: 'held-while-blocked',
     );
+    _heldIdsByPeer[peer.hex] = {for (final h in held) h.id};
   }
 
   /// Keep [wire] (a message envelope from blocked [peer]) aside. False when
-  /// the store is full: past [kHeldWhileBlockedMax] a blocked contact is
-  /// dropped as before — a block must not become a way to fill the store.
+  /// the payload store is full: the caller still records a body-less marker
+  /// and ACKs it, so an overflow cannot arrive unasked after unblock.
   Future<bool> holdWhileBlocked(NodeId peer, String id, Uint8List wire) async {
     final held = await _loadHeld(peer);
     if (held.any((h) => h.id == id)) return true;
@@ -363,18 +381,37 @@ class _MessagingContacts {
     final contact = await _owner._storage.getContact(peer);
     if (contact?.status == ContactStatus.blocked) return 0;
     final held = await _loadHeld(peer);
-    await _saveHeld(peer, const []);
+    final remaining = <({String id, String wire})>[];
+    var released = 0;
     for (final h in held) {
-      await _owner.deliverInbound(
-        InboundMessage(
-          src: peer,
-          payload: base64Decode(h.wire),
-          provenance: SenderProvenance.signed,
-        ),
-      );
+      final key = _heldIdKey(peer, h.id);
+      _releasingHeldIds.add(key);
+      try {
+        await _owner.deliverInbound(
+          InboundMessage(
+            src: peer,
+            payload: base64Decode(h.wire),
+            provenance: SenderProvenance.signed,
+          ),
+        );
+        // The dispatch catches malformed frames and failed writes. Keep the
+        // held copy unless it actually reached the conversation; a restart
+        // then offers Show again instead of silently losing the message.
+        if (await _owner._storage.loadMessageById(peer.hex, h.id) != null) {
+          released++;
+        } else if (!await _owner._storage.isMessageDeleted(peer.hex, h.id)) {
+          remaining.add(h);
+        }
+      } catch (e) {
+        remaining.add(h);
+        devLog(() => 'xVeil[recv]: releasing held message failed: $e');
+      } finally {
+        _releasingHeldIds.remove(key);
+      }
     }
+    await _saveHeld(peer, remaining);
     _owner._signal();
-    return held.length;
+    return released;
   }
 
   /// Forget them, unread.
@@ -386,7 +423,7 @@ class _MessagingContacts {
   /// Lift a block — the peer becomes an accepted contact again so their
   /// messages are delivered (and we can message them). Local-only: the peer is
   /// never told they were blocked or unblocked (no presence/relationship
-  /// oracle). A still-buffered re-send from them will flow on its next arrival.
+  /// oracle). Retries of messages received during the block remain hidden.
   Future<void> unblockContact(NodeId peer) async {
     await setStatus(peer, ContactStatus.accepted);
     _owner._signal();

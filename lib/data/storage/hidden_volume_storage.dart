@@ -881,6 +881,48 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       });
 
   @override
+  Future<void> recordBlockedMessage(
+    String conversationId,
+    String author,
+    String messageId,
+    int? seq,
+  ) async {
+    if (await isBlockedMessage(conversationId, messageId)) return;
+    // If the 200-message cap has room, the body is kept separately until
+    // Show/Delete. This local, body-less marker stops a retry after unblock
+    // from bypassing that choice even when the cap was already full.
+    // It is a void on the recovery wire, so siblings never mistake a local
+    // block for an instruction to erase their own copy.
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [
+        AppendLogOp(
+          namespace,
+          logId,
+          _sk(
+            jsonEncode({
+              'k': EventKind.void_.index,
+              'c': conversationId,
+              'au': author,
+              'sq': ?seq,
+              'bi': messageId,
+            }),
+          ),
+        ),
+      ],
+    );
+    await _patchCache(
+      () => _scanBlockedKeys.add(_msgKey(conversationId, messageId)),
+    );
+  }
+
+  @override
+  Future<bool> isBlockedMessage(String conversationId, String messageId) =>
+      _serialized(() async {
+        await _foldCritical();
+        return _scanBlockedKeys.contains(_msgKey(conversationId, messageId));
+      });
+
+  @override
   Future<Map<String, int>> editSeqs(String conversationId) =>
       _serialized(() async {
         await _foldCritical();
@@ -3824,6 +3866,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   // isMessageDeleted answer in O(1) off the warm fold instead of re-scanning.
   final Set<String> _scanDeletedKeys = {};
   final Set<String> _scanDeletedLegacyIds = {};
+  final Set<String> _scanBlockedKeys = {};
   // Composite key -> latest delivery status (status ops carry their conversation).
   final Map<String, MessageStatus> _scanStatusOps = {};
   // Legacy (pre-scoping) status ops had no conversation; applied by bare id.
@@ -4018,6 +4061,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     _scanLogIds.clear();
     _scanDeletedKeys.clear();
     _scanDeletedLegacyIds.clear();
+    _scanBlockedKeys.clear();
     _scanStatusOps.clear();
     _scanStatusLegacy.clear();
     _scanSigOps.clear();
@@ -4148,10 +4192,16 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
         }
         continue;
       }
-      // Event-log VOID row (k:void_, §15 R-VOID): an inert placeholder occupying a
-      // seq whose content was reclaimed (a retention/clear-history scrub rewrote a
-      // superseded edit row to a body-less void). No effect on the fold state.
-      if (m['k'] == EventKind.void_.index) continue;
+      // A blocked-message void also names the id locally, so a sender retry
+      // after unblock cannot enter the ordinary chat before Show is pressed.
+      // The recovery wire still carries only the void slot, never that id.
+      if (m['k'] == EventKind.void_.index) {
+        final c = m['c'], blockedId = m['bi'];
+        if (c is String && blockedId is String) {
+          _scanBlockedKeys.add(_msgKey(c, blockedId));
+        }
+        continue;
+      }
       // Event-log CLEAR row (k:clear): the conversation was cleared up to a
       // per-author seq WATERMARK. Record it (max-merge across repeated clears),
       // then RETROACTIVELY purge already-folded messages at/below it. Messages
@@ -4297,6 +4347,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
         signature: _sigFromIndex(m['sig']),
       );
       _scanLogIds[k] = (namespace: e.namespace, logId: e.logId);
+      _scanBlockedKeys.remove(k);
       _scanDeletedKeys.remove(
         k,
       ); // a live record supersedes an earlier tombstone
