@@ -43,13 +43,28 @@ class _Capture implements VeilTransport {
   Future<void> dispose() async => _in.close();
 }
 
+class _FailHeldStorage extends HiddenVolumeStorage {
+  _FailHeldStorage(FakeKvLogStore store)
+      : super(({required password, required bool create}) => store);
+
+  bool failHeldWrite = false;
+
+  @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) {
+    if (failHeldWrite && fileId.startsWith('held-while-blocked:')) {
+      throw StateError('held file write failed');
+    }
+    return super.storeFile(fileId, bytes, name: name);
+  }
+}
+
 void main() {
   // A message from a blocked contact was dropped unacked, re-driven by its
   // sender, and appeared the moment the block was lifted. Owner's decision
   // (2026-09-27): keep it aside, acknowledge it, and let the person choose.
   final peer = _id(0x44);
   late FakeKvLogStore store;
-  late HiddenVolumeStorage storage;
+  late _FailHeldStorage storage;
   late _Capture t;
   late MessagingService m;
   var nextSeq = 0;
@@ -57,9 +72,7 @@ void main() {
   setUp(() async {
     nextSeq = 0;
     store = FakeKvLogStore();
-    storage = HiddenVolumeStorage(
-      ({required password, required bool create}) => store,
-    );
+    storage = _FailHeldStorage(store);
     await storage.open(password: 'pw', createIfMissing: true);
     t = _Capture(_id(1));
     m = MessagingService(t, storage)..start();
@@ -89,9 +102,7 @@ void main() {
   Future<void> restart() async {
     await m.dispose();
     await storage.close();
-    storage = HiddenVolumeStorage(
-      ({required password, required bool create}) => store,
-    );
+    storage = _FailHeldStorage(store);
     await storage.open(password: 'pw', createIfMissing: false);
     t = _Capture(_id(1));
     m = MessagingService(t, storage)..start();
@@ -253,6 +264,18 @@ void main() {
     await large('large-2', 2);
     expect(await storage.loadMessageById(peer.hex, 'large-2'), isNull,
         reason: 'an overflow retry appeared in the chat after unblock');
+  });
+
+  test('a held-file write fault cannot reveal a retry after unblock', () async {
+    storage.failHeldWrite = true;
+    await arrive('write-failed', seq: 1);
+    expect(await m.heldWhileBlocked(peer), 0);
+    expect(await storage.isBlockedMessage(peer.hex, 'write-failed'), isTrue);
+    expect(t.sent.where((e) => e.$2 == WireKind.ack), hasLength(1));
+
+    await m.unblockContact(peer);
+    await arrive('write-failed', seq: 1);
+    expect(await storage.loadMessageById(peer.hex, 'write-failed'), isNull);
   });
 
   test('Show keeps a held copy if replay fails', () async {
