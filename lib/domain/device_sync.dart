@@ -233,6 +233,19 @@ class DeviceSyncEvent {
   }
 }
 
+/// Whether this device's identity document needs a new group event. An
+/// unchanged announcement stays in the device log for siblings that were
+/// offline; their boot sync retrieves it without minting another signed row.
+bool identityDocumentAnnouncementNeeded(
+  DeviceSyncEvent? current, {
+  required String documentB64,
+  required bool ownsGroup,
+}) =>
+    current == null ||
+    current.kind != DeviceSyncKind.identityDoc ||
+    current.payload['d'] != documentB64 ||
+    (current.payload['o'] == true) != ownsGroup;
+
 /// A validated device-group message projected into its sync-event payload and
 /// signed author. Author is retained for event kinds (replica claims) whose key
 /// must be bound to the device that actually signed the group message.
