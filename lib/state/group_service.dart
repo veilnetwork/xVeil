@@ -19518,6 +19518,7 @@ class GroupService implements ArchiveGroups {
   Future<({NodeId device, NodeId? identity})?> _masterAddress() async {
     if (await _deviceGroupOwnerIfLinked() == null) return null;
     final me = await resolveMyDevice();
+    ({NodeId device, DeviceSyncEvent event})? newest;
     for (final entry in (await deviceSyncState()).entries) {
       if (entry.key.$1 != DeviceSyncKind.identityDoc) continue;
       if (entry.value.payload['o'] != true) continue;
@@ -19528,15 +19529,23 @@ class GroupService implements ArchiveGroups {
       if (hex.length != 64 || (me != null && hex == me.hex)) continue;
       try {
         final device = NodeId.fromHex(hex);
-        return (
-          device: device,
-          identity: _identityInDeviceAnnouncement(entry.value),
-        );
+        final prior = newest;
+        if (prior == null ||
+            entry.value.tsMs > prior.event.tsMs ||
+            (entry.value.tsMs == prior.event.tsMs &&
+                device.hex.compareTo(prior.device.hex) > 0)) {
+          newest = (device: device, event: entry.value);
+        }
       } catch (_) {
-        return null;
+        // A malformed key cannot prevent another marked device from winning.
       }
     }
-    return null;
+    final selected = newest;
+    if (selected == null) return null;
+    return (
+      device: selected.device,
+      identity: _identityInDeviceAnnouncement(selected.event),
+    );
   }
 
   /// [_deviceGroupOwnerIfLinkedUncached] behind a short cache.
