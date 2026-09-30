@@ -6,6 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.81] — 2026-10-01
+
+### Added
+
+- Link a phone to an existing identity by scanning one QR code on the computer.
+  The phone sends its invitation over a temporary encrypted direct connection
+  on the local network. The computer shows a comparison code and requires the
+  recovery credential before approving the phone.
+- If the direct connection does not respond, the phone stops trying after 20
+  seconds and explains that the devices may be on different networks. The
+  earlier manual linking method remains available for older app versions.
+
+### Changed
+
+- Account settings explain the recovery certificate backup, onion routing
+  status, and optional background identity proof of work more clearly.
+
+The native dependencies remain veil 0.11.39 and hidden-volume 2.6.1.
+
 ## [0.13.80] — 2026-09-30
 
 ### Fixed
