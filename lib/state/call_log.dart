@@ -88,8 +88,10 @@ final callLogForPeerProvider =
       listenable.addListener(bump);
       ref.onDispose(() => listenable.removeListener(bump));
       final all = await store.list();
-      final mine = [for (final e in all) if (e.peerHex == peerHex) e]
-        ..sort((a, b) => a.atMs.compareTo(b.atMs));
+      final mine = [
+        for (final e in all)
+          if (e.peerHex == peerHex) e,
+      ]..sort((a, b) => a.atMs.compareTo(b.atMs));
       return mine;
     });
 
@@ -102,26 +104,32 @@ final callLogRecorderProvider = Provider<void>((ref) {
     final endedAt = c.endedAt ?? DateTime.now();
     // Fire-and-forget, but never SILENT: a journal row that fails to persist
     // is exactly the bug class that hid the PayloadTooLarge loss for weeks.
-    unawaited(store
-        .add(CallLogEntry(
-          id: c.callId,
-          peerHex: c.peer.hex,
-          outgoing: c.direction == CallDirection.outgoing,
-          video: c.media.video || c.media.screen,
-          outcome: callLogOutcomeFor(
-            outgoing: c.direction == CallDirection.outgoing,
-            connected: connected,
-            reason: c.endReason ?? CallEndReason.unknown,
-          ),
-          atMs: c.startedAt.millisecondsSinceEpoch,
-          durationSec: connected
-              ? endedAt.difference(c.connectedAt!).inSeconds
-              : 0,
-        ))
-        .catchError((Object e) {
-      devLog(() => 'xVeil[call-log]: journal write failed ${c.callId}: $e');
-      return false;
-    }));
+    unawaited(
+      store
+          .add(
+            CallLogEntry(
+              id: c.callId,
+              peerHex: c.mediaIdentity.hex,
+              outgoing: c.direction == CallDirection.outgoing,
+              video: c.media.video || c.media.screen,
+              outcome: callLogOutcomeFor(
+                outgoing: c.direction == CallDirection.outgoing,
+                connected: connected,
+                reason: c.endReason ?? CallEndReason.unknown,
+              ),
+              atMs: c.startedAt.millisecondsSinceEpoch,
+              durationSec: connected
+                  ? endedAt.difference(c.connectedAt!).inSeconds
+                  : 0,
+            ),
+          )
+          .catchError((Object e) {
+            devLog(
+              () => 'xVeil[call-log]: journal write failed ${c.callId}: $e',
+            );
+            return false;
+          }),
+    );
   });
   ref.onDispose(sub.cancel);
 });

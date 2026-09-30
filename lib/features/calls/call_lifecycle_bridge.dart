@@ -249,7 +249,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         (groupCall.status == GroupCallStatus.connecting ||
             groupCall.status == GroupCallStatus.active);
     final key = directLive
-        ? 'direct:${call.callId}:${call.status.name}:${call.peer.short}:'
+        ? 'direct:${call.callId}:${call.status.name}:${call.mediaIdentity.short}:'
               '${directCapture && call.micOn}:${directCapture && call.cameraOn}'
         : groupLive
         ? 'group:${groupCall.callId}:${groupCall.status.name}:'
@@ -292,7 +292,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       };
       await VeilBackground.start(
         title: title,
-        text: call.peer.short,
+        text: call.mediaIdentity.short,
         hangupAction: true,
         ringing: call.isIncoming && call.status == CallStatus.ringing,
         microphone:

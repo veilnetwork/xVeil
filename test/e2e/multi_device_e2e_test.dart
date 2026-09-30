@@ -362,6 +362,16 @@ void main() {
               'C=${cCalls.current?.status}',
           timeout: const Duration(minutes: 3),
         );
+        await waitUntil(
+          () async =>
+              ((aCalls.mediaDiagnostics['rx_pkts'] as num?) ?? 0) > 0 &&
+              ((cCalls.mediaDiagnostics['rx_pkts'] as num?) ?? 0) > 0,
+          what: 'A and C to receive call media while B stays online',
+          describe: () async =>
+              'A=${aCalls.mediaDiagnostics['rx_pkts']} '
+              'C=${cCalls.mediaDiagnostics['rx_pkts']}',
+          timeout: const Duration(seconds: 20),
+        );
         await cCalls.hangup();
         await waitUntil(
           () async =>
@@ -397,6 +407,16 @@ void main() {
           timeout: const Duration(minutes: 3),
         );
         expect(bCalls.current?.isLive ?? false, isFalse);
+        await waitUntil(
+          () async =>
+              ((aCalls.mediaDiagnostics['rx_pkts'] as num?) ?? 0) > 0 &&
+              ((cCalls.mediaDiagnostics['rx_pkts'] as num?) ?? 0) > 0,
+          what: 'A and C to receive outgoing-call media with B online',
+          describe: () async =>
+              'A=${aCalls.mediaDiagnostics['rx_pkts']} '
+              'C=${cCalls.mediaDiagnostics['rx_pkts']}',
+          timeout: const Duration(seconds: 20),
+        );
         await aCalls.hangup();
         await waitUntil(
           () async =>
@@ -412,7 +432,7 @@ void main() {
 
     // ---------------------------------------------------------------------
     test(
-      'case 37 control — C calls X; B answers with a direct B-C session',
+      'case 37 — C calls X; B answers without a B-C session',
       () async {
         E2eFleet? fleet;
         addTearDown(() async => fleet?.dispose());
@@ -420,10 +440,6 @@ void main() {
         final f = fleet;
         await f.linkDevice(master: f.a, target: f.b);
         await f.introduce(f.c, f.a);
-        // Diagnostic control: a direct B-C session isolates the call FSM from
-        // the unresolved B-to-C overlay route in the ordinary case 37.
-        await f.b.stack.addContact(await f.c.dialableDeviceInvite());
-        await f.c.stack.addContact(await f.b.dialableDeviceInvite());
         await waitUntil(
           () async =>
               (await f.b.storage.getContact(f.c.identityNodeId))?.status ==
@@ -447,6 +463,13 @@ void main() {
           timeout: const Duration(minutes: 3),
         );
         expect(aCalls.current!.callId, bCalls.current!.callId);
+        expect(
+          (await f.b.stack.transport.peers()).any(
+            (peer) => peer.nodeId == f.c.deviceNodeId && peer.isActive,
+          ),
+          isFalse,
+          reason: 'the answer must work before B has a direct session to C',
+        );
         await bCalls.accept();
         await waitUntil(
           () async =>
@@ -458,6 +481,19 @@ void main() {
               'A=${aCalls.current?.status} B=${bCalls.current?.status} '
               'C=${cCalls.current?.status}',
           timeout: const Duration(seconds: 100),
+        );
+        await waitUntil(
+          () async =>
+              ((bCalls.mediaDiagnostics['rx_pkts'] as num?) ?? 0) > 0 &&
+              ((cCalls.mediaDiagnostics['rx_pkts'] as num?) ?? 0) > 0,
+          what: 'B and C to receive call media in both directions',
+          describe: () async =>
+              'B=${bCalls.mediaDiagnostics} C=${cCalls.mediaDiagnostics}',
+          timeout: const Duration(seconds: 20),
+        );
+        E2eLog.line(
+          'call media delivered: B rx=${bCalls.mediaDiagnostics['rx_pkts']} '
+          'C rx=${cCalls.mediaDiagnostics['rx_pkts']}',
         );
         await bCalls.hangup();
         await waitUntil(
