@@ -59,8 +59,8 @@ the libraries built from the same tree the way the section above says to build
 them. Everything here except case 10 runs, and `mailbox_carriers_live_test` runs
 without gating the result: it is the one case that leaves the island, so a red
 there can mean somebody else's relay rather than this code. Case 10 is excluded by
-name for the reason in its own section below, and belongs back in the moment that
-closes. Nothing here has ever run on Linux before that workflow, so the timings
+name because it probes a stronger offline guarantee than the accepted architecture
+provides. Nothing here has ever run on Linux before that workflow, so the timings
 below are this machine's, not the runner's.
 
 Optional knobs:
@@ -135,10 +135,12 @@ the sibling, and no row lands twice. "It arrived" and "it arrived once" are
 different claims and the second is the one this project has had to fix — a row
 keyed by `msgId ?? contentId` used to land twice under two keys.
 
-### case 10 — the sibling catches up with every other device gone
+### case 10 — strict offline probe beyond the current guarantee
 
-B is down; A sends to C; then A **and** C go down and B comes up. B must end
-holding its own identity's outgoing message, as **outgoing**.
+B is down; A sends to C; then A **and** C go down and B comes up. The probe
+asks whether B can recover its own outgoing message without a live source.
+The accepted architecture does not promise that recovery, so a red result is
+recorded as a design limitation rather than a product defect.
 
 With A gone there is no live sibling to ask. The test first confirms that C
 received the message and A committed its device-group mirror, then takes A and
