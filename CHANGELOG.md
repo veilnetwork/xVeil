@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [Unreleased]
+
+### Changed
+
+- Group row deltas now send the manifest ID and hash. A receiver that already
+  holds the same manifest restores it locally; membership changes still send
+  the full manifest.
+
 ## [0.13.78] — 2026-09-30
 
 The v0.13.77 build passed its checks but was not published because of a release
