@@ -53,10 +53,7 @@ typedef RecoveryCodeCheck =
 
 /// The real check: open the certificate with the code and throw away the
 /// signer. Nothing is kept — the question is only whether it opens.
-Future<bool> nativeRecoveryCodeOpens(
-  Uint8List certificate,
-  String code,
-) async {
+Future<bool> nativeRecoveryCodeOpens(Uint8List certificate, String code) async {
   try {
     final signer = veil.VeilSovereignSigner.openRecoveryCertificate(
       certificate,
@@ -84,9 +81,11 @@ class CertificateRestoreInput extends StatefulWidget {
     this.check = nativeRecoveryCodeOpens,
   });
 
-  /// The certificate bytes and the code that opens it. The caller stores the
-  /// credential before the node boots and passes the code as the boot secret.
-  final void Function(Uint8List certificate, String code) onSubmit;
+  /// The certificate bytes, its code and whether it came from a file. The
+  /// caller stores the credential before the node boots and passes the code
+  /// as the boot secret. A file also proves an external copy existed.
+  final void Function(Uint8List certificate, String code, bool fromFile)
+  onSubmit;
 
   /// Picks a file and returns its CONTENTS, or null if nothing was chosen.
   ///
@@ -212,7 +211,7 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
       setState(() => _codeRefused = true);
       return;
     }
-    widget.onSubmit(certificate.bytes, code);
+    widget.onSubmit(certificate.bytes, code, _fromFile);
   }
 
   @override
@@ -238,29 +237,29 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
             label: Text(l.onboardRestorePickCertificate),
           ),
           const SizedBox(height: 12),
-        // The other half of how people actually hold this. The sheet that
-        // creates a certificate offers a copy button, and what is copied gets
-        // pasted — into a password manager, a note, a message to oneself. A
-        // screen that only takes files tells those people, wrongly, that they
-        // have nothing.
-        TextField(
-          controller: _pasted,
-          minLines: 2,
-          maxLines: 4,
-          autocorrect: false,
-          enableSuggestions: false,
-          onChanged: (value) {
-            final text = value.trim();
-            if (text.isEmpty) {
-              setState(() {
-                _certificate = null;
-                _bad = false;
-                _codeRefused = false;
-              });
-              return;
-            }
-            _accept(text);
-          },
+          // The other half of how people actually hold this. The sheet that
+          // creates a certificate offers a copy button, and what is copied gets
+          // pasted — into a password manager, a note, a message to oneself. A
+          // screen that only takes files tells those people, wrongly, that they
+          // have nothing.
+          TextField(
+            controller: _pasted,
+            minLines: 2,
+            maxLines: 4,
+            autocorrect: false,
+            enableSuggestions: false,
+            onChanged: (value) {
+              final text = value.trim();
+              if (text.isEmpty) {
+                setState(() {
+                  _certificate = null;
+                  _bad = false;
+                  _codeRefused = false;
+                });
+                return;
+              }
+              _accept(text);
+            },
             decoration: InputDecoration(
               labelText: l.onboardRestorePasteCertificate,
               helperText: l.onboardRestorePasteCertificateHint,

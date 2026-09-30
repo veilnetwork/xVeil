@@ -56,6 +56,7 @@ void main() {
   // asserting away the thing this screen exists to do.
   Widget host({
     required void Function(Uint8List, String) onSubmit,
+    void Function(bool)? onSource,
     Future<String?> Function()? pick,
     RecoveryCodeCheck? check,
   }) => MaterialApp(
@@ -64,7 +65,10 @@ void main() {
     supportedLocales: AppL10n.supportedLocales,
     home: Scaffold(
       body: CertificateRestoreInput(
-        onSubmit: onSubmit,
+        onSubmit: (certificate, code, fromFile) {
+          onSource?.call(fromFile);
+          onSubmit(certificate, code);
+        },
         pick: pick ?? () async => null,
         check: check ?? (_, _) async => true,
       ),
@@ -95,12 +99,14 @@ void main() {
   ) async {
     Uint8List? gotCertificate;
     String? gotCode;
+    bool? fromFile;
     await tester.pumpWidget(
       host(
         onSubmit: (c, code) {
           gotCertificate = c;
           gotCode = code;
         },
+        onSource: (value) => fromFile = value,
         pick: () async => _certificateText(0xAB),
       ),
     );
@@ -128,6 +134,7 @@ void main() {
 
     expect(gotCertificate, isNotNull);
     expect(gotCertificate!.length, 38);
+    expect(fromFile, isTrue);
     expect(
       gotCode,
       'xvrc-Aa09_TESTCODE',
@@ -188,8 +195,12 @@ void main() {
     // through whatever carried it.
     testWidgets('a pasted certificate is the same certificate', (tester) async {
       Uint8List? got;
+      bool? fromFile;
       await tester.pumpWidget(
-        host(onSubmit: (c, _) => got = c),
+        host(
+          onSubmit: (c, _) => got = c,
+          onSource: (value) => fromFile = value,
+        ),
       );
       await tester.pumpAndSettle();
       await paste(tester, _certificateText(0xCD));
@@ -200,6 +211,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(got, isNotNull);
       expect(got!.length, 38);
+      expect(fromFile, isFalse);
     });
 
     testWidgets('a paste that came through a chat still identifies itself', (

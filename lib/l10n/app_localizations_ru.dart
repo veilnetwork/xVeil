@@ -4043,11 +4043,11 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get settingsRecoveryByCertificate =>
-      'Эту личность возвращают сертификат восстановления и его код. Слова для неё не делают ничего.';
+      'Для восстановления этой личности нужны сертификат и его код.';
 
   @override
   String get settingsRecoveryCertificateMissing =>
-      'Копия сертификата на этом устройстве ещё не сохранена — пока её нет, личность в одном отказе устройства от того, чтобы исчезнуть.';
+      'На этом устройстве нет отметки о сохранении сертификата в файл. Если вы уже сохранили его при создании или на другом устройстве, проверьте, что файл и отдельный код доступны. Если файла нет, сохраните сертификат в разделе «Устройства».';
 
   @override
   String get settingsRecoveryBundleNoCopy =>
@@ -6100,7 +6100,7 @@ class AppL10nRu extends AppL10n {
   String get devicesSaveCertificate => 'Сохранить в файл';
 
   @override
-  String get devicesNoBackupTitle => 'У этой личности нет резервной копии';
+  String get devicesNoBackupTitle => 'Проверьте копию сертификата';
 
   @override
   String get devicesDelegationExpiringTitle => 'Это устройство пора продлить';
@@ -6128,7 +6128,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get devicesNoBackupBody =>
-      'Её восстанавливает только сертификат восстановления — одни 24 слова восстановят другую личность. Сохраните его и держите отдельно от кода.';
+      'На этом устройстве нет отметки о сохранении сертификата в файл. Если файл уже есть, проверьте его и отдельно сохранённый код. Иначе нажмите здесь, чтобы сохранить сертификат.';
 
   @override
   String get devicesCertificateSaved =>
