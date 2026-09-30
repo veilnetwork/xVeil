@@ -6,6 +6,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.77] — 2026-09-30
+
+*Messages and files converge more reliably across an identity's devices.*
+
+### Added
+
+- My devices compare message deletions, including older history, and remove a
+  copy only after an authenticated sibling confirms that exact message was
+  erased.
+- Messages received while a contact is blocked stay hidden and acknowledged.
+  After unblocking, the chat offers to show or discard them; clearing the chat
+  also clears its older held messages.
+- A device announces when it reconnects, so its siblings promptly send queued
+  work. Sticker packs and their images now travel between my devices.
+- Group receivers can restore an omitted manifest from a matching local copy.
+  Senders still include the manifest in this release for compatibility with
+  older builds; omission is reserved for a later release.
+
+### Fixed
+
+- Boot group sync uses compact state vectors instead of repeatedly sending
+  whole group snapshots. A linked device can pull content and sync directly
+  from its master, and a recovered master announcement replaces stale ones.
+- Ratchet state writes share a short commit window and are drained before the
+  container closes. Interrupted sticker sync retries after restart.
+- Updated veil to 0.11.39 for per-device routing and key-tree ratchets, and
+  hidden-volume to 2.6.1 for consistent licensing and documentation checks.
+
 ## [0.13.76] — 2026-09-20
 
 *Calls between a phone and a restored identity carried no media at all.*
