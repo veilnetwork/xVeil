@@ -5543,7 +5543,7 @@ void main() {
 
       expect(
         addressed.map((n) => n.hex),
-        contains(sovereign.nodeId.hex),
+        contains(owner.hex),
         reason:
             'the linked device posted to nobody — the owner is the only '
             'other party it has, and the scan dropped it',
@@ -5563,8 +5563,8 @@ void main() {
       );
       expect(
         (await linked.addressableOwnDevices()).map((n) => n.hex),
-        contains(sovereign.nodeId.hex),
-        reason: 'a linked device still cannot name the one party it has',
+        contains(owner.hex),
+        reason: 'an unnamed master is reached through the shared identity',
       );
       // The question every p2p gate asks. `isMyDevice` says NO about my own
       // master — it is the group's OWNER, not one of its members — so the
@@ -5614,7 +5614,7 @@ void main() {
       expect(await linked.masterDeviceId(), isNull);
       expect(
         (await linked.addressableOwnDevices()).map((n) => n.hex),
-        contains(sovereign.nodeId.hex),
+        contains(owner.hex),
       );
       expect(
         await linked.isMyDeviceOrMaster(masterDevice),
@@ -5767,7 +5767,7 @@ void main() {
       );
       expect(
         addressed.map((n) => n.hex),
-        contains(sovereign.nodeId.hex),
+        contains(owner.hex),
         reason:
             'the owner is the only party a linked device has, and the '
             'anti-entropy scan dropped it',
@@ -9070,6 +9070,115 @@ void main() {
       expect(msgs.last.attachment?.cid, 'cafe01');
     },
   );
+
+  test('a linked device pulls referenced content from its master device',
+      () async {
+    final masterStore = FakeHvContainer().storage();
+    final linkedStore = FakeHvContainer().storage();
+    await masterStore.open(password: 'pw', createIfMissing: true);
+    await linkedStore.open(password: 'pw', createIfMissing: true);
+    final masterDevice = _id(0xD7);
+    const cid = 'cafe02';
+    final grants = <(NodeId, String)>[];
+    final masterSent = <NodeId>[];
+    final master = GroupService(
+      masterStore,
+      _FakeSigner(owner),
+      send: (peer, group, json) async => masterSent.add(peer),
+      grantContentServe: (peer, contentId) => grants.add((peer, contentId)),
+    )..myDevice = masterDevice;
+    addTearDown(master.dispose);
+    expect(await master.linkDevice(bob, sovereign: sovereign,
+        broadcastSnapshot: false), isTrue);
+    final gid = NodeId.fromHex((await master.deviceGroupIdHex())!);
+    expect(await master.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.identityDoc,
+      key: masterDevice.hex,
+      tsMs: 444,
+      payload: const {'d': 'ZG9j', 'o': true},
+    )), isTrue);
+    expect(await master.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.msgMirror,
+      key: 'file-from-master',
+      tsMs: 445,
+      payload: const {'cid': cid},
+    ), attachment: const GroupAttachment(
+      kind: 'file', dataB64: 'AA==', w: 1, h: 1, cid: cid,
+    )), isTrue);
+
+    final requests = <(NodeId, String)>[];
+    final pulls = <(List<NodeId>, String)>[];
+    final linkedSent = <NodeId>[];
+    final linked = GroupService(
+      linkedStore,
+      _FakeSigner(bob),
+      send: (peer, group, json) async => linkedSent.add(peer),
+      sendContentRequest: (peer, json) async => requests.add((peer, json)),
+      startContentPullFromAny: (peers, contentId) async =>
+          pulls.add((peers, contentId)),
+      contentGrantDelay: Duration.zero,
+    )
+      ..myDevice = bob
+      ..documentNodeId = (_) => owner;
+    addTearDown(linked.dispose);
+    expect(await linked.ingestSnapshot(
+      master.snapshotJson((await master.load(gid))!, recipient: bob),
+    ), isTrue);
+    expect(await linked.adoptDeviceGroup(gid), isTrue);
+    expect(await linked.masterDeviceId(), masterDevice);
+    expect(await linked.referencedContentIds(gid), contains(cid));
+    expect(await master.addressableOwnDevices(), [bob]);
+    expect(await linked.addressableOwnDevices(), [masterDevice]);
+    // A promoted master's signer may name its device while the group still
+    // lists the shared identity as a member. Its own document identifies the
+    // self-address that must be removed.
+    final promotedMaster = GroupService(masterStore, _FakeSigner(masterDevice))
+      ..myDevice = masterDevice
+      ..documentNodeId = (_) => owner;
+    addTearDown(promotedMaster.dispose);
+    expect(await promotedMaster.addressableOwnDevices(), [bob]);
+
+    // All three group paths must address only the other device. A duplicate
+    // to the identity can resolve back to this same app instance.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    masterSent.clear();
+    expect(await master.broadcast(gid), 1);
+    expect(masterSent, [bob]);
+    linkedSent.clear();
+    expect(await linked.broadcast(gid), 1);
+    expect(linkedSent, [masterDevice]);
+    masterSent.clear();
+    expect(await master.nudgeGroupSync(gid), 1);
+    expect(masterSent, [bob]);
+    linkedSent.clear();
+    expect(await linked.nudgeGroupSync(gid), 1);
+    expect(linkedSent, [masterDevice]);
+    masterSent.clear();
+    expect(await master.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet,
+      key: 'master-route',
+      tsMs: 446,
+      payload: const {'v': '1'},
+    )), isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(masterSent, [bob]);
+    linkedSent.clear();
+    expect(await linked.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet,
+      key: 'linked-route',
+      tsMs: 447,
+      payload: const {'v': '1'},
+    )), isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(linkedSent, [masterDevice]);
+
+    expect(await linked.fetchGroupContent(gid, cid, masterDevice), isTrue);
+    expect(requests.map((e) => e.$1), [masterDevice]);
+    expect(pulls.single.$1, [masterDevice]);
+    expect(pulls.single.$2, cid);
+    expect(await master.handleContentRequest(requests.single.$2), isTrue);
+    expect(grants, [(bob, cid)]);
+  });
 
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
   Future<void> pump() async {

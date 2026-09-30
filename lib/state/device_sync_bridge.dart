@@ -527,12 +527,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       await svc.resolveMyDevice();
       final me = svc.myDevice;
       var asked = 0;
-      // Every device of mine that can be dialled — the members AND the
-      // master's device, which is not a member when it has named one.
-      final holders = <NodeId>{
-        for (final m in st.members.values) m.nodeId,
-        ...await svc.addressableOwnDevices(),
-      };
+      // This list replaces the identity with the master's device when named,
+      // and excludes this device. A union with raw members asks the identity
+      // again and can route a second request back to ourselves.
+      final holders = await svc.addressableOwnDevices();
       for (final holder in holders) {
         if (owner != null && holder == owner) continue;
         if (me != null && holder == me) continue;
