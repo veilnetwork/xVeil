@@ -82,7 +82,8 @@ void main() {
   });
   tearDown(() => m.dispose());
 
-  Future<void> arrive(String id, {int? seq, bool settle = true}) async {
+  Future<void> arrive(String id,
+      {int? seq, int? sentAtMs, bool settle = true}) async {
     if (seq == null) nextSeq++;
     await m.deliverInbound(
       InboundMessage(
@@ -90,7 +91,7 @@ void main() {
         payload: WireEnvelope.message(
           'text $id',
           id: id,
-          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+          sentAtMs: sentAtMs ?? DateTime.now().millisecondsSinceEpoch,
           seq: seq ?? nextSeq,
         ).encode(),
         provenance: SenderProvenance.signed,
@@ -225,6 +226,55 @@ void main() {
     await arrive('m2');
     expect(await storage.loadMessageById(peer.hex, 'm2'), isNotNull,
         reason: 'discarding old messages must not block new ones');
+  });
+
+  test('clearing a chat also forgets messages held while blocked', () async {
+    await arrive('before-clear');
+    expect(await m.heldWhileBlocked(peer), 1);
+
+    await m.clearConversation(peer);
+    await m.unblockContact(peer);
+
+    expect(await m.heldWhileBlocked(peer), 0,
+        reason: 'Show must not offer a message from cleared history');
+    expect(await m.releaseHeldWhileBlocked(peer), 0);
+    expect(await storage.loadMessageById(peer.hex, 'before-clear'), isNull);
+
+    await m.blockContact(peer);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await arrive('after-clear', seq: 2);
+    await m.unblockContact(peer);
+    expect(await m.heldWhileBlocked(peer), 1);
+    expect(await m.releaseHeldWhileBlocked(peer), 1);
+    expect(await storage.loadMessageById(peer.hex, 'after-clear'), isNotNull);
+  });
+
+  test('a delayed sibling clear keeps blocked messages received later', () async {
+    await arrive('before-clear', seq: 1);
+    final clearedAt = DateTime.now().millisecondsSinceEpoch;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    await arrive('after-clear', seq: 2);
+    await arrive('old-arrived-late', seq: 3, sentAtMs: clearedAt - 1000);
+
+    await m.applyMirroredClear(
+      peer: peer,
+      author: _id(2).hex,
+      seq: 1,
+      watermark: {peer.hex: 1},
+      atMs: clearedAt,
+    );
+
+    expect(await m.heldWhileBlocked(peer), 1);
+    await m.unblockContact(peer);
+    expect(await m.releaseHeldWhileBlocked(peer), 1);
+    expect(await storage.loadMessageById(peer.hex, 'before-clear'), isNull);
+    expect(await storage.loadMessageById(peer.hex, 'after-clear'), isNotNull);
+  });
+
+  test('deleting a chat also forgets messages held while blocked', () async {
+    await arrive('before-delete');
+    await m.deleteConversation(peer);
+    expect(await m.heldWhileBlocked(peer), 0);
   });
 
   test('the 201st blocked message is dropped and acknowledged', () async {
