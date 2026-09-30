@@ -243,9 +243,8 @@ class AccountSettingsScreen extends ConsumerWidget {
               );
             },
           ),
-          // Lazy-mining toggle — single-identity mode only. Default OFF
-          // (opt-in): raising this identity's anti-sybil difficulty is a
-          // CPU-heavy background grind, so it's gated behind a setting.
+          // Optional background identity PoW for a single identity. This is
+          // costly for a client and unnecessary for messaging, so it starts off.
           if (!master.$1)
             Builder(
               builder: (_) {

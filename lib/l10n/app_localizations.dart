@@ -7091,19 +7091,19 @@ abstract class AppL10n {
   /// No description provided for @settingsLazyMining.
   ///
   /// In en, this message translates to:
-  /// **'Lazy mining (raise trust)'**
+  /// **'Extra proof of work for the network'**
   String get settingsLazyMining;
 
   /// No description provided for @settingsLazyMiningEnabledHint.
   ///
   /// In en, this message translates to:
-  /// **'grinds extra anti-sybil difficulty in the background — uses CPU; applies on its next start'**
+  /// **'On. This device computes a stronger proof for the network in the background. It may help with peer discovery, but uses CPU. Chats and calls do not need it.'**
   String get settingsLazyMiningEnabledHint;
 
   /// No description provided for @settingsLazyMiningDisabledHint.
   ///
   /// In en, this message translates to:
-  /// **'off — no background difficulty grind (recommended); applies on its next start'**
+  /// **'Off. Chats and calls work without extra computation; this task does not use the CPU.'**
   String get settingsLazyMiningDisabledHint;
 
   /// No description provided for @settingsManageIdentities.

@@ -4080,15 +4080,15 @@ class AppL10nEs extends AppL10n {
       'ya no se enruta por onion; se aplica en su próximo arranque';
 
   @override
-  String get settingsLazyMining => 'Minado lento (aumentar la confianza)';
+  String get settingsLazyMining => 'Prueba de trabajo adicional para la red';
 
   @override
   String get settingsLazyMiningEnabledHint =>
-      'acumula dificultad antisybil adicional en segundo plano; gasta CPU y se aplica en su próximo arranque';
+      'Activado. Este dispositivo calcula en segundo plano una prueba más fuerte para la red. Puede ayudar a descubrir otros nodos, pero usa el procesador. No es necesario para chats ni llamadas.';
 
   @override
   String get settingsLazyMiningDisabledHint =>
-      'desactivado: sin acumulación de dificultad en segundo plano (recomendado); se aplica en su próximo arranque';
+      'Desactivado. Los chats y las llamadas funcionan sin cálculos adicionales; esta tarea no usa el procesador.';
 
   @override
   String get settingsManageIdentities => 'Gestionar las identidades';
