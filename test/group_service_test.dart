@@ -7654,7 +7654,7 @@ void main() {
   group('a delta of rows can leave its manifest out', () {
     // Every delta carried the whole manifest (~2.5 KB): one device-log event
     // went out as 5–8 KB in three chunks on the stand. Owner's decision
-    // (2026-09-27), in two releases: the receiver puts it back first.
+    // (2026-09-27), in two releases: the receiver shipped in 0.13.78 first.
     late GroupService ownerSvc, bobSvc;
     late List<(NodeId, String)> sent;
     late NodeId gid;
@@ -7700,15 +7700,18 @@ void main() {
       return sent.firstWhere((e) => e.$1 == bob && e.$2.contains('"g":')).$2;
     }
 
-    test('off by default: a delta still carries its manifest', () async {
-      expect(kDeltaOmitsManifest, isFalse,
-          reason: 'a build without the receiving half would refuse it');
-      final wire = jsonDecode(await postTo('with manifest')) as Map;
-      expect(wire['m'], isNotNull);
+    test('on by default: a row delta names its manifest', () async {
+      expect(kDeltaOmitsManifest, isTrue);
+      final wire = jsonDecode(await postTo('without manifest')) as Map;
+      expect(wire['m'], isNull);
+      expect(wire['mid'], gid.hex);
+      expect(
+        wire['mh'],
+        GroupService.manifestHash((await ownerSvc.load(gid))!.manifest),
+      );
     });
 
     test('a member who holds the group puts the manifest back', () async {
-      ownerSvc.omitManifest = true;
       final lean = await postTo('without manifest');
       final wire = jsonDecode(lean) as Map;
       expect(wire['m'], isNull, reason: 'premise: the manifest was left out');
@@ -7723,10 +7726,22 @@ void main() {
     });
 
     test('a manifest that does not match is not put back', () async {
-      ownerSvc.omitManifest = true;
       final wire = jsonDecode(await postTo('wrong hash')) as Map;
       final forged = jsonEncode({...wire, 'mh': '0' * 32});
       expect(await bobSvc.ingestGroupEntry(owner, forged), isFalse);
+    });
+
+    test('a control delta still carries the full manifest', () async {
+      sent.clear();
+      expect(await ownerSvc.addControlOp(
+        gid,
+        ControlOp.setName,
+        text: 'Renamed',
+      ), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final wire = jsonDecode(sent.firstWhere((e) => e.$1 == bob).$2) as Map;
+      expect(wire['m'], isNotNull);
+      expect(wire['mid'], isNull);
     });
   });
 
@@ -9391,10 +9406,11 @@ void main() {
           .toList();
       expect(bodies, ['second'], reason: 'delta carries only the new message');
       expect(last['c'] as List, isEmpty);
+      expect(last['m'], isNull);
+      expect(last['mid'], gid.hex);
       expect(
-        last['m'],
-        isNotNull,
-        reason: 'manifest rides along for a racing join',
+        last['mh'],
+        GroupService.manifestHash((await svc.load(gid))!.manifest),
       );
     },
   );

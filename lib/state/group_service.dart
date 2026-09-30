@@ -549,12 +549,10 @@ Map<String, int> groupClearWatermark({
 
 /// Whether a delta of rows only leaves its manifest out (`mid` + `mh`).
 ///
-/// OFF in this release, on purpose: a build from before the receiving half
-/// ([GroupService._restoreOmittedManifest]) refuses such a delta, the sender
-/// re-drives it, and the two devices stop converging. Turn on in the release
-/// AFTER the one that shipped the receiving half (owner's decision,
-/// 2026-09-27: two releases).
-const kDeltaOmitsManifest = false;
+/// The receiving half ([GroupService._restoreOmittedManifest]) shipped in
+/// 0.13.78. A control delta still carries the full manifest so a new member
+/// can learn the group.
+const kDeltaOmitsManifest = true;
 
 class GroupService implements ArchiveGroups {
   GroupService(
@@ -17812,8 +17810,8 @@ class GroupService implements ArchiveGroups {
   ///
   /// Every delta carried the whole manifest, ~2.5 KB: measured on the stand,
   /// one device-log event went out as 5–8 KB in three chunks. The owner's
-  /// decision (2026-09-27): stop sending it, in two releases — this is the
-  /// first, the receiving half; [kDeltaOmitsManifest] is the second.
+  /// decision (2026-09-27): stop sending it in two releases. This receiving
+  /// half shipped first; [kDeltaOmitsManifest] now enables the sending half.
   Future<String> _restoreOmittedManifest(String json) async {
     if (!json.contains('"mid":')) return json;
     try {
