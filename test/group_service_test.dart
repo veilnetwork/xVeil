@@ -9180,6 +9180,38 @@ void main() {
     expect(grants, [(bob, cid)]);
   });
 
+  test('a newer master announcement replaces an older marked device', () async {
+    final ownerStore = FakeHvContainer().storage();
+    final linkedStore = FakeHvContainer().storage();
+    await ownerStore.open(password: 'pw', createIfMissing: true);
+    await linkedStore.open(password: 'pw', createIfMissing: true);
+    final master = GroupService(ownerStore, _FakeSigner(owner));
+    addTearDown(master.dispose);
+    expect(await master.linkDevice(bob, sovereign: sovereign,
+        broadcastSnapshot: false), isTrue);
+    final gid = NodeId.fromHex((await master.deviceGroupIdHex())!);
+    final former = _id(0xD6), current = _id(0xD7);
+    for (final (device, stamp) in [(former, 444), (current, 445)]) {
+      expect(await master.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.identityDoc,
+        key: device.hex,
+        tsMs: stamp,
+        payload: const {'d': 'ZG9j', 'o': true},
+      )), isTrue);
+    }
+
+    final linked = GroupService(linkedStore, _FakeSigner(bob))
+      ..myDevice = bob
+      ..documentNodeId = (_) => owner;
+    addTearDown(linked.dispose);
+    expect(await linked.ingestSnapshot(
+      master.snapshotJson((await master.load(gid))!, recipient: bob),
+    ), isTrue);
+    expect(await linked.adoptDeviceGroup(gid), isTrue);
+    expect(await linked.masterDeviceId(), current);
+    expect(await linked.addressableOwnDevices(), [current]);
+  });
+
   // Auto-broadcast is unawaited (fire-and-forget) — let it drain.
   Future<void> pump() async {
     for (var i = 0; i < 6; i++) {
