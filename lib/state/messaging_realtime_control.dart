@@ -49,6 +49,50 @@ class _MessagingRealtimeControl {
 
   void revoke(NodeId peer) => _acceptedPeers.remove(peer.hex);
 
+  final Map<String, ({NodeId identity, NodeId device, int pinnedAtMs})>
+  _callReplyDevices = {};
+  static const _callReplyRouteLifetime = Duration(hours: 6);
+  static const _maxCallReplyRoutes = 32;
+  static final _callSignalPrefix = utf8.encode(
+    '{"t":${WireKind.callSignal.index},',
+  );
+
+  void pinCallReplyDevice(String callId, NodeId identity, NodeId device) {
+    _callReplyDevices.remove(callId);
+    while (_callReplyDevices.length >= _maxCallReplyRoutes) {
+      _callReplyDevices.remove(_callReplyDevices.keys.first);
+    }
+    _callReplyDevices[callId] = (
+      identity: identity,
+      device: device,
+      pinnedAtMs: _owner._now().millisecondsSinceEpoch,
+    );
+  }
+
+  NodeId? routeCallPayload(NodeId peer, Uint8List payload) {
+    if (_callReplyDevices.isEmpty) return null;
+    if (payload.length < _callSignalPrefix.length) return null;
+    for (var i = 0; i < _callSignalPrefix.length; i++) {
+      if (payload[i] != _callSignalPrefix[i]) return null;
+    }
+    try {
+      final envelope = WireEnvelope.decode(payload);
+      if (envelope.kind != WireKind.callSignal) return null;
+      final signal = CallSignal.tryDecode(envelope.body);
+      if (signal == null) return null;
+      final route = _callReplyDevices[signal.callId];
+      if (route == null || route.identity != peer) return null;
+      if (_owner._now().millisecondsSinceEpoch - route.pinnedAtMs >
+          _callReplyRouteLifetime.inMilliseconds) {
+        _callReplyDevices.remove(signal.callId);
+        return null;
+      }
+      return route.device;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Serialize APP_RT frames independently from the durable inbox. A transient
   /// failure drops only one datagram and cannot poison later answer/end frames.
   Future<void> deliverInbound(InboundMessage message) {
@@ -297,16 +341,22 @@ class _MessagingRealtimeControl {
   /// Race admitted realtime and ordinary contact lanes for call control. Both
   /// copies share one durable frame id, so receiver dedup makes this safe.
   Future<void> _sendCallLive(NodeId peer, Uint8List wire) async {
+    final livePeer = routeCallPayload(peer, wire) ?? peer;
     if (_owner._anonymous) {
       await sendRealtime(peer, wire);
       return;
     }
     if (_owner._transport is! RealtimeTransport) {
-      await _owner._send(peer, wire);
+      await _owner._send(livePeer, wire);
       return;
     }
     await Future.wait<void>([
-      _attempt('call-sig', 'contact', peer, () => _owner._send(peer, wire)),
+      _attempt(
+        'call-sig',
+        'contact',
+        livePeer,
+        () => _owner._send(livePeer, wire),
+      ),
       _sendRealtimePaths('call-sig', peer, wire),
     ]);
   }
@@ -354,8 +404,12 @@ class _MessagingRealtimeControl {
     final ownDevice = await _owner.isOwnDevice?.call(peer) ?? false;
     if (!ownDevice) {
       final contact = await _owner._storage.getContact(peer);
-      if (contact == null || contact.status != ContactStatus.accepted) return;
-      markAccepted(peer);
+      if (contact?.status == ContactStatus.accepted) {
+        markAccepted(peer);
+      } else if (!(_owner.acceptsCallDeviceSignal?.call(peer, signal) ??
+          false)) {
+        return;
+      }
     }
     final stamped = signal.sentAtMs == null
         ? signal.copyWith(sentAtMs: _owner._now().millisecondsSinceEpoch)

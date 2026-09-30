@@ -214,7 +214,8 @@ class MessagingService {
       _MessagingRealtimeControl(this);
   late final _MessagingMailboxDelivery _mailboxDelivery =
       _MessagingMailboxDelivery(
-        ownDevice: (peer) => isOwnDevice == null ? null : _isSiblingDevice(peer),
+        ownDevice: (peer) =>
+            isOwnDevice == null ? null : _isSiblingDevice(peer),
       );
 
   /// One of my OTHER devices by its device id — not the identity address,
@@ -224,6 +225,7 @@ class MessagingService {
     if (self != null && peer.hex == self) return false;
     return await isOwnDevice?.call(peer) ?? false;
   }
+
   late final _MessagingMessageDelivery _messageDelivery =
       _MessagingMessageDelivery(this);
   late final _MessagingFileTransfer _fileTransfer = _MessagingFileTransfer(
@@ -264,6 +266,16 @@ class MessagingService {
   set onCallSignal(void Function(NodeId peer, CallSignal signal)? callback) {
     _realtimeControl.onCallSignal = callback;
   }
+
+  /// The call service may admit a device without a separate contact row when
+  /// it proves knowledge of this device's live, E2E-delivered call id. Relayed
+  /// frames carry claimed provenance even when the answer is genuine.
+  bool Function(NodeId peer, CallSignal signal)? acceptsCallDeviceSignal;
+
+  Future<NodeId> localDeviceId() => _transport.nodeId();
+
+  void pinCallReplyDevice(String callId, NodeId identity, NodeId device) =>
+      _realtimeControl.pinCallReplyDevice(callId, identity, device);
 
   /// Attached by the P2P endpoint service: an inbound
   /// A contact asking what translation or speech models this device holds.
@@ -875,7 +887,10 @@ class MessagingService {
     // Sealing is unaffected: a certificate lives under the identity, and the
     // daemon resolves it from the session's own proof rather than from
     // whatever this names.
-    final routed = routeFor?.call(dst) ?? dst;
+    final routed =
+        _realtimeControl.routeCallPayload(dst, payload) ??
+        routeFor?.call(dst) ??
+        dst;
     if (routed != dst) {
       devLog(
         () => 'xVeil[send]: routing ${dst.short} via device ${routed.short}',
@@ -1153,6 +1168,7 @@ class MessagingService {
     }
     return removed;
   }
+
   bool _flushing = false;
 
   /// Frames the mailbox subsystem still holds per-frame bookkeeping for.
@@ -1428,13 +1444,10 @@ class MessagingService {
     // retract the pending delay itself, or every widget test that touches the
     // service dies on "A Timer is still pending" at teardown (the _disposed
     // guard silences the callback but not the timer).
-    _disappearingSweepTimer = Timer.periodic(
-      kDisappearingSweepEvery,
-      (_) {
-        unawaited(sweepAllDisappearing());
-        unawaited(_askSiblingsForErasures());
-      },
-    );
+    _disappearingSweepTimer = Timer.periodic(kDisappearingSweepEvery, (_) {
+      unawaited(sweepAllDisappearing());
+      unawaited(_askSiblingsForErasures());
+    });
     _settingsGcTimer = Timer(const Duration(seconds: 20), () {
       unawaited(() async {
         if (_disposed) return;
@@ -2390,6 +2403,7 @@ class MessagingService {
 
   Future<bool> applyMirroredReadMark(String conversationId, int tsMs) =>
       _conversationAdmin.applyMirroredReadMark(conversationId, tsMs);
+
   /// Returns whether the message was stored and sent. `false` is a refusal —
   /// empty or malformed text, or a peer that is not an accepted contact — and
   /// nothing was stored. The chat screen cannot reach those cases (it offers

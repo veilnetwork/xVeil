@@ -269,6 +269,7 @@ class CallSignal {
     this.capture,
     this.mediaRepairRequested = false,
     this.onBehalfOf,
+    this.replyDevice,
     this.protocolVersion = kCallSignalProtocolVersion,
     this.sentAtMs,
   });
@@ -330,6 +331,12 @@ class CallSignal {
   /// here; an additive `ob` key that old builds ignore.
   final String? onBehalfOf;
 
+  /// Physical return address for this offer, supplied by the caller. A sibling
+  /// that receives a forwarded offer can answer the caller before it has ever
+  /// established its own session with that identity. Used only for direct
+  /// calls; anonymous offers do not disclose a device address.
+  final String? replyDevice;
+
   final int protocolVersion;
 
   /// Sender wall-clock (Unix ms) — for ring-timeout / stale-signal handling.
@@ -349,6 +356,7 @@ class CallSignal {
     CallMedia? capture,
     bool? mediaRepairRequested,
     String? onBehalfOf,
+    String? replyDevice,
     int? sentAtMs,
   }) => CallSignal(
     callId: callId,
@@ -361,6 +369,7 @@ class CallSignal {
     capture: capture ?? this.capture,
     mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
     onBehalfOf: onBehalfOf ?? this.onBehalfOf,
+    replyDevice: replyDevice ?? this.replyDevice,
     protocolVersion: protocolVersion,
     sentAtMs: sentAtMs ?? this.sentAtMs,
   );
@@ -379,6 +388,7 @@ class CallSignal {
     if (capture != null) 'cm': capture!.toJson(),
     if (mediaRepairRequested) 'mr': true,
     if (onBehalfOf != null) 'ob': onBehalfOf,
+    if (replyDevice != null) 'rd': replyDevice,
     'v': protocolVersion,
     if (sentAtMs != null) 'ts': sentAtMs,
   };
@@ -423,6 +433,7 @@ class CallSignal {
             : CallMedia.fromJson((j['cm'] as Map).cast<String, dynamic>()),
         mediaRepairRequested: j['mr'] == true,
         onBehalfOf: j['ob'] as String?,
+        replyDevice: j['rd'] as String?,
         protocolVersion: (j['v'] as num?)?.toInt() ?? 1,
         sentAtMs: (j['ts'] as num?)?.toInt(),
       );

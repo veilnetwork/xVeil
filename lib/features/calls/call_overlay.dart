@@ -420,7 +420,7 @@ class _CallBody extends ConsumerWidget {
     return Column(
       children: [
         CallSurfaceHeader(
-          title: call.peer.short,
+          title: call.mediaIdentity.short,
           subtitle: callStatusLabel(l, call),
           onMinimize: onMinimize,
           onSettings: () => onShowDevices(svc),
@@ -430,13 +430,13 @@ class _CallBody extends ConsumerWidget {
           radius: 72,
           backgroundColor: const Color(0xFF171B22),
           child: Text(
-            call.peer.short.characters.first.toUpperCase(),
+            call.mediaIdentity.short.characters.first.toUpperCase(),
             style: const TextStyle(fontSize: 48, color: Colors.white38),
           ),
         ),
         const SizedBox(height: 16),
         Text(
-          call.peer.short,
+          call.mediaIdentity.short,
           style: Theme.of(context).textTheme.titleLarge,
           overflow: TextOverflow.ellipsis,
         ),
@@ -496,7 +496,7 @@ class _CallBody extends ConsumerWidget {
           left: 0,
           right: 0,
           child: CallSurfaceHeader(
-            title: call.peer.short,
+            title: call.mediaIdentity.short,
             subtitle: callStatusLabel(l, call),
             onMinimize: onMinimize,
             onSettings: () => onShowDevices(svc),
@@ -641,9 +641,7 @@ class WeakLinkBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  peerAsked
-                      ? l.callWeakLinkBodyPeer
-                      : l.callWeakLinkBodyLocal,
+                  peerAsked ? l.callWeakLinkBodyPeer : l.callWeakLinkBodyLocal,
                   style: theme.textTheme.bodySmall,
                 ),
                 Wrap(
@@ -1030,7 +1028,7 @@ class _FloatingCallTile extends ConsumerWidget {
                     radius: 34,
                     backgroundColor: const Color(0xFF171B22),
                     child: Text(
-                      call.peer.short.characters.first.toUpperCase(),
+                      call.mediaIdentity.short.characters.first.toUpperCase(),
                       style: const TextStyle(
                         color: Colors.white54,
                         fontSize: 26,
@@ -1072,7 +1070,7 @@ class _FloatingCallTile extends ConsumerWidget {
                 top: 8,
                 right: 76,
                 child: Text(
-                  call.peer.short,
+                  call.mediaIdentity.short,
                   style: const TextStyle(color: Colors.white, fontSize: 12),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,

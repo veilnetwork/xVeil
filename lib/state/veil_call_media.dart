@@ -149,8 +149,9 @@ Uint8List _callMediaHash(Iterable<List<int>> parts) {
   final calleeContribution = localIsCaller
       ? peerContribution
       : localContribution;
-  final callerNode = localIsCaller ? localNodeId : call.peer.bytes;
-  final calleeNode = localIsCaller ? call.peer.bytes : localNodeId;
+  final peerIdentity = call.mediaIdentity.bytes;
+  final callerNode = localIsCaller ? localNodeId : peerIdentity;
+  final calleeNode = localIsCaller ? peerIdentity : localNodeId;
   Uint8List? master;
   try {
     master = _callMediaHash([
@@ -171,8 +172,8 @@ Uint8List _callMediaHash(Iterable<List<int>> parts) {
       to,
     ]);
     return (
-      txKey: directionKey(localNodeId, call.peer.bytes),
-      rxKey: directionKey(call.peer.bytes, localNodeId),
+      txKey: directionKey(localNodeId, peerIdentity),
+      rxKey: directionKey(peerIdentity, localNodeId),
     );
   } finally {
     localContribution.fillRange(0, localContribution.length, 0);
@@ -214,7 +215,7 @@ _openCallMediaChannel({
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
         final channel = await opener.openMediaChannel(
-          call.peer.bytes,
+          call.mediaPeer.bytes,
           txKey: txKey,
           rxKey: rxKey,
           direct: true,
@@ -247,7 +248,7 @@ _openCallMediaChannel({
     // "relay — no direct session" instead of a bare "relay".
     final es = '$lastError';
     final channel = await opener.openMediaChannel(
-      call.peer.bytes,
+      call.mediaPeer.bytes,
       txKey: txKey,
       rxKey: rxKey,
       relay: true,
@@ -264,7 +265,7 @@ _openCallMediaChannel({
   }
   if (call.transport == CallTransportKind.relay) {
     final channel = await opener.openMediaChannel(
-      call.peer.bytes,
+      call.mediaPeer.bytes,
       txKey: txKey,
       rxKey: rxKey,
       relay: true,
@@ -281,7 +282,7 @@ _openCallMediaChannel({
     );
   }
   final channel = await opener.openMediaChannel(
-    call.peer.bytes,
+    call.mediaPeer.bytes,
     txKey: txKey,
     rxKey: rxKey,
   );
@@ -672,6 +673,21 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> start(Call call) async {
+    final device = call.peerDevice;
+    if (device != null && device != call.mediaIdentity) {
+      // Native attributes packets on an admitted session to the shared
+      // identity, but packets from an unpaired answering device retain its
+      // physical id. Register the receive channel under that same address.
+      try {
+        final session = await _transport.peerPnetStatus(device.bytes);
+        call = call.copyWith(
+          mediaRoutePeer: session.admitted ? call.mediaIdentity : device,
+        );
+      } catch (e) {
+        devLog(() => 'xVeil[call-media]: route status unavailable: $e');
+        call = call.copyWith(mediaRoutePeer: device);
+      }
+    }
     devLog(
       () =>
           'xVeil[call-media]: controller start platform=${Platform.operatingSystem}',
@@ -679,7 +695,7 @@ class VeilCallMediaController implements CallMediaController {
     // Never open a route while the call is only ringing: the final route is
     // known only after both peers have applied their consent policy. Reuse is
     // therefore limited to this controller's already-finalized call lifecycle.
-    if (_engine != null || (_chan != null && _chanPeer != call.peer.hex)) {
+    if (_engine != null || (_chan != null && _chanPeer != call.mediaPeer.hex)) {
       await stop();
     }
     final epoch = ++_mediaEpoch;
@@ -730,11 +746,11 @@ class VeilCallMediaController implements CallMediaController {
     // ends hash different pairs on any device whose identity is not its own
     // key, and every sealed cell then arrived and failed to open.
     final localId = (await _transport.peerFacingNodeId()).bytes;
-    final peerId = call.peer.bytes;
+    final peerId = call.mediaIdentity.bytes;
     // Open only the route finalized by call negotiation.
     final int chan;
     final CallTransportKind transport;
-    if (_chan != null && _chanPeer == call.peer.hex) {
+    if (_chan != null && _chanPeer == call.mediaPeer.hex) {
       chan = _chan!;
       transport = _chanTransport!;
     } else {
@@ -763,7 +779,7 @@ class VeilCallMediaController implements CallMediaController {
           '(${transport.name})',
     );
     _chan = chan;
-    _chanPeer = call.peer.hex;
+    _chanPeer = call.mediaPeer.hex;
     _chanTransport = transport;
     // A negotiated P2P open may have taken the explicitly permitted non-onion
     // relay fallback. Keep subsequent repair/switch operations anchored to the
@@ -826,7 +842,7 @@ class VeilCallMediaController implements CallMediaController {
     _statsTimer?.cancel();
     _lastRxAt = null;
     _lastRxPkts = 0;
-    _lastNativeRxCount = _transport.mediaRecvCount(call.peer.bytes);
+    _lastNativeRxCount = _transport.mediaRecvCount(call.mediaPeer.bytes);
     _engineRxStalledSince = null;
     _lastRepairAt = null;
     _bitrateAdapter = null; // re-armed below when this call carries video
@@ -857,7 +873,7 @@ class VeilCallMediaController implements CallMediaController {
           );
         }
         final rx = (stats['rx_pkts'] as num?)?.toInt() ?? 0;
-        final nativeRx = _transport.mediaRecvCount(call.peer.bytes);
+        final nativeRx = _transport.mediaRecvCount(call.mediaPeer.bytes);
         if (rx > _lastRxPkts) {
           _lastRxAt = DateTime.now();
           _engineRxStalledSince = null;
@@ -925,7 +941,8 @@ class VeilCallMediaController implements CallMediaController {
           // Only ever RAISED here, never lowered: the adapter withdraws its
           // own advice when the ladder climbs back off the floor, and the
           // prompt follows that rather than flickering with each sample.
-          final advising = adapter.videoAdvice == CallVideoAdvice.suggestDisable;
+          final advising =
+              adapter.videoAdvice == CallVideoAdvice.suggestDisable;
           // MEASURED, not assumed: the camera can be off while the video
           // sender still exists, and there is nothing to offer to drop then.
           // This sample already carries the answer.

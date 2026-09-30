@@ -31,6 +31,9 @@ class Call {
   const Call({
     required this.callId,
     required this.peer,
+    this.peerIdentity,
+    this.peerDevice,
+    this.mediaRoutePeer,
     required this.direction,
     required this.media,
     required this.status,
@@ -56,6 +59,21 @@ class Call {
 
   /// The other party.
   final NodeId peer;
+
+  /// Stable identity used by both parties to derive the media keys. [peer]
+  /// may rebind to the answering device after a forked multi-device offer.
+  final NodeId? peerIdentity;
+
+  /// Physical endpoint for media when the call offer or answer named one.
+  /// The media seal still uses [peerIdentity], never this transport address.
+  final NodeId? peerDevice;
+
+  /// Media controller's per-call route decision. A live session can address
+  /// the shared identity; an unpaired sibling must address the device.
+  final NodeId? mediaRoutePeer;
+
+  NodeId get mediaPeer => mediaRoutePeer ?? peerDevice ?? peer;
+  NodeId get mediaIdentity => peerIdentity ?? peer;
 
   final CallDirection direction;
 
@@ -149,6 +167,9 @@ class Call {
     // Rebound exactly once, by the fan-out caller: the identity we dialed
     // answers from the device that took the call (see _onAnswer).
     NodeId? peer,
+    NodeId? peerIdentity,
+    NodeId? peerDevice,
+    NodeId? mediaRoutePeer,
     CallStatus? status,
     CallMedia? media,
     CallPosture? peerPosture,
@@ -167,6 +188,9 @@ class Call {
   }) => Call(
     callId: callId,
     peer: peer ?? this.peer,
+    peerIdentity: peerIdentity ?? this.peerIdentity,
+    peerDevice: peerDevice ?? this.peerDevice,
+    mediaRoutePeer: mediaRoutePeer ?? this.mediaRoutePeer,
     direction: direction,
     media: media ?? this.media,
     status: status ?? this.status,
