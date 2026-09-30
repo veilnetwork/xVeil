@@ -147,10 +147,10 @@ received the message and A committed its device-group mirror, then takes A and
 C down. Current policy skips mailbox deposits to sibling device addresses, so
 the case measures whether any other recovery path can supply B.
 
-### case 20 — a concurrent edit and delete on one identity
+### case 20 — an edit and a device-local delete on one identity
 
-A edits a row while B deletes it, with neither able to see the other, then both
-come back. The case asserts two different things:
+A edits a row while B calls `deleteMessageLocally` for the same id, with neither
+able to see the other, then both come back. The case asserts two things:
 
 * **what must hold regardless of the rule** — the signed device-group log does
   not fork, duplicate a row, or leave a hole in a writer's chain;
@@ -165,12 +165,9 @@ come back. The case asserts two different things:
     holds, so an edited body is not carried to a sibling that already has the row.
 
   Both point the same way, so the settled state is deterministic: **A keeps the
-  edited row, B keeps nothing.** The test pins that.
-
-  This is a RECORD, not an endorsement: a user with two devices sees two
-  different conversations. When the mirror learns to carry edits and deletes,
-  the pinned expectation is the one to flip, and case 20 becomes a convergence
-  assertion like the other two.
+  edited row, B keeps nothing.** This is permitted because B explicitly made a
+  device-local deletion. A delete-for-everyone conflict and a truly simultaneous
+  network partition require separate tests.
 
 ---
 
