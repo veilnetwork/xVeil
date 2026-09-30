@@ -346,6 +346,7 @@ class _MessagingConversationAdmin {
     // not pretend to prove more.
     await _tellMyDevicesToEmpty(peer);
     await _owner._storage.removeConversation(peer);
+    await _owner._contacts.discardHeld(peer);
     // The chat is gone; its ratchet must go with it. AFTER the farewell, which
     // is itself a send and would re-open a session we were about to drop.
     //
@@ -505,6 +506,7 @@ class _MessagingConversationAdmin {
   Future<void> clearConversation(NodeId peer) async {
     final selfHex = await _owner._selfHex();
     final ev = await _owner._storage.emitClearConversation(peer, selfHex);
+    await _owner._contacts.discardHeld(peer);
     await _owner.sendDurable(
       peer,
       'clear:${peer.hex}:${ev.seq}',
