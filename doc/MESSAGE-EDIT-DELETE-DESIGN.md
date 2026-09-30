@@ -60,7 +60,10 @@ last-write-wins by `log_id` (it previously always appended, silently diverging).
 
 MessagingService exposes `deleteMessageLocally(id)` (any message, incl. received)
 and `editOwnMessage(id, body)` (our sent text), each scrubbing + signalling the
-UI. Both are **local-only** for now.
+UI. `deleteMessageLocally` also writes `msgGone` to the signed device log, so
+other devices of this identity remove their copies after synchronization. It
+does not ask the remote contact to delete a message. Edits likewise synchronize
+between this identity's devices; the peer receives edits to our sent messages.
 
 Tests: `hidden_volume_storage_test.dart` (edit-in-place, delete incl. received,
 unknown-id no-op, gone-after-scrub) and `messaging_outbox_test.dart` (service
@@ -73,7 +76,7 @@ edit + received-message purge).
    scrub, guarded by `_isIncomingFrom` (a peer can only edit/delete messages
    THEY sent us, never our outgoing ones). Best-effort — the UI warns the peer
    may already have copied the text. `deleteForEveryone` (own sent) vs
-   `deleteMessageLocally` (any, local-only).
+   `deleteMessageLocally` (any, own devices only).
 2. ✅ **UI — DONE.** Long-press sheet on a bubble: own text → Edit / Delete for
    everyone / Delete for me; received/file → Delete for me. Edit dialog
    pre-filled; italic "edited" marker from `Message.edited`. RU/EN l10n.
