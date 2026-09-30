@@ -93,9 +93,15 @@ class AccountSettingsScreen extends ConsumerWidget {
                           if (!ctx.mounted) return;
                           setSheetState(() {});
                           if (!ok) return;
-                          final hint = next
-                              ? l.settingsAnonymousEnabledHint
-                              : l.settingsAnonymousDisabledHint;
+                          final appliesOnNextStart =
+                              session == null && label != state.activeIdentity;
+                          final hint = appliesOnNextStart
+                              ? (next
+                                    ? l.settingsAnonymousEnabledHint
+                                    : l.settingsAnonymousDisabledHint)
+                              : (next
+                                    ? l.securityCenterAnonymousOn
+                                    : l.securityCenterAnonymousOff);
                           ScaffoldMessenger.of(ctx).showSnackBar(
                             SnackBar(content: Text('$label — $hint')),
                           );
@@ -208,9 +214,9 @@ class AccountSettingsScreen extends ConsumerWidget {
               );
             },
           ),
-          // Anonymity toggle for the ACTIVE identity — the SAME control in
-          // single and master modes (in master it routes the change to the
-          // active identity). Reboots the node under the new routing.
+          // Anonymity toggle for the active identity. The subtitle describes
+          // the selected state; a pending-restart message belongs only to an
+          // action that has actually just been taken.
           Builder(
             builder: (_) {
               final ctrl = ref.read(appControllerProvider.notifier);
@@ -224,8 +230,8 @@ class AccountSettingsScreen extends ConsumerWidget {
                 title: Text(l.settingsAnonymousRouting),
                 subtitle: Text(
                   anon
-                      ? l.settingsAnonymousEnabledHint
-                      : l.settingsAnonymousDisabledHint,
+                      ? l.securityCenterAnonymousOn
+                      : l.securityCenterAnonymousOff,
                 ),
                 isThreeLine: true,
                 value: anon,
