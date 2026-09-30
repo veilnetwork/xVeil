@@ -29,10 +29,10 @@
 ///      envelope is minted per recipient and a receipt records the LOCAL
 ///      moment a row arrived. An oracle that hashed those would report every
 ///      healthy pair as divergent;
-///   2. NO DUPLICATES — one `(author, seq)` appears once. The class of defect
+///   2. NO DUPLICATES — one `(author, signing device, seq)` appears once. The class of defect
 ///      this catches has been seen live twice (`one-file-two-rows`): the same
 ///      logical row landing twice under two keys;
-///   3. NO GAPS — each writer's `seq` chain is contiguous. This is the
+///   3. NO GAPS — each signing device's `seq` chain is contiguous. This is the
 ///      per-writer frontier the campaign had to introduce (`9cbe6a4`): a flat
 ///      frontier collapsed several writers' chains into one and lost rows in
 ///      the middle, which a digest comparison alone cannot see when BOTH
@@ -45,16 +45,24 @@
 library;
 
 /// One signed row of a device-group bundle, identified the way the fold
-/// identifies it: by its writer and that writer's sequence number.
+/// identifies it: by identity, signing device and that device's sequence number.
 ///
 /// `kind` separates the two chains (control / message) because they are
 /// numbered independently — a control row 7 and a message row 7 by the same
 /// author are not a duplicate pair.
 class RowRef implements Comparable<RowRef> {
-  const RowRef({required this.kind, required this.authorHex, required this.seq});
+  const RowRef({
+    required this.kind,
+    required this.authorHex,
+    required this.seq,
+    this.writerHex = '',
+  });
 
   final String kind;
   final String authorHex;
+
+  /// Empty for legacy rows that did not carry a signing subkey.
+  final String writerHex;
   final int seq;
 
   @override
@@ -62,10 +70,11 @@ class RowRef implements Comparable<RowRef> {
       other is RowRef &&
       other.kind == kind &&
       other.authorHex == authorHex &&
+      other.writerHex == writerHex &&
       other.seq == seq;
 
   @override
-  int get hashCode => Object.hash(kind, authorHex, seq);
+  int get hashCode => Object.hash(kind, authorHex, writerHex, seq);
 
   @override
   int compareTo(RowRef other) {
@@ -73,11 +82,14 @@ class RowRef implements Comparable<RowRef> {
     if (byKind != 0) return byKind;
     final byAuthor = authorHex.compareTo(other.authorHex);
     if (byAuthor != 0) return byAuthor;
+    final byWriter = writerHex.compareTo(other.writerHex);
+    if (byWriter != 0) return byWriter;
     return seq.compareTo(other.seq);
   }
 
   @override
-  String toString() => '$kind/${_short(authorHex)}#$seq';
+  String toString() =>
+      '$kind/${_short(authorHex)}${writerHex.isEmpty ? '' : '@${_short(writerHex)}'}#$seq';
 }
 
 /// Everything the oracle is allowed to look at, read off ONE device.
@@ -266,11 +278,13 @@ List<String> _duplicateReasons(DeviceStateSnapshot device) {
 List<String> _gapReasons(DeviceStateSnapshot device) {
   final chains = <String, List<int>>{};
   for (final row in device.rows) {
-    chains.putIfAbsent('${row.kind}/${row.authorHex}', () => []).add(row.seq);
+    chains
+        .putIfAbsent('${row.kind}/${row.authorHex}/${row.writerHex}', () => [])
+        .add(row.seq);
   }
   final out = <String>[];
-  for (final chain in chains.entries.toList()
-    ..sort((x, y) => x.key.compareTo(y.key))) {
+  for (final chain
+      in chains.entries.toList()..sort((x, y) => x.key.compareTo(y.key))) {
     final seqs = chain.value.toSet().toList()..sort();
     final missing = <int>[];
     for (var expected = seqs.first; expected < seqs.last; expected++) {

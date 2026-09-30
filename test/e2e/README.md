@@ -18,6 +18,7 @@ subtree is to be the suite that cannot.
 export XVEIL_E2E_VEIL_CLI="$PWD/third_party/veil/target/debug/veil-cli"
 export VEIL_FFI_DYLIB="$PWD/third_party/veil/target/debug/libveilclient_ffi.dylib"
 export HIDDEN_VOLUME_FFI_DYLIB="$PWD/third_party/hidden-volume/target/debug/libhidden_volume_ffi.dylib"
+export TMPDIR=/private/tmp/
 
 flutter test test/e2e/                          # everything
 flutter test test/e2e/relay_cluster_test.dart   # just the island
@@ -139,17 +140,10 @@ keyed by `msgId ?? contentId` used to land twice under two keys.
 B is down; A sends to C; then A **and** C go down and B comes up. B must end
 holding its own identity's outgoing message, as **outgoing**.
 
-Proves the mailbox path specifically: with A gone there is no live leg and no
-sibling to ask, so the row can only have come from a deposit made for B while it
-was asleep, drained after it woke. This is the case that fails when the mirror is
-deposited for nobody, or when the drain never wakes. The deadline is generous
-(10 minutes) because the campaign measured this cadence at ~260 s after the
-relay-warmup fix — a tight deadline would report a slow path as a broken one.
-
-Before it takes A down the case waits for A's outbox toward B's DEVICE id to
-empty. Without that it would be asking "does an undeposited frame arrive", which
-is a different question with only one honest answer; the wait makes the case's
-failure mean what it says.
+With A gone there is no live sibling to ask. The test first confirms that C
+received the message and A committed its device-group mirror, then takes A and
+C down. Current policy skips mailbox deposits to sibling device addresses, so
+the case measures whether any other recovery path can supply B.
 
 ### case 20 — a concurrent edit and delete on one identity
 
@@ -288,7 +282,7 @@ for, and it escalates.
 | minting one relay identity (`veil-cli`, all cores) | ~45 s |
 | minting one device identity (FFI, single-threaded) | ~5 min |
 
-### Why the invites carry `&t=127.0.0.1`
+### Why the device invites carry a loopback transport
 
 `RealVeilStack.myInvite` deliberately carries no `t=`: a loopback address in an
 invite that leaves the machine is worse than useless, so a node whose only
@@ -298,12 +292,16 @@ is slow and wildly variable — the cold onion handshake between two strangers
 measured 13 s on one run and had not completed after 91 s on the next, on the
 same code.
 
-So `E2eDevice.dialableContactInvite()` / `dialableDeviceInvite()` append the
-direct-dial hint, which is exactly what the operator's own single-host stand
-recipe does (`/device_invite` → paste → `&t=tcp://127.0.0.1:<listen>` →
-`/add_peer`). It bypasses nothing the cases are about: consent, the mirror,
-mailbox deposits and the fold all run unchanged. It only lets two nodes in the
-same process tree find each other by the shortest route they actually have.
+The fixture keeps the sovereign contact invite identity-only and uses a
+separate device invite carrying the loopback address to warm the direct route.
+The transport answers with the **device key**; putting its address into the
+sovereign identity invite makes the native handshake correctly reject the
+connection for a key mismatch. The direct device route leaves consent, the
+mirror, mailbox deposits and the fold unchanged.
+
+After admission, the newly linked device reboots under its adopted sovereign
+identity. Refreshing the document in a node still running under its throwaway
+identity cannot switch that node's identity in place.
 
 The deadlines stay generous anyway, because the mailbox legs still ride the
 rendezvous.
@@ -317,54 +315,17 @@ than "the onion rendezvous is usable", which has no cheap probe from this side.
 
 ## Current results
 
-Measured on this machine with the debug artifacts, `flutter test test/e2e/`:
-
-| Case | Result |
-| --- | --- |
-| oracle unit tests (ungated, 20 of them) | PASS |
-| relay island smoke | PASS |
-| device fixture smoke (boot, restart, A→B link) | PASS |
-| case 3/8 | **PASS** (~44 s) |
-| case 10 | **FAIL** — see below |
-| case 20 | **PASS** (~58 s) |
-
-### case 10 is failing, and what it reports
-
-The case does not merely time out; it names where it stopped. With B asleep, A
-sends to C, C receives it — and A's outbox toward B's device id **stays at 2 and
-never drains**, for the whole five-minute deadline:
-
-```
-… still waiting (290s) for A to flush its outbox toward the sleeping sibling B
-  (otherwise nothing was ever deposited and the case is vacuous)
-  — last seen: A outbox→B=2 A outbox→C=0
-```
-
-Alongside it, once per backoff step:
-
-```
-WARN peer.connect.failure peer_id=0x88000000 error=connection timed out after 10s
-WARN peer.reconnect.scheduled peer_id=0x88000000 delay_ms=12960
-```
-
-So the frames destined for the sleeping sibling sit behind a direct dial to a
-device that is not there, and within five minutes they are not falling back to a
-mailbox deposit. An earlier run without the outbox gate confirms the other end
-of the same story: B, brought up with A and C gone, never saw the row in ten
-minutes (`B conv=[e2e]`, i.e. only the contact greeting).
-
-One thing to rule out before reading this as a product defect: this harness
-hands out invites carrying `&t=tcp://127.0.0.1:<port>` (see above), so A knows a
-direct address for B and is retrying it. Re-running case 10 with the device-side
-hint removed would say whether the stall is the retry or the deposit. That is
-the first thing to do with this case, and it is one line in
-`E2eFleet.linkDevice`.
+See [the dated campaign report](../../doc/MULTIDEVICE-VERIFICATION-2026-09-30.md)
+for the exact online/offline setup, observed result and open failures of each
+case. The report supersedes earlier runs of this harness; the oracle now
+recognizes separate signing chains for devices of one identity.
 
 ---
 
 ## Known limits, and what comes next
 
-The three cases here are the MVP. What the next ones need on top:
+The current cases cover online text, offline catch-up with A available, initial
+history, one file, basic calls, and two failure probes. Remaining cases need:
 
 * **cases 44–46 (two multi-device identities exchanging).** The fixture already
   provisions four devices and two identities (A+B = X, C+D = Y), and
@@ -379,13 +340,8 @@ The three cases here are the MVP. What the next ones need on top:
   cases assert. It will also need a longer per-test timeout and probably a
   `retentionCuts`-aware relaxation of the gap rule once compaction enters the
   picture, since a compacted prefix is a legitimate hole.
-* **cases 33–36 (files).** Needs blob bytes in the oracle's reading: the mirror
-  carries a file row as a lazy content reference, so a snapshot that compares
-  only rows would call two devices converged while one of them cannot open the
-  file. Add `hasBytes(contentId)` per device to `DeviceStateSnapshot` and a
-  digest of the delivered bytes; the transport side already works
-  (`downloadContent` / `deviceContentPull`), and the campaign's own case 7
-  measured it live.
-* **Not covered here at all**: calls (fan-out, answered-elsewhere), device
-  revocation and tombstones, and anything needing a phone. Those have live
-  coverage on the stand and would each need a new fixture capability.
+* **cases 33–36 (files).** The case 7 assertion reads B's actual bytes, but the
+  oracle does not yet include a content digest. Offline seeding, interrupted
+  transfers and large files remain open.
+* **Not covered here**: device revocation and tombstones, physical audio output,
+  and anything needing a phone. Basic call signaling runs in this fixture.

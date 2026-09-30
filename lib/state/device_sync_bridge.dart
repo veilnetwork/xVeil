@@ -243,6 +243,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   late final void Function(DeviceSyncEvent) queueLinkHistory;
   svc.onMemberLinked = (device) async {
     try {
+      // The first link may CREATE the device group after this bridge's boot
+      // announcement ran. In that case the boot attempt had no group to post
+      // into, and the new sibling sees only the shared identity address for
+      // its master. Announce again now that membership exists, before the
+      // snapshot and history replay are sent.
+      await announceIdentityDocument();
       final conversations = await ref.read(storageProvider).loadConversations();
       var replayed = 0;
       for (final c in conversations) {
