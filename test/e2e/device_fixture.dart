@@ -885,10 +885,23 @@ class E2eFleet {
       await _join(from, await to.dialableDeviceInvite());
       await _join(to, await from.dialableDeviceInvite());
       await from.messaging.sendRequest(to.identityNodeId, 'e2e');
+      var lastRequestAt = DateTime.now();
       await waitUntil(
-        () async =>
-            (await to.storage.getContact(from.identityNodeId))?.status ==
-            ContactStatus.pendingIncoming,
+        () async {
+          if ((await to.storage.getContact(from.identityNodeId))?.status ==
+              ContactStatus.pendingIncoming) {
+            return true;
+          }
+          // First contact has no outbox retry. A relay can accept the
+          // deposit yet lose the wakeup on a cold island; exercise the app's
+          // resend path rather than spending the whole stand on that wakeup.
+          final now = DateTime.now();
+          if (now.difference(lastRequestAt) >= const Duration(seconds: 15)) {
+            lastRequestAt = now;
+            await from.messaging.resendRequest(to.identityNodeId);
+          }
+          return false;
+        },
         what: '${to.label} to see ${from.label}\'s contact request',
         describe: () async =>
             'status=${(await to.storage.getContact(from.identityNodeId))?.status}',

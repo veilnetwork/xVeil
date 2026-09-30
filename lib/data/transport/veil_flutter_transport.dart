@@ -190,6 +190,8 @@ class VeilFlutterTransport
     this._mailboxClient,
     this._app,
     this._mediaApp,
+    this._mediaDeviceClient,
+    this._mediaDeviceApp,
     this._realtimeApp,
     this._siblingClient,
     this._siblingApp,
@@ -204,6 +206,8 @@ class VeilFlutterTransport
   final VeilClient _mailboxClient;
   final AppHandle _app;
   final AppHandle _mediaApp;
+  final VeilClient? _mediaDeviceClient;
+  final AppHandle? _mediaDeviceApp;
   final AppHandle _realtimeApp;
 
   /// The inbox a SIBLING device addresses, bound under this node's device id.
@@ -220,6 +224,7 @@ class VeilFlutterTransport
   /// Read by the stand: "did the second bind take" is otherwise only visible
   /// as a latency difference, which is the one thing it must not be judged by.
   bool get debugHasSiblingInbox => _siblingApp != null;
+
   /// This identity's receive address, once the boot knows it.
   ///
   /// Set rather than constructed: the transport connects before the sovereign
@@ -302,9 +307,11 @@ class VeilFlutterTransport
     VeilClient? capabilityClient;
     VeilClient? realtimeClient;
     VeilClient? mediaClient;
+    VeilClient? mediaDeviceClient;
     VeilClient? mailboxClient;
     VeilClient? siblingClient;
     AppHandle? realtimeApp;
+    AppHandle? mediaDeviceApp;
     AppHandle? siblingApp;
     try {
       // Node identity is immutable for this transport lifetime. Cache it while
@@ -355,6 +362,33 @@ class VeilFlutterTransport
         sourceNamespace: veilChatNamespace,
         sourceName: veilMediaName,
       );
+      // A forked call addresses the answering physical device. The ordinary
+      // media binding belongs to its shared identity, so packets addressed to
+      // the device had no endpoint 13 and vanished before the media cipher.
+      // Use a separate IPC connection because its receive table is keyed by
+      // endpoint id alone, while the node distinguishes the two app ids.
+      mediaDeviceClient = await VeilClient.connect(socketPath);
+      try {
+        mediaDeviceApp = await mediaDeviceClient.bindDeviceScoped(
+          namespace: veilChatNamespace,
+          name: veilMediaName,
+          endpointId: veilMediaEndpointId,
+        );
+        mediaDeviceApp.startDirectMediaReceiver(
+          sourceNamespace: veilChatNamespace,
+          sourceName: veilMediaName,
+        );
+      } on Object catch (error) {
+        // On an identity whose device and receive addresses coincide the
+        // identity binding above already owns this endpoint.
+        devLog(
+          () => 'xVeil[call-media]: no device-scoped media inbox ($error)',
+        );
+        await mediaDeviceApp?.close();
+        await mediaDeviceClient.close();
+        mediaDeviceApp = null;
+        mediaDeviceClient = null;
+      }
       realtimeApp = await realtimeClient.bindNamed(
         namespace: veilChatNamespace,
         name: veilRealtimeName,
@@ -423,6 +457,8 @@ class VeilFlutterTransport
         mailboxClient,
         app,
         mediaApp,
+        mediaDeviceClient,
+        mediaDeviceApp,
         realtimeApp,
         siblingClient,
         siblingApp,
@@ -431,6 +467,8 @@ class VeilFlutterTransport
       await siblingApp?.close();
       await siblingClient?.close();
       await realtimeApp?.close();
+      await mediaDeviceApp?.close();
+      await mediaDeviceClient?.close();
       await realtimeClient?.close();
       await mediaClient?.close();
       await mailboxClient?.close();
@@ -500,8 +538,21 @@ class VeilFlutterTransport
       );
     }
     final peer = NodeId(dstNode);
+    // A session-backed send is attributed to the shared identity; an
+    // unpaired device-to-device relay send is attributed to the physical
+    // device. The source app id must use the SAME name or the receiver drops
+    // every packet before the call cipher. Choose once per channel open.
+    final session = await _mediaClient.peerPnetStatus(dstNode);
+    final mediaSender = session.admitted
+        ? _mediaApp
+        : (_mediaDeviceApp ?? _mediaApp);
+    devLog(
+      () =>
+          'xVeil[call-media]: sender binding='
+          '${session.admitted ? "identity" : "device"} dst=${peer.short}',
+    );
     if (relay) {
-      return _mediaApp.openRelayMediaChannel(
+      return mediaSender.openRelayMediaChannel(
         dstNodeId: dstNode,
         dstAppId: mediaAppIdFor(peer),
         dstEndpointId: veilMediaEndpointId,
@@ -509,7 +560,7 @@ class VeilFlutterTransport
         rxKey: rxKey,
       );
     }
-    return _mediaApp.openDirectMediaChannel(
+    return mediaSender.openDirectMediaChannel(
       dstNodeId: dstNode,
       dstAppId: mediaAppIdFor(peer),
       dstEndpointId: veilMediaEndpointId,
@@ -1109,7 +1160,6 @@ class VeilFlutterTransport
     return mergeInboundStreams(identity, sibling.map(_toInbound));
   }
 
-
   @override
   Stream<InboundMessage> realtimeMessages() =>
       _realtimeApp.messages().map((message) {
@@ -1174,10 +1224,12 @@ class VeilFlutterTransport
     await _siblingApp?.close();
     await _realtimeApp.close();
     await _mediaApp.close();
+    await _mediaDeviceApp?.close();
     await _app.close();
     await _siblingClient?.close();
     await _realtimeClient.close();
     await _mediaClient.close();
+    await _mediaDeviceClient?.close();
     await _mailboxClient.close();
     await _capabilityClient.close();
     await _client.close();

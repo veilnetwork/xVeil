@@ -233,6 +233,12 @@ extension _MessagingInboundDispatch on MessagingService {
     // ack, or we restarted) is re-acked but not re-processed. Consent-gated:
     // only accepted peers reach the durable handlers below.
     final fid = env.frameId;
+    final callSignal = env.kind == WireKind.callSignal
+        ? CallSignal.tryDecode(env.body)
+        : null;
+    final activeCallDevice =
+        callSignal != null &&
+        (acceptsCallDeviceSignal?.call(m.src, callSignal) ?? false);
     final deferredPersistenceAck =
         env.kind == WireKind.cloudDocument ||
         env.kind == WireKind.cloudDocumentChunk ||
@@ -268,7 +274,9 @@ extension _MessagingInboundDispatch on MessagingService {
     final ownDeviceSender = await isOwnDevice?.call(m.src) ?? false;
     if (fid != null &&
         !liveOnlyNoAck &&
-        (existing?.status == ContactStatus.accepted || ownDeviceSender)) {
+        (existing?.status == ContactStatus.accepted ||
+            ownDeviceSender ||
+            activeCallDevice)) {
       if (deferredGroupCallAck) {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
@@ -802,10 +810,17 @@ extension _MessagingInboundDispatch on MessagingService {
         // passes without a contact row: the device fan-out's relayed offers
         // and answered-elsewhere signals ride this lane between siblings.
         if (existing?.status != ContactStatus.accepted &&
-            !(await isOwnDevice?.call(m.src) ?? false)) {
+            !ownDeviceSender &&
+            !activeCallDevice) {
+          devLog(
+            () =>
+                'xVeil[call-sig]: ${callSignal?.type.name ?? "invalid"} '
+                'from ${m.src.short} refused: contact=${existing?.status} '
+                'provenance=${m.provenance.name} activeCallDevice=$activeCallDevice',
+          );
           return;
         }
-        final callSig = CallSignal.tryDecode(env.body);
+        final callSig = callSignal;
         if (callSig != null) {
           devLog(() {
             final at = callSig.sentAtMs;

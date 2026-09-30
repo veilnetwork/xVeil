@@ -64,6 +64,8 @@ Call _call({
   required CallTransportKind route,
   CallDirection direction = CallDirection.outgoing,
   NodeId? peer,
+  NodeId? peerIdentity,
+  NodeId? peerDevice,
   String? localMediaKey,
   String? peerMediaKey,
   int? peerProtocolVersion = kCallSignalProtocolVersion,
@@ -71,6 +73,8 @@ Call _call({
 }) => Call(
   callId: callId,
   peer: peer ?? _peer,
+  peerIdentity: peerIdentity,
+  peerDevice: peerDevice,
   direction: direction,
   media: const CallMedia(audio: true),
   status: CallStatus.connecting,
@@ -394,6 +398,44 @@ void main() {
 
       expect(caller.txKey, callee.rxKey);
       expect(caller.rxKey, callee.txKey);
+    });
+
+    test('a forked call routes to devices while sealing for identities', () async {
+      final callerContribution = generateCallMediaKeyContribution();
+      final calleeContribution = generateCallMediaKeyContribution();
+      final caller = _call(
+        route: CallTransportKind.relay,
+        peer: calleeDevice,
+        peerIdentity: calleeIdentity,
+        peerDevice: calleeDevice,
+        localMediaKey: callerContribution,
+        peerMediaKey: calleeContribution,
+      );
+      final callee = _call(
+        route: CallTransportKind.relay,
+        direction: CallDirection.incoming,
+        peer: callerIdentity,
+        peerIdentity: callerIdentity,
+        peerDevice: callerDevice,
+        localMediaKey: calleeContribution,
+        peerMediaKey: callerContribution,
+      );
+      final callerOpener = _RecordingOpener();
+      final calleeOpener = _RecordingOpener();
+      await openSealedCallMediaChannel(
+        call: caller,
+        opener: callerOpener,
+        localNodeId: callerIdentity.bytes,
+      );
+      await openSealedCallMediaChannel(
+        call: callee,
+        opener: calleeOpener,
+        localNodeId: calleeIdentity.bytes,
+      );
+      expect(callerOpener.opens.single.dstNode, calleeDevice.bytes);
+      expect(calleeOpener.opens.single.dstNode, callerDevice.bytes);
+      expect(callerOpener.opens.single.txKey, calleeOpener.opens.single.rxKey);
+      expect(callerOpener.opens.single.rxKey, calleeOpener.opens.single.txKey);
     });
 
     test('a DEVICE id on one end seals what the other cannot open', () {
