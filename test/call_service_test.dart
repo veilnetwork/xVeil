@@ -720,6 +720,7 @@ void main() {
       await svc.placeCall(peer, const CallMedia(audio: true));
 
       expect(fake.sent.single.transport?.kind, CallTransportKind.onion);
+      expect(fake.sent.single.replyDevice, isNull);
     });
 
     test('incoming p2p offer is accepted as p2p only with local consent and '
@@ -2355,6 +2356,11 @@ void main() {
 
       await svc.placeCall(identity, const CallMedia(audio: true));
       final callId = svc.current!.callId;
+      expect(fake.sent.single.replyDevice, NodeId.fromHex('f' * 64).hex);
+      expect(
+        CallSignal.tryDecode(fake.sent.single.encode())?.replyDevice,
+        NodeId.fromHex('f' * 64).hex,
+      );
 
       fake.onCallSignal!(
         device,
@@ -2373,6 +2379,8 @@ void main() {
         device,
         reason: 'the dialog belongs to whoever picked up',
       );
+      expect(svc.current?.mediaIdentity, identity);
+      expect(svc.current?.mediaPeer, device);
       expect(svc.current?.status, CallStatus.connecting);
 
       // A late busy from a re-driven offer at another device must not tear
@@ -2694,6 +2702,15 @@ class _FakeMessaging implements MessagingService {
 
   @override
   void Function(NodeId peer, CallSignal signal)? onCallSignal;
+
+  @override
+  bool Function(NodeId peer, CallSignal signal)? acceptsCallDeviceSignal;
+
+  @override
+  Future<NodeId> localDeviceId() async => NodeId.fromHex('f' * 64);
+
+  @override
+  void pinCallReplyDevice(String callId, NodeId identity, NodeId device) {}
 
   @override
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {

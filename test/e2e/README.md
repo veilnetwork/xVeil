@@ -156,14 +156,14 @@ test checks the shared log and the visible conversation, including a restart of
 A so the folded journal replay is exercised. A delete-for-everyone conflict and
 a truly simultaneous network partition require separate tests.
 
-### case 37 control — B answers with an existing B-C session
+### case 37 — B answers without a B-C session
 
-C calls identity X and both A and B ring. Before the call, the fixture opens a
-direct device session between B and C. B answers, A stops ringing, C connects,
-and C receives B's hangup. Without that extra B-C session, the same case times
-out waiting for C's answer: B has the mirrored contact record but no overlay
-route to C. This control isolates the transport defect from the call state
-machine; it does not claim the ordinary case is fixed.
+C calls identity X and both A and B ring. The fixture verifies that B has no
+direct session to C before answering. B sends its answer to the physical return
+address in C's offer, while the call id gates the relayed answer at C. A stops
+ringing, C connects to B, both directions receive sealed media packets, and C
+receives B's hangup. The test runs against the ordinary native library and
+does not pre-pair B with C.
 
 ---
 

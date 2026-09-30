@@ -442,11 +442,35 @@ class CallService {
     _started = true;
     _handler = _onWireSignal;
     _messaging.onCallSignal = _handler;
+    _messaging.acceptsCallDeviceSignal = _acceptsCallDeviceSignal;
     _screenShareStoppedSub = _media?.screenShareStopped.listen((_) {
       if (_current?.screenOn == true) {
         unawaited(setScreenShareEnabled(false));
       }
     });
+  }
+
+  bool _acceptsCallDeviceSignal(NodeId peer, CallSignal signal) {
+    final call = _current;
+    if (_disposed ||
+        call == null ||
+        !call.isLive ||
+        call.callId != signal.callId ||
+        signal.onBehalfOf != null ||
+        signal.type == CallSignalType.offer) {
+      return false;
+    }
+    // A forked offer reaches every device of the callee. The device that
+    // answers has no contact row of its own at the caller, but it knows the
+    // unguessable call id from the E2E offer. A relay cannot authenticate the
+    // source device, so the call id is the bearer secret for this one answer.
+    // Once rebound, only that same device id may send follow-up controls.
+    if (signal.type == CallSignalType.answer &&
+        call.direction == CallDirection.outgoing &&
+        call.status == CallStatus.dialing) {
+      return true;
+    }
+    return call.peer == peer;
   }
 
   // ---- outbound user actions ---------------------------------------------
@@ -467,6 +491,7 @@ class CallService {
       Call(
         callId: callId,
         peer: peer,
+        peerIdentity: peer,
         direction: CallDirection.outgoing,
         media: media,
         status: CallStatus.dialing,
@@ -500,6 +525,9 @@ class CallService {
     }
     _directSessionUnavailable = localAllowsP2P && !peerReachable;
     _outgoingProposal = proposal.kind;
+    final replyDevice = posture == CallPosture.direct
+        ? (await _messaging.localDeviceId()).hex
+        : null;
     await _messaging.sendCallSignal(
       peer,
       CallSignal(
@@ -508,6 +536,7 @@ class CallService {
         media: media,
         posture: posture,
         transport: proposal,
+        replyDevice: replyDevice,
         mediaKey: localMediaKey,
         protocolVersion: _signalProtocolVersion,
         // STAMPED. An offer that carries no time cannot be judged stale, and
@@ -1238,10 +1267,21 @@ class CallService {
     final peerMediaKey = decodeCallMediaKeyContribution(sig.mediaKey) == null
         ? null
         : sig.mediaKey;
+    NodeId? callerDevice;
+    if (sig.posture == CallPosture.direct && sig.replyDevice != null) {
+      try {
+        callerDevice = NodeId.fromHex(sig.replyDevice!);
+        _messaging.pinCallReplyDevice(sig.callId, peer, callerDevice);
+      } catch (_) {
+        devLog(() => 'xVeil[call-sig]: invalid reply device in offer');
+      }
+    }
     _set(
       Call(
         callId: sig.callId,
         peer: peer,
+        peerIdentity: peer,
+        peerDevice: callerDevice,
         direction: CallDirection.incoming,
         media: offeredMedia,
         status: CallStatus.ringing,
@@ -1396,8 +1436,8 @@ class CallService {
       // device that took the call answers under its own transport id — the
       // identity's other devices are exactly who the offer was fanned to.
       // The callId is this call's unguessable secret, delivered E2E only to
-      // the callee's devices, so an answer that knows it and arrived
-      // authenticated is the callee answering — the same trust the follow-up
+      // the callee's devices, so an answer that knows it is the callee
+      // answering — the same trust the follow-up
       // matching below already leans on. Rebind the call to the answering
       // device (SIP forking's semantics: the dialog belongs to whoever
       // picked up), so media and every later signal target the device with
@@ -1407,7 +1447,7 @@ class CallService {
             'xVeil[call-sig]: answer for ${sig.callId} came from '
             '${peer.short} — rebinding the call from ${c!.peer.short}',
       );
-      c = c.copyWith(peer: peer);
+      c = c.copyWith(peer: peer, peerDevice: peer);
       _set(c);
     }
     _cancelRingTimeout();
@@ -1731,7 +1771,9 @@ class CallService {
     _cancelRingTimeout();
     _cancelHeartbeat();
     final endingId = _current?.callId;
-    if (endingId != null) _rememberFinished(endingId);
+    if (endingId != null) {
+      _rememberFinished(endingId);
+    }
     _pendingRelayCallId = null;
     _pendingRelayPeer = null;
     _outgoingProposal = null;
@@ -1814,6 +1856,9 @@ class CallService {
     _cancelRingTimeout();
     _cancelHeartbeat();
     if (_messaging.onCallSignal == _handler) _messaging.onCallSignal = null;
+    if (_messaging.acceptsCallDeviceSignal == _acceptsCallDeviceSignal) {
+      _messaging.acceptsCallDeviceSignal = null;
+    }
     _messaging.backgroundStashPaused = false;
     unawaited(_screenShareStoppedSub?.cancel());
     _screenShareStoppedSub = null;
