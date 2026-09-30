@@ -464,17 +464,13 @@ List<NodeId> snapshotRecipients({
 
 /// Address the master by its DEVICE, not by the identity that stands for it.
 ///
-/// A device group lists its owner as the IDENTITY, so every recipient list a
-/// LINKED device builds names its master that way. That name resolves to one
-/// device and the frame takes the mailbox — measured on the two-device stand as
-/// 166 sends out of 166 by the identity and not one live. Rewriting the one
-/// entry keeps the list's shape, its order and every other recipient exactly as
-/// the scan produced them.
+/// A linked device first names its master by the shared identity. That address
+/// can resolve to this device and use the mailbox. Rewriting the identity
+/// entry to the announced master device preserves the other recipients.
 ///
-/// [masterDevice] is null whenever the master has not said which device it is —
-/// an older build, or a group whose owner has never announced. The list then
-/// comes back untouched, which is the pre-existing behaviour and is why a mixed
-/// pair keeps working.
+/// [owner] is the shared identity entry in the recipient list, not the
+/// sovereign manifest's authority key. [masterDevice] is null until the
+/// master announces its transport id; the identity then stays as a fallback.
 List<NodeId> addressedByDevice({
   required List<NodeId> recipients,
   required NodeId owner,
@@ -15863,51 +15859,15 @@ class GroupService implements ArchiveGroups {
     int? neighborCount;
     Future<int> readNeighborCount() async =>
         neighborCount ??= await groupSyncNeighborCount(groupId);
-    // The DEVICE group's members are devices, so "not me" is a question about
-    // MY DEVICE id, never the identity: on a sibling the identity names the
-    // MASTER, and excluding by it dropped the master and kept this device —
-    // the sync fanned to itself (retired as moot) and to nobody else.
-    // Measured live: concurrent sends mirrored B→nowhere while A→B flowed,
-    // and only a manual reseed converged the master.
-    NodeId? meDevice;
-    if (bundle.manifest.isSovereignDevice) {
-      meDevice = await resolveMyDevice();
-    }
-    final selfExclusion = meDevice ?? _signer.selfId;
-    // AM I A LINKED DEVICE, or the one the group is owned by?
-    //
-    // Same question `broadcastDelta` asks, for the same reason, in the other
-    // half of the same conversation. A device group's owner is the IDENTITY,
-    // and the master addressing it would be addressing itself — which is why
-    // the scan drops the owner. A LINKED device is in the opposite position:
-    // the owner is the only other party it has, and dropping it leaves an
-    // EMPTY list.
-    //
-    // This is the anti-entropy leg — the one that asks "what am I missing" —
-    // and with an empty list a linked device asks NOBODY, forever. Measured on
-    // the two-device stand: the master sent sync requests and the linked device
-    // answered them every time, while the linked device issued NOT ONE in
-    // either session; two rows its master held never arrived, the sender's
-    // outbox retired them as delivered, and nothing was left to retry. The
-    // fix to `broadcastDelta` covered the push leg only; this is the pull.
-    final iAmALinkedDevice =
-        bundle.manifest.isSovereignDevice &&
-        meDevice != null &&
-        state.members.values.any(
-          (m) => m.nodeId == meDevice && m.role != GroupRole.owner,
-        );
-    final others = addressedByDevice(
-      recipients: <NodeId>[
-        for (final member in state.members.values)
-          if (member.nodeId != selfExclusion &&
-              (!bundle.manifest.isSovereignDevice ||
-                  iAmALinkedDevice ||
-                  member.nodeId != bundle.manifest.owner))
-            member.nodeId,
-      ],
-      owner: bundle.manifest.owner,
-      masterDevice: iAmALinkedDevice ? await masterDeviceId() : null,
-    );
+    // A device group addresses devices, including the master's announced
+    // device. The shared address list removes this device and replaces the
+    // identity fallback when the master has named a transport address.
+    final others = bundle.manifest.isSovereignDevice
+        ? await addressableOwnDevices()
+        : <NodeId>[
+            for (final member in state.members.values)
+              if (member.nodeId != _signer.selfId) member.nodeId,
+          ];
     // MY OWN DEVICES, for the same reason broadcastDelta appends them: the
     // member scan lists IDENTITIES, and this identity's other devices are not
     // among them. Without this a group whose only member is us asks NOBODY —
@@ -17222,6 +17182,15 @@ class GroupService implements ArchiveGroups {
               acl.allows(member.nodeId, SpacePermission.distributeContent))
             member.nodeId,
       ]..sort((left, right) => left.hex.compareTo(right.hex));
+      // In the device group, the identity address is only a fallback for an
+      // unnamed master. Once its device is known, asking both addresses sends
+      // an extra grant request toward an identity that can resolve locally.
+      // The shared address book already makes that replacement for calls and
+      // ordinary device traffic; use it here too.
+      if (isDeviceGroup) {
+        final addressable = await addressableOwnDevices();
+        candidates.removeWhere((id) => !addressable.contains(id));
+      }
       // THE MASTER'S DEVICE, when it has named one. It is not a member — the
       // identity is, as the signing authority excluded above — so a sibling
       // pulling what the master holds had nobody to ask: measured on the
@@ -19428,39 +19397,57 @@ class GroupService implements ArchiveGroups {
     return broadcast(NodeId.fromHex(gidHex), reseed: true);
   }
 
-  /// The OTHER devices of this identity — every member of the device group but
-  /// this one.
-  ///
-  /// Asked of the device id, never the identity: they all share the identity,
-  /// so filtering by it on a restored device returns the sibling as "me" and
-  /// this device as "other", which is backwards in the way that is hardest to
-  /// see.
-  /// The same list, plus the one party [otherDeviceIds] cannot name: a LINKED
-  /// device's master.
-  ///
-  /// A device group's owner is the IDENTITY. The master addressing it would be
-  /// addressing itself, so [snapshotRecipients] drops it — right there, and
-  /// wrong for every device on the other side of the link, whose master is the
-  /// only other party it has. On a two-device identity that leaves the linked
-  /// device with an EMPTY list of its own devices, and everything built on that
-  /// list silently addresses nobody: the call fan-out (an incoming offer is
-  /// never relayed to the master, and neither is the caller's hang-up) and the
-  /// endpoint announce (so no direct lane is ever formed and every byte between
-  /// the two devices takes the mailbox, measured at 30s to 2 minutes).
-  ///
-  /// Whether I am linked is not a guess: my DEVICE id is in the member list and
-  /// not as the owner.
+  /// Transport addresses of my other devices, for calls, presence, group
+  /// traffic and content pulls. A sovereign group's owner key is not a node
+  /// to dial. Its identity member reaches the master only until that master
+  /// announces its own device id; then the device id replaces the identity.
+  /// On the master, the identity member is this device even if its transport
+  /// id differs, so it is excluded as well. On a linked device the identity
+  /// is read from the master's announced document, not guessed from selfId.
   Future<List<NodeId>> addressableOwnDevices() async {
     final ids = [...await otherDeviceIds()];
     final owner = await _deviceGroupOwnerIfLinked();
     if (owner != null) {
-      // The master's DEVICE when it has named one, the identity when it has
-      // not. This is the list the endpoint announce and the call fan-out ask,
-      // so the name chosen here decides whether a direct lane to the master can
-      // form at all — an identity resolves to one device and is dialled through
-      // the mailbox.
-      final master = await masterDeviceId() ?? owner;
-      if (!ids.contains(master)) ids.add(master);
+      // The sovereign owner key is an authority, not a listening device.
+      // Before the master names its device, the shared identity is its only
+      // address. Afterwards replace that address with the actual device so a
+      // fanout does not send once to each name for the same recipient.
+      final master = await _masterAddress();
+      if (master == null) {
+        // Sovereign groups already list the identity as a member. A legacy
+        // group may have omitted it as the owner; restore only that fallback.
+        if (owner == _signer.selfId &&
+            _signer.selfId != myDevice &&
+            !ids.contains(owner)) {
+          ids.add(owner);
+        }
+      } else {
+        final routed = addressedByDevice(
+          recipients: ids,
+          owner: master.identity ?? _signer.selfId,
+          masterDevice: master.device,
+        );
+        ids
+          ..clear()
+          ..addAll(routed.toSet());
+        if (!ids.contains(master.device)) ids.add(master.device);
+      }
+    } else {
+      // On the master, the identity member can be this device under another
+      // transport id. Its own marked document names the identity in that
+      // case; avoid reading the device journal when selfId already suffices.
+      if (!ids.remove(_signer.selfId)) {
+        final me = await resolveMyDevice();
+        if (me != null) {
+          final announcement = (await deviceSyncState())[
+            (DeviceSyncKind.identityDoc, me.hex)
+          ];
+          if (announcement?.payload['o'] == true) {
+            final identity = _identityInDeviceAnnouncement(announcement!);
+            if (identity != null) ids.remove(identity);
+          }
+        }
+      }
     }
     return ids;
   }
@@ -19516,7 +19503,19 @@ class GroupService implements ArchiveGroups {
   /// Null on the master itself (it has no master), and null while the master
   /// runs a build that does not mark its row — which is what keeps a mixed
   /// pair working: the caller falls back to the identity and nothing changes.
-  Future<NodeId?> masterDeviceId() async {
+  Future<NodeId?> masterDeviceId() async => (await _masterAddress())?.device;
+
+  NodeId? _identityInDeviceAnnouncement(DeviceSyncEvent event) {
+    final raw = event.payload['d'];
+    if (raw is! String) return null;
+    try {
+      return documentNodeId(Uint8List.fromList(base64Decode(raw)));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<({NodeId device, NodeId? identity})?> _masterAddress() async {
     if (await _deviceGroupOwnerIfLinked() == null) return null;
     final me = await resolveMyDevice();
     for (final entry in (await deviceSyncState()).entries) {
@@ -19528,7 +19527,11 @@ class GroupService implements ArchiveGroups {
       // `snapshotRecipients` documents at length.
       if (hex.length != 64 || (me != null && hex == me.hex)) continue;
       try {
-        return NodeId.fromHex(hex);
+        final device = NodeId.fromHex(hex);
+        return (
+          device: device,
+          identity: _identityInDeviceAnnouncement(entry.value),
+        );
       } catch (_) {
         return null;
       }
@@ -19594,23 +19597,12 @@ class GroupService implements ArchiveGroups {
   Future<List<NodeId>> Function()? ownDevicesForGroupsOverride;
 
   /// My other devices, as an ordinary group's push and pull address them.
-  ///
-  /// [otherDeviceIds] is the device group's MEMBERS, and the master is not one
-  /// — so on a linked device it named nobody but its siblings, and every
-  /// ordinary group's delta, sync request and key handover skipped the master:
-  /// measured on the stand 2026-09-23 as a restarted linked device asking a
-  /// group's only other member for it and never its master.
-  ///
-  /// The master joins by the DEVICE it announced, and only then. Unnamed, its
-  /// only name is the identity, which in an ordinary group is our own selfId:
-  /// addressing it there addresses ourselves.
+  /// The optional override keeps the recipient choice testable without a
+  /// sovereign group fixture.
   Future<List<NodeId>> _myOtherDevicesForGroups() async {
     final override = ownDevicesForGroupsOverride;
     if (override != null) return override();
-    final ids = [...await otherDeviceIds()];
-    final master = await masterDeviceId();
-    if (master != null && !ids.contains(master)) ids.add(master);
-    return ids;
+    return addressableOwnDevices();
   }
 
   Future<List<NodeId>> otherDeviceIds() async {
@@ -20786,42 +20778,17 @@ class GroupService implements ArchiveGroups {
     // send. Everything else stays content-keyed and silent when nothing moved.
     final transferTag = reseed ? _freshTransferTag() : null;
     try {
-      // WHO a snapshot goes to, which differs by the kind of group.
-      //
-      // A DEVICE group is addressed MEMBER BY MEMBER, like any other. This used
-      // to address the identity once and let the runtime seal a copy per
-      // device, on the belief that a device is not addressable — "nothing
-      // publishes device node ids". Both halves of that turned out to be wrong:
-      //
-      //   * the instance registry publishes every device of an identity, so
-      //     they are enumerable to anyone who resolves it — the linking
-      //     ceremony's whole point is that the registry then names both;
-      //   * a device IS addressable. The ceremony hands over the sibling's own
-      //     invite and adds it as a peer, so a route to it exists before the
-      //     first snapshot is ever sent.
-      //
-      // Addressing the identity cost two things. Rendezvous resolves an
-      // identity to ONE device, and for the sender that device is itself:
-      // measured on a two-device stand as seven inbound frames arriving back at
-      // the source and nothing at the sibling. And sealing to an identity puts
-      // one ML-KEM envelope per device into ONE blob, which the mailbox refuses
-      // past a couple of devices because a FETCH reply cannot carry it back.
-      // Addressing a device sidesteps both: the route is exact and the envelope
-      // is one.
-      //
-      // WHICH member is me is asked of [myDevice], never of the identity. On a
-      // device restored into an existing identity those differ, and filtering
-      // by the identity there drops the SIBLING and keeps this device — a send
-      // to nobody wearing the shape of a send to somebody. Without a known
-      // device id the old identity filter stands, which is correct for every
-      // group whose members are separate identities.
-      final recipients = snapshotRecipients(
-        isDeviceGroup: b.manifest.isSovereignDevice,
-        members: [for (final m in state.members.values) m.nodeId],
-        identity: _signer.selfId,
-        myDevice: myDevice,
-        owner: b.manifest.owner,
-      );
+      // Device-group snapshots use the same exact device addresses as deltas
+      // and sync requests. Ordinary groups use their member identities.
+      final recipients = b.manifest.isSovereignDevice
+          ? await addressableOwnDevices()
+          : snapshotRecipients(
+              isDeviceGroup: false,
+              members: [for (final m in state.members.values) m.nodeId],
+              identity: _signer.selfId,
+              myDevice: myDevice,
+              owner: b.manifest.owner,
+            );
       for (final recipient in recipients) {
         final receipt = _beginSpaceReceipt(b, recipient);
         try {
@@ -20914,60 +20881,24 @@ class GroupService implements ArchiveGroups {
     final channelMessages = messages
         .where((message) => message.isChannelEncrypted)
         .toList();
-    // Same device-aware "not me" as nudgeGroupSync: the DEVICE group's
-    // members are devices, and excluding by the identity dropped the MASTER
-    // from a sibling's fanout while keeping the sibling itself.
-    NodeId? meDevice;
-    if (b.manifest.isSovereignDevice) {
-      meDevice = await resolveMyDevice();
-    }
-    final deltaSelfExclusion = meDevice ?? _signer.selfId;
-    // AM I A LINKED DEVICE, or the one the group is owned by?
-    //
-    // The owner of a device group is the IDENTITY, and the master device
-    // addressing it would be addressing itself — which is why the scan below
-    // drops the owner. A LINKED device is in the opposite position: the owner
-    // is the only other party it has, and dropping it leaves an empty list.
-    //
-    // Measured on a two-device stand: the linked device posted a device-sync
-    // event, `postDeviceEvent` answered true, the row landed in its own folded
-    // state — and NOTHING went on the wire. Eight minutes later the master had
-    // neither that event, nor the message the linked device had received from a
-    // contact, nor the one it had sent. The master's own deltas reached it
-    // within fifteen seconds the whole time, so the two devices disagreed in
-    // one direction only and nothing said so.
-    //
-    // The existing round-trip test misses it because its group has THREE
-    // devices: the linked device still has a sibling to address, and the test
-    // hand-delivers whatever came out without asking who it was addressed to.
-    // With exactly two devices — the ordinary case — there is nobody.
-    final iAmALinkedDevice =
-        b.manifest.isSovereignDevice &&
-        meDevice != null &&
-        state.members.values.any(
-          (m) => m.nodeId == meDevice && m.role != GroupRole.owner,
-        );
-    final candidates = addressedByDevice(
-      recipients: <NodeId>[
-        for (final member in state.members.values)
-          if (member.nodeId != deltaSelfExclusion &&
-              (!b.manifest.isSovereignDevice ||
-                  iAmALinkedDevice ||
-                  member.nodeId != b.manifest.owner) &&
-              (channelMessages.isEmpty ||
-                  channelMessages.any(
-                    (message) => _peerCanDecryptChannelEpoch(
-                      b,
-                      member.nodeId,
-                      message.channelId!,
-                      message.channelEpoch!,
-                    ),
-                  )))
-            member.nodeId,
-      ],
-      owner: b.manifest.owner,
-      masterDevice: iAmALinkedDevice ? await masterDeviceId() : null,
-    );
+    // The device group uses the same transport addresses as full snapshots
+    // and sync requests. Ordinary groups address their members by identity.
+    final candidates = b.manifest.isSovereignDevice
+        ? await addressableOwnDevices()
+        : <NodeId>[
+            for (final member in state.members.values)
+              if (member.nodeId != _signer.selfId &&
+                  (channelMessages.isEmpty ||
+                      channelMessages.any(
+                        (message) => _peerCanDecryptChannelEpoch(
+                          b,
+                          member.nodeId,
+                          message.channelId!,
+                          message.channelEpoch!,
+                        ),
+                      )))
+                member.nodeId,
+          ];
     // MY OWN DEVICES ARE NOT MEMBERS, and a delta has to reach them anyway.
     //
     // A group's members are IDENTITIES. This device's siblings are not among
