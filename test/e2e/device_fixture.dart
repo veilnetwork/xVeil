@@ -55,12 +55,17 @@ import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/identity_config_fields.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/device_link_invite.dart';
+import 'package:xveil/data/transport/veil_native.dart';
 import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/device_link.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/call_service.dart';
+import 'package:xveil/state/device_sync_bridge.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/messaging_core.dart';
 import 'package:xveil/state/messaging_providers.dart';
@@ -89,7 +94,8 @@ class E2eIdentity {
   /// Identity X — devices A (master) and B (sibling).
   static const x = E2eIdentity(
     label: 'X',
-    phrase: 'vital write maple stamp arrest nominee shaft bitter intact '
+    phrase:
+        'vital write maple stamp arrest nominee shaft bitter intact '
         'distance damage banner seat inspire awful robot depend cream '
         'universe same throw bacon exotic aerobic',
   );
@@ -97,7 +103,8 @@ class E2eIdentity {
   /// Identity Y — devices C (master) and D (sibling).
   static const y = E2eIdentity(
     label: 'Y',
-    phrase: 'civil quarter abuse shell buddy laugh surface isolate same '
+    phrase:
+        'civil quarter abuse shell buddy laugh surface isolate same '
         'scout alter lottery term autumn viable initial theory hurt '
         'prepare report crawl riot galaxy vocal',
   );
@@ -185,6 +192,7 @@ class E2eDevice {
 
   _BootScope? _boot;
   ProviderContainer? _container;
+  ProviderSubscription<void>? _bridgeSubscription;
   HiddenVolumeStorage? _storage;
   RealVeilStack? _stack;
   NodeId? _nodeId;
@@ -214,9 +222,12 @@ class E2eDevice {
   MessagingService get messaging =>
       inZone(() => container.read(messagingServiceProvider));
 
+  CallService get calls => inZone(() => container.read(callServiceProvider));
+
   /// The real [GroupService] built by `groupServiceProvider`, with the mirror
   /// and the device-sync bridge attached. Null before the signer resolves.
-  GroupService? get groups => inZone(() => container.read(groupServiceProvider));
+  GroupService? get groups =>
+      inZone(() => container.read(groupServiceProvider));
 
   /// This DEVICE's transport node id — not the identity's. Confusing the two
   /// is the single most repeated defect class in this campaign's history, so
@@ -230,8 +241,10 @@ class E2eDevice {
 
   T _requireUp<T>(T? value, String what) {
     if (value == null) {
-      throw StateError('device $label is DOWN — no $what. A case that stops a '
-          'device must bring it back up before asking it anything.');
+      throw StateError(
+        'device $label is DOWN — no $what. A case that stops a '
+        'device must bring it back up before asking it anything.',
+      );
     }
     return value;
   }
@@ -244,98 +257,110 @@ class E2eDevice {
     if (_container != null) return;
     final boot = _BootScope(label);
     _boot = boot;
-    await E2eLog.step('device $label: boot', () => boot.zone.run(() async {
-      await Directory('${dir.path}/blobs').create(recursive: true);
-      await Directory('${dir.path}/runtime').create(recursive: true);
-      if (!Platform.isWindows) {
-        await Process.run('chmod', ['700', '${dir.path}/runtime']);
-      }
+    await E2eLog.step(
+      'device $label: boot',
+      () => boot.zone.run(() async {
+        await Directory('${dir.path}/blobs').create(recursive: true);
+        await Directory('${dir.path}/runtime').create(recursive: true);
+        if (!Platform.isWindows) {
+          await Process.run('chmod', ['700', '${dir.path}/runtime']);
+        }
 
-      final storage = HiddenVolumeStorage.async(
-        workerSpaceOpener('${dir.path}/store.hv'),
-      )..useOnDiskTier(Directory('${dir.path}/blobs'));
-      if (!await storage.open(password: password, createIfMissing: true)) {
-        _fail('could not unlock its container');
-      }
-      _storage = storage;
-      // Pre-seed, exactly like `public_space_discovery_live_test`: with a
-      // config already in the container, `ensureNodeConfig` never mines.
-      if (await storage.loadNodeConfig() == null) {
-        await storage.saveNodeConfig(identityToml);
-      }
+        final storage = HiddenVolumeStorage.async(
+          workerSpaceOpener('${dir.path}/store.hv'),
+        )..useOnDiskTier(Directory('${dir.path}/blobs'));
+        if (!await storage.open(password: password, createIfMissing: true)) {
+          _fail('could not unlock its container');
+        }
+        _storage = storage;
+        // Pre-seed, exactly like `public_space_discovery_live_test`: with a
+        // config already in the container, `ensureNodeConfig` never mines.
+        if (await storage.loadNodeConfig() == null) {
+          await storage.saveNodeConfig(identityToml);
+        }
 
-      final stack = await RealVeilStack.startDeniable(
-        storage: storage,
-        runtimeDirBase: '${dir.path}/runtime',
-        lib: DynamicLibrary.open(dylibPath),
-        listenPort: await freePort(),
-        anonymous: false,
-        bootstrapPeers: cluster.bootstrapPeers,
-        // Several embedded nodes in one process, each with its own metrics
-        // port. A fixed one is why a second instance used to die on "Address
-        // already in use" with no port in the message.
-        debugMetricsPort: await freePort(),
-        // The master device provisions its sovereign material from the phrase;
-        // a sibling has none until the link ceremony delegates it one.
-        identityPhrase: isMaster ? identity.phrase : null,
-        // NEVER the shared seeds. Same rule as the relay island, on the other
-        // side of the wire.
-        useBundledSeeds: false,
-        // The island already supplies its loopback peers. Leave no other
-        // discovery path open to DHT, Nostr, or the local network.
-        meetingPoints: const <String>[],
-      );
-      _stack = stack;
-      _nodeId = _deviceIdOf(identityToml);
-      _identityId = stack.myInvite.nodeId;
+        final stack = await RealVeilStack.startDeniable(
+          storage: storage,
+          runtimeDirBase: '${dir.path}/runtime',
+          lib: DynamicLibrary.open(dylibPath),
+          listenPort: await freePort(),
+          anonymous: false,
+          bootstrapPeers: cluster.bootstrapPeers,
+          // Several embedded nodes in one process, each with its own metrics
+          // port. A fixed one is why a second instance used to die on "Address
+          // already in use" with no port in the message.
+          debugMetricsPort: await freePort(),
+          // The master device provisions its sovereign material from the phrase;
+          // a sibling has none until the link ceremony delegates it one.
+          identityPhrase: isMaster ? identity.phrase : null,
+          // NEVER the shared seeds. Same rule as the relay island, on the other
+          // side of the wire.
+          useBundledSeeds: false,
+          // The island already supplies its loopback peers. Leave no other
+          // discovery path open to DHT, Nostr, or the local network.
+          meetingPoints: const <String>[],
+        );
+        _stack = stack;
+        _nodeId = _deviceIdOf(identityToml);
+        _identityId = stack.myInvite.nodeId;
 
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      final container = ProviderContainer(
-        overrides: [
-          singleSpaceStorageProvider.overrideWithValue(storage),
-          appControllerProvider.overrideWith(
-            () => _E2eAppController(Identity(nodeId: _identityId!)),
-          ),
-          // The mailbox relay candidates come from here — without it a device
-          // has live delivery only, and every offline case in this suite is
-          // about the mailbox.
-          deniableBootProvider.overrideWithValue(
-            DeniableBootConfig(
-              runtimeDir: '${dir.path}/runtime',
-              bootstrapPeers: cluster.bootstrapPeers,
+        SharedPreferences.setMockInitialValues(<String, Object>{});
+        final container = ProviderContainer(
+          overrides: [
+            singleSpaceStorageProvider.overrideWithValue(storage),
+            appControllerProvider.overrideWith(
+              () => _E2eAppController(Identity(nodeId: _identityId!)),
             ),
-          ),
-        ],
-      );
-      _container = container;
-      container.read(realStackProvider.notifier).state = stack;
-      // Eager reads, in the order the app builds them: the messaging service
-      // starts listening in its constructor, and the group service attaches
-      // every callback (mirror included) in its.
-      container.read(messagingServiceProvider);
-      await container.read(groupSignerProvider.future);
-      if (container.read(groupServiceProvider) == null) {
-        _fail('groupServiceProvider stayed null — no signer could be built '
-            'from the stored identity config');
-      }
+            // The mailbox relay candidates come from here — without it a device
+            // has live delivery only, and every offline case in this suite is
+            // about the mailbox.
+            deniableBootProvider.overrideWithValue(
+              DeniableBootConfig(
+                runtimeDir: '${dir.path}/runtime',
+                bootstrapPeers: cluster.bootstrapPeers,
+              ),
+            ),
+          ],
+        );
+        _container = container;
+        container.read(realStackProvider.notifier).state = stack;
+        // Eager reads, in the order the app builds them: the messaging service
+        // starts listening in its constructor, and the group service attaches
+        // every callback (mirror included) in its.
+        container.read(messagingServiceProvider);
+        await container.read(groupSignerProvider.future);
+        if (container.read(groupServiceProvider) == null) {
+          _fail(
+            'groupServiceProvider stayed null — no signer could be built '
+            'from the stored identity config',
+          );
+        }
+        // AppShell WATCHES this on every ready session. A bare read does not
+        // keep its dependency chain alive across later provider invalidation;
+        // hold the subscription for this whole boot as the app shell does.
+        _bridgeSubscription = container.listen(
+          deviceSyncBridgeProvider,
+          (_, _) {},
+        );
 
-      // ON THE ISLAND, not merely started. A node that has not yet dialled a
-      // relay looks identical to one that has, right up until the first send
-      // sits in an outbox — and the wait that then fails is the CASE's wait,
-      // which reports "B never mirrored the message" for what is really "the
-      // node was still finding the network". Paid once per boot, here, where
-      // the diagnostic says what it actually is.
-      await waitUntil(
-        () async => (await stack.transport.peers()).any((p) => p.isActive),
-        what: 'device $label to have an active peer on the relay island',
-        describe: () async {
-          final peers = await stack.transport.peers();
-          return '${peers.length} peer(s), '
-              '${peers.where((p) => p.isActive).length} active';
-        },
-        timeout: const Duration(minutes: 2),
-      );
-    }));
+        // ON THE ISLAND, not merely started. A node that has not yet dialled a
+        // relay looks identical to one that has, right up until the first send
+        // sits in an outbox — and the wait that then fails is the CASE's wait,
+        // which reports "B never mirrored the message" for what is really "the
+        // node was still finding the network". Paid once per boot, here, where
+        // the diagnostic says what it actually is.
+        await waitUntil(
+          () async => (await stack.transport.peers()).any((p) => p.isActive),
+          what: 'device $label to have an active peer on the relay island',
+          describe: () async {
+            final peers = await stack.transport.peers();
+            return '${peers.length} peer(s), '
+                '${peers.where((p) => p.isActive).length} active';
+          },
+          timeout: const Duration(minutes: 2),
+        );
+      }),
+    );
   }
 
   /// Take this device DOWN, the way the campaign's cases mean it: the process
@@ -345,19 +370,22 @@ class E2eDevice {
   /// leg AND stop draining its mailbox, or a case that says "B was down"
   /// proves nothing.
   Future<void> stop() async {
-    if (_container == null) return;
+    if (_container == null && _stack == null && _storage == null) return;
     await E2eLog.step('device $label: down', () async {
       // FIRST, before anything can throw: from here on, work this boot started
       // is allowed to fail quietly (see [_BootScope]).
       _boot?.alive = false;
       _boot = null;
       final container = _container;
+      final bridgeSubscription = _bridgeSubscription;
       final stack = _stack;
       final storage = _storage;
       _container = null;
+      _bridgeSubscription = null;
       _stack = null;
       _storage = null;
       await teardownLegs('device-$label-stop', [
+        ('dispose app bridge watch', () async => bridgeSubscription?.close()),
         ('dispose providers', () async => container?.dispose()),
         ('dispose stack', () async => stack?.dispose()),
         ('close container', () async => storage?.close()),
@@ -396,27 +424,10 @@ class E2eDevice {
   /// Every node in this suite is on ONE host, so this is always loopback.
   String get dialUri => '${stack.listenScheme}://127.0.0.1:${stack.listenPort}';
 
-  /// This device's contact invite WITH a direct-dial hint.
-  ///
-  /// `RealVeilStack.myInvite` deliberately carries no `t=`: a loopback address
-  /// in an invite that leaves the machine is worse than useless, so a node
-  /// whose only listener is 127.0.0.1 publishes an identity-only invite and is
-  /// reached over the rendezvous by node id. That is correct for the product
-  /// and slow and variable here — the cold onion path between two strangers on
-  /// a fresh island was measured at 13 s once and over 90 s the next time.
-  ///
-  /// On a single-host stand the operator's own recipe is to paste the invite
-  /// and append `&t=tcp://127.0.0.1:<listen>`, which is exactly what this is.
-  /// It does not bypass anything the cases are about: consent, mirroring,
-  /// mailbox deposits and the fold all run unchanged. It only lets two nodes
-  /// that are in the same process tree find each other by the shortest route
-  /// they really have.
-  BootstrapInvite dialableContactInvite() => BootstrapInvite(
-    publicKey: stack.myInvite.publicKey,
-    nonce: stack.myInvite.nonce,
-    algo: stack.myInvite.algo,
-    transport: dialUri,
-  );
+  /// The sovereign identity invite has no direct-dial hint: its public key is
+  /// NOT the device key that answers at [dialUri]. Pair it with
+  /// [dialableDeviceInvite] when a stand wants to warm the direct device route.
+  BootstrapInvite contactInvite() => stack.myInvite;
 
   /// The same hint on this device's OWN key rather than the identity's — what
   /// the link ceremony addresses.
@@ -448,7 +459,9 @@ class E2eDevice {
         conversationMessageIds: conversationPeer == null
             ? const []
             : [
-                for (final m in await storage.loadMessages(conversationPeer.hex))
+                for (final m in await storage.loadMessages(
+                  conversationPeer.hex,
+                ))
                   m.id,
               ],
         // The identifiers are carried on this branch too. They are what a
@@ -471,9 +484,19 @@ class E2eDevice {
 
     final rows = <RowRef>[
       for (final entry in bundle!.control)
-        RowRef(kind: 'ctl', authorHex: entry.author.hex, seq: entry.seq),
+        RowRef(
+          kind: 'ctl',
+          authorHex: entry.author.hex,
+          writerHex: _hex(entry.authorPubKey),
+          seq: entry.seq,
+        ),
       for (final message in bundle.messages)
-        RowRef(kind: 'msg', authorHex: message.author.hex, seq: message.seq),
+        RowRef(
+          kind: 'msg',
+          authorHex: message.author.hex,
+          writerHex: _hex(message.authorPubKey),
+          seq: message.seq,
+        ),
     ];
 
     // The digest covers the SIGNED, SHARED rows and nothing else. Every field
@@ -514,8 +537,9 @@ class E2eDevice {
   }
 
   /// The bodies of a 1:1 conversation, in the storage's own convergent order.
-  Future<List<String>> conversation(NodeId peer) async =>
-      [for (final m in await storage.loadMessages(peer.hex)) m.body];
+  Future<List<String>> conversation(NodeId peer) async => [
+    for (final m in await storage.loadMessages(peer.hex)) m.body,
+  ];
 
   Future<List<Message>> conversationRows(NodeId peer) =>
       storage.loadMessages(peer.hex);
@@ -570,6 +594,15 @@ class E2eFleet {
     required E2eGate gate,
     List<String> labels = const ['A', 'B', 'C', 'D'],
   }) async {
+    // The app preloads both plugin libraries before opening its first storage
+    // space. This fixture bypasses main(), so it must do that bootstrap itself.
+    // Without it the first container open fails its UniFFI symbol lookup and
+    // leaves the relay island running while the test unwinds.
+    if (!gate.enabled ||
+        !ensureHiddenVolumeLoaded(dylibPath: gate.hiddenVolumeDylib) ||
+        !ensureVeilClientLoaded(dylibPath: gate.veilDylib)) {
+      throw StateError('the e2e native libraries could not be loaded');
+    }
     final root = await e2eTempRoot('xveil-e2e-');
     RelayCluster? cluster;
     final devices = <String, E2eDevice>{};
@@ -611,9 +644,12 @@ class E2eFleet {
           ('stop ${device.label}', device.stop),
         if (cluster != null)
           ('stop relays', () => cluster!.dispose(removeFiles: false)),
-        ('remove $root', () async {
-          if (await root.exists()) await root.delete(recursive: true);
-        }),
+        (
+          'remove $root',
+          () async {
+            if (await root.exists()) await root.delete(recursive: true);
+          },
+        ),
       ]);
       rethrow;
     }
@@ -643,9 +679,12 @@ class E2eFleet {
       for (final device in devices.values)
         ('stop ${device.label}', device.stop),
       ('stop relays', () => cluster.dispose(removeFiles: false)),
-      ('remove $root', () async {
-        if (await root.exists()) await root.delete(recursive: true);
-      }),
+      (
+        'remove $root',
+        () async {
+          if (await root.exists()) await root.delete(recursive: true);
+        },
+      ),
     ]);
   }
 
@@ -696,6 +735,11 @@ class E2eFleet {
       final phrase = master.identity.phrase;
       final masterGroups = master.groups!;
       final targetGroups = target.groups!;
+      if (masterGroups.onMemberLinked == null) {
+        throw StateError(
+          'device-sync bridge is not attached to ${master.label}',
+        );
+      }
 
       // 1. LINK PREPARE, on the master.
       final link = await target.deviceLinkInvite();
@@ -715,12 +759,11 @@ class E2eFleet {
       // devices" finds none, and the snapshot below is deposited for nobody.
       final theirDoc = link.document;
       if (theirDoc != null && theirDoc.isNotEmpty) {
-        if (await RealVeilStack.adoptSovereignDocument(
-              master.storage,
-              document: theirDoc,
-              stagingBase: Directory.systemTemp.path,
-            ) ==
-            SovereignDocumentAdoption.adopted) {
+        if (await adoptCeremonyDocument(
+          master.storage,
+          document: theirDoc,
+          stagingBase: Directory.systemTemp.path,
+        )) {
           await master.stack.refreshSovereignIdentity(master.storage);
         }
       }
@@ -750,14 +793,17 @@ class E2eFleet {
           sovereign: sovereign,
           broadcastSnapshot: false,
         )) {
-          throw StateError('${master.label} refused ${target.label} membership');
+          throw StateError(
+            '${master.label} refused ${target.label} membership',
+          );
         }
         // RETRO-delegation: members admitted before the document learned to
         // grow. Without it their rows drop as "signature verify failed" on
         // every newly linked device.
         for (final entry in (await masterGroups.deviceWriterKeys()).entries) {
           if (entry.key == link.device.nodeId) continue;
-          delegated = await RealVeilStack.delegateDeviceIntoDocument(
+          delegated =
+              await RealVeilStack.delegateDeviceIntoDocument(
                     master.storage,
                     secret: phrase,
                     devicePubkey: entry.value,
@@ -777,16 +823,15 @@ class E2eFleet {
         if (token == null) throw StateError('no device-link token was issued');
 
         // 2. ADOPT PREPARE, on the target.
-        await _join(target, master.dialableContactInvite());
+        await _join(target, master.contactInvite());
         await _join(target, await master.dialableDeviceInvite());
         final sourceDoc = token.document;
         if (sourceDoc != null && sourceDoc.isNotEmpty) {
-          if (await RealVeilStack.adoptSovereignDocument(
-                target.storage,
-                document: sourceDoc,
-                stagingBase: Directory.systemTemp.path,
-              ) ==
-              SovereignDocumentAdoption.adopted) {
+          if (await adoptCeremonyDocument(
+            target.storage,
+            document: sourceDoc,
+            stagingBase: Directory.systemTemp.path,
+          )) {
             await target.stack.refreshSovereignIdentity(target.storage);
           }
         }
@@ -795,6 +840,12 @@ class E2eFleet {
           myDevice: (await target.deviceLinkInvite()).nodeId,
         )) {
           throw StateError('${target.label} refused the admission');
+        }
+        if (adoptionNeedsNodeRestart(
+          runningIdentity: target.stack.myInvite.nodeId,
+          token: token,
+        )) {
+          await target.restart();
         }
 
         // 3. SNAPSHOT SEND, on the master: membership first, then everything
@@ -829,8 +880,10 @@ class E2eFleet {
   /// over the real overlay: request → accept.
   Future<void> introduce(E2eDevice from, E2eDevice to) async {
     await E2eLog.step('${from.label} ↔ ${to.label} contact', () async {
-      await _join(from, to.dialableContactInvite());
-      await _join(to, from.dialableContactInvite());
+      await _join(from, to.contactInvite());
+      await _join(to, from.contactInvite());
+      await _join(from, await to.dialableDeviceInvite());
+      await _join(to, await from.dialableDeviceInvite());
       await from.messaging.sendRequest(to.identityNodeId, 'e2e');
       await waitUntil(
         () async =>
@@ -907,7 +960,7 @@ class E2eFleet {
       '# (test/e2e/device_fixture.dart). The private key is intentionally\n'
       '# public and must NEVER be used outside an isolated loopback test.\n'
       '${spec.isMaster ? "# DERIVED from E2eIdentity.${spec.identity.label.toLowerCase()}.phrase — "
-          "regenerating it means regenerating that phrase too.\n" : ""}'
+                "regenerating it means regenerating that phrase too.\n" : ""}'
       '$toml',
     );
     return file.readAsString();

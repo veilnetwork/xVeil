@@ -94,7 +94,8 @@ void main() {
       expect(
         verdict.describe(),
         contains('identical row sets'),
-        reason: 'a digest-only difference must be named as one, or the '
+        reason:
+            'a digest-only difference must be named as one, or the '
             'operator hunts for a missing row that does not exist',
       );
     });
@@ -120,17 +121,20 @@ void main() {
       expect(verdict.describe(), contains('msg/aaaaaaaa#0×2'));
     });
 
-    test('duplicates on BOTH sides still fail — equality is not correctness', () {
-      final verdict = convergenceOf(
-        _device('A', rows: [_msg(_a, 0), _msg(_a, 0)]),
-        _device('B', rows: [_msg(_a, 0), _msg(_a, 0)]),
-      );
-      expect(
-        verdict.agree,
-        isFalse,
-        reason: 'two identically broken devices are not a converged pair',
-      );
-    });
+    test(
+      'duplicates on BOTH sides still fail — equality is not correctness',
+      () {
+        final verdict = convergenceOf(
+          _device('A', rows: [_msg(_a, 0), _msg(_a, 0)]),
+          _device('B', rows: [_msg(_a, 0), _msg(_a, 0)]),
+        );
+        expect(
+          verdict.agree,
+          isFalse,
+          reason: 'two identically broken devices are not a converged pair',
+        );
+      },
+    );
 
     test('a gap in one writer chain fails', () {
       final verdict = convergenceOf(
@@ -157,6 +161,26 @@ void main() {
       expect(verdict.agree, isTrue, reason: verdict.describe());
     });
 
+    test('two devices of one identity may use the same sequence number', () {
+      const first = RowRef(
+        kind: 'msg',
+        authorHex: _a,
+        writerHex: '11111111',
+        seq: 3,
+      );
+      const second = RowRef(
+        kind: 'msg',
+        authorHex: _a,
+        writerHex: '22222222',
+        seq: 3,
+      );
+      final verdict = convergenceOf(
+        _device('A', rows: [first, second]),
+        _device('B', rows: [first, second]),
+      );
+      expect(verdict.agree, isTrue, reason: verdict.describe());
+    });
+
     test('control and message chains are numbered independently', () {
       final verdict = convergenceOf(
         _device('A', rows: [_ctl(_a, 0), _msg(_a, 0)]),
@@ -177,7 +201,8 @@ void main() {
       expect(
         verdict.agree,
         isFalse,
-        reason: 'two devices with no device group agree about nothing; a '
+        reason:
+            'two devices with no device group agree about nothing; a '
             'harness that called this converged would pass every case '
             'before the link ceremony even ran',
       );
@@ -208,7 +233,8 @@ void main() {
       expect(
         convergenceOf(a, b).agree,
         isTrue,
-        reason: 'the device-group criterion alone says nothing about a 1:1 '
+        reason:
+            'the device-group criterion alone says nothing about a 1:1 '
             'conversation',
       );
       final strict = convergenceOf(a, b, requireConversationAgreement: true);
@@ -219,7 +245,10 @@ void main() {
 
   group('exactlyOnce', () {
     test('one copy passes', () {
-      expect(exactlyOnce(_device('A', conversation: ['m1', 'm2']), 'm1'), isNull);
+      expect(
+        exactlyOnce(_device('A', conversation: ['m1', 'm2']), 'm1'),
+        isNull,
+      );
     });
 
     test('zero copies is named as absence, not as duplication', () {
@@ -243,10 +272,20 @@ void main() {
 
     test('every reason is carried into the description', () {
       final verdict = convergenceOf(
-        _device('A', group: 'aaaa1111', digest: 'x', members: 3,
-            rows: [_msg(_a, 0), _msg(_a, 0)]),
-        _device('B', group: 'bbbb2222', digest: 'y', members: 2,
-            rows: [_msg(_a, 2)]),
+        _device(
+          'A',
+          group: 'aaaa1111',
+          digest: 'x',
+          members: 3,
+          rows: [_msg(_a, 0), _msg(_a, 0)],
+        ),
+        _device(
+          'B',
+          group: 'bbbb2222',
+          digest: 'y',
+          members: 2,
+          rows: [_msg(_a, 2)],
+        ),
       );
       expect(verdict.agree, isFalse);
       for (final reason in verdict.reasons) {
@@ -255,7 +294,8 @@ void main() {
       expect(
         verdict.reasons.length,
         greaterThanOrEqualTo(4),
-        reason: 'a pair that is wrong five ways must not report only the '
+        reason:
+            'a pair that is wrong five ways must not report only the '
             'first — the run costs minutes and every re-run costs another',
       );
     });
