@@ -713,6 +713,7 @@ extension _MessagingContentPublish on MessagingService {
       MessageStatus.sent,
       fileId: cid,
       fileName: name,
+      fileSize: bytes.length,
       thumb: thumb,
       id: msgId,
       timestamp: _now(),

@@ -12,7 +12,8 @@ import '../data/transport/bootstrap_invite.dart';
 import '../data/veil_stack.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_mailbox.dart';
-import '../domain/chat.dart' show MessageDirection, MessageStatus, isAcceptableWireSeq;
+import '../domain/chat.dart'
+    show MessageDirection, MessageStatus, isAcceptableWireSeq;
 import '../domain/device_sync.dart';
 import '../domain/inline_custom_emoji.dart';
 import '../domain/space_public_feed_transport.dart';
@@ -550,6 +551,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   ref.onDispose(
     ref.read(deviceSyncAppliersProvider).register(applyStatusEvent),
   );
+
   /// A sibling emptied this conversation, so empty it here.
   ///
   /// The payload is refused rather than guessed at when a field is missing or
@@ -719,7 +721,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
 
   final ownDocumentReady = readOwnDocument();
   final peerDocumentsReady = service.loadPeerDocuments();
-  setIdentityDocumentLookup((identity) {
+  final unregisterDocumentLookup = registerIdentityDocumentLookup((identity) {
     if (identity != ownIdentity && identity != documentIdentity) {
       // ANOTHER identity: the document a group snapshot carried for it, if
       // any. Without this the lookup answered only for ourselves, and every
@@ -765,7 +767,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     }
     return ownDocument;
   });
-  ref.onDispose(() => setIdentityDocumentLookup(null));
+  ref.onDispose(unregisterDocumentLookup);
 
   // Given as a READER, not a value. The eager version ran before the store was
   // unlocked, threw "storage is locked", and left the id null for the rest of

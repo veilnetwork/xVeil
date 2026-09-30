@@ -43,6 +43,7 @@ import '../domain/space_moderation.dart';
 typedef IdentityDocumentLookup = Uint8List? Function(NodeId identity);
 
 IdentityDocumentLookup? _documentLookup;
+final Set<IdentityDocumentLookup> _registeredDocumentLookups = {};
 
 /// Install the source of identity documents used to justify a device subkey.
 ///
@@ -53,6 +54,29 @@ void setIdentityDocumentLookup(IdentityDocumentLookup? lookup) {
   _documentLookup = lookup;
 }
 
+/// Keep each active provider's document source until that provider is disposed.
+/// A process can host several unlocked identities (the multi-device stand does),
+/// and replacing one global source made the last booted identity invalidate
+/// every other identity's device-signed rows.
+void Function() registerIdentityDocumentLookup(IdentityDocumentLookup lookup) {
+  _registeredDocumentLookups.add(lookup);
+  return () => _registeredDocumentLookups.remove(lookup);
+}
+
+Uint8List? _lookupIdentityDocument(NodeId identity) {
+  final override = _documentLookup?.call(identity);
+  if (override != null) return override;
+  // The most recently started provider may hold a document merged after an
+  // older provider cached its copy (a device was just linked). Prefer it until
+  // the older provider refreshes; each returned document is still verified
+  // cryptographically against the claimed identity and signing key.
+  for (final lookup in _registeredDocumentLookups.toList().reversed) {
+    final document = lookup(identity);
+    if (document != null) return document;
+  }
+  return null;
+}
+
 /// The document the installed lookup holds for [identity] — this identity's
 /// own, or a peer's learned from a group snapshot. Null when none.
 ///
@@ -60,7 +84,7 @@ void setIdentityDocumentLookup(IdentityDocumentLookup? lookup) {
 /// member whose device key is not their identity key signs rows nobody else
 /// can verify without it, and nothing else would ever carry it to them.
 Uint8List? identityDocumentFor(NodeId identity) =>
-    _documentLookup?.call(identity);
+    _lookupIdentityDocument(identity);
 
 /// Stand observer: what the installed lookup answers for [identity] RIGHT
 /// NOW. The lookup's state (cached doc, resolved document identity) is
@@ -68,7 +92,7 @@ Uint8List? identityDocumentFor(NodeId identity) =>
 /// document and still fails sibling rows cannot be told apart from one that
 /// never got it without exactly this window.
 int? debugDocumentLookupBytes(NodeId identity) =>
-    _documentLookup?.call(identity)?.length;
+    _lookupIdentityDocument(identity)?.length;
 
 /// The one place a signature is bound to an author.
 ///
@@ -118,7 +142,7 @@ bool _verifyAuthoredCached({
   // Bound by hash: the key IS the author, no document is involved, and the
   // native check alone decides — as before, when it was tried first.
   final hashBound = _sameBytes(blake3Hash(publicKey), author.bytes);
-  final document = hashBound ? null : _documentLookup?.call(author);
+  final document = hashBound ? null : _lookupIdentityDocument(author);
   final key = _verdictKey(
     author: author,
     publicKey: publicKey,
