@@ -6,13 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
-## [Unreleased]
+## [0.13.79] — 2026-09-30
 
 ### Changed
 
 - Group row deltas now send the manifest ID and hash. A receiver that already
   holds the same manifest restores it locally; membership changes still send
   the full manifest.
+- Receiving group rows without a full manifest requires xVeil 0.13.78 or newer
+  on the receiving device.
 
 ## [0.13.78] — 2026-09-30
 
