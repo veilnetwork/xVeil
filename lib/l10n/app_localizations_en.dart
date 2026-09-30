@@ -5729,6 +5729,57 @@ class AppL10nEn extends AppL10n {
   String get devicesJoinExisting => 'Join an existing device';
 
   @override
+  String get devicesPairQrHint =>
+      'Connect your phone and computer to the same local network. Scan this QR code on your phone; the approval request will appear here.';
+
+  @override
+  String get devicesPairLanUnavailable =>
+      'Could not open a temporary local network connection. Check the network or use the older-version method below.';
+
+  @override
+  String get devicesPairCannotReach =>
+      'Could not link the devices. They may be on different networks, or a firewall may block the connection. Check the network and scan the QR code again.';
+
+  @override
+  String get devicesPairQrExpires =>
+      'This code expires in 10 minutes. Reopen this screen if it expires.';
+
+  @override
+  String devicesPairRequest(String device, String code) {
+    return 'Phone $device requests access. Comparison code: $code';
+  }
+
+  @override
+  String get devicesPairCompare =>
+      'Compare this code with the phone. If it matches, enter the recovery code and approve the device.';
+
+  @override
+  String get devicesPairCodesMatch =>
+      'The codes on the computer and phone match';
+
+  @override
+  String get devicesPairLegacy => 'Link with an older app version';
+
+  @override
+  String get devicesPairSending =>
+      'Approval complete. Waiting for the phone to receive setup, then encrypted history will be sent.';
+
+  @override
+  String get devicesPairManualFallback => 'If the phone did not receive setup';
+
+  @override
+  String get devicesPairScanHint =>
+      'Connect your phone and computer to the same local network. Open Add device on your computer and scan its QR code.';
+
+  @override
+  String get devicesPairScan => 'Scan the computer QR code';
+
+  @override
+  String devicesPairWait(String code) {
+    return 'Request sent. Comparison code: $code. Compare it with the computer and approve the device there.';
+  }
+
+  @override
   String get devicesPhrase => 'Recovery phrase';
 
   @override

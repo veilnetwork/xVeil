@@ -10100,6 +10100,84 @@ abstract class AppL10n {
   /// **'Join an existing device'**
   String get devicesJoinExisting;
 
+  /// No description provided for @devicesPairQrHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect your phone and computer to the same local network. Scan this QR code on your phone; the approval request will appear here.'**
+  String get devicesPairQrHint;
+
+  /// No description provided for @devicesPairLanUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open a temporary local network connection. Check the network or use the older-version method below.'**
+  String get devicesPairLanUnavailable;
+
+  /// No description provided for @devicesPairCannotReach.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not link the devices. They may be on different networks, or a firewall may block the connection. Check the network and scan the QR code again.'**
+  String get devicesPairCannotReach;
+
+  /// No description provided for @devicesPairQrExpires.
+  ///
+  /// In en, this message translates to:
+  /// **'This code expires in 10 minutes. Reopen this screen if it expires.'**
+  String get devicesPairQrExpires;
+
+  /// No description provided for @devicesPairRequest.
+  ///
+  /// In en, this message translates to:
+  /// **'Phone {device} requests access. Comparison code: {code}'**
+  String devicesPairRequest(String device, String code);
+
+  /// No description provided for @devicesPairCompare.
+  ///
+  /// In en, this message translates to:
+  /// **'Compare this code with the phone. If it matches, enter the recovery code and approve the device.'**
+  String get devicesPairCompare;
+
+  /// No description provided for @devicesPairCodesMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The codes on the computer and phone match'**
+  String get devicesPairCodesMatch;
+
+  /// No description provided for @devicesPairLegacy.
+  ///
+  /// In en, this message translates to:
+  /// **'Link with an older app version'**
+  String get devicesPairLegacy;
+
+  /// No description provided for @devicesPairSending.
+  ///
+  /// In en, this message translates to:
+  /// **'Approval complete. Waiting for the phone to receive setup, then encrypted history will be sent.'**
+  String get devicesPairSending;
+
+  /// No description provided for @devicesPairManualFallback.
+  ///
+  /// In en, this message translates to:
+  /// **'If the phone did not receive setup'**
+  String get devicesPairManualFallback;
+
+  /// No description provided for @devicesPairScanHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Connect your phone and computer to the same local network. Open Add device on your computer and scan its QR code.'**
+  String get devicesPairScanHint;
+
+  /// No description provided for @devicesPairScan.
+  ///
+  /// In en, this message translates to:
+  /// **'Scan the computer QR code'**
+  String get devicesPairScan;
+
+  /// No description provided for @devicesPairWait.
+  ///
+  /// In en, this message translates to:
+  /// **'Request sent. Comparison code: {code}. Compare it with the computer and approve the device there.'**
+  String devicesPairWait(String code);
+
   /// No description provided for @devicesPhrase.
   ///
   /// In en, this message translates to:

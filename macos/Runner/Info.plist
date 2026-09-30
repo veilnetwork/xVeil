@@ -34,5 +34,7 @@
 	<string>xVeil uses the microphone for anonymous voice and video calls.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>xVeil uses the camera for anonymous video calls.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>xVeil uses the local network temporarily when you link another device by showing its QR code.</string>
 </dict>
 </plist>
