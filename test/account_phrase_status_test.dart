@@ -59,6 +59,15 @@ void main() {
     );
   });
 
+  testWidgets('an untouched onion switch describes its current state', (
+    tester,
+  ) async {
+    final l = await pump(tester, null);
+    expect(find.text(l.settingsAnonymousRouting), findsOneWidget);
+    expect(find.text(l.securityCenterAnonymousOff), findsOneWidget);
+    expect(find.text(l.settingsAnonymousDisabledHint), findsNothing);
+  });
+
   testWidgets('an unrecorded export does not claim the backup is missing', (
     tester,
   ) async {
