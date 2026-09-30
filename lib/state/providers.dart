@@ -163,7 +163,8 @@ final identityOriginProvider = FutureProvider.autoDispose<String?>((ref) async {
 /// Four honest answers, and the credential decides three of them:
 ///
 ///  * `certificate` — an XVRC in the container. The certificate and its code
-///    bring this identity back; words do nothing.
+///    bring this identity back. `saved` records a local file export or a
+///    restore from a certificate file; it cannot verify an existing backup.
 ///  * `bundleNoCopy` — an XVSB. The phrase opens the credential, but the
 ///    Falcon half of the master lives only inside it, so nothing off this
 ///    device restores the identity until a certificate is exported.

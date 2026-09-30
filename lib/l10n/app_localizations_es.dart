@@ -4050,11 +4050,11 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get settingsRecoveryByCertificate =>
-      'El certificado de recuperación y su código devuelven esta identidad. Las palabras no hacen nada por ella.';
+      'Para restaurar esta identidad se necesitan el certificado y su código.';
 
   @override
   String get settingsRecoveryCertificateMissing =>
-      'Todavía no se ha guardado ninguna copia del certificado en este dispositivo: hasta que la haya, esta identidad está a un fallo de distancia de desaparecer.';
+      'Este dispositivo no tiene constancia de que se haya guardado el certificado en un archivo. Si lo guardaste al crear la identidad o en otro dispositivo, comprueba que tienes el archivo y el código por separado. Si no tienes el archivo, guárdalo en Dispositivos.';
 
   @override
   String get settingsRecoveryBundleNoCopy =>
@@ -6131,8 +6131,7 @@ class AppL10nEs extends AppL10n {
   String get devicesSaveCertificate => 'Guardar en un archivo';
 
   @override
-  String get devicesNoBackupTitle =>
-      'Esta identidad no tiene copia de seguridad';
+  String get devicesNoBackupTitle => 'Comprueba la copia del certificado';
 
   @override
   String get devicesDelegationExpiringTitle =>
@@ -6163,7 +6162,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get devicesNoBackupBody =>
-      'Solo su certificado de recuperación la restaura: las 24 palabras por sí solas restauran una identidad distinta. Guárdalo y mantenlo aparte de su código.';
+      'Este dispositivo no tiene constancia de que se haya guardado el certificado en un archivo. Si ya lo tienes, comprueba el archivo y el código guardado por separado. De lo contrario, toca aquí para guardar el certificado.';
 
   @override
   String get devicesCertificateSaved =>

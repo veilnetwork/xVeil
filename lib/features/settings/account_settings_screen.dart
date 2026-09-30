@@ -134,20 +134,9 @@ class AccountSettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
-          // WHAT BRINGS THIS IDENTITY BACK, which is not the same question as
-          // what it was made from.
-          //
-          // This row used to read only the config's origin and say "created
-          // without a recovery phrase — protect your data by other means" for
-          // anything that was not phrase-derived. Since creating an identity
-          // stopped handing out words that is every new identity, and the
-          // sentence is wrong twice: it announces an absence where a recovery
-          // certificate exists, and tells the person to improvise a backup
-          // while they are holding one. Asked from the field in as many words:
-          // "зачем теперь эта информация?"
-          //
-          // Informational, not tappable — the actions live on the devices
-          // screen, and this row's job is to be true.
+          // Explain the recovery credential and what the local export marker
+          // knows. A missing marker does not prove that no backup exists.
+          // Export remains available on the Devices screen.
           ref
               .watch(identityRecoveryProvider)
               .maybeWhen(

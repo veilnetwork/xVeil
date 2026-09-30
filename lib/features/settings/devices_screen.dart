@@ -20,10 +20,7 @@ import '../../data/veil_stack.dart';
 import '../../data/transport/device_link_invite.dart';
 import '../../data/node/identity_config_fields.dart';
 import '../../data/node/sovereign_identity_material.dart'
-    show
-        decodeSovereignIdentity,
-        kIdentityDocumentFile,
-        readSovereignMaterial;
+    show decodeSovereignIdentity, kIdentityDocumentFile, readSovereignMaterial;
 import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/chat.dart' show Contact;
 import '../../domain/device_link.dart';
@@ -374,13 +371,14 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     // whose device id is likewise absent from the members, still shows the
     // row that says which device this is.
     final self = await svc?.resolveMyDevice();
-    final members =
-        <NodeId>{
-          ...?state?.members.values.map((m) => m.nodeId),
-          ...?await svc?.addressableOwnDevices(),
-          ?self,
-        }.toList()..sort((a, b) => a.hex.compareTo(b.hex));
-    final storedIdentity = await readSovereignMaterial(ref.read(storageProvider));
+    final members = <NodeId>{
+      ...?state?.members.values.map((m) => m.nodeId),
+      ...?await svc?.addressableOwnDevices(),
+      ?self,
+    }.toList()..sort((a, b) => a.hex.compareTo(b.hex));
+    final storedIdentity = await readSovereignMaterial(
+      ref.read(storageProvider),
+    );
     final myDocument = storedIdentity == null
         ? null
         : decodeSovereignIdentity(storedIdentity)?[kIdentityDocumentFile];
@@ -393,9 +391,7 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
             nonce: fields.nonce,
             algo: fields.algo,
           );
-    final revocable = {
-      ...?state?.members.values.map((m) => m.nodeId.hex),
-    };
+    final revocable = {...?state?.members.values.map((m) => m.nodeId.hex)};
     final messaging = ref.read(messagingServiceProvider);
     final seen = <String, DateTime?>{};
     for (final m in members) {
@@ -454,7 +450,8 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final l = AppL10n.of(context);
     final svc = ref.read(groupServiceProvider);
     if (svc == null) return;
-    final usesCertificate = await svc.sovereignCredentialKind() == 'certificate';
+    final usesCertificate =
+        await svc.sovereignCredentialKind() == 'certificate';
     if (!mounted) return;
     final secret = await showDialog<String>(
       context: context,
@@ -489,6 +486,8 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       builder: (_) =>
           _RecoveryExportSheet(service: svc, credentialKind: _credentialKind),
     );
+    if (!mounted) return;
+    ref.invalidate(identityRecoveryProvider);
     await _reload();
   }
 
@@ -739,29 +738,28 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
       ),
       body: ListView(
         children: [
-          // The standing reminder. It does not go away on its own and it is
-          // the action, not a notice next to one: an identity whose
-          // certificate was never saved is one device failure from being
-          // gone, and the words alone restore a DIFFERENT identity.
+          // The marker records a local file export, not the current presence
+          // of a backup. The reminder offers export without claiming that a
+          // previously saved copy is missing.
           if (!_loading && _hasSovereignBundle && !_certificateSaved)
             Card(
               margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-              color: Theme.of(context).colorScheme.errorContainer,
+              color: Theme.of(context).colorScheme.secondaryContainer,
               child: ListTile(
                 leading: Icon(
-                  Icons.warning_amber_outlined,
-                  color: Theme.of(context).colorScheme.onErrorContainer,
+                  Icons.info_outline,
+                  color: Theme.of(context).colorScheme.onSecondaryContainer,
                 ),
                 title: Text(
                   l.devicesNoBackupTitle,
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
+                    color: Theme.of(context).colorScheme.onSecondaryContainer,
                   ),
                 ),
                 subtitle: Text(
                   l.devicesNoBackupBody,
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
+                    color: Theme.of(context).colorScheme.onSecondaryContainer,
                   ),
                 ),
                 onTap: _showRecoveryExport,
@@ -1008,8 +1006,6 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
   /// second attempt. Anything else keeps the generic message: guessing at a
   /// cause is worse than admitting there is none.
   bool _secretDidNotFit = false;
-
-
 
   @override
   void dispose() {

@@ -198,6 +198,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _minted = null;
     _phrase = const [];
     _realPhrase = false;
+    _certificateSaved = false;
   }
 
   void _startCreate() {
@@ -221,7 +222,6 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     _joinExisting = false;
     _go(8);
   }
-
 
   /// Join an existing device group: no phrase is generated and none is asked
   /// for. The identity minted at the end is temporary — it carries this device
@@ -341,11 +341,20 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   /// The words restore a different identity — they fix the Ed25519 half of the
   /// hybrid master and the Falcon half was drawn at random — so a person who
   /// has their certificate should never be sent down the phrase path.
-  void _restoreWithCertificate(Uint8List certificate, String code) {
+  void _restoreWithCertificate(
+    Uint8List certificate,
+    String code,
+    bool fromFile,
+  ) {
     _forgetOtherPaths();
     _restoring = true;
     _restoreCertificate = certificate;
     _restoreCode = code;
+    // Selecting a real certificate file proves a copy existed outside this
+    // container, just as saving and reading it back does on the create path.
+    // A paste may have come from an expiring clipboard, so it does not prove
+    // there is a durable copy to find later.
+    _certificateSaved = fromFile;
     // No words on this path: the credential carries the master key, and the
     // secret that opens it is the code. `_realPhrase` stays false so the
     // certificate ceremony step is skipped — there is nothing to mint for an
@@ -379,14 +388,18 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           .reopenExistingContainer(password);
       if (!mounted) return;
       if (!opened) {
-        setState(() => _openError = AppL10n.of(context).onboardOpenExistingFailed);
+        setState(
+          () => _openError = AppL10n.of(context).onboardOpenExistingFailed,
+        );
       }
       // Opened: the router follows the phase out of onboarding, exactly as it
       // does after an unlock.
     } catch (e) {
       devLog(() => 'xVeil[onboarding]: reopen failed: $e');
       if (mounted) {
-        setState(() => _openError = AppL10n.of(context).onboardOpenExistingFailed);
+        setState(
+          () => _openError = AppL10n.of(context).onboardOpenExistingFailed,
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -563,6 +576,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
               // mints the identity itself and its code is the only secret.
               phrase: _realPhrase ? _phrase.join(' ') : '',
               already: _minted,
+              alreadySaved: _certificateSaved,
               onDone: ({required bool saved, Uint8List? credential}) {
                 _certificateSaved = saved;
                 _go(3);
@@ -795,7 +809,8 @@ class _RestoreStep extends StatelessWidget {
     this.pick,
   });
 
-  final void Function(Uint8List certificate, String code) onCertificate;
+  final void Function(Uint8List certificate, String code, bool fromFile)
+  onCertificate;
   final RecoveryCodeCheck check;
   final Future<String?> Function()? pick;
 
