@@ -1,5 +1,7 @@
 part of 'messaging_core.dart';
 
+typedef _HeldBlockedMessage = ({String id, String wire, int? receivedAtMs});
+
 /// Contact consent and relationship lifecycle.
 ///
 /// Owns request/reconnect handling, pre-consent anti-spam bounds, local and
@@ -319,16 +321,20 @@ class _MessagingContacts {
 
   String _heldKey(NodeId peer) => 'held-while-blocked:${peer.hex}';
 
-  Uint8List _encodeHeld(List<({String id, String wire})> held) =>
-      Uint8List.fromList(
-        utf8.encode(
-          jsonEncode([
-            for (final h in held) {'i': h.id, 'w': h.wire},
-          ]),
-        ),
-      );
+  Uint8List _encodeHeld(List<_HeldBlockedMessage> held) => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode([
+        for (final h in held)
+          {
+            'i': h.id,
+            'w': h.wire,
+            if (h.receivedAtMs != null) 't': h.receivedAtMs,
+          },
+      ]),
+    ),
+  );
 
-  Future<List<({String id, String wire})>> _loadHeld(NodeId peer) async {
+  Future<List<_HeldBlockedMessage>> _loadHeld(NodeId peer) async {
     try {
       final raw = await _owner._storage.loadFile(_heldKey(peer));
       if (raw == null) return [];
@@ -337,7 +343,11 @@ class _MessagingContacts {
       return [
         for (final e in list)
           if (e is Map && e['i'] is String && e['w'] is String)
-            (id: e['i'] as String, wire: e['w'] as String),
+            (
+              id: e['i'] as String,
+              wire: e['w'] as String,
+              receivedAtMs: e['t'] is int ? e['t'] as int : null,
+            ),
       ];
     } catch (_) {
       return [];
@@ -346,7 +356,7 @@ class _MessagingContacts {
 
   Future<void> _saveHeld(
     NodeId peer,
-    List<({String id, String wire})> held, {
+    List<_HeldBlockedMessage> held, {
     Uint8List? encoded,
   }) async {
     if (held.isEmpty) {
@@ -369,7 +379,11 @@ class _MessagingContacts {
     final held = await _loadHeld(peer);
     if (held.any((h) => h.id == id)) return true;
     if (held.length >= kHeldWhileBlockedMax) return false;
-    held.add((id: id, wire: base64Encode(wire)));
+    held.add((
+      id: id,
+      wire: base64Encode(wire),
+      receivedAtMs: _owner._now().millisecondsSinceEpoch,
+    ));
     final encoded = _encodeHeld(held);
     // The whole queue is one encrypted file. Its byte limit can arrive
     // before the 200-message count limit; treat that as the same overflow so
@@ -390,7 +404,7 @@ class _MessagingContacts {
     final contact = await _owner._storage.getContact(peer);
     if (contact?.status == ContactStatus.blocked) return 0;
     final held = await _loadHeld(peer);
-    final remaining = <({String id, String wire})>[];
+    final remaining = <_HeldBlockedMessage>[];
     var released = 0;
     for (final h in held) {
       final key = _heldIdKey(peer, h.id);
@@ -427,6 +441,35 @@ class _MessagingContacts {
   Future<void> discardHeld(NodeId peer) async {
     await _saveHeld(peer, const []);
     _owner._signal();
+  }
+
+  /// A sibling's clear may arrive after newer blocked messages. Keep those
+  /// received after the clear; old queue rows had no receipt time and cannot
+  /// be shown safely once that history has been cleared.
+  Future<void> discardHeldThrough(NodeId peer, int atMs) async {
+    // Match applyRemoteClear's cap on a sibling clock running ahead of ours.
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final throughMs = atMs < nowMs ? atMs : nowMs;
+    final held = await _loadHeld(peer);
+    final remaining = [
+      for (final h in held)
+        if (_heldAfterClear(h, throughMs)) h,
+    ];
+    if (remaining.length == held.length) return;
+    await _saveHeld(peer, remaining);
+    _owner._signal();
+  }
+
+  bool _heldAfterClear(_HeldBlockedMessage held, int throughMs) {
+    final receivedAt = held.receivedAtMs;
+    if (receivedAt == null || receivedAt <= throughMs) return false;
+    try {
+      final sentAt = WireEnvelope.decode(base64Decode(held.wire)).sentAtMs;
+      return sentAt == null ||
+          messageTsOnReceipt(sentAt, receivedAt) > throughMs;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Lift a block — the peer becomes an accepted contact again so their

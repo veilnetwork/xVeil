@@ -374,6 +374,7 @@ class _MessagingDeviceMirror {
         // messages included.
         fromOwnDevice: true,
       );
+      await _owner._contacts.discardHeldThrough(peer, atMs);
       _owner._signal();
     } catch (e) {
       devLog(() => 'xVeil[devices]: mirrored clear of ${peer.short} failed: $e');
