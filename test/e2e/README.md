@@ -147,27 +147,23 @@ received the message and A committed its device-group mirror, then takes A and
 C down. Current policy skips mailbox deposits to sibling device addresses, so
 the case measures whether any other recovery path can supply B.
 
-### case 20 — an edit and a device-local delete on one identity
+### case 20 — an edit and a sibling deletion on one identity
 
 A edits a row while B calls `deleteMessageLocally` for the same id, with neither
-able to see the other, then both come back. The case asserts two things:
+able to see the other. B publishes a `msgGone` event to the signed device log.
+After A reconnects, both devices must apply that event and omit the row. The
+test checks the shared log and the visible conversation, including a restart of
+A so the folded journal replay is exercised. A delete-for-everyone conflict and
+a truly simultaneous network partition require separate tests.
 
-* **what must hold regardless of the rule** — the signed device-group log does
-  not fork, duplicate a row, or leave a hole in a writer's chain;
-* **what the rule currently is** — pinned, after reading the code rather than
-  guessing:
-  * `deleteMessageLocally` writes a permanent tombstone, and
-    `MessagingDeviceMirror.applyMessage` refuses any mirror carrying an id that
-    is tombstoned here (the resurrection invariant in
-    `doc/MESSAGE-EDIT-DELETE-DESIGN.md`), so the deleting device never gets the
-    row back;
-  * the mirror emits on `onMessageStored` and drops an id the receiver already
-    holds, so an edited body is not carried to a sibling that already has the row.
+### case 37 control — B answers with an existing B-C session
 
-  Both point the same way, so the settled state is deterministic: **A keeps the
-  edited row, B keeps nothing.** This is permitted because B explicitly made a
-  device-local deletion. A delete-for-everyone conflict and a truly simultaneous
-  network partition require separate tests.
+C calls identity X and both A and B ring. Before the call, the fixture opens a
+direct device session between B and C. B answers, A stops ringing, C connects,
+and C receives B's hangup. Without that extra B-C session, the same case times
+out waiting for C's answer: B has the mirrored contact record but no overlay
+route to C. This control isolates the transport defect from the call state
+machine; it does not claim the ordinary case is fixed.
 
 ---
 
@@ -252,10 +248,8 @@ for, and it escalates.
   waiting FOR and a callback describing what it last SAW, and puts both into the
   failure — plus a progress line every 15 s, because a live case takes minutes
   and silence is indistinguishable from a hang.
-* Nothing is synchronised by sleeping where a condition can be polled. The one
-  wait that is not a condition — case 20's "the pair has stopped changing" —
-  polls for stability rather than for a fixed delay, because there is no event
-  to wait for when the correct outcome is that nothing more happens.
+* Nothing is synchronised by sleeping where a condition can be polled. Case 20
+  waits for A and B to remove the row after the device log converges.
 * Teardown runs **every leg** and then rethrows the first failure
   (`teardownLegs`). A leaked `veil-cli`, a live node runtime or a held container
   lock poisons every later run, and the next run then fails for a reason that

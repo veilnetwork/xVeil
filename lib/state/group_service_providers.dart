@@ -639,6 +639,20 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     for (final event in folded.values) {
       await applyStatusEvent(event);
     }
+    // A restart can miss the live stream entirely. Replaying only mirrors and
+    // statuses left edits, erases and clear watermarks stranded in the signed
+    // log: a sibling's delete while we were offline never reached this chat.
+    // Apply mutations after the message rows. An erase wins over an edit both
+    // here and on the live path because applyMirroredEdit refuses tombstones.
+    for (final event in folded.values) {
+      await applyEditEvent(event);
+    }
+    for (final event in folded.values) {
+      await applyGoneEvent(event);
+    }
+    for (final event in folded.values) {
+      await applyClearEvent(event);
+    }
   }());
   ref.onDispose(() {
     // Detach before disposing, and only what is still ours.
