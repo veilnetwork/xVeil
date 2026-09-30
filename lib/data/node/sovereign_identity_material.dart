@@ -262,14 +262,11 @@ class SovereignRestoreRefused implements Exception {
 /// something else.
 const int kMaxSovereignCredentialBytes = 16 * 1024;
 
-/// Set once this identity's recovery certificate has been written to a file.
-///
-/// Not a convenience flag: the identity is named by a master whose Falcon half
-/// exists only inside the credential, so until this is set the identity is one
-/// device failure away from being gone. What reads it is the standing reminder
-/// — the point is that the app knows the difference between "backed up" and
-/// "not yet", and says so instead of assuming.
-const kRecoveryCertificateSavedSetting = 'identity.recovery_certificate.saved.v1';
+/// Records a verified file export or a restore from a certificate file in this
+/// identity's local container. It cannot tell whether that file still exists,
+/// or whether another device holds a copy.
+const kRecoveryCertificateSavedSetting =
+    'identity.recovery_certificate.saved.v1';
 
 /// Whether [files] belong to the identity whose material is ALREADY laid out
 /// in [dir].
