@@ -5800,6 +5800,58 @@ class AppL10nEs extends AppL10n {
   String get devicesJoinExisting => 'Unirse a un dispositivo existente';
 
   @override
+  String get devicesPairQrHint =>
+      'Conecta el teléfono y el ordenador a la misma red local. Escanea este código QR con el teléfono; la solicitud aparecerá aquí.';
+
+  @override
+  String get devicesPairLanUnavailable =>
+      'No se pudo abrir una conexión temporal en la red local. Comprueba la red o usa el método para versiones anteriores.';
+
+  @override
+  String get devicesPairCannotReach =>
+      'No se pudieron vincular los dispositivos. Puede que estén en redes distintas o que el cortafuegos bloquee la conexión. Comprueba la red y vuelve a escanear el código QR.';
+
+  @override
+  String get devicesPairQrExpires =>
+      'Este código caduca en 10 minutos. Vuelve a abrir esta pantalla si caduca.';
+
+  @override
+  String devicesPairRequest(String device, String code) {
+    return 'El teléfono $device solicita acceso. Código de comparación: $code';
+  }
+
+  @override
+  String get devicesPairCompare =>
+      'Compara el código con el teléfono. Si coincide, introduce el código de recuperación y aprueba el dispositivo.';
+
+  @override
+  String get devicesPairCodesMatch =>
+      'Los códigos del ordenador y del teléfono coinciden';
+
+  @override
+  String get devicesPairLegacy => 'Vincular con una versión anterior';
+
+  @override
+  String get devicesPairSending =>
+      'Solicitud aprobada. Esperando a que el teléfono reciba la configuración; luego se enviará el historial cifrado.';
+
+  @override
+  String get devicesPairManualFallback =>
+      'Si el teléfono no recibió la configuración';
+
+  @override
+  String get devicesPairScanHint =>
+      'Conecta el teléfono y el ordenador a la misma red local. Abre Añadir dispositivo en el ordenador y escanea su código QR.';
+
+  @override
+  String get devicesPairScan => 'Escanear el código QR del ordenador';
+
+  @override
+  String devicesPairWait(String code) {
+    return 'Solicitud enviada. Código de comparación: $code. Compáralo con el ordenador y aprueba el dispositivo allí.';
+  }
+
+  @override
   String get devicesPhrase => 'Frase de recuperación';
 
   @override
