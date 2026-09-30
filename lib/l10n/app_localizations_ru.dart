@@ -5777,6 +5777,56 @@ class AppL10nRu extends AppL10n {
   String get devicesJoinExisting => 'Присоединиться к существующему';
 
   @override
+  String get devicesPairQrHint =>
+      'Подключите телефон и компьютер к одной локальной сети. Отсканируйте этот QR-код на телефоне — запрос появится здесь.';
+
+  @override
+  String get devicesPairLanUnavailable =>
+      'Не удалось открыть временное соединение в локальной сети. Проверьте сеть или используйте способ для старой версии ниже.';
+
+  @override
+  String get devicesPairCannotReach =>
+      'Не удалось связать устройства. Возможно, они находятся в разных сетях или соединение блокирует брандмауэр. Проверьте сеть и отсканируйте QR-код снова.';
+
+  @override
+  String get devicesPairQrExpires =>
+      'Код действует 10 минут. Если срок истёк, откройте экран заново.';
+
+  @override
+  String devicesPairRequest(String device, String code) {
+    return 'Телефон $device просит доступ. Сверочный код: $code';
+  }
+
+  @override
+  String get devicesPairCompare =>
+      'Сравните код с телефоном. Если он совпадает, введите код восстановления и подтвердите добавление.';
+
+  @override
+  String get devicesPairCodesMatch => 'Коды на компьютере и телефоне совпадают';
+
+  @override
+  String get devicesPairLegacy => 'Связать со старой версией приложения';
+
+  @override
+  String get devicesPairSending =>
+      'Добавление подтверждено. Ждём, пока телефон получит настройку, затем отправим зашифрованную историю.';
+
+  @override
+  String get devicesPairManualFallback => 'Если телефон не получил настройку';
+
+  @override
+  String get devicesPairScanHint =>
+      'Подключите телефон и компьютер к одной локальной сети. Откройте добавление устройства на компьютере и отсканируйте QR-код.';
+
+  @override
+  String get devicesPairScan => 'Сканировать QR-код компьютера';
+
+  @override
+  String devicesPairWait(String code) {
+    return 'Запрос отправлен. Сверочный код: $code. Сравните его с кодом на компьютере и подтвердите добавление там.';
+  }
+
+  @override
   String get devicesPhrase => 'Фраза восстановления';
 
   @override

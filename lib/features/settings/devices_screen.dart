@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:convert' show base64Encode;
+import 'dart:convert' show base64Encode, jsonDecode, jsonEncode;
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -16,6 +16,7 @@ export '../../core/secret_display.dart' show SecretCopyButton, SecretText;
 import '../../core/ids.dart';
 import '../../core/qr_payload.dart';
 import '../../state/messaging_providers.dart';
+import '../../data/transport/device_pairing_lan.dart';
 import '../../data/veil_stack.dart';
 import '../../data/transport/device_link_invite.dart';
 import '../../data/node/identity_config_fields.dart';
@@ -24,6 +25,7 @@ import '../../data/node/sovereign_identity_material.dart'
 import '../../data/transport/bootstrap_invite.dart';
 import '../../domain/chat.dart' show Contact;
 import '../../domain/device_link.dart';
+import '../../domain/device_pairing.dart';
 import '../../domain/sovereign_secret.dart';
 import '../../domain/device_history_ask.dart';
 import '../../domain/device_sync.dart' show DeviceSyncEvent, DeviceSyncKind;
@@ -1427,9 +1429,138 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
   String? _token;
   String? _error;
   bool _busy = false;
+  DevicePairingCode? _pairCode;
+  DevicePairingLanServer? _pairServer;
+  bool _pairUnavailable = false;
+  Timer? _pairExpiry;
+  NodeId? _candidateIdentity;
+  NodeId? _candidateDevice;
+  bool _pairingApproved = false;
+  bool _pairConfirmed = false;
+  bool _snapshotScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_startPairing());
+  }
+
+  Future<void> _startPairing() async {
+    final device = widget.myDevice;
+    if (device == null) {
+      if (mounted) setState(() => _pairUnavailable = true);
+      return;
+    }
+    try {
+      final hosts = await localPairingAddresses();
+      if (hosts.isEmpty) {
+        if (mounted) setState(() => _pairUnavailable = true);
+        return;
+      }
+      final provisional = DevicePairingCode.fresh(
+        device,
+        widget.stack.myInvite,
+        hosts: hosts,
+        port: 1,
+      );
+      final server = await DevicePairingLanServer.start(
+        provisional.ticket,
+        _onLanRequest,
+      );
+      if (!mounted) {
+        await server.close();
+        return;
+      }
+      _pairServer = server;
+      _pairExpiry = Timer(const Duration(minutes: 10), () {
+        if (!mounted || _candidateIdentity != null) return;
+        unawaited(server.close());
+        _pairServer = null;
+        setState(() {
+          _pairCode = null;
+          _pairUnavailable = true;
+        });
+      });
+      setState(
+        () => _pairCode = DevicePairingCode(
+          device: device,
+          source: widget.stack.myInvite,
+          ticket: provisional.ticket,
+          expiresAt: provisional.expiresAt,
+          hosts: hosts,
+          port: server.port,
+        ),
+      );
+    } catch (_) {
+      if (mounted) setState(() => _pairUnavailable = true);
+    }
+  }
+
+  String? get _safetyCode {
+    final code = _pairCode;
+    final device = _candidateDevice;
+    if (code == null || device == null) return null;
+    return devicePairingSafetyCode(code.ticket, device);
+  }
+
+  Future<String> _onLanRequest(String raw) async {
+    final code = _pairCode;
+    if (!mounted || code == null) return jsonEncode({'k': 'closed'});
+    try {
+      final request = jsonDecode(raw) as Map<String, dynamic>;
+      final kind = request['k'];
+      if (kind == 'request') {
+        final invite = DeviceLinkInvite.parse(request['invite'] as String);
+        final identity = NodeId.fromHex(request['id'] as String);
+        if (!invite.namesTheDevice ||
+            invite.isSelf(
+              myDeviceNodeId: widget.myDevice!.nodeId,
+              myIdentityId: widget.service.selfId,
+            )) {
+          return jsonEncode({'k': 'rejected'});
+        }
+        if (_candidateIdentity == null) {
+          if (code.expired) return jsonEncode({'k': 'expired'});
+          setState(() {
+            _targetInvite.text = invite.toUri();
+            _candidateIdentity = identity;
+            _candidateDevice = invite.nodeId;
+            _pairConfirmed = false;
+          });
+        }
+        if (_candidateIdentity != identity ||
+            _candidateDevice != invite.nodeId ||
+            _targetInvite.text != invite.toUri()) {
+          return jsonEncode({'k': 'rejected'});
+        }
+        return jsonEncode(
+          _pairingApproved ? {'k': 'token', 'value': _token} : {'k': 'pending'},
+        );
+      }
+      if (kind == 'ready' &&
+          _pairingApproved &&
+          request['id'] == _candidateIdentity?.hex &&
+          request['device'] == _candidateDevice?.hex) {
+        if (!_snapshotScheduled) {
+          _snapshotScheduled = true;
+          // Admission is on the phone's disk. Give its node time to restart.
+          Future<void>.delayed(const Duration(seconds: 5), () {
+            if (mounted && !_busy) unawaited(_send());
+          });
+        }
+        return jsonEncode({'k': 'ack'});
+      }
+    } catch (_) {
+      // Malformed local requests do not change the ceremony.
+    }
+    return jsonEncode({'k': 'rejected'});
+  }
 
   @override
   void dispose() {
+    _pairExpiry?.cancel();
+    final server = _pairServer;
+    if (server != null) unawaited(server.close());
     _phrase.clear();
     _phrase.dispose();
     _targetInvite.dispose();
@@ -1444,7 +1575,14 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
   }
 
   Future<void> _prepare() async {
+    if (_busy) return;
     final l = AppL10n.of(context);
+    if (_candidateIdentity != null && _pairCode?.expired == true) {
+      // A request that arrived before expiry remains visible, but a decision
+      // made after expiry must start with a new, fresh QR.
+      setState(() => _error = l.devicesExpiredToken);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -1556,7 +1694,12 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       );
       if (token == null) throw StateError('token unavailable');
       if (!mounted) return;
-      setState(() => _token = token.toUri());
+      if (_candidateIdentity != null) {
+        _pairingApproved = true;
+        setState(() => _token = token.toUri());
+      } else {
+        setState(() => _token = token.toUri());
+      }
     } on TombstonedDeviceException {
       // Not "could not complete": this refusal is permanent, and the person
       // needs to know the way forward is a fresh device key, not a retry.
@@ -1645,22 +1788,53 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
             ),
             const SizedBox(height: 16),
             if (_token == null) ...[
-              TextField(
-                controller: _targetInvite,
-                minLines: 1,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  labelText: l.devicesTargetInvite,
-                  helperText: l.devicesTargetInviteHint,
-                  suffixIcon: IconButton(
-                    // The field says what to paste; the icon said nothing at all
-                    // — no hover hint, and nothing for a screen reader to read.
-                    tooltip: l.inviteScanTooltip,
-                    icon: const Icon(Icons.qr_code_scanner),
-                    onPressed: _busy ? null : _scan,
-                  ),
+              if (_pairCode != null && _candidateIdentity == null) ...[
+                Text(l.devicesPairQrHint),
+                const SizedBox(height: 12),
+                Center(child: _linkCodeQr(context, _pairCode!.toUri(), 220)),
+                const SizedBox(height: 12),
+                Text(l.devicesPairQrExpires),
+              ] else if (_pairUnavailable && _candidateIdentity == null) ...[
+                Text(l.devicesPairLanUnavailable),
+              ] else if (_candidateIdentity == null) ...[
+                const Center(child: CircularProgressIndicator()),
+              ],
+              if (_candidateIdentity != null) ...[
+                Text(
+                  l.devicesPairRequest(_candidateDevice!.short, _safetyCode!),
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(l.devicesPairCompare),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _pairConfirmed,
+                  onChanged: _busy
+                      ? null
+                      : (value) =>
+                            setState(() => _pairConfirmed = value ?? false),
+                  title: Text(l.devicesPairCodesMatch),
+                ),
+              ] else
+                ExpansionTile(
+                  title: Text(l.devicesPairLegacy),
+                  children: [
+                    TextField(
+                      controller: _targetInvite,
+                      onChanged: (_) => setState(() {}),
+                      minLines: 1,
+                      maxLines: 3,
+                      decoration: InputDecoration(
+                        labelText: l.devicesTargetInvite,
+                        helperText: l.devicesTargetInviteHint,
+                        suffixIcon: IconButton(
+                          tooltip: l.inviteScanTooltip,
+                          icon: const Icon(Icons.qr_code_scanner),
+                          onPressed: _busy ? null : _scan,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               const SizedBox(height: 12),
               TextField(
                 controller: _phrase,
@@ -1676,9 +1850,36 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
               ),
               const SizedBox(height: 16),
               FilledButton.icon(
-                onPressed: _busy ? null : _prepare,
+                onPressed:
+                    _busy ||
+                        _targetInvite.text.isEmpty ||
+                        (_candidateIdentity != null && !_pairConfirmed)
+                    ? null
+                    : _prepare,
                 icon: const Icon(Icons.lock_outline),
                 label: Text(l.devicesPrepare),
+              ),
+            ] else if (_pairingApproved) ...[
+              Text(l.devicesPairSending),
+              const SizedBox(height: 12),
+              const LinearProgressIndicator(),
+              ExpansionTile(
+                title: Text(l.devicesPairManualFallback),
+                children: [
+                  Text(l.devicesAdoptionQrHint),
+                  const SizedBox(height: 12),
+                  Center(child: _linkCodeQr(context, _token!, 220)),
+                  SecretCopyButton(
+                    label: l.actionCopy,
+                    value: () => _token!,
+                    copiedMessage: l.devicesTokenCopiedClears,
+                  ),
+                  FilledButton.icon(
+                    onPressed: _busy ? null : _send,
+                    icon: const Icon(Icons.send),
+                    label: Text(l.devicesSendSetup),
+                  ),
+                ],
               ),
             ] else ...[
               Text(
@@ -1756,6 +1957,13 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
   DeviceLinkToken? _pending;
   String? _error;
   bool _busy = false;
+  DevicePairingCode? _pairCode;
+  Timer? _pairRetry;
+  Timer? _pairTroubleTimer;
+  String? _pairRequest;
+  String? _pairRequesterId;
+  bool _requestSending = false;
+  String? _pairSafetyCode;
 
   /// "Heavy media too?" — asked here, before the link, because this is the
   /// one moment the person is deciding what this device should hold.
@@ -1778,6 +1986,8 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
   @override
   void dispose() {
     _poll?.cancel();
+    _pairRetry?.cancel();
+    _pairTroubleTimer?.cancel();
     _token.dispose();
     super.dispose();
   }
@@ -1787,11 +1997,131 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
       context,
     ).push<String>(MaterialPageRoute(builder: (_) => const QrScanScreen()));
     if (raw == null || !mounted) return;
+    if (raw.startsWith(DevicePairingCode.scheme)) {
+      await _joinByQr(raw);
+      return;
+    }
     _token.text = raw;
     await _prepare();
   }
 
+  Future<void> _joinByQr(String raw) async {
+    final l = AppL10n.of(context);
+    try {
+      final code = DevicePairingCode.parse(raw);
+      if (code.expired || widget.myDevice == null) {
+        throw const FormatException('expired or no device key');
+      }
+      if (code.identity == widget.stack.myInvite.nodeId) {
+        throw const FormatException('self identity');
+      }
+      final myInvite = DeviceLinkInvite(
+        device: widget.myDevice!,
+        document: widget.myDocument,
+      ).toUri();
+      final request = jsonEncode({
+        'k': 'request',
+        'id': widget.stack.myInvite.nodeId.hex,
+        'invite': myInvite,
+      });
+      if (!mounted) return;
+      _pairRetry?.cancel();
+      setState(() {
+        _pairCode = code;
+        _pairRequest = request;
+        _pairRequesterId = widget.stack.myInvite.nodeId.hex;
+        _pairSafetyCode = devicePairingSafetyCode(
+          code.ticket,
+          widget.myDevice!.nodeId,
+        );
+        _error = null;
+      });
+      _pairRetry = Timer.periodic(const Duration(seconds: 4), (_) {
+        unawaited(_pollPairing());
+      });
+      _armPairTrouble(code);
+      unawaited(_pollPairing());
+    } catch (_) {
+      if (mounted) setState(() => _error = l.devicesInvalidToken);
+    }
+  }
+
+  void _armPairTrouble(DevicePairingCode code) {
+    _pairTroubleTimer?.cancel();
+    _pairTroubleTimer = Timer(const Duration(seconds: 20), () {
+      if (mounted && _pairCode == code && _pending == null) {
+        _endPairingWithError(AppL10n.of(context).devicesPairCannotReach);
+      }
+    });
+  }
+
+  void _endPairingWithError(String message) {
+    _pairRetry?.cancel();
+    _pairTroubleTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _pairCode = null;
+      _pairRequest = null;
+      _pairRequesterId = null;
+      _error = message;
+    });
+  }
+
+  Future<void> _pollPairing() async {
+    if (_requestSending || _pending != null || _busy) return;
+    final code = _pairCode;
+    final request = _pairRequest;
+    if (code == null || request == null) return;
+    _requestSending = true;
+    try {
+      final raw = await DevicePairingLanClient.exchange(code, request);
+      if (!mounted || _pairCode != code) return;
+      if (_error != null) setState(() => _error = null);
+      final reply = jsonDecode(raw) as Map<String, dynamic>;
+      if (reply['k'] == 'token' && reply['value'] is String) {
+        _pairRetry?.cancel();
+        _pairTroubleTimer?.cancel();
+        _token.text = reply['value'] as String;
+        unawaited(_prepare());
+      } else if (reply['k'] == 'expired' || reply['k'] == 'rejected') {
+        _endPairingWithError(
+          reply['k'] == 'expired'
+              ? AppL10n.of(context).devicesExpiredToken
+              : AppL10n.of(context).devicesInvalidToken,
+        );
+      } else if (reply['k'] == 'pending') {
+        _armPairTrouble(code);
+      }
+    } catch (_) {
+      // Try direct LAN again until the bounded no-response timer reports it.
+    } finally {
+      _requestSending = false;
+    }
+  }
+
+  Future<void> _signalReady() async {
+    final code = _pairCode;
+    if (code == null) return;
+    final ready = jsonEncode({
+      'k': 'ready',
+      'id': _pairRequesterId,
+      'device': widget.myDevice!.nodeId.hex,
+    });
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final reply = await DevicePairingLanClient.exchange(code, ready);
+        if ((jsonDecode(reply) as Map<String, dynamic>)['k'] == 'ack') return;
+      } catch (_) {
+        // The source also has a manual send button if the reply was lost.
+      }
+      if (attempt < 2) {
+        await Future<void>.delayed(const Duration(milliseconds: 350));
+      }
+    }
+  }
+
   Future<void> _prepare() async {
+    if (_busy) return;
     final l = AppL10n.of(context);
     setState(() {
       _busy = true;
@@ -1799,6 +2129,12 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
     });
     try {
       final token = DeviceLinkToken.parse(_token.text);
+      final code = _pairCode;
+      if (code != null &&
+          (token.source != code.identity ||
+              token.sourceDevice != code.device.nodeId)) {
+        throw const FormatException('pairing source mismatch');
+      }
       if (token.isExpired(DateTime.now().millisecondsSinceEpoch)) {
         throw const FormatException('expired');
       }
@@ -1826,6 +2162,7 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
       )) {
         throw StateError('admission rejected');
       }
+      await _signalReady();
       _token.clear();
       if (_heavyMedia) {
         await widget.service.storage.putSetting(
@@ -1907,29 +2244,58 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
           ),
           const SizedBox(height: 12),
           if (_pending == null) ...[
-            Text(l.devicesShowMyInvite),
-            const SizedBox(height: 8),
-            Center(child: _linkCodeQr(context, myInvite, 170)),
-            TextButton.icon(
-              onPressed: () => Clipboard.setData(ClipboardData(text: myInvite)),
-              icon: const Icon(Icons.copy),
-              label: Text(l.actionCopy),
-            ),
-            const Divider(height: 28),
-            TextField(
-              controller: _token,
-              minLines: 1,
-              maxLines: 3,
-              decoration: InputDecoration(
-                labelText: l.devicesJoinToken,
-                helperText: l.devicesJoinTokenHint,
-                suffixIcon: IconButton(
-                  tooltip: l.inviteScanTooltip,
-                  icon: const Icon(Icons.qr_code_scanner),
-                  onPressed: _busy ? null : _scan,
-                ),
+            if (_pairCode == null) ...[
+              Text(l.devicesPairScanHint),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: _busy ? null : _scan,
+                icon: const Icon(Icons.qr_code_scanner),
+                label: Text(l.devicesPairScan),
               ),
-            ),
+              const Divider(height: 28),
+              ExpansionTile(
+                title: Text(l.devicesPairLegacy),
+                children: [
+                  Text(l.devicesShowMyInvite),
+                  const SizedBox(height: 8),
+                  Center(child: _linkCodeQr(context, myInvite, 170)),
+                  TextButton.icon(
+                    onPressed: () =>
+                        Clipboard.setData(ClipboardData(text: myInvite)),
+                    icon: const Icon(Icons.copy),
+                    label: Text(l.actionCopy),
+                  ),
+                  TextField(
+                    controller: _token,
+                    onChanged: (_) => setState(() {}),
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: l.devicesJoinToken,
+                      helperText: l.devicesJoinTokenHint,
+                      suffixIcon: IconButton(
+                        tooltip: l.inviteScanTooltip,
+                        icon: const Icon(Icons.qr_code_scanner),
+                        onPressed: _busy ? null : _scan,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ] else ...[
+              Text(l.devicesPairWait(_pairSafetyCode!)),
+              const LinearProgressIndicator(),
+              TextButton(
+                onPressed: () => setState(() {
+                  _pairRetry?.cancel();
+                  _pairTroubleTimer?.cancel();
+                  _pairCode = null;
+                  _pairRequest = null;
+                  _pairRequesterId = null;
+                }),
+                child: Text(l.devicesCancelPending),
+              ),
+            ],
             const SizedBox(height: 8),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -1940,7 +2306,9 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
             ),
             const SizedBox(height: 8),
             FilledButton(
-              onPressed: _busy ? null : _prepare,
+              onPressed: _busy || _pairCode != null || _token.text.isEmpty
+                  ? null
+                  : _prepare,
               child: Text(l.devicesPrepare),
             ),
           ] else ...[
