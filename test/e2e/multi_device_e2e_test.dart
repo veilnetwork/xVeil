@@ -411,6 +411,67 @@ void main() {
     );
 
     // ---------------------------------------------------------------------
+    test(
+      'case 37 control — C calls X; B answers with a direct B-C session',
+      () async {
+        E2eFleet? fleet;
+        addTearDown(() async => fleet?.dispose());
+        fleet = await E2eFleet.start(gate: gate, labels: const ['A', 'B', 'C']);
+        final f = fleet;
+        await f.linkDevice(master: f.a, target: f.b);
+        await f.introduce(f.c, f.a);
+        // Diagnostic control: a direct B-C session isolates the call FSM from
+        // the unresolved B-to-C overlay route in the ordinary case 37.
+        await f.b.stack.addContact(await f.c.dialableDeviceInvite());
+        await f.c.stack.addContact(await f.b.dialableDeviceInvite());
+        await waitUntil(
+          () async =>
+              (await f.b.storage.getContact(f.c.identityNodeId))?.status ==
+              ContactStatus.accepted,
+          what: 'B to know C before accepting its call',
+          timeout: const Duration(minutes: 3),
+        );
+
+        final aCalls = f.a.calls;
+        final bCalls = f.b.calls;
+        final cCalls = f.c.calls;
+        await cCalls.placeCall(
+          f.a.identityNodeId,
+          const CallMedia(audio: true),
+        );
+        await waitUntil(
+          () async =>
+              aCalls.current?.status == CallStatus.ringing &&
+              bCalls.current?.status == CallStatus.ringing,
+          what: 'A and B to ring for C',
+          timeout: const Duration(minutes: 3),
+        );
+        expect(aCalls.current!.callId, bCalls.current!.callId);
+        await bCalls.accept();
+        await waitUntil(
+          () async =>
+              aCalls.current?.status != CallStatus.ringing &&
+              (cCalls.current?.status == CallStatus.connecting ||
+                  cCalls.current?.status == CallStatus.active),
+          what: 'A to stop ringing and C to connect to answering device B',
+          describe: () async =>
+              'A=${aCalls.current?.status} B=${bCalls.current?.status} '
+              'C=${cCalls.current?.status}',
+          timeout: const Duration(seconds: 100),
+        );
+        await bCalls.hangup();
+        await waitUntil(
+          () async =>
+              cCalls.current?.status == CallStatus.ended ||
+              cCalls.current == null,
+          what: 'C to see B hang up',
+          timeout: const Duration(minutes: 2),
+        );
+      },
+      skip: gate.skip,
+    );
+
+    // ---------------------------------------------------------------------
     test('case 7 — A sends a file to C and online B gets the bytes', () async {
       E2eFleet? fleet;
       addTearDown(() async => fleet?.dispose());
@@ -694,141 +755,85 @@ void main() {
     );
 
     // ---------------------------------------------------------------------
-    test('case 20 — A edits a message while B deletes it, with no connectivity '
-        'between them; on reconnect both settle on the fold\'s rule', () async {
-      E2eFleet? fleet;
-      addTearDown(() async => fleet?.dispose());
-      fleet = await E2eFleet.start(gate: gate, labels: const ['A', 'B', 'C']);
-      final f = fleet;
+    test(
+      'case 20 — B deletion wins over A edit after both reconnect',
+      () async {
+        E2eFleet? fleet;
+        addTearDown(() async => fleet?.dispose());
+        fleet = await E2eFleet.start(gate: gate, labels: const ['A', 'B', 'C']);
+        final f = fleet;
 
-      await f.linkDevice(master: f.a, target: f.b);
-      await f.introduce(f.a, f.c);
+        await f.linkDevice(master: f.a, target: f.b);
+        await f.introduce(f.a, f.c);
 
-      const original = 'case-20 the row both devices will change';
-      const edited = 'case-20 EDITED on A';
-      await f.a.messaging.sendText(f.c.identityNodeId, original);
-      await waitUntil(
-        () async =>
-            (await f.b.conversation(f.c.identityNodeId)).contains(original),
-        what: 'B to mirror the row before the split',
-        describe: () async =>
-            'B conv=${await f.b.conversation(f.c.identityNodeId)}',
-        timeout: const Duration(minutes: 5),
-      );
+        const original = 'case-20 the row both devices will change';
+        const edited = 'case-20 EDITED on A';
+        await f.a.messaging.sendText(f.c.identityNodeId, original);
+        await waitUntil(
+          () async =>
+              (await f.b.conversation(f.c.identityNodeId)).contains(original),
+          what: 'B to mirror the row before the split',
+          describe: () async =>
+              'B conv=${await f.b.conversation(f.c.identityNodeId)}',
+          timeout: const Duration(minutes: 5),
+        );
 
-      final idOnA = await idOf(f.a, f.c.identityNodeId, original);
-      final idOnB = await idOf(f.b, f.c.identityNodeId, original);
-      expect(
-        idOnB,
-        idOnA,
-        reason:
-            'the two devices must be talking about the SAME row — a '
-            'mirror that re-keys the id turns this case into two unrelated '
-            'edits and would pass for the wrong reason',
-      );
+        final idOnA = await idOf(f.a, f.c.identityNodeId, original);
+        final idOnB = await idOf(f.b, f.c.identityNodeId, original);
+        expect(
+          idOnB,
+          idOnA,
+          reason:
+              'the two devices must be talking about the SAME row — a '
+              'mirror that re-keys the id turns this case into two unrelated '
+              'edits and would pass for the wrong reason',
+        );
 
-      // NO CONNECTIVITY BETWEEN THEM, done the way a single-host stand does
-      // it: each device acts while the other is not running. Neither sees the
-      // other's change until both are up again.
-      await f.b.stop();
-      await f.a.messaging.editOwnMessage(idOnA, edited);
-      await f.a.stop();
-      await f.b.start();
-      await f.b.messaging.deleteMessageLocally(idOnB);
-      await f.a.start();
+        // NO CONNECTIVITY BETWEEN THEM, done the way a single-host stand does
+        // it: each device acts while the other is not running. Neither sees the
+        // other's change until both are up again.
+        await f.b.stop();
+        await f.a.messaging.editOwnMessage(idOnA, edited);
+        await f.a.stop();
+        await f.b.start();
+        await f.b.messaging.deleteMessageLocally(idOnB);
+        await waitUntil(
+          () async => (await f.b.groups!.deviceSyncState()).containsKey((
+            DeviceSyncKind.msgGone,
+            idOnB,
+          )),
+          what: 'B to commit the delete to the device journal',
+          timeout: const Duration(minutes: 2),
+        );
+        await f.a.start();
 
-      // Let the reconnection do whatever it is going to do. There is nothing
-      // to poll for a NON-event, so this waits for the pair to stop changing
-      // rather than for a particular outcome.
-      var lastA = <String>[];
-      var lastB = <String>[];
-      var stable = 0;
-      await waitUntil(
-        () async {
-          final nowA = await f.a.conversation(f.c.identityNodeId);
-          final nowB = await f.b.conversation(f.c.identityNodeId);
-          final unchanged = '$nowA' == '$lastA' && '$nowB' == '$lastB';
-          lastA = nowA;
-          lastB = nowB;
-          stable = unchanged ? stable + 1 : 0;
-          return stable >= 8;
-        },
-        what: 'A and B to stop changing after the split heals',
-        describe: () async => 'A=$lastA B=$lastB (stable for $stable polls)',
-        interval: const Duration(seconds: 2),
-        timeout: const Duration(minutes: 6),
-      );
+        await waitUntil(
+          () async {
+            final a = await f.a.conversationRows(f.c.identityNodeId);
+            final b = await f.b.conversationRows(f.c.identityNodeId);
+            return a.every((m) => m.id != idOnA) &&
+                b.every((m) => m.id != idOnB);
+          },
+          what: 'the sibling delete to remove the row on A as well as B',
+          describe: () async =>
+              'A=${await f.a.conversation(f.c.identityNodeId)} '
+              'B=${await f.b.conversation(f.c.identityNodeId)}',
+          timeout: const Duration(minutes: 4),
+        );
 
-      final onA = await f.a.snapshot(conversationPeer: f.c.identityNodeId);
-      final onB = await f.b.snapshot(conversationPeer: f.c.identityNodeId);
-      E2eLog.line('case 20 settled: A=$lastA B=$lastB');
-
-      // WHAT MUST HOLD REGARDLESS OF THE RULE: the signed device-group log is
-      // the shared object, and a split-brain must not fork it, duplicate a
-      // row or leave a hole in a writer's chain.
-      await expectConverged(
-        f.a,
-        f.b,
-        what: 'a concurrent edit and delete must not fork the device group',
-      );
-
-      // WHAT THE RULE CURRENTLY IS, recorded rather than argued.
-      //
-      // Read out of the code before it was asserted here
-      // (doc/MESSAGE-EDIT-DELETE-DESIGN.md and
-      // lib/state/messaging_device_mirror.dart):
-      //
-      //   * DELETE IS PERMANENT AND LOCAL. `deleteMessageLocally` writes a
-      //     tombstone, and `applyMessage` refuses any mirror carrying an id
-      //     that is tombstoned here — the resurrection invariant. So the
-      //     deleting device never gets the row back, by design;
-      //   * AN EDIT DOES NOT MIRROR. The mirror emits on `onMessageStored`
-      //     and `applyMessage` drops an id it already holds, so a body
-      //     rewritten on one device is not carried to a sibling that already
-      //     has the row.
-      //
-      // Both halves point the same way, so the settled state is deterministic:
-      // A keeps the edited row, B keeps nothing. That is what is pinned. It
-      // is NOT an endorsement — a user with two devices sees two different
-      // conversations — but it is the fold's actual behaviour today, and a
-      // change to it should change this assertion deliberately.
-      // Asserted about THE ROW, not about the whole conversation: the
-      // consent handshake leaves its greeting in there too, and a whole-list
-      // expectation turns "the greeting exists" into a case-20 failure.
-      expect(
-        lastA,
-        contains(edited),
-        reason: 'A edited its own row and nothing arrived to undo that: $onA',
-      );
-      expect(
-        lastA,
-        isNot(contains(original)),
-        reason: 'the edit replaced the body in place: $onA',
-      );
-      expect(
-        lastB,
-        isNot(contains(original)),
-        reason: 'B tombstoned the row; the tombstone is permanent: $onB',
-      );
-      expect(
-        lastB,
-        isNot(contains(edited)),
-        reason:
-            'the edit cannot resurrect a row B has tombstoned — that is '
-            'the resurrection invariant, and it is the half of this rule '
-            'that is deliberate: $onB',
-      );
-      expect(
-        convergenceOf(onA, onB, requireConversationAgreement: true).agree,
-        isFalse,
-        reason:
-            'PINNED DIVERGENCE, not a passing property: with delete '
-            'local-and-permanent and edit not mirrored, the two devices of '
-            'one identity end with different conversations. When the mirror '
-            'learns to carry edits and deletes, this expectation is the one '
-            'to flip — and case 20 becomes a convergence assertion like the '
-            'other two.\n  A: $onA\n  B: $onB',
-      );
-    }, skip: gate.skip);
+        final onA = await f.a.snapshot(conversationPeer: f.c.identityNodeId);
+        final onB = await f.b.snapshot(conversationPeer: f.c.identityNodeId);
+        await expectConverged(
+          f.a,
+          f.b,
+          conversationPeer: f.c.identityNodeId,
+          requireConversationAgreement: true,
+          what: 'A and B to converge after the edit/delete split',
+        );
+        expect(onA.conversationMessageIds, isNot(contains(idOnA)));
+        expect(onB.conversationMessageIds, isNot(contains(idOnB)));
+      },
+      skip: gate.skip,
+    );
   });
 }
