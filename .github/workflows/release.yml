@@ -1489,12 +1489,12 @@ jobs:
   # would otherwise satisfy the tag test above with the suite skipped entirely.
   # Nothing gets attached to a release that analyze and the tests have not seen.
   publish:
-    name: draft release
+    name: publish release
     needs: [checks, scan]
     if: startsWith(github.ref, 'refs/tags/') && needs.checks.result == 'success'
     timeout-minutes: 20
     runs-on: ubuntu-latest
-    # The ONE job that needs to write: it attaches the artifacts to the draft.
+    # The ONE job that needs to write: it uploads the artifacts and publishes.
     permissions:
       contents: write
     steps:
@@ -1531,28 +1531,18 @@ jobs:
             exit 1
           fi
           echo "notes: $(wc -l < "$RUNNER_TEMP/notes.md") lines from the $v entry"
-      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: xVeil ${{ github.ref_name }}
-          body_path: ${{ runner.temp }}/notes.md
-          # Published, not drafted, the way hidden-volume has always released.
-          # A draft is a release nobody can install: v0.13.1 through v0.13.4
-          # each built green and then sat unpublished, so `latest` pointed at
-          # v0.13.0 and every "which version am I on" answer was a version
-          # older than the one that had been cut. The gate that decides whether
-          # a tag deserves a release is `analyze + tests` and the three
-          # bundles, all of which must pass before this job runs at all —
-          # holding the result back afterwards adds a step, not a check.
-          draft: false
-          files: artifacts/**/*
-          fail_on_unmatched_files: true
+      # GitHub returned 500 while action-gh-release uploaded all twelve files
+      # concurrently for v0.13.77. It left a partial draft, and rerunning the
+      # job deleted/reuploaded existing assets before failing again. Upload one
+      # file at a time, skip complete assets on retry, and publish only after
+      # every expected file is present at its full size.
+      - name: Upload and publish the complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish-release.sh "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" "$RUNNER_TEMP/notes.md" artifacts
 
-      # The action above writes the body only when it CREATES the release. Move
-      # a tag and re-run, and it replaces every asset while leaving the notes
-      # from the first attempt in place -- which is how v0.11.0's draft came to
-      # carry fresh binaries under a page saying it was built on
-      # hidden-volume v2.0.1, a version it was deliberately re-cut away from.
+      # Re-running publication must leave the notes for this tag in place.
+      # A previous v0.11.0 draft carried fresh binaries under stale notes.
       # Stale notes are worse than none: an empty page is obviously wrong,
       # a confidently wrong one is not.
       - name: The notes must match the tag, not the first attempt
