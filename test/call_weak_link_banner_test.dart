@@ -21,6 +21,9 @@ class _FakeMessaging implements MessagingService {
   void Function(NodeId, CallSignal)? onCallSignal;
 
   @override
+  bool Function(NodeId, CallSignal)? acceptsCallDeviceSignal;
+
+  @override
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
     sentTo.add((peer, signal));
   }
