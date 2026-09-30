@@ -4036,15 +4036,15 @@ class AppL10nEn extends AppL10n {
       'no longer routes over onion — applies on its next start';
 
   @override
-  String get settingsLazyMining => 'Lazy mining (raise trust)';
+  String get settingsLazyMining => 'Extra proof of work for the network';
 
   @override
   String get settingsLazyMiningEnabledHint =>
-      'grinds extra anti-sybil difficulty in the background — uses CPU; applies on its next start';
+      'On. This device computes a stronger proof for the network in the background. It may help with peer discovery, but uses CPU. Chats and calls do not need it.';
 
   @override
   String get settingsLazyMiningDisabledHint =>
-      'off — no background difficulty grind (recommended); applies on its next start';
+      'Off. Chats and calls work without extra computation; this task does not use the CPU.';
 
   @override
   String get settingsManageIdentities => 'Manage identities';
