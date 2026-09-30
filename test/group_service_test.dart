@@ -8109,6 +8109,150 @@ void main() {
         reason: 'an unchanged group must not resend its manifest and log');
   });
 
+  test('a cold restart receives no group history when already in sync and '
+      'only a missing row when behind', () async {
+    final ownerStore = FakeHvContainer().storage();
+    await ownerStore.open(password: 'pw', createIfMissing: true);
+    final sent = <String>[];
+    final ownerSvc = GroupService(
+      ownerStore,
+      _FakeSigner(owner),
+      send: (peer, group, json) async => sent.add(json),
+    );
+    addTearDown(ownerSvc.dispose);
+    final gid = await ownerSvc.createGroup('cold restart');
+    expect(
+      await ownerSvc.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    for (var i = 0; i < 30; i++) {
+      expect(
+        await ownerSvc.postMessage(gid, 'row $i', broadcast: false),
+        isTrue,
+      );
+    }
+
+    final container = FakeHvContainer();
+    final warmStore = container.storage();
+    await warmStore.open(password: 'pw', createIfMissing: true);
+    final warm = GroupService(warmStore, _FakeSigner(bob));
+    expect(
+      await warm.ingestSnapshot(
+        ownerSvc.snapshotJson((await ownerSvc.load(gid))!, recipient: bob),
+      ),
+      isTrue,
+    );
+    expect((await warm.messagesOf(gid)), hasLength(30));
+    await warm.dispose();
+    await warmStore.close();
+
+    final coldStore = container.storage();
+    await coldStore.open(password: 'pw');
+    final cold = GroupService(coldStore, _FakeSigner(bob));
+    addTearDown(cold.dispose);
+    final settled = (await cold.buildGroupSyncRequest(gid))!;
+    sent.clear();
+    expect(await ownerSvc.handleGroupSyncRequest(bob, settled), isFalse);
+    expect(sent, isEmpty, reason: 'a restart must not resend held history');
+
+    expect(await ownerSvc.postMessage(gid, 'missed', broadcast: false), isTrue);
+    sent.clear();
+    expect(
+      await ownerSvc.handleGroupSyncRequest(
+        bob,
+        (await cold.buildGroupSyncRequest(gid))!,
+      ),
+      isTrue,
+    );
+    expect(sent, hasLength(1));
+    final reply = jsonDecode(sent.single) as Map;
+    expect(reply['sreq'], isNull);
+    expect(
+      (reply['g'] as List),
+      hasLength(1),
+      reason: 'a cold receiver must get only the missing row',
+    );
+  });
+
+  test(
+    'a cold linked device receives no device-group history when settled',
+    () async {
+      final masterStore = FakeHvContainer().storage();
+      await masterStore.open(password: 'pw', createIfMissing: true);
+      final sent = <String>[];
+      final master = GroupService(
+        masterStore,
+        _FakeSigner(owner),
+        send: (peer, group, json) async => sent.add(json),
+      );
+      addTearDown(master.dispose);
+      expect(
+        await master.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await master.deviceGroupIdHex())!);
+      for (var i = 0; i < 10; i++) {
+        expect(
+          await master.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.settingSet,
+              key: 'item-$i',
+              tsMs: i + 1,
+              payload: {'value': '$i'},
+            ),
+          ),
+          isTrue,
+        );
+      }
+
+      final container = FakeHvContainer();
+      final warmStore = container.storage();
+      await warmStore.open(password: 'pw', createIfMissing: true);
+      final warm = GroupService(warmStore, _FakeSigner(bob))
+        ..myDevice = bob
+        ..documentNodeId = (_) => owner;
+      expect(
+        await warm.ingestSnapshot(
+          master.snapshotJson((await master.load(gid))!, recipient: bob),
+          fromOwnDevice: true,
+        ),
+        isTrue,
+      );
+      expect((await warm.messagesOf(gid)), hasLength(10));
+      await warm.dispose();
+      await warmStore.close();
+
+      final coldStore = container.storage();
+      await coldStore.open(password: 'pw');
+      final cold = GroupService(coldStore, _FakeSigner(bob))
+        ..myDevice = bob
+        ..documentNodeId = (_) => owner;
+      addTearDown(cold.dispose);
+      sent.clear();
+      expect(
+        await master.handleGroupSyncRequest(
+          bob,
+          (await cold.buildGroupSyncRequest(gid))!,
+        ),
+        isFalse,
+      );
+      expect(
+        sent,
+        isEmpty,
+        reason: 'a linked device restart must not resend the device log',
+      );
+    },
+  );
+
   test('device group sync works when its index entry is missing', () async {
     final storage = FakeHvContainer().storage();
     await storage.open(password: 'pw', createIfMissing: true);
