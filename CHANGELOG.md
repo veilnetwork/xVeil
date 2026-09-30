@@ -6,7 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
-## [0.13.77] — 2026-09-30
+## [0.13.78] — 2026-09-30
+
+The v0.13.77 build passed its checks but was not published because of a release
+infrastructure error. This version includes the same application changes.
 
 *Messages and files converge more reliably across an identity's devices.*
 
