@@ -4006,11 +4006,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get settingsRecoveryByCertificate =>
-      'The recovery certificate and its code bring this identity back. Words do nothing for it.';
+      'Restoring this identity requires its certificate and code.';
 
   @override
   String get settingsRecoveryCertificateMissing =>
-      'No copy of the certificate has been saved on this device yet — until one is, this identity is one device failure away from being gone.';
+      'This device has no record of saving the certificate to a file. If you saved it during setup or on another device, check that the file and separate code are available. If you do not have the file, save the certificate under Devices.';
 
   @override
   String get settingsRecoveryBundleNoCopy =>
@@ -6050,7 +6050,7 @@ class AppL10nEn extends AppL10n {
   String get devicesSaveCertificate => 'Save to file';
 
   @override
-  String get devicesNoBackupTitle => 'This identity has no backup';
+  String get devicesNoBackupTitle => 'Check your certificate backup';
 
   @override
   String get devicesDelegationExpiringTitle => 'This device needs renewing';
@@ -6078,7 +6078,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get devicesNoBackupBody =>
-      'Its recovery certificate is the only thing that restores it — the 24 words alone restore a different identity. Save it now and keep it apart from its code.';
+      'This device has no record of saving the certificate to a file. If you have the file, check it and its separately stored code. Otherwise, tap here to save the certificate.';
 
   @override
   String get devicesCertificateSaved =>

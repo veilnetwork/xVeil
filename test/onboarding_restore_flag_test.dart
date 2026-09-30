@@ -52,6 +52,7 @@ class _NoopNode implements NodeController {
 class _SpyController extends AppController {
   static bool? seenRestoring;
   static Uint8List? seenCredential;
+  static bool? seenCertificateSaved;
 
   @override
   Future<void> completeOnboarding({
@@ -68,6 +69,7 @@ class _SpyController extends AppController {
   }) {
     seenRestoring = restoringIdentity;
     seenCredential = sovereignCredential;
+    seenCertificateSaved = recoveryCertificateSaved;
     return super.completeOnboarding(
       password: password,
       mode: mode,
@@ -88,9 +90,13 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     _SpyController.seenRestoring = null;
     _SpyController.seenCredential = null;
+    _SpyController.seenCertificateSaved = null;
   });
 
-  Future<ProviderContainer> pump(WidgetTester tester) async {
+  Future<ProviderContainer> pump(
+    WidgetTester tester, {
+    Future<String?> Function()? pickCertificate,
+  }) async {
     late ProviderContainer container;
     await tester.pumpWidget(
       ProviderScope(
@@ -107,6 +113,7 @@ void main() {
               home: OnboardingScreen(
                 mintIdentity: fakeMintedIdentity,
                 saveCertificate: fakeSaveCertificate,
+                pickCertificate: pickCertificate,
                 // The restore path's code check is FFI; here any code opens
                 // the certificate that was pasted.
                 restoreCheck: (certificate, code) async => true,
@@ -161,8 +168,58 @@ void main() {
     // False, not null: null would mean the wizard never called through, and
     // then the flag below proves nothing.
     expect(_SpyController.seenRestoring, isFalse);
+    expect(_SpyController.seenCertificateSaved, isTrue);
   });
 
+  testWidgets('restoring from a certificate file records the existing copy', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      pickCertificate: () async => fakeMintedIdentity().certificate,
+    );
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).onboardRestoreIdentity));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).onboardRestorePickCertificate));
+    await tester.pumpAndSettle();
+    final fields = find.byType(TextField);
+    await tester.enterText(fields.last, fakeMintedIdentity().code);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).onboardRestoreCertificateSubmit));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+    await finish(tester);
+    expect(_SpyController.seenCertificateSaved, isTrue);
+  });
+
+  testWidgets('going back after saving keeps the certificate marked saved', (
+    tester,
+  ) async {
+    await pump(tester);
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).onboardCreateIdentity));
+    await tester.pumpAndSettle();
+    await saveRecoveryCertificate(tester);
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+    final again = find.text(l(tester).onboardCertContinue);
+    await tester.ensureVisible(again);
+    await tester.pumpAndSettle();
+    await tester.tap(again);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l(tester).actionContinue));
+    await tester.pumpAndSettle();
+    await finish(tester);
+    expect(_SpyController.seenCertificateSaved, isTrue);
+  });
 
   testWidgets('backing out of a restore does not create with its certificate', (
     tester,
@@ -189,7 +246,10 @@ void main() {
         'xveil-recovery:v1:${base64Url.encode(restored).replaceAll('=', '')}';
     final fields = find.byType(TextField);
     await tester.enterText(fields.at(0), pasted);
-    await tester.enterText(fields.at(1), 'xvrc-a-code-longer-than-thirty-two-bytes');
+    await tester.enterText(
+      fields.at(1),
+      'xvrc-a-code-longer-than-thirty-two-bytes',
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text(l(tester).onboardRestoreCertificateSubmit));
     await tester.pumpAndSettle();

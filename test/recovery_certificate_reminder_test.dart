@@ -13,8 +13,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/features/settings/devices_screen.dart';
 
 void main() {
-  final screen = File('lib/features/settings/devices_screen.dart')
-      .readAsStringSync();
+  final screen = File(
+    'lib/features/settings/devices_screen.dart',
+  ).readAsStringSync();
 
   group('the sheet opens once, after an identity is created', () {
     test('it needs the flag, a ready node, and not having fired', () {
@@ -71,7 +72,9 @@ void main() {
   });
 
   test('saved means the file read back, not that the write returned', () {
-    final start = screen.indexOf('Future<void> _saveCertificateToFile() async {');
+    final start = screen.indexOf(
+      'Future<void> _saveCertificateToFile() async {',
+    );
     expect(start, isNot(-1), reason: 'the writer was renamed');
     final open = screen.indexOf('{', start);
     var depth = 0;
@@ -99,19 +102,19 @@ void main() {
     );
   });
 
-  test('the reminder stands until a copy exists, and is the action itself', () {
+  test('the reminder stands until a file is recorded, and opens export', () {
     expect(
       screen.contains('!_certificateSaved'),
       isTrue,
-      reason: 'the reminder must be conditioned on not having saved',
+      reason: 'the reminder must be conditioned on the local marker',
     );
     // Tapping it must DO the thing. A notice that only says "you should"
     // leaves the person hunting for where.
     final card = screen.substring(screen.indexOf('!_certificateSaved'));
     expect(
-      card.substring(0, card.indexOf('if (_loading)')).contains(
-        'onTap: _showRecoveryExport',
-      ),
+      card
+          .substring(0, card.indexOf('if (_loading)'))
+          .contains('onTap: _showRecoveryExport'),
       isTrue,
       reason: 'the reminder must open the export, not merely mention it',
     );

@@ -31,6 +31,8 @@ MintedRecovery _fakeMint(String phrase) => MintedRecovery(
 Widget _host({
   required void Function({required bool saved, Uint8List? credential}) onDone,
   MintedRecovery Function(String)? mint,
+  MintedRecovery? already,
+  bool alreadySaved = false,
 }) => MaterialApp(
   locale: const Locale('en'),
   localizationsDelegates: AppL10n.localizationsDelegates,
@@ -40,11 +42,33 @@ Widget _host({
       phrase: _phrase,
       onDone: onDone,
       mint: mint ?? _fakeMint,
+      already: already,
+      alreadySaved: alreadySaved,
     ),
   ),
 );
 
 void main() {
+  testWidgets('returning to a saved certificate keeps its file marker', (
+    tester,
+  ) async {
+    bool? seenSaved;
+    await tester.pumpWidget(
+      _host(
+        already: _fakeMint(_phrase),
+        alreadySaved: true,
+        onDone: ({required bool saved, Uint8List? credential}) =>
+            seenSaved = saved,
+      ),
+    );
+    await tester.pumpAndSettle();
+    final button = find.text(AppL10nEn().onboardCertContinue);
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(seenSaved, isTrue);
+  });
   testWidgets('the step never asks for the phrase back', (tester) async {
     await tester.pumpWidget(_host(onDone: ({required saved, credential}) {}));
     await tester.pumpAndSettle();

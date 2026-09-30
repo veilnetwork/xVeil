@@ -139,6 +139,7 @@ class RecoveryCertificateStep extends StatefulWidget {
     this.phrase = '',
     required this.onDone,
     this.already,
+    this.alreadySaved = false,
     this.onMinted,
     this.mint = mintRecoveryFromPhrase,
     this.mintFresh = mintSovereignIdentity,
@@ -167,6 +168,10 @@ class RecoveryCertificateStep extends StatefulWidget {
   /// A mint from an earlier visit to this step, so stepping back and forward
   /// does not silently rename the identity under a certificate already saved.
   final MintedRecovery? already;
+
+  /// A previous visit saved [already] to a file. Returning to this step must
+  /// retain that confirmation instead of treating the same file as unsaved.
+  final bool alreadySaved;
 
   /// Told the moment a mint exists, not on the way out.
   ///
@@ -198,7 +203,7 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
   late MintedRecovery? _minted = widget.already;
   bool _busy = false;
   bool _failed = false;
-  bool _saved = false;
+  late bool _saved = widget.alreadySaved;
 
   /// The certificate left this screen on the clipboard.
   ///

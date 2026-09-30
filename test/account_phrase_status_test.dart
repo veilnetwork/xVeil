@@ -59,7 +59,9 @@ void main() {
     );
   });
 
-  testWidgets('a certificate with no copy saved says so', (tester) async {
+  testWidgets('an unrecorded export does not claim the backup is missing', (
+    tester,
+  ) async {
     final l = await pump(tester, (
       state: IdentityRecoveryState.certificate,
       saved: false,
@@ -67,9 +69,7 @@ void main() {
     expect(
       find.textContaining(l.settingsRecoveryCertificateMissing),
       findsOneWidget,
-      reason:
-          'until a copy exists the identity is one device failure from gone, '
-          'and that is the one thing worth interrupting for',
+      reason: 'the status must explain what the device actually knows',
     );
   });
 

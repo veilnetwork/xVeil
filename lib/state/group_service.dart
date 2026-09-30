@@ -19118,10 +19118,7 @@ class GroupService implements ArchiveGroups {
     }
   }
 
-  /// Record that this identity's recovery certificate has been written out.
-  ///
-  /// Called only after the file has been read back, so the flag means "a copy
-  /// exists" rather than "a write returned without error".
+  /// Record a local export after the file has been read back.
   Future<void> markRecoveryCertificateSaved() =>
       _storage.putSetting(material.kRecoveryCertificateSavedSetting, '1');
 

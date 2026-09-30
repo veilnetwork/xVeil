@@ -7043,13 +7043,13 @@ abstract class AppL10n {
   /// No description provided for @settingsRecoveryByCertificate.
   ///
   /// In en, this message translates to:
-  /// **'The recovery certificate and its code bring this identity back. Words do nothing for it.'**
+  /// **'Restoring this identity requires its certificate and code.'**
   String get settingsRecoveryByCertificate;
 
   /// No description provided for @settingsRecoveryCertificateMissing.
   ///
   /// In en, this message translates to:
-  /// **'No copy of the certificate has been saved on this device yet — until one is, this identity is one device failure away from being gone.'**
+  /// **'This device has no record of saving the certificate to a file. If you saved it during setup or on another device, check that the file and separate code are available. If you do not have the file, save the certificate under Devices.'**
   String get settingsRecoveryCertificateMissing;
 
   /// No description provided for @settingsRecoveryBundleNoCopy.
@@ -10643,7 +10643,7 @@ abstract class AppL10n {
   /// No description provided for @devicesNoBackupTitle.
   ///
   /// In en, this message translates to:
-  /// **'This identity has no backup'**
+  /// **'Check your certificate backup'**
   String get devicesNoBackupTitle;
 
   /// No description provided for @devicesDelegationExpiringTitle.
@@ -10691,7 +10691,7 @@ abstract class AppL10n {
   /// No description provided for @devicesNoBackupBody.
   ///
   /// In en, this message translates to:
-  /// **'Its recovery certificate is the only thing that restores it — the 24 words alone restore a different identity. Save it now and keep it apart from its code.'**
+  /// **'This device has no record of saving the certificate to a file. If you have the file, check it and its separately stored code. Otherwise, tap here to save the certificate.'**
   String get devicesNoBackupBody;
 
   /// No description provided for @devicesCertificateSaved.
