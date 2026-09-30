@@ -6,6 +6,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.80] — 2026-09-30
+
+### Fixed
+
+- When a call rings on several devices, answering on a second device now
+  reaches the caller without a pre-existing direct session. The other device
+  stops ringing, and sealed media reaches both sides.
+- An edit on one device and a local deletion of the same message on another
+  now converge after reconnect and restart: the signed device journal applies
+  the deletion to both visible histories.
+- A file sent from one device now downloads automatically to another device of
+  the same identity, including after that device reconnects while the sender
+  remains online.
+
+An offline device still needs an available source to recover messages and
+files. This release does not add relay mailbox copies for sibling devices.
+The native dependencies remain veil 0.11.39 and hidden-volume 2.6.1.
+
 ## [0.13.79] — 2026-09-30
 
 ### Changed
