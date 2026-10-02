@@ -34,7 +34,7 @@ import 'device_history_backfill.dart'
     show historyAskToServe, kHistoryReplayBacklogRoom, replayHistoryForAsk;
 import 'device_settings_sync.dart';
 import 'device_sync_appliers.dart';
-import 'providers.dart' show realStackProvider, storageProvider;
+import 'providers.dart' show prefsProvider, realStackProvider, storageProvider;
 import 'group_service_providers.dart';
 import 'locale_controller.dart';
 import 'messaging.dart';
@@ -233,6 +233,33 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     }
   }
 
+  Future<void> announceStoredDevicePreferences() async {
+    try {
+      if (await svc.deviceGroupIdHex() == null) return;
+      final prefs = await ref.read(prefsProvider.future);
+      final stored = storedDeviceSyncPreferences(prefs);
+      if (stored.isEmpty) return;
+      final missing = devicePreferencesNeedingBackfill(
+        stored,
+        await svc.deviceSyncState(),
+      );
+      for (final entry in missing.entries) {
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: entry.key,
+            tsMs: nextTs(),
+            payload: {'v': entry.value},
+          ),
+        );
+      }
+    } catch (error) {
+      devLog(
+        () => 'xVeil[settings]: device preference backfill failed: $error',
+      );
+    }
+  }
+
   // Contact records of my OWN devices never sync: each side keys the pair
   // relationship by the OTHER device's id, so the record is not portable (on
   // the sibling it would describe itself). Same rule as the msgMirror
@@ -283,6 +310,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       // snapshot and history replay are sent.
       await announceIdentityDocument();
       await announceStoredNickname();
+      await announceStoredDevicePreferences();
       final conversations = await ref.read(storageProvider).loadConversations();
       var replayed = 0;
       for (final c in conversations) {
@@ -331,6 +359,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       devLog(() => 'xVeil[devices]: contact replay after link failed: $e');
     }
   };
+  // The group is ready here, but publishing several preferences may take a
+  // while. Let the link ceremony finish; the catch-up continues in the app.
+  svc.onDeviceGroupAdopted = () async {
+    unawaited(announceStoredDevicePreferences());
+  };
 
   messaging.onContactStatusChanged = (peer, status) {
     svc.notifyContactAccessChanged(peer);
@@ -370,6 +403,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     );
   };
   unawaited(announceStoredNickname());
+  unawaited(announceStoredDevicePreferences());
   callLog.onAdded = (e) {
     unawaited(
       svc.postDeviceEvent(

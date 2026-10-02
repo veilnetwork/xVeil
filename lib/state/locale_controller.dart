@@ -18,8 +18,11 @@ String get _kLocaleKey => identityScopedPrefKey(kSyncLocale);
 /// choice survives restarts. Watched by [XVeilApp] to drive
 /// `MaterialApp.locale`.
 class LocaleController extends Notifier<Locale?> {
+  bool _userSet = false;
+
   @override
   Locale? build() {
+    _userSet = false;
     _load();
     return null;
   }
@@ -27,6 +30,7 @@ class LocaleController extends Notifier<Locale?> {
   Future<void> _load() async {
     try {
       final prefs = await ref.read(prefsProvider.future);
+      if (_userSet) return;
       final code = prefs.getString(_kLocaleKey);
       if (code != null && code.isNotEmpty) state = Locale(code);
     } catch (_) {
@@ -36,6 +40,7 @@ class LocaleController extends Notifier<Locale?> {
 
   /// Set the UI language. Pass `null` to follow the system locale.
   Future<void> setLocale(Locale? locale) async {
+    _userSet = true;
     state = locale;
     // Device sync: '' = follow the system locale on every device.
     ref
