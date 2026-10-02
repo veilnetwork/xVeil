@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -6,6 +8,7 @@ import '../../data/veil_bundle.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/translation_model_controller.dart';
 import 'ask_contacts_for_models_sheet.dart';
+import 'translation_github_sheet.dart';
 
 /// Translation languages: what is installed, install another, give the space
 /// back.
@@ -71,14 +74,47 @@ class TranslationModelsTile extends ConsumerWidget {
                 // cannot fetch 79 MB, or who has none at all.
                 IconButton(
                   icon: const Icon(Icons.ios_share),
-                  tooltip: l.translationModelsShare,
+                  tooltip: Platform.isAndroid || Platform.isIOS
+                      ? l.translationModelsShare
+                      : l.translationModelsExport,
                   onPressed: () async {
-                    final saver = ref.read(translationBundleSaverProvider);
-                    final destination = await saver(
-                      '${pair.id}$kTranslateBundleExt',
-                    );
-                    if (destination == null) return; // dismissed
-                    await notifier.exportPair(pair, destination);
+                    try {
+                      final name = '${pair.id}$kTranslateBundleExt';
+                      if (Platform.isAndroid || Platform.isIOS) {
+                        final dir = await ref.read(
+                          translationBundleShareDirectoryProvider,
+                        )();
+                        final path = '${dir.path}/$name';
+                        if (await notifier.exportPair(pair, path) == null) {
+                          throw StateError(l.translationModelsExportFailed);
+                        }
+                        await ref.read(translationBundleSharerProvider)(path);
+                      } else {
+                        final destination = await ref.read(
+                          translationBundleSaverProvider,
+                        )(name);
+                        if (destination == null) return;
+                        if (await notifier.exportPair(pair, destination) ==
+                            null) {
+                          throw StateError(l.translationModelsExportFailed);
+                        }
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(l.translationModelsExported),
+                            ),
+                          );
+                        }
+                      }
+                    } on Object {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(l.translationModelsExportFailed),
+                          ),
+                        );
+                      }
+                    }
                   },
                 ),
                 IconButton(
@@ -94,7 +130,14 @@ class TranslationModelsTile extends ConsumerWidget {
         ListTile(
           leading: const Icon(Icons.people_outline),
           title: Text(l.askContactsAction),
+          subtitle: Text(l.askContactsExplanation),
           onTap: () => showAskContactsForModels(context),
+        ),
+        ListTile(
+          leading: const Icon(Icons.download_outlined),
+          title: Text(l.translationGithubTitle),
+          subtitle: Text(l.translationGithubTileHint),
+          onTap: () => showTranslationGithubSheet(context),
         ),
         ListTile(
           leading: const Icon(Icons.folder_open),

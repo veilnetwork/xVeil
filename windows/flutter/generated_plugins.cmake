@@ -6,6 +6,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
   hidden_volume
   screen_retriever_windows
+  share_plus
   tray_manager
   url_launcher_windows
   window_manager

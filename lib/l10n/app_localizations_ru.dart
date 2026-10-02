@@ -6990,11 +6990,45 @@ class AppL10nRu extends AppL10n {
   String get translationModelsRemove => 'Удалить этот язык';
 
   @override
-  String get translationModelsShare => 'Сохранить файлом, чтобы отправить';
+  String get translationModelsShare => 'Поделиться файлом модели';
+
+  @override
+  String get translationModelsExport => 'Экспортировать .veiltranslate';
+
+  @override
+  String get translationModelsExported =>
+      'Файл модели сохранён. Его можно отправить как обычный файл в чате.';
+
+  @override
+  String get translationModelsExportFailed =>
+      'Не удалось экспортировать файл модели';
 
   @override
   String get translationModelsHint =>
-      'Один файл .veiltranslate на направление. Перевод выполняется на этом устройстве.';
+      'Файл .veiltranslate можно получить из релиза GitHub или от контакта. Для каждого направления нужен отдельный файл.';
+
+  @override
+  String get translationGithubTitle => 'Скачать языки с GitHub';
+
+  @override
+  String get translationGithubTileHint =>
+      'Опубликованные файлы .veiltranslate из релизов xVeil';
+
+  @override
+  String get translationGithubHint =>
+      'Выберите направление. Скачанный файл проверяется по SHA-256 из релиза перед установкой.';
+
+  @override
+  String get translationGithubEmpty =>
+      'В опубликованных релизах xVeil пока нет файлов .veiltranslate. Можно получить файл от контакта и установить его здесь.';
+
+  @override
+  String get translationGithubFailed =>
+      'Не удалось получить список моделей с GitHub';
+
+  @override
+  String get translationGithubNoStorage =>
+      'Нет места для установки моделей на этом устройстве';
 
   @override
   String get voiceModelResume => 'Продолжить скачивание';
@@ -7219,14 +7253,18 @@ class AppL10nRu extends AppL10n {
       'Контакты не получают ответа. Отличить это от «моделей нет» они не смогут.';
 
   @override
-  String get askContactsTitle => 'Спросить модели у контактов';
+  String get askContactsTitle => 'У кого из контактов есть модели?';
 
   @override
   String get askContactsWaiting =>
-      'Кто ответит — появится здесь. Молчание само по себе ничего не значит.';
+      'Показываем только список моделей у ответивших контактов. Чтобы получить файл, откройте чат и попросите отправить его. Отсутствие ответа не означает, что моделей нет.';
 
   @override
-  String get askContactsAction => 'Спросить у контактов';
+  String get askContactsAction => 'Узнать, у кого есть модели';
+
+  @override
+  String get askContactsExplanation =>
+      'Спросить принятые контакты о языковых и речевых моделях. Файлы автоматически не передаются.';
 
   @override
   String get modelProvenanceAskAnother => 'Спросить другой контакт';

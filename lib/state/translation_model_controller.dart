@@ -8,6 +8,8 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/log.dart';
 import '../data/veil_bundle.dart';
@@ -53,14 +55,13 @@ class TranslationModelsState {
     TranslationPair? lastInstalled,
     bool clearProgress = false,
     bool clearError = false,
-  }) =>
-      TranslationModelsState(
-        installed: installed ?? this.installed,
-        phase: phase ?? this.phase,
-        progress: clearProgress ? null : (progress ?? this.progress),
-        error: clearError ? null : (error ?? this.error),
-        lastInstalled: lastInstalled ?? this.lastInstalled,
-      );
+  }) => TranslationModelsState(
+    installed: installed ?? this.installed,
+    phase: phase ?? this.phase,
+    progress: clearProgress ? null : (progress ?? this.progress),
+    error: clearError ? null : (error ?? this.error),
+    lastInstalled: lastInstalled ?? this.lastInstalled,
+  );
 }
 
 /// How a path to a .veiltranslate is obtained. Injectable for the same reason
@@ -90,8 +91,23 @@ Future<String?> _pickBundle() async {
 /// system save panel.
 final translationBundleSaverProvider =
     Provider<Future<String?> Function(String suggestedName)>(
-  (ref) => (name) => FilePicker.saveFile(fileName: name),
+      (ref) =>
+          (name) => FilePicker.saveFile(fileName: name),
+    );
+
+/// Android/iOS saveFile requires the entire file as bytes. Bundles can be
+/// hundreds of MB, so use the OS file share sheet with a streamed export.
+final translationBundleSharerProvider = Provider<Future<bool> Function(String)>(
+  (ref) => (path) async {
+    final result = await SharePlus.instance.share(
+      ShareParams(files: [XFile(path, mimeType: 'application/octet-stream')]),
+    );
+    return result.status != ShareResultStatus.dismissed;
+  },
 );
+
+final translationBundleShareDirectoryProvider =
+    Provider<Future<Directory> Function()>((ref) => getTemporaryDirectory);
 
 /// Where models live, injectable so a test drives this without a platform
 /// channel — the same shape as whisperModelStoreProvider, for the same reason.
@@ -100,7 +116,8 @@ final translationModelsRootProvider = Provider<Future<Directory?> Function()>(
 );
 
 class TranslationModelsController extends Notifier<TranslationModelsState> {
-  Future<Directory?> Function() get _root => ref.read(translationModelsRootProvider);
+  Future<Directory?> Function() get _root =>
+      ref.read(translationModelsRootProvider);
 
   /// Riverpod throws if state is assigned after disposal, and every path here
   /// awaits the filesystem — so a screen closed mid-import would otherwise
@@ -171,7 +188,9 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
       File(path),
       modelsRoot: dir,
       onProgress: (p) {
-        if (!_disposed && state.isImporting) state = state.copyWith(progress: p);
+        if (!_disposed && state.isImporting) {
+          state = state.copyWith(progress: p);
+        }
       },
     );
 
@@ -242,5 +261,5 @@ class TranslationModelsController extends Notifier<TranslationModelsState> {
 
 final translationModelsControllerProvider =
     NotifierProvider<TranslationModelsController, TranslationModelsState>(
-  TranslationModelsController.new,
-);
+      TranslationModelsController.new,
+    );

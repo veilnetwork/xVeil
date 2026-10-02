@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../core/log.dart';
 
@@ -234,7 +233,6 @@ Future<PinnedDownload> fetchPinned({
 ///
 /// Same digest as `sha256.convert(file.readAsBytesSync())`, without holding
 /// the file in memory — which for the speech model is ~57 MiB (audit XV-21).
-@visibleForTesting
 Future<String> sha256OfFileStreaming(File file) async {
   final sink = _DigestSink();
   final input = sha256.startChunkedConversion(sink);
