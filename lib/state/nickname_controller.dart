@@ -44,6 +44,7 @@ import 'package:veil_flutter/veil_flutter.dart' as veil;
 import '../core/ids.dart';
 import '../data/storage/storage.dart';
 import 'app_controller.dart';
+import 'device_settings_sync.dart';
 import 'group_service.dart';
 import 'nickname_seed_cache.dart';
 import 'messaging.dart';
@@ -173,10 +174,27 @@ class NicknameState {
 }
 
 /// Settings-KV keys (per identity — the storage IS per identity).
-const _kClaimedKey = 'nickname:claimed';
+const _kClaimedKey = kSyncNicknameClaim;
 const _kMiningKey = 'nickname:mining';
 
-
+/// Only the public claim hint crosses to another device. Mining seeds and the
+/// sovereign signing credential stay on the device that owns them.
+({String name, int weight})? parseClaimedNickname(String raw) {
+  if (utf8.encode(raw).length > 2048) return null;
+  try {
+    final value = jsonDecode(raw);
+    if (value is! Map) return null;
+    final name = value['name'];
+    final weight = value['weight'];
+    if (name is! String || name.isEmpty || name.trim() != name) return null;
+    if (weight != null && (weight is! int || weight < 0)) {
+      return null;
+    }
+    return (name: name, weight: weight as int? ?? 0);
+  } catch (_) {
+    return null;
+  }
+}
 
 /// Hashes per mining chunk — one background-isolate unit. ~0.5–2 s of work: small
 /// enough for smooth progress + prompt cancel, big enough to amortize the
@@ -228,12 +246,10 @@ class NicknameController extends StateNotifier<NicknameState> {
   Future<void> _loadPersisted() async {
     try {
       final raw = await _storage.getSetting(_kClaimedKey);
-      if (raw == null || _disposed) return;
-      final m = jsonDecode(raw) as Map<String, dynamic>;
-      state = state.copyWith(
-        ownedName: m['name'] as String?,
-        ownedWeight: (m['weight'] as num?)?.toInt() ?? 0,
-      );
+      if (raw == null || _disposed || state.ownedName != null) return;
+      final claim = parseClaimedNickname(raw);
+      if (claim == null) return;
+      state = state.copyWith(ownedName: claim.name, ownedWeight: claim.weight);
       // The persisted weight is the LAST CLAIM's weight — stale after
       // top-ups/displacements. Refresh from the network in the background.
       unawaited(refreshOwned());
@@ -242,15 +258,52 @@ class NicknameController extends StateNotifier<NicknameState> {
     }
   }
 
-  Future<void> _persistClaim(String name, int weight) async {
-    await _storage.putSetting(
-      _kClaimedKey,
-      jsonEncode({
-        'name': name,
-        'weight': weight,
-        'at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      }),
+  Future<void> _persistClaim(
+    String name,
+    int weight, {
+    bool mirror = false,
+  }) async {
+    final raw = jsonEncode({
+      'name': name,
+      'weight': weight,
+      'at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    });
+    await _storage.putSetting(_kClaimedKey, raw);
+    if (mirror) {
+      _ref
+          .read(deviceSettingsSyncHubProvider)
+          .notifyLocalSet(kSyncNicknameClaim, raw);
+    }
+  }
+
+  /// Apply a sibling's successful public claim to this device's store and
+  /// active screen. A lower weight for the same name cannot deflate a claim:
+  /// DHT replicas may lag, but cumulative proof of work never decreases.
+  Future<void> applyMirroredClaim(String raw) async {
+    final claim = parseClaimedNickname(raw);
+    if (claim == null || _disposed) return;
+    final storedRaw = await _storage.getSetting(_kClaimedKey);
+    final stored = storedRaw == null ? null : parseClaimedNickname(storedRaw);
+    // A delayed or replayed event for the same claim may carry an older DHT
+    // weight. Preserve the strongest local view, including on a controller
+    // that was created while this event was being applied.
+    final keepStored =
+        stored != null &&
+        stored.name == claim.name &&
+        stored.weight > claim.weight;
+    final effective = keepStored ? stored : claim;
+    if (!keepStored && storedRaw != raw) {
+      await _storage.putSetting(_kClaimedKey, raw);
+    }
+    if (_disposed) return;
+    state = state.copyWith(
+      ownedName: effective.name,
+      ownedWeight: effective.weight,
+      ownedTakenOver: false,
+      availability: NicknameAvailability.mine,
+      checkedName: effective.name,
     );
+    unawaited(refreshOwned());
   }
 
   /// The resume cache, wired to this identity's settings namespace.
@@ -289,7 +342,8 @@ class NicknameController extends StateNotifier<NicknameState> {
         // Only when the previous view was also OURS: while `ownedTakenOver` is
         // set, `ownedWeight` holds the RIVAL's weight, which is not a floor
         // for our own.
-        final floored = state.ownedTakenOver || resolved.weight > state.ownedWeight
+        final floored =
+            state.ownedTakenOver || resolved.weight > state.ownedWeight
             ? resolved.weight
             : state.ownedWeight;
         state = state.copyWith(ownedWeight: floored, ownedTakenOver: false);
@@ -363,7 +417,10 @@ class NicknameController extends StateNotifier<NicknameState> {
 
   /// Full claim flow: availability → chunked mining (resumable) → publish.
   /// No-op while busy. Displacing a taken name mines to 2× the incumbent.
-  Future<void> startClaim(String raw, {required SovereignSignerOpener openSigner}) async {
+  Future<void> startClaim(
+    String raw, {
+    required SovereignSignerOpener openSigner,
+  }) async {
     if (state.busy) return;
     if (_activeIsAnonymous) {
       state = state.copyWith(
@@ -449,14 +506,13 @@ class NicknameController extends StateNotifier<NicknameState> {
     Uint8List self,
     Uint8List seeds,
     int signerAddress,
-  ) =>
-      veil.claimNicknameAsync(
-        ownerNodeId: self,
-        name: norm,
-        seeds: seeds,
-        signerAddress: signerAddress,
-        timeoutMs: _netTimeoutMs,
-      );
+  ) => veil.claimNicknameAsync(
+    ownerNodeId: self,
+    name: norm,
+    seeds: seeds,
+    signerAddress: signerAddress,
+    timeoutMs: _netTimeoutMs,
+  );
 
   Future<void> _mineAndPublish(
     String norm,
@@ -544,7 +600,7 @@ class NicknameController extends StateNotifier<NicknameState> {
       }
     }
     if (_disposed) return;
-    await _persistClaim(norm, published);
+    await _persistClaim(norm, published, mirror: true);
     await _seedCache.clear(parts);
     state = state.copyWith(
       phase: NicknamePhase.idle,
