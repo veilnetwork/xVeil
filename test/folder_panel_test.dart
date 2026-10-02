@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/chat_folder.dart';
@@ -99,5 +100,67 @@ void main() {
     expect(find.byType(DrawerButton), findsNothing);
     expect(find.byType(ChoiceChip), findsWidgets); // "All" + folder chips
     expect(find.text('Work'), findsOneWidget);
+  });
+
+  testWidgets('top position shows the bar before the first chat exists', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(const [], const [], position: FolderPanelPosition.top),
+    );
+    await tester.pump();
+
+    expect(find.byType(ChoiceChip), findsOneWidget); // All
+    expect(find.byType(ActionChip), findsOneWidget); // New folder
+    expect(tester.widget<Scaffold>(find.byType(Scaffold)).endDrawer, isNull);
+  });
+
+  testWidgets('right position keeps the drawer when there are no chats', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(const [], const [], position: FolderPanelPosition.right),
+    );
+    await tester.pump();
+
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(tester.widget<Scaffold>(find.byType(Scaffold)).endDrawer, isNotNull);
+  });
+
+  testWidgets('switching from right to top changes an open empty chat screen', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final container = ProviderContainer(
+      overrides: [
+        conversationsProvider.overrideWith((ref) => Stream.value(const [])),
+        chatFoldersProvider.overrideWith((ref) => Stream.value(const [])),
+      ],
+    );
+    await container
+        .read(folderPanelPositionProvider.notifier)
+        .set(FolderPanelPosition.right);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          home: ChatsScreen(),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(tester.widget<Scaffold>(find.byType(Scaffold)).endDrawer, isNotNull);
+
+    await container
+        .read(folderPanelPositionProvider.notifier)
+        .set(FolderPanelPosition.top);
+    await tester.pump();
+    expect(find.byType(ChoiceChip), findsOneWidget);
+    expect(tester.widget<Scaffold>(find.byType(Scaffold)).endDrawer, isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    container.dispose();
   });
 }
