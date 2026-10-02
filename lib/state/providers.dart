@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show kProfileMode, kReleaseMode;
 import 'dart:convert';
 import 'dart:typed_data';
@@ -29,6 +30,7 @@ import '../data/transport/veil_transport.dart';
 import '../data/veil_stack.dart';
 import 'group_service_providers.dart';
 import 'multi_identity_session.dart';
+import 'peer_inventory.dart';
 
 /// --- Infrastructure providers -------------------------------------------
 ///
@@ -463,55 +465,19 @@ final sessionCountProvider = StreamProvider<int>((ref) {
 /// clock). Peers that drop out of a later snapshot are kept, marked closed,
 /// with their last stamp preserved — so the user can still see when an
 /// inactive peer was last connected. Empty (and never polls) in dev/loopback.
-final peersProvider = StreamProvider<List<PeerInfo>>((ref) async* {
+final peersProvider = StreamProvider<List<PeerInfo>>((ref) {
   final stack = ref.watch(realStackProvider);
   if (stack == null) {
-    yield const [];
-    return;
+    return Stream.value(const []);
   }
-  final transport = stack.transport;
-  // Union of every peer observed this node-lifetime, keyed by node_id hex.
-  final tracked = <String, PeerInfo>{};
-
-  List<PeerInfo> merge(List<PeerInfo> snap) {
-    final now = DateTime.now();
-    final seenNow = <String>{};
-    for (final p in snap) {
-      final key = p.nodeId.hex;
-      seenNow.add(key);
-      final prev = tracked[key];
-      // Stamp last-seen only while active; otherwise carry the prior stamp.
-      tracked[key] = p.copyWith(lastSeen: p.isActive ? now : prev?.lastSeen);
-    }
-    // Peers absent from this snapshot: keep them, but mark closed.
-    for (final key in tracked.keys.toList()) {
-      if (!seenNow.contains(key) && tracked[key]!.state != PeerState.closed) {
-        tracked[key] = tracked[key]!.copyWith(state: PeerState.closed);
-      }
-    }
-    final list = tracked.values.toList()
-      ..sort((a, b) {
-        if (a.isActive != b.isActive) return a.isActive ? -1 : 1;
-        final at = a.lastSeen, bt = b.lastSeen;
-        if (at == null && bt == null) return 0;
-        if (at == null) return 1;
-        if (bt == null) return -1;
-        return bt.compareTo(at);
-      });
-    return list;
-  }
-
-  // Poll every few seconds: catches connecting→active transitions that don't
-  // change the session COUNT (so wouldn't fire a sessionsChanged event), at a
-  // negligible cost (one FFI call returning ≤256 entries).
-  while (true) {
-    List<PeerInfo> snap;
-    try {
-      snap = await transport.peers();
-    } catch (_) {
-      snap = const [];
-    }
-    yield merge(snap);
-    await Future<void>.delayed(const Duration(seconds: 4));
-  }
+  final triggers = StreamController<int>();
+  ref.listen(sessionCountProvider, (_, next) {
+    final count = next.asData?.value;
+    if (count != null && !triggers.isClosed) triggers.add(count);
+  });
+  ref.onDispose(() => unawaited(triggers.close()));
+  return peerInventory(
+    fetch: stack.transport.peers,
+    sessionCounts: triggers.stream,
+  );
 });
