@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../data/translation_github_catalog.dart';
 import '../../l10n/app_localizations.dart';
@@ -103,6 +104,23 @@ class _TranslationGithubSheetState
     }
   }
 
+  Future<void> _openRelease(TranslationGithubBundle bundle) async {
+    try {
+      if (!await launchUrl(
+        bundle.releasePage,
+        mode: LaunchMode.externalApplication,
+      )) {
+        throw StateError('Could not open release');
+      }
+    } on Object {
+      if (mounted) {
+        setState(
+          () => _error = AppL10n.of(context).translationGithubOpenFailed,
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
@@ -157,15 +175,26 @@ class _TranslationGithubSheetState
                           '${bundle.tag} · '
                           '${(bundle.artifact.bytes / (1024 * 1024)).round()} MB',
                         ),
-                        trailing: _downloading == bundle.name
-                            ? SizedBox(
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.info_outline),
+                              tooltip: l.translationGithubSourceLicense,
+                              onPressed: () => _openRelease(bundle),
+                            ),
+                            if (_downloading == bundle.name)
+                              SizedBox(
                                 width: 24,
                                 height: 24,
                                 child: CircularProgressIndicator(
                                   value: _progress,
                                 ),
                               )
-                            : const Icon(Icons.download_outlined),
+                            else
+                              const Icon(Icons.download_outlined),
+                          ],
+                        ),
                         onTap: _downloading == null
                             ? () => _download(bundle)
                             : null,
