@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../data/translation_github_catalog.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/translation_model_controller.dart';
+import 'shown_cause.dart';
 
 final translationGithubCatalogProvider = Provider<TranslationGithubCatalog>(
   (ref) => TranslationGithubCatalog(),
@@ -89,11 +90,13 @@ class _TranslationGithubSheetState
         setState(
           () => _error = reason == null
               ? l.translationModelsFailed
-              : '${l.translationModelsFailed}: $reason',
+              : '${l.translationModelsFailed}: ${shownCause(reason, kind: 'translate-install')}',
         );
       }
     } on Object catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) {
+        setState(() => _error = shownCause(error, kind: 'translate-download'));
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -149,7 +152,9 @@ class _TranslationGithubSheetState
               if (snapshot.hasError) {
                 return ListTile(
                   title: Text(l.translationGithubFailed),
-                  subtitle: Text('${snapshot.error}'),
+                  subtitle: Text(
+                    shownCause(snapshot.error!, kind: 'translate-catalog'),
+                  ),
                   trailing: IconButton(
                     icon: const Icon(Icons.refresh),
                     onPressed: () => setState(() {

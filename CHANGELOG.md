@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.84] — 2026-10-02
+
+### Added
+
+- Translation languages can be downloaded from published xVeil GitHub release
+  assets. The download is checked against the release size and SHA-256 before
+  installation. Russian–English and English–Russian models are available;
+  their sources and licenses are linked from the model list.
+- Installed translation models can be shared from a phone through the system
+  share sheet or exported to a file on desktop. Model discovery now explains
+  what contacts are asked and that files are sent separately.
+
+### Fixed
+
+- Linked devices receive an existing claimed nickname and the previously
+  chosen language, reactions and message-signing settings after pairing.
+- The device list refreshes last-seen times while it stays open.
+- Choosing a top folder panel now shows it even when the chat list is empty.
+- Cloud file and note menus explain that selecting an item enables automatic
+  download to this device only when the storage mode is “Selected”; clearing
+  the selection leaves already downloaded content in place.
+
+The native dependencies remain veil 0.11.39 and hidden-volume 2.6.1.
+
 ## [0.13.83] — 2026-10-02
 
 ### Fixed
