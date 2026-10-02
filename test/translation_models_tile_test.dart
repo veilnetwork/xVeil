@@ -23,6 +23,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/translation_model_store.dart';
+import 'package:xveil/data/translation_github_catalog.dart';
+import 'package:xveil/features/common/translation_github_sheet.dart';
 import 'package:xveil/features/common/translation_models_tile.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/translation_model_controller.dart';
@@ -98,6 +100,7 @@ void main() {
     WidgetTester tester, {
     required Future<String?> Function() picker,
     Future<String?> Function(String)? saver,
+    TranslationGithubCatalog? catalog,
     Locale locale = const Locale('en'),
   }) async {
     await tester.pumpWidget(
@@ -107,6 +110,8 @@ void main() {
           translationBundleSaverProvider.overrideWithValue(
             saver ?? (name) async => '/tmp/$name',
           ),
+          if (catalog != null)
+            translationGithubCatalogProvider.overrideWithValue(catalog),
           translationModelsControllerProvider.overrideWith(() => controller),
         ],
         child: MaterialApp(
@@ -128,12 +133,30 @@ void main() {
     expect(find.text('Install from a file…'), findsOneWidget);
   });
 
+  testWidgets('GitHub catalog explains when no bundle has been published', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      picker: () async => null,
+      catalog: TranslationGithubCatalog(fetcher: (_) async => '[]'),
+    );
+    await tapAndSettle(tester, find.text('Download languages from GitHub'));
+    expect(
+      find.textContaining('No .veiltranslate files have been published'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('dismissing the picker installs nothing', (tester) async {
     var asked = 0;
-    await pump(tester, picker: () async {
-      asked++;
-      return null;
-    });
+    await pump(
+      tester,
+      picker: () async {
+        asked++;
+        return null;
+      },
+    );
     await tapAndSettle(tester, find.text('Install from a file…'));
 
     expect(asked, 1, reason: 'the picker was opened');
@@ -207,7 +230,10 @@ void main() {
     // The suggested name is what the receiver recognises — a person should not
     // have to know the extension to pass a model on.
     expect(asked, 'ru-en.veiltranslate');
-    expect(controller.exports, equals(['ru-en -> /tmp/out/ru-en.veiltranslate']));
+    expect(
+      controller.exports,
+      equals(['ru-en -> /tmp/out/ru-en.veiltranslate']),
+    );
   });
 
   testWidgets('dismissing the save dialog writes nothing', (tester) async {
