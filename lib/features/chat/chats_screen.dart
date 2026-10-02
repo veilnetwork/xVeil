@@ -273,66 +273,68 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
                 ),
               ),
             ),
-      body: _searching && _query.trim().isNotEmpty
-          ? _searchResults(
-              l,
-              convos.value ?? const [],
-              ref.watch(groupListProvider).value ?? const [],
-              scheme,
-            )
-          : convos.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, st) =>
-                  AsyncErrorView(error: e, stack: st, where: 'chats'),
-              data: (list) {
-                // Group chats share the Chats timeline with 1:1 chats. Custom
-                // folders are peer-based for now, so they only affect 1:1 rows.
-                final groups = folder == null
-                    ? ref.watch(groupListProvider).value ??
-                          const <GroupListEntry>[]
-                    : const <GroupListEntry>[];
-                if (list.isEmpty && groups.isEmpty) {
-                  return _EmptyState(
-                    l: l,
-                    onStart: () => showAddContactSheet(context, ref),
-                  );
-                }
-                // Filter to the selected folder's members (All = everything).
-                final scoped = folder == null
-                    ? list
-                    : list
-                          .where((c) => folder.contains(c.peer.nodeId.hex))
+      body: Column(
+        children: [
+          // Keep the top placement visible in the empty, loading and search
+          // states too. The first folder is created here before any chat
+          // exists; putting this inside `data` hid the entire panel then.
+          if (panelPos == FolderPanelPosition.top)
+            _FolderBar(folders: folders, selected: selectedFolder),
+          Expanded(
+            child: _searching && _query.trim().isNotEmpty
+                ? _searchResults(
+                    l,
+                    convos.value ?? const [],
+                    ref.watch(groupListProvider).value ?? const [],
+                    scheme,
+                  )
+                : convos.when(
+                    loading: () =>
+                        const Center(child: CircularProgressIndicator()),
+                    error: (e, st) =>
+                        AsyncErrorView(error: e, stack: st, where: 'chats'),
+                    data: (list) {
+                      // Group chats share the Chats timeline with 1:1 chats. Custom
+                      // folders are peer-based for now, so they only affect 1:1 rows.
+                      final groups = folder == null
+                          ? ref.watch(groupListProvider).value ??
+                                const <GroupListEntry>[]
+                          : const <GroupListEntry>[];
+                      if (list.isEmpty && groups.isEmpty) {
+                        return _EmptyState(
+                          l: l,
+                          onStart: () => showAddContactSheet(context, ref),
+                        );
+                      }
+                      // Filter to the selected folder's members (All = everything).
+                      final scoped = folder == null
+                          ? list
+                          : list
+                                .where(
+                                  (c) => folder.contains(c.peer.nodeId.hex),
+                                )
+                                .toList(growable: false);
+                      // Archived conversations collapse into a section at the bottom —
+                      // they keep receiving messages (and unread badges) but stay out of
+                      // the main list until unarchived.
+                      final active = scoped
+                          .where((c) => !c.peer.archived)
                           .toList(growable: false);
-                // Archived conversations collapse into a section at the bottom —
-                // they keep receiving messages (and unread badges) but stay out of
-                // the main list until unarchived.
-                final active = scoped
-                    .where((c) => !c.peer.archived)
-                    .toList(growable: false);
-                final archived = scoped
-                    .where((c) => c.peer.archived)
-                    .toList(growable: false);
-                // One recency-ordered Chats stream: direct and group chats.
-                final rows = <(int, Widget)>[
-                  for (final c in active)
-                    (
-                      c.lastMessage?.timestamp.millisecondsSinceEpoch ?? 0,
-                      _ConversationTile(conversation: c),
-                    ),
-                  for (final group in groups)
-                    (group.lastTs, GroupTile(entry: group)),
-                ]..sort((a, b) => b.$1.compareTo(a.$1));
-                return Column(
-                  children: [
-                    // Top placement only; drawer placements render the folders in
-                    // the Scaffold drawer above. Always shown there (even with zero
-                    // folders): the "+" chip is the way to create the FIRST folder —
-                    // hiding the bar until one existed made the feature
-                    // undiscoverable.
-                    if (panelPos == FolderPanelPosition.top)
-                      _FolderBar(folders: folders, selected: selectedFolder),
-                    Expanded(
-                      child: (rows.isEmpty && archived.isEmpty)
+                      final archived = scoped
+                          .where((c) => c.peer.archived)
+                          .toList(growable: false);
+                      // One recency-ordered Chats stream: direct and group chats.
+                      final rows = <(int, Widget)>[
+                        for (final c in active)
+                          (
+                            c.lastMessage?.timestamp.millisecondsSinceEpoch ??
+                                0,
+                            _ConversationTile(conversation: c),
+                          ),
+                        for (final group in groups)
+                          (group.lastTs, GroupTile(entry: group)),
+                      ]..sort((a, b) => b.$1.compareTo(a.$1));
+                      return (rows.isEmpty && archived.isEmpty)
                           ? Center(child: Text(l.chatsFolderEmpty))
                           : ListView(
                               children: [
@@ -353,12 +355,12 @@ class _ChatsScreenState extends ConsumerState<ChatsScreen> {
                                     ],
                                   ),
                               ],
-                            ),
-                    ),
-                  ],
-                );
-              },
-            ),
+                            );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 }
