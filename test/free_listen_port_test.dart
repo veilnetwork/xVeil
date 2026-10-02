@@ -33,6 +33,9 @@ void main() {
     );
 
     held.close();
+    // close() returns before the socket's stream reports completion. Wait for
+    // the OS handle to be released before asserting that this port is free.
+    await held.drain<void>();
     expect(
       await firstFreeListenPort(port, lanListen: false),
       port,
