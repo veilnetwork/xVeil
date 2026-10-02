@@ -2359,7 +2359,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get cloudModeSelectedHint =>
-      'Descargar automáticamente los elementos seleccionados';
+      'Descargar automáticamente en este dispositivo solo los archivos y notas marcados en sus menús';
 
   @override
   String get cloudModeIndexHint =>
@@ -2483,10 +2483,14 @@ class AppL10nEs extends AppL10n {
       'No se pudo abrir ni verificar el enlace privado';
 
   @override
-  String get cloudSelect => 'Mantener seleccionado';
+  String get cloudSelect => 'Descargar automáticamente aquí';
 
   @override
-  String get cloudUnselect => 'Dejar de mantenerlo';
+  String get cloudUnselect => 'Dejar de descargar automáticamente aquí';
+
+  @override
+  String get cloudSelectHelp =>
+      'Se aplica en el modo «Lo seleccionado». Desactivarlo no borra lo que ya se descargó.';
 
   @override
   String get cloudVerify => 'Verificar y reparar';

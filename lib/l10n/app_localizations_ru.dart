@@ -2360,7 +2360,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get cloudModeSelectedHint =>
-      'Автоматически загружать выбранные элементы';
+      'Автоматически загружать на это устройство только файлы и заметки, отмеченные в их меню';
 
   @override
   String get cloudModeIndexHint =>
@@ -2486,10 +2486,14 @@ class AppL10nRu extends AppL10n {
       'Не удалось открыть или проверить приватную ссылку';
 
   @override
-  String get cloudSelect => 'Хранить выбранным';
+  String get cloudSelect => 'Автозагружать на это устройство';
 
   @override
-  String get cloudUnselect => 'Не хранить выбранным';
+  String get cloudUnselect => 'Не автозагружать на это устройство';
+
+  @override
+  String get cloudSelectHelp =>
+      'Действует в режиме «Выбранное». Снятие отметки не удаляет уже загруженное.';
 
   @override
   String get cloudVerify => 'Проверить и восстановить';

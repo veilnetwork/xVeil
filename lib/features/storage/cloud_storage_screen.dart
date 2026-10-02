@@ -3304,7 +3304,18 @@ class _CloudItemTileState extends State<_CloudItemTile> {
                   PopupMenuItem(value: 'fetch', child: Text(l.cloudDownload)),
                 PopupMenuItem(
                   value: 'selected',
-                  child: Text(selected ? l.cloudUnselect : l.cloudSelect),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(selected ? l.cloudUnselect : l.cloudSelect),
+                      const SizedBox(height: 4),
+                      Text(
+                        l.cloudSelectHelp,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
                 ),
                 if (widget.item.kind == CloudItemKind.file)
                   PopupMenuItem(value: 'rename', child: Text(l.cloudRename)),

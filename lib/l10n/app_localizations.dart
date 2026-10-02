@@ -4079,7 +4079,7 @@ abstract class AppL10n {
   /// No description provided for @cloudModeSelectedHint.
   ///
   /// In en, this message translates to:
-  /// **'Automatically download selected items'**
+  /// **'Automatically download only files and notes marked in their menus to this device'**
   String get cloudModeSelectedHint;
 
   /// No description provided for @cloudModeIndexHint.
@@ -4265,14 +4265,20 @@ abstract class AppL10n {
   /// No description provided for @cloudSelect.
   ///
   /// In en, this message translates to:
-  /// **'Keep selected'**
+  /// **'Auto-download to this device'**
   String get cloudSelect;
 
   /// No description provided for @cloudUnselect.
   ///
   /// In en, this message translates to:
-  /// **'Stop keeping selected'**
+  /// **'Stop auto-downloading to this device'**
   String get cloudUnselect;
+
+  /// No description provided for @cloudSelectHelp.
+  ///
+  /// In en, this message translates to:
+  /// **'Applies in Selected mode. Turning it off does not delete files already downloaded.'**
+  String get cloudSelectHelp;
 
   /// No description provided for @cloudVerify.
   ///

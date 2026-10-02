@@ -2334,7 +2334,8 @@ class AppL10nEn extends AppL10n {
   String get cloudModeAllHint => 'Automatically download every cloud item';
 
   @override
-  String get cloudModeSelectedHint => 'Automatically download selected items';
+  String get cloudModeSelectedHint =>
+      'Automatically download only files and notes marked in their menus to this device';
 
   @override
   String get cloudModeIndexHint => 'Show the index and download only on demand';
@@ -2456,10 +2457,14 @@ class AppL10nEn extends AppL10n {
       'Could not open or verify the private link';
 
   @override
-  String get cloudSelect => 'Keep selected';
+  String get cloudSelect => 'Auto-download to this device';
 
   @override
-  String get cloudUnselect => 'Stop keeping selected';
+  String get cloudUnselect => 'Stop auto-downloading to this device';
+
+  @override
+  String get cloudSelectHelp =>
+      'Applies in Selected mode. Turning it off does not delete files already downloaded.';
 
   @override
   String get cloudVerify => 'Verify and repair';
