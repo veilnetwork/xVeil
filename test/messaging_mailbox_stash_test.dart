@@ -141,6 +141,7 @@ class _RecordingSink implements MailboxSink {
   bool get isRegistered => true;
 
   final stashed = <(NodeId, Uint8List)>[];
+  final contentIds = <Uint8List>[];
   int nudges = 0;
 
   @override
@@ -152,6 +153,7 @@ class _RecordingSink implements MailboxSink {
     required Uint8List contentId,
   }) async {
     stashed.add((recipient, payload));
+    contentIds.add(Uint8List.fromList(contentId));
   }
 
   @override
@@ -332,6 +334,24 @@ void main() {
       MessageStatus.sent,
       reason: 'a retry that landed left the error mark on the message',
     );
+  });
+
+  test('request retries use fresh relay keys but keep one wire id', () async {
+    await mA.sendRequest(b, 'hello');
+    await mA.resendRequest(b);
+    await mA.resendRequest(b);
+
+    expect(sink.stashed, hasLength(3));
+    final wireIds = sink.stashed
+        .map((entry) => WireEnvelope.decode(entry.$2).id)
+        .toList();
+    expect(wireIds.toSet(), hasLength(1), reason: 'one logical request');
+    expect(
+      sink.contentIds.map((cid) => NodeId(cid).hex).toSet(),
+      hasLength(3),
+      reason: 'a relay ignores a second blob stored under the same content id',
+    );
+    expect(mA.mailboxTrackedFrames, 0, reason: 'retired retry ids do not pile up');
   });
 
   /// CONTROL: the same call over a working relay reports the deposit.
