@@ -24,15 +24,14 @@
 //   * the device-group registry (`devices.*`, `groups.index`) — device
 //     membership is signed state that the group's own log carries.
 //
-// The three keys the device-group sync already carries travel as sync events
+// Keys registered with the device-group sync travel as sync events
 // instead ([DeviceSettingsSyncHub.syncedKeys]), so they are not repeated here.
 
 /// Settings carried verbatim by an archive.
 ///
-/// Short on purpose. `nickname:claimed` is here because a claimed public name
-/// belongs to the IDENTITY rather than to a device, contains no secret (the
-/// claim is published to the network), and is otherwise silently lost when a
-/// person moves to a new device.
+/// Short on purpose. `nickname:claimed` remains here for older archives and
+/// exports made before the device-sync bridge has registered its applier. In
+/// a running linked identity it also travels as a setting-set sync event.
 const Set<String> kTransferableSettingKeys = {'nickname:claimed'};
 
 /// Prefixes that are never carried, whatever the exact key.

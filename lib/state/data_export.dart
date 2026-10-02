@@ -387,7 +387,7 @@ class DataExporter {
     }
     step();
 
-    // 3. Settings. The three the device group syncs travel as sync events, so
+    // 3. Settings. Keys registered with device-group sync travel as events, so
     //    they merge by the same rule online sync uses; the rest travel raw.
     for (final key in await _storage.settingsKeys()) {
       final value = await _storage.getSetting(key);

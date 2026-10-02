@@ -38,6 +38,7 @@ import 'providers.dart' show realStackProvider, storageProvider;
 import 'group_service_providers.dart';
 import 'locale_controller.dart';
 import 'messaging.dart';
+import 'nickname_controller.dart';
 import 'reactions_visibility_controller.dart';
 import 'signature_policy_controller.dart';
 import 'sticker_device_sync.dart';
@@ -122,6 +123,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     if (policy == null) return; // newer vocabulary — skip, don't guess
     await ref.read(signaturePolicyProvider.notifier).set(policy);
   });
+  hub.register(
+    kSyncNicknameClaim,
+    (v) => ref.read(nicknameControllerProvider.notifier).applyMirroredClaim(v),
+  );
 
   // ── EMIT: local change → device-group event ───────────────────────────────
   // Monotonic emit stamps: two edits inside the same wall-clock millisecond
@@ -200,6 +205,34 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
 
   unawaited(announceIdentityDocument());
 
+  // Claims made before the first sibling was linked, or on an older build,
+  // could only be persisted locally. Announce one after the device group
+  // exists if the group has no valid claim yet. This applies to either device:
+  // a sibling may have been the one that claimed the name on the old build.
+  // A folded claim takes precedence over a stale local copy.
+  Future<void> announceStoredNickname() async {
+    try {
+      final raw = await svc.storage.getSetting(kSyncNicknameClaim);
+      if (raw == null || parseClaimedNickname(raw) == null) return;
+      final current = (await svc
+          .deviceSyncState())[(DeviceSyncKind.settingSet, kSyncNicknameClaim)];
+      final currentRaw = current?.payload['v'];
+      if (currentRaw is String && parseClaimedNickname(currentRaw) != null) {
+        return;
+      }
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: kSyncNicknameClaim,
+          tsMs: nextTs(),
+          payload: {'v': raw},
+        ),
+      );
+    } catch (error) {
+      devLog(() => 'xVeil[nickname]: device claim backfill failed: $error');
+    }
+  }
+
   // Contact records of my OWN devices never sync: each side keys the pair
   // relationship by the OTHER device's id, so the record is not portable (on
   // the sibling it would describe itself). Same rule as the msgMirror
@@ -249,6 +282,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       // its master. Announce again now that membership exists, before the
       // snapshot and history replay are sent.
       await announceIdentityDocument();
+      await announceStoredNickname();
       final conversations = await ref.read(storageProvider).loadConversations();
       var replayed = 0;
       for (final c in conversations) {
@@ -335,6 +369,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       ),
     );
   };
+  unawaited(announceStoredNickname());
   callLog.onAdded = (e) {
     unawaited(
       svc.postDeviceEvent(
