@@ -27,8 +27,14 @@ scripts/build-mobile.sh ios --sim
 # cannot parse. A Simulator build is where a tester reproduces things, so it
 # is exactly the build whose reports need to name themselves.
 VERSION="${XVEIL_VERSION:-$(bash "$(dirname "${BASH_SOURCE[0]}")/pubspec-version.sh")}"
-if ! flutter build ios --simulator --debug --dart-define=XVEIL_VERSION="$VERSION"; then
-  flutter build ios --simulator --debug --dart-define=XVEIL_VERSION="$VERSION"
+VEIL_BUILD_VERSION="$(git -C "$ROOT/third_party/veil" describe --tags --always --dirty 2>/dev/null || echo '?')"
+HV_BUILD_VERSION="$(git -C "$ROOT/third_party/hidden-volume" describe --tags --always --dirty 2>/dev/null || echo '?')"
+if ! flutter build ios --simulator --debug --dart-define=XVEIL_VERSION="$VERSION" \
+  --dart-define=XVEIL_VEIL_VERSION="$VEIL_BUILD_VERSION" \
+  --dart-define=XVEIL_HV_VERSION="$HV_BUILD_VERSION"; then
+  flutter build ios --simulator --debug --dart-define=XVEIL_VERSION="$VERSION" \
+    --dart-define=XVEIL_VEIL_VERSION="$VEIL_BUILD_VERSION" \
+    --dart-define=XVEIL_HV_VERSION="$HV_BUILD_VERSION"
 fi
 
 APP="$ROOT/build/ios/iphonesimulator/Runner.app"

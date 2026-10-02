@@ -21,6 +21,7 @@ import os
 import platform
 import re
 import shutil
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
@@ -235,6 +236,25 @@ def _pubspec_version() -> str:
             return value
 
     raise Abort("cannot read 'version:' from pubspec.yaml")
+
+
+def _native_version_defines() -> list[str]:
+    """Name the checked-out native revisions actually used by this build."""
+    result = []
+    for name, directory in (
+        ("XVEIL_VEIL_VERSION", VEIL),
+        ("XVEIL_HV_VERSION", HV),
+    ):
+        try:
+            value = subprocess.check_output(
+                ["git", "-C", os.path.join(ROOT, directory),
+                 "describe", "--tags", "--always", "--dirty"],
+                text=True, stderr=subprocess.DEVNULL,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError):
+            value = "?"
+        result.append(f"--dart-define={name}={value}")
+    return result
 
 
 def _check_android_signing() -> None:
@@ -693,6 +713,7 @@ def _android(release: bool) -> list[Step]:
                     # architecture instead of three.
                     "--target-platform", "android-arm64,android-arm,android-x64",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_native_version_defines(),
                     *_network_define(),
                     # Both emit nothing unless the environment asks, and this
                     # was the one release path that could not be asked — Linux,
@@ -724,6 +745,7 @@ def _android(release: bool) -> list[Step]:
                 argv=[
                     "flutter", "build", "apk", "--debug",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_native_version_defines(),
                     *_network_define(),
                     # See _debug_hook_define: without this an APK comes up mute
                     # and /health answering nothing looks exactly like a node
@@ -841,6 +863,7 @@ def _linux(release: bool) -> list[Step]:
                 "linux",
                 "--release" if release else "--debug",
                 f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                *_native_version_defines(),
                 *_network_define(),
                 # See _debug_hook_define. This was called "the third host and
                 # the last one that was missing it" — it was not: the SIGNED
@@ -967,6 +990,7 @@ def _macos(release: bool) -> list[Step]:
                     # The other two platforms carried comments asserting macOS
                     # already had this.
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_native_version_defines(),
                     *_network_define(),
                     *_debug_hook_define(),
                     *_diagnostic_log_define(),
@@ -1086,6 +1110,7 @@ def _ios(release: bool) -> list[Step]:
                     "flutter", "build", "ios",
                     "--release" if release else "--debug",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_native_version_defines(),
                     *_network_define(),
                     # BOTH iOS branches, and neither had it. See
                     # _debug_hook_define: the file's own comment says iOS was
@@ -1104,6 +1129,7 @@ def _ios(release: bool) -> list[Step]:
                     "flutter", "build", "ios",
                     "--release" if release else "--debug", "--no-codesign",
                     f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                    *_native_version_defines(),
                     *_network_define(),
                     *_debug_hook_define(),
                     *_diagnostic_log_define(),
@@ -1260,6 +1286,7 @@ def _windows(release: bool) -> list[Step]:
                 "flutter", "build", "windows",
                 "--release" if release else "--debug",
                 f"--dart-define=XVEIL_VERSION={_pubspec_version()}",
+                *_native_version_defines(),
                 *_network_define(),
                 # The FOURTH platform to be missed by this, after Android,
                 # Linux and macOS — see _debug_hook_define. Without it a

@@ -2930,7 +2930,8 @@
       }
     }
   },
-  "devicesNeverSeen": "Nunca visto desde que se vinculó este dispositivo",
+  "devicesNeverSeen": "Este dispositivo aún no registra ninguna conexión",
+  "devicesPairRestartFailed": "No se pudieron vincular los dispositivos: el teléfono no inició con la identidad vinculada. Abre la aplicación en el teléfono y vuelve a intentarlo.",
   "devicesAwayLong": "Lleva mucho tiempo ausente: conviene desvincularlo",
   "devicesUnlinkOfferTitle": "{device} lleva más de un mes sin conectarse",
   "devicesUnlinkOfferBody": "Si ya no existe, desvincúlalo: su clave dejará de aceptarse y no se le enviará nada más. Los mensajes que lo esperan se descartarán.",

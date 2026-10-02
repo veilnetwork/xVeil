@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,41 @@ BootstrapInvite _invite(int seed) => BootstrapInvite(
 );
 
 void main() {
+  test('LAN ready waits for the joined identity to boot', () async {
+    final booted = Completer<bool>();
+    final events = <String>[];
+    final pairing = signalPairingReadyAfterRestart(
+      restart: () async {
+        events.add('restart');
+        return booted.future;
+      },
+      signalReady: () async => events.add('ready'),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(events, ['restart']);
+    booted.complete(true);
+    expect(await pairing, isTrue);
+    expect(events, ['restart', 'ready']);
+
+    events.clear();
+    expect(
+      await signalPairingReadyAfterRestart(
+        restart: () async => false,
+        signalReady: () async => events.add('ready'),
+      ),
+      isFalse,
+    );
+    expect(events, isEmpty);
+    expect(
+      await signalPairingReadyAfterRestart(
+        restart: () async => throw StateError('node did not boot'),
+        signalReady: () async => events.add('ready'),
+      ),
+      isFalse,
+    );
+    expect(events, isEmpty);
+  });
+
   test('one QR binds device, identity, LAN endpoint and fresh ticket', () {
     final code = DevicePairingCode.fresh(
       _invite(1),

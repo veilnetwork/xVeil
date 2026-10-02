@@ -2080,7 +2080,8 @@ class AppController extends Notifier<AppState> {
         );
         await _teardownSession();
         await _reEnterAfterRosterEdit(roster, active, true);
-        return state.phase == AppPhase.ready;
+        return state.phase == AppPhase.ready &&
+            ref.read(realStackProvider) != null;
       }
 
       await _teardownRealStack();
@@ -2089,7 +2090,11 @@ class AppController extends Notifier<AppState> {
       final profile = await _loadProfileOrHalt(storage);
       if (profile == null) return false; // damaged record — parked
       await _enterSession(profile);
-      return true;
+      // _enterSession deliberately tolerates a failed node boot and can still
+      // enter the UI. A device-link caller must not signal readiness in that
+      // state: the source would send its one snapshot to a missing node.
+      return state.phase == AppPhase.ready &&
+          ref.read(realStackProvider) != null;
     } catch (e, st) {
       devLog(() => 'xVeil[reboot]: hosted node reboot failed: $e\n$st');
       return false;
