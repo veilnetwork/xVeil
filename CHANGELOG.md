@@ -6,6 +6,27 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.82] — 2026-10-02
+
+### Fixed
+
+- Device linking waits until the phone has restarted under the joined identity
+  before the computer sends its group snapshot. A failed restart is reported
+  instead of leaving the computer waiting indefinitely.
+- The device list no longer presents the identity's routing address as an
+  additional physical device. Its connection status now says when this device
+  has no recorded contact with a sibling.
+- The connected-node list refreshes when the live session count changes. A
+  stalled peer query times out and the list retries without discarding the
+  last good result.
+
+### Added
+
+- About shows the xVeil version and the veil and hidden-volume source versions
+  used for the build.
+
+The native dependencies remain veil 0.11.39 and hidden-volume 2.6.1.
+
 ## [0.13.81] — 2026-10-01
 
 ### Added
