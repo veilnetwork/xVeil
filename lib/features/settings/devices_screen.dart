@@ -224,6 +224,10 @@ class _DocumentNotAmended implements Exception {
 class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   List<NodeId> _members = const [];
 
+  static const _lastSeenRefreshEvery = Duration(seconds: 5);
+  Timer? _lastSeenTimer;
+  bool _refreshingLastSeen = false;
+
   /// When each linked device was last heard from, authenticated. Null means
   /// never — which for a member of the device group says it has not been seen
   /// since it was linked.
@@ -286,6 +290,40 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _reload());
+    _lastSeenTimer = Timer.periodic(
+      _lastSeenRefreshEvery,
+      (_) => unawaited(_refreshLastSeen()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _lastSeenTimer?.cancel();
+    super.dispose();
+  }
+
+  /// The roster and certificate rarely change; only the presence stamps need
+  /// another read while this page stays open. This skips the group and
+  /// certificate reads in [_reloadFromStore].
+  Future<void> _refreshLastSeen() async {
+    if (!mounted || _loading || _refreshingLastSeen || _members.isEmpty) return;
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    _refreshingLastSeen = true;
+    final members = _members;
+    try {
+      final messaging = ref.read(messagingServiceProvider);
+      final seen = <String, DateTime?>{};
+      for (final member in members) {
+        seen[member.hex] = await messaging.lastSeen(member);
+      }
+      if (!mounted || !identical(members, _members)) return;
+      // Also updates the relative "last seen" text as time passes.
+      setState(() => _lastSeen = seen);
+    } catch (error) {
+      devLog(() => 'xVeil[devices]: last-seen refresh failed: $error');
+    } finally {
+      _refreshingLastSeen = false;
+    }
   }
 
   /// Subtitle for a linked device: how long it has been away, and a nudge when
