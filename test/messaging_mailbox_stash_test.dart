@@ -275,14 +275,9 @@ void main() {
     );
   });
 
-  /// And the message a person LOOKS at says so too.
-  ///
-  /// Returning the verdict was half the answer: the conversation went on
-  /// showing the greeting with a sent tick beside it, which is what somebody
-  /// reads a minute later, long after any snackbar. The failed mark and the
-  /// "Send again" button already existed; nothing had put them on this
-  /// message (report19 XV19-M1).
-  test('the greeting of a failed request is marked failed', () async {
+  /// A failed deposit does not prove the live leg failed: it can be delivered
+  /// after route discovery finishes. The greeting must remain pending.
+  test('the greeting remains pending when only its deposit failed', () async {
     mA.attachMailbox(_FailingSink());
 
     await mA.sendRequest(b, 'nothing carried this');
@@ -291,13 +286,29 @@ void main() {
     expect(stored, hasLength(1), reason: 'the greeting is kept, not dropped');
     expect(
       stored.single.status,
-      MessageStatus.failed,
-      reason: 'a greeting nothing carried is shown with a sent tick',
+      MessageStatus.sending,
+      reason: 'a failed relay deposit is not proof that live delivery failed',
     );
     expect(stored.single.body, 'nothing carried this');
   });
 
-  /// A retry says what happened, and a retry that lands clears the mark.
+  test('an eventual acceptance confirms a request whose deposit failed', () async {
+    mA.attachMailbox(_FailingSink());
+    await mA.sendRequest(b, 'arrived by the live route');
+    expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.sending);
+
+    tA.inject(InboundMessage(
+      src: b,
+      payload: const WireEnvelope.accept().encode(),
+      provenance: SenderProvenance.sessionPeer,
+    ));
+    await pumpEventQueue();
+
+    expect((await sA.getContact(b))?.status, ContactStatus.accepted);
+    expect((await sA.loadMessages(b.hex)).single.status, MessageStatus.delivered);
+  });
+
+  /// A retry says what happened, and a retry that lands clears the pending mark.
   ///
   /// `resendRequest` returned nothing at all, so the screen showed "Request
   /// sent" every time — on the one button a person presses BECAUSE the
@@ -308,8 +319,8 @@ void main() {
     await mA.sendRequest(b, 'try one');
     expect(
       (await sA.loadMessages(b.hex)).single.status,
-      MessageStatus.failed,
-      reason: 'premise: the first attempt failed',
+      MessageStatus.sending,
+      reason: 'premise: the first deposit failed',
     );
 
     // Still failing: the retry must not claim otherwise.

@@ -1942,14 +1942,14 @@ class AppL10nEs extends AppL10n {
   String get mentionsLoadFailed => 'No se pudieron cargar las menciones';
 
   @override
-  String get chatRequestSent => 'Solicitud enviada: esperando aprobación';
+  String get chatRequestSent => 'Esperando respuesta: la entrega puede tardar';
 
   @override
   String get chatRequestResent => 'Enviado de nuevo — esperando aprobación';
 
   @override
   String get chatRequestNotDelivered =>
-      'No se pudo entregar la solicitud: nada la llevó';
+      'No se pudo guardar la solicitud para entregarla después. Aún puede llegar directamente';
 
   @override
   String get chatRequestResend => 'Enviar de nuevo';

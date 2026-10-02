@@ -3347,7 +3347,7 @@ abstract class AppL10n {
   /// No description provided for @chatRequestSent.
   ///
   /// In en, this message translates to:
-  /// **'Request sent — waiting for approval'**
+  /// **'Waiting for a response — delivery may take time'**
   String get chatRequestSent;
 
   /// No description provided for @chatRequestResent.
@@ -3359,7 +3359,7 @@ abstract class AppL10n {
   /// No description provided for @chatRequestNotDelivered.
   ///
   /// In en, this message translates to:
-  /// **'Request could not be delivered — nothing carried it'**
+  /// **'Could not store the request for later delivery. It may still arrive directly'**
   String get chatRequestNotDelivered;
 
   /// No description provided for @chatRequestResend.

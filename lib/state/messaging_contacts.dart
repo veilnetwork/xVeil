@@ -156,7 +156,7 @@ class _MessagingContacts {
   ///
   /// It used to return nothing, and both legs below had their outcome thrown
   /// away — so a request that reached neither the relay nor the peer still
-  /// left the contact marked `pendingOutgoing`, which the app shows as "sent".
+  /// left the contact marked `pendingOutgoing`, which the app showed as "sent".
   /// Measured on the production network: the seal could not be made because
   /// the recipient's instance registry did not resolve, nothing was deposited,
   /// and nothing anywhere said so. This send is also the one with no retry
@@ -177,7 +177,7 @@ class _MessagingContacts {
         dst,
         MessageDirection.outgoing,
         text,
-        MessageStatus.sent,
+        MessageStatus.sending,
         id: id,
         timestamp: sentAt,
       );
@@ -204,18 +204,22 @@ class _MessagingContacts {
     final deposit = _owner._maybeStash(dst, id, wire);
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
     final deposited = await deposit;
-    // A greeting nothing carried is not "sent".
-    //
-    // Returning the verdict was half the answer: the caller could act on it,
-    // but the conversation itself went on showing a message with a sent tick
-    // beside it, and that is what a person looks at a minute later. Marking
-    // it failed puts the error mark and the "Send again" button that already
-    // exist on the one message they apply to (report19 XV19-M1).
-    if (!deposited && text.isNotEmpty) {
+    // A failed mailbox deposit does not prove the live leg failed. On a phone
+    // the direct leg can arrive minutes later as routes warm up. Keep the
+    // greeting pending until a relay accepts it or the peer accepts us; a
+    // failed mark incorrectly claimed the request could no longer arrive.
+    if (text.isNotEmpty) {
+      final accepted =
+          (await _owner._storage.getContact(dst))?.status ==
+          ContactStatus.accepted;
       await _owner._storage.markMessageStatus(
         dst.hex,
         id,
-        MessageStatus.failed,
+        accepted
+            ? MessageStatus.delivered
+            : deposited
+            ? MessageStatus.sent
+            : MessageStatus.sending,
       );
       _owner._signal();
     }
@@ -260,13 +264,20 @@ class _MessagingContacts {
     // A request has no outbox re-drive; this per-attempt key is never queried
     // again after the verdict and must not remain in the in-memory stash set.
     _owner._mailboxDelivery.removeStashed(depositId);
-    // The stored greeting follows the outcome in both directions: a retry
-    // that lands clears the error mark the failed attempt left.
+    // A direct copy may still arrive after a failed deposit. Keep the greeting
+    // pending unless a relay accepted it or the peer has accepted the request.
     if (body != null && body.isNotEmpty) {
+      final accepted =
+          (await _owner._storage.getContact(dst))?.status ==
+          ContactStatus.accepted;
       await _owner._storage.markMessageStatus(
         dst.hex,
         id,
-        deposited ? MessageStatus.sent : MessageStatus.failed,
+        accepted
+            ? MessageStatus.delivered
+            : deposited
+            ? MessageStatus.sent
+            : MessageStatus.sending,
       );
     }
     _owner._signal();

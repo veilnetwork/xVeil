@@ -1941,14 +1941,15 @@ class AppL10nRu extends AppL10n {
   String get mentionsLoadFailed => 'Не удалось загрузить упоминания';
 
   @override
-  String get chatRequestSent => 'Запрос отправлен — ожидание одобрения';
+  String get chatRequestSent =>
+      'Запрос ожидает ответа — доставка может занять время';
 
   @override
   String get chatRequestResent => 'Отправлено ещё раз — ожидание одобрения';
 
   @override
   String get chatRequestNotDelivered =>
-      'Запрос не доставлен — его никто не понёс';
+      'Не удалось сохранить запрос для доставки позже. Он ещё может дойти напрямую';
 
   @override
   String get chatRequestResend => 'Отправить снова';
