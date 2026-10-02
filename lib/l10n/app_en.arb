@@ -3005,6 +3005,8 @@
   "translationGithubEmpty": "No .veiltranslate files have been published in xVeil releases yet. You can get one from a contact and install it here.",
   "translationGithubFailed": "Could not load models from GitHub",
   "translationGithubNoStorage": "No storage is available for models on this device",
+  "translationGithubSourceLicense": "Source and license in release notes",
+  "translationGithubOpenFailed": "Could not open the release page",
   "voiceModelResume": "Continue downloading",
   "voiceModelResumeAt": "{percent}% already downloaded",
   "@voiceModelResumeAt": {

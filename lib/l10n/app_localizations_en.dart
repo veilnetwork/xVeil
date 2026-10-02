@@ -6976,6 +6976,13 @@ class AppL10nEn extends AppL10n {
       'No storage is available for models on this device';
 
   @override
+  String get translationGithubSourceLicense =>
+      'Source and license in release notes';
+
+  @override
+  String get translationGithubOpenFailed => 'Could not open the release page';
+
+  @override
   String get voiceModelResume => 'Continue downloading';
 
   @override

@@ -7035,6 +7035,14 @@ class AppL10nRu extends AppL10n {
       'Нет места для установки моделей на этом устройстве';
 
   @override
+  String get translationGithubSourceLicense =>
+      'Источник и лицензия в описании релиза';
+
+  @override
+  String get translationGithubOpenFailed =>
+      'Не удалось открыть страницу релиза';
+
+  @override
   String get voiceModelResume => 'Продолжить скачивание';
 
   @override
