@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.83] — 2026-10-02
+
+### Fixed
+
+- The UDP listener-port test waits for its socket to close before checking that
+  the port can be reused. This removes a timing failure seen in branch CI.
+
+The native dependencies remain veil 0.11.39 and hidden-volume 2.6.1.
+
 ## [0.13.82] — 2026-10-02
 
 ### Fixed
