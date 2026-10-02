@@ -137,6 +137,7 @@ dependencies:
   # the app-owned native Camera2 path so preview and send capture never cross
   # Flutter's platform channel frame-by-frame.
   camera_android: ^0.10.11
+  share_plus: ^12.0.2
 
 dev_dependencies:
   flutter_test:

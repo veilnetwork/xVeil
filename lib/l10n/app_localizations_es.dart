@@ -7023,11 +7023,45 @@ class AppL10nEs extends AppL10n {
   String get translationModelsRemove => 'Eliminar este idioma';
 
   @override
-  String get translationModelsShare => 'Guardar como archivo para enviar';
+  String get translationModelsShare => 'Compartir archivo del modelo';
+
+  @override
+  String get translationModelsExport => 'Exportar .veiltranslate';
+
+  @override
+  String get translationModelsExported =>
+      'Archivo del modelo guardado. Puedes enviarlo como archivo adjunto en un chat.';
+
+  @override
+  String get translationModelsExportFailed =>
+      'No se pudo exportar el archivo del modelo';
 
   @override
   String get translationModelsHint =>
-      'Un archivo .veiltranslate por dirección. La traducción ocurre en este dispositivo.';
+      'Obtén un archivo .veiltranslate de una versión de GitHub o de un contacto. Cada dirección necesita su propio archivo.';
+
+  @override
+  String get translationGithubTitle => 'Descargar idiomas de GitHub';
+
+  @override
+  String get translationGithubTileHint =>
+      'Archivos .veiltranslate publicados en versiones de xVeil';
+
+  @override
+  String get translationGithubHint =>
+      'Elige una dirección. Se comprueba el SHA-256 de la versión antes de instalar el archivo.';
+
+  @override
+  String get translationGithubEmpty =>
+      'Aún no hay archivos .veiltranslate publicados en las versiones de xVeil. Puedes obtener uno de un contacto e instalarlo aquí.';
+
+  @override
+  String get translationGithubFailed =>
+      'No se pudo cargar la lista de modelos de GitHub';
+
+  @override
+  String get translationGithubNoStorage =>
+      'No hay espacio disponible para modelos en este dispositivo';
 
   @override
   String get voiceModelResume => 'Continuar la descarga';
@@ -7247,14 +7281,18 @@ class AppL10nEs extends AppL10n {
       'Tus contactos no reciben respuesta. No pueden distinguirlo de que no tengas modelos.';
 
   @override
-  String get askContactsTitle => 'Pedir modelos a los contactos';
+  String get askContactsTitle => '¿Qué contactos tienen modelos?';
 
   @override
   String get askContactsWaiting =>
-      'Quien responda aparecerá aquí. El silencio no significa nada en concreto.';
+      'Aquí aparecen las listas de modelos de los contactos que respondan. Para obtener un archivo, abre su chat y pídeles que lo envíen. La falta de respuesta no significa que no tengan modelos.';
 
   @override
-  String get askContactsAction => 'Preguntar a mis contactos';
+  String get askContactsAction => 'Buscar contactos con modelos';
+
+  @override
+  String get askContactsExplanation =>
+      'Pregunta a los contactos aceptados qué modelos de traducción y voz tienen. Los archivos no se transfieren automáticamente.';
 
   @override
   String get modelProvenanceAskAnother => 'Preguntar a otro contacto';

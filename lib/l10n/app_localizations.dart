@@ -12197,14 +12197,68 @@ abstract class AppL10n {
   /// No description provided for @translationModelsShare.
   ///
   /// In en, this message translates to:
-  /// **'Save as a file to send'**
+  /// **'Share model file'**
   String get translationModelsShare;
+
+  /// No description provided for @translationModelsExport.
+  ///
+  /// In en, this message translates to:
+  /// **'Export .veiltranslate'**
+  String get translationModelsExport;
+
+  /// No description provided for @translationModelsExported.
+  ///
+  /// In en, this message translates to:
+  /// **'Model file saved. You can send it as an ordinary chat attachment.'**
+  String get translationModelsExported;
+
+  /// No description provided for @translationModelsExportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not export the model file'**
+  String get translationModelsExportFailed;
 
   /// No description provided for @translationModelsHint.
   ///
   /// In en, this message translates to:
-  /// **'One .veiltranslate file per direction. Translation happens on this device.'**
+  /// **'Get a .veiltranslate file from a GitHub release or a contact. Each direction needs its own file.'**
   String get translationModelsHint;
+
+  /// No description provided for @translationGithubTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Download languages from GitHub'**
+  String get translationGithubTitle;
+
+  /// No description provided for @translationGithubTileHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Published .veiltranslate files in xVeil releases'**
+  String get translationGithubTileHint;
+
+  /// No description provided for @translationGithubHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a direction. The download is checked against the release SHA-256 before installation.'**
+  String get translationGithubHint;
+
+  /// No description provided for @translationGithubEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No .veiltranslate files have been published in xVeil releases yet. You can get one from a contact and install it here.'**
+  String get translationGithubEmpty;
+
+  /// No description provided for @translationGithubFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load models from GitHub'**
+  String get translationGithubFailed;
+
+  /// No description provided for @translationGithubNoStorage.
+  ///
+  /// In en, this message translates to:
+  /// **'No storage is available for models on this device'**
+  String get translationGithubNoStorage;
 
   /// No description provided for @voiceModelResume.
   ///
@@ -12497,20 +12551,26 @@ abstract class AppL10n {
   /// No description provided for @askContactsTitle.
   ///
   /// In en, this message translates to:
-  /// **'Ask contacts for models'**
+  /// **'Which contacts have models?'**
   String get askContactsTitle;
 
   /// No description provided for @askContactsWaiting.
   ///
   /// In en, this message translates to:
-  /// **'Whoever answers appears here. Silence means nothing in particular.'**
+  /// **'Only the model lists of contacts who reply appear here. To get a file, open their chat and ask them to send it. No reply does not mean they have no models.'**
   String get askContactsWaiting;
 
   /// No description provided for @askContactsAction.
   ///
   /// In en, this message translates to:
-  /// **'Ask my contacts'**
+  /// **'Find contacts with models'**
   String get askContactsAction;
+
+  /// No description provided for @askContactsExplanation.
+  ///
+  /// In en, this message translates to:
+  /// **'Ask accepted contacts which translation and speech models they have. No files are transferred automatically.'**
+  String get askContactsExplanation;
 
   /// No description provided for @modelProvenanceAskAnother.
   ///
