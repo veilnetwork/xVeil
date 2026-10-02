@@ -315,11 +315,8 @@ void main() {
       isNot(contains(sibling)),
       reason: 'a frame for my own device was deposited',
     );
-    expect(
-      sink.recipients,
-      contains(identity),
-      reason: 'premise and fallback: the identity address still deposits',
-    );
+    expect(sink.recipients, isEmpty,
+        reason: 'device sync never uses the contact-only mailbox');
     expect(
       (await storage.pendingOutboxFrames()).map((f) => f.peerHex),
       contains(sibling.hex),
@@ -327,14 +324,7 @@ void main() {
     );
   });
 
-  test('a chunk of replicated state keeps its mailbox ack', () async {
-    // TRIED AND REVERTED (88db1a12). Dropping the mailbox leg for chunk acks
-    // looked like pure savings — 38 of 45 deposits in one window were chunk
-    // acks — but for a sender with several devices the live ack reaches the
-    // ONE device routing picks when the frame did not name its device, and
-    // the copy in the identity's mailbox is the leg that reaches the sibling
-    // whose frame is waiting. The saving was never shown on the stand either:
-    // delivery spread 1.5-116 s across rounds with and without the change.
+  test('a chunk of replicated state acks live without mailbox', () async {
     final contact = NodeId(Uint8List.fromList(List.filled(32, 0x44)));
     final transport = _RecordingTransport(
       localNodeId: NodeId(Uint8List.fromList(List.filled(32, 0x13))),
@@ -349,8 +339,7 @@ void main() {
       'grpc:grp:${'aa' * 32}:${'bb' * 32}:${contact.hex}:7',
     );
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(sink.recipients, contains(contact),
-        reason: 'a chunk ack lost its mailbox leg');
+    expect(sink.recipients, isEmpty);
     expect(transport.sentTo, contains(contact), reason: 'and the live one');
   });
 
