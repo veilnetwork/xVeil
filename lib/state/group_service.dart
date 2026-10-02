@@ -20090,8 +20090,18 @@ class GroupService implements ArchiveGroups {
         _deviceIncomingCtl.add(message);
       }
     }
+    try {
+      await onDeviceGroupAdopted?.call();
+    } catch (_) {
+      // The link is already complete; a settings catch-up failure must not
+      // turn it into a failed adoption.
+    }
     return true;
   }
+
+  /// Called on the joining device once its group is ready for local settings
+  /// that were chosen before the link existed.
+  Future<void> Function()? onDeviceGroupAdopted;
 
   Future<bool> _appendSovereignMembership(
     GroupBundle bundle,

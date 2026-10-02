@@ -5448,8 +5448,14 @@ void main() {
     final s2 = FakeHvContainer().storage();
     await s2.open(password: 'pw', createIfMissing: true);
     final secondary = GroupService(s2, _FakeSigner(bob));
+    var adoptionCallbacks = 0;
+    secondary.onDeviceGroupAdopted = () async {
+      expect(await secondary.deviceGroupIdHex(), gidHex);
+      adoptionCallbacks++;
+    };
     expect(await secondary.ingestSnapshot(sent.first), isTrue);
     expect(await secondary.adoptDeviceGroup(NodeId.fromHex(gidHex)), isTrue);
+    expect(adoptionCallbacks, 1);
     expect(await secondary.deviceGroupIdHex(), gidHex);
 
     // Sync events round-trip through the device log and fold newest-wins…

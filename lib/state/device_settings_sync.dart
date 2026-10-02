@@ -10,6 +10,11 @@
 // node, per-device P2P policy, API server, page sizes) must never register.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../domain/chat.dart' show SignaturePolicy;
+import '../domain/device_sync.dart';
+import 'identity_scoped_prefs.dart';
 
 /// Sync keys — the DeviceSyncEvent key namespace for `settingSet` events.
 /// Values match the controllers' SharedPreferences keys for greppability.
@@ -17,6 +22,37 @@ const String kSyncShowReactions = 'show_reactions';
 const String kSyncLocale = 'locale';
 const String kSyncSignaturePolicy = 'signature_policy';
 const String kSyncNicknameClaim = 'nickname:claimed';
+
+/// Choices made before a device group existed cannot have been emitted into
+/// it. Absence means the default, not a choice to publish over a sibling's
+/// explicit value. These three preferences live outside the encrypted store
+/// because the UI reads them before unlock; use the same scoped keys as their
+/// controllers.
+Map<String, String> storedDeviceSyncPreferences(SharedPreferences prefs) {
+  final values = <String, String>{};
+  final reactions = prefs.get(identityScopedPrefKey(kSyncShowReactions));
+  if (reactions is bool) values[kSyncShowReactions] = reactions ? '1' : '0';
+  final locale = prefs.get(identityScopedPrefKey(kSyncLocale));
+  if (locale is String) values[kSyncLocale] = locale;
+  final policy = prefs.get(identityScopedPrefKey(kSyncSignaturePolicy));
+  if (policy is String &&
+      SignaturePolicy.values.any((p) => p.name == policy)) {
+    values[kSyncSignaturePolicy] = policy;
+  }
+  return values;
+}
+
+/// A pre-link local choice only seeds an empty slot. A folded event is a
+/// decision already shared by the identity and must never be overwritten by
+/// a newer backfill timestamp from a stale device.
+Map<String, String> devicePreferencesNeedingBackfill(
+  Map<String, String> stored,
+  Map<(DeviceSyncKind, String), DeviceSyncEvent> folded,
+) => {
+  for (final entry in stored.entries)
+    if (!folded.containsKey((DeviceSyncKind.settingSet, entry.key)))
+      entry.key: entry.value,
+};
 
 typedef DeviceSettingApply = Future<void> Function(String value);
 
