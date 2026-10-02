@@ -6932,11 +6932,43 @@ class AppL10nEn extends AppL10n {
   String get translationModelsRemove => 'Remove this language';
 
   @override
-  String get translationModelsShare => 'Save as a file to send';
+  String get translationModelsShare => 'Share model file';
+
+  @override
+  String get translationModelsExport => 'Export .veiltranslate';
+
+  @override
+  String get translationModelsExported =>
+      'Model file saved. You can send it as an ordinary chat attachment.';
+
+  @override
+  String get translationModelsExportFailed => 'Could not export the model file';
 
   @override
   String get translationModelsHint =>
-      'One .veiltranslate file per direction. Translation happens on this device.';
+      'Get a .veiltranslate file from a GitHub release or a contact. Each direction needs its own file.';
+
+  @override
+  String get translationGithubTitle => 'Download languages from GitHub';
+
+  @override
+  String get translationGithubTileHint =>
+      'Published .veiltranslate files in xVeil releases';
+
+  @override
+  String get translationGithubHint =>
+      'Choose a direction. The download is checked against the release SHA-256 before installation.';
+
+  @override
+  String get translationGithubEmpty =>
+      'No .veiltranslate files have been published in xVeil releases yet. You can get one from a contact and install it here.';
+
+  @override
+  String get translationGithubFailed => 'Could not load models from GitHub';
+
+  @override
+  String get translationGithubNoStorage =>
+      'No storage is available for models on this device';
 
   @override
   String get voiceModelResume => 'Continue downloading';
@@ -7154,14 +7186,18 @@ class AppL10nEn extends AppL10n {
       'Contacts get no answer. They cannot tell this from your having no models.';
 
   @override
-  String get askContactsTitle => 'Ask contacts for models';
+  String get askContactsTitle => 'Which contacts have models?';
 
   @override
   String get askContactsWaiting =>
-      'Whoever answers appears here. Silence means nothing in particular.';
+      'Only the model lists of contacts who reply appear here. To get a file, open their chat and ask them to send it. No reply does not mean they have no models.';
 
   @override
-  String get askContactsAction => 'Ask my contacts';
+  String get askContactsAction => 'Find contacts with models';
+
+  @override
+  String get askContactsExplanation =>
+      'Ask accepted contacts which translation and speech models they have. No files are transferred automatically.';
 
   @override
   String get modelProvenanceAskAnother => 'Ask another contact';
