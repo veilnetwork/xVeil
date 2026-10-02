@@ -11,6 +11,7 @@ import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/group_message.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/state/group_service_providers.dart';
+import 'package:xveil/state/messaging_providers.dart';
 import 'package:xveil/state/providers.dart';
 
 import 'support/fake_hv_container.dart';
@@ -277,6 +278,46 @@ void _devicesUnlinkOffer() {
 
 void _devicesRowActions() {
   group('a linked device is something you can ask for data', () {
+    testWidgets('last seen updates while the devices screen stays open', (
+      tester,
+    ) async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(storage, _Signer(_id(1)));
+      addTearDown(svc.dispose);
+      final bob = _id(3);
+      expect(await svc.linkDevice(bob, sovereign: _Sovereign(_id(9))), isTrue);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            groupServiceProvider.overrideWithValue(svc),
+            storageProvider.overrideWithValue(storage as Storage),
+          ],
+          child: const MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            home: DevicesScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final l = AppL10n.of(tester.element(find.byType(DevicesScreen)));
+      expect(find.text('${bob.short} · ${l.devicesNeverSeen}'), findsOneWidget);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(DevicesScreen)),
+      );
+      await container.read(messagingServiceProvider).notePeerSeen(bob);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.text('${bob.short} · ${l.devicesNeverSeen}'), findsNothing);
+      expect(
+        find.textContaining('${bob.short} · ${l.devicesLastSeen('')}'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('its row offers to fetch its data', (tester) async {
       final storage = FakeHvContainer().storage();
       await storage.open(password: 'pw', createIfMissing: true);
