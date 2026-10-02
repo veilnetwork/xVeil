@@ -31,6 +31,9 @@ class _RealtimeProbe
   int realtimeSends = 0;
   int relayRealtimeSends = 0;
   bool? lastRealtimeAnonymous;
+  NodeId? lastNormalDestination;
+  NodeId? lastRealtimeDestination;
+  NodeId? lastRelayRealtimeDestination;
 
   @override
   Future<NodeId> nodeId() async => me;
@@ -42,6 +45,7 @@ class _RealtimeProbe
     bool anonymous = false,
   }) async {
     normalSends++;
+    lastNormalDestination = dst;
   }
 
   @override
@@ -51,6 +55,7 @@ class _RealtimeProbe
     bool anonymous = false,
   }) async {
     realtimeSends++;
+    lastRealtimeDestination = dst;
     lastRealtimeAnonymous = anonymous;
     if (blockRealtime) await realtimeGate.future;
   }
@@ -58,6 +63,7 @@ class _RealtimeProbe
   @override
   Future<void> sendRelayRealtime(NodeId dst, Uint8List payload) async {
     relayRealtimeSends++;
+    lastRelayRealtimeDestination = dst;
   }
 
   @override
@@ -192,6 +198,54 @@ void main() {
       transport.realtimeGate.complete();
     },
   );
+
+  test('cold call answer keeps identity for all certificate lanes', () async {
+    final device = _id(3);
+    final messaging = MessagingService(transport, storage);
+    addTearDown(messaging.dispose);
+    messaging.pinCallReplyDevice('reply-device', peer, device);
+
+    await messaging.sendCallSignal(
+      peer,
+      const CallSignal(callId: 'reply-device', type: CallSignalType.answer),
+    );
+
+    expect(transport.lastNormalDestination, peer);
+    expect(transport.lastRealtimeDestination, peer);
+    expect(transport.lastRelayRealtimeDestination, peer);
+    expect((await storage.pendingOutboxFrames()).single.peerHex, peer.hex);
+
+    // A cached direct route to a different device cannot receive the
+    // caller's answer; the identity route remains the only valid fallback.
+    messaging.routeFor = (_) => _id(4);
+    await messaging.sendCallSignal(
+      peer,
+      const CallSignal(callId: 'reply-device', type: CallSignalType.end),
+    );
+    expect(transport.lastNormalDestination, peer);
+
+    messaging.routeFor = (_) => device;
+    await messaging.sendCallSignal(
+      peer,
+      const CallSignal(callId: 'reply-device', type: CallSignalType.cancel),
+    );
+    expect(transport.lastNormalDestination, peer);
+  });
+
+  test('cold offer does not seal to a cached physical route', () async {
+    final messaging = MessagingService(transport, storage);
+    addTearDown(messaging.dispose);
+    messaging.routeFor = (_) => _id(3);
+
+    await messaging.sendCallSignal(
+      peer,
+      const CallSignal(callId: 'cold-offer', type: CallSignalType.offer),
+    );
+
+    expect(transport.lastNormalDestination, peer);
+    expect(transport.lastRealtimeDestination, peer);
+    expect(transport.lastRelayRealtimeDestination, peer);
+  });
 
   test('realtime call leg starts before a blocked durable enqueue', () async {
     final blockedStorage = _BlockingOutboxStorage();

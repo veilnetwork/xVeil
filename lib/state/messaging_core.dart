@@ -860,6 +860,7 @@ class MessagingService {
     Uint8List payload, {
     bool wantReply = false,
     bool deferRatchetWrite = false,
+    bool requireIdentityAddress = false,
   }) async {
     devLog(
       () =>
@@ -884,13 +885,28 @@ class MessagingService {
     // 231 s. Addressing the device makes the question — and the route —
     // specific.
     //
-    // Sealing is unaffected: a certificate lives under the identity, and the
-    // daemon resolves it from the session's own proof rather than from
-    // whatever this names.
-    final routed =
-        _realtimeControl.routeCallPayload(dst, payload) ??
-        routeFor?.call(dst) ??
-        dst;
+    // A live direct session already carries the peer's certificate. Without
+    // that session, relay sealing looks up a certificate for this address.
+    // A call offer may pin its reply to the caller's physical device. That
+    // address is usable on an admitted direct session, but a relay/mailbox
+    // seal still needs the contact's identity certificate. Routing every
+    // ordinary send to the pinned device made a cold answer spend seconds
+    // searching for a certificate that cannot exist under the device id.
+    // `routeFor` names a device only when the endpoint service knows a live
+    // route. For a pinned call reply, use that device only when it is the
+    // caller's device; another live device cannot answer this call for them.
+    // Otherwise keep the identity for the seal and mailbox fallback.
+    final directRoute = requireIdentityAddress ? null : routeFor?.call(dst);
+    final replyDevice = requireIdentityAddress
+        ? null
+        : _realtimeControl.routeCallPayload(dst, payload);
+    final routed = requireIdentityAddress
+        ? dst
+        : replyDevice == null
+        ? directRoute ?? dst
+        : directRoute == replyDevice
+        ? replyDevice
+        : dst;
     if (routed != dst) {
       devLog(
         () => 'xVeil[send]: routing ${dst.short} via device ${routed.short}',
