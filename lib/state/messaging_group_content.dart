@@ -66,10 +66,9 @@ class _MessagingGroupContent {
       try {
         await _owner._send(dst, wire);
       } catch (_) {
-        // Mailbox copy + outbox re-drive remain authoritative.
+        // The local outbox re-drives this request while it is fresh.
       }
     }());
-    _owner._stashInBackground(dst, frameId, wire);
   }
 
   /// Send a completion receipt over the live authenticated transport only.

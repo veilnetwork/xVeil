@@ -12,6 +12,7 @@ import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart'
     show Contact, ContactStatus, Message, MessageStatus, MessageDirection;
 import 'package:xveil/domain/content_manifest.dart';
+import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/mailbox_service.dart';
 import 'package:xveil/state/messaging.dart';
 
@@ -430,7 +431,7 @@ void main() {
   });
 
   test(
-    'a cloud file offer reaches the mailbox when the live send throws',
+    'a cloud file offer stays local when the live send throws',
     () async {
       await sA.upsertContact(
         Contact(nodeId: b, status: ContactStatus.accepted),
@@ -447,16 +448,14 @@ void main() {
 
       expect(await mA.shareStoredContent(b, manifest.contentId), isTrue);
 
-      final offer = sink.stashed.single;
-      expect(offer.$1, b);
-      expect(WireEnvelope.decode(offer.$2).kind, WireKind.contentManifest);
+      expect(sink.stashed, isEmpty);
       final sent = await sA.loadMessages(b.hex);
       expect(sent.single.fileId, manifest.contentId);
     },
   );
 
   test(
-    'a free message to an accepted contact is deposited immediately',
+    'a free message to an accepted contact bypasses mailbox',
     () async {
       await mA.acceptContact(b); // marks b accepted on a's side
       sink.stashed.clear();
@@ -468,19 +467,15 @@ void main() {
               env.kind == WireKind.message &&
               env.body == 'first real message';
         }),
-        isTrue,
+        isFalse,
       );
     },
   );
 
-  test('a durable ACK is deposited at the sender mailbox so a NAT-d sender '
-      'stops re-sending', () async {
+  test('a durable ACK bypasses mailbox', () async {
     await mA.acceptContact(b); // b accepted on a's side
     sink.stashed.clear();
-    // b's message arrives with no live reply path (replyId 0) — exactly the
-    // NAT'd case where a live-send ack can't get back. a must ACK durably AND
-    // deposit it at b's mailbox so the ack reaches b over the rendezvous push,
-    // flipping b's message to delivered and ending the re-send storm.
+    // With no reply circuit, the ACK is queued for live retry.
     final wire = WireEnvelope.message(
       'ping',
       id: 'm1',
@@ -499,19 +494,14 @@ void main() {
         final env = WireEnvelope.decode(s.$2);
         return s.$1 == b && env.kind == WireKind.ack && env.id == 'm1';
       }),
-      isTrue,
-      reason: 'durable ack for m1 should be deposited at b\'s mailbox',
+      isFalse,
     );
   });
 
-  test('a file OFFER (content manifest) is deposited at the recipient mailbox '
-      'so it survives a down live path like a text message does', () async {
+  test('a file offer uses live delivery without mailbox storage', () async {
     await mA.acceptContact(b);
     sink.stashed.clear();
-    // A file above the content threshold goes through the content layer as a
-    // manifest offer. Before the fix this was live-only, so on a flaky link the
-    // offer vanished while texts (which stash) still arrived. The manifest
-    // frame must now be deposited too, keyed by the send's msgId.
+    // The content manifest is kept locally for retry, not stored at a relay.
     await mA.sendFile(
       b,
       Uint8List.fromList(List.generate(200000, (i) => i & 0xff)),
@@ -523,9 +513,7 @@ void main() {
         final env = WireEnvelope.decode(s.$2);
         return s.$1 == b && env.kind == WireKind.contentManifest;
       }),
-      isTrue,
-      reason:
-          'the file offer manifest should be deposited for offline delivery',
+      isFalse,
     );
   });
 
@@ -2008,19 +1996,7 @@ void main() {
     },
   );
 
-  test('a call offer is deposited even though the call itself paused '
-      'background deposits', () async {
-    // CallService sets `backgroundStashPaused` for the whole life of a call
-    // (`status != ended`) so bulk sealing does not steal CPU from media. The
-    // offer that STARTS the call is sent inside that window, and the deposit
-    // gate used to drop it: the flush loop exempted call signals from the
-    // pause, then handed them to a deposit that re-checked the pause and
-    // returned.
-    //
-    // Measured on the stand with the live path down: nine live re-drives over
-    // 75s, not one deposit, ring timeout, and the offer deposited 170ms AFTER
-    // the caller had given up — so the callee rang a call that no longer
-    // existed, while a plain text on the same broken path arrived in 15s.
+  test('a call offer never enters mailbox', () async {
     await mA.acceptContact(b);
     sink.stashed.clear();
     tA.throwOnSend = true; // the live leg goes nowhere, as after a node reboot
@@ -2036,12 +2012,29 @@ void main() {
     await pumpEventQueue();
 
     expect(
-      sink.stashed.any((s) => s.$1 == b),
-      isTrue,
-      reason:
-          'the offer must reach the mailbox while the call is dialing — '
-          'it is useless once the ring window has passed',
+      sink.stashed,
+      isEmpty,
+      reason: 'an offline call cannot connect and must not ring later',
     );
+  });
+
+  test('an old mailbox call offer cannot ring after this policy change', () async {
+    await mA.acceptContact(b);
+    final signals = <CallSignal>[];
+    mA.onCallSignal = (_, signal) => signals.add(signal);
+    await mA.deliverInbound(
+      InboundMessage(
+        src: b,
+        payload: WireEnvelope.callSignal(
+          const CallSignal(
+            callId: 'old-mailbox-offer',
+            type: CallSignalType.offer,
+          ).encode(),
+        ).encode(),
+        provenance: SenderProvenance.signed,
+      ),
+    );
+    expect(signals, isEmpty);
   });
 
   // THE DEPOSIT MUST NOT QUEUE BEHIND A PEER THAT IS GONE (2026-08-18).
@@ -2113,7 +2106,7 @@ void main() {
       );
     });
 
-    test('does not hold up the deposit the retry pass owes', () async {
+    test('keeps a message in the local outbox without depositing it', () async {
       await unackedMessageToB();
       // Long on purpose, so the deadline above cannot be what rescues this:
       // a deposit that only lands when the live leg is abandoned is still a
@@ -2123,17 +2116,11 @@ void main() {
       unawaited(mA.flushOutbox());
       await pumpEventQueue(times: 50);
 
-      expect(
-        sink.stashed.any((s) => s.$1 == b),
-        isTrue,
-        reason:
-            'the retry runs BECAUSE the message is un-acked, so the peer is by '
-            'definition the one we have failed to reach — the deposit belongs '
-            'in front of the next attempt to reach it, not behind it',
-      );
+      expect(sink.stashed, isEmpty);
+      expect(await sA.loadMessages(b.hex), isNotEmpty);
     });
 
-    test('does not hold up the durable ACK owed to the sender', () async {
+    test('does not put a durable ACK in mailbox', () async {
       await mA.acceptContact(b);
       sink.stashed.clear();
       tA.hangOnSend = true;
@@ -2155,20 +2142,10 @@ void main() {
       );
       await pumpEventQueue(times: 50);
 
-      expect(
-        sink.stashed.any((s) {
-          final env = WireEnvelope.decode(s.$2);
-          return s.$1 == b && env.kind == WireKind.ack && env.id == 'ack-order';
-        }),
-        isTrue,
-        reason:
-            'the ack rides the mailbox BECAUSE the sender is unreachable live; '
-            'waiting for the live leg first is waiting for the very thing the '
-            'deposit is standing in for',
-      );
+      expect(sink.stashed, isEmpty);
     });
 
-    test('does not delay ANOTHER peer\'s deposit in the same pass', () async {
+    test('does not deposit either peer\'s queued message', () async {
       final c = _id(3);
       await mA.acceptContact(b);
       await mA.acceptContact(c);
@@ -2195,14 +2172,7 @@ void main() {
       unawaited(mA.debugFlushOutboxFrames());
       await pumpEventQueue(times: 50);
 
-      expect(
-        sink.stashed.map((s) => s.$1).toSet(),
-        {b, c},
-        reason:
-            'every frame in a pass is offered to the deposit gate before any '
-            'of them is dialled, so an unreachable destination costs the live '
-            'half of the pass and nothing else',
-      );
+      expect(sink.stashed, isEmpty);
     });
   });
 

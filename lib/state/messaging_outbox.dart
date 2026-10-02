@@ -262,10 +262,10 @@ class _MessagingOutbox {
     bool startLiveBeforeEnqueue = false,
   }) async {
     final wire = envelope.withFrameId(frameId).encode();
+    final mailboxEligible =
+        envelope.kind == WireKind.request || envelope.kind == WireKind.accept;
     final skipLive =
-        !_MessagingMailboxDelivery.isCallSignalId(frameId) &&
-        !startLiveBeforeEnqueue &&
-        await _longSilent(peer.hex);
+        mailboxEligible && !startLiveBeforeEnqueue && await _longSilent(peer.hex);
     Future<void> tryLive() async {
       final stopwatch = Stopwatch()..start();
       try {
@@ -317,18 +317,9 @@ class _MessagingOutbox {
         return;
       }
     }
-    // THE DEPOSIT IS THE COPY THAT SURVIVES THE PEER BEING GONE, so it cannot
-    // be sequenced behind an attempt to reach a peer that is gone. It used to
-    // sit below the live wait, and the wait buys it nothing: [tryLive] swallows
-    // every error, so the deposit that follows happens on success and failure
-    // alike. All the ordering ever added was the live leg's latency — and a
-    // live leg has no deadline of its own, so "latency" includes "never".
-    //
-    // What that cost in the field: this method is awaited in serial fan-outs
-    // (`group_service.broadcast`, one recipient at a time; the chunk loop in
-    // `messaging_replication`), so ONE device on a stale direct address made
-    // every later recipient's deposit wait out its dial too.
-    _owner._stashInBackground(peer, frameId, wire);
+    // Contact acceptance is the only durable frame stored in mailbox. Start
+    // its deposit before waiting for a live send to an unavailable requester.
+    if (mailboxEligible) _owner._stashInBackground(peer, frameId, wire);
     if (skipLive) {
       if (_liveSkipNoted.add(peer.hex)) {
         devLog(
@@ -421,10 +412,8 @@ class _MessagingOutbox {
         try {
           await liveSender(wire);
         } catch (_) {
-          // Every constituent path is best-effort; the next timer or durable
-          // mailbox copy remains authoritative.
+          // Every constituent path is best-effort; the next live retry remains.
         }
-        _owner._stashInBackground(peer, frameId, wire);
         if (attemptsLeft > 1 &&
             _liveBackoff.containsKey(_key(peer.hex, frameId))) {
           schedule(nextDelay, attemptsLeft - 1);
@@ -570,20 +559,21 @@ class _MessagingOutbox {
       if (contact?.status == ContactStatus.blocked && !groupMemberCarrier) {
         continue;
       }
-      if (_owner._mailboxDelivery.suppressedByBackoff(
+      // Contact handshake frames use these stable prefixes. Avoid parsing
+      // each queued group snapshot on every three-second flush just to skip it.
+      // The deposit gate still validates the actual wire kind.
+      final mailboxEligible = frame.frameId.startsWith('accept:') ||
+          frame.frameId.startsWith('request:');
+      if (mailboxEligible && _owner._mailboxDelivery.suppressedByBackoff(
         frame.peerHex,
         _owner._now(),
         'outbox flush',
       )) {
         continue;
       }
-      // Already in the recipient's mailbox: nothing to re-offer. Asked here
-      // rather than inside the deposit path so the pass does not spawn a task
-      // and write a log line per pending frame per pass to learn it. The
-      // deposit still comes BEFORE the live leg for everything that genuinely
-      // needs depositing — that ordering is what stops an unreachable peer
-      // from holding up the durable copy.
-      if (!_owner._mailboxDelivery.alreadyDeposited(frame.frameId)) {
+      // Re-offer a contact acceptance only if it has not reached mailbox.
+      if (mailboxEligible &&
+          !_owner._mailboxDelivery.alreadyDeposited(frame.frameId)) {
         _owner._stashInBackground(peer, frame.frameId, frame.wire);
       }
       final now = _owner._now();
@@ -599,16 +589,15 @@ class _MessagingOutbox {
       // outbox was already measured producing: bursts of about 175 sends a
       // second, each one a radio wake and a DHT lookup.
       //
-      // Frames past the ceiling are simply not dialled THIS pass. They keep
-      // their place, their deposit was already offered above — that half is
-      // what carries an offline peer — and the flush comes round again in
-      // seconds. Nothing is dropped and no attempt is counted against them,
-      // which is why the check sits before the ladder bookkeeping rather than
-      // after it: a frame that was never sent must not be told to wait longer
-      // for the next try.
+      // Frames past the ceiling remain queued for the next pass. Nothing is
+      // dropped and no attempt is counted against an unsent frame.
       if (redrive.length >= _maxLiveRedrivesPerPass) continue;
       // Past the ceiling check, so a probe is spent only on a frame that goes.
-      if (!isCallSignal && !_takeSilentProbe(frame.peerHex, now)) continue;
+      if (!isCallSignal &&
+          mailboxEligible &&
+          !_takeSilentProbe(frame.peerHex, now)) {
+        continue;
+      }
       final count = (backoff?.count ?? 0) + 1;
       // Call control is useful only inside the ring window and therefore uses
       // a sub-second initial ladder; ordinary durable control starts at 20s. Both grow

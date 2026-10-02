@@ -750,6 +750,7 @@ void main() {
 
       expect(svc.current?.transport, CallTransportKind.p2p);
       expect(fake.sent.single.type, CallSignalType.answer);
+      expect(fake.sent.single.replyDevice, NodeId.fromHex('f' * 64).hex);
       expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
       expect(media.startedWith, [CallTransportKind.p2p]);
     });
@@ -2395,6 +2396,34 @@ void main() {
       );
       await pumpEventQueue();
       expect(svc.current?.status, CallStatus.connecting);
+      svc.dispose();
+    });
+
+    test('an identity-sent answer binds media to its physical device', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      final identity = NodeId.fromHex('a' * 64);
+      final device = NodeId.fromHex('b' * 64);
+
+      await svc.placeCall(identity, const CallMedia(audio: true));
+      fake.onCallSignal!(
+        identity,
+        CallSignal(
+          callId: svc.current!.callId,
+          type: CallSignalType.answer,
+          posture: CallPosture.direct,
+          transport: const CallTransportProposal(CallTransportKind.relay),
+          replyDevice: device.hex,
+          mediaKey: generateCallMediaKeyContribution(),
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(svc.current?.peer, identity,
+          reason: 'signaling stays on the accepted contact identity');
+      expect(svc.current?.mediaPeer, device,
+          reason: 'native media ingress is attributed to the answering device');
+      expect(svc.current?.mediaIdentity, identity);
       svc.dispose();
     });
 

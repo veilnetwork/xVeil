@@ -25,7 +25,6 @@ class _MessagingFileTransfer {
   }) async {
     final contact = await _owner._storage.getContact(peer);
     if (contact == null || contact.status != ContactStatus.accepted) return;
-    _owner._mailboxDelivery.noteActivity();
     // The recipient will pull large content shortly; avoid a cold serve pool.
     _owner._warmStreamPeer(peer);
     if (bytes.length > MessagingService._contentThreshold) {

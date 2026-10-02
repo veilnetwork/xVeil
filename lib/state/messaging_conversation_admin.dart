@@ -407,12 +407,7 @@ class _MessagingConversationAdmin {
     try {
       await _owner._send(peer, wire);
     } catch (_) {
-      // Live path down — the mailbox deposit below still delivers.
-    }
-    try {
-      await _owner._maybeStash(peer, fid, wire);
-    } catch (_) {
-      // Best-effort: the delete must not be blocked by an unreachable mailbox.
+      // Best-effort farewell; the local deletion is already complete.
     }
   }
 
