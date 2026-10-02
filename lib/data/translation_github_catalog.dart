@@ -20,6 +20,9 @@ class TranslationGithubBundle {
 
   String get pair =>
       name.substring(0, name.length - kTranslateBundleExt.length);
+
+  Uri get releasePage =>
+      Uri.https('github.com', '/veilnetwork/xVeil/releases/tag/$tag');
 }
 
 class TranslationGithubCatalog {
@@ -31,18 +34,41 @@ class TranslationGithubCatalog {
     '/repos/veilnetwork/xVeil/releases',
     {'per_page': '30'},
   );
+  // The first published pairs live here. The recent-release list is bounded
+  // for GitHub response size, so without this anchor the first models would
+  // disappear after enough app releases.
+  static const firstModelsTag = 'v0.13.83';
+  static final firstModelsUri = Uri.https(
+    'api.github.com',
+    '/repos/veilnetwork/xVeil/releases/tags/$firstModelsTag',
+  );
 
   final ReleaseTextFetcher _fetcher;
 
-  Future<List<TranslationGithubBundle>> load() async =>
-      parse(await _fetcher(releasesUri));
+  Future<List<TranslationGithubBundle>> load() async {
+    final recent = parse(await _fetcher(releasesUri));
+    if (recent.any((bundle) => bundle.tag == firstModelsTag)) return recent;
+    try {
+      final first = parse(await _fetcher(firstModelsUri));
+      final knownNames = recent.map((bundle) => bundle.name).toSet();
+      return [
+        ...recent,
+        ...first.where((bundle) => !knownNames.contains(bundle.name)),
+      ];
+    } on Object {
+      if (recent.isNotEmpty) return recent;
+      rethrow;
+    }
+  }
 
   static List<TranslationGithubBundle> parse(String body) {
     final Object? decoded = jsonDecode(body);
-    if (decoded is! List) throw const FormatException('Invalid releases');
+    if (decoded is! List && decoded is! Map) {
+      throw const FormatException('Invalid releases');
+    }
     final result = <TranslationGithubBundle>[];
     final seen = <String>{};
-    for (final release in decoded) {
+    for (final release in decoded is List ? decoded : [decoded]) {
       if (release is! Map ||
           release['draft'] == true ||
           release['prerelease'] == true) {

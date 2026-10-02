@@ -43,6 +43,38 @@ void main() {
     );
   });
 
+  test('first published pairs remain visible after 30 newer releases', () async {
+    final requested = <Uri>[];
+    final catalog = TranslationGithubCatalog(
+      fetcher: (uri) async {
+        requested.add(uri);
+        if (uri == TranslationGithubCatalog.releasesUri) return '[]';
+        expect(uri, TranslationGithubCatalog.firstModelsUri);
+        return jsonEncode({
+          'tag_name': 'v0.13.83',
+          'assets': [
+            {
+              ...validAsset,
+              'browser_download_url':
+                  'https://github.com/veilnetwork/xVeil/releases/download/v0.13.83/$name',
+            },
+          ],
+        });
+      },
+    );
+
+    final bundles = await catalog.load();
+    expect(bundles.single.tag, 'v0.13.83');
+    expect(
+      bundles.single.releasePage.toString(),
+      'https://github.com/veilnetwork/xVeil/releases/tag/v0.13.83',
+    );
+    expect(requested, [
+      TranslationGithubCatalog.releasesUri,
+      TranslationGithubCatalog.firstModelsUri,
+    ]);
+  });
+
   test('rejects unpinned, redirected, oversized and draft assets', () {
     final catalog = TranslationGithubCatalog.parse(
       jsonEncode([
