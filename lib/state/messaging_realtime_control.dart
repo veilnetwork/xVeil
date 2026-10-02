@@ -340,23 +340,28 @@ class _MessagingRealtimeControl {
 
   /// Race admitted realtime and ordinary contact lanes for call control. Both
   /// copies share one durable frame id, so receiver dedup makes this safe.
-  Future<void> _sendCallLive(NodeId peer, Uint8List wire) async {
-    final livePeer = routeCallPayload(peer, wire) ?? peer;
+  Future<void> _sendCallLive(
+    NodeId peer,
+    Uint8List wire, {
+    required bool contactIdentity,
+  }) async {
     if (_owner._anonymous) {
       await sendRealtime(peer, wire);
       return;
     }
     if (_owner._transport is! RealtimeTransport) {
-      await _owner._send(livePeer, wire);
+      await _owner._send(peer, wire, requireIdentityAddress: contactIdentity);
       return;
     }
     await Future.wait<void>([
       _attempt(
         'call-sig',
         'contact',
-        livePeer,
-        () => _owner._send(livePeer, wire),
+        peer,
+        () => _owner._send(peer, wire, requireIdentityAddress: contactIdentity),
       ),
+      // The realtime endpoint is bound under the identity. A physical device
+      // id cannot receive this frame without a device-scoped binding there.
       _sendRealtimePaths('call-sig', peer, wire),
     ]);
   }
@@ -402,9 +407,11 @@ class _MessagingRealtimeControl {
     // is never a contact — this gate silently ate the whole relay while the
     // service above it logged "fanning offer … out to 1 sibling device(s)".
     final ownDevice = await _owner.isOwnDevice?.call(peer) ?? false;
+    var contactIdentity = false;
     if (!ownDevice) {
       final contact = await _owner._storage.getContact(peer);
       if (contact?.status == ContactStatus.accepted) {
+        contactIdentity = true;
         markAccepted(peer);
       } else if (!(_owner.acceptsCallDeviceSignal?.call(peer, signal) ??
           false)) {
@@ -436,7 +443,8 @@ class _MessagingRealtimeControl {
       peer,
       frameId,
       envelope,
-      liveSender: (wire) => _sendCallLive(peer, wire),
+      liveSender: (wire) =>
+          _sendCallLive(peer, wire, contactIdentity: contactIdentity),
       awaitLive: false,
       startLiveBeforeEnqueue: true,
     );
