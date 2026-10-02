@@ -2908,6 +2908,8 @@
   "translationGithubEmpty": "Aún no hay archivos .veiltranslate publicados en las versiones de xVeil. Puedes obtener uno de un contacto e instalarlo aquí.",
   "translationGithubFailed": "No se pudo cargar la lista de modelos de GitHub",
   "translationGithubNoStorage": "No hay espacio disponible para modelos en este dispositivo",
+  "translationGithubSourceLicense": "Origen y licencia en las notas de la versión",
+  "translationGithubOpenFailed": "No se pudo abrir la página de la versión",
   "voiceModelResume": "Continuar la descarga",
   "voiceModelResumeAt": "{percent} % ya descargado",
   "@voiceModelResumeAt": {

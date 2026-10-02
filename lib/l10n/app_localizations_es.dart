@@ -7068,6 +7068,14 @@ class AppL10nEs extends AppL10n {
       'No hay espacio disponible para modelos en este dispositivo';
 
   @override
+  String get translationGithubSourceLicense =>
+      'Origen y licencia en las notas de la versión';
+
+  @override
+  String get translationGithubOpenFailed =>
+      'No se pudo abrir la página de la versión';
+
+  @override
   String get voiceModelResume => 'Continuar la descarga';
 
   @override

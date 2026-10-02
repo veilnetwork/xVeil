@@ -12266,6 +12266,18 @@ abstract class AppL10n {
   /// **'No storage is available for models on this device'**
   String get translationGithubNoStorage;
 
+  /// No description provided for @translationGithubSourceLicense.
+  ///
+  /// In en, this message translates to:
+  /// **'Source and license in release notes'**
+  String get translationGithubSourceLicense;
+
+  /// No description provided for @translationGithubOpenFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open the release page'**
+  String get translationGithubOpenFailed;
+
   /// No description provided for @voiceModelResume.
   ///
   /// In en, this message translates to:
