@@ -16,6 +16,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 const String kSyncShowReactions = 'show_reactions';
 const String kSyncLocale = 'locale';
 const String kSyncSignaturePolicy = 'signature_policy';
+const String kSyncNicknameClaim = 'nickname:claimed';
 
 typedef DeviceSettingApply = Future<void> Function(String value);
 
@@ -38,8 +39,7 @@ class DeviceSettingsSyncHub {
   Iterable<String> get syncedKeys => _appliers.keys;
 
   /// Register the applier for [key] — this IS the allowlist entry.
-  void register(String key, DeviceSettingApply apply) =>
-      _appliers[key] = apply;
+  void register(String key, DeviceSettingApply apply) => _appliers[key] = apply;
 
   /// Called by an allowlisted controller after a LOCAL set. Swallowed while
   /// applying an incoming value (the controller's set() runs inside
@@ -66,5 +66,6 @@ class DeviceSettingsSyncHub {
   }
 }
 
-final deviceSettingsSyncHubProvider =
-    Provider<DeviceSettingsSyncHub>((ref) => DeviceSettingsSyncHub());
+final deviceSettingsSyncHubProvider = Provider<DeviceSettingsSyncHub>(
+  (ref) => DeviceSettingsSyncHub(),
+);
