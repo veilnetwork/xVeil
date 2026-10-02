@@ -955,8 +955,8 @@ class VeilFlutterTransport
     // The old implementation merely called ordinary `send` on a separate IPC
     // connection: it avoided a local mutex but still entered route discovery,
     // so an accepted call answer could arrive minutes after the ring timeout.
-    // A no-session error is intentional; call control is also persisted through
-    // the durable outbox/mailbox and will retry there.
+    // A no-session error is intentional; call control retries through its
+    // local outbox on the relay/P2P paths.
     return _realtimeApp.sendRealtime(
       dstNodeId: dst.bytes,
       dstAppId: realtimeAppIdFor(dst),

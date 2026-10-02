@@ -539,11 +539,7 @@ class CallService {
         replyDevice: replyDevice,
         mediaKey: localMediaKey,
         protocolVersion: _signalProtocolVersion,
-        // STAMPED. An offer that carries no time cannot be judged stale, and
-        // the durable lane re-drives it: a call nobody is making rings on a
-        // desktop hours later. Reported on Windows 2026-08-28 — "the call-start
-        // signalling arrives without the call being initiated" — after a
-        // crashed call left its offer in the mailbox.
+        // A delayed live retry must not ring after the call's window closes.
         sentAtMs: _now().millisecondsSinceEpoch,
       ),
     );
@@ -603,6 +599,12 @@ class CallService {
       ),
     );
     _startHeartbeat();
+    // The answer is authenticated under the shared identity, but native media
+    // packets are attributed to the physical device that picked up. Carry its
+    // address explicitly so the caller opens the media channel for that device.
+    final answerDevice = c.localPosture == CallPosture.direct
+        ? (await _messaging.localDeviceId()).hex
+        : null;
     await _messaging.sendCallSignal(
       c.peer,
       CallSignal(
@@ -611,6 +613,7 @@ class CallService {
         media: c.media,
         posture: c.localPosture,
         transport: CallTransportProposal(transport),
+        replyDevice: answerDevice,
         mediaKey: c.localMediaKey,
         protocolVersion: _signalProtocolVersion,
       ),
@@ -1424,13 +1427,14 @@ class CallService {
   }
 
   void _onAnswer(NodeId peer, CallSignal sig) {
-    var c = _current;
-    if (c == null ||
-        c.callId != sig.callId ||
-        c.direction != CallDirection.outgoing ||
-        c.status != CallStatus.dialing) {
+    final current = _current;
+    if (current == null ||
+        current.callId != sig.callId ||
+        current.direction != CallDirection.outgoing ||
+        current.status != CallStatus.dialing) {
       return;
     }
+    var c = current;
     if (c.peer != peer) {
       // Device fan-out, the caller's half: we dialed the IDENTITY, and the
       // device that took the call answers under its own transport id — the
@@ -1445,10 +1449,24 @@ class CallService {
       devLog(
         () =>
             'xVeil[call-sig]: answer for ${sig.callId} came from '
-            '${peer.short} — rebinding the call from ${c!.peer.short}',
+            '${peer.short} — rebinding the call from ${c.peer.short}',
       );
       c = c.copyWith(peer: peer, peerDevice: peer);
       _set(c);
+    }
+    // The durable answer can be delivered from the identity address even when
+    // a different physical device answered. Without this, the caller registers
+    // its native media channel for the identity while ingress packets arrive
+    // from the answering device and are discarded as "no-channel".
+    if (c.peer == c.mediaIdentity &&
+        sig.posture == CallPosture.direct &&
+        sig.replyDevice != null) {
+      try {
+        final device = NodeId.fromHex(sig.replyDevice!);
+        if (device != c.peerDevice) c = c.copyWith(peerDevice: device);
+      } catch (_) {
+        devLog(() => 'xVeil[call-sig]: invalid reply device in answer');
+      }
     }
     _cancelRingTimeout();
     final peerPosture = sig.posture ?? CallPosture.anonymous;

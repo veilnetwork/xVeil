@@ -106,13 +106,6 @@ class _MessagingMessageDelivery {
       final messages = await _owner._storage.loadMessages(conversation.id);
       // Runs before unresolved-peer backoff so dead identities still terminate.
       await _maybeReconnect(peer, messages);
-      if (_owner._mailboxDelivery.suppressedByBackoff(
-        peer.hex,
-        DateTime.now(),
-        'message retry',
-      )) {
-        continue;
-      }
       for (final message in messages) {
         if (message.direction != MessageDirection.outgoing ||
             message.status != MessageStatus.sent ||
@@ -175,22 +168,10 @@ class _MessagingMessageDelivery {
               'xVeil[timeline]: retry id=${message.id} '
               't=${DateTime.now().millisecondsSinceEpoch}',
         );
-        // DEPOSIT FIRST, dial second. This retry exists because the message is
-        // still un-acked, so the peer is by definition the one we have failed
-        // to reach — and the deposit used to be the line AFTER an unbounded
-        // await on reaching it. An offer is deposited under the key its
-        // original send used, so a live copy and a drained copy still dedup by
-        // the same event identity.
-        _owner._stashInBackground(
-          peer,
-          message.isFile ? 'mf:${message.id}' : message.id,
-          wire,
-        );
         // Only the initial send creates a one-shot reply circuit. Retrying that
         // setup every three seconds was the dominant circuit-build load.
-        // Bounded and swallowed: this loop walks every conversation in turn, so
-        // an unreturning send to one peer used to be every later peer's retry
-        // and every later peer's deposit as well.
+        // Bound this live retry so one unreachable peer does not hold every
+        // later conversation's retry behind its dial.
         await _owner._outbox.boundedLiveLeg(_owner._send(peer, wire));
       }
     }

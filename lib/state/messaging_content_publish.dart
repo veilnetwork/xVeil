@@ -161,36 +161,12 @@ extension _MessagingContentPublish on MessagingService {
     _evictServing();
     _ensureContentTimer();
     final mid = manifest.msgId;
-    Uint8List frame;
-    Object? liveError;
-    StackTrace? liveStack;
     try {
-      frame = await _sendContentManifest(dst, manifest);
+      await _sendContentManifest(dst, manifest);
     } catch (error, stack) {
-      // A dead live route is exactly when the mailbox copy matters. Build the
-      // same frame locally and persist it before returning; the previous order
-      // threw before `_maybeStash`, making the documented offline fallback a
-      // false guarantee.
-      frame = _encodeContentManifest(manifest).frame;
-      liveError = error;
-      liveStack = stack;
-    }
-    // Offline fallback for the OFFER itself. The manifest was previously
-    // live-only: on a flaky/down live path a plain text (which stashes) still
-    // arrived while the file offer silently vanished — the reported "file
-    // never came, other messages did". Deposit the exact manifest frame at the
-    // recipient's mailbox, keyed by THIS send's msgId so a live + drained copy
-    // dedup by event identity. Only for real event sends (msgId present) — the
-    // bare content API advertises without an event and must not spam mailboxes.
-    // Best-effort + non-blocking, exactly like the text path.
-    if (mid != null) {
-      if (liveError == null) {
-        _stashInBackground(dst, 'mf:$mid', frame);
-      } else {
-        await _maybeStash(dst, 'mf:$mid', frame);
-      }
-    } else if (liveError != null) {
-      Error.throwWithStackTrace(liveError, liveStack!);
+      // An event-backed offer stays in local storage for live retry. A bare
+      // content advertisement has no message to retry, so surface its error.
+      if (mid == null) Error.throwWithStackTrace(error, stack);
     }
     devLog(
       () =>
@@ -555,7 +531,6 @@ extension _MessagingContentPublish on MessagingService {
     if (!await _storage.hasFile(contentId)) return false;
     final persisted = await _loadPersistedManifest(contentId);
     if (persisted == null) return false;
-    _mailboxDelivery.noteActivity();
     _warmStreamPeer(dst);
 
     // Strip any old per-send fields: a cid can be shared repeatedly and each
@@ -602,7 +577,6 @@ extension _MessagingContentPublish on MessagingService {
     List<double> waveform, {
     String? lang,
   }) async {
-    _mailboxDelivery.noteActivity(); // user action → mailbox burst window
     _warmStreamPeer(dst);
     // Carry the SENDER's language in the sidecar so the receiver transcribes in
     // the spoken language, not their own locale.
@@ -622,7 +596,6 @@ extension _MessagingContentPublish on MessagingService {
     int durationMs, {
     String? thumbB64,
   }) async {
-    _mailboxDelivery.noteActivity(); // user action → mailbox burst window
     _warmStreamPeer(dst);
     final sidecar = encodeVnoteSidecar(durationMs, thumbB64);
     final name = '${_uuid.v4()}$kVnoteFileExt';
@@ -634,7 +607,6 @@ extension _MessagingContentPublish on MessagingService {
   /// micro-thumb in the sidecar so the receiver previews it instantly. The
   /// extension makes both ends render it naked (no bubble chrome).
   Future<void> _sendStickerContent(NodeId dst, Uint8List bytes) async {
-    _mailboxDelivery.noteActivity();
     _warmStreamPeer(dst);
     final thumb = await _imageThumbMaker(bytes);
     final name = '${_uuid.v4()}$kStickerFileExt';
@@ -649,7 +621,6 @@ extension _MessagingContentPublish on MessagingService {
     Uint8List blob, {
     String? firstThumbB64,
   }) async {
-    _mailboxDelivery.noteActivity();
     _warmStreamPeer(dst);
     final name = '${_uuid.v4()}$kStickerPackFileExt';
     await _sendAsContent(dst, blob, name, thumbOverride: firstThumbB64);
@@ -761,7 +732,6 @@ extension _MessagingContentPublish on MessagingService {
       await close(); // not serving this peer → release the handle now
       return null;
     }
-    _mailboxDelivery.noteActivity(); // user action → mailbox burst window
     // The recipient will pull from us shortly — open our serve pool now, in
     // parallel with the piece hashing below.
     _warmStreamPeer(dst);
