@@ -1,6 +1,6 @@
 part of 'messaging_core.dart';
 
-/// Offline mailbox fallback and its CPU/network admission controls.
+/// Mailbox delivery for the contact handshake and its admission controls.
 ///
 /// A live send remains the latency path. This subsystem owns recipient lookup,
 /// ML-KEM sealing and relay fanout for the durable fallback, including all
@@ -264,26 +264,9 @@ class _MessagingMailboxDelivery {
   static bool isCallSignalId(String id) =>
       id.startsWith('call:') || id.startsWith('gcall:');
 
-  /// Admit at most one background seal/fanout. Skipped ids stay durable and
-  /// are reconsidered on the next flush, avoiding CPU bursts during calls.
-  ///
-  /// CALL CONTROL IS EXEMPT, and that is the whole point of this method rather
-  /// than an inline check. A call sets [paused] for its entire life
-  /// (`CallService`: paused = status != ended), so while a call is dialing every
-  /// deposit is suppressed — including the deposit of that call's own offer.
-  /// The flush loop already carved call signals out of the pause and then
-  /// handed them straight to this method, which re-checked `_paused` and
-  /// dropped them anyway: the exemption was two lines away from the decision.
-  ///
-  /// Measured on the stand, 2026-08-07, with the live path broken by a node
-  /// reboot: nine live re-drives over 75s, not one deposit, `ring timeout`, and
-  /// the offer finally deposited 170ms AFTER the call had given up — so the
-  /// callee rang for a call that no longer existed. A plain text message on the
-  /// same broken path arrived in 15s, because nothing had paused its deposit.
-  ///
-  /// The capacity gate is waived too: call control is a handful of small frames
-  /// bounded by the number of live calls, and being dropped is worse for it
-  /// than being queued behind a bulk seal.
+  /// Admit at most one background seal/fanout. Only contact requests and
+  /// acceptances may use this store-and-forward path; other frames retain their
+  /// local outbox and retry over live relay/P2P routes.
   void stashInBackground(
     NodeId peer,
     String id,
@@ -294,10 +277,7 @@ class _MessagingMailboxDelivery {
     // one copy the recipient is going to get.
     bool awaitAck = false,
   }) {
-    if (isCallSignalId(id)) {
-      unawaited(maybeStash(peer, id, wire));
-      return;
-    }
+    if (!mailboxEligible(wire)) return;
     // A peer under the unresolved-peer backoff first: [maybeStash] would
     // decline it anyway, and asking here keeps the line below for deposits
     // that are really waiting. Measured on the stand: 3 205 "deferred" lines
@@ -360,6 +340,7 @@ class _MessagingMailboxDelivery {
     // checked again where the slot is actually taken. See there.
     bool background = false,
   }) async {
+    if (!mailboxEligible(wire)) return false;
     // The backoff belongs HERE, at the one place a deposit is attempted, not
     // at each call site. It was checked in the outbox flush loop only, so
     // every other route — a user send finishes with its own background stash,
@@ -397,9 +378,7 @@ class _MessagingMailboxDelivery {
     // message, and the recipient's devices mirror it among themselves — so a
     // relay copy would be a second delivery of something already safe.
     //
-    // Call control is exempt: its whole value is inside the ring window, and
-    // waiting out the grace period is the one thing it cannot afford.
-    if (awaitAck && !isCallSignalId(id)) {
+    if (awaitAck) {
       if (!shouldDeposit(
         id: id,
         acknowledged: acknowledged(id),
@@ -555,4 +534,13 @@ class _MessagingMailboxDelivery {
   /// Stable relay-side dedup/eviction key, distinct from the wire message id.
   static Uint8List _contentIdFor(String id) =>
       blake3DeriveKey('veil.mailbox.content_id.v1', utf8.encode(id));
+
+  static bool mailboxEligible(Uint8List wire) {
+    try {
+      final kind = WireEnvelope.decode(wire).kind;
+      return kind == WireKind.request || kind == WireKind.accept;
+    } catch (_) {
+      return false;
+    }
+  }
 }

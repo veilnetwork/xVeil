@@ -1016,23 +1016,9 @@ class MessagingService {
       await _transport.sendReply(m.replyId, ack);
       return;
     }
-    // Durable path. A live send reaches the sender ONLY over a direct session, so
-    // a NAT'd/offline sender never sees the ack and re-sends the message forever
-    // — the observed delivery "storm" (hundreds of duplicate INBOUNDs that the
-    // receiver dedups but the sender keeps generating because nothing flips the
-    // message to "delivered"). The MESSAGE itself reaches a NAT'd peer only
-    // because it is DEPOSITED at their mailbox and pushed over rendezvous; the
-    // ack was missing that leg. Deposit the ack at the sender's mailbox too so it
-    // rides the same push. The mailbox-delivery subsystem dedups by id (at most
-    // one deposit per message); fire-and-forget keeps the seal/PUT round-trip
-    // off the receive path while the live send covers the online case.
-    //
-    // The deposit goes FIRST for the same reason the ack is durable at all: it
-    // is the leg that reaches a sender we cannot reach live, so it cannot be
-    // sequenced behind reaching them. It sat below a live send that nothing
-    // bounds, so a sender on a stale direct address got no ack at all until
-    // that send came back — and an un-acked sender is precisely the one that
-    // re-sends forever.
+    // Without a reply circuit, answer over the live relay/P2P route. A sender
+    // that misses this ACK retains its frame and retries it; dedup on receipt
+    // makes the next answer safe.
     // A SIBLING'S FRAME is answered at the sibling's DEVICE. It arrives
     // under the identity, which on the master is this node's own address:
     // the ack went to ourselves, the sibling never saw it, and re-drove the
@@ -1066,25 +1052,18 @@ class MessagingService {
         return;
       }
     }
-    _stashInBackground(m.src, 'ack:$id', ack);
     // A CONTACT with several devices: live to the one that sent. Addressed to
     // the identity, the ack went wherever routing pointed — measured on the
     // stand 2026-09-23 as every ack for the master's frames landing on its
     // linked device, the master re-driving 12 frames 76 times a minute and the
-    // linked device drowning. The mailbox copy above stays on the identity:
-    // it is the leg that works when no device is reachable at all.
+    // linked device drowning.
     if (device != null && device != m.src) {
       await _send(device, ack);
       return;
     }
-    // A frame that did NOT name its device — relayed, or drained from the
-    // mailbox — is answered at every device of that identity this node has
-    // seen prove itself. Routed by the identity, the live ack reached one
-    // device, and when the frame had come from the other it re-drove until a
-    // mailbox copy happened to be drained by the right one: measured on the
-    // stand as every chunk of one sibling's snapshot acked only on its 5th or
-    // 6th attempt, all nine acks in a window routed to the other device. A
-    // device that does not hold the frame retires nothing.
+    // A frame that did NOT name its device is answered at every device of that
+    // identity this node has seen prove itself. A device that does not hold
+    // the frame retires nothing.
     final known = _devicesOfIdentity(m.src);
     if (known.isEmpty) {
       await _send(m.src, ack);
@@ -1094,7 +1073,7 @@ class MessagingService {
       try {
         await _send(d, ack);
       } catch (_) {
-        // Best-effort per device: the mailbox copy and a re-drive remain.
+        // Best-effort per device: the sender re-drives without this ACK.
       }
     }
   }
@@ -1378,10 +1357,20 @@ class MessagingService {
   /// Debounced downstream — safe to call per ladder run.
   void nudgeMailboxDrain() => _mailboxDelivery.nudgeDrain();
 
-  /// Route a message recovered from our mailbox through the normal inbound
-  /// path — it is a `WireEnvelope`, so [_dispatch] decodes it, applies the
-  /// consent gate, stores it, acks, and dedups by id against any live delivery.
-  Future<void> deliverInbound(InboundMessage m) => _onInbound(m);
+  /// Recover pre-upgrade mail without reviving a call after its live route or
+  /// ring window has gone. New deposits contain only the contact handshake;
+  /// older user data may remain on relays until its TTL and is still ingested.
+  Future<void> deliverInbound(InboundMessage m) {
+    try {
+      final kind = WireEnvelope.decode(m.payload).kind;
+      if (kind == WireKind.callSignal || kind == WireKind.groupCallSignal) {
+        return Future<void>.value();
+      }
+    } catch (_) {
+      // The normal inbound decoder records malformed legacy mail.
+    }
+    return _onInbound(m);
+  }
 
   /// Emits whenever stored conversations/messages change.
   Stream<void> get changes => _changes.stream;
@@ -2025,8 +2014,8 @@ class MessagingService {
     required int sentAtMs,
   }) => _realtimeControl.sendP2PEndpoints(peer, bodyJson, sentAtMs: sentAtMs);
 
-  /// Re-drive un-acked durable frames: re-deposit at the mailbox (idempotent via
-  /// the stash dedup) and, backed off per frame, re-send live. Called from
+  /// Re-drive un-acked durable frames over live routes, with mailbox fallback
+  /// only for contact acceptance. Called from
   /// [flushOutbox].
   Future<void> _flushOutboxFrames() => _outbox.flush();
 
@@ -2480,16 +2469,7 @@ class MessagingService {
           'xVeil[timeline]: send id=$id '
           't0=${sentAt.millisecondsSinceEpoch} wantReply=true',
     );
-    // A user send opens the mailbox burst window: the reply usually comes back
-    // as drained mail (the live introduce toward us may be down), so poll fast
-    // for a bounded window instead of the idle back-off.
-    _mailboxDelivery.noteActivity();
     await _send(dst, wire, wantReply: true);
-    // Deposit at the peer's mailbox as a BACKGROUND fallback (don't await): the
-    // seal+put is a slow onion round-trip, and blocking the send on it made every
-    // message feel laggy even when the live path delivers instantly. If the peer
-    // is offline the deposit (or the outbox retry) still gets there.
-    _stashInBackground(dst, id, wire, awaitAck: true);
     return true;
   }
 
@@ -2528,9 +2508,7 @@ class MessagingService {
       sentAtMs: sentAt.millisecondsSinceEpoch,
       seq: stored.seq,
     ).encode();
-    _mailboxDelivery.noteActivity();
     await _send(dst, wire, wantReply: true);
-    _stashInBackground(dst, stored.id, wire, awaitAck: true);
     return stored.id;
   }
 

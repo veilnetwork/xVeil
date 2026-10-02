@@ -502,11 +502,11 @@ void main() {
       mA.attachMailbox(mailbox);
       tA.online = false;
 
-      await mA.sendText(b, 'first');
+      await mA.sendDurable(b, 'accept:first', const WireEnvelope.accept());
       await _pump();
       expect(mailbox.calls, 1, reason: 'the first deposit is attempted');
 
-      await mA.sendText(b, 'second');
+      await mA.sendDurable(b, 'accept:second', const WireEnvelope.accept());
       await _pump();
       expect(
         mailbox.calls,
@@ -534,8 +534,8 @@ void main() {
       }
     });
 
-    await mA.sendDurable(b, 'test:one', const WireEnvelope.reconnect('one'));
-    await mA.sendDurable(b, 'test:two', const WireEnvelope.reconnect('two'));
+    await mA.sendDurable(b, 'accept:test:one', const WireEnvelope.accept());
+    await mA.sendDurable(b, 'accept:test:two', const WireEnvelope.accept());
     await _pump();
     expect(lookups.length, 2);
 
@@ -552,7 +552,7 @@ void main() {
     );
     expect(
       (await sA.pendingOutboxFrames()).map((frame) => frame.frameId),
-      containsAll(['test:one', 'test:two']),
+      containsAll(['accept:test:one', 'accept:test:two']),
       reason: 'both frames remain durable until the peer can receive them',
     );
   });
@@ -572,11 +572,11 @@ void main() {
       mA.attachMailbox(mailbox);
       tA.online = false;
 
-      await mA.sendText(b, 'first');
+      await mA.sendDurable(b, 'accept:first', const WireEnvelope.accept());
       await _pump();
       expect(mailbox.calls, 1, reason: 'the first deposit is attempted');
 
-      await mA.sendText(b, 'second');
+      await mA.sendDurable(b, 'accept:second', const WireEnvelope.accept());
       await _pump();
       expect(mailbox.calls, 1, reason: 'the backoff suppresses the second');
 
@@ -585,7 +585,7 @@ void main() {
       await mB.sendText(a, 'I am back');
       await _pump();
 
-      await mA.sendText(b, 'third');
+      await mA.sendDurable(b, 'accept:third', const WireEnvelope.accept());
       await _pump();
       expect(
         mailbox.calls,
@@ -608,11 +608,11 @@ void main() {
       mA.attachMailbox(mailbox);
       tA.online = false;
 
-      await mA.sendText(b, 'first');
+      await mA.sendDurable(b, 'accept:first', const WireEnvelope.accept());
       await _pump();
       expect(mailbox.calls, 1);
 
-      await mA.sendText(b, 'second');
+      await mA.sendDurable(b, 'accept:second', const WireEnvelope.accept());
       await _pump();
       expect(mailbox.calls, 1, reason: 'the backoff suppresses the second');
 
@@ -630,7 +630,7 @@ void main() {
       );
       await _pump();
 
-      await mA.sendText(b, 'third');
+      await mA.sendDurable(b, 'accept:third', const WireEnvelope.accept());
       await _pump();
       expect(
         mailbox.calls,
@@ -648,9 +648,12 @@ void main() {
     mA.attachMailbox(mailbox);
 
     tA.online = false;
-    await mA.sendText(b, 'queued behind mailbox');
+    await mA.sendDurable(b, 'accept:slow', const WireEnvelope.accept());
     await _pump();
-    expect((await aMsg('queued behind mailbox')).status, MessageStatus.sent);
+    expect(
+      (await sA.pendingOutboxFrames()).map((f) => f.frameId),
+      contains('accept:slow'),
+    );
 
     await mA.flushOutbox().timeout(const Duration(milliseconds: 100));
     expect(
@@ -668,8 +671,8 @@ void main() {
       mA.attachMailbox(mailbox);
       tA.online = false;
 
-      await mA.sendDurable(b, 'test:one', const WireEnvelope.reconnect('one'));
-      await mA.sendDurable(b, 'test:two', const WireEnvelope.reconnect('two'));
+    await mA.sendDurable(b, 'accept:test:one', const WireEnvelope.accept());
+    await mA.sendDurable(b, 'accept:test:two', const WireEnvelope.accept());
       await _pump();
 
       expect(
@@ -700,8 +703,8 @@ void main() {
       tA.online = false;
 
       await Future.wait([
-        mA.sendDurable(b, 'test:one', const WireEnvelope.reconnect('one')),
-        mA.sendDurable(b, 'test:two', const WireEnvelope.reconnect('two')),
+        mA.sendDurable(b, 'accept:test:one', const WireEnvelope.accept()),
+        mA.sendDurable(b, 'accept:test:two', const WireEnvelope.accept()),
       ]);
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
@@ -725,8 +728,8 @@ void main() {
     tA.online = false;
 
     final before = devLogSnapshot().total;
-    await mA.sendDurable(b, 'test:holder', const WireEnvelope.reconnect('h'));
-    await mA.sendDurable(b, 'test:waiter', const WireEnvelope.reconnect('w'));
+    await mA.sendDurable(b, 'accept:test:holder', const WireEnvelope.accept());
+    await mA.sendDurable(b, 'accept:test:waiter', const WireEnvelope.accept());
     for (var i = 0; i < 3; i++) {
       await mA.flushOutbox();
       await _pump();
@@ -737,7 +740,7 @@ void main() {
       (snap.lines.length - (snap.total - before)).clamp(0, snap.lines.length),
     );
     final deferred = fresh
-        .where((l) => l.contains('stash DEFERRED') && l.contains('test:waiter'))
+        .where((l) => l.contains('stash DEFERRED') && l.contains('accept:test:waiter'))
         .length;
     expect(mailbox.calls, 1, reason: 'vacuity guard: the slot stays held');
     expect(
@@ -759,14 +762,14 @@ void main() {
 
       await mA.sendDurable(
         b,
-        'test:during-call',
-        const WireEnvelope.reconnect('call'),
+        'accept:test:during-call',
+        const WireEnvelope.accept(),
       );
       await _pump();
       expect(mailbox.calls, 0);
       expect(
         (await sA.pendingOutboxFrames()).map((f) => f.frameId),
-        contains('test:during-call'),
+        contains('accept:test:during-call'),
         reason: 'pausing mailbox work must not drop its durable source',
       );
 
