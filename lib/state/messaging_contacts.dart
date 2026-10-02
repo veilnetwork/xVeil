@@ -248,10 +248,18 @@ class _MessagingContacts {
     // Same order as [sendRequest], and for a sharper reason: this method is
     // what a person reaches for when the request did not get through, so the
     // peer it addresses is the one already known not to be answering.
-    _owner._mailboxDelivery.removeStashed(id); // allow a fresh deposit
-    final deposit = _owner._maybeStash(dst, id, wire);
+    _owner._mailboxDelivery.removeStashed(id);
+    // The relay keeps the first blob stored under (recipient, contentId).
+    // Reusing the original deposit id would report success while leaving a
+    // ciphertext the recipient could not open in place. Keep the wire id for
+    // message dedup, but give every manual retry a fresh mailbox content id.
+    final depositId = '$id:retry:${_uuid.v4()}';
+    final deposit = _owner._maybeStash(dst, depositId, wire);
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
     final deposited = await deposit;
+    // A request has no outbox re-drive; this per-attempt key is never queried
+    // again after the verdict and must not remain in the in-memory stash set.
+    _owner._mailboxDelivery.removeStashed(depositId);
     // The stored greeting follows the outcome in both directions: a retry
     // that lands clears the error mark the failed attempt left.
     if (body != null && body.isNotEmpty) {
