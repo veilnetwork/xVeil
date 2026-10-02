@@ -195,10 +195,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onTap: () => showAboutDialog(
               context: context,
               applicationName: 'xVeil',
+              applicationVersion: kAppVersion,
               applicationIcon: const Padding(
                 padding: EdgeInsets.all(4),
                 child: Icon(Icons.shield_moon, size: 36),
               ),
+              children: const [
+                Text('veil: $kVeilBuildVersion'),
+                Text('hidden-volume: $kHiddenVolumeBuildVersion'),
+              ],
             ),
           ),
           const CopyErrorReportTile(phase: 'settings'),

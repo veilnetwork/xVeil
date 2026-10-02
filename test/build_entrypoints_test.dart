@@ -200,6 +200,11 @@ void main() {
             contains('--dart-define=XVEIL_VERSION='),
             reason: 'the script the macOS plan delegates to drops the version',
           );
+          final script = File(
+            'scripts/build-macos-adhoc.sh',
+          ).readAsStringSync();
+          expect(script, contains('XVEIL_VEIL_VERSION='));
+          expect(script, contains('XVEIL_HV_VERSION='));
           continue;
         }
         expect(
@@ -207,6 +212,8 @@ void main() {
           contains('XVEIL_VERSION=${_pubspecVersion()}'),
           reason: '$target builds an app that reports its version as "dev"',
         );
+        expect(text, contains('XVEIL_VEIL_VERSION='));
+        expect(text, contains('XVEIL_HV_VERSION='));
       }
     });
 
@@ -240,6 +247,7 @@ void main() {
               'its version as "dev": the error report ties to no build, and '
               'the update check silently refuses to offer anything\n$argv',
         );
+        expect(argv, contains('*_native_version_defines()'));
       }
     });
 

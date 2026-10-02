@@ -7037,7 +7037,11 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
-  String get devicesNeverSeen => 'Ни разу не выходило на связь';
+  String get devicesNeverSeen => 'На этом устройстве ещё нет отметки о связи';
+
+  @override
+  String get devicesPairRestartFailed =>
+      'Связать устройства не удалось: телефон не запустился под присоединённой личностью. Откройте приложение на телефоне и повторите связывание.';
 
   @override
   String get devicesAwayLong =>

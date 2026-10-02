@@ -7071,7 +7071,11 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get devicesNeverSeen =>
-      'Nunca visto desde que se vinculó este dispositivo';
+      'Este dispositivo aún no registra ninguna conexión';
+
+  @override
+  String get devicesPairRestartFailed =>
+      'No se pudieron vincular los dispositivos: el teléfono no inició con la identidad vinculada. Abre la aplicación en el teléfono y vuelve a intentarlo.';
 
   @override
   String get devicesAwayLong =>

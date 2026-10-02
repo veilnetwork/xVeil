@@ -46,6 +46,8 @@ if [[ -z "$VERSION" ]]; then
   echo "cannot read 'version:' from pubspec.yaml" >&2
   exit 1
 fi
+VEIL_BUILD_VERSION="$(git -C third_party/veil describe --tags --always --dirty 2>/dev/null || echo '?')"
+HV_BUILD_VERSION="$(git -C third_party/hidden-volume describe --tags --always --dirty 2>/dev/null || echo '?')"
 
 # The debug hook is opt-in at COMPILE time -- soak_hook.dart reads a
 # `bool.fromEnvironment`, so a build without the define has no hook at all and
@@ -79,7 +81,9 @@ esac
 
 echo "==> flutter config ($CONFIG, version=$VERSION)"
 flutter build macos "--$CONFIG" --config-only \
-  --dart-define=XVEIL_VERSION="$VERSION" "${HOOK_DEFINE[@]}"
+  --dart-define=XVEIL_VERSION="$VERSION" \
+  --dart-define=XVEIL_VEIL_VERSION="$VEIL_BUILD_VERSION" \
+  --dart-define=XVEIL_HV_VERSION="$HV_BUILD_VERSION" "${HOOK_DEFINE[@]}"
 
 echo "==> xcodebuild (ad-hoc, no VPN entitlement)"
 # -derivedDataPath is NOT optional. Without it xcodebuild writes the app into

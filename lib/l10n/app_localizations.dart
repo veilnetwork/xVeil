@@ -12269,8 +12269,14 @@ abstract class AppL10n {
   /// No description provided for @devicesNeverSeen.
   ///
   /// In en, this message translates to:
-  /// **'Never seen since this device was linked'**
+  /// **'No connection recorded on this device yet'**
   String get devicesNeverSeen;
+
+  /// No description provided for @devicesPairRestartFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not link devices: the phone did not start under the joined identity. Open the app on the phone and try linking again.'**
+  String get devicesPairRestartFailed;
 
   /// No description provided for @devicesAwayLong.
   ///
