@@ -6979,7 +6979,11 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
-  String get devicesNeverSeen => 'Never seen since this device was linked';
+  String get devicesNeverSeen => 'No connection recorded on this device yet';
+
+  @override
+  String get devicesPairRestartFailed =>
+      'Could not link devices: the phone did not start under the joined identity. Open the app on the phone and try linking again.';
 
   @override
   String get devicesAwayLong => 'Away a long time — consider unlinking';

@@ -357,27 +357,10 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
     final certificateSaved = await svc?.hasSavedRecoveryCertificate() ?? true;
     final validUntil =
         ref.read(realStackProvider)?.ownDelegationValidUntil() ?? 0;
-    // THE MASTER IS NOT IN THE MEMBER LIST, and neither is this device.
-    //
-    // A device group's members are DEVICES; its owner is the IDENTITY, which
-    // is never one of them. So on a linked device the control log names
-    // exactly one device — itself — and the screen drew a single row with a
-    // tick beside it: the master, the only other device there is, was not on
-    // the screen at all. Nothing could be asked of it and nothing said why.
-    // Measured on the two-device stand while verifying the history request:
-    // the device that needed the history had nobody to ask.
-    //
-    // [GroupService.addressableOwnDevices] is the list that already answers
-    // "who else is mine" correctly from either side — the other members, plus
-    // the owner when WE are the linked one. Ourselves is added so the master,
-    // whose device id is likewise absent from the members, still shows the
-    // row that says which device this is.
-    final self = await svc?.resolveMyDevice();
-    final members = <NodeId>{
-      ...?state?.members.values.map((m) => m.nodeId),
-      ...?await svc?.addressableOwnDevices(),
-      ?self,
-    }.toList()..sort((a, b) => a.hex.compareTo(b.hex));
+    // The recipient list includes the master on a linked device and excludes
+    // the sovereign identity alias on the master. The control log alone does
+    // neither, so it cannot be used as a physical-device roster.
+    final addressed = await svc?.addressableOwnDevices() ?? const <NodeId>[];
     final storedIdentity = await readSovereignMaterial(
       ref.read(storageProvider),
     );
@@ -393,6 +376,13 @@ class _DevicesScreenState extends ConsumerState<DevicesScreen> {
             nonce: fields.nonce,
             algo: fields.algo,
           );
+    // The control log can carry the sovereign identity as an address for the
+    // master. That address is not another physical device. Use the same
+    // deduplicated recipient list as sync, and resolve our own key from the
+    // config if the service was created before the store was unlocked.
+    final self = await svc?.resolveMyDevice() ?? myDevice?.nodeId;
+    final members = <NodeId>{...addressed, ?self}.toList()
+      ..sort((a, b) => a.hex.compareTo(b.hex));
     final revocable = {...?state?.members.values.map((m) => m.nodeId.hex)};
     final messaging = ref.read(messagingServiceProvider);
     final seen = <String, DateTime?>{};
@@ -1433,6 +1423,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
   DevicePairingLanServer? _pairServer;
   bool _pairUnavailable = false;
   Timer? _pairExpiry;
+  Timer? _readyTimeout;
   NodeId? _candidateIdentity;
   NodeId? _candidateDevice;
   bool _pairingApproved = false;
@@ -1542,12 +1533,23 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
           request['id'] == _candidateIdentity?.hex &&
           request['device'] == _candidateDevice?.hex) {
         if (!_snapshotScheduled) {
+          _readyTimeout?.cancel();
           _snapshotScheduled = true;
-          // Admission is on the phone's disk. Give its node time to restart.
-          Future<void>.delayed(const Duration(seconds: 5), () {
+          // Ready now comes only after the joining node has restarted under
+          // the linked identity. A short gap lets the LAN ACK leave before
+          // the snapshot starts using the overlay.
+          Future<void>.delayed(const Duration(milliseconds: 500), () {
             if (mounted && !_busy) unawaited(_send());
           });
         }
+        return jsonEncode({'k': 'ack'});
+      }
+      if (kind == 'failed' &&
+          _pairingApproved &&
+          request['id'] == _candidateIdentity?.hex &&
+          request['device'] == _candidateDevice?.hex) {
+        _readyTimeout?.cancel();
+        setState(() => _error = AppL10n.of(context).devicesPairRestartFailed);
         return jsonEncode({'k': 'ack'});
       }
     } catch (_) {
@@ -1559,6 +1561,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
   @override
   void dispose() {
     _pairExpiry?.cancel();
+    _readyTimeout?.cancel();
     final server = _pairServer;
     if (server != null) unawaited(server.close());
     _phrase.clear();
@@ -1696,6 +1699,12 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       if (!mounted) return;
       if (_candidateIdentity != null) {
         _pairingApproved = true;
+        _readyTimeout?.cancel();
+        _readyTimeout = Timer(const Duration(seconds: 90), () {
+          if (mounted && !_snapshotScheduled) {
+            setState(() => _error = AppL10n.of(context).devicesPairCannotReach);
+          }
+        });
         setState(() => _token = token.toUri());
       } else {
         setState(() => _token = token.toUri());
@@ -1860,9 +1869,11 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
                 label: Text(l.devicesPrepare),
               ),
             ] else if (_pairingApproved) ...[
-              Text(l.devicesPairSending),
-              const SizedBox(height: 12),
-              const LinearProgressIndicator(),
+              if (_error == null) ...[
+                Text(l.devicesPairSending),
+                const SizedBox(height: 12),
+                const LinearProgressIndicator(),
+              ],
               ExpansionTile(
                 title: Text(l.devicesPairManualFallback),
                 children: [
@@ -2099,13 +2110,15 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
     }
   }
 
-  Future<void> _signalReady() async {
-    final code = _pairCode;
-    if (code == null) return;
+  Future<void> _signalReady(
+    DevicePairingCode code,
+    String requesterId,
+    NodeId myDevice,
+  ) async {
     final ready = jsonEncode({
       'k': 'ready',
-      'id': _pairRequesterId,
-      'device': widget.myDevice!.nodeId.hex,
+      'id': requesterId,
+      'device': myDevice.hex,
     });
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
@@ -2117,6 +2130,21 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
       if (attempt < 2) {
         await Future<void>.delayed(const Duration(milliseconds: 350));
       }
+    }
+  }
+
+  Future<void> _signalRestartFailed(
+    DevicePairingCode code,
+    String requesterId,
+    NodeId myDevice,
+  ) async {
+    try {
+      await DevicePairingLanClient.exchange(
+        code,
+        jsonEncode({'k': 'failed', 'id': requesterId, 'device': myDevice.hex}),
+      );
+    } catch (_) {
+      // The source also has a bounded timeout for a lost LAN response.
     }
   }
 
@@ -2162,7 +2190,6 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
       )) {
         throw StateError('admission rejected');
       }
-      await _signalReady();
       _token.clear();
       if (_heavyMedia) {
         await widget.service.storage.putSetting(
@@ -2176,9 +2203,33 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
         runningIdentity: widget.stack.myInvite.nodeId,
         token: token,
       )) {
+        final restart = widget.restartNode;
+        final requesterId = _pairRequesterId;
+        final myDevice = widget.myDevice?.nodeId;
         if (mounted) Navigator.of(context).pop(true);
-        unawaited(widget.restartNode());
+        unawaited(() async {
+          // The source must not send the snapshot while this node still runs
+          // under its temporary identity. The node restart can take longer
+          // than the old fixed five-second delay.
+          final restarted = await signalPairingReadyAfterRestart(
+            restart: restart,
+            signalReady: () async {
+              if (code != null && requesterId != null && myDevice != null) {
+                await _signalReady(code, requesterId, myDevice);
+              }
+            },
+          );
+          if (!restarted &&
+              code != null &&
+              requesterId != null &&
+              myDevice != null) {
+            await _signalRestartFailed(code, requesterId, myDevice);
+          }
+        }());
         return;
+      }
+      if (code != null && _pairRequesterId != null && widget.myDevice != null) {
+        await _signalReady(code, _pairRequesterId!, widget.myDevice!.nodeId);
       }
       if (!mounted) return;
       setState(() => _pending = token);

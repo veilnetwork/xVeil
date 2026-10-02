@@ -3027,7 +3027,8 @@
       }
     }
   },
-  "devicesNeverSeen": "Never seen since this device was linked",
+  "devicesNeverSeen": "No connection recorded on this device yet",
+  "devicesPairRestartFailed": "Could not link devices: the phone did not start under the joined identity. Open the app on the phone and try linking again.",
   "devicesAwayLong": "Away a long time — consider unlinking",
   "devicesUnlinkOfferTitle": "{device} has not been in touch for over a month",
   "@devicesUnlinkOfferTitle": {

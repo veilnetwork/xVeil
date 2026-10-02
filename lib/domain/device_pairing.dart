@@ -18,6 +18,22 @@ String devicePairingSafetyCode(String ticket, NodeId device) {
   return number.toString().padLeft(6, '0');
 }
 
+/// The source may send its pinned group snapshot only after the joining node
+/// has restarted under the admitted identity. A fixed delay cannot establish
+/// that ordering on a slow phone.
+Future<bool> signalPairingReadyAfterRestart({
+  required Future<bool> Function() restart,
+  required Future<void> Function() signalReady,
+}) async {
+  try {
+    if (!await restart()) return false;
+  } catch (_) {
+    return false;
+  }
+  await signalReady();
+  return true;
+}
+
 /// One QR from the existing device. Recovery material and identity snapshots
 /// never enter the QR; its random key encrypts a short-lived LAN exchange.
 class DevicePairingCode {

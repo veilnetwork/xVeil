@@ -323,6 +323,11 @@ void _devicesRowActions() {
         reason: 'a linked device with no row is a device nobody can act on',
       );
       expect(
+        find.widgetWithText(ListTile, owner.short),
+        findsNothing,
+        reason: 'the identity alias in the control log is not another device',
+      );
+      expect(
         find.byType(PopupMenuButton<String>),
         findsWidgets,
         reason: 'the row offers nothing at all',

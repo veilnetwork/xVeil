@@ -18,6 +18,17 @@ const String kAppVersion = String.fromEnvironment(
   defaultValue: 'dev',
 );
 
+/// Native source revisions embedded by the build entrypoints. A bare Flutter
+/// build cannot truthfully name its native dependencies, so it shows '?'.
+const String kVeilBuildVersion = String.fromEnvironment(
+  'XVEIL_VEIL_VERSION',
+  defaultValue: '?',
+);
+const String kHiddenVolumeBuildVersion = String.fromEnvironment(
+  'XVEIL_HV_VERSION',
+  defaultValue: '?',
+);
+
 /// Put the error report on the clipboard and say what was copied.
 ///
 /// [phase] is where the app was when the person asked: "stuck on the lock
