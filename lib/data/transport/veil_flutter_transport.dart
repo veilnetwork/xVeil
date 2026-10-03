@@ -192,6 +192,10 @@ class VeilFlutterTransport
     this._mediaApp,
     this._mediaDeviceClient,
     this._mediaDeviceApp,
+    this._mediaAuxClient,
+    this._mediaAuxApp,
+    this._mediaDeviceAuxClient,
+    this._mediaDeviceAuxApp,
     this._realtimeApp,
     this._siblingClient,
     this._siblingApp,
@@ -208,6 +212,13 @@ class VeilFlutterTransport
   final AppHandle _mediaApp;
   final VeilClient? _mediaDeviceClient;
   final AppHandle? _mediaDeviceApp;
+  // Sender-only IPC bindings: their app identity is unchanged and inbound
+  // packets still target endpoint 13. Endpoint 15 is used only on this node.
+  static const _mediaAuxEndpointId = 15;
+  final VeilClient _mediaAuxClient;
+  final AppHandle _mediaAuxApp;
+  final VeilClient? _mediaDeviceAuxClient;
+  final AppHandle? _mediaDeviceAuxApp;
   final AppHandle _realtimeApp;
 
   /// The inbox a SIBLING device addresses, bound under this node's device id.
@@ -322,10 +333,14 @@ class VeilFlutterTransport
     VeilClient? realtimeClient;
     VeilClient? mediaClient;
     VeilClient? mediaDeviceClient;
+    VeilClient? mediaAuxClient;
+    VeilClient? mediaDeviceAuxClient;
     VeilClient? mailboxClient;
     VeilClient? siblingClient;
     AppHandle? realtimeApp;
     AppHandle? mediaDeviceApp;
+    AppHandle? mediaAuxApp;
+    AppHandle? mediaDeviceAuxApp;
     AppHandle? siblingApp;
     try {
       // Node identity is immutable for this transport lifetime. Cache it while
@@ -403,6 +418,23 @@ class VeilFlutterTransport
         mediaDeviceApp = null;
         mediaDeviceClient = null;
       }
+      // Audio and video have independent writer queues and sender locks.
+      // Both bindings use the existing media app name, so no media role is
+      // exposed in the source app id or in outgoing network headers.
+      mediaAuxClient = await VeilClient.connect(socketPath);
+      mediaAuxApp = await mediaAuxClient.bindNamed(
+        namespace: veilChatNamespace,
+        name: veilMediaName,
+        endpointId: _mediaAuxEndpointId,
+      );
+      if (mediaDeviceApp != null) {
+        mediaDeviceAuxClient = await VeilClient.connect(socketPath);
+        mediaDeviceAuxApp = await mediaDeviceAuxClient.bindDeviceScoped(
+          namespace: veilChatNamespace,
+          name: veilMediaName,
+          endpointId: _mediaAuxEndpointId,
+        );
+      }
       realtimeApp = await realtimeClient.bindNamed(
         namespace: veilChatNamespace,
         name: veilRealtimeName,
@@ -473,6 +505,10 @@ class VeilFlutterTransport
         mediaApp,
         mediaDeviceClient,
         mediaDeviceApp,
+        mediaAuxClient,
+        mediaAuxApp,
+        mediaDeviceAuxClient,
+        mediaDeviceAuxApp,
         realtimeApp,
         siblingClient,
         siblingApp,
@@ -481,6 +517,10 @@ class VeilFlutterTransport
       await siblingApp?.close();
       await siblingClient?.close();
       await realtimeApp?.close();
+      await mediaDeviceAuxApp?.close();
+      await mediaAuxApp?.close();
+      await mediaDeviceAuxClient?.close();
+      await mediaAuxClient?.close();
       await mediaDeviceApp?.close();
       await mediaDeviceClient?.close();
       await realtimeClient?.close();
@@ -560,6 +600,9 @@ class VeilFlutterTransport
     final mediaSender = session.admitted
         ? _mediaApp
         : (_mediaDeviceApp ?? _mediaApp);
+    final secondarySender = session.admitted
+        ? _mediaAuxApp
+        : (_mediaDeviceAuxApp ?? _mediaAuxApp);
     devLog(
       () =>
           'xVeil[call-media]: sender binding='
@@ -567,6 +610,7 @@ class VeilFlutterTransport
     );
     if (relay) {
       return mediaSender.openRelayMediaChannel(
+        secondarySender: secondarySender,
         dstNodeId: dstNode,
         dstAppId: mediaAppIdFor(peer),
         dstEndpointId: veilMediaEndpointId,
@@ -575,6 +619,7 @@ class VeilFlutterTransport
       );
     }
     return mediaSender.openDirectMediaChannel(
+      secondarySender: secondarySender,
       dstNodeId: dstNode,
       dstAppId: mediaAppIdFor(peer),
       dstEndpointId: veilMediaEndpointId,
@@ -1239,11 +1284,15 @@ class VeilFlutterTransport
     await _realtimeApp.close();
     await _mediaApp.close();
     await _mediaDeviceApp?.close();
+    await _mediaAuxApp.close();
+    await _mediaDeviceAuxApp?.close();
     await _app.close();
     await _siblingClient?.close();
     await _realtimeClient.close();
     await _mediaClient.close();
     await _mediaDeviceClient?.close();
+    await _mediaAuxClient.close();
+    await _mediaDeviceAuxClient?.close();
     await _mailboxClient.close();
     await _capabilityClient.close();
     await _client.close();
