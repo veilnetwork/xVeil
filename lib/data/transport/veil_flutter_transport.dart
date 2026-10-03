@@ -285,10 +285,24 @@ class VeilFlutterTransport
 
   int _debugRealtimeRxCount = 0;
 
-  bool get debugChatBindingMatches =>
-      _sameBytes(_app.appId, chatAppIdFor(_nodeId));
-  bool get debugRealtimeBindingMatches =>
-      _sameBytes(_realtimeApp.appId, realtimeAppIdFor(_nodeId));
+  bool get debugChatBindingMatches => _sameBytes(
+    _app.appId,
+    chatAppIdFor(
+      peerFacingNodeIdOf(
+        deviceNodeId: _nodeId,
+        identityAddress: _identityAddress,
+      ),
+    ),
+  );
+  bool get debugRealtimeBindingMatches => _sameBytes(
+    _realtimeApp.appId,
+    realtimeAppIdFor(
+      peerFacingNodeIdOf(
+        deviceNodeId: _nodeId,
+        identityAddress: _identityAddress,
+      ),
+    ),
+  );
   int get debugChatEndpointId => _app.endpointId;
   int get debugRealtimeEndpointId => _realtimeApp.endpointId;
   int get debugRealtimeRxCount => _debugRealtimeRxCount;
