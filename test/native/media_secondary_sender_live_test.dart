@@ -17,7 +17,7 @@ void main() {
       dylib != null &&
       dylib.isNotEmpty;
   test(
-    'real IPC media bindings install a matching secondary sender and reject another app',
+    'real IPC media bindings support independent senders and anonymous channel lifecycle',
     () async {
       final temp = await Directory.systemTemp.createTemp('xveil-media-ipc-');
       final socket = '${temp.path}/app.sock';
@@ -74,6 +74,29 @@ void main() {
         expect(transport.mediaChannelStats(chan), isNotNull);
         transport.closeMediaChannel(chan);
         expect(transport.mediaChannelStats(chan), isNull);
+        chan = null;
+
+        // Exercise the actual anonymous FFI opener, both queues, repair and
+        // teardown against this offline private node. No production relay is
+        // needed to verify native ownership and handle lifecycle.
+        chan = await transport.openMediaChannel(
+          destination,
+          txKey: txKey,
+          rxKey: rxKey,
+        );
+        expect(chan, greaterThan(0));
+        for (final payloadType in [111, 96]) {
+          expect(
+            transport.sendMediaDatagram(
+              chan,
+              Uint8List.fromList([0x80, payloadType, 0, 1]),
+            ),
+            0,
+          );
+        }
+        expect(transport.repairMediaChannel(chan), anyOf(0, 1));
+        transport.closeMediaChannel(chan);
+        expect(transport.repairMediaChannel(chan), -1);
         chan = null;
 
         Future<AppHandle> bind(String name, int endpoint) async {
