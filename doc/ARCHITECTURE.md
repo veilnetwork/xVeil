@@ -93,6 +93,18 @@ the app rather than merely present as a file:
 - Built-in S3-style object storage across identities (`cloud_*`).
 - Proxy/VPN (oproxy/ogate), SSH node provisioning.
 
+Loaded-call check (Android debug 2150, 2026-10-04): both cellular/Wi-Fi phone
+video calls remained active for at least 85 seconds. One concurrent 8 MiB file
+completed in 28.1 seconds with matching SHA-256; the second download API returned
+504 after its 45-second observation deadline, without a verified exported file.
+During the verified transfer the receiver's median native audio playout estimate
+rose from 272 to 472 ms (peak 631 ms), and stayed elevated afterwards. RTP counts
+continued increasing; this does not establish acoustic quality. Two observed
+Poco QUIC sessions advertised no opaque flows, independent transport or circuit
+datagrams. These sessions cannot provide the new connection split; their exact
+mapping to the call route is not yet established. Loaded-link audio quality and
+actual end-to-end transport separation remain open, beyond local queue tests.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
