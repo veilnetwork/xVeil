@@ -99,6 +99,17 @@ void main() {
             .then((ok) => started = ok);
         clock.flushMicrotasks();
         expect(started, isTrue);
+        engine.stats = {'audio_feedback_reports': 0};
+        clock.elapse(const Duration(seconds: 30));
+        expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+        engine.stats = {
+          'audio_feedback_reports': 2,
+          'tx_loss_pct': 0,
+          'rtt_ms': 80,
+        };
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+        engine.targets.clear();
         engine.stats = {'audio_feedback_reports': 2, 'tx_loss_pct': 12};
         engine.acceptTarget = false;
         clock.elapse(const Duration(seconds: 6));
@@ -122,7 +133,7 @@ void main() {
         controller.start(_call(self, [peer], video: true));
         clock.flushMicrotasks();
         clock.elapse(const Duration(seconds: 1));
-        expect(engine.targets.first, (maxBitrateKbps: 150, maxFps: 15));
+        expect(engine.targets.first, (maxBitrateKbps: 30, maxFps: 1));
         controller.stop();
         clock.flushMicrotasks();
       });
