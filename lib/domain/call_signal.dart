@@ -13,7 +13,8 @@ import 'dart:typed_data';
 ///
 /// Wire form is compact JSON with short keys so re-sends stay cheap:
 ///   {c:callId, k:type, m:{a,v,s}, p:posture, t:{k,r,e}, mk:mediaKey, r:reason,
-///    mr:mediaRepairRequested, cm:{a,v,s} capture, v:protocolVersion, ts:sentAtMs}
+///    mr:mediaRepairRequested, cm:{a,v,s} capture, ap:{n,d} audio playout,
+///    v:protocolVersion, ts:sentAtMs}
 /// Unknown keys are ignored on decode, and an unknown [type]/[posture]/[kind]
 /// enum index decodes to its `.unknown` sentinel so a newer peer's additions
 /// degrade gracefully instead of throwing.
@@ -218,8 +219,40 @@ class CallTransportProposal {
 /// v4: audio and video use independent transport sequence spaces and decode
 /// transport feedback. This is a performance capability; media sealing never
 /// depends on it. Older native libraries must continue advertising v3.
-const int kCallSignalProtocolVersion = 4;
+/// v5: encrypted health signals report receive-side audio playout estimates.
+/// A v5 video sender requires fresh receiver measurements while its mic is on
+/// before increasing video. This is endpoint feedback, never relay metadata.
+const int kCallSignalProtocolVersion = 5;
 const int kCallIndependentTransportFeedbackMinVersion = 4;
+const int kCallAudioPlayoutFeedbackMinVersion = 5;
+
+/// One native receive sample. The sequence survives engine repairs, so a
+/// repeated/delayed health frame cannot renew an old healthy measurement.
+/// Missing delay means the audio worker or accepted audio is not measurable.
+class CallAudioPlayoutFeedback {
+  const CallAudioPlayoutFeedback({required this.sequence, this.delayMs});
+
+  final int sequence;
+  final int? delayMs;
+
+  Map<String, dynamic> toJson() => {
+    'n': sequence,
+    if (delayMs != null) 'd': delayMs,
+  };
+
+  static CallAudioPlayoutFeedback? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final sequence = raw['n'];
+    final delay = raw['d'];
+    if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
+      return null;
+    }
+    if (delay != null && (delay is! int || delay < 0 || delay > 60000)) {
+      return null;
+    }
+    return CallAudioPlayoutFeedback(sequence: sequence, delayMs: delay as int?);
+  }
+}
 
 bool useIndependentCallTransportFeedback(
   int? peerVersion, {
@@ -279,6 +312,7 @@ class CallSignal {
     this.reason,
     this.capture,
     this.mediaRepairRequested = false,
+    this.audioPlayout,
     this.onBehalfOf,
     this.replyDevice,
     this.protocolVersion = kCallSignalProtocolVersion,
@@ -329,6 +363,11 @@ class CallSignal {
   /// anonymous outbound route; older peers ignore this additive key.
   final bool mediaRepairRequested;
 
+  /// This receiver's native audio pipeline estimate, for the peer to budget
+  /// its outgoing video. Sent only inside the E2E-authenticated health body.
+  /// It measures playout buffering, not acoustic end-to-end latency.
+  final CallAudioPlayoutFeedback? audioPlayout;
+
   /// Device fan-out (multi-device epic): the hex node id of the TRUE remote
   /// peer, present only on a copy relayed between two devices of one
   /// identity. A device that receives an offer forwards it to its siblings
@@ -366,6 +405,7 @@ class CallSignal {
     CallEndReason? reason,
     CallMedia? capture,
     bool? mediaRepairRequested,
+    CallAudioPlayoutFeedback? audioPlayout,
     String? onBehalfOf,
     String? replyDevice,
     int? sentAtMs,
@@ -379,6 +419,7 @@ class CallSignal {
     reason: reason ?? this.reason,
     capture: capture ?? this.capture,
     mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
+    audioPlayout: audioPlayout ?? this.audioPlayout,
     onBehalfOf: onBehalfOf ?? this.onBehalfOf,
     replyDevice: replyDevice ?? this.replyDevice,
     protocolVersion: protocolVersion,
@@ -398,6 +439,7 @@ class CallSignal {
     // `{}` would silently delete the one posture the peer most needs to see.
     if (capture != null) 'cm': capture!.toJson(),
     if (mediaRepairRequested) 'mr': true,
+    if (audioPlayout != null) 'ap': audioPlayout!.toJson(),
     if (onBehalfOf != null) 'ob': onBehalfOf,
     if (replyDevice != null) 'rd': replyDevice,
     'v': protocolVersion,
@@ -443,6 +485,7 @@ class CallSignal {
             ? null
             : CallMedia.fromJson((j['cm'] as Map).cast<String, dynamic>()),
         mediaRepairRequested: j['mr'] == true,
+        audioPlayout: CallAudioPlayoutFeedback.fromJson(j['ap']),
         onBehalfOf: j['ob'] as String?,
         replyDevice: j['rd'] as String?,
         protocolVersion: (j['v'] as num?)?.toInt() ?? 1,

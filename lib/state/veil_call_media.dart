@@ -21,6 +21,7 @@ import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
 import 'call_microphone_state.dart';
+import 'call_peer_audio_playout.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
 import 'call_service.dart';
@@ -359,8 +360,8 @@ bool shouldStartInitialCallCamera(Call call) =>
 class VeilCallMediaController implements CallMediaController {
   VeilCallMediaController(this._transport);
 
-  // Sealing remains unconditional v3 behavior. Advertise v4 only when the
-  // loaded native engine supports independent audio/video feedback counters.
+  // Sealing remains unconditional v3 behavior. v5 also needs native accepted
+  // audio counters and playout estimates from the independent feedback ABI.
   @override
   int get signalProtocolVersion =>
       VeilMediaEngine.supportsIndependentTransportFeedback
@@ -398,6 +399,7 @@ class VeilCallMediaController implements CallMediaController {
   DateTime? _lastRxAt; // wall-clock when ENGINE rx_pkts last increased
   int _lastRxPkts = 0;
   final _audioReceiveActivity = CallAudioReceiveActivity();
+  CallPeerAudioPlayout _peerAudioPlayout = CallPeerAudioPlayout();
   DateTime? _receiveSessionStartedAt;
   int _lastNativeRxCount = 0;
   DateTime? _engineRxStalledSince; // node receives, engine doesn't — since when
@@ -532,6 +534,19 @@ class VeilCallMediaController implements CallMediaController {
   bool get isRepairingReceiveSession => _routeRepairing;
 
   @override
+  CallAudioPlayoutFeedback? get audioPlayoutFeedback =>
+      _engine == null ||
+          _routeRepairing ||
+          signalProtocolVersion < kCallAudioPlayoutFeedbackMinVersion
+      ? null
+      : _audioReceiveActivity.playoutFeedback(DateTime.now());
+
+  @override
+  void observePeerAudioPlayout(CallAudioPlayoutFeedback feedback) {
+    _peerAudioPlayout.observe(feedback, DateTime.now());
+  }
+
+  @override
   Map<String, Object?> get diagnostics {
     final engine = _engine;
     if (engine == null) {
@@ -561,6 +576,7 @@ class VeilCallMediaController implements CallMediaController {
         'media_epoch': _mediaEpoch,
         'media_repairing': _routeRepairing,
         'audio_rx_supported': _audioReceiveActivity.supported,
+        'peer_audio_playout_ms': _peerAudioPlayout.delayMs(DateTime.now()),
         'audio_rx_age_ms': _audioReceiveActivity.lastRxAt == null
             ? null
             : DateTime.now()
@@ -715,7 +731,10 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> start(Call call) async {
-    if (!_microphoneState.belongsToCall(call.callId)) _bitrateAdapter = null;
+    if (!_microphoneState.belongsToCall(call.callId)) {
+      _bitrateAdapter = null;
+      _peerAudioPlayout = CallPeerAudioPlayout();
+    }
     _microphoneState.beginCall(call.callId, micOn: call.micOn);
     final device = call.peerDevice;
     if (device != null && device != call.mediaIdentity) {
@@ -931,6 +950,7 @@ class VeilCallMediaController implements CallMediaController {
                 'pacer=${stats['pacer_delay_ms']} '
                 'sdelay=${stats['video_send_delay_ms']} '
                 'adapt=${_bitrateAdapter?.level} '
+                'peer_aud=${_peerAudioPlayout.delayMs(now)} '
                 'base=${_bitrateAdapter?.rttBaselineMs} '
                 'tx=${stats['tx_pkts']} rx=${stats['rx_pkts']} '
                 'audio_rx=${stats['audio_rx_pkts']} worker=${stats['worker_stalled']} '
@@ -996,7 +1016,14 @@ class VeilCallMediaController implements CallMediaController {
           // Sender-side ladder driven by what the REMOTE receiver reports for
           // our outbound leg (RTCP report blocks) plus local queue drops. The
           // route profile stays the ceiling; adaptation only spends less.
-          adapter.onNativeStats(stats);
+          adapter.onNativeStats(
+            stats,
+            peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
+            requirePeerAudioPlayout:
+                (call.peerProtocolVersion ?? 1) >=
+                    kCallAudioPlayoutFeedbackMinVersion &&
+                !_microphoneState.muted,
+          );
           if (_diagnosticVideoTarget == null) {
             final ok = adapter.applyPendingTarget(
               (target) => engine.setVideoBitrate(
@@ -1256,6 +1283,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxPkts = 0;
     _lastNativeRxCount = 0;
     _audioReceiveActivity.reset();
+    _peerAudioPlayout.invalidateMeasurement();
     _receiveSessionStartedAt = clearActiveCall ? null : DateTime.now();
     _engineRxStalledSince = null;
     // Congestion belongs to the call, not the native engine. A route rebuild
@@ -1361,6 +1389,9 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<void> setMicMuted(bool muted) async {
+    if (muted != _microphoneState.muted) {
+      _peerAudioPlayout.invalidateMeasurement();
+    }
     // Remember choices made before the engine exists or during a repair gap.
     _microphoneState.setMuted(muted);
     try {

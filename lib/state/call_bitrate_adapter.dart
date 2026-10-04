@@ -71,6 +71,11 @@ class CallBitrateAdapter {
   /// instead of oscillating.
   static const int recoverAfter = 12;
 
+  /// Conservative receive-pipeline budget. These are native buffer estimates,
+  /// not a measurement of acoustic latency; RTT still guards network queues.
+  static const int playoutDegradeMs = 300;
+  static const int playoutRecoverMs = 200;
+
   /// Bufferbloat guard, relative to the call's own RTT baseline. The relay
   /// leg is TCP-like: congestion NEVER shows as loss (the transport hides
   /// it), only as queueing delay — with the old absolute 400 ms threshold a
@@ -165,8 +170,10 @@ class CallBitrateAdapter {
   /// Native zero defaults, expired reports and older libraries without report
   /// freshness are unknown quality. Local drops still justify reducing video.
   ({int maxBitrateKbps, int maxFps})? onNativeStats(
-    Map<String, dynamic> stats,
-  ) {
+    Map<String, dynamic> stats, {
+    int? peerAudioDelayMs,
+    bool requirePeerAudioPlayout = false,
+  }) {
     final feedbackAvailable =
         stats['worker_stalled'] != 1 &&
         ((stats['audio_feedback_reports'] as num?) ?? 0) > 0;
@@ -180,6 +187,8 @@ class CallBitrateAdapter {
           : 0,
       txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
       feedbackAvailable: feedbackAvailable,
+      peerAudioDelayMs: peerAudioDelayMs,
+      requirePeerAudioPlayout: requirePeerAudioPlayout,
     );
   }
 
@@ -191,12 +200,20 @@ class CallBitrateAdapter {
     required int txLossPct,
     required int txDrops,
     bool feedbackAvailable = true,
+    int? peerAudioDelayMs,
+    bool requirePeerAudioPlayout = false,
   }) {
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
     // Missing/stale reports are not healthy samples. Actual new local audio
     // drops still justify reducing video while waiting for remote feedback.
-    if (!feedbackAvailable && !newDrops) {
+    final playoutBad =
+        requirePeerAudioPlayout &&
+        (peerAudioDelayMs == null || peerAudioDelayMs >= playoutDegradeMs);
+    final playoutGood =
+        !requirePeerAudioPlayout ||
+        (peerAudioDelayMs != null && peerAudioDelayMs < playoutRecoverMs);
+    if (!feedbackAvailable && !newDrops && !playoutBad) {
       _badStreak = 0;
       _floorBadStreak = 0;
       _goodStreak = 0;
@@ -217,9 +234,16 @@ class CallBitrateAdapter {
         (rttMs < 250 &&
             (baseline == null || rttMs <= baseline + bloatRecoverMs));
 
-    final bad = txLossPct >= 5 || txJitterMs >= 80 || rttBad || newDrops;
+    final networkBad = txLossPct >= 5 || txJitterMs >= 80 || rttBad || newDrops;
+    final bad = networkBad || playoutBad;
     final good =
-        rttMs > 0 && txLossPct <= 1 && txJitterMs < 40 && rttGood && !newDrops;
+        feedbackAvailable &&
+        rttMs > 0 &&
+        txLossPct <= 1 &&
+        txJitterMs < 40 &&
+        rttGood &&
+        !newDrops &&
+        playoutGood;
 
     if (bad) {
       _goodStreak = 0;
@@ -234,8 +258,16 @@ class CallBitrateAdapter {
       }
       // Out of rungs. THIS is the state the ladder had no way to report, and
       // the one the link was actually in while it kept sending.
-      if (atFloor && ++_floorBadStreak >= adviseAfter) {
-        _advice = CallVideoAdvice.suggestDisable;
+      if (atFloor) {
+        // Unknown playout reserves bandwidth but cannot substantiate a
+        // user-facing claim that the link fails to carry video.
+        if (networkBad || peerAudioDelayMs != null) {
+          if (++_floorBadStreak >= adviseAfter) {
+            _advice = CallVideoAdvice.suggestDisable;
+          }
+        } else {
+          _floorBadStreak = 0;
+        }
       }
       return null;
     }

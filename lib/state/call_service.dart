@@ -202,6 +202,9 @@ abstract class CallMediaController {
   DateTime? get receiveSessionStartedAt => null;
   bool get isRepairingReceiveSession => false;
 
+  CallAudioPlayoutFeedback? get audioPlayoutFeedback => null;
+  void observePeerAudioPlayout(CallAudioPlayoutFeedback feedback) {}
+
   /// Rebuild/refresh the current outbound route after the peer reports
   /// end-to-end media silence. Implementations must preserve the negotiated
   /// route kind, be idempotent/rate-limited, and return whether media is usable.
@@ -763,6 +766,7 @@ class CallService {
         callId: cur.callId,
         type: CallSignalType.health,
         capture: _localCapture(cur),
+        audioPlayout: _media?.audioPlayoutFeedback,
         protocolVersion: _signalProtocolVersion,
       ),
     );
@@ -974,6 +978,11 @@ class CallService {
       _lastPeerSignalAt = _now();
       if (_heartbeatTimer != null) _peerConfirmedAfterConnect = true;
       _foldPeerCapture(sig);
+      if (sig.type == CallSignalType.health &&
+          live.status == CallStatus.active &&
+          sig.audioPlayout != null) {
+        _media?.observePeerAudioPlayout(sig.audioPlayout!);
+      }
     }
     switch (sig.type) {
       case CallSignalType.offer:
@@ -1652,6 +1661,7 @@ class CallService {
             mediaRepairRequested:
                 c.status == CallStatus.active && _mediaReceiveNeedsRepair(c),
             capture: _localCapture(c),
+            audioPlayout: _media?.audioPlayoutFeedback,
             sentAtMs: _now().millisecondsSinceEpoch,
             protocolVersion: _signalProtocolVersion,
           ),
