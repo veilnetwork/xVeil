@@ -89,7 +89,7 @@ the app rather than merely present as a file:
 - Multi-device pairing (`device_link_invite`), mailbox offline delivery
   (`mailbox_service` + `mailbox_orchestrator`).
 - File / image / video transfer (`messaging_file_transfer`).
-- Audio / video calls (`call_service`, `group_call_service`). Desired microphone state belongs to the call, survives media-engine recreation and asynchronous opening, and is cleared on final hangup. Reusing an older call snapshot cannot undo a mute chosen during the call; cancelled or replaced opening remains muted.
+- Audio / video calls (`call_service`, `group_call_service`). Video adaptation reaches 45 kbit/s at 1 fps on direct calls (30 kbit/s at 1 fps on anonymous calls). Rebuilding the same unicast call/profile retains its video budget and hysteresis; the new native encoder starts at that budget. Desired microphone state belongs to the call, survives media-engine recreation and asynchronous opening, and is cleared on final hangup. Reusing an older call snapshot cannot undo a mute chosen during the call; cancelled or replaced opening remains muted.
 - Built-in S3-style object storage across identities (`cloud_*`).
 - Proxy/VPN (oproxy/ogate), SSH node provisioning.
 

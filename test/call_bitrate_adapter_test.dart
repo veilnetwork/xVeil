@@ -2,6 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/call_bitrate_adapter.dart';
 
 void main() {
+  final badSamplesToFloor =
+      (CallBitrateAdapter.ladder.length - 1) * CallBitrateAdapter.degradeAfter;
+
   CallBitrateAdapter direct() =>
       CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
 
@@ -178,8 +181,8 @@ void main() {
       last = lossy(a) ?? last;
     }
     expect(a.level, CallBitrateAdapter.ladder.length - 1);
-    expect(last!.maxBitrateKbps, 270);
-    expect(last.maxFps, 6);
+    expect(last!.maxBitrateKbps, 45);
+    expect(last.maxFps, 1);
     // Further bad samples keep the floor.
     for (var i = 0; i < 10; i++) {
       expect(lossy(a), isNull);
@@ -325,21 +328,54 @@ void main() {
         expect(lossy(a), isNull);
         cadence.add(lossy(a)!.maxFps);
       }
-      expect(cadence, [15, 8, 4, 2]);
+      expect(cadence, [15, 8, 4, 2, 1]);
       // A two-second burst must not restore full video pressure on audio.
       expect(good(a), isNull);
       expect(good(a), isNull);
-      expect(a.target.maxFps, 2);
+      expect(a.target.maxFps, 1);
       for (var i = 2; i < CallBitrateAdapter.recoverAfter; i++) {
         good(a);
       }
-      expect(a.target.maxFps, 4);
+      expect(a.target.maxFps, 2);
     },
   );
 
+  test(
+    'weak anonymous video stays within the native minimum and route cap',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+      for (var i = 0; i < 30; i++) {
+        lossy(a);
+        expect(a.target.maxBitrateKbps, inInclusiveRange(30, 150));
+      }
+      expect(a.target, (maxBitrateKbps: 30, maxFps: 1));
+    },
+  );
+
+  test('a rebuilt encoder starts with the reduced audio-preserving budget', () {
+    final a = direct();
+    for (var i = 0; i < 20; i++) {
+      lossy(a);
+    }
+    a.applyPendingTarget((_) => true);
+    // A replacement has no remembered native budget, even on an unchanged
+    // route. A missing new report must retain the call's previous decision.
+    a.invalidateAppliedTarget();
+    a.onNativeStats({'audio_feedback_reports': 0});
+    var replacement = (maxBitrateKbps: 900, maxFps: 60);
+    expect(
+      a.applyPendingTarget((target) {
+        replacement = target;
+        return true;
+      }),
+      isTrue,
+    );
+    expect(replacement, (maxBitrateKbps: 45, maxFps: 1));
+  });
+
   test('a low-cadence profile always retains at least one video frame', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 5);
-    for (var i = 0; i < 6; i++) {
+    for (var i = 0; i < badSamplesToFloor; i++) {
       lossy(a);
     }
     expect(a.target.maxFps, 1);
@@ -365,8 +401,8 @@ void main() {
 
     test('says nothing while rungs remain, however bad the link', () {
       final a = direct();
-      // Walk all the way down: three degrade steps for a four-rung ladder.
-      for (var i = 0; i < 6; i++) {
+      // Walk all the way down, allowing each smaller budget to be sampled.
+      for (var i = 0; i < badSamplesToFloor; i++) {
         lossy(a);
       }
       expect(a.level, CallBitrateAdapter.ladder.length - 1);
@@ -382,7 +418,7 @@ void main() {
 
     test('advises dropping video only after the floor keeps failing', () {
       final a = direct();
-      for (var i = 0; i < 6; i++) {
+      for (var i = 0; i < badSamplesToFloor; i++) {
         lossy(a);
       }
       // One short burst at the floor must not raise a user-facing prompt.
@@ -396,7 +432,7 @@ void main() {
 
     test('a good sample at the floor restarts the count', () {
       final a = direct();
-      for (var i = 0; i < 6; i++) {
+      for (var i = 0; i < badSamplesToFloor; i++) {
         lossy(a);
       }
       for (var i = 0; i < CallBitrateAdapter.adviseAfter - 1; i++) {
@@ -413,7 +449,11 @@ void main() {
 
     test('the advice is latched, not momentary', () {
       final a = direct();
-      for (var i = 0; i < 6 + CallBitrateAdapter.adviseAfter; i++) {
+      for (
+        var i = 0;
+        i < badSamplesToFloor + CallBitrateAdapter.adviseAfter;
+        i++
+      ) {
         lossy(a);
       }
       expect(a.videoAdvice, CallVideoAdvice.suggestDisable);
@@ -431,7 +471,11 @@ void main() {
 
     test('climbing off the floor withdraws the advice', () {
       final a = direct();
-      for (var i = 0; i < 6 + CallBitrateAdapter.adviseAfter; i++) {
+      for (
+        var i = 0;
+        i < badSamplesToFloor + CallBitrateAdapter.adviseAfter;
+        i++
+      ) {
         lossy(a);
       }
       expect(a.videoAdvice, CallVideoAdvice.suggestDisable);
