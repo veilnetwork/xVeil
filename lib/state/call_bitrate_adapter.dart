@@ -169,26 +169,39 @@ class CallBitrateAdapter {
 
   /// Native zero defaults, expired reports and older libraries without report
   /// freshness are unknown quality. Local drops still justify reducing video.
+  /// A room supplies its connected receiver count: incomplete audio feedback
+  /// gives bandwidth back and cannot earn recovery; known bad reports still
+  /// substantiate congestion even when other receivers have not reported.
   ({int maxBitrateKbps, int maxFps})? onNativeStats(
     Map<String, dynamic> stats, {
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
+    int? expectedAudioFeedbackReports,
   }) {
+    final requiredReports =
+        expectedAudioFeedbackReports != null && expectedAudioFeedbackReports > 0
+        ? expectedAudioFeedbackReports
+        : 1;
+    final reports = ((stats['audio_feedback_reports'] as num?) ?? 0);
+    final anyFeedbackAvailable = stats['worker_stalled'] != 1 && reports > 0;
     final feedbackAvailable =
-        stats['worker_stalled'] != 1 &&
-        ((stats['audio_feedback_reports'] as num?) ?? 0) > 0;
+        anyFeedbackAvailable && reports >= requiredReports;
     return onSample(
-      rttMs: feedbackAvailable ? (stats['rtt_ms'] as num?)?.toInt() ?? 0 : 0,
-      txJitterMs: feedbackAvailable
+      rttMs: anyFeedbackAvailable ? (stats['rtt_ms'] as num?)?.toInt() ?? 0 : 0,
+      txJitterMs: anyFeedbackAvailable
           ? (stats['tx_jitter_ms'] as num?)?.toInt() ?? 0
           : 0,
-      txLossPct: feedbackAvailable
+      txLossPct: anyFeedbackAvailable
           ? (stats['tx_loss_pct'] as num?)?.toInt() ?? 0
           : 0,
       txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
       feedbackAvailable: feedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
       requirePeerAudioPlayout: requirePeerAudioPlayout,
+      missingAudioReceiverFeedback:
+          expectedAudioFeedbackReports != null &&
+          expectedAudioFeedbackReports > 0 &&
+          !feedbackAvailable,
     );
   }
 
@@ -202,6 +215,7 @@ class CallBitrateAdapter {
     bool feedbackAvailable = true,
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
+    bool missingAudioReceiverFeedback = false,
   }) {
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
@@ -213,7 +227,10 @@ class CallBitrateAdapter {
     final playoutGood =
         !requirePeerAudioPlayout ||
         (peerAudioDelayMs != null && peerAudioDelayMs < playoutRecoverMs);
-    if (!feedbackAvailable && !newDrops && !playoutBad) {
+    if (!feedbackAvailable &&
+        !newDrops &&
+        !playoutBad &&
+        !missingAudioReceiverFeedback) {
       _badStreak = 0;
       _floorBadStreak = 0;
       _goodStreak = 0;
@@ -235,7 +252,7 @@ class CallBitrateAdapter {
             (baseline == null || rttMs <= baseline + bloatRecoverMs));
 
     final networkBad = txLossPct >= 5 || txJitterMs >= 80 || rttBad || newDrops;
-    final bad = networkBad || playoutBad;
+    final bad = networkBad || playoutBad || missingAudioReceiverFeedback;
     final good =
         feedbackAvailable &&
         rttMs > 0 &&
@@ -261,7 +278,7 @@ class CallBitrateAdapter {
       if (atFloor) {
         // Unknown playout reserves bandwidth but cannot substantiate a
         // user-facing claim that the link fails to carry video.
-        if (networkBad || peerAudioDelayMs != null) {
+        if (networkBad || (playoutBad && peerAudioDelayMs != null)) {
           if (++_floorBadStreak >= adviseAfter) {
             _advice = CallVideoAdvice.suggestDisable;
           }
