@@ -34,16 +34,16 @@ void main() {
     expect(first, isNotNull);
     expect(a.level, 1);
     expect(first!.maxBitrateKbps, 675);
-    expect(first.maxFps, 60);
+    expect(first.maxFps, 30);
 
     expect(lossy(a), isNull);
     final second = lossy(a);
     expect(a.level, 2);
     expect(second!.maxBitrateKbps, 450);
-    expect(second.maxFps, 60);
+    expect(second.maxFps, 15);
   });
 
-  test('bottom bitrate rung preserves cadence and never goes lower', () {
+  test('bottom rung limits video cadence and never goes lower', () {
     final a = direct();
     ({int maxBitrateKbps, int maxFps})? last;
     for (var i = 0; i < 20; i++) {
@@ -51,7 +51,7 @@ void main() {
     }
     expect(a.level, CallBitrateAdapter.ladder.length - 1);
     expect(last!.maxBitrateKbps, 270);
-    expect(last.maxFps, 60);
+    expect(last.maxFps, 6);
     // Further bad samples keep the floor.
     for (var i = 0; i < 10; i++) {
       expect(lossy(a), isNull);
@@ -188,6 +188,35 @@ void main() {
     expect(a.level, 0, reason: 're-baselined path must fully recover');
   });
 
+  test(
+    'audio congestion releases padded video cells, then recovers slowly',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+      final cadence = <int>[a.target.maxFps];
+      for (var rung = 1; rung < CallBitrateAdapter.ladder.length; rung++) {
+        expect(lossy(a), isNull);
+        cadence.add(lossy(a)!.maxFps);
+      }
+      expect(cadence, [15, 8, 4, 2]);
+      // A two-second burst must not restore full video pressure on audio.
+      expect(good(a), isNull);
+      expect(good(a), isNull);
+      expect(a.target.maxFps, 2);
+      for (var i = 2; i < CallBitrateAdapter.recoverAfter; i++) {
+        good(a);
+      }
+      expect(a.target.maxFps, 4);
+    },
+  );
+
+  test('a low-cadence profile always retains at least one video frame', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 5);
+    for (var i = 0; i < 6; i++) {
+      lossy(a);
+    }
+    expect(a.target.maxFps, 1);
+  });
+
   test('anonymous profile never exceeds its route budget', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
     lossy(a);
@@ -217,7 +246,8 @@ void main() {
       expect(
         a.videoAdvice,
         CallVideoAdvice.keep,
-        reason: 'reaching the floor is not itself advice — the floor has not '
+        reason:
+            'reaching the floor is not itself advice — the floor has not '
             'been given a chance to carry the call yet',
       );
     });
@@ -263,7 +293,11 @@ void main() {
       // rung, so a prompt the user is reaching for must not vanish.
       for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
         good(a);
-        expect(a.videoAdvice, CallVideoAdvice.suggestDisable, reason: 'good $i');
+        expect(
+          a.videoAdvice,
+          CallVideoAdvice.suggestDisable,
+          reason: 'good $i',
+        );
       }
     });
 
