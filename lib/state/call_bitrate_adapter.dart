@@ -32,7 +32,15 @@ enum CallVideoAdvice {
 }
 
 class CallBitrateAdapter {
-  CallBitrateAdapter({required this.baseBitrateKbps, required this.baseFps});
+  CallBitrateAdapter({
+    required this.baseBitrateKbps,
+    required this.baseFps,
+    int? initialLevel,
+  }) : assert(
+         initialLevel == null ||
+             (initialLevel >= 0 && initialLevel < ladder.length),
+       ),
+       _level = initialLevel ?? ladder.length - 1;
 
   /// Route-profile budget this call negotiated; the ladder scales below it.
   final int baseBitrateKbps;
@@ -81,7 +89,10 @@ class CallBitrateAdapter {
   /// forever and pin the ladder at the bottom rung).
   static const int minWindowSamples = 60;
 
-  int _level = 0;
+  // An unmeasured link has not earned a full video budget. Start with one
+  // small frame per second and climb only after sustained healthy audio.
+  // initialLevel can restore an already measured policy; new calls omit it.
+  int _level;
   int _badStreak = 0;
   int _floorBadStreak = 0;
   CallVideoAdvice _advice = CallVideoAdvice.keep;
@@ -207,7 +218,8 @@ class CallBitrateAdapter {
             (baseline == null || rttMs <= baseline + bloatRecoverMs));
 
     final bad = txLossPct >= 5 || txJitterMs >= 80 || rttBad || newDrops;
-    final good = txLossPct <= 1 && txJitterMs < 40 && rttGood && !newDrops;
+    final good =
+        rttMs > 0 && txLossPct <= 1 && txJitterMs < 40 && rttGood && !newDrops;
 
     if (bad) {
       _goodStreak = 0;
