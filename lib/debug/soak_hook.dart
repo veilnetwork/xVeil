@@ -97,7 +97,8 @@ import '../state/veil_call_media.dart'
     show
         pullRemoteVideoFrameForDiagnostics,
         setActiveMediaBatchingForDiagnostics,
-        setActiveVideoTargetForDiagnostics;
+        setActiveVideoTargetForDiagnostics,
+        repairActiveCallMediaForDiagnostics;
 import '../state/veil_group_call_media.dart';
 import '../state/folder_sync_controller.dart';
 import '../state/providers.dart';
@@ -1252,6 +1253,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           return;
         case '/media_video_target':
           await _mediaVideoTarget(req);
+          return;
+        case '/media_repair':
+          if (!_requireReady(req)) return;
+          await _json(req, {'ok': await repairActiveCallMediaForDiagnostics()});
           return;
         case '/media_engine_selftest':
           await _mediaEngineSelftest(req);
@@ -8788,14 +8793,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     final fps = int.tryParse(req.uri.queryParameters['fps'] ?? '');
     if (!clear &&
         (bitrate == null ||
-            bitrate < 50 ||
-            bitrate > 5000 ||
+            bitrate < 30 ||
+            bitrate > 2500 ||
             fps == null ||
-            fps < 5 ||
-            fps > 120)) {
+            fps < 1 ||
+            fps > 60)) {
       await _json(req, {
         'ok': false,
-        'error': 'use clear=1 or kbps=50..5000 and fps=5..120',
+        'error': 'use clear=1 or kbps=30..2500 and fps=1..60',
       }, status: 400);
       return;
     }

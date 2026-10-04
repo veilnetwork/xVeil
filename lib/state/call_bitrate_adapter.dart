@@ -15,7 +15,7 @@
 /// The ladder can only spend less; it cannot spend nothing. Once the bottom
 /// rung is reached and the link is STILL bad, stepping down is no longer an
 /// available move and continuing to send is not a neutral choice — measured on
-/// the stand 2026-09-19, the bottom rung (270 kbps of a 900 kbps profile) still
+/// the stand 2026-09-19, the previous bottom rung (270 kbps of a 900 kbps profile) still
 /// lost 68% of outbound video, i.e. two thirds of everything sent was pushed
 /// into a link that could not carry it, crowding the audio that shared it.
 ///
@@ -39,13 +39,15 @@ class CallBitrateAdapter {
   final int baseFps;
 
   /// Fractions of the base bitrate budget, best-first.
-  static const List<double> ladder = [1.0, 0.75, 0.5, 0.3];
+  // A slow mobile link may not carry even the old 270-kbit floor. Keep one
+  // further step before suggesting that the person turn the camera off.
+  static const List<double> ladder = [1.0, 0.75, 0.5, 0.3, 0.05];
 
   /// Spend fewer video frames when audio reports persistent congestion.
   /// Small anonymous frames still occupy padded cells; shrinking their byte
   /// payload alone cannot release that part of the link's bandwidth. Healthy
   /// calls retain their full cadence, and recovery uses the same hysteresis.
-  static const List<double> cadenceLadder = [1.0, 0.5, 0.25, 0.1];
+  static const List<double> cadenceLadder = [1.0, 0.5, 0.25, 0.1, 0.02];
 
   /// Consecutive bad samples (~seconds) before stepping down.
   static const int degradeAfter = 2;
@@ -141,7 +143,11 @@ class CallBitrateAdapter {
 
   /// Target for the current rung.
   ({int maxBitrateKbps, int maxFps}) get target => (
-    maxBitrateKbps: (baseBitrateKbps * ladder[_level]).round(),
+    // Match the native VP8 floor without exceeding this route's ceiling.
+    maxBitrateKbps: (baseBitrateKbps * ladder[_level]).round().clamp(
+      baseBitrateKbps < 30 ? baseBitrateKbps : 30,
+      baseBitrateKbps,
+    ),
     maxFps: (baseFps * cadenceLadder[_level]).round().clamp(1, 60),
   );
 
