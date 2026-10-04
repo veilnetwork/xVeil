@@ -353,14 +353,13 @@ bool shouldStartInitialCallCamera(Call call) =>
 class VeilCallMediaController implements CallMediaController {
   VeilCallMediaController(this._transport);
 
-  // v3 is unconditional now. It used to be conditioned on the loaded engine
-  // exposing the RTP packet ceiling, because v3 meant "compact relay
-  // optimization"; it now means "the offer/answer carry the contributions the
-  // channel seal is derived from", and the seal is on every route with no
-  // unsealed mode to advertise instead. An engine binary without the packet
-  // ceiling loses a video-quality knob, not a protocol level.
+  // Sealing remains unconditional v3 behavior. Advertise v4 only when the
+  // loaded native engine supports independent audio/video feedback counters.
   @override
-  int get signalProtocolVersion => kCallSignalProtocolVersion;
+  int get signalProtocolVersion =>
+      VeilMediaEngine.supportsIndependentTransportFeedback
+      ? kCallSignalProtocolVersion
+      : kCallIndependentTransportFeedbackMinVersion - 1;
 
   final VeilFlutterTransport _transport;
   static const MethodChannel _androidCallNetwork = MethodChannel(
@@ -793,6 +792,18 @@ class VeilCallMediaController implements CallMediaController {
     );
     if (engine == null) {
       devLog(() => 'xVeil[call-media]: engine create failed');
+      _transport.closeMediaChannel(chan);
+      _chan = null;
+      _chanPeer = null;
+      return false;
+    }
+    final feedback = useIndependentCallTransportFeedback(
+      call.peerProtocolVersion,
+      nativeSupportsFeedback:
+          VeilMediaEngine.supportsIndependentTransportFeedback,
+    );
+    if (!engine.setIndependentTransportFeedback(feedback)) {
+      engine.dispose();
       _transport.closeMediaChannel(chan);
       _chan = null;
       _chanPeer = null;
