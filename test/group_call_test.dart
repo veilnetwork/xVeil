@@ -162,6 +162,15 @@ class _Media extends GroupCallMediaController {
   int updates = 0;
   int stops = 0;
   final List<NodeId> invalidated = [];
+  bool audioStatsSupported = false;
+  final Map<String, DateTime> audioRx = {};
+  DateTime Function(NodeId)? mediaRx;
+  @override
+  bool get supportsAudioReceiveStats => audioStatsSupported;
+  @override
+  DateTime? lastAudioRxAt(NodeId peer) => audioRx[peer.hex];
+  @override
+  DateTime? lastMediaRxAt(NodeId peer) => mediaRx?.call(peer);
   GroupCall? latest;
   String? selectedScreenId;
   final StreamController<void> screenStops = StreamController.broadcast();
@@ -221,6 +230,134 @@ void main() {
   final bob = _id(2);
   final carol = _id(3);
   final stranger = _id(9);
+
+  for (final supported in [true, false]) {
+    test(
+      'audio watchdog repairs video-only ingress (native audio stats: $supported)',
+      () async {
+        final ownerStorage = FakeHvContainer().storage();
+        final bobStorage = FakeHvContainer().storage();
+        await ownerStorage.open(password: 'pw', createIfMissing: true);
+        await bobStorage.open(password: 'pw', createIfMissing: true);
+        var now = DateTime.now();
+        final ownerSignals = <GroupCallSignal>[];
+        late GroupService ownerGroups;
+        late GroupService bobGroups;
+        ownerGroups = GroupService(
+          ownerStorage,
+          _Signer(owner),
+          epochService: GroupEpochService(
+            LoopbackMailboxCrypto(senderForOpen: owner),
+          ),
+          sendGroupCallFrame: (peer, signal, json) async {
+            ownerSignals.add(signal);
+            if (peer == bob) await bobGroups.ingestGroupCallFrame(owner, json);
+          },
+        );
+        final groupId = await ownerGroups.createGroup('Audio watchdog');
+        await ownerGroups.addControlOp(
+          groupId,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        );
+        bobGroups = GroupService(
+          bobStorage,
+          _Signer(bob),
+          epochService: GroupEpochService(
+            LoopbackMailboxCrypto(senderForOpen: owner),
+          ),
+          sendGroupCallFrame: (peer, signal, json) async {
+            if (peer == owner) {
+              await ownerGroups.ingestGroupCallFrame(bob, json);
+            }
+          },
+        );
+        expect(
+          await bobGroups.ingestSnapshot(
+            ownerGroups.snapshotJson(
+              (await ownerGroups.load(groupId))!,
+              recipient: bob,
+            ),
+          ),
+          isTrue,
+        );
+        final media = _Media()
+          ..audioStatsSupported = supported
+          ..mediaRx = (_) => now;
+        final ownerCalls = GroupCallService(
+          ownerGroups,
+          media: media,
+          now: () => now,
+          heartbeatInterval: const Duration(milliseconds: 10),
+        )..start();
+        final bobCalls = GroupCallService(
+          bobGroups,
+          media: _Media(),
+          now: () => now,
+        )..start();
+        addTearDown(ownerCalls.dispose);
+        addTearDown(bobCalls.dispose);
+        expect(
+          await ownerCalls.startCall(
+            groupId,
+            const CallMedia(audio: true, video: true),
+          ),
+          isTrue,
+        );
+        await pumpEventQueue();
+        expect(await bobCalls.join(), isTrue);
+        await pumpEventQueue();
+        int repairs() => ownerSignals
+            .where((s) => s.type == GroupCallSignalType.join)
+            .length;
+        Future<void> tick() async {
+          await Future<void>.delayed(const Duration(milliseconds: 30));
+          await pumpEventQueue();
+        }
+
+        expect(repairs(), 0);
+        now = now.add(const Duration(seconds: 11));
+        await tick();
+        expect(
+          repairs(),
+          supported ? 1 : 0,
+          reason:
+              'video ingress cannot keep a known silent audio stream healthy',
+        );
+        expect(ownerCalls.current?.participants, contains(bob.hex));
+        final initialRepairs = repairs();
+        now = now.add(const Duration(seconds: 1));
+        await tick();
+        expect(repairs(), initialRepairs, reason: 'repair JOIN has a cooldown');
+        media.audioRx[bob.hex] = now;
+        now = now.add(const Duration(seconds: 5));
+        await tick();
+        expect(repairs(), initialRepairs);
+
+        await bobCalls.setMicEnabled(false);
+        await pumpEventQueue();
+        now = now.add(const Duration(seconds: 30));
+        await tick();
+        expect(
+          repairs(),
+          initialRepairs,
+          reason: 'muted participants need no audio repair',
+        );
+        await bobCalls.setMicEnabled(true);
+        await pumpEventQueue();
+        await tick();
+        expect(
+          repairs(),
+          initialRepairs,
+          reason: 'remote unmute starts an audio grace window',
+        );
+        now = now.add(const Duration(seconds: 11));
+        await tick();
+        expect(repairs(), initialRepairs + (supported ? 1 : 0));
+      },
+    );
+  }
 
   test(
     'signed signal round-trips canonically and rejects mixed clear shape',
@@ -1391,7 +1528,8 @@ void main() {
       expect(
         bobSecret,
         ownerSecret,
-        reason: 'two members that reach different room secrets cannot open '
+        reason:
+            'two members that reach different room secrets cannot open '
             "each other's media cells at all",
       );
 
