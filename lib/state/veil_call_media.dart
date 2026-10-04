@@ -478,6 +478,7 @@ class VeilCallMediaController implements CallMediaController {
       maxFps: target.fps,
     );
     if (ok) {
+      adapter.invalidateAppliedTarget();
       _diagnosticVideoTarget = bitrateKbps == null || fps == null
           ? null
           : target;
@@ -925,18 +926,23 @@ class VeilCallMediaController implements CallMediaController {
           // Sender-side ladder driven by what the REMOTE receiver reports for
           // our outbound leg (RTCP report blocks) plus local queue drops. The
           // route profile stays the ceiling; adaptation only spends less.
-          final change = adapter.onNativeStats(stats);
-          if (change != null && _diagnosticVideoTarget == null) {
-            final ok = engine.setVideoBitrate(
-              maxBitrateKbps: change.maxBitrateKbps,
-              maxFps: change.maxFps,
+          adapter.onNativeStats(stats);
+          if (_diagnosticVideoTarget == null) {
+            final ok = adapter.applyPendingTarget(
+              (target) => engine.setVideoBitrate(
+                maxBitrateKbps: target.maxBitrateKbps,
+                maxFps: target.maxFps,
+              ),
             );
-            devLog(
-              () =>
-                  'xVeil[call-media]: link-quality retune level='
-                  '${adapter.level} ${change.maxBitrateKbps}kbps@'
-                  '${change.maxFps}fps ok=$ok',
-            );
+            if (ok != null) {
+              final target = adapter.target;
+              devLog(
+                () =>
+                    'xVeil[call-media]: link-quality retune level='
+                    '${adapter.level} ${target.maxBitrateKbps}kbps@'
+                    '${target.maxFps}fps ok=$ok',
+              );
+            }
           }
           // Out of rungs on a link that is still failing. Until now this state
           // produced nothing at all — `onSample` returns null both for "held
