@@ -253,6 +253,28 @@ while only Blackview is enumerated by ADB. The existing 14 media-seal tests and
 the transport-feedback v4/v5 compatibility test also passed after the version
 bump. No live two-phone call was possible in this cycle.
 
+Group video now requires fresh AUDIO RTCP reports from every connected peer
+before its shared encoder budget can grow. Native group stats count one fresh
+report per peer shim; stopped/deferred-teardown shims return no feedback, so a
+departed receiver cannot substitute for a silent active receiver. The media
+controller supplies its successfully opened peer count. Partial/absent reports,
+a stalled audio worker, empty stats or a failed stats query release video
+bandwidth toward the floor; retuning is still attempted when querying fails.
+Fresh bad reports still substantiate congestion even if other reports are
+missing. Unknown quality alone raises no failing-link prompt. Adding a peer
+requires its feedback; removing one permits recovery after the usual healthy
+interval. Deliberately muted senders retain the prior RTCP policy.
+
+The group controller also retains microphone intent during permission/channel
+setup and applies it before audio capture starts. A mute chosen after setup
+begins can no longer be overwritten by the initial call snapshot. Teardown
+clears this state for the next call. Gates: 72 scoped group-media, group FSM,
+teardown, bitrate and unicast playout tests passed; scoped analysis found no
+issues. Reverting the per-receiver completeness input makes the real group
+controller's clean-RTCP/missing-receiver regression fail. Group receive-side
+playout estimates are still not exported/reported; this gate protects RTCP
+coverage and cannot establish acoustic latency or independent network flows.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there

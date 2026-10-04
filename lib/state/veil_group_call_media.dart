@@ -16,6 +16,7 @@ import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
 import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
 import 'call_audio_route.dart';
+import 'call_microphone_state.dart';
 import 'call_bitrate_adapter.dart';
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
@@ -287,6 +288,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   bool _androidScreenPushLogged = false;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   bool _videoRunning = false;
+  bool _audioEnabled = false;
+  final _microphoneState = CallMicrophoneState();
   CallBitrateAdapter? _bitrateAdapter;
   bool _screenSharing = false;
   String? _selectedScreenId;
@@ -338,7 +341,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   @override
   Future<bool> start(GroupCall call) => _locked(() async {
-    await _stopLocked();
+    _microphoneState.beginCall(call.callId, micOn: call.micOn);
+    await _stopLocked(clearMicrophoneState: false);
+    _audioEnabled = call.media.audio;
     // Match direct calls: bound the permission prompt, then bring up playout
     // even when capture permission is denied or still pending.
     if (call.media.audio) {
@@ -356,6 +361,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final engine = _engineFactory(localId);
     if (engine == null) return false;
     _engine = engine;
+    // Capture intent can change while permission or channel setup is pending.
+    // Apply it before audio starts, then keep it as the video policy's source.
+    engine.setMicMuted(_microphoneState.mutedForCall(call.callId));
     // Before capture opens: keeps AudioRecord unmuted once the screen locks;
     // released by _stopLocked on every teardown path.
     if (call.media.audio) {
@@ -547,10 +555,25 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (!_videoRunning) return;
     final adapter = _bitrateAdapter;
     if (adapter == null) return;
+    Map<String, dynamic> stats;
     try {
-      final stats = expected.getStats();
-      if (stats.isEmpty) return;
-      adapter.onNativeStats(stats);
+      stats = expected.getStats();
+    } catch (error) {
+      stats = const {};
+      devLog(
+        () => 'xVeil[group-call-media]: quality sample unavailable: $error',
+      );
+    }
+    try {
+      // The encoder budget is shared by the whole fanout. One healthy peer
+      // cannot establish audio quality for peers whose RTCP has gone missing.
+      // Native aggregates count only fresh AUDIO reports, not video reports.
+      adapter.onNativeStats(
+        stats,
+        expectedAudioFeedbackReports: _audioEnabled && !_microphoneState.muted
+            ? _peers.length
+            : null,
+      );
       // Retry an abandoned video-worker operation on the next poll. Advancing
       // the policy is separate from successfully applying an encoder budget.
       final applied = adapter.applyPendingTarget(
@@ -624,6 +647,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   @override
   Future<void> setMicMuted(bool muted) async {
+    _microphoneState.setMuted(muted);
     try {
       _engine?.setMicMuted(muted);
     } catch (_) {}
@@ -790,7 +814,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     return started;
   }
 
-  Future<void> _stopLocked() async {
+  Future<void> _stopLocked({bool clearMicrophoneState = true}) async {
+    if (clearMicrophoneState) _microphoneState.clear();
+    _audioEnabled = false;
     _mediaEpoch++;
     _statsTimer?.cancel();
     _statsTimer = null;
