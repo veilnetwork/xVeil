@@ -994,6 +994,130 @@ void main() {
       });
     });
 
+    for (final mode in [
+      'audio stopped',
+      'audio flowing',
+      'peer muted',
+      'legacy engine',
+    ]) {
+      test('video liveness with $mode handles audio repair independently', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..audioTelemetry = mode != 'legacy engine';
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          fake.onCallSignal!(peer, offer('audio-watchdog'));
+          svc.accept();
+          async.flushMicrotasks();
+          media.audioRxAt = clock.now();
+          fake.sent.clear();
+          for (var i = 0; i < 4; i++) {
+            media.rxAt = clock.now(); // video / RTCP keeps arriving
+            if (mode == 'audio flowing') media.audioRxAt = clock.now();
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'audio-watchdog',
+                type: CallSignalType.health,
+                capture: CallMedia(audio: mode != 'peer muted', video: true),
+                sentAtMs: clock.now().millisecondsSinceEpoch,
+              ),
+            );
+            async.elapse(kCallHeartbeatInterval);
+            async.flushMicrotasks();
+          }
+          expect(svc.current?.status, CallStatus.active);
+          final repairs = fake.sent.where(
+            (s) => s.type == CallSignalType.health && s.mediaRepairRequested,
+          );
+          expect(repairs.isNotEmpty, mode == 'audio stopped');
+          svc.dispose();
+        });
+      });
+    }
+
+    test(
+      'unmuting gets audio startup grace without video masking a later outage',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..audioTelemetry = true;
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          fake.onCallSignal!(peer, offer('unmute-grace'));
+          svc.accept();
+          async.flushMicrotasks();
+          void capture(bool audio) {
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'unmute-grace',
+                type: CallSignalType.health,
+                capture: CallMedia(audio: audio, video: true),
+                sentAtMs: clock.now().millisecondsSinceEpoch,
+              ),
+            );
+          }
+
+          capture(false);
+          for (var i = 0; i < 4; i++) {
+            media.rxAt = clock.now();
+            async.elapse(kCallHeartbeatInterval);
+          }
+          capture(true);
+          fake.sent.clear();
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          expect(fake.sent.any((s) => s.mediaRepairRequested), isFalse);
+          media.rxAt = clock.now();
+          capture(true); // unchanged heartbeat must not restart the grace
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+          expect(fake.sent.any((s) => s.mediaRepairRequested), isTrue);
+          svc.dispose();
+        });
+      },
+    );
+
+    test(
+      'unchanged new capture heartbeat rejects an older mute without UI churn',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: _FakeMedia(),
+          )..start();
+          fake.onCallSignal!(peer, offer('posture-order'));
+          svc.accept();
+          async.flushMicrotasks();
+          final updates = <Call?>[];
+          svc.changes.listen(updates.add);
+          void posture(bool audio, int timestamp) => fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'posture-order',
+              type: CallSignalType.health,
+              capture: CallMedia(audio: audio, video: true),
+              sentAtMs: timestamp,
+            ),
+          );
+          final stamp = clock.now().millisecondsSinceEpoch;
+          posture(true, stamp);
+          async.flushMicrotasks();
+          final before = updates.length;
+          posture(true, stamp + 100);
+          posture(false, stamp + 50);
+          async.flushMicrotasks();
+          expect(svc.current!.peerMicOff, isFalse);
+          expect(svc.current!.peerCaptureAtMs, stamp + 100);
+          expect(updates.length, before);
+          svc.dispose();
+        });
+      },
+    );
+
     test('repair request is ignored while initial media is still starting', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -1032,6 +1156,44 @@ void main() {
         media.startGate!.complete(true);
         async.flushMicrotasks();
         expect(svc.current?.status, CallStatus.active);
+      });
+    });
+
+    test('receiver rebuild suppresses peer repairs and restarts receive grace', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..audioTelemetry = true;
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, offer('receive-rebuild'));
+        svc.accept();
+        async.flushMicrotasks();
+        void peerBeat() => fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: 'receive-rebuild',
+            type: CallSignalType.health,
+            capture: const CallMedia(audio: true, video: true),
+            sentAtMs: clock.now().millisecondsSinceEpoch,
+          ),
+        );
+        media.receiveRepairing = true;
+        fake.sent.clear();
+        for (var i = 0; i < 4; i++) {
+          peerBeat();
+          async.elapse(kCallHeartbeatInterval);
+        }
+        expect(svc.current?.status, CallStatus.active);
+        expect(fake.sent.any((s) => s.mediaRepairRequested), isFalse);
+        media.receiveRepairing = false;
+        media.receiveStartedAt = clock.now();
+        async.elapse(kCallHeartbeatInterval);
+        expect(fake.sent.any((s) => s.mediaRepairRequested), isFalse);
+        peerBeat();
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(fake.sent.any((s) => s.mediaRepairRequested), isTrue);
+        svc.dispose();
       });
     });
 
@@ -2563,6 +2725,10 @@ class _FakeMedia extends CallMediaController {
   CallTransportKind? openedTransport;
   CallTransportKind? repairTo;
   DateTime? rxAt;
+  bool audioTelemetry = false;
+  DateTime? audioRxAt;
+  DateTime? receiveStartedAt;
+  bool receiveRepairing = false;
   int repairs = 0;
   Completer<bool>? startGate;
   final List<CallTransportKind> switches = [];
@@ -2657,6 +2823,18 @@ class _FakeMedia extends CallMediaController {
 
   @override
   DateTime? get lastMediaRxAt => rxAt;
+
+  @override
+  bool get hasAudioReceiveTelemetry => audioTelemetry;
+
+  @override
+  DateTime? get lastAudioRxAt => audioRxAt;
+
+  @override
+  DateTime? get receiveSessionStartedAt => receiveStartedAt;
+
+  @override
+  bool get isRepairingReceiveSession => receiveRepairing;
 
   @override
   Future<bool> start(Call call) async {
