@@ -19,6 +19,7 @@ import 'android_native_call_camera.dart';
 import 'android_native_call_video.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
+import 'call_microphone_state.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
 import 'call_service.dart';
@@ -374,6 +375,7 @@ class VeilCallMediaController implements CallMediaController {
       'call.capture.microphone.${Platform.operatingSystem}';
   static String get _speakerPreferenceKey =>
       'call.playout.speaker.${Platform.operatingSystem}';
+  final _microphoneState = CallMicrophoneState();
   VeilMediaEngine? _engine;
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
@@ -673,6 +675,7 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> start(Call call) async {
+    _microphoneState.beginCall(call.callId, micOn: call.micOn);
     final device = call.peerDevice;
     if (device != null && device != call.mediaIdentity) {
       // Native attributes packets on an admitted session to the shared
@@ -695,9 +698,14 @@ class VeilCallMediaController implements CallMediaController {
     // Never open a route while the call is only ringing: the final route is
     // known only after both peers have applied their consent policy. Reuse is
     // therefore limited to this controller's already-finalized call lifecycle.
+    if (!_microphoneState.belongsToCall(call.callId)) return false;
     if (_engine != null || (_chan != null && _chanPeer != call.mediaPeer.hex)) {
-      await stop();
+      await _stopSession(
+        clearActiveCall: _activeCall?.callId != call.callId,
+        clearMicrophoneState: false,
+      );
     }
+    if (!_microphoneState.belongsToCall(call.callId)) return false;
     final epoch = ++_mediaEpoch;
     _activeCall = call;
     await _loadDevicePreferences();
@@ -978,9 +986,7 @@ class VeilCallMediaController implements CallMediaController {
     // native engine now keeps physical capture stopped while muted, so an
     // Android endpoint configured mic-off neither opens AudioRecord briefly
     // nor burns capture/Opus CPU just to encode silence.
-    if (!call.micOn) {
-      engine.setMicMuted(true);
-    }
+    engine.setMicMuted(_microphoneState.mutedForCall(call.callId));
     final audioOk = engine.startAudio(send: true, recv: true);
     devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
     if (audioOk) await callAudioRouter.useDefaultFor(call.media);
@@ -1153,10 +1159,14 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<void> stop() => _stopSession(clearActiveCall: true);
 
-  Future<void> _stopSession({required bool clearActiveCall}) async {
+  Future<void> _stopSession({
+    required bool clearActiveCall,
+    bool clearMicrophoneState = true,
+  }) async {
     _mediaEpoch++;
     if (clearActiveCall) {
       _activeCall = null;
+      if (clearMicrophoneState) _microphoneState.clear();
       // The prompt belongs to a call, not to the app. A route repair
       // (clearActiveCall: false) deliberately keeps it: the link that could
       // not carry video a second ago is the same link.
@@ -1275,8 +1285,13 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<void> setMicMuted(bool muted) async {
+    // Remember choices made before the engine exists or during a repair gap.
+    _microphoneState.setMuted(muted);
     try {
-      _engine?.setMicMuted(muted);
+      final call = _activeCall;
+      if (call != null && _microphoneState.belongsToCall(call.callId)) {
+        _engine?.setMicMuted(muted);
+      }
     } catch (_) {}
   }
 
