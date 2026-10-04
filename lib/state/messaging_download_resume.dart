@@ -152,9 +152,16 @@ class _MessagingDownloadResume {
     String? savedPath,
     required Iterable<NodeId> peers,
   }) {
-    if (_owner._disposed) return;
+    if (_owner._disposed || _owner._cancelledDownloads.contains(contentId)) {
+      return;
+    }
     final peerHexes = [for (final peer in peers) peer.hex];
     _mutatePending((map) {
+      // Preparation can yield on storage/source discovery before recording.
+      // Cancellation must win over that suspended attempt, including a write
+      // already queued on the persistence chain. A fresh user tap clears the
+      // cancellation latch before recording its new intent.
+      if (_owner._cancelledDownloads.contains(contentId)) return;
       final prior = map[contentId];
       map[contentId] = _PendingDownload(
         contentId: contentId,
