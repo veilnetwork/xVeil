@@ -66,6 +66,10 @@ bool? setActiveVideoTargetForDiagnostics({int? bitrateKbps, int? fps}) =>
       fps: fps,
     );
 
+/// Exercise the existing route rebuild on a physical debug stand.
+Future<bool> repairActiveCallMediaForDiagnostics() async =>
+    await _diagnosticMediaController?.repairRoute() ?? false;
+
 /// Latest local camera frame for the active video call (RGBA), or null. Used by
 /// the draggable self-preview tile.
 final ValueNotifier<VeilVideoFrame?> localVideoFrame =
@@ -535,6 +539,7 @@ class VeilCallMediaController implements CallMediaController {
       return {
         'transport': _chanTransport?.name,
         'running': true,
+        'media_epoch': _mediaEpoch,
         'batching': _mediaBatching,
         'compact_relay_media': _compactRelayMedia,
         'capture_camera_id': _selectedCameraId,
@@ -675,6 +680,7 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> start(Call call) async {
+    if (!_microphoneState.belongsToCall(call.callId)) _bitrateAdapter = null;
     _microphoneState.beginCall(call.callId, micOn: call.micOn);
     final device = call.peerDevice;
     if (device != null && device != call.mediaIdentity) {
@@ -865,7 +871,6 @@ class VeilCallMediaController implements CallMediaController {
     _lastNativeRxCount = _transport.mediaRecvCount(call.mediaPeer.bytes);
     _engineRxStalledSince = null;
     _lastRepairAt = null;
-    _bitrateAdapter = null; // re-armed below when this call carries video
     var statsTick = 0;
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_engine != engine) return;
@@ -998,18 +1003,16 @@ class VeilCallMediaController implements CallMediaController {
       final profile = highQuality
           ? _directVideoProfile
           : _anonymousVideoProfile;
+      final adapter = _videoAdapterForProfile(profile);
+      final target = adapter.target;
       videoOk = engine.startVideo(
         send: true,
         recv: true,
-        maxBitrateKbps: profile.maxBitrateKbps,
-        maxFps: profile.maxFps,
+        maxBitrateKbps: target.maxBitrateKbps,
+        maxFps: target.maxFps,
       );
       devLog(() => 'xVeil[call-media]: startVideo=$videoOk');
       if (videoOk) {
-        _bitrateAdapter = CallBitrateAdapter(
-          baseBitrateKbps: profile.maxBitrateKbps,
-          baseFps: profile.maxFps,
-        );
         if (Platform.isAndroid) await _startAndroidVideoRenderer(engine);
       }
       // Drive the send stream from the real camera for a video call (screen
@@ -1038,6 +1041,19 @@ class VeilCallMediaController implements CallMediaController {
     final ok = audioOk || videoOk;
     devLog(() => 'xVeil[call-media]: controller start result=$ok');
     return ok;
+  }
+
+  CallBitrateAdapter _videoAdapterForProfile(_CallVideoProfile profile) {
+    final previous = _bitrateAdapter;
+    if (previous != null &&
+        previous.baseBitrateKbps == profile.maxBitrateKbps &&
+        previous.baseFps == profile.maxFps) {
+      return previous;
+    }
+    return _bitrateAdapter = CallBitrateAdapter(
+      baseBitrateKbps: profile.maxBitrateKbps,
+      baseFps: profile.maxFps,
+    );
   }
 
   /// Pump the latest decoded frames into the shared notifier for the UI.
@@ -1130,13 +1146,15 @@ class VeilCallMediaController implements CallMediaController {
     final profile = _highQualityRoute
         ? _directVideoProfile
         : _anonymousVideoProfile;
+    final adapter = _videoAdapterForProfile(profile);
+    final target = adapter.target;
     final bool ok;
     try {
       ok = engine.startVideo(
         send: true,
         recv: true,
-        maxBitrateKbps: profile.maxBitrateKbps,
-        maxFps: profile.maxFps,
+        maxBitrateKbps: target.maxBitrateKbps,
+        maxFps: target.maxFps,
       );
     } catch (_) {
       return false;
@@ -1148,10 +1166,6 @@ class VeilCallMediaController implements CallMediaController {
     // Keep the session's own call view carrying video, so a route repair or
     // switch rebuilds the upgraded media set rather than the audio-only offer.
     _activeCall = call.copyWith(media: call.media.copyWith(video: true));
-    _bitrateAdapter ??= CallBitrateAdapter(
-      baseBitrateKbps: profile.maxBitrateKbps,
-      baseFps: profile.maxFps,
-    );
     if (_frameTimer == null) _startFramePump(engine);
     return true;
   }
@@ -1166,6 +1180,7 @@ class VeilCallMediaController implements CallMediaController {
     _mediaEpoch++;
     if (clearActiveCall) {
       _activeCall = null;
+      _bitrateAdapter = null;
       if (clearMicrophoneState) _microphoneState.clear();
       // The prompt belongs to a call, not to the app. A route repair
       // (clearActiveCall: false) deliberately keeps it: the link that could
@@ -1184,7 +1199,9 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxPkts = 0;
     _lastNativeRxCount = 0;
     _engineRxStalledSince = null;
-    _bitrateAdapter = null;
+    // Congestion belongs to the call, not the native engine. A route rebuild
+    // must start video at its reduced budget instead of injecting a new burst.
+    _bitrateAdapter?.invalidateAppliedTarget();
     _screenSharing = false;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;
