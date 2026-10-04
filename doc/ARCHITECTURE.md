@@ -141,6 +141,11 @@ durable intent after cancellation. Recording now checks the cancellation latch
 both before scheduling and inside the persistence chain. A gated-storage test
 fails before the fix and verifies cancellation across restart plus a fresh user
 retry afterwards; all six auto-resume tests pass.
+Debug 2153 was installed and its APK verified on both phones. Scoped cleanup
+cancelled the six identified stand content IDs on Blackview (one still pending),
+left zero of those pending and preserved unrelated intents. Both contacts were
+accepted. Own plaintext fixtures, debug forwards, logcat readers and launched
+app processes were verified absent after the tests.
 
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
