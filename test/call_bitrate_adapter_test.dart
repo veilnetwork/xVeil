@@ -85,6 +85,49 @@ void main() {
     expect(a.level, 0);
   });
 
+  test(
+    'partial room audio reports reserve bandwidth without a false prompt',
+    () {
+      final adapter = direct();
+      for (var i = 0; i < 60; i++) {
+        adapter.onNativeStats({
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'tx_loss_pct': 0,
+          'tx_jitter_ms': 10,
+        }, expectedAudioFeedbackReports: 2);
+      }
+      expect(adapter.atFloor, isTrue);
+      expect(adapter.videoAdvice, CallVideoAdvice.keep);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+        adapter.onNativeStats({
+          'audio_feedback_reports': 2,
+          'rtt_ms': 80,
+          'tx_loss_pct': 0,
+          'tx_jitter_ms': 10,
+        }, expectedAudioFeedbackReports: 2);
+      }
+      expect(adapter.level, CallBitrateAdapter.ladder.length - 2);
+    },
+  );
+
+  test('partial known bad audio reports still substantiate floor advice', () {
+    final adapter = direct();
+    for (
+      var i = 0;
+      i < badSamplesToFloor + CallBitrateAdapter.adviseAfter;
+      i++
+    ) {
+      adapter.onNativeStats({
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+        'tx_loss_pct': 12,
+      }, expectedAudioFeedbackReports: 2);
+    }
+    expect(adapter.atFloor, isTrue);
+    expect(adapter.videoAdvice, CallVideoAdvice.suggestDisable);
+  });
+
   test('native defaults and expired reports cannot restore video', () {
     for (final unavailable in [
       <String, dynamic>{}, // Older library: no report freshness.

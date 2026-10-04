@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -119,13 +120,13 @@ void main() {
         expect(engine.targets.last, (maxBitrateKbps: 45, maxFps: 2));
         engine.stats = {'audio_feedback_reports': 0};
         clock.elapse(const Duration(seconds: 30));
-        expect(engine.targets.last, (maxBitrateKbps: 45, maxFps: 2));
+        expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
         engine.stats = {
           'audio_feedback_reports': 2,
           'tx_loss_pct': 0,
           'rtt_ms': 80,
         };
-        clock.elapse(const Duration(seconds: 36));
+        clock.elapse(const Duration(seconds: 48));
         expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
         controller.stop();
         clock.flushMicrotasks();
@@ -162,6 +163,157 @@ void main() {
       clock.flushMicrotasks();
     });
   });
+
+  test(
+    'group video requires fresh audio feedback from every connected peer',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3), carol = _id(4);
+        final engine = _FakeEngine();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        controller.start(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        engine.stats = {
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'tx_loss_pct': 0,
+          'tx_jitter_ms': 10,
+        };
+        clock.elapse(const Duration(seconds: 60));
+        expect(
+          engine.targets.last,
+          (maxBitrateKbps: 30, maxFps: 1),
+          reason: 'one healthy receiver cannot speak for the silent one',
+        );
+        engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+        engine.stats = {...engine.stats, 'audio_feedback_reports': 1};
+        clock.elapse(const Duration(seconds: 8));
+        expect(
+          engine.targets.last,
+          (maxBitrateKbps: 30, maxFps: 1),
+          reason: 'losing a receiver must release bandwidth for audio',
+        );
+        engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+
+        controller.update(_call(self, [alice, bob, carol], video: true));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 8));
+        expect(
+          engine.targets.last,
+          (maxBitrateKbps: 30, maxFps: 1),
+          reason: 'the newly connected receiver has not yet reported audio',
+        );
+        controller.update(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last, (
+          maxBitrateKbps: 150,
+          maxFps: 15,
+        ), reason: 'removed peers no longer block recovery');
+        final healthy = engine.stats;
+        engine.stats = const {};
+        clock.elapse(const Duration(seconds: 8));
+        expect(
+          engine.targets.last,
+          (maxBitrateKbps: 30, maxFps: 1),
+          reason: 'unreadable native stats cannot keep full video',
+        );
+        engine.stats = healthy;
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+        engine.throwStats = true;
+        clock.elapse(const Duration(seconds: 8));
+        expect(
+          engine.targets.last,
+          (maxBitrateKbps: 30, maxFps: 1),
+          reason: 'a failed query must still apply the reduced video target',
+        );
+        engine.throwStats = false;
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+        engine.stats = {...engine.stats, 'worker_stalled': 1};
+        clock.elapse(const Duration(seconds: 8));
+        expect(
+          engine.targets.last,
+          (maxBitrateKbps: 30, maxFps: 1),
+          reason:
+              'cached reports from a stalled audio worker cannot grow video',
+        );
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
+    'mute during group setup suppresses capture and audio report requirements',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final engine = _FakeEngine();
+        final permission = Completer<bool>();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () => permission.future,
+          requestCamera: () async => true,
+        );
+        controller.start(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        controller.setMicMuted(true);
+        clock.flushMicrotasks();
+        permission.complete(true);
+        clock.flushMicrotasks();
+        expect(
+          engine.audioStartMuted,
+          [true],
+          reason: 'the stale start snapshot must not open microphone capture',
+        );
+        engine.stats = {
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'tx_loss_pct': 0,
+          'tx_jitter_ms': 10,
+        };
+        clock.elapse(const Duration(seconds: 48));
+        expect(
+          engine.targets.last,
+          (maxBitrateKbps: 150, maxFps: 15),
+          reason: 'deliberate mute does not imply bad outgoing sound',
+        );
+        controller.setMicMuted(false);
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 8));
+        expect(
+          engine.targets.last,
+          (maxBitrateKbps: 30, maxFps: 1),
+          reason: 'unmute restores every-receiver audio protection',
+        );
+        controller.stop();
+        clock.flushMicrotasks();
+        controller.start(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        expect(
+          engine.audioStartMuted.last,
+          isFalse,
+          reason: 'a new call does not inherit the previous capture state',
+        );
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
 
   test('native packet counters become per-peer media liveness', () async {
     final self = _id(1);
@@ -388,12 +540,17 @@ class _FakeEngine implements GroupAudioEngine {
   int videoStarted = 0;
   int cameraStarted = 0;
   bool muted = false;
+  final List<bool> audioStartMuted = [];
   Map<String, dynamic> stats = const {};
+  bool throwStats = false;
   final List<({int maxBitrateKbps, int maxFps})> targets = [];
   bool acceptTarget = true;
 
   @override
-  Map<String, dynamic> getStats() => stats;
+  Map<String, dynamic> getStats() {
+    if (throwStats) throw const FormatException('native stats unavailable');
+    return stats;
+  }
 
   @override
   bool setVideoBitrate({required int maxBitrateKbps, required int maxFps}) {
@@ -428,6 +585,7 @@ class _FakeEngine implements GroupAudioEngine {
 
   @override
   bool startAudio() {
+    audioStartMuted.add(muted);
     started++;
     return true;
   }
