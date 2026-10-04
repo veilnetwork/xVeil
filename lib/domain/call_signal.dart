@@ -215,7 +215,18 @@ class CallTransportProposal {
 /// or malformed contributions therefore mean NO media channel, not a fallback
 /// path, and no code may branch on the peer's advertised version to decide
 /// whether to seal: that field is unauthenticated.
-const int kCallSignalProtocolVersion = 3;
+/// v4: audio and video use independent transport sequence spaces and decode
+/// transport feedback. This is a performance capability; media sealing never
+/// depends on it. Older native libraries must continue advertising v3.
+const int kCallSignalProtocolVersion = 4;
+const int kCallIndependentTransportFeedbackMinVersion = 4;
+
+bool useIndependentCallTransportFeedback(
+  int? peerVersion, {
+  required bool nativeSupportsFeedback,
+}) =>
+    nativeSupportsFeedback &&
+    (peerVersion ?? 1) >= kCallIndependentTransportFeedbackMinVersion;
 
 /// Historical: the version from which a peer decoded relay media batching.
 /// Batching is now a wire format carried INSIDE the seal, so nothing gates on
