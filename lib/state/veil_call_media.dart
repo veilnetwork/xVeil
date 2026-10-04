@@ -925,12 +925,7 @@ class VeilCallMediaController implements CallMediaController {
           // Sender-side ladder driven by what the REMOTE receiver reports for
           // our outbound leg (RTCP report blocks) plus local queue drops. The
           // route profile stays the ceiling; adaptation only spends less.
-          final change = adapter.onSample(
-            rttMs: (stats['rtt_ms'] as num?)?.toInt() ?? 0,
-            txJitterMs: (stats['tx_jitter_ms'] as num?)?.toInt() ?? 0,
-            txLossPct: (stats['tx_loss_pct'] as num?)?.toInt() ?? 0,
-            txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
-          );
+          final change = adapter.onNativeStats(stats);
           if (change != null && _diagnosticVideoTarget == null) {
             final ok = engine.setVideoBitrate(
               maxBitrateKbps: change.maxBitrateKbps,

@@ -128,6 +128,27 @@ class CallBitrateAdapter {
     maxFps: (baseFps * cadenceLadder[_level]).round().clamp(1, 60),
   );
 
+  /// Native zero defaults, expired reports and older libraries without report
+  /// freshness are unknown quality. Local drops still justify reducing video.
+  ({int maxBitrateKbps, int maxFps})? onNativeStats(
+    Map<String, dynamic> stats,
+  ) {
+    final feedbackAvailable =
+        stats['worker_stalled'] != 1 &&
+        ((stats['audio_feedback_reports'] as num?) ?? 0) > 0;
+    return onSample(
+      rttMs: feedbackAvailable ? (stats['rtt_ms'] as num?)?.toInt() ?? 0 : 0,
+      txJitterMs: feedbackAvailable
+          ? (stats['tx_jitter_ms'] as num?)?.toInt() ?? 0
+          : 0,
+      txLossPct: feedbackAvailable
+          ? (stats['tx_loss_pct'] as num?)?.toInt() ?? 0
+          : 0,
+      txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
+      feedbackAvailable: feedbackAvailable,
+    );
+  }
+
   /// Feed one stats sample; returns the new target when the rung changed and
   /// null otherwise. `rttMs` of 0 means "unknown yet" and is not judged.
   ({int maxBitrateKbps, int maxFps})? onSample({
