@@ -136,6 +136,11 @@ QUIC DATAGRAM sessions, all with `independent=false`; separate source transport
 is not established on those hops. Signaling latency and audio quality remain
 open. The authenticated debug hook provides CID-scoped download cancellation
 and pending IDs so stands can cancel their own retry jobs before cleanup.
+The cleanup exposed a cancellation race: a suspended resume could re-record
+durable intent after cancellation. Recording now checks the cancellation latch
+both before scheduling and inside the persistence chain. A gated-storage test
+fails before the fix and verifies cancellation across restart plus a fresh user
+retry afterwards; all six auto-resume tests pass.
 
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
