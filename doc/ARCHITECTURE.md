@@ -147,6 +147,48 @@ left zero of those pending and preserved unrelated intents. Both contacts were
 accepted. Own plaintext fixtures, debug forwards, logcat readers and launched
 app processes were verified absent after the tests.
 
+
+Fallback file chunks now use the endpoint's local background lane (3), through
+both sealed ordinary delivery and authenticated onion delivery. Chat/control
+sends retain their prior lane, ratchet reservations and persistence ordering.
+Veil exposes `send_on_local_lane` / `veil_send_on_local_lane` / `sendOnLocalLane`;
+an IPC-only explicit-hint bit distinguishes a chosen lane 0 from legacy zero
+headers. The hint is stripped before network encoding. Direct and relayed
+ratchet payloads still decrypt, anonymous sends remain on the onion path, and
+neither the source lane nor a traffic-role label reaches relays. The real SDK /
+IPC socket test verifies ordinary lane 1 and explicit lanes 0/2/3 with identical
+inter-node bytes. Gates: 35 send-handler tests, writer and SDK/IPC tests, FFI
+argument and generated ABI checks, strict production Clippy, 16 content service
+tests and scoped Flutter analysis passed. Removing background routing makes the
+new content lane tests fail.
+
+Phone check (standard Android debug 2154, 2026-10-05): Poco used cellular;
+Poco -> Blackview video rang after 7.7 seconds, became active after 10.9 seconds
+and stayed active for 150 seconds. Native playout estimate medians/peaks were
+374.5/590 ms on Blackview and 354/504 ms on Poco. Two observed first-hop QUIC
+sessions still lacked independent source flows. The 8 MiB download timed out at
+120 seconds, with only one verified 256 KiB export sample; the sender logged
+22 authorization denials. No background chunk sends were observed in the
+retained log. This run does not validate completed concurrent bulk delivery or
+an improvement in acoustic quality.
+
+
+A diagnostic receiver-only build (2155, `XVEIL_PLAIN_FILE_STREAM=false`) exercised
+the new fallback on the same phones: all 64 background chunk sends were observed,
+and a 256 KiB file completed in 0.69 seconds with matching SHA-256 during a
+95-second video call. Ring/active times were 3.2/7.1 seconds; native playout
+estimate medians/peaks were 236/605 ms on Blackview and 234.5/460 ms on Poco.
+The brief transfer cannot establish sustained loaded-link acoustic quality.
+Own download intents, plaintext fixtures, forwards, logcat readers and app
+processes were cleared and verified after both successful runs. Blackview was
+restored to its hash-verified standard 2154 APK; Poco retained standard 2154.
+A subsequent 8 MiB fallback attempt stopped before creating fixtures or placing
+a call: Poco disappeared from ADB while starting its debug connection. Blackview
+was again restored and closed. Poco's process state after that last launch
+attempt must be checked when it reconnects; the sustained fallback test remains
+pending. Separate source transports on the observed relay hops, stream-owner
+authorization, signaling latency and acoustic quality remain open.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there

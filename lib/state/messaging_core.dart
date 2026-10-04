@@ -861,11 +861,12 @@ class MessagingService {
     bool wantReply = false,
     bool deferRatchetWrite = false,
     bool requireIdentityAddress = false,
+    bool background = false,
   }) async {
     devLog(
       () =>
           'xVeil[send]: live send dst=${dst.short} anonymous=$_anonymous '
-          'wantReply=$wantReply bytes=${payload.length} '
+          'wantReply=$wantReply background=$background bytes=${payload.length} '
           'transport=${_transport.runtimeType}',
     );
     // Ask for a direct route toward this peer, if the person allowed one for
@@ -945,7 +946,15 @@ class MessagingService {
     // reservation covers.
     await _reserveRatchetSendWindow(dst);
     final sw = Stopwatch()..start();
-    if (_anonymous && wantReply) {
+    final sourceTransport = _transport;
+    if (background && !wantReply && sourceTransport is LocalSourceTransport) {
+      await (sourceTransport as LocalSourceTransport).sendOnLocalLane(
+        dst,
+        payload,
+        localLane: 3,
+        anonymous: _anonymous,
+      );
+    } else if (_anonymous && wantReply) {
       await _transport.sendWithReply(dst, payload);
     } else {
       await _transport.send(dst, payload, anonymous: _anonymous);
