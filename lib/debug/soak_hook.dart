@@ -1103,6 +1103,18 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/download_file':
           await _downloadFile(req);
           return;
+        case '/downloads_pending':
+          if (!_requireReady(req)) return;
+          await _json(req, {
+            'ok': true,
+            'contentIds': await ref
+                .read(messagingServiceProvider)
+                .pendingAutoResumeContentIds(),
+          });
+          return;
+        case '/download_cancel':
+          await _cancelDownload(req);
+          return;
         case '/call_place':
           await _callPlace(req);
           return;
@@ -6745,6 +6757,24 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       await source.close();
       rethrow;
     }
+  }
+
+  /// Cancel one stand-owned transfer before deleting its temporary sink.
+  /// A timed-out observer alone leaves the durable download retrying on restart.
+  Future<void> _cancelDownload(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final cid = _required(req, 'cid');
+    if (cid == null) return;
+    if (!RegExp(r'^[0-9a-fA-F]{64}$').hasMatch(cid)) {
+      return _json(req, {
+        'ok': false,
+        'error': 'invalid content id',
+      }, status: 400);
+    }
+    await ref
+        .read(messagingServiceProvider)
+        .cancelContentDownload(cid.toLowerCase());
+    return _json(req, {'ok': true});
   }
 
   Future<void> _downloadFile(HttpRequest req) async {

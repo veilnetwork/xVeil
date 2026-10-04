@@ -105,6 +105,38 @@ datagrams. These sessions cannot provide the new connection split; their exact
 mapping to the call route is not yet established. Loaded-link audio quality and
 actual end-to-end transport separation remain open, beyond local queue tests.
 
+Ordered compatibility transport now bounds this endpoint's bulk write-ahead
+while its own primary producer was active within three seconds: normally one
+4 KiB padded batch may wait behind the writer, with a whole-frame exception for
+an oversized individual frame. The writer wakes the runner when the required
+slots become available; progress does not depend on another inbound frame or
+keepalive. This cannot recall bytes already committed to the transport/kernel.
+Transit retains its normal WRR/FIFO, batching and capacity; no transport label
+or relay service preference is added. The encrypted, uniformly paced stream
+regression fails without admission (133,808 bytes ahead of the next primary),
+passes with less than 16 KiB, and verifies all 64 reliable payloads in order.
+Gates: 96 runner integration tests passed (one ignored), 23 queue tests and
+four admission tests passed.
+
+Phone check (Android debug 2151, 2026-10-05): both video directions stayed active
+for 85 seconds, with ring/active times 5.7/8.9 and 3.1/5.0 seconds. The two
+60-second file observations timed out with zero exported bytes. A control file
+without a call completed with matching SHA-256 in 74 seconds. A longer video
+call remained active for 150 seconds; its 8 MiB file completed and verified in
+104 seconds, with the first positive export sample 80 seconds after requesting
+the download. The sender logged 23 stream authorization denials naming a
+device different from the accepted contact identity, and no successful stream
+serve for that CID; the device-owner authorization path needs investigation.
+During observed verified-file progress, median native playout estimates were
+137/218 ms (Blackview/Poco), peaks 362/460 ms; other phases exceeded 500 ms.
+These estimates and continuing RTP do not establish acoustic quality or a
+controlled improvement. This last ring took 19 seconds. Local first-send
+diagnostics finally observed relay forwards in source slots 0 and 2 on shared
+QUIC DATAGRAM sessions, all with `independent=false`; separate source transport
+is not established on those hops. Signaling latency and audio quality remain
+open. The authenticated debug hook provides CID-scoped download cancellation
+and pending IDs so stands can cancel their own retry jobs before cleanup.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
