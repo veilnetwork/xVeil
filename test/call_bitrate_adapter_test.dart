@@ -11,6 +11,41 @@ void main() {
   ({int maxBitrateKbps, int maxFps})? lossy(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
 
+  test('missing feedback holds video and cannot count as recovery', () {
+    final a = direct();
+    lossy(a);
+    lossy(a);
+    expect(a.level, 1);
+    for (var i = 0; i < 30; i++) {
+      a.onSample(
+        rttMs: 0,
+        txJitterMs: 0,
+        txLossPct: 0,
+        txDrops: 0,
+        feedbackAvailable: false,
+      );
+    }
+    expect(a.level, 1);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      good(a);
+    }
+    expect(a.level, 0);
+  });
+
+  test('new local audio drops reduce video even before reports arrive', () {
+    final a = direct();
+    for (var drops = 0; drops < 3; drops++) {
+      a.onSample(
+        rttMs: 0,
+        txJitterMs: 0,
+        txLossPct: 0,
+        txDrops: drops,
+        feedbackAvailable: false,
+      );
+    }
+    expect(a.level, 1);
+  });
+
   test('stays at full budget on a healthy link', () {
     final a = direct();
     for (var i = 0; i < 60; i++) {

@@ -135,9 +135,18 @@ class CallBitrateAdapter {
     required int txJitterMs,
     required int txLossPct,
     required int txDrops,
+    bool feedbackAvailable = true,
   }) {
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
+    // Missing/stale reports are not healthy samples. Actual new local audio
+    // drops still justify reducing video while waiting for remote feedback.
+    if (!feedbackAvailable && !newDrops) {
+      _badStreak = 0;
+      _floorBadStreak = 0;
+      _goodStreak = 0;
+      return null;
+    }
 
     if (rttMs > 0) _feedBaseline(rttMs);
     final baseline = rttBaselineMs;

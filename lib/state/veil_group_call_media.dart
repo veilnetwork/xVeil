@@ -16,6 +16,7 @@ import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
 import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
 import 'call_audio_route.dart';
+import 'call_bitrate_adapter.dart';
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
 import 'media_ffi.dart';
@@ -130,6 +131,9 @@ abstract interface class GroupAudioEngine {
   bool stopAudio();
   void setMicMuted(bool muted);
   int peerRxPackets(NodeId peer);
+  Map<String, dynamic> getStats() => const {};
+  bool setVideoBitrate({required int maxBitrateKbps, required int maxFps}) =>
+      false;
   bool startVideo() => false;
   bool stopVideo() => true;
   bool startCamera() => false;
@@ -183,6 +187,13 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
 
   @override
   int peerRxPackets(NodeId peer) => _engine.peerRxPackets(peer.bytes);
+
+  @override
+  Map<String, dynamic> getStats() => _engine.getStats();
+
+  @override
+  bool setVideoBitrate({required int maxBitrateKbps, required int maxFps}) =>
+      _engine.setVideoBitrate(maxBitrateKbps: maxBitrateKbps, maxFps: maxFps);
 
   @override
   bool startVideo() => _engine.startVideo();
@@ -276,6 +287,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   bool _androidScreenPushLogged = false;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   bool _videoRunning = false;
+  CallBitrateAdapter? _bitrateAdapter;
+  ({int maxBitrateKbps, int maxFps})? _appliedVideoTarget;
   bool _screenSharing = false;
   String? _selectedScreenId;
   Future<void> _tail = Future<void>.value();
@@ -417,6 +430,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final ready = engine.startVideo();
     if (!ready) return false;
     _videoRunning = true;
+    _bitrateAdapter = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+    _appliedVideoTarget = null;
     await callAudioRouter.setRoute(CallAudioRoute.speaker);
     _frameTimer ??= Timer.periodic(
       const Duration(milliseconds: 33),
@@ -530,6 +545,39 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         _lastRxPackets[entry.key] = packets;
         _lastRxAt[entry.key] = now;
       }
+    }
+    if (!_videoRunning) return;
+    final adapter = _bitrateAdapter;
+    if (adapter == null) return;
+    try {
+      final stats = expected.getStats();
+      if (stats.isEmpty || stats['worker_stalled'] == 1) return;
+      adapter.onSample(
+        rttMs: (stats['rtt_ms'] as num?)?.toInt() ?? 0,
+        txJitterMs: (stats['tx_jitter_ms'] as num?)?.toInt() ?? 0,
+        txLossPct: (stats['tx_loss_pct'] as num?)?.toInt() ?? 0,
+        txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
+        feedbackAvailable: ((stats['audio_feedback_reports'] as num?) ?? 0) > 0,
+      );
+      final target = adapter.target;
+      // Retry an abandoned video-worker operation on the next poll. Advancing
+      // the policy is separate from successfully applying an encoder budget.
+      if (target != _appliedVideoTarget &&
+          expected.setVideoBitrate(
+            maxBitrateKbps: target.maxBitrateKbps,
+            maxFps: target.maxFps,
+          )) {
+        _appliedVideoTarget = target;
+        devLog(
+          () =>
+              'xVeil[group-call-media]: audio-quality retune level='
+              '${adapter.level} ${target.maxBitrateKbps}kbps@${target.maxFps}fps',
+        );
+      }
+    } catch (error) {
+      devLog(
+        () => 'xVeil[group-call-media]: quality sample unavailable: $error',
+      );
     }
   }
 
@@ -753,6 +801,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _mediaEpoch++;
     _statsTimer?.cancel();
     _statsTimer = null;
+    _bitrateAdapter = null;
+    _appliedVideoTarget = null;
     _frameTimer?.cancel();
     _frameTimer = null;
     _screenSharing = false;
