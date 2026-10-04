@@ -195,6 +195,13 @@ abstract class CallMediaController {
   /// delayed — signaling silence alone must not drop a call that's clearly up.
   DateTime? get lastMediaRxAt => null;
 
+  /// Whether the engine can measure accepted audio RTP independently of video
+  /// and RTCP. Legacy engines keep the aggregate liveness behavior.
+  bool get hasAudioReceiveTelemetry => false;
+  DateTime? get lastAudioRxAt => null;
+  DateTime? get receiveSessionStartedAt => null;
+  bool get isRepairingReceiveSession => false;
+
   /// Rebuild/refresh the current outbound route after the peer reports
   /// end-to-end media silence. Implementations must preserve the negotiated
   /// route kind, be idempotent/rate-limited, and return whether media is usable.
@@ -390,6 +397,7 @@ class CallService {
   Timer? _heartbeatTimer;
   StreamSubscription<void>? _screenShareStoppedSub;
   DateTime? _lastPeerSignalAt;
+  DateTime? _peerAudioExpectedSince;
   bool _peerConfirmedAfterConnect = false;
   bool _started = false;
 
@@ -1079,6 +1087,9 @@ class CallService {
         c.peerCapture!.audio == capture.audio &&
         c.peerCapture!.video == capture.video &&
         c.peerCapture!.screen == capture.screen) {
+      if (at > c.peerCaptureAtMs) {
+        _current = c.copyWith(peerCaptureAtMs: at);
+      }
       return; // unchanged — every heartbeat must not churn the UI
     }
     _set(c.copyWith(peerCapture: capture, peerCaptureAtMs: at));
@@ -1639,11 +1650,7 @@ class CallService {
             callId: c.callId,
             type: CallSignalType.health,
             mediaRepairRequested:
-                c.status == CallStatus.active &&
-                _now().difference(
-                      _media?.lastMediaRxAt ?? c.connectedAt ?? c.startedAt,
-                    ) >=
-                    kCallMediaRepairAfter,
+                c.status == CallStatus.active && _mediaReceiveNeedsRepair(c),
             capture: _localCapture(c),
             sentAtMs: _now().millisecondsSinceEpoch,
             protocolVersion: _signalProtocolVersion,
@@ -1660,17 +1667,51 @@ class CallService {
     _peerConfirmedAfterConnect = false;
   }
 
+  bool _mediaReceiveNeedsRepair(Call call) {
+    final media = _media;
+    if (media?.isRepairingReceiveSession == true) return false;
+    var since = call.connectedAt ?? call.startedAt;
+    final sessionStart = media?.receiveSessionStartedAt;
+    if (sessionStart != null && sessionStart.isAfter(since)) {
+      since = sessionStart;
+    }
+    final anyRx = media?.lastMediaRxAt;
+    final aggregateSince = anyRx != null && anyRx.isAfter(since)
+        ? anyRx
+        : since;
+    if (_now().difference(aggregateSince) >= kCallMediaRepairAfter) return true;
+    final expectedSince = _peerAudioExpectedSince;
+    if (media == null ||
+        !media.hasAudioReceiveTelemetry ||
+        call.peerCapture?.audio != true ||
+        expectedSince == null) {
+      return false;
+    }
+    if (expectedSince.isAfter(since)) since = expectedSince;
+    final audioRx = media.lastAudioRxAt;
+    if (audioRx != null && audioRx.isAfter(since)) since = audioRx;
+    return _now().difference(since) >= kCallMediaRepairAfter;
+  }
+
   void _set(Call call) {
     // Nothing is published after teardown. Without this a late continuation —
     // an offer arriving through the relayed lane, a media start finishing —
     // would put `_current` back and undo the boundary above.
     if (_disposed) return;
     if (_current?.callId != call.callId) {
+      _peerAudioExpectedSince = null;
       _lastRenegotiateAtMs = 0;
       _pendingRelayCallId = null;
       _pendingRelayPeer = null;
       _outgoingProposal = null;
       _directSessionUnavailable = false;
+    }
+    // A repeated "mic on" heartbeat must not restart the audio outage clock.
+    // A real unmute gets a full startup grace before requesting route repair.
+    if (call.peerCapture?.audio == true) {
+      _peerAudioExpectedSince ??= _now();
+    } else {
+      _peerAudioExpectedSince = null;
     }
     // Offline mailbox deposits do ML-KEM sealing and multi-relay onion fanout.
     // Keep that durable work parked while realtime call setup/media is live;

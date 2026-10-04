@@ -189,6 +189,28 @@ attempt must be checked when it reconnects; the sustained fallback test remains
 pending. Separate source transports on the observed relay hops, stream-owner
 authorization, signaling latency and acoustic quality remain open.
 
+
+Audio receive repair is now independent of aggregate media ingress. The native
+`audio_rx_pkts` receive-stream counter advances audio activity only for a valid
+worker snapshot; video/RTCP ingress and timed-out worker defaults cannot refresh
+it. When the peer has announced mic-on, ten seconds without accepted audio asks
+it to repair even if video continues. Mic-off, unknown peer posture and legacy
+engines without the counter retain their prior behavior. Unmuting and a new
+receive session each receive a full grace interval; peer repair requests are
+suppressed during a local session rebuild. An unchanged newer posture heartbeat
+also advances its ordering watermark without emitting a redundant UI update,
+so a delayed older mute cannot overwrite it.
+
+A continuously stalled local audio worker triggers a local session rebuild,
+sharing the existing two-attempt per-call cap. Local starvation rebuilds also
+recreate the engine on onion calls; refreshing only the outbound circuit would
+leave their receive worker stuck. The actual selected route, microphone intent
+and video adaptation budget are retained. Gates: 98 audio-activity/call-service
+tests and scoped Flutter analysis passed; the audio-outage test fails with the
+old aggregate-only receive policy. This control change still needs a two-phone
+call check after Poco reconnects; it does not prove acoustic quality or remove
+the observed shared-hop limitation.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
