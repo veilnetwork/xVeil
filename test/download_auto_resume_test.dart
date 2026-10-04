@@ -174,6 +174,22 @@ MessagingService _makeService(_StreamLink t, HiddenVolumeStorage s) =>
       streamPullMaxAttempts: 2,
     );
 
+class _HeldFileLookupStorage extends HiddenVolumeStorage {
+  _HeldFileLookupStorage(super.opener);
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  String? heldContentId;
+
+  @override
+  Future<bool> hasFile(String fileId) async {
+    if (fileId == heldContentId && !entered.isCompleted) {
+      entered.complete();
+      await release.future;
+    }
+    return super.hasFile(fileId);
+  }
+}
+
 void _shrinkResumeDelays(MessagingService m) {
   m.downloadResumeStartDelay = const Duration(milliseconds: 200);
   m.downloadResumeBackoffBase = const Duration(milliseconds: 200);
@@ -244,6 +260,47 @@ void main() {
     tA.peer = tB;
     tB.peer = tA;
   }
+
+  test(
+    'cancel during resume preparation cannot recreate durable intent',
+    () async {
+      await mB.dispose();
+      final gated = _HeldFileLookupStorage(_mem());
+      await gated.open(password: 'b', createIfMissing: true);
+      sB = gated;
+      mB = _makeService(tB, sB)..start();
+      final cid = _id(73).hex;
+      gated.heldContentId = cid;
+      final preparing = mB.downloadContentToFileFromAny(
+        const [],
+        cid,
+        'cancelled.bin',
+        write: (_, _) async {},
+        close: () async {},
+        userInitiated: false,
+      );
+      await gated.entered.future;
+      try {
+        await mB.cancelContentDownload(cid);
+      } finally {
+        gated.release.complete();
+      }
+      await preparing;
+      expect(await mB.pendingAutoResumeContentIds(), isNot(contains(cid)));
+      await mB.dispose();
+      mB = _makeService(tB, sB)..start();
+      expect(await mB.pendingAutoResumeContentIds(), isNot(contains(cid)));
+      await mB.downloadContentToFileFromAny(
+        const [],
+        cid,
+        'new-request.bin',
+        write: (_, _) async {},
+        close: () async {},
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+    },
+  );
 
   test('encrypted download interrupted by shutdown auto-resumes on the next '
       'service start (durable pending registry)', () async {
