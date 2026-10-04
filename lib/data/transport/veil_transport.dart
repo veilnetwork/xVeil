@@ -222,6 +222,18 @@ abstract interface class VeilTransport {
   Future<void> dispose();
 }
 
+/// Optional source queue selection. The lane is local to this endpoint; it is
+/// stripped before network encoding and grants no priority at relays.
+/// An anonymous send retains [VeilTransport.send]'s onion-only contract.
+abstract interface class LocalSourceTransport {
+  Future<void> sendOnLocalLane(
+    NodeId dst,
+    Uint8List payload, {
+    required int localLane,
+    bool anonymous = false,
+  });
+}
+
 /// Optional latency-critical datagram egress over an already-active direct
 /// peer session at realtime priority.
 ///
