@@ -970,6 +970,86 @@ void main() {
       },
     );
 
+    test('health and immediate mute announcements carry receiver playout', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()
+          ..playout = const CallAudioPlayoutFeedback(sequence: 3, delayMs: 540);
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, offer('playout-health'));
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear();
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(fake.sent.single.type, CallSignalType.health);
+        final back = CallSignal.tryDecode(fake.sent.single.encode())!;
+        expect(back.audioPlayout!.delayMs, 540);
+        expect(back.audioPlayout!.sequence, 3);
+        fake.sent.clear();
+        svc.setMicEnabled(false);
+        async.flushMicrotasks();
+        expect(fake.sent.single.capture!.audio, isFalse);
+        expect(
+          fake.sent.single.audioPlayout!.delayMs,
+          540,
+          reason: 'local mute does not mute incoming audio',
+        );
+        svc.dispose();
+      });
+    });
+
+    test(
+      'only active-call health from its peer reaches the playout policy',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..startGate = Completer<bool>();
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          fake.onCallSignal!(peer, offer('playout-auth'));
+          svc.accept();
+          async.flushMicrotasks();
+          const health = CallSignal(
+            callId: 'playout-auth',
+            type: CallSignalType.health,
+            audioPlayout: CallAudioPlayoutFeedback(sequence: 1, delayMs: 540),
+          );
+          fake.onCallSignal!(peer, health);
+          expect(media.peerPlayout, isEmpty, reason: 'initial media not ready');
+          media.startGate!.complete(true);
+          async.flushMicrotasks();
+          expect(svc.current!.status, CallStatus.active);
+          fake.onCallSignal!(NodeId.fromHex('9' * 64), health);
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'other-call',
+              type: CallSignalType.health,
+              audioPlayout: CallAudioPlayoutFeedback(sequence: 2, delayMs: 100),
+            ),
+          );
+          fake.onCallSignal!(
+            peer,
+            health.copyWith(type: CallSignalType.unknown),
+          );
+          expect(media.peerPlayout, isEmpty);
+          fake.onCallSignal!(peer, CallSignal.tryDecode(health.encode())!);
+          expect(media.peerPlayout.single.delayMs, 540);
+          svc.hangup();
+          async.flushMicrotasks();
+          fake.onCallSignal!(peer, health);
+          expect(
+            media.peerPlayout.length,
+            1,
+            reason: 'ended call ignores feedback',
+          );
+          svc.dispose();
+        });
+      },
+    );
+
     test('peer media-repair request refreshes our outbound route', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -2729,6 +2809,8 @@ class _FakeMedia extends CallMediaController {
   DateTime? audioRxAt;
   DateTime? receiveStartedAt;
   bool receiveRepairing = false;
+  CallAudioPlayoutFeedback? playout;
+  final List<CallAudioPlayoutFeedback> peerPlayout = [];
   int repairs = 0;
   Completer<bool>? startGate;
   final List<CallTransportKind> switches = [];
@@ -2835,6 +2917,14 @@ class _FakeMedia extends CallMediaController {
 
   @override
   bool get isRepairingReceiveSession => receiveRepairing;
+
+  @override
+  CallAudioPlayoutFeedback? get audioPlayoutFeedback => playout;
+
+  @override
+  void observePeerAudioPlayout(CallAudioPlayoutFeedback feedback) {
+    peerPlayout.add(feedback);
+  }
 
   @override
   Future<bool> start(Call call) async {

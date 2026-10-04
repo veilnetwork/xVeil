@@ -211,6 +211,37 @@ old aggregate-only receive policy. This control change still needs a two-phone
 call check after Poco reconnects; it does not prove acoustic quality or remove
 the observed shared-hop limitation.
 
+Android debug 2156 contained that receive-repair change. Its native libraries,
+production feature set, generated FFI contract, ARM64 packaging and full
+installed APK hash were verified. Blackview reached a ready real-stack startup
+with no active call, then its launched process and owned forward were verified
+closed. The signed Poco update was prepared but not installed: subsequent ADB
+checks still listed only Blackview.
+
+Unicast call protocol v5 adds sequenced audio playout estimates to encrypted,
+ephemeral health signals. The sender's video ladder now also considers the
+receiver's native audio buffer estimate: >=300 ms reduces bitrate and cadence;
+recovery needs <200 ms plus healthy RTCP for the existing 12-sample interval.
+These are conservative buffer budgets, not measured acoustic latency targets.
+A v5 peer with no fresh measurement gives video bandwidth back instead of
+growing it. Unknown playout alone does not produce a failing-link prompt.
+Older peers and deliberately muted senders retain the existing RTCP policy;
+unmuting or rebuilding requires new feedback before growing video.
+
+Feedback is emitted only from valid audio-worker samples with accepted audio
+RTP within three seconds. Receive sample sequence numbers remain monotonic
+across engine repairs. The peer uses local receipt-time expiry (12 seconds),
+rejects old/replayed sequences and keeps the ordering watermark when it clears
+a measurement. Only health from the matching active call/peer reaches this
+policy. Signal stamping and copying preserve the additive feedback; the real
+messaging path uses realtime delivery without creating durable outbox rows,
+including anonymous delivery. The relay scheduling policy and on-wire transport
+role metadata are unchanged. Gates: 166 scoped call, audio, wire and realtime
+tests passed; scoped Flutter analysis found no issues. Disabling the playout
+condition makes the clean-RTCP/slow-audio regression fail. Group-call receiver
+playout feedback and live two-phone/acoustic verification remain outstanding;
+this change does not establish independent flows on the observed old relays.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there

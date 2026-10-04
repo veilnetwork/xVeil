@@ -34,6 +34,7 @@ class _RealtimeProbe
   NodeId? lastNormalDestination;
   NodeId? lastRealtimeDestination;
   NodeId? lastRelayRealtimeDestination;
+  Uint8List? lastRealtimePayload;
 
   @override
   Future<NodeId> nodeId() async => me;
@@ -57,6 +58,7 @@ class _RealtimeProbe
     realtimeSends++;
     lastRealtimeDestination = dst;
     lastRealtimeAnonymous = anonymous;
+    lastRealtimePayload = Uint8List.fromList(payload);
     if (blockRealtime) await realtimeGate.future;
   }
 
@@ -362,6 +364,35 @@ void main() {
       expect(await storage.pendingOutboxFrames(), isEmpty);
     },
   );
+
+  for (final anonymous in [false, true]) {
+    test('audio playout health uses realtime paths without durable work '
+        '(anonymous=$anonymous)', () async {
+      final messaging = MessagingService(
+        transport,
+        storage,
+        anonymous: anonymous,
+      );
+      addTearDown(messaging.dispose);
+      await messaging.sendCallSignal(
+        peer,
+        const CallSignal(
+          callId: 'playout-wire',
+          type: CallSignalType.health,
+          audioPlayout: CallAudioPlayoutFeedback(sequence: 77, delayMs: 540),
+        ),
+      );
+      expect(transport.normalSends, 0);
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+      expect(transport.relayRealtimeSends, anonymous ? 0 : 1);
+      expect(transport.lastRealtimeAnonymous, anonymous);
+      final envelope = WireEnvelope.decode(transport.lastRealtimePayload!);
+      final delivered = CallSignal.tryDecode(envelope.body)!;
+      expect(delivered.sentAtMs, isNotNull);
+      expect(delivered.audioPlayout!.sequence, 77);
+      expect(delivered.audioPlayout!.delayMs, 540);
+    });
+  }
 
   test('relay route transition is realtime and durably re-driven', () async {
     final messaging = MessagingService(transport, storage);
