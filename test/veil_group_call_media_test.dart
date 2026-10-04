@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/call_signal.dart';
@@ -77,6 +78,79 @@ void main() {
       expect(engine.added, [alice, bob]);
     },
   );
+
+  test(
+    'group video lowers cadence for audio and retries a busy video worker',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1);
+        final peer = _id(2);
+        final engine = _FakeEngine();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        bool? started;
+        controller
+            .start(_call(self, [peer], video: true))
+            .then((ok) => started = ok);
+        clock.flushMicrotasks();
+        expect(started, isTrue);
+        engine.stats = {'audio_feedback_reports': 2, 'tx_loss_pct': 12};
+        engine.acceptTarget = false;
+        clock.elapse(const Duration(seconds: 6));
+        expect(engine.targets, isEmpty);
+        engine.acceptTarget = true;
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.targets.last, (maxBitrateKbps: 45, maxFps: 2));
+        engine.stats = {'audio_feedback_reports': 0};
+        clock.elapse(const Duration(seconds: 30));
+        expect(engine.targets.last, (maxBitrateKbps: 45, maxFps: 2));
+        engine.stats = {
+          'audio_feedback_reports': 2,
+          'tx_loss_pct': 0,
+          'rtt_ms': 80,
+        };
+        clock.elapse(const Duration(seconds: 36));
+        expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+        controller.stop();
+        clock.flushMicrotasks();
+        engine.targets.clear();
+        controller.start(_call(self, [peer], video: true));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.targets.first, (maxBitrateKbps: 150, maxFps: 15));
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test('group audio-only telemetry does not retune video', () {
+    fakeAsync((clock) {
+      final self = _id(1);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      engine.stats = {'audio_feedback_reports': 2, 'tx_loss_pct': 20};
+      bool? started;
+      controller.start(_call(self, [_id(2)])).then((ok) => started = ok);
+      clock.flushMicrotasks();
+      expect(started, isTrue);
+      clock.elapse(const Duration(seconds: 15));
+      expect(engine.targets, isEmpty);
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
 
   test('native packet counters become per-peer media liveness', () async {
     final self = _id(1);
@@ -228,7 +302,8 @@ void main() {
       expect(
         transport.txKeys[alice.hex],
         isNot(transport.txKeys[bob.hex]),
-        reason: 'one key for the whole room would let each member open the '
+        reason:
+            'one key for the whole room would let each member open the '
             'others\' streams off the wire',
       );
     });
@@ -302,6 +377,20 @@ class _FakeEngine implements GroupAudioEngine {
   int videoStarted = 0;
   int cameraStarted = 0;
   bool muted = false;
+  Map<String, dynamic> stats = const {};
+  final List<({int maxBitrateKbps, int maxFps})> targets = [];
+  bool acceptTarget = true;
+
+  @override
+  Map<String, dynamic> getStats() => stats;
+
+  @override
+  bool setVideoBitrate({required int maxBitrateKbps, required int maxFps}) {
+    if (!acceptTarget) return false;
+    targets.add((maxBitrateKbps: maxBitrateKbps, maxFps: maxFps));
+    return true;
+  }
+
   VeilVideoFrame? localFrame;
   final Map<String, VeilVideoFrame> peerFrames = {};
 
