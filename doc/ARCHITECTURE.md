@@ -283,6 +283,33 @@ verified absent. Poco's signed 2158 update is prepared, remains uninstalled,
 and its last stand process still needs verification when ADB reconnects. Only
 Blackview was enumerated at the end of this cycle; no live call was placed.
 
+Group media now exports `audio_receivers`, keyed by peer id, with packets
+accepted by each real WebRTC audio receive stream and its native playout
+estimate. The explicit `audio_rx_supported` capability remains set when the
+audio worker stalls; an empty receiver map then means unknown audio, not a
+healthy default. Audio and video sampling retain separate 20 ms scheduling
+waits. The controller polls this even in audio-only rooms and keeps audio
+activity separate from total ingress, resetting it on peer rejoin/removal and
+engine teardown. This telemetry is local; no new relay-visible role or priority
+is introduced.
+
+The group audio watchdog now uses accepted audio independently of video and
+RTCP, so continued video cannot hide a silent audio leg. Older native libraries
+retain their total-ingress fallback. Capability is latched for the current
+engine: a failed stats query cannot restore that fallback. Repair JOINs keep
+their cooldown, and remote unmute/rejoin starts a fresh ten-second grace window
+using local receipt time. Repair decisions use the current call after the
+awaited heartbeat, and a new call no longer inherits the prior repair cooldown.
+Gates: 70 scoped controller/FSM/teardown/audio/bitrate tests passed; scoped
+analysis found no issues. Disabling the audio-only watchdog makes the real FSM
+video-only ingress regression fail. The native Call/queue stand passed: accepted
+audio remains four packets despite video, RTCP and wrong-source RTP ingress;
+peers keep separate counts, stalled samples are unknown and bounded, and rejoin
+resets counts. ARM64 Android native media rebuilt with 90 production exports.
+Group receiver playout estimates are now exported locally; reporting them to
+the sender, live two-phone quality and independent flows through older relays
+remain unverified or incomplete.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there

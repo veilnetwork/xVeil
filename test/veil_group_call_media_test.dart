@@ -335,7 +335,99 @@ void main() {
     engine.rx[peer.hex] = 4;
     await Future<void>.delayed(const Duration(milliseconds: 10));
     expect(controller.lastMediaRxAt(peer), DateTime(2026, 7, 13, 18));
+    expect(controller.supportsAudioReceiveStats, isFalse);
+    expect(controller.lastAudioRxAt(peer), isNull);
   });
+
+  test(
+    'group audio liveness is independent of video, peers and worker stalls',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final engine = _FakeEngine();
+        final base = DateTime(2026, 10, 5);
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          now: () => base.add(clock.elapsed),
+        );
+        controller.start(_call(self, [alice, bob]));
+        clock.flushMicrotasks();
+        engine.rx[alice.hex] = 20; // video/RTCP ingress does not prove audio
+        engine.rx[bob.hex] = 30;
+        engine.stats = {
+          'audio_rx_supported': 1,
+          'worker_stalled': 0,
+          'audio_receivers': {
+            alice.hex: {'audio_rx_pkts': 4, 'audio_delay_ms': 150},
+            bob.hex: {'audio_rx_pkts': 0, 'audio_delay_ms': 0},
+          },
+        };
+        clock.elapse(const Duration(seconds: 1));
+        final firstAudio = base.add(const Duration(seconds: 1));
+        expect(controller.supportsAudioReceiveStats, isTrue);
+        expect(controller.lastAudioRxAt(alice), firstAudio);
+        expect(controller.lastAudioRxAt(bob), isNull);
+        expect(controller.lastMediaRxAt(bob), firstAudio);
+
+        engine.rx[alice.hex] = 50;
+        engine.rx[bob.hex] = 60;
+        clock.elapse(const Duration(seconds: 11));
+        expect(controller.lastMediaRxAt(alice)!.isAfter(firstAudio), isTrue);
+        expect(controller.lastAudioRxAt(alice), firstAudio);
+        expect(controller.lastAudioRxAt(bob), isNull);
+        engine.stats = {
+          ...engine.stats,
+          'worker_stalled': 1,
+          'audio_receivers': {
+            alice.hex: {'audio_rx_pkts': 999},
+            bob.hex: {'audio_rx_pkts': 999},
+          },
+        };
+        clock.elapse(const Duration(seconds: 1));
+        engine.stats =
+            const {}; // library failure cannot restore legacy fallback
+        clock.elapse(const Duration(seconds: 1));
+        expect(controller.supportsAudioReceiveStats, isTrue);
+        expect(controller.lastAudioRxAt(alice), firstAudio);
+        expect(controller.lastAudioRxAt(bob), isNull);
+
+        engine.stats = {
+          'audio_rx_supported': 1,
+          'worker_stalled': 0,
+          'audio_receivers': {
+            alice.hex: {'audio_rx_pkts': 4},
+            bob.hex: {'audio_rx_pkts': 2},
+          },
+        };
+        clock.elapse(const Duration(seconds: 1));
+        expect(controller.lastAudioRxAt(bob), base.add(clock.elapsed));
+        expect(controller.lastAudioRxAt(alice), firstAudio);
+        controller.invalidatePeerChannel(alice);
+        clock.flushMicrotasks();
+        expect(controller.lastAudioRxAt(alice), isNull);
+        controller.update(_call(self, [alice]));
+        clock.flushMicrotasks();
+        expect(controller.lastAudioRxAt(bob), isNull);
+        engine.stats = {
+          'audio_rx_supported': 1,
+          'worker_stalled': 0,
+          'audio_receivers': {
+            alice.hex: {'audio_rx_pkts': 0},
+          },
+        };
+        clock.elapse(const Duration(seconds: 1));
+        expect(controller.lastAudioRxAt(alice), isNull);
+        controller.stop();
+        clock.flushMicrotasks();
+        expect(controller.supportsAudioReceiveStats, isFalse);
+        expect(controller.lastAudioRxAt(alice), isNull);
+      });
+    },
+  );
 
   test(
     'video room starts one shared video engine and becomes media-ready',
