@@ -6,13 +6,63 @@ void main() {
       (CallBitrateAdapter.ladder.length - 1) * CallBitrateAdapter.degradeAfter;
 
   CallBitrateAdapter direct() =>
-      CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60, initialLevel: 0);
 
   ({int maxBitrateKbps, int maxFps})? good(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 0, txDrops: 0);
 
   ({int maxBitrateKbps, int maxFps})? lossy(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
+
+  test('new calls reserve bandwidth for audio before feedback arrives', () {
+    for (final base in [900, 150]) {
+      final a = CallBitrateAdapter(
+        baseBitrateKbps: base,
+        baseFps: base == 900 ? 60 : 15,
+      );
+      final initial = a.target;
+      expect(initial.maxBitrateKbps, base == 900 ? 45 : 30);
+      expect(initial.maxFps, 1);
+      for (var i = 0; i < 60; i++) {
+        a.onNativeStats({'audio_feedback_reports': 0});
+      }
+      expect(a.target, initial);
+      // Even a report with default/unknown RTT cannot earn more bandwidth.
+      for (var i = 0; i < 60; i++) {
+        a.onNativeStats({'audio_feedback_reports': 1, 'rtt_ms': 0});
+      }
+      expect(a.target, initial);
+    }
+  });
+
+  test('new video grows one rung per sustained healthy audio interval', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    final floor = a.level;
+    for (var rung = floor - 1; rung >= 0; rung--) {
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+        expect(good(a), isNull);
+      }
+      expect(good(a), isNotNull);
+      expect(a.level, rung);
+    }
+    expect(a.target, (maxBitrateKbps: 900, maxFps: 60));
+  });
+
+  test('bad or expired audio feedback interrupts startup video growth', () {
+    for (final interrupt in [
+      {'audio_feedback_reports': 1, 'rtt_ms': 80, 'tx_loss_pct': 12},
+      {'audio_feedback_reports': 0},
+      {'audio_feedback_reports': 1, 'worker_stalled': 1},
+    ]) {
+      final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+        good(a);
+      }
+      a.onNativeStats(interrupt);
+      good(a);
+      expect(a.atFloor, isTrue);
+    }
+  });
 
   test('missing feedback holds video and cannot count as recovery', () {
     final a = direct();
@@ -322,7 +372,11 @@ void main() {
   test(
     'audio congestion releases padded video cells, then recovers slowly',
     () {
-      final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+      final a = CallBitrateAdapter(
+        baseBitrateKbps: 150,
+        baseFps: 15,
+        initialLevel: 0,
+      );
       final cadence = <int>[a.target.maxFps];
       for (var rung = 1; rung < CallBitrateAdapter.ladder.length; rung++) {
         expect(lossy(a), isNull);
@@ -343,7 +397,11 @@ void main() {
   test(
     'weak anonymous video stays within the native minimum and route cap',
     () {
-      final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+      final a = CallBitrateAdapter(
+        baseBitrateKbps: 150,
+        baseFps: 15,
+        initialLevel: 0,
+      );
       for (var i = 0; i < 30; i++) {
         lossy(a);
         expect(a.target.maxBitrateKbps, inInclusiveRange(30, 150));
@@ -374,7 +432,11 @@ void main() {
   });
 
   test('a low-cadence profile always retains at least one video frame', () {
-    final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 5);
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 150,
+      baseFps: 5,
+      initialLevel: 0,
+    );
     for (var i = 0; i < badSamplesToFloor; i++) {
       lossy(a);
     }
@@ -382,7 +444,11 @@ void main() {
   });
 
   test('anonymous profile never exceeds its route budget', () {
-    final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 150,
+      baseFps: 15,
+      initialLevel: 0,
+    );
     lossy(a);
     lossy(a);
     expect(a.target.maxBitrateKbps, lessThan(150));
