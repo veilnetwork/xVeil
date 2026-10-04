@@ -88,6 +88,23 @@ class CallBitrateAdapter {
   int? _curWindowMin;
   int? _prevWindowMin;
   int _windowFill = 0;
+  ({int maxBitrateKbps, int maxFps})? _appliedTarget;
+
+  /// Try the current video budget. A busy native worker leaves it pending;
+  /// the next poll retries the latest budget, never a superseded one.
+  /// Null means the current target was already applied.
+  bool? applyPendingTarget(
+    bool Function(({int maxBitrateKbps, int maxFps}) target) apply,
+  ) {
+    final desired = target;
+    if (_appliedTarget == desired) return null;
+    if (!apply(desired)) return false;
+    _appliedTarget = desired;
+    return true;
+  }
+
+  /// A diagnostic override changed native state outside this policy.
+  void invalidateAppliedTarget() => _appliedTarget = null;
 
   /// Current RTT baseline (windowed min), or null before any RTT sample.
   int? get rttBaselineMs => switch ((_curWindowMin, _prevWindowMin)) {

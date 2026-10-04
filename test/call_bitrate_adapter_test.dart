@@ -91,6 +91,54 @@ void main() {
     expect(a.level, 1);
   });
 
+  test('busy native retune retries even when quality no longer changes', () {
+    final a = direct();
+    var nativeTarget = a.target;
+    a.applyPendingTarget((target) {
+      nativeTarget = target;
+      return true;
+    });
+    lossy(a);
+    lossy(a);
+    expect(a.level, 1);
+    expect(a.applyPendingTarget((_) => false), isFalse);
+    expect(nativeTarget.maxBitrateKbps, 900);
+    // No fresh report: hold the policy rung, but still apply its pending cut.
+    a.onNativeStats({'audio_feedback_reports': 0});
+    expect(
+      a.applyPendingTarget((target) {
+        nativeTarget = target;
+        return true;
+      }),
+      isTrue,
+    );
+    expect(nativeTarget, (maxBitrateKbps: 675, maxFps: 30));
+    expect(a.applyPendingTarget((_) => throw StateError('duplicate')), isNull);
+  });
+
+  test('a busy retune never reapplies a superseded or overridden budget', () {
+    final a = direct();
+    lossy(a);
+    lossy(a);
+    expect(a.applyPendingTarget((_) => false), isFalse);
+    lossy(a);
+    lossy(a);
+    var nativeTarget = a.target;
+    a.applyPendingTarget((target) {
+      nativeTarget = target;
+      return true;
+    });
+    expect(nativeTarget, (maxBitrateKbps: 450, maxFps: 15));
+    // A successful external override invalidates the remembered native state.
+    nativeTarget = (maxBitrateKbps: 900, maxFps: 60);
+    a.invalidateAppliedTarget();
+    a.applyPendingTarget((target) {
+      nativeTarget = target;
+      return true;
+    });
+    expect(nativeTarget, a.target);
+  });
+
   test('stays at full budget on a healthy link', () {
     final a = direct();
     for (var i = 0; i < 60; i++) {
