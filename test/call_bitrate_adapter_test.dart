@@ -32,6 +32,51 @@ void main() {
     expect(a.level, 0);
   });
 
+  test('native defaults and expired reports cannot restore video', () {
+    for (final unavailable in [
+      <String, dynamic>{}, // Older library: no report freshness.
+      <String, dynamic>{'audio_feedback_reports': 0},
+      <String, dynamic>{'audio_feedback_reports': 1, 'worker_stalled': 1},
+    ]) {
+      final a = direct();
+      for (var i = 0; i < CallBitrateAdapter.degradeAfter; i++) {
+        a.onNativeStats({
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'tx_loss_pct': 12,
+          'tx_drops': 0,
+        });
+      }
+      expect(a.level, 1);
+      for (var i = 0; i < 30; i++) {
+        a.onNativeStats({'tx_drops': 0, ...unavailable});
+      }
+      expect(a.level, 1);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+        a.onNativeStats({
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'tx_drops': 0,
+        });
+      }
+      expect(a.level, 0);
+    }
+  });
+
+  test('native local audio drops reduce video without remote reports', () {
+    final a = direct();
+    for (var drops = 0; drops < 3; drops++) {
+      a.onNativeStats({
+        'audio_feedback_reports': 0,
+        'worker_stalled': 1,
+        'rtt_ms': 1000,
+        'tx_drops': drops,
+      });
+    }
+    expect(a.level, 1);
+    expect(a.rttBaselineMs, isNull);
+  });
+
   test('new local audio drops reduce video even before reports arrive', () {
     final a = direct();
     for (var drops = 0; drops < 3; drops++) {
