@@ -191,6 +191,26 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Flutter's non-split default includes every supported ABI even when
+        // --target-platform selects one. Filter plugin libraries too: otherwise
+        // a fresh arm64 SDK can be packaged alongside stale x86/arm32 binaries.
+        // Split APKs already select their ABIs and cannot also use ndk filters.
+        if (project.findProperty("split-per-abi")?.toString()?.toBoolean() != true) {
+            val targetPlatforms =
+                (project.findProperty("target-platform")?.toString()
+                    ?: "android-arm,android-arm64,android-x64").split(",")
+            ndk {
+                abiFilters.clear()
+                abiFilters += targetPlatforms.map { platform ->
+                    when (platform) {
+                        "android-arm" -> "armeabi-v7a"
+                        "android-arm64" -> "arm64-v8a"
+                        "android-x64" -> "x86_64"
+                        else -> throw GradleException("Unsupported Android target: $platform")
+                    }
+                }
+            }
+        }
     }
 
     signingConfigs {
