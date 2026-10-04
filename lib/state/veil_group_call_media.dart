@@ -18,6 +18,7 @@ import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
 import 'call_audio_route.dart';
 import 'call_microphone_state.dart';
 import 'call_bitrate_adapter.dart';
+import 'call_audio_receive_activity.dart';
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
 import 'media_ffi.dart';
@@ -277,6 +278,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final Map<String, _GroupPeerChannel> _peers = {};
   final Map<String, int> _lastRxPackets = {};
   final Map<String, DateTime> _lastRxAt = {};
+  final Map<String, CallAudioReceiveActivity> _audioReceiveActivity = {};
+  bool _supportsAudioReceiveStats = false;
   final Map<String, ValueNotifier<VeilVideoFrame?>> _peerVideoFrames = {};
   final ValueNotifier<VeilVideoFrame?> localVideoFrame = ValueNotifier(null);
 
@@ -477,6 +480,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       final peer = _peers.remove(key)!;
       _lastRxPackets.remove(key);
       _lastRxAt.remove(key);
+      _audioReceiveActivity.remove(key);
       _peerVideoFrames[key]?.value = null;
       try {
         engine.removePeer(peer.nodeId);
@@ -552,9 +556,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         _lastRxAt[entry.key] = now;
       }
     }
-    if (!_videoRunning) return;
-    final adapter = _bitrateAdapter;
-    if (adapter == null) return;
     Map<String, dynamic> stats;
     try {
       stats = expected.getStats();
@@ -564,6 +565,26 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         () => 'xVeil[group-call-media]: quality sample unavailable: $error',
       );
     }
+    if (stats['audio_rx_supported'] == 1) _supportsAudioReceiveStats = true;
+    if (_supportsAudioReceiveStats) {
+      final receivers = stats['audio_receivers'];
+      for (final key in _peers.keys) {
+        final receiver = receivers is Map ? receivers[key] : null;
+        final activity = _audioReceiveActivity.putIfAbsent(
+          key,
+          CallAudioReceiveActivity.new,
+        );
+        activity.observe({
+          if (receiver is Map && stats['worker_stalled'] == 0)
+            'audio_rx_pkts': receiver['audio_rx_pkts'],
+          'worker_stalled': stats['worker_stalled'],
+          if (receiver is Map) 'audio_delay_ms': receiver['audio_delay_ms'],
+        }, now);
+      }
+    }
+    if (!_videoRunning) return;
+    final adapter = _bitrateAdapter;
+    if (adapter == null) return;
     try {
       // The encoder budget is shared by the whole fanout. One healthy peer
       // cannot establish audio quality for peers whose RTCP has gone missing.
@@ -623,6 +644,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (cached == null) return;
     _lastRxPackets.remove(peer.hex);
     _lastRxAt.remove(peer.hex);
+    _audioReceiveActivity.remove(peer.hex);
     _peerVideoFrames[peer.hex]?.value = null;
     if (engine != null) {
       try {
@@ -644,6 +666,13 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   @override
   DateTime? lastMediaRxAt(NodeId peer) => _lastRxAt[peer.hex];
+
+  @override
+  bool get supportsAudioReceiveStats => _supportsAudioReceiveStats;
+
+  @override
+  DateTime? lastAudioRxAt(NodeId peer) =>
+      _audioReceiveActivity[peer.hex]?.lastRxAt;
 
   @override
   Future<void> setMicMuted(bool muted) async {
@@ -876,6 +905,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _peers.clear();
     _lastRxPackets.clear();
     _lastRxAt.clear();
+    _audioReceiveActivity.clear();
+    _supportsAudioReceiveStats = false;
     _localIdHex = null;
     _localNode = null;
     await callAudioRouter.release();

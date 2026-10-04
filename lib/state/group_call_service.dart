@@ -80,6 +80,8 @@ abstract class GroupCallMediaController {
   bool requestScreenCaptureAccess() => true;
   Stream<void> get screenShareStopped => const Stream<void>.empty();
   DateTime? lastMediaRxAt(NodeId peer) => null;
+  bool get supportsAudioReceiveStats => false;
+  DateTime? lastAudioRxAt(NodeId peer) => null;
 
   /// Drop any cached media channel toward [peer] so the next roster sync
   /// dials a fresh one. A JOIN signal from an already-known participant means
@@ -134,6 +136,7 @@ class GroupCallService {
   Timer? _heartbeatTimer;
   Timer? _reannounceTimer;
   DateTime? _lastMediaRepairJoinAt;
+  final Map<String, DateTime> _audioExpectedSince = {};
   final List<Timer> _channelEpochReannounceTimers = [];
   GroupCall? _current;
   bool _started = false;
@@ -738,6 +741,11 @@ class GroupCallService {
         (existing == null ||
             (foldExistingMedia &&
                 signal.sentAtMs >= existing.mediaUpdatedAtMs));
+    if (existing == null ||
+        signal.type == GroupCallSignalType.join ||
+        (applyMedia && incomingMedia.audio && !existing.media.audio)) {
+      _audioExpectedSince[signal.author.hex] = now;
+    }
     participants[signal.author.hex] = existing == null
         ? GroupCallParticipant(
             nodeId: signal.author,
@@ -757,6 +765,7 @@ class GroupCallService {
   void _removeParticipant(NodeId peer) {
     final call = _current;
     if (call == null) return;
+    _audioExpectedSince.remove(peer.hex);
     final participants = Map<String, GroupCallParticipant>.from(
       call.participants,
     )..remove(peer.hex);
@@ -831,10 +840,14 @@ class GroupCallService {
       if (participant.nodeId == _groups.selfId) continue;
       // A muted peer legitimately sends nothing.
       if (!participant.media.audio) continue;
-      if (now.difference(participant.joinedAt) < kGroupCallMediaRepairSilence) {
+      final expectedSince =
+          _audioExpectedSince[participant.nodeId.hex] ?? participant.joinedAt;
+      if (now.difference(expectedSince) < kGroupCallMediaRepairSilence) {
         continue;
       }
-      final rxAt = media.lastMediaRxAt(participant.nodeId);
+      final rxAt = media.supportsAudioReceiveStats
+          ? media.lastAudioRxAt(participant.nodeId)
+          : media.lastMediaRxAt(participant.nodeId);
       if (rxAt == null || now.difference(rxAt) > kGroupCallMediaRepairSilence) {
         starved = true;
         break;
@@ -849,7 +862,7 @@ class GroupCallService {
     _lastMediaRepairJoinAt = now;
     devLog(
       () =>
-          'xVeil[group-call]: no media from a live unmuted participant — '
+          'xVeil[group-call]: no audio from a live unmuted participant — '
           're-announcing join so peers re-dial our channel',
     );
     unawaited(
@@ -876,11 +889,11 @@ class GroupCallService {
       // instead of retaining a stale mic/camera state indefinitely.
       media: _localMedia(call),
     );
-    _maybeRequestMediaRepair(call);
     // The broadcast above is awaited, so the liveness verdict below has to be
     // computed against — and written back onto — the call as it stands now.
     final live = _stillCurrent(call);
     if (live == null) return;
+    _maybeRequestMediaRepair(live);
     final now = _now();
     final participants = Map<String, GroupCallParticipant>.from(
       live.participants,
@@ -1006,6 +1019,8 @@ class GroupCallService {
   void _end(CallEndReason reason, {bool roomOver = false}) {
     final call = _current;
     if (call == null) return;
+    _audioExpectedSince.clear();
+    _lastMediaRepairJoinAt = null;
     if (roomOver) {
       // The room itself is finished (admin end / membership lost): bury the
       // call id and drop the banner.
