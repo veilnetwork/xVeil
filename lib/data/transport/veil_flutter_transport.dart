@@ -174,6 +174,7 @@ NodeId peerFacingNodeIdOf({
 class VeilFlutterTransport
     implements
         VeilTransport,
+        LocalSourceTransport,
         RealtimeTransport,
         RelayRealtimeTransport,
         RealtimeInboundTransport,
@@ -993,6 +994,35 @@ class VeilFlutterTransport
       dstAppId: chatAppIdFor(dst),
       dstEndpointId: veilChatEndpointId,
       data: payload,
+    );
+  }
+
+  @override
+  Future<void> sendOnLocalLane(
+    NodeId dst,
+    Uint8List payload, {
+    required int localLane,
+    bool anonymous = false,
+  }) {
+    if (localLane < 0 || localLane > 3) {
+      throw RangeError.range(localLane, 0, 3, 'localLane');
+    }
+    if (sendRouteFor(
+          identityAddress,
+          dst,
+          anonymous: anonymous,
+          myNode: _nodeId.bytes,
+        ) ==
+        SendRoute.deviceSync) {
+      return Future<void>.value();
+    }
+    return _app.sendOnLocalLane(
+      dstNodeId: dst.bytes,
+      dstAppId: chatAppIdFor(dst),
+      dstEndpointId: veilChatEndpointId,
+      data: payload,
+      localLane: localLane,
+      anonymous: anonymous,
     );
   }
 

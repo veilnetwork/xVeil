@@ -333,7 +333,7 @@ extension _MessagingContentServer on MessagingService {
   /// One chunk on the wire, bounded, so a send that never returns is reported
   /// as a stuck SEND rather than as a serve that silently stopped.
   Future<void> _sendChunkBounded(NodeId peer, Uint8List wire) =>
-      _send(peer, wire, deferRatchetWrite: true).timeout(
+      _send(peer, wire, deferRatchetWrite: true, background: true).timeout(
         _serveStepTimeout,
         onTimeout: () =>
             throw TimeoutException('serve SEND stuck', _serveStepTimeout),

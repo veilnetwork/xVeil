@@ -19,7 +19,7 @@ NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 
 /// 1:1 link that can selectively drop pieceChunk frames (to exercise the
 /// re-request path) — everything else is delivered.
-class _Link implements VeilTransport {
+class _Link implements VeilTransport, LocalSourceTransport {
   _Link(this._me);
   final NodeId _me;
   final _in = StreamController<InboundMessage>.broadcast();
@@ -29,6 +29,7 @@ class _Link implements VeilTransport {
   // Drop the FIRST contentManifest (simulate the offer's one-shot manifest being
   // lost / a receiver restart) so the reoffer path must re-fetch it.
   bool dropManifestOnce = false;
+  final sends = <({WireKind kind, int lane, bool anonymous})>[];
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -45,6 +46,30 @@ class _Link implements VeilTransport {
     Uint8List payload, {
     bool anonymous = false,
   }) async {
+    sends.add((
+      kind: WireEnvelope.decode(payload).kind,
+      lane: 1,
+      anonymous: anonymous,
+    ));
+    _deliver(payload);
+  }
+
+  @override
+  Future<void> sendOnLocalLane(
+    NodeId dst,
+    Uint8List payload, {
+    required int localLane,
+    bool anonymous = false,
+  }) async {
+    sends.add((
+      kind: WireEnvelope.decode(payload).kind,
+      lane: localLane,
+      anonymous: anonymous,
+    ));
+    _deliver(payload);
+  }
+
+  void _deliver(Uint8List payload) {
     final env = WireEnvelope.decode(payload);
     if (env.kind == WireKind.pieceChunk) {
       final f = parsePieceChunk(env.body);
@@ -136,6 +161,38 @@ void main() {
       reason: 'verified whole == original',
     );
   });
+
+  for (final anonymous in [false, true]) {
+    test(
+      'fallback chunks use the local background lane, anonymous=$anonymous',
+      () async {
+        await mA.dispose();
+        mA = MessagingService(
+          tA,
+          sA,
+          anonymous: anonymous,
+          contentPacing: Duration.zero,
+        )..start();
+        final data = rnd(25000, 17);
+        final got = mB.contentReceived.first;
+        await mA.sendContent(b, data, 'background.bin');
+        final received = await got.timeout(const Duration(seconds: 10));
+        expect(await sB.loadFile(received.contentId), data);
+        final chunks = tA.sends.where((s) => s.kind == WireKind.pieceChunk);
+        expect(chunks, isNotEmpty);
+        expect(
+          chunks.every((s) => s.lane == 3 && s.anonymous == anonymous),
+          isTrue,
+        );
+        final controls = tA.sends.where((s) => s.kind != WireKind.pieceChunk);
+        expect(controls, isNotEmpty);
+        expect(
+          controls.every((s) => s.lane == 1 && s.anonymous == anonymous),
+          isTrue,
+        );
+      },
+    );
+  }
 
   test(
     'stored cloud blob shares as a fresh filePost without a second copy',
