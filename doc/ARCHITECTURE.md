@@ -242,6 +242,17 @@ condition makes the clean-RTCP/slow-audio regression fail. Group-call receiver
 playout feedback and live two-phone/acoustic verification remain outstanding;
 this change does not establish independent flows on the observed old relays.
 
+Android standard debug 2157 (source e17bdd6c, Veil 9bf5c8e8) was built with this
+playout policy. Production Rust features, ARM64-only packaging, staged/packed
+native library hashes, the generated FFI contract and absence of native test
+exports were verified. Blackview was updated in place, and the full installed
+APK hash matched the build artifact. Startup reached ready/real-stack with no
+active call; force-stop and absence of both the app process and owned ADB
+forward were verified. Poco's signed 2157 APK is ready but remains uninstalled
+while only Blackview is enumerated by ADB. The existing 14 media-seal tests and
+the transport-feedback v4/v5 compatibility test also passed after the version
+bump. No live two-phone call was possible in this cycle.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
