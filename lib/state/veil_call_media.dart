@@ -19,6 +19,7 @@ import 'android_native_call_camera.dart';
 import 'android_native_call_video.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
+import 'call_audio_receive_activity.dart';
 import 'call_microphone_state.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
@@ -396,6 +397,8 @@ class VeilCallMediaController implements CallMediaController {
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
   DateTime? _lastRxAt; // wall-clock when ENGINE rx_pkts last increased
   int _lastRxPkts = 0;
+  final _audioReceiveActivity = CallAudioReceiveActivity();
+  DateTime? _receiveSessionStartedAt;
   int _lastNativeRxCount = 0;
   DateTime? _engineRxStalledSince; // node receives, engine doesn't — since when
   // Full-session rebuilds triggered by the starved detector within ONE call.
@@ -517,10 +520,26 @@ class VeilCallMediaController implements CallMediaController {
   DateTime? get lastMediaRxAt => _lastRxAt;
 
   @override
+  bool get hasAudioReceiveTelemetry => _audioReceiveActivity.supported;
+
+  @override
+  DateTime? get lastAudioRxAt => _audioReceiveActivity.lastRxAt;
+
+  @override
+  DateTime? get receiveSessionStartedAt => _receiveSessionStartedAt;
+
+  @override
+  bool get isRepairingReceiveSession => _routeRepairing;
+
+  @override
   Map<String, Object?> get diagnostics {
     final engine = _engine;
     if (engine == null) {
-      return {'transport': _chanTransport?.name, 'running': false};
+      return {
+        'transport': _chanTransport?.name,
+        'running': false,
+        'media_repairing': _routeRepairing,
+      };
     }
     try {
       final chan = _chan;
@@ -540,6 +559,13 @@ class VeilCallMediaController implements CallMediaController {
         'transport': _chanTransport?.name,
         'running': true,
         'media_epoch': _mediaEpoch,
+        'media_repairing': _routeRepairing,
+        'audio_rx_supported': _audioReceiveActivity.supported,
+        'audio_rx_age_ms': _audioReceiveActivity.lastRxAt == null
+            ? null
+            : DateTime.now()
+                  .difference(_audioReceiveActivity.lastRxAt!)
+                  .inMilliseconds,
         'batching': _mediaBatching,
         'compact_relay_media': _compactRelayMedia,
         'capture_camera_id': _selectedCameraId,
@@ -620,26 +646,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     _lastRepairAt = now;
     if (_chanTransport != CallTransportKind.onion) {
-      final call = _activeCall;
-      if (call == null) return false;
-      _routeRepairing = true;
-      try {
-        // A non-onion channel can be admitted yet black-holed end-to-end.
-        // Rebuild its actual P2P/relay route. Failure is never implicit consent
-        // to use the anonymous network.
-        await _stopSession(clearActiveCall: false);
-        if (_activeCall?.callId != call.callId) return false;
-        final ok = await start(call);
-        _lastRepairAt = now;
-        devLog(
-          () =>
-              'xVeil[call-media]: silent ${call.transport?.name} route rebuilt '
-              'call=${call.callId} ok=$ok',
-        );
-        return ok && activeTransport == call.transport;
-      } finally {
-        _routeRepairing = false;
-      }
+      return _rebuildLocalSession();
     }
     final rc = _transport.repairMediaChannel(ch);
     devLog(
@@ -648,6 +655,34 @@ class VeilCallMediaController implements CallMediaController {
           'channel=$ch result=$rc',
     );
     return rc == 0;
+  }
+
+  Future<bool> _rebuildLocalSession() async {
+    if (_routeRepairing) return true;
+    final active = _activeCall;
+    final transport = _chanTransport;
+    if (active == null || transport == null) return false;
+    final call = active.copyWith(transport: transport);
+    _routeRepairing = true;
+    try {
+      // Rebuild local audio/engine wiring even for onion. Refreshing only the
+      // outbound circuit cannot unblock a stalled local receive worker.
+      await _stopSession(clearActiveCall: false);
+      if (_activeCall?.callId != call.callId) return false;
+      final ok = await start(call);
+      _lastRepairAt = DateTime.now();
+      devLog(
+        () =>
+            'xVeil[call-media]: local ${transport.name} session rebuilt '
+            'call=${call.callId} ok=$ok',
+      );
+      return ok && activeTransport == transport;
+    } catch (error) {
+      devLog(() => 'xVeil[call-media]: local session rebuild failed: $error');
+      return false;
+    } finally {
+      _routeRepairing = false;
+    }
   }
 
   @override
@@ -868,6 +903,8 @@ class VeilCallMediaController implements CallMediaController {
     _statsTimer?.cancel();
     _lastRxAt = null;
     _lastRxPkts = 0;
+    _audioReceiveActivity.reset();
+    _receiveSessionStartedAt = DateTime.now();
     _lastNativeRxCount = _transport.mediaRecvCount(call.mediaPeer.bytes);
     _engineRxStalledSince = null;
     _lastRepairAt = null;
@@ -876,6 +913,8 @@ class VeilCallMediaController implements CallMediaController {
       if (_engine != engine) return;
       try {
         final stats = engine.getStats();
+        final now = DateTime.now();
+        _audioReceiveActivity.observe(stats, now);
         // Per-second quality trace into the devLog ring (2 s cadence to leave
         // ring headroom): the live "delay grows over the call" report needs
         // the full curve — RTCP rtt/jitter AND the direct receive-pipeline
@@ -894,6 +933,7 @@ class VeilCallMediaController implements CallMediaController {
                 'adapt=${_bitrateAdapter?.level} '
                 'base=${_bitrateAdapter?.rttBaselineMs} '
                 'tx=${stats['tx_pkts']} rx=${stats['rx_pkts']} '
+                'audio_rx=${stats['audio_rx_pkts']} worker=${stats['worker_stalled']} '
                 'drops=${stats['tx_drops']}/${stats['rx_drops']}',
           );
         }
@@ -928,12 +968,29 @@ class VeilCallMediaController implements CallMediaController {
                     '(native=$nativeRx engine=$rx chan=$_chan) — local session '
                     'rebuild #$_starvedRebuilds',
               );
-              unawaited(repairRoute());
+              unawaited(_rebuildLocalSession());
             }
           }
         }
         _lastRxPkts = rx;
         _lastNativeRxCount = nativeRx;
+        final audioStalled = _audioReceiveActivity.workerStalledSince;
+        if (!_routeRepairing &&
+            audioStalled != null &&
+            now.difference(audioStalled) >= kCallMediaRepairAfter) {
+          // Video ingress can keep rx_pkts growing while the AUDIO worker is
+          // stuck. Repair this endpoint; the peer cannot drain our worker.
+          _audioReceiveActivity.workerStalledSince = null;
+          if (_starvedRebuilds < 2) {
+            _starvedRebuilds++;
+            devLog(
+              () =>
+                  'xVeil[call-media]: audio worker stalled — local '
+                  'session rebuild #$_starvedRebuilds',
+            );
+            unawaited(_rebuildLocalSession());
+          }
+        }
         final adapter = _bitrateAdapter;
         if (adapter != null) {
           // Sender-side ladder driven by what the REMOTE receiver reports for
@@ -1198,6 +1255,8 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxAt = null;
     _lastRxPkts = 0;
     _lastNativeRxCount = 0;
+    _audioReceiveActivity.reset();
+    _receiveSessionStartedAt = clearActiveCall ? null : DateTime.now();
     _engineRxStalledSince = null;
     // Congestion belongs to the call, not the native engine. A route rebuild
     // must start video at its reduced budget instead of injecting a new burst.
