@@ -275,6 +275,14 @@ controller's clean-RTCP/missing-receiver regression fail. Group receive-side
 playout estimates are still not exported/reported; this gate protects RTCP
 coverage and cannot establish acoustic latency or independent network flows.
 
+Standard Android debug 2158 (source 829b5913) packages the group coverage and
+capture-intent fixes. Native libraries/features/ABI were verified as for 2157;
+the full installed Blackview APK hash matched the build. Real-stack startup was
+ready with no active call, then the app process and owned ADB forward were
+verified absent. Poco's signed 2158 update is prepared, remains uninstalled,
+and its last stand process still needs verification when ADB reconnects. Only
+Blackview was enumerated at the end of this cycle; no live call was placed.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
