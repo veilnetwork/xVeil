@@ -551,14 +551,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (adapter == null) return;
     try {
       final stats = expected.getStats();
-      if (stats.isEmpty || stats['worker_stalled'] == 1) return;
-      adapter.onSample(
-        rttMs: (stats['rtt_ms'] as num?)?.toInt() ?? 0,
-        txJitterMs: (stats['tx_jitter_ms'] as num?)?.toInt() ?? 0,
-        txLossPct: (stats['tx_loss_pct'] as num?)?.toInt() ?? 0,
-        txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
-        feedbackAvailable: ((stats['audio_feedback_reports'] as num?) ?? 0) > 0,
-      );
+      if (stats.isEmpty) return;
+      adapter.onNativeStats(stats);
       final target = adapter.target;
       // Retry an abandoned video-worker operation on the next poll. Advancing
       // the policy is separate from successfully applying an encoder budget.
