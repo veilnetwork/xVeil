@@ -310,6 +310,17 @@ Group receiver playout estimates are now exported locally; reporting them to
 the sender, live two-phone quality and independent flows through older relays
 remain unverified or incomplete.
 
+Standard Android debug 2159 (source a28fd61f, Veil 13b4906b) contains this
+per-peer audio telemetry and repair policy. Production Rust features, ARM64
+packaging, raw/staged/packed native hashes, FFI header contract and absence of
+native test exports were verified. Blackview was updated without clearing
+data; its full installed APK hash matched. Startup reached ready/real-stack
+with no active call, then force-stop, absent app processes and removal of the
+owned ADB forward were verified. No test files or transfer jobs were created.
+Poco's signed 2159 APK is prepared; only Blackview was enumerated by ADB, so
+the Poco update, its old process verification and live two-phone test remain
+pending. Stand binaries and Flutter test processes have exited.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
