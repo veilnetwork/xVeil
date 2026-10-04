@@ -16,6 +16,9 @@ class _FakeMessaging implements MessagingService {
   bool get isAnonymousIdentity => false;
 
   @override
+  Future<NodeId> localDeviceId() async => NodeId.fromHex('c' * 64);
+
+  @override
   void Function(NodeId, CallSignal)? onCallSignal;
 
   @override
