@@ -288,7 +288,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   bool _videoRunning = false;
   CallBitrateAdapter? _bitrateAdapter;
-  ({int maxBitrateKbps, int maxFps})? _appliedVideoTarget;
   bool _screenSharing = false;
   String? _selectedScreenId;
   Future<void> _tail = Future<void>.value();
@@ -431,7 +430,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (!ready) return false;
     _videoRunning = true;
     _bitrateAdapter = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
-    _appliedVideoTarget = null;
     await callAudioRouter.setRoute(CallAudioRoute.speaker);
     _frameTimer ??= Timer.periodic(
       const Duration(milliseconds: 33),
@@ -553,15 +551,16 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       final stats = expected.getStats();
       if (stats.isEmpty) return;
       adapter.onNativeStats(stats);
-      final target = adapter.target;
       // Retry an abandoned video-worker operation on the next poll. Advancing
       // the policy is separate from successfully applying an encoder budget.
-      if (target != _appliedVideoTarget &&
-          expected.setVideoBitrate(
-            maxBitrateKbps: target.maxBitrateKbps,
-            maxFps: target.maxFps,
-          )) {
-        _appliedVideoTarget = target;
+      final applied = adapter.applyPendingTarget(
+        (target) => expected.setVideoBitrate(
+          maxBitrateKbps: target.maxBitrateKbps,
+          maxFps: target.maxFps,
+        ),
+      );
+      if (applied == true) {
+        final target = adapter.target;
         devLog(
           () =>
               'xVeil[group-call-media]: audio-quality retune level='
@@ -796,7 +795,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _statsTimer?.cancel();
     _statsTimer = null;
     _bitrateAdapter = null;
-    _appliedVideoTarget = null;
     _frameTimer?.cancel();
     _frameTimer = null;
     _screenSharing = false;
