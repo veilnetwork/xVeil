@@ -2137,3 +2137,18 @@ adoption; discarding a first message merely to choose a root is insufficient.
 This is a reproduced protocol race, not proof that every physical ratchet
 error above comes from it. Audio quality, relay blackholes and this race remain
 open, with the goal active.
+
+Opt-in connection receive-stage trace
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The existing RT trace gate now samples each authenticated generic datagram
+receiver once per second, including intervals with no receive progress. A
+process-local ordinal separates connections without exposing a pointer or
+exporter. Counters separate incomplete assemblies, decode refusals, ineligible
+complete frames, dispatcher calls, rate-limit/violation results and the maximum
+synchronous dispatch duration. Actual QUIC UDP/ACK/loss/RTT counters accompany
+each window. Decode refusals include replay and malformed packets as well as
+authentication failures; they are not attributed to one cause. No application
+classification, network field, scheduling or relay policy changes. The interval
+branch is disabled when tracing is off. Session checks: 382 passed / five
+existing ignored; production FFI Clippy passed with warnings denied. This is
+instrumentation for the unresolved physical gaps, not a quality fix.
