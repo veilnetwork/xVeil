@@ -386,6 +386,33 @@ their pre-change versions (baseline log:
 `/private/tmp/xveil-background-replication-baseline-redrive.log`). This cycle
 does not establish a green full suite or live loaded-phone audio quality.
 
+Standard Android debug 2161 (source 0cf17323, Veil f2a49fb8) packages these
+replication lanes. Production Rust features, ARM64-only ABI, native library
+hashes, the FFI header contract and absence of native test exports were
+verified. Blackview's in-place install matched the full APK hash and startup
+reached ready/real-stack with no active call. App processes and the owned ADB
+forward were verified absent after the check. No phone fixtures or transfer
+jobs were created. Poco's signed 2161 APK was prepared; Poco was absent in ADB.
+
+Remote reliable IPC byte streams now use background source lane 3, including
+open/data/close in the same FIFO class. Their wire headers keep the ordinary
+neutral priority; the local selection adds no relay role metadata. The Rust
+SDK sends at most 2048 application bytes per stream frame, so a whole body fits
+under the active-primary 4 KiB ordered-writer budget. Large writes use the
+existing bounded writer backpressure. Receive compatibility with larger older
+frames is retained. Explicit SDK shutdown suppresses a duplicate close on Drop.
+
+Gates: 112 IPC tests passed (five existing ignored), 36 SDK unit tests and 27
+SDK/IPC integration tests passed. The new real remote-stream integration
+checks all 128 KiB + 19 bytes, frame size, source lane, neutral wire header,
+close order and bridge cleanup. Restoring either the old normal source lane
+or the old 256 KiB producer makes that integration fail. The encrypted
+SessionRunner compatibility stand also passed: a new primary passed before
+16 KiB of committed bulk, then all 64 bulk frames completed in order without
+duplicates. These gates cover endpoint queues and stream compatibility;
+live loaded-phone audio and older first-hop independent-flow support remain
+unverified.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
