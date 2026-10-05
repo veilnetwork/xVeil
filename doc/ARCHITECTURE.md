@@ -1718,3 +1718,20 @@ route's isolation. Build 2195 will carry the change. Poco is still absent;
 paired validation, replay confirmation, video/file load, fallback, group
 media and sustained playout quality remain pending. Apps were not started
 in this source-only cycle.
+
+
+Build 2195 packaging and partial installation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Production-feature ARM64 native build with Veil 6b4f5ad2 completed. The APK
+contains the new expiry diagnostic marker and unchanged 92-export media
+engine. Raw/staged/merged/stripped/APK library hashes, architecture, production
+features and C ABI header hash passed the packaging verifier. Root build
+commit is 27d0a87d; this subsequent documentation-only commit needs no rebuild.
+Blackview's full pulled installed APK matches the verified build hash and
+reports versionCode 2195. It was force-stopped after installation and all
+package-prefixed processes are absent. Own ADB forwards are absent.
+Poco remains disconnected: /private/tmp/xveil-audio-2195-poco.apk is prepared
+and signature/library hashes verified, but its last verified installed build
+is 2193. Skip the superseded 2194 APK on return; install/verify both phones
+at 2195 before launching a paired stand. No phone call/media quality gate was
+completed in this cycle. Source edits are committed unsigned and unpushed.
