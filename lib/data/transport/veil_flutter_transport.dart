@@ -1062,7 +1062,7 @@ class VeilFlutterTransport
         data: payload,
       );
     }
-    // APP_RT_SEND is a genuine direct-session datagram at REALTIME priority.
+    // APP_RT_SEND uses the signaling source channel, separate from audio.
     // The old implementation merely called ordinary `send` on a separate IPC
     // connection: it avoided a local mutex but still entered route discovery,
     // so an accepted call answer could arrive minutes after the ring timeout.
