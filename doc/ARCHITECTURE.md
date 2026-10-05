@@ -696,3 +696,50 @@ not establish deployment support. The previous device-owner file stream
 authorization denials also remain unresolved and must not be bypassed to
 make a load test pass. ADB still exposes only Blackview. No physical acoustic
 claim or complete-goal claim follows from this transport fixture.
+
+
+### Two-phone 2168 checks and incomplete IPC diagnostics
+
+Both Blackview and Poco returned in ADB. The signed standard 2168 APK was
+installed on Poco without clearing data, and its entire installed APK hash was
+verified. Poco's default network remained cellular. One cold Poco-to-Blackview
+audio offer arrived 93.9 seconds after its timestamp and was discarded after
+the caller's 75-second ringing timeout; cancellation arrived first. Subsequent
+calls rang in 2.6–5.8 seconds and became active in 4.0–7.3 seconds. Those are
+separate observations, not evidence that cold signaling is fixed.
+
+A 150-second Poco-to-Blackview video call used relay fallback after NAT
+signaling timed out. During an attempted 8 MiB file download, all Blackview-to-
+Poco media receive counters stopped for approximately 38 seconds while the
+reverse direction and both local transmit counters progressed. Blackview's
+engine counters reset twice, but neither reset immediately restored reception.
+The file attempt failed with HTTP 409 after 71.6 seconds: Poco recorded 108
+stream authorization denials for an unmapped requesting device. No complete
+file was exported or hash verified. This is an attempted-load reproduction,
+not a successful sustained simultaneous file/video delivery test. Authorization
+must not be weakened to make the fixture pass.
+
+Two further 120-second Blackview-to-Poco calls without a file did not reproduce
+the 38-second outage or reset either engine. The audio-only median native delay
+was 391/200 ms (Blackview/Poco), and video-call median was 446/215 ms. Receive
+ages still reached roughly 7–8 seconds for audio-only and 4–6 seconds for video.
+These are native counters, not acoustic measurements. Both calls remained on
+relay fallback; no actual independent first-hop negotiation event was captured.
+
+Existing IPC diagnostics hid expired admission (Ok(false)), expired mutex
+waits and frames admitted to the SDK but discarded before their socket write.
+Relay diagnostics now record failed admission, all sender waits and those later
+writer expirations. The last counter is a process-local Arc shared with the SDK
+queue item; it adds no IPC fields, C ABI fields, network labels, scheduling or
+relay privileges. The original Rust send API remains available without tracking.
+A real 13-byte buffered IPC writer check verifies one tracked admitted-but-
+expired cell is counted, fresh data and reliable FIFO are preserved, and failed
+admission is not counted twice. Its two tests and the 30 focused FFI media pump/
+network tests passed. These counters do not establish end-to-end delivery or
+cover every later transport/receiver discard.
+
+All owned calls, applications, API forwards, log readers and plaintext fixtures
+from these stands were closed/removed. Both phone process lists and the absence
+of owned forwards/readers/fixtures were independently checked. Physical sound
+quality, the cold offer delay, the one-way media outage, successful bulk-file
+authorization/delivery and the remaining group/reconnect scenarios are unresolved.
