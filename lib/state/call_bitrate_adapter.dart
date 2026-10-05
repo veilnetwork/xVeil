@@ -36,6 +36,7 @@ class CallBitrateAdapter {
     required this.baseBitrateKbps,
     required this.baseFps,
     int? initialLevel,
+    this.supportsLowRateVideo = true,
   }) : assert(
          initialLevel == null ||
              (initialLevel >= 0 && initialLevel < ladder.length),
@@ -45,6 +46,10 @@ class CallBitrateAdapter {
   /// Route-profile budget this call negotiated; the ladder scales below it.
   final int baseBitrateKbps;
   final int baseFps;
+
+  /// Older native engines clamp to 30 kbit/s and integer fps. Their targets
+  /// must describe the effective budget rather than cache an unapplied one.
+  final bool supportsLowRateVideo;
 
   /// Fractions of the base bitrate budget, best-first.
   // A slow mobile link may not carry even the old 270-kbit floor. Keep one
@@ -94,8 +99,8 @@ class CallBitrateAdapter {
   /// forever and pin the ladder at the bottom rung).
   static const int minWindowSamples = 60;
 
-  // An unmeasured link has not earned a full video budget. Start with one
-  // small frame per second and climb only after sustained healthy audio.
+  // An unmeasured link has not earned a full video budget. Start with a
+  // small, sparse frame stream and climb only after sustained healthy audio.
   // initialLevel can restore an already measured policy; new calls omit it.
   int _level;
   int _badStreak = 0;
@@ -106,13 +111,13 @@ class CallBitrateAdapter {
   int? _curWindowMin;
   int? _prevWindowMin;
   int _windowFill = 0;
-  ({int maxBitrateKbps, int maxFps})? _appliedTarget;
+  ({int maxBitrateKbps, double maxFps})? _appliedTarget;
 
   /// Try the current video budget. A busy native worker leaves it pending;
   /// the next poll retries the latest budget, never a superseded one.
   /// Null means the current target was already applied.
   bool? applyPendingTarget(
-    bool Function(({int maxBitrateKbps, int maxFps}) target) apply,
+    bool Function(({int maxBitrateKbps, double maxFps}) target) apply,
   ) {
     final desired = target;
     if (_appliedTarget == desired) return null;
@@ -158,13 +163,14 @@ class CallBitrateAdapter {
   bool get atFloor => _level == ladder.length - 1;
 
   /// Target for the current rung.
-  ({int maxBitrateKbps, int maxFps}) get target => (
-    // Match the native VP8 floor without exceeding this route's ceiling.
+  ({int maxBitrateKbps, double maxFps}) get target => (
     maxBitrateKbps: (baseBitrateKbps * ladder[_level]).round().clamp(
-      baseBitrateKbps < 30 ? baseBitrateKbps : 30,
+      supportsLowRateVideo ? 1 : (baseBitrateKbps < 30 ? baseBitrateKbps : 30),
       baseBitrateKbps,
     ),
-    maxFps: (baseFps * cadenceLadder[_level]).round().clamp(1, 60),
+    maxFps: supportsLowRateVideo
+        ? (baseFps * cadenceLadder[_level]).clamp(0.02, baseFps.toDouble())
+        : (baseFps * cadenceLadder[_level]).round().clamp(1, 60).toDouble(),
   );
 
   /// Native zero defaults, expired reports and older libraries without report
@@ -172,7 +178,7 @@ class CallBitrateAdapter {
   /// A room supplies its connected receiver count: incomplete audio feedback
   /// gives bandwidth back and cannot earn recovery; known bad reports still
   /// substantiate congestion even when other receivers have not reported.
-  ({int maxBitrateKbps, int maxFps})? onNativeStats(
+  ({int maxBitrateKbps, double maxFps})? onNativeStats(
     Map<String, dynamic> stats, {
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
@@ -207,7 +213,7 @@ class CallBitrateAdapter {
 
   /// Feed one stats sample; returns the new target when the rung changed and
   /// null otherwise. `rttMs` of 0 means "unknown yet" and is not judged.
-  ({int maxBitrateKbps, int maxFps})? onSample({
+  ({int maxBitrateKbps, double maxFps})? onSample({
     required int rttMs,
     required int txJitterMs,
     required int txLossPct,

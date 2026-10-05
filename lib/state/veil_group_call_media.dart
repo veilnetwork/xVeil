@@ -134,8 +134,9 @@ abstract interface class GroupAudioEngine {
   void setMicMuted(bool muted);
   int peerRxPackets(NodeId peer);
   Map<String, dynamic> getStats() => const {};
-  bool setVideoBitrate({required int maxBitrateKbps, required int maxFps}) =>
+  bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) =>
       false;
+  bool get supportsLowRateVideo => false;
   bool startVideo() => false;
   bool stopVideo() => true;
   bool startCamera() => false;
@@ -194,7 +195,10 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
   Map<String, dynamic> getStats() => _engine.getStats();
 
   @override
-  bool setVideoBitrate({required int maxBitrateKbps, required int maxFps}) =>
+  bool get supportsLowRateVideo => _engine.supportsLowRateVideo;
+
+  @override
+  bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) =>
       _engine.setVideoBitrate(maxBitrateKbps: maxBitrateKbps, maxFps: maxFps);
 
   @override
@@ -440,7 +444,17 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final ready = engine.startVideo();
     if (!ready) return false;
     _videoRunning = true;
-    _bitrateAdapter = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+    final adapter = _bitrateAdapter = CallBitrateAdapter(
+      baseBitrateKbps: 150,
+      baseFps: 15,
+      supportsLowRateVideo: engine.supportsLowRateVideo,
+    );
+    adapter.applyPendingTarget(
+      (target) => engine.setVideoBitrate(
+        maxBitrateKbps: target.maxBitrateKbps,
+        maxFps: target.maxFps,
+      ),
+    );
     await callAudioRouter.setRoute(CallAudioRoute.speaker);
     _frameTimer ??= Timer.periodic(
       const Duration(milliseconds: 33),

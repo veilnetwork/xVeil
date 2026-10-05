@@ -89,7 +89,7 @@ the app rather than merely present as a file:
 - Multi-device pairing (`device_link_invite`), mailbox offline delivery
   (`mailbox_service` + `mailbox_orchestrator`).
 - File / image / video transfer (`messaging_file_transfer`).
-- Audio / video calls (`call_service`, `group_call_service`). New video starts at 45 kbit/s at 1 fps on direct calls (30 kbit/s at 1 fps on anonymous/group calls), then grows one rung per 12 healthy audio samples with known RTT. Missing, expired or stalled audio feedback cannot increase video. Rebuilding the same unicast call/profile retains its video budget and hysteresis; the new native encoder starts at that budget. Desired microphone state belongs to the call, survives media-engine recreation and asynchronous opening, and is cleared on final hangup. Reusing an older call snapshot cannot undo a mute chosen during the call; cancelled or replaced opening remains muted.
+- Audio / video calls (`call_service`, `group_call_service`). New video starts at 45 kbit/s at 1.2 fps on direct calls (8 kbit/s at 0.3 fps on anonymous/group calls) with the low-rate native API; older libraries retain 45/30 kbit/s at 1 fps, then grows one rung per 12 healthy audio samples with known RTT. Missing, expired or stalled audio feedback cannot increase video. Rebuilding the same unicast call/profile retains its video budget and hysteresis; the new native encoder starts at that budget. Desired microphone state belongs to the call, survives media-engine recreation and asynchronous opening, and is cleared on final hangup. Reusing an older call snapshot cannot undo a mute chosen during the call; cancelled or replaced opening remains muted.
 - Built-in S3-style object storage across identities (`cloud_*`).
 - Proxy/VPN (oproxy/ogate), SSH node provisioning.
 
@@ -461,3 +461,42 @@ live loaded-call/acoustic check remain pending.
   snackbar reads as a feature that exists and is merely switched off.
 
 See `doc/SECURITY-NOTES.md` for the threat-model constraints these features inherit.
+
+### Effective low-rate video budgets
+
+Video adaptation now keeps fractional encoder-handoff cadence rather than
+rounding each rung to an integer. Native integer setters previously clamped
+budgets to 30 kbit/s and 1 fps, so the anonymous/group floor could not release
+additional bandwidth for audio. The additive optional `set_video_budget` ABI
+accepts positive budgets down to 1 kbit/s and 0.02 fps. The VP8 layer minimum,
+allocation target and Call bitrate bounds follow the reduced budget. The
+WebRTC video-registration minimum is explicitly 1 kbit/s; otherwise it raises
+even these explicit layers back to 30 kbit/s. Encoder
+max_framerate is rounded up only for WebRTC's integer configuration, while the
+source gate enforces the fractional cadence. Camera, screen, synthetic and
+app/JNI frame inputs share that gate; self-preview precedes the gate.
+
+The sender exposes both its requested budget and WebRTC's actual
+`video_encoder_target_bps`. Old integer ABI defaults/clamps, including the
+explicit debug bitrate pin, stay compatible. Optional Dart lookup exposes the
+capability; old engines receive their effective integer targets instead of
+fractional values or zero, which an old native setter would interpret as a
+15-fps default. New group capture is retuned before the camera/screen opens;
+a busy video worker leaves the latest budget pending for the next stats poll.
+No signaling, route, relay scheduling or visible media-role field is added.
+These are encoder allocation/capture budgets, not an exact bound on padded
+wire traffic, keyframes, retransmissions or RTCP overhead.
+
+Verification: 60 focused Flutter adaptation/playout/group-controller tests
+and scoped analysis passed. Real WebRTC Call/queues behind a mocked plaintext
+Veil boundary verified 12-fps encoding, no additional encoded frames during a
+2.2-second window at 0.02 fps after drain, changing self-preview, four accepted
+Opus packets, recovery, 1-kbit/s actual encoder allocation, legacy integer
+zero/defaults, and bounded abandonment of a busy low-rate retune. Actual
+8-kbit/s targets were 7,840 bps unicast and 8,000 bps group. The native gate
+first failed at 29,520 bps before the WebRTC registration floor was lowered;
+checking only requested stats would have missed that failure. Stand processes
+exited and their temporary build directory was removed. Production Android
+ARM64 media compiled with 92 public exports and no stand hooks. Two-phone
+loaded-call and acoustic quality remain unverified while Poco is absent; older
+live relay hops still lack negotiated independent opaque flows.

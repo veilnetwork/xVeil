@@ -455,7 +455,7 @@ class VeilCallMediaController implements CallMediaController {
   /// even when devLog is unavailable.
   bool _mediaBatching = false;
   bool _compactRelayMedia = false;
-  ({int bitrateKbps, int fps})? _diagnosticVideoTarget;
+  ({int bitrateKbps, double fps})? _diagnosticVideoTarget;
 
   int _setMediaBatchingForDiagnostics(bool enabled) {
     final chan = _chan;
@@ -483,7 +483,7 @@ class VeilCallMediaController implements CallMediaController {
             bitrateKbps: adapter.target.maxBitrateKbps,
             fps: adapter.target.maxFps,
           )
-        : (bitrateKbps: bitrateKbps, fps: fps);
+        : (bitrateKbps: bitrateKbps, fps: fps.toDouble());
     final ok = engine.setVideoBitrate(
       maxBitrateKbps: target.bitrateKbps,
       maxFps: target.fps,
@@ -1087,7 +1087,7 @@ class VeilCallMediaController implements CallMediaController {
       final profile = highQuality
           ? _directVideoProfile
           : _anonymousVideoProfile;
-      final adapter = _videoAdapterForProfile(profile);
+      final adapter = _videoAdapterForProfile(profile, engine);
       final target = adapter.target;
       videoOk = engine.startVideo(
         send: true,
@@ -1127,16 +1127,21 @@ class VeilCallMediaController implements CallMediaController {
     return ok;
   }
 
-  CallBitrateAdapter _videoAdapterForProfile(_CallVideoProfile profile) {
+  CallBitrateAdapter _videoAdapterForProfile(
+    _CallVideoProfile profile,
+    VeilMediaEngine engine,
+  ) {
     final previous = _bitrateAdapter;
     if (previous != null &&
         previous.baseBitrateKbps == profile.maxBitrateKbps &&
-        previous.baseFps == profile.maxFps) {
+        previous.baseFps == profile.maxFps &&
+        previous.supportsLowRateVideo == engine.supportsLowRateVideo) {
       return previous;
     }
     return _bitrateAdapter = CallBitrateAdapter(
       baseBitrateKbps: profile.maxBitrateKbps,
       baseFps: profile.maxFps,
+      supportsLowRateVideo: engine.supportsLowRateVideo,
     );
   }
 
@@ -1230,7 +1235,7 @@ class VeilCallMediaController implements CallMediaController {
     final profile = _highQualityRoute
         ? _directVideoProfile
         : _anonymousVideoProfile;
-    final adapter = _videoAdapterForProfile(profile);
+    final adapter = _videoAdapterForProfile(profile, engine);
     final target = adapter.target;
     final bool ok;
     try {
