@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_media/veil_media.dart';
 
 import '../core/log.dart';
+import '../core/ids.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
 import '../domain/call_signal.dart';
@@ -204,7 +205,25 @@ Uint8List _callMediaHash(Iterable<List<int>> parts) {
 /// PRIVATE on purpose: [openSealedCallMediaChannel] is the only entry point, so
 /// no caller can acquire a shortcut that reaches an open without deriving the
 /// keys first.
-Future<({int channel, CallTransportKind transport, String? fallbackReason})>
+/// Relay envelopes name the physical device even when P-Net is admitted.
+/// Only direct session media is received under the authenticated identity.
+@visibleForTesting
+NodeId callMediaRoutePeer(Call call, {required bool sessionAdmitted}) {
+  if (call.transport == CallTransportKind.onion) return call.mediaPeer;
+  if (call.transport == CallTransportKind.p2p && sessionAdmitted) {
+    return call.mediaIdentity;
+  }
+  return call.peerDevice ?? call.peer;
+}
+
+Future<
+  ({
+    int channel,
+    NodeId peer,
+    CallTransportKind transport,
+    String? fallbackReason,
+  })
+>
 _openCallMediaChannel({
   required Call call,
   required CallMediaChannelOpener opener,
@@ -229,6 +248,7 @@ _openCallMediaChannel({
         );
         return (
           channel: channel,
+          peer: call.mediaPeer,
           transport: CallTransportKind.p2p,
           fallbackReason: null,
         );
@@ -255,13 +275,14 @@ _openCallMediaChannel({
     // "relay — no direct session" instead of a bare "relay".
     final es = '$lastError';
     final channel = await opener.openMediaChannel(
-      call.mediaPeer.bytes,
+      (call.peerDevice ?? call.peer).bytes,
       txKey: txKey,
       rxKey: rxKey,
       relay: true,
     );
     return (
       channel: channel,
+      peer: call.peerDevice ?? call.peer,
       transport: CallTransportKind.relay,
       fallbackReason: es.contains('not active')
           ? 'no direct session to peer'
@@ -272,13 +293,14 @@ _openCallMediaChannel({
   }
   if (call.transport == CallTransportKind.relay) {
     final channel = await opener.openMediaChannel(
-      call.mediaPeer.bytes,
+      (call.peerDevice ?? call.peer).bytes,
       txKey: txKey,
       rxKey: rxKey,
       relay: true,
     );
     return (
       channel: channel,
+      peer: call.peerDevice ?? call.peer,
       transport: CallTransportKind.relay,
       fallbackReason: null,
     );
@@ -295,6 +317,7 @@ _openCallMediaChannel({
   );
   return (
     channel: channel,
+    peer: call.mediaPeer,
     transport: CallTransportKind.onion,
     fallbackReason: null,
   );
@@ -309,7 +332,14 @@ _openCallMediaChannel({
 /// straight after, and there is no branch in which [opener] is reached without
 /// them.
 @visibleForTesting
-Future<({int channel, CallTransportKind transport, String? fallbackReason})?>
+Future<
+  ({
+    int channel,
+    NodeId peer,
+    CallTransportKind transport,
+    String? fallbackReason,
+  })?
+>
 openSealedCallMediaChannel({
   required Call call,
   required CallMediaChannelOpener opener,
@@ -776,13 +806,14 @@ class VeilCallMediaController implements CallMediaController {
     _microphoneState.beginCall(call.callId, micOn: call.micOn);
     final device = call.peerDevice;
     if (device != null && device != call.mediaIdentity) {
-      // Native attributes packets on an admitted session to the shared
-      // identity, but packets from an unpaired answering device retain its
-      // physical id. Register the receive channel under that same address.
+      // Select the receive address from the actual route. An admitted session
+      // does not change the physical source of a presealed relay envelope.
       try {
-        final session = await _transport.peerPnetStatus(device.bytes);
+        final admitted =
+            call.transport == CallTransportKind.p2p &&
+            (await _transport.peerPnetStatus(device.bytes)).admitted;
         call = call.copyWith(
-          mediaRoutePeer: session.admitted ? call.mediaIdentity : device,
+          mediaRoutePeer: callMediaRoutePeer(call, sessionAdmitted: admitted),
         );
       } catch (e) {
         devLog(() => 'xVeil[call-media]: route status unavailable: $e');
@@ -874,6 +905,9 @@ class VeilCallMediaController implements CallMediaController {
       _transportFallbackReason = opened.fallbackReason;
       chan = opened.channel;
       transport = opened.transport;
+      // A failed direct open can fall back to a physical relay peer. Keep
+      // channel reuse, receive counters and repairs on that actual address.
+      call = call.copyWith(mediaRoutePeer: opened.peer);
     }
     if (epoch != _mediaEpoch || _activeCall?.callId != call.callId) {
       _transport.closeMediaChannel(chan);
