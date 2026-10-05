@@ -577,3 +577,13 @@ Clippy with warnings denied, and Android ARM64 Rust compilation with
 production-seeds/node-embedded/packet-tunnel. This verifies local freshness and
 transport regressions, not physical acoustic delay or current live relay
 support for independent flows; two-phone load tests remain pending.
+
+Android standard debug 2166 (source e8bd1d97, Veil 928757e9) packages the ingress
+and fallback age fix, retaining the low-rate media library from 2164. Production
+Rust features, unchanged generated Rust FFI contract, ARM64-only APK,
+raw/staged/merged/stripped/packed libraries, 92 production media exports without
+stand hooks, and the full installed APK hash were verified. Blackview reached
+ready real-stack startup with no active call; after closing, its processes and
+owned API forward were independently verified absent. Poco is still absent
+from ADB; its signed 2166 APK is prepared. Physical loaded calls, recovery under
+mobile-network stalls and playout/acoustic measurements remain pending.
