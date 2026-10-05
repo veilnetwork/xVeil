@@ -2176,3 +2176,31 @@ The existing debug P2P policy hook now reads the effective value when no value
 argument is supplied, allowing a stand to save and restore the original policy
 instead of guessing it before a temporary relay comparison. Invalid explicit
 values retain their error path. No production call policy is changed.
+
+Confirmed warm relay media attribution defect (build 2201)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+With both original P2P policies saved and temporarily set to denied, two 120 s
+relay-only calls reproduced a separate complete audio blackhole. The first
+Poco -> Blackview call received 5617/5728 audio packets, with receive ages up to
+3123/2473 ms (quality still fails). The second Blackview -> Poco call received
+zero audio AND zero media packets on both phones for the full observation,
+despite local capture, IPC acceptance and repeated media rebuilds. Receive age
+was unknown (-1), not a zero-delay success. Native source-app mismatch counters
+rose to at least 4500/5000. Cold binding used the device; warm binding used the
+identity because an unrelated admitted P-Net session existed.
+
+The nonanonymous presealed relay envelope names the physical sender device.
+Native media validation derives its expected source app from that authenticated
+envelope sender. Dart incorrectly used admission alone to choose the identity
+app even for relay sends. Relay now always chooses the device app; direct media
+retains the existing authenticated-session choice. Missing device bindings fail
+channel creation rather than silently using an incorrectly attributed app.
+Receiver validation, wire format, cipher and relay scheduling are unchanged.
+The focused regression checks actual app-id derivation for both cold and warm
+relay cases; restoring the old admission-only rule makes it fail. Focused
+Flutter gates: 123 passed; analysis clean. Physical confirmation of the fix is
+pending. This does not resolve the remaining network gaps or crossed-init race.
+Private artifacts: xveil-relay-audio-{load-2201,2201-native,2201-logs,
+2201-policy-backup,2201-policy-restoration}.json under /private/tmp. Both original
+policies restored; apps/readers/forwards closed. Independent ps checks confirmed
+package and child-process absence; adb forwards empty.
