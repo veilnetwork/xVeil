@@ -413,6 +413,18 @@ duplicates. These gates cover endpoint queues and stream compatibility;
 live loaded-phone audio and older first-hop independent-flow support remain
 unverified.
 
+Standard Android debug 2162 (source 76300e70, Veil 661f3c49) packages this
+reliable-stream policy. Production-feature Rust clippy passed with warnings
+denied. The ARM64 Rust library was rebuilt; raw/staged/merged/packed library
+hashes, production features, FFI header contract and 90 production media
+exports without test hooks were verified. Blackview's in-place install
+matched the full APK hash, startup reached ready/real-stack and no call was
+active. Force-stop, absent app processes and absence of the owned ADB forward
+were verified. No phone test files or transfers were created. SDK/IPC/runner
+test processes exited. Poco remained absent in ADB; its signed 2162 APK is
+prepared, and its update, prior stand process verification and two-phone
+loaded-call test remain pending.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
