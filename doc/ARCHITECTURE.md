@@ -2300,3 +2300,21 @@ udp-queues}.json and xveil-audio-load-2204.json. Both apps and owned readers/
 forwards closed, all reader sessions reaped; independent ps and adb-forward
 checks confirmed package/child process absence and empty forwards. No push or
 release was performed in this cycle.
+
+Source audio cadence and generic QUIC recovery diagnostics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Veil a36cf45b adds endpoint-only Opus RTP attempt/successful local admission
+counts, ages, maximum output gap and admission duration. The exact local audio
+SSRC and Opus payload type exclude video/RTCP. Unknown ages are -1; DTX silence
+can also create output gaps. Admission is not delivery. Statistics remain
+readable independently of the bounded WebRTC worker query. No role, timestamp,
+SSRC or payload is exposed to relays or added to wire messages.
+Generic QUIC snapshots add bytes in flight and consecutive PTO count to the
+existing gated datagram trace; scheduling/congestion/recovery are unchanged.
+The controlled dropped-PING test observes occupied flight/PTO then ACK reset.
+Its isolated vendored test copy passed with offline dev-dependency resolution;
+production session gates passed 382 / five existing ignored and FFI Clippy
+passed with warnings denied. Native cadence smoke, Android production media
+build (92 exports, no test hooks), and actual WebRTC call-plane smoke passed.
+These observations prepare build 2205 phone attribution; they do not solve or
+prove the cause of the remaining physical audio pauses.
