@@ -222,7 +222,10 @@ class CallTransportProposal {
 /// v5: encrypted health signals report receive-side audio playout estimates.
 /// A v5 video sender requires fresh receiver measurements while its mic is on
 /// before increasing video. This is endpoint feedback, never relay metadata.
-const int kCallSignalProtocolVersion = 5;
+/// v6: mutually consenting direct endpoints can announce an admitted P2P
+/// session after relay startup. Both announce readiness before either moves.
+const int kCallSignalProtocolVersion = 6;
+const int kCallLateP2PUpgradeMinVersion = 6;
 const int kCallIndependentTransportFeedbackMinVersion = 4;
 const int kCallAudioPlayoutFeedbackMinVersion = 5;
 

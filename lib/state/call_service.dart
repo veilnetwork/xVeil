@@ -415,6 +415,131 @@ class CallService {
   bool _directSessionUnavailable = false;
   int _mediaOperationEpoch = 0;
 
+  // Consent is captured from BOTH original offer/answer proposals, before a
+  // temporary route failure changes the active transport. A direct posture
+  // alone never authorizes a later P2P upgrade.
+  bool _lateP2PConsent = false;
+  bool _lateP2PLocalReady = false;
+  bool _lateP2PPeerReady = false;
+  bool _lateP2PAttempted = false;
+  bool _lateP2PBusy = false;
+  int _lateP2PGeneration = 0;
+
+  void _resetLateP2P() {
+    _lateP2PGeneration++;
+    _lateP2PConsent = false;
+    _lateP2PLocalReady = false;
+    _lateP2PPeerReady = false;
+    _lateP2PAttempted = false;
+    _lateP2PBusy = false;
+  }
+
+  bool _canUpgradeP2P(Call c) =>
+      !_disposed &&
+      _lateP2PConsent &&
+      c.status == CallStatus.active &&
+      c.localPosture == CallPosture.direct &&
+      c.peerPosture == CallPosture.direct &&
+      _signalProtocolVersion >= kCallLateP2PUpgradeMinVersion &&
+      (c.peerProtocolVersion ?? 1) >= kCallLateP2PUpgradeMinVersion;
+
+  /// A readiness signal is encrypted endpoint control. The original relay
+  /// keeps carrying media until BOTH endpoints have admitted a direct session.
+  /// Heartbeats repeat readiness so one lost signal cannot strand one side.
+  Future<void> _checkLateP2P() async {
+    final c = _current;
+    final media = _media;
+    if (c == null ||
+        media == null ||
+        !_canUpgradeP2P(c) ||
+        _lateP2PBusy ||
+        media.isRepairingReceiveSession ||
+        (c.transport != CallTransportKind.relay && !_lateP2PLocalReady)) {
+      return;
+    }
+    final generation = _lateP2PGeneration;
+    _lateP2PBusy = true;
+    bool stillCurrent() =>
+        generation == _lateP2PGeneration &&
+        _current?.callId == c.callId &&
+        _current?.peer == c.peer &&
+        _current?.status == CallStatus.active;
+    try {
+      if (!await _localAllowsP2P(c.peer) || !stillCurrent()) return;
+      if (!_lateP2PLocalReady) {
+        if (_lateP2PAttempted ||
+            !await _peerReachableWithoutBlockingSignal(c.peer) ||
+            !stillCurrent()) {
+          return;
+        }
+        _lateP2PLocalReady = true;
+      }
+      await _messaging.sendCallSignal(
+        c.peer,
+        CallSignal(
+          callId: c.callId,
+          type: CallSignalType.transportInfo,
+          transport: const CallTransportProposal(CallTransportKind.p2p),
+          protocolVersion: _signalProtocolVersion,
+        ),
+      );
+      if (!stillCurrent() ||
+          !_lateP2PPeerReady ||
+          _lateP2PAttempted ||
+          _current?.transport != CallTransportKind.relay) {
+        return;
+      }
+      _lateP2PAttempted = true;
+      final epoch = ++_mediaOperationEpoch;
+      final ok = await media.switchRoute(CallTransportKind.p2p);
+      if (!stillCurrent() || epoch != _mediaOperationEpoch) return;
+      final cur = _current!;
+      if (ok && media.activeTransport == CallTransportKind.p2p) {
+        _directSessionUnavailable = false;
+        _set(cur.copyWith(transport: CallTransportKind.p2p));
+        devLog(
+          () => 'xVeil[call-media]: late direct route active call=${c.callId}',
+        );
+      } else {
+        // Native can reject or lose admission during the rebuild. Announce the
+        // actual relay fallback and never oscillate between routes in this call.
+        _lateP2PConsent = false;
+        _lateP2PLocalReady = false;
+        if (media.activeTransport == CallTransportKind.relay) {
+          await _announceRelayFallback(cur);
+        } else {
+          unawaited(
+            _sendControl(
+              c.peer,
+              c.callId,
+              CallSignalType.end,
+              CallEndReason.error,
+            ),
+          );
+          _end(CallEndReason.error);
+        }
+      }
+      if (stillCurrent() &&
+          _pendingRelayCallId == c.callId &&
+          _pendingRelayPeer == c.peer) {
+        _pendingRelayCallId = null;
+        _pendingRelayPeer = null;
+        await _followRelayFallback(c.peer, c.callId);
+      }
+    } catch (error) {
+      devLog(() => 'xVeil[call-media]: late direct route failed: $error');
+      if (stillCurrent() && _lateP2PAttempted) {
+        _lateP2PConsent = false;
+        _lateP2PLocalReady = false;
+        // Recover through the same explicitly permitted relay route.
+        await _followRelayFallback(c.peer, c.callId);
+        if (stillCurrent()) await _announceRelayFallback(_current!);
+      }
+    } finally {
+      if (generation == _lateP2PGeneration) _lateP2PBusy = false;
+    }
+  }
+
   /// sentAtMs of the newest peer renegotiate applied to the current call —
   /// re-drives and out-of-order deliveries fold strictly-newer (an old
   /// re-driven media set must never regress a newer one). Reset per call.
@@ -610,6 +735,7 @@ class CallService {
       peerConsentsP2P: peerProposedP2P,
       peerReachable: true,
     );
+    _lateP2PConsent = transport == CallTransportKind.p2p;
     _set(
       c.copyWith(
         status: CallStatus.connecting,
@@ -1026,6 +1152,17 @@ class CallService {
       case CallSignalType.renegotiate:
         _onRenegotiate(peer, sig);
       case CallSignalType.transportInfo:
+        final upgrade = _current;
+        if (upgrade != null &&
+            upgrade.callId == sig.callId &&
+            upgrade.peer == peer &&
+            _canUpgradeP2P(upgrade) &&
+            sig.protocolVersion >= kCallLateP2PUpgradeMinVersion &&
+            sig.transport?.kind == CallTransportKind.p2p) {
+          _lateP2PPeerReady = true;
+          unawaited(_checkLateP2P());
+          break;
+        }
         final c = _current;
         final requested = sig.transport?.kind;
         if (c != null &&
@@ -1041,11 +1178,12 @@ class CallService {
             c.callId == sig.callId &&
             c.peer == peer &&
             c.isLive &&
-            c.transport == CallTransportKind.p2p &&
+            (c.transport == CallTransportKind.p2p ||
+                (_lateP2PBusy && _lateP2PAttempted)) &&
             requested == CallTransportKind.relay &&
             c.localPosture == CallPosture.direct &&
             c.peerPosture == CallPosture.direct) {
-          if (c.status == CallStatus.connecting) {
+          if (c.status == CallStatus.connecting || _lateP2PBusy) {
             // The controller may still be resolving its device route and
             // have no active session to switch. Finish that bounded start
             // before following the peer's fallback; racing a stop here could
@@ -1162,7 +1300,8 @@ class CallService {
         before.callId != callId ||
         before.peer != peer ||
         !before.isLive ||
-        before.status != CallStatus.active) {
+        before.status != CallStatus.active ||
+        _lateP2PBusy) {
       // A peer can become active first and request repair while this side is
       // still opening its initial media channel (Apple TCC prompts make that
       // window several seconds). There is no established local route to
@@ -1219,6 +1358,8 @@ class CallService {
         !before.isLive) {
       return;
     }
+    _lateP2PConsent = false;
+    _lateP2PLocalReady = false;
     // Supersede an in-flight P2P start. Its eventual failure belongs to the
     // abandoned route and must not tear down the relay session opened below.
     _mediaOperationEpoch++;
@@ -1531,6 +1672,7 @@ class CallService {
         (directSessionUnavailableBeforeAnswer ||
             (outgoingProposal == CallTransportKind.p2p &&
                 proposed != CallTransportKind.p2p));
+    _lateP2PConsent = transport == CallTransportKind.p2p;
     _outgoingProposal = null;
     final pendingRelay =
         _pendingRelayCallId == sig.callId && _pendingRelayPeer == peer;
@@ -1673,6 +1815,7 @@ class CallService {
         _end(CallEndReason.timeout);
         return;
       }
+      unawaited(_checkLateP2P());
       unawaited(
         _messaging.sendCallSignal(
           c.peer,
@@ -1730,6 +1873,7 @@ class CallService {
     // would put `_current` back and undo the boundary above.
     if (_disposed) return;
     if (_current?.callId != call.callId) {
+      _resetLateP2P();
       _peerAudioExpectedSince = null;
       _lastRenegotiateAtMs = 0;
       _pendingRelayCallId = null;
@@ -1831,6 +1975,7 @@ class CallService {
           );
           _set(relayed);
           unawaited(_announceRelayFallback(relayed));
+          unawaited(_checkLateP2P());
           return;
         }
         devLog(
@@ -1851,6 +1996,7 @@ class CallService {
         return;
       }
       _set(cur.copyWith(status: CallStatus.active));
+      unawaited(_checkLateP2P());
       return;
     }
     unawaited(
@@ -1872,6 +2018,7 @@ class CallService {
   void _end(CallEndReason reason) {
     _cancelRingTimeout();
     _cancelHeartbeat();
+    _resetLateP2P();
     final endingId = _current?.callId;
     if (endingId != null) {
       _rememberFinished(endingId);
@@ -1952,6 +2099,7 @@ class CallService {
 
   void dispose() {
     _disposed = true;
+    _resetLateP2P();
     // Cleared here, not left behind: it is what those post-await checks read.
     _current = null;
     callVideoPrompt.value = null;

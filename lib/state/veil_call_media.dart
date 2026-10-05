@@ -704,11 +704,21 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<bool> switchRoute(CallTransportKind transport) async {
     final call = _activeCall;
-    if (call == null || transport != CallTransportKind.relay) return false;
-    await _stopSession(clearActiveCall: false);
-    if (_activeCall?.callId != call.callId) return false;
-    final ok = await start(call.copyWith(transport: transport));
-    return ok && activeTransport == transport;
+    if (call == null ||
+        _routeRepairing ||
+        (transport != CallTransportKind.relay &&
+            transport != CallTransportKind.p2p)) {
+      return false;
+    }
+    _routeRepairing = true;
+    try {
+      await _stopSession(clearActiveCall: false);
+      if (_activeCall?.callId != call.callId) return false;
+      final ok = await start(call.copyWith(transport: transport));
+      return ok && activeTransport == transport;
+    } finally {
+      _routeRepairing = false;
+    }
   }
 
   @override
