@@ -1548,7 +1548,7 @@ void main() {
     });
 
     test(
-      'relay follow supersedes an in-flight P2P start without ending call',
+      'relay follow waits for an in-flight P2P start before switching',
       () async {
         final fake = _FakeMessaging();
         final media = _GatedStartMedia()
@@ -1581,6 +1581,12 @@ void main() {
           ),
         );
         await Future<void>.delayed(Duration.zero);
+        expect(
+          media.switches,
+          isEmpty,
+          reason: 'setup has no session to switch yet',
+        );
+        expect(svc.current?.status, CallStatus.connecting);
         media.initialStart.complete(false);
         await Future<void>.delayed(Duration.zero);
 
@@ -1625,6 +1631,57 @@ void main() {
 
   group('a media start that never answers (report18 XV18-M9)', () {
     final peer = NodeId.fromHex('a' * 64);
+
+    test(
+      'pending relay fallback cannot restart a media start that timed out',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _GatedStartMedia()
+            ..openedTransport = CallTransportKind.p2p;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'never-starts',
+              type: CallSignalType.offer,
+              posture: CallPosture.direct,
+              media: CallMedia(audio: true),
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'never-starts',
+              type: CallSignalType.transportInfo,
+              transport: CallTransportProposal(CallTransportKind.relay),
+            ),
+          );
+          async.flushMicrotasks();
+          async.elapse(
+            kCallMediaStartTimeout + const Duration(milliseconds: 1),
+          );
+          async.flushMicrotasks();
+          expect(svc.current, isNull);
+          expect(media.switches, isEmpty);
+          expect(fake.sent.last.reason, CallEndReason.error);
+          media.initialStart.complete(true);
+          async.flushMicrotasks();
+          expect(svc.current, isNull);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      },
+    );
 
     CallSignal offer(String id, CallMedia media) => CallSignal(
       callId: id,
