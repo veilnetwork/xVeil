@@ -860,3 +860,24 @@ A missing direct session continues to fall back to relay. This removes the
 previous up-to-five-second wait before the initial signal, not all network
 latency. 110 call, wire, slot and policy/fail-closed checks and focused analyzer
 passed; current physical validation follows separately.
+
+
+### Origin transport choice under ordered-write stalls
+
+RT trace in the 2170 regression recorded Poco socket writes lasting up to
+6.52 seconds and local realtime queue writer blockage up to 3.11 seconds.
+Sparse matching authenticated cells had maximum sender-admission/receiver
+intervals of 2.81 seconds Blackview-to-Poco and 4.66 seconds in reverse.
+The shorter matched maxima do not bound unsampled receive gaps.
+
+Origin presealed lossy routing now prefers candidate first hops whose
+current runner has a usable generic QUIC datagram sender. It preserves
+existing route order within each transport group, fallback candidates and
+copy bounds. This avoids selecting an ordered writer before an available
+datagram link. A generation-scoped lease expires when the sender is disabled,
+on stream replacement and runner exit; generic availability is separate from
+independent-child availability. It does not claim independent support for
+legacy links, change relay queue policy or label application roles on wire.
+Three readiness lifetime checks, 16 relay checks, 368 session checks
+(three ignored), and warnings-denied production FFI Clippy passed.
+Real-network validation of this choice follows separately.
