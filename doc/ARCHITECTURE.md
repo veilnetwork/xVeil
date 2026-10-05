@@ -2268,3 +2268,35 @@ never logged or persisted, with no raw call-key retention beyond the channel.
 Production-feature native FFI gates: 232 passed / two existing ignored, Clippy
 including tests passed with warnings denied. Private negative/positive logs:
 xveil-media-route-replay-{negative,gates,clippy}.log. New phone build pending.
+
+Build 2204 ordinary-call confirmation and kernel UDP observations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both full installed APKs verified (root 804a9836 / Veil 8b24f257), identities
+preserved and Poco still cellular. Two 120 s calls with the original contact
+P2P policy: Poco -> Blackview starts relay then switches to P2P; Blackview ->
+Poco stays P2P. Ring/active times 1.218/3.435 and 1.315/2.357 s. Audio received
+on both: 5429/5046 packets across the first call's two media epochs, 5771/5565
+in the second. No source-app mismatch or native worker stalls. The installed
+replay-scope change carries real audio through the identity/device route switch.
+Quality still fails: maximum native receive ages 3722/3704 and 4071/732 ms.
+Interruptions sum to 22/24 across the first call's epochs (17970/18950 ms),
+16/12 in the second (11823/4693 ms). Epoch maxima must be summed, not mistaken
+for full-call totals. Native regular ratchet open-failed events remain 115/202;
+the media replay correction does not fix the separate crossed-init race.
+
+During the paired observation, system UDP InErrors/RcvbufErrors/SndbufErrors
+increased by zero on both phones, and all sampled app-owned sockets reported
+zero drops. A separate 0.5 s sampler collected 231 samples per phone over 130 s:
+maximum receive queue 82688/4160 bytes, longest consecutive nonempty readings
+one/two. These are all app UDP sockets, not proven individual media connections;
+sampling can miss shorter stalls. They give no evidence for receive-buffer
+overflow as the cause. Public ICMP maxima 49.2/1468 ms are corroborating path
+observations, not a measurement of the audio path itself. Generic native
+receive windows: 1220/1705, zero decode refusals, ineligible frames, rate limits,
+violations or unexpected dispatch results. Remaining transport gaps are open.
+
+Private xveil-audio-2204-{summary,audio-rx-summary,native,logs,network,
+udp-queues}.json and xveil-audio-load-2204.json. Both apps and owned readers/
+forwards closed, all reader sessions reaped; independent ps and adb-forward
+checks confirmed package/child process absence and empty forwards. No push or
+release was performed in this cycle.
