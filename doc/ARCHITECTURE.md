@@ -2419,3 +2419,71 @@ sparse probes remain possible, and production resumes after recovery/grace.
 The bounded control write now fits. Session gates 383 / five existing ignored,
 production-feature FFI Clippy passed with warnings denied. Physical build 2207
 confirmation is pending; the remaining ratchet and network problems are open.
+
+Build 2207 physical control correction confirmation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Full installed APK hashes verified (root fd9068f9 / Veil 551239fe), phone
+identities preserved and Poco cellular. A P2P video call transfers the actual
+8 MiB file Poco -> Blackview in 191.91 s; exported SHA-256 matches. Ring/active
+1.382/7.269 s. The progress API reports 8388607/8388608 bytes despite the full
+verified export; this reporting discrepancy is separate from file integrity.
+Both remote renderers receive video (205/224 texture frames). Audio packets
+9381/9967, interruptions 35/43 totaling 36640/40182 ms; receive ages reach
+3397/5019 ms, so audio quality still fails. Source maximum gaps 401/403 ms,
+local admission maxima 1/4 ms, no sampled audio/video worker stalls. No ordinary
+ratchet open-failed events appear in this capture; this does not resolve the
+separate failures seen in 2206. Reliable control correction has actual loaded
+phone coverage, not a claim that every media or session defect is fixed.
+
+Independent default-priority system ICMP: Blackview 558 replies, maximum RTT
+74.6 ms and receive gap 0.528 s; Poco 525 replies, maximum RTT 2656 ms and gap
+4.077 s. This again establishes interruption on Poco's network/OS path outside
+xVeil, without isolating its cause or attributing every audio pause to it.
+Private xveil-av-file-2207-{native,logs,network,source-summary}.json,
+xveil-av-file-load-2207.json and scoped probe artifacts retain the evidence.
+Apps and their child processes, owned forwards/readers/cache fixtures and
+remote probe PIDs closed/reaped; independent ps/forward checks verify cleanup.
+Build 2207 is installed on both phones. No relay role/priority, security bypass,
+push or release. Sustained audio quality and ratchet recovery remain open.
+
+Build 2207 quiet calls and four-second recovery attribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both phones returned and verified accessible, build 2207 retained. Two
+120 s audio-only calls (no camera or file fixture): ring/active 1.113/17.713
+and 0.344/1.342 s. First relay -> P2P, second P2P. Audio received 5262/5859
+(epoch sums), then 5164/5845. Maximum receive ages 924/298, then 1063/1070 ms;
+source gaps 280/405, then 301/403 ms, admission maxima 2/4 then 1/5 ms. No
+sampled media worker stalls or regular ratchet open-failed events. Quality
+still fails; these are separate conditions from the simultaneous AV/file test.
+
+The first cold answer remains a distinct defect: Blackview's answer is logged
+sent at 00:41:00.062 and received on Poco at 00:41:14.688 (reported age 14629
+ms); repeated live sends occur in between. Independent ICMP during that cold
+window has reply gaps <=0.503/0.775 s and RTT <=49.4/322 ms. It does not support
+assigning the fourteen-second signalling delay to the general network blackout;
+it also cannot rule out a different-route interruption. No ratchet failure was
+captured. The reliable media relay fallback was active before eventual direct
+admission; source relay traces then report datagram_transport=false. The exact
+cold control route/queue delay remains unresolved, not fixed by the ACK guard.
+Whole quiet stand ICMP gaps <=0.543/3.542 s and RTT <=114/1580 ms. Kernel UDP
+RcvbufErrors/SndbufErrors/InErrors have zero delta; observed own socket drops
+zero; sampled thermal status zero on both. Interface counters are captured,
+but they are device-wide and cannot alone attribute a burst to xVeil.
+
+Veil 5f385e21 adds a manual encrypted-QUIC diagnostic for the independently
+observed four-second outage. A neutral UDP FIFO drops both directions without
+reading any role. Production source expiry remains 200 ms. After the FIFO
+returns, first fresh audio-sized/circuit-sized frames take another 1268/1743 ms;
+maximum delivered frame age 225/159 ms, no duplicates, same connections recover.
+This isolates additional transport recovery latency after loss; it does not
+prove every phone pause has that cause. The unchanged two-second expiry
+regression also passes. Both targeted tests ran and were reaped. No speculative
+PTO/cwnd bypass or connection replacement is deployed by this diagnostic commit.
+
+Private xveil-audio-2207quiet-* and xveil-four-second-{quic-recovery,
+expiry-regression}.log retain evidence. Both started apps/children closed,
+readers and scoped probe processes reaped, own forwards removed; independent
+ps/forward verification confirms cleanup. This cycle adds diagnostic coverage
+and the physical report; phone production binaries remain 2207 / Veil 551239fe.
+The next concrete investigation is cold answer control delivery and bounded
+authenticated path recovery, while relay service stays neutral. No push/release.
