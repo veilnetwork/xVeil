@@ -751,7 +751,11 @@ class VeilCallMediaController implements CallMediaController {
       (VeilMediaNative.guard(requestPlatformScreenCaptureAccess) ?? false);
 
   @override
-  Future<bool> isDirectPeerAdmitted(Call call) async {
+  Future<bool> isDirectPeerAdmitted(Call call) async =>
+      await currentDirectPeerAdmission(call) ?? false;
+
+  @override
+  Future<bool?> currentDirectPeerAdmission(Call call) async {
     try {
       final peer = call.peerDevice ?? call.peer;
       final session = await _transport
@@ -759,7 +763,7 @@ class VeilCallMediaController implements CallMediaController {
           .timeout(const Duration(seconds: 2));
       return session.admitted;
     } catch (_) {
-      return false;
+      return null;
     }
   }
 

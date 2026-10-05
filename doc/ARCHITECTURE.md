@@ -1981,3 +1981,42 @@ service. No reaper/PQ/authentication bypass is justified by these results.
 All campaign downloads/fixtures were cleaned, both owned app processes and ADB
 forwards closed, readers exited, and independent ps -A confirmed no package
 process remains. Final production FFI Clippy passes with warnings denied.
+
+
+Bounded keepalive recovery and early closed-direct detection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The real SessionRunner regression keeps genuine Ping/Pong traffic live while
+withholding keepalive ACKs, then stops genuine traffic without closing its
+socket. The old runner calls keepalive failover 75 times in one ~0.5 s episode.
+The fix retries only on a new keepalive tick and at most twice per episode;
+it checks stale teardown on ordinary loop progress, preserving immediate
+no-failover closure without adding a full base keepalive interval. A cached
+last probe-spawn result retains the pending first attempt until the next tick.
+Genuine traffic still protects the healthy session; stopping it still reaps.
+The regression checks the actual trigger log sequence has a keepalive emission
+between retries, not just the controller's separately flap-damped dial count.
+This fixes excessive trigger calls; the prior controller already bounded dials,
+so the 1011 log must not be described as 1011 actual network reconnections.
+Nine keepalive runner integration tests pass; production FFI Clippy passes.
+Private /private/tmp/xveil-keepalive-rate-{negative,existing-tests,clippy}.log.
+
+CallService now checks current local direct-session admission once per second
+only after three seconds of media silence, for an active P2P call with both
+postures direct. It queries the answering device; it never dials or treats an
+identity hint as admission. A confirmed closed session triggers the existing
+permitted relay recovery immediately, rather than waiting the complete 10 s
+silence grace. Healthy, unknown, failed or timed-out admission queries retain
+the original grace. Query flights are bounded to one, and results are rechecked
+against the same call/device and current receive activity. Recovered media,
+hangup/disposal, an in-progress repair or a different call/device cancels that
+decision. The new timer stops with heartbeat teardown. Controller queries
+return null on error/unsupported rather than claiming a closed session.
+No mailbox, onion-posture downgrade, relay QoS or authentication change.
+
+All 120 call-service tests pass; focused Dart analyze has no issues. Tests cover
+closed-device early recovery, healthy/unknown verdicts, recovered media during
+a query, one query in flight and hangup/disposal boundaries. Disabling only the
+early-check timer body fails the actual pre-grace assertion. Private logs:
+/private/tmp/xveil-call-closed-direct-{tests,negative,analyze}.log.
+Build 2198 with these changes requires packaging and fresh paired validation;
+build 2197 on the phones still has the observed 15 s recovery outage.
