@@ -2152,3 +2152,27 @@ classification, network field, scheduling or relay policy changes. The interval
 branch is disabled when tracing is off. Session checks: 382 passed / five
 existing ignored; production FFI Clippy passed with warnings denied. This is
 instrumentation for the unresolved physical gaps, not a quality fix.
+
+Build 2200 physical receive-stage observations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both phones verified full installed APK 2200 (root 7ee07e8a / Veil dabdef5c),
+with Poco still on cellular. Two 120 s audio calls: Poco -> Blackview ring/active
+1.089/4.565 s, Blackview -> Poco 0.423/1.454 s. Maximum native receive ages were
+4400/4465 ms in the first call (initial relay then P2P), 4556/4576 ms in the
+second (P2P). Quality fails. Across the captured connection windows, Blackview
+received 12172 datagrams and Poco 11320: zero decode refusals, ineligible frames,
+dispatcher rate limits, violations or unexpected results. Maximum dispatch
+durations 1415/2241 us. In a synchronized stalled interval, both incoming child
+connections' UDP counters stopped, while source queues continued accepting
+frames. Source ACK progress stalled and loss recovery followed. This locates
+those gaps before local authenticated frame dispatch; it does not distinguish
+radio/path loss, socket progress and QUIC recovery or exonerate all background
+load. Regular ratchet errors still occurred (96/103 logged decrypt failures).
+Private xveil-audio-{load-2200,2200-summary,2200-native,2200-receive-summary}.json
+under /private/tmp. Both apps/readers/forwards closed; independent ps checks
+confirmed package and child-process absence, adb forwards empty.
+
+The existing debug P2P policy hook now reads the effective value when no value
+argument is supplied, allowing a stand to save and restore the original policy
+instead of guessing it before a temporary relay comparison. Invalid explicit
+values retain their error path. No production call policy is changed.
