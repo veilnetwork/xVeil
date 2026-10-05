@@ -1616,3 +1616,12 @@ unavailable and must not be interpreted as network packet loss. Blackview's
 idle probe completed 30 replies (47.8--76.8 ms). Both phone apps remain
 closed and own forwards/readers/fixtures are absent. Build 2194 will carry
 the replay fix; paired phone validation awaits Poco's return to ADB.
+
+Build 2194 packaging complete: production-feature ARM64 Rust rebuilt,
+unchanged 92-export media engine included; staged/merged/stripped/APK
+libraries and C ABI header hash verified. Installed Blackview's complete
+pulled APK matches the build hash and its app process is stopped. Poco
+remains disconnected: its matching-certificate APK is prepared at
+/private/tmp/xveil-audio-2194-poco.apk, but installed version remains 2193.
+Do not claim paired validation or install/launch a mixed-version stand.
+Source roots are committed unsigned and unpushed.
