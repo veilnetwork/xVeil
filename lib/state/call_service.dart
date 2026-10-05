@@ -520,13 +520,14 @@ class CallService {
     // callee knows both postures. An anonymous caller is never P2P.
     final localAllowsP2P =
         posture == CallPosture.direct && await _localAllowsP2P(peer);
-    final peerReachable =
-        localAllowsP2P && await _peerReachableWithoutBlockingSignal(peer);
-    final mayOfferP2P = localAllowsP2P && peerReachable;
+    // The offer states consent, not proof of an admitted direct session.
+    // Ring first while endpoints warm in parallel. The callee still checks
+    // reachability before its answer, and native media admission remains the
+    // final gate; an unavailable direct session falls back to relay.
     final proposal = CallTransportProposal(
       posture == CallPosture.anonymous
           ? CallTransportKind.onion
-          : (mayOfferP2P ? CallTransportKind.p2p : CallTransportKind.relay),
+          : (localAllowsP2P ? CallTransportKind.p2p : CallTransportKind.relay),
     );
     final current = _current;
     if (current == null ||
@@ -534,12 +535,12 @@ class CallService {
         current.status != CallStatus.dialing) {
       return;
     }
-    _directSessionUnavailable = localAllowsP2P && !peerReachable;
+    _directSessionUnavailable = false;
     _outgoingProposal = proposal.kind;
     final replyDevice = posture == CallPosture.direct
         ? (await _messaging.localDeviceId()).hex
         : null;
-    await _messaging.sendCallSignal(
+    final sendOffer = _messaging.sendCallSignal(
       peer,
       CallSignal(
         callId: callId,
@@ -554,6 +555,19 @@ class CallService {
         sentAtMs: _now().millisecondsSinceEpoch,
       ),
     );
+    if (localAllowsP2P) {
+      unawaited(
+        _peerReachableWithoutBlockingSignal(peer).then((connected) {
+          final current = _current;
+          if (current != null &&
+              current.callId == callId &&
+              current.status == CallStatus.dialing) {
+            _directSessionUnavailable = !connected;
+          }
+        }),
+      );
+    }
+    await sendOffer;
     // The realtime leg can deliver the offer and its answer while the durable
     // enqueue above is still completing. In that race `_onAnswer` already
     // moved this call to connecting/active before this future resumes; arming

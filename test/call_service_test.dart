@@ -492,93 +492,128 @@ void main() {
       },
     );
 
-    test('outgoing offer gives P2P setup the full five-second window', () {
+    test('outgoing offer rings before an unresolved P2P probe', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
+        final media = _FakeMedia();
         final probe = Completer<bool>();
         final svc = CallService(
           fake,
+          media: media,
           localAllowsP2P: (_) async => true,
           peerReachableForP2P: (_) => probe.future,
         )..start();
 
         svc.placeCall(peer, const CallMedia(audio: true));
-        async.flushMicrotasks();
-        async.elapse(kCallP2PSetupTimeout - const Duration(milliseconds: 1));
-        expect(fake.sent, isEmpty);
-
-        probe.complete(true);
         async.flushMicrotasks();
         expect(fake.sent.single.type, CallSignalType.offer);
         expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
+        expect(
+          media.startedWith,
+          isEmpty,
+          reason: 'intent is not media admission',
+        );
+        expect(probe.isCompleted, isFalse);
+        async.elapse(kCallP2PSetupTimeout - const Duration(milliseconds: 1));
+        expect(fake.sent, hasLength(1));
+        probe.complete(true);
+        async.flushMicrotasks();
+        expect(fake.sent, hasLength(1));
+        expect(media.startedWith, isEmpty);
         svc.dispose();
       });
     });
 
-    test('outgoing offer falls back to relay after five seconds', () {
-      fakeAsync((async) {
+    test(
+      'late P2P failure does not delay or change an accepted relay call',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+          final probe = Completer<bool>();
+          final svc = CallService(
+            fake,
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) => probe.future,
+          )..start();
+
+          svc.placeCall(peer, const CallMedia(audio: true));
+          async.flushMicrotasks();
+          final id = svc.current!.callId;
+          expect(fake.sent.single.type, CallSignalType.offer);
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: id,
+              type: CallSignalType.answer,
+              posture: CallPosture.direct,
+              transport: const CallTransportProposal(CallTransportKind.relay),
+              mediaKey: generateCallMediaKeyContribution(),
+            ),
+          );
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+          expect(media.startedWith, [CallTransportKind.relay]);
+          async.elapse(kCallP2PSetupTimeout);
+          async.flushMicrotasks();
+          probe.complete(false);
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          expect(
+            fake.sent.where((s) => s.type == CallSignalType.offer),
+            hasLength(1),
+          );
+          expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+          svc.dispose();
+        });
+      },
+    );
+
+    test(
+      'outgoing direct call advertises permitted P2P and honors its answer',
+      () async {
         final fake = _FakeMessaging();
-        final probe = Completer<bool>();
+        final media = _FakeMedia();
         final svc = CallService(
           fake,
+          media: media,
           localAllowsP2P: (_) async => true,
-          peerReachableForP2P: (_) => probe.future,
+          peerReachableForP2P: (_) async => true,
         )..start();
 
-        svc.placeCall(peer, const CallMedia(audio: true));
-        async.flushMicrotasks();
-        async.elapse(kCallP2PSetupTimeout);
-        async.flushMicrotasks();
+        await svc.placeCall(peer, const CallMedia(audio: true, video: true));
 
         expect(fake.sent.single.type, CallSignalType.offer);
-        expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
-        expect(probe.isCompleted, isFalse);
-        probe.complete(false);
-        svc.dispose();
-      });
-    });
+        expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
+        expect(fake.sent.single.protocolVersion, kCallSignalProtocolVersion);
+        expect(
+          decodeCallMediaKeyContribution(fake.sent.single.mediaKey),
+          hasLength(32),
+        );
+        expect(svc.current?.localMediaKey, fake.sent.single.mediaKey);
+        expect(media.startedWith, isEmpty);
 
-    test('outgoing direct call proposes p2p only when local policy and '
-        'reachability allow it', () async {
-      final fake = _FakeMessaging();
-      final media = _FakeMedia();
-      final svc = CallService(
-        fake,
-        media: media,
-        localAllowsP2P: (_) async => true,
-        peerReachableForP2P: (_) async => true,
-      )..start();
-
-      await svc.placeCall(peer, const CallMedia(audio: true, video: true));
-
-      expect(fake.sent.single.type, CallSignalType.offer);
-      expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
-      expect(fake.sent.single.protocolVersion, kCallSignalProtocolVersion);
-      expect(
-        decodeCallMediaKeyContribution(fake.sent.single.mediaKey),
-        hasLength(32),
-      );
-      expect(svc.current?.localMediaKey, fake.sent.single.mediaKey);
-      expect(media.startedWith, isEmpty);
-
-      final callId = svc.current!.callId;
-      fake.onCallSignal!(
-        peer,
-        CallSignal(
-          callId: callId,
-          type: CallSignalType.answer,
-          posture: CallPosture.direct,
-          transport: const CallTransportProposal(CallTransportKind.p2p),
-          mediaKey: generateCallMediaKeyContribution(),
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(media.startedWith, [CallTransportKind.p2p]);
-      expect(
-        decodeCallMediaKeyContribution(svc.current?.peerMediaKey),
-        hasLength(32),
-      );
-    });
+        final callId = svc.current!.callId;
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: callId,
+            type: CallSignalType.answer,
+            posture: CallPosture.direct,
+            transport: const CallTransportProposal(CallTransportKind.p2p),
+            mediaKey: generateCallMediaKeyContribution(),
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(media.startedWith, [CallTransportKind.p2p]);
+        expect(
+          decodeCallMediaKeyContribution(svc.current?.peerMediaKey),
+          hasLength(32),
+        );
+      },
+    );
 
     test(
       'relay fallback arriving before answer is applied after posture proof',
@@ -665,7 +700,7 @@ void main() {
         )..start();
 
         await svc.placeCall(peer, const CallMedia(audio: true));
-        expect(fake.sent.single.transport?.kind, CallTransportKind.relay);
+        expect(fake.sent.single.transport?.kind, CallTransportKind.p2p);
         fake.onCallSignal!(
           peer,
           CallSignal(
@@ -1239,43 +1274,46 @@ void main() {
       });
     });
 
-    test('receiver rebuild suppresses peer repairs and restarts receive grace', () {
-      fakeAsync((async) {
-        final fake = _FakeMessaging();
-        final media = _FakeMedia()..audioTelemetry = true;
-        final svc = CallService(fake, now: () => clock.now(), media: media)
-          ..start();
-        fake.onCallSignal!(peer, offer('receive-rebuild'));
-        svc.accept();
-        async.flushMicrotasks();
-        void peerBeat() => fake.onCallSignal!(
-          peer,
-          CallSignal(
-            callId: 'receive-rebuild',
-            type: CallSignalType.health,
-            capture: const CallMedia(audio: true, video: true),
-            sentAtMs: clock.now().millisecondsSinceEpoch,
-          ),
-        );
-        media.receiveRepairing = true;
-        fake.sent.clear();
-        for (var i = 0; i < 4; i++) {
+    test(
+      'receiver rebuild suppresses peer repairs and restarts receive grace',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..audioTelemetry = true;
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          fake.onCallSignal!(peer, offer('receive-rebuild'));
+          svc.accept();
+          async.flushMicrotasks();
+          void peerBeat() => fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'receive-rebuild',
+              type: CallSignalType.health,
+              capture: const CallMedia(audio: true, video: true),
+              sentAtMs: clock.now().millisecondsSinceEpoch,
+            ),
+          );
+          media.receiveRepairing = true;
+          fake.sent.clear();
+          for (var i = 0; i < 4; i++) {
+            peerBeat();
+            async.elapse(kCallHeartbeatInterval);
+          }
+          expect(svc.current?.status, CallStatus.active);
+          expect(fake.sent.any((s) => s.mediaRepairRequested), isFalse);
+          media.receiveRepairing = false;
+          media.receiveStartedAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          expect(fake.sent.any((s) => s.mediaRepairRequested), isFalse);
           peerBeat();
           async.elapse(kCallHeartbeatInterval);
-        }
-        expect(svc.current?.status, CallStatus.active);
-        expect(fake.sent.any((s) => s.mediaRepairRequested), isFalse);
-        media.receiveRepairing = false;
-        media.receiveStartedAt = clock.now();
-        async.elapse(kCallHeartbeatInterval);
-        expect(fake.sent.any((s) => s.mediaRepairRequested), isFalse);
-        peerBeat();
-        async.elapse(kCallHeartbeatInterval);
-        async.flushMicrotasks();
-        expect(fake.sent.any((s) => s.mediaRepairRequested), isTrue);
-        svc.dispose();
-      });
-    });
+          async.flushMicrotasks();
+          expect(fake.sent.any((s) => s.mediaRepairRequested), isTrue);
+          svc.dispose();
+        });
+      },
+    );
 
     test('a repair request landing mid-rebuild does not kill the call', () {
       fakeAsync((async) {
@@ -2547,49 +2585,49 @@ void main() {
 
     // Measured on the stand: A declined, and 167 ms later the copy of the
     // offer its sibling had fanned out arrived and A rang again.
-    test('a late copy of an offer does not ring a declined call again', () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
-      svc.ownSiblingDevices = () async => [sibling];
-      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
-
-      fake.onCallSignal!(caller, offer('dec-3'));
-      await pumpEventQueue();
-      await svc.reject();
-      await pumpEventQueue();
-
-      fake.onCallSignal!(sibling, offer('dec-3', onBehalfOf: caller.hex));
-      await pumpEventQueue();
-      expect(svc.current, isNull);
-      svc.dispose();
-    });
-
     test(
-      'a sibling\'s decline that beats this device\'s own copy of the offer '
-      'keeps that copy silent',
+      'a late copy of an offer does not ring a declined call again',
       () async {
         final fake = _FakeMessaging();
         final svc = CallService(fake)..start();
         svc.ownSiblingDevices = () async => [sibling];
         svc.isOwnDevice = (p) async => p.hex == sibling.hex;
 
-        fake.onCallSignal!(
-          sibling,
-          CallSignal(
-            callId: 'dec-4',
-            type: CallSignalType.cancel,
-            reason: CallEndReason.declined,
-            onBehalfOf: caller.hex,
-            sentAtMs: DateTime.now().millisecondsSinceEpoch,
-          ),
-        );
+        fake.onCallSignal!(caller, offer('dec-3'));
         await pumpEventQueue();
-        fake.onCallSignal!(caller, offer('dec-4'));
+        await svc.reject();
+        await pumpEventQueue();
+
+        fake.onCallSignal!(sibling, offer('dec-3', onBehalfOf: caller.hex));
         await pumpEventQueue();
         expect(svc.current, isNull);
         svc.dispose();
       },
     );
+
+    test('a sibling\'s decline that beats this device\'s own copy of the offer '
+        'keeps that copy silent', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      svc.isOwnDevice = (p) async => p.hex == sibling.hex;
+
+      fake.onCallSignal!(
+        sibling,
+        CallSignal(
+          callId: 'dec-4',
+          type: CallSignalType.cancel,
+          reason: CallEndReason.declined,
+          onBehalfOf: caller.hex,
+          sentAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
+      await pumpEventQueue();
+      fake.onCallSignal!(caller, offer('dec-4'));
+      await pumpEventQueue();
+      expect(svc.current, isNull);
+      svc.dispose();
+    });
 
     test('the caller rebinds to whichever device answers', () async {
       final fake = _FakeMessaging();
@@ -2641,33 +2679,42 @@ void main() {
       svc.dispose();
     });
 
-    test('an identity-sent answer binds media to its physical device', () async {
-      final fake = _FakeMessaging();
-      final svc = CallService(fake)..start();
-      final identity = NodeId.fromHex('a' * 64);
-      final device = NodeId.fromHex('b' * 64);
+    test(
+      'an identity-sent answer binds media to its physical device',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        final identity = NodeId.fromHex('a' * 64);
+        final device = NodeId.fromHex('b' * 64);
 
-      await svc.placeCall(identity, const CallMedia(audio: true));
-      fake.onCallSignal!(
-        identity,
-        CallSignal(
-          callId: svc.current!.callId,
-          type: CallSignalType.answer,
-          posture: CallPosture.direct,
-          transport: const CallTransportProposal(CallTransportKind.relay),
-          replyDevice: device.hex,
-          mediaKey: generateCallMediaKeyContribution(),
-        ),
-      );
-      await pumpEventQueue();
+        await svc.placeCall(identity, const CallMedia(audio: true));
+        fake.onCallSignal!(
+          identity,
+          CallSignal(
+            callId: svc.current!.callId,
+            type: CallSignalType.answer,
+            posture: CallPosture.direct,
+            transport: const CallTransportProposal(CallTransportKind.relay),
+            replyDevice: device.hex,
+            mediaKey: generateCallMediaKeyContribution(),
+          ),
+        );
+        await pumpEventQueue();
 
-      expect(svc.current?.peer, identity,
-          reason: 'signaling stays on the accepted contact identity');
-      expect(svc.current?.mediaPeer, device,
-          reason: 'native media ingress is attributed to the answering device');
-      expect(svc.current?.mediaIdentity, identity);
-      svc.dispose();
-    });
+        expect(
+          svc.current?.peer,
+          identity,
+          reason: 'signaling stays on the accepted contact identity',
+        );
+        expect(
+          svc.current?.mediaPeer,
+          device,
+          reason: 'native media ingress is attributed to the answering device',
+        );
+        expect(svc.current?.mediaIdentity, identity);
+        svc.dispose();
+      },
+    );
 
     test(
       'a re-driven offer of the current call is swallowed, not busied',
