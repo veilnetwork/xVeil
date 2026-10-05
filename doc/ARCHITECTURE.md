@@ -587,3 +587,32 @@ ready real-stack startup with no active call; after closing, its processes and
 owned API forward were independently verified absent. Poco is still absent
 from ADB; its signed 2166 APK is prepared. Physical loaded calls, recovery under
 mobile-network stalls and playout/acoustic measurements remain pending.
+
+### Retain native media freshness in the SDK IPC writer
+
+Direct and sealed-relay native pumps now pass their original 200-ms producer
+deadline into the SDK. Previously, after acquiring the shared sender handle,
+the datagram entered the SDK's 1024-frame FIFO as bytes without an age limit;
+IPC backpressure could replay obsolete audio/video even though the native
+pump's own queue had already enforced freshness. Only timed media admission
+can expire while awaiting capacity. The background writer checks each whole
+timed frame immediately before writing, including frames already drained into
+its local batch. A started partial write finishes under the existing socket
+timeout, preserving IPC framing. Reliable frames carry no producer deadline
+and keep FIFO/backpressure semantics. The deadline is process-local metadata;
+IPC payloads, network formats, crypto and neutral relay scheduling are unchanged.
+This bounds uncommitted SDK work, not bytes already accepted by a socket or
+end-to-end acoustic delay. Anonymous media continues using its existing native
+deadline checks and circuit path rather than these SDK IPC methods.
+
+Gates: 38 SDK unit tests, 27 real Unix IPC integration tests and 27 native
+media-pump tests passed, along with production SDK/FFI Clippy with warnings
+denied and Android ARM64 Rust compilation. A real writer task over a bounded
+byte stream verifies completion of a partial header/body, expiry of later
+primary and secondary cells, reliable/fresh delivery, FIFO and clean EOF.
+Disabling its pre-write expiry check delivers six frames instead of the
+expected four, replaying both stale cells. The real IPC daemon verifies direct
+wire bytes and sealed-relay fields/source queues against the legacy APIs;
+only per-send random content ID and creation time are normalized for relay
+comparison. Expired admission is followed by a reliable ordering barrier.
+Two-phone loaded calls and physical playout/acoustic quality remain pending.
