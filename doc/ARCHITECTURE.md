@@ -545,3 +545,35 @@ logcat reader exited. No datagram capability-offer event was captured during
 that startup, so it provides no new evidence about current independent-flow
 support. Poco remains absent in ADB; its signed 2165 APK is prepared. Physical
 loaded-call, playout and acoustic checks remain pending.
+
+### Preserve lossy frame age across session ingress and fallback
+
+Loss-tolerant freshness now starts at the FrameSender ingress attempt, before
+waiting for outbox capacity, and follows the frame through the runner's queues.
+Previously, moving a frame out of the producer outbox restarted its 500-ms
+clock; a stopped runner could replay already obsolete audio/video on recovery.
+Datagram encode/send fallback also renewed that clock and discarded the return
+carrier. The runner now restores the original local envelope, including its
+admission time and weak carrier; an expired frame is dropped before it can
+evict a fresh frame from a full source class. Reliable data is not expired.
+Byte-only legacy FIFO adapters cannot recover upstream timestamps; their local
+age starts when they create an envelope. Production FrameSender preserves it.
+No timestamp, source role, deadline or service priority is added to the wire.
+Relays keep the same neutral FIFO and admission policy for all forwarded users.
+This bounds time before socket commitment at this session; it does not bound
+end-to-end playout time or recall bytes already committed to a stream.
+
+The encrypted SessionRunner recovery test uses the real producer outbox,
+holds three local source classes plus neutral circuit traffic past the age
+limit, then queues fresh frames. Before the fix it received obsolete sequence
+numbers 0..3; after the fix it receives only 100..103, retaining the old reliable
+message and legacy circuit wire priority. Queue checks cover original age
+through both scheduler rounds, expiry during fallback, full-class admission,
+weak-carrier restoration and time spent awaiting ingress capacity.
+
+Gates passed: 366 session unit tests (3 existing ignored), 3 encrypted-stream
+runner checks, 18 real-QUIC opaque/parallel/rekey checks, production session
+Clippy with warnings denied, and Android ARM64 Rust compilation with
+production-seeds/node-embedded/packet-tunnel. This verifies local freshness and
+transport regressions, not physical acoustic delay or current live relay
+support for independent flows; two-phone load tests remain pending.
