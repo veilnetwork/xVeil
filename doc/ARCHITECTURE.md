@@ -500,3 +500,12 @@ exited and their temporary build directory was removed. Production Android
 ARM64 media compiled with 92 public exports and no stand hooks. Two-phone
 loaded-call and acoustic quality remain unverified while Poco is absent; older
 live relay hops still lack negotiated independent opaque flows.
+
+Android standard debug 2164 (source e4667e1d, Veil 0ec24fc1) packages the
+low-rate video API and policy. Production Rust features, unchanged generated
+Rust FFI contract, ARM64-only APK, raw/staged/merged/stripped/packed libraries,
+92 production media exports without stand hooks, and the full installed APK
+hash were verified. Blackview reached ready real-stack startup with no active
+call; its process and owned debug API forward were independently verified
+absent after closing. Poco remains absent in ADB; its signed 2164 APK is
+prepared, and installation plus loaded-call/acoustic verification are pending.
