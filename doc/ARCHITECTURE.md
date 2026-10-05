@@ -1538,7 +1538,38 @@ process exit and fixture absence were checked independently.
 Verification: 143 call-service/realtime tests pass and scoped Flutter
 analysis is clean. The broader durable suite reports 5 offline-silence
 assertion failures both with this change and with the unchanged HEAD
-outbox (44 passing baseline tests). Its reconnect fixtures expect the
+outbox (34 passing baseline tests). Its reconnect fixtures expect the
 older silent-peer probe policy, whereas the current policy applies the
 probe gate only to contact mailbox-eligible frames. These baseline
 failures are recorded, not represented as a fully green suite.
+
+
+Silent direct-path recovery and relay switch serialization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Audio-only phone campaign 2192 completed both 120 s calls. Cold ring/active
+times were 3.595/6.216 s and reverse 0.480/2.831 s; the 19 s ordinary answer
+stall was not repeated in this run. Audio outages remain (up to 21.053 s
+first call and 17.033 s second). Independent ICMP samples to a public
+endpoint show Blackview 46.6--49.0 ms, all 63 replies, versus Poco
+42.8--2612 ms with 6 incomplete three-packet probes (48 replies). Both
+thermal statuses are normal. This proves the mobile network path itself
+has large latency excursions/loss independently of camera/file load; it
+does not prove that it accounts for the entire application outage.
+
+The receive watchdog previously only asked the remote sender for repair.
+If direct media and call control stalled together, recovery depended on
+that missing remote request. After the existing 10 s receive grace, an
+active P2P call with direct posture on both endpoints now recovers over
+the already permitted relay and announces its actual route. Healthy media
+does not trigger fallback merely because health signals are absent;
+onion posture is not changed by this path. Simultaneous relay fallback
+requests for one call now join one route-switch future. Previously the
+second native switch could fail because the first was rebuilding, and
+the FSM ended the call as an error.
+
+Three regressions cover missing-peer-heartbeat recovery, healthy ingress,
+and concurrent announcements against a controller rejecting overlapping
+switches. Both defect regressions fail against the unchanged call service;
+all 116 call-service tests and scoped analysis pass with the fixes. Phone
+confirmation follows in build 2193. Campaign 2192's apps/readers/forwards
+were closed, with process exit independently verified.
