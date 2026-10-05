@@ -33,6 +33,14 @@ enum SendRoute {
   direct,
 }
 
+/// Direct sessions attribute app frames to their authenticated peer identity.
+/// A presealed relay envelope names this node's physical device even when a
+/// direct session also exists. Its source app must be derived from that name.
+bool mediaSenderUsesIdentity({
+  required bool relay,
+  required bool sessionAdmitted,
+}) => !relay && sessionAdmitted;
+
 /// Decide the path BEFORE anonymity does.
 ///
 /// The ordering is the whole point, and getting it wrong is what a comment
@@ -615,21 +623,29 @@ class VeilFlutterTransport
       );
     }
     final peer = NodeId(dstNode);
-    // A session-backed send is attributed to the shared identity; an
-    // unpaired device-to-device relay send is attributed to the physical
-    // device. The source app id must use the SAME name or the receiver drops
-    // every packet before the call cipher. Choose once per channel open.
-    final session = await _mediaClient.peerPnetStatus(dstNode);
-    final mediaSender = session.admitted
+    // Relay media retains the physical envelope sender regardless of an
+    // unrelated direct session's admission. Match the native source-app gate.
+    final useIdentity = mediaSenderUsesIdentity(
+      relay: relay,
+      sessionAdmitted: relay
+          ? false
+          : (await _mediaClient.peerPnetStatus(dstNode)).admitted,
+    );
+    final mediaSender = useIdentity
         ? _mediaApp
         : (_mediaDeviceApp ?? _mediaApp);
-    final secondarySender = session.admitted
+    final secondarySender = useIdentity
         ? _mediaAuxApp
-        : (_mediaDeviceAuxApp ?? _mediaAuxApp);
+        : (_mediaDeviceAuxApp ?? _mediaDeviceApp ?? _mediaAuxApp);
+    if (!useIdentity &&
+        (!_sameBytes(mediaSender.appId, mediaAppIdFor(_nodeId)) ||
+            !_sameBytes(secondarySender.appId, mediaAppIdFor(_nodeId)))) {
+      throw StateError('device-scoped media sender unavailable');
+    }
     devLog(
       () =>
           'xVeil[call-media]: sender binding='
-          '${session.admitted ? "identity" : "device"} dst=${peer.short}',
+          '${useIdentity ? "identity" : "device"} dst=${peer.short}',
     );
     if (relay) {
       return mediaSender.openRelayMediaChannel(
