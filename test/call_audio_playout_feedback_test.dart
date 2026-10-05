@@ -194,8 +194,8 @@ void main() {
           });
         }
         expect(adapter.atFloor, isTrue);
-        expect(native.maxFps, 1);
-        expect(native.maxBitrateKbps, base == 900 ? 45 : 30);
+        expect(native.maxFps, base == 900 ? 1.2 : 0.3);
+        expect(native.maxBitrateKbps, base == 900 ? 45 : 8);
         for (var i = 0; i < 12; i++) {
           adapter.onNativeStats(
             healthyNetwork,
