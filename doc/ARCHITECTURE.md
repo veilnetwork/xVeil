@@ -1834,7 +1834,8 @@ A separate physical video call added an 8 MiB random file Poco -> Blackview
 SHA-256 matched the source. The API's progress snapshot reported 8388607 bytes
 while the verified export actually contains all 8388608 bytes. This proves
 file completion, not media isolation: native receive age reached 17280 ms on
-Blackview and 20647 ms on Poco. Both video_rx_frames counters remained zero;
+Blackview and 20647 ms on Poco. Decoded remote_frames reached 17/11 (Blackview/Poco);
+video_rx_frames is absent from this API and must not be reported as zero;
 the adaptive sender had fallen to 1 kbps / 0.02 fps. Workers stayed responsive.
 The call recovered through relay and completed, but this quality/isolation
 gate FAILS. The new source admission regression is therefore insufficient to
@@ -1915,3 +1916,68 @@ local source classes/deadline APIs, and permits no source-credit/deadline bit.
 The production forwarding encoder was not changed.
 
 Build 2197 packaging, installation and paired physical validation are pending.
+
+
+Build 2197 physical follow-up
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Verified/installed build 2197 packages root 09dc3271 / Veil aa1d865b on both
+phones. Full pulled APK hashes match the prepared builds; ARM64 production Rust
+and unchanged 92-export media libraries are verified. Poco remained cellular.
+Build manifest: /private/tmp/xveil-audio-build-2197.json.
+
+A 165-second active video call Poco -> Blackview rang in 1.113 s / active 4.975 s.
+The complete random 8 MiB file hash matched after 68.28 s (request relative
+25.141 s, completion 93.897 s). Native receive age still reached 3944/3970 ms
+(Blackview/Poco), p95 663/679 ms; during download request→completion p95 was
+990/1010 ms, afterwards 286/287 ms. Decoded remote_frames reached 185/179;
+video_tx_frames 218/442. Media workers remained responsive; no shared IPC HELD
+warning or delivery.decrypt_failed/unopenable was logged. Maximum reported
+NetEq interruption counters 24/24, duration 17646/16647 ms; these are not summed
+whole-call totals if engines reset. This is a working file/video result and
+an IPC isolation correction, NOT a physical audio-quality pass.
+
+The 4-second blackout froze primary child QUIC ACK/receive counts on both
+phones around epoch 1791220393–96; RTT stayed stale near 77–82 ms, local outgoing
+deadline expiry rose, then loss/RTT rose on recovery. Poco's independent ICMP
+probe at 1791220394.556 was incomplete with 1237 ms first response; Blackview
+probes were complete <=56.2 ms. The file source's first request/manifest only
+completed at phone wall time 20:13:17, after that freeze. A later direct open
+failed code 7 and both anonymous/direct serve accepts appear in logs; the file
+cannot be assumed to have used just one direct SDK source route. Anonymous
+fallback isolation remains pending. Artifacts:
+/private/tmp/xveil-av-file-load-2197.json,
+/private/tmp/xveil-av-file-2197-{summary,native,logs,network}.json,
+/private/tmp/xveil-av-file-2197-run.log.
+
+Correction to the previous video assessment: video_rx_frames was not a numeric
+field in 2196 either. The actual decoded remote_frames was 17/11, not zero.
+2197 decodes substantially more frames, but a single different physical
+network trace does not isolate the cause or prove usable quality under every
+route.
+
+Two more 120-second audio-only calls expose a separate large recovery defect.
+Poco -> Blackview ring/active 1.747/3.317 s; relay -> P2P -> relay. Native ages
+reached 14818/10007 ms, p95 8423/3696 ms. Both direct sessions were reaped around
+epoch 1791220727.6 after 5 s unacked probes / ~5.7 s stale genuine receive.
+CallService waits its existing 10 s silent-media grace; Poco switched to relay
+at relative ~62.7 s, Blackview followed/recovered near ~67.6 s. That delayed
+fallback compounds the initial transport outage and requires work. Reverse
+Blackview -> Poco stayed P2P; ring/active .755/2.663 s, ages 3322/3350 ms and p95
+659/654 ms. Workers stayed responsive. Poco external ICMP peaked at 1151 ms,
+with one incomplete probe; Blackview <=74.6 ms, complete. Source artifacts:
+/private/tmp/xveil-audio-load-2197.json,
+/private/tmp/xveil-audio-2197-{summary,native,logs,network}.json and
+/private/tmp/xveil-audio-2197-run.log. Neither loaded nor audio-only quality
+meets the objective yet.
+
+Another concrete lead: one relay keepalive timeout log reports swap_attempts
+1011 despite a nominal per-episode ceiling of 2. Runner Stage B re-evaluation
+runs on every timer wake while the probe stays fired, although its comment
+promises only keepalive ticks. Fresh genuine receive protects a live session
+from teardown, but does not gate repeated hot-standby trigger calls. Check and
+regression-test that retry rate before blaming all pauses on physical cellular
+service. No reaper/PQ/authentication bypass is justified by these results.
+
+All campaign downloads/fixtures were cleaned, both owned app processes and ADB
+forwards closed, readers exited, and independent ps -A confirmed no package
+process remains. Final production FFI Clippy passes with warnings denied.
