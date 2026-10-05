@@ -1174,3 +1174,18 @@ its main writer is stopped, then verifies silence still reaps it and its child
 connections. Disabling the production datagram-liveness handoff makes this
 regression fail; the source was restored and the full QUIC subset rerun green.
 Phone verification of this liveness fix is pending the next build.
+
+
+### Late direct admission belongs to the answering device (2026-10-05)
+
+Identity-level P2P readiness can name another live device and must not authorize
+opening this call's direct channel. Late route upgrade now checks the native
+admission of peerDevice (or the original peer for legacy calls) before every
+readiness announcement and switch. Missing, failed or timed-out status leaves
+the working relay channel intact; stale readiness is withdrawn locally.
+Policy and mutual signaling consent remain required. The regression starts
+with identity reachability but no answering-device admission, observes no
+announcement or switch, then admits that exact device and observes the upgrade.
+153 focused call/realtime/sealed-channel tests passed; analyzer clean.
+Physical verification is pending Android build 2181, which also includes the
+authenticated datagram parent-liveness fix.
