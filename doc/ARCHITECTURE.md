@@ -1488,3 +1488,19 @@ context fix and exact audio timing proceeds in build 2190.
 
 Both 2189 app processes independently absent after cleanup; own forwards,
 readers and four fixture paths removed, own pending downloads cleared.
+
+2190 completed with both phones on their original networks. Cold Poco →
+Blackview rang in 1.077 s and became active in 2.946 s; reverse warm audio
+took 0.485/1.748 s. Both 8 MiB exports passed full SHA-256 (84.10/83.74 s).
+All calls remained active. Exact native timing confirms remaining audio
+interruptions: the second audio call has 13/16 NetEq interruptions, 11.284/
+11.432 s total, and maximum sampled native packet ages 1.102/1.195 s. These
+are receive-stream concealment measurements, not an acoustic latency test.
+The first audio call has one startup interruption on each end (261/286 ms).
+The first video/load call reaches ~2.9 s native arrival gaps, so quality is
+not declared fixed. The opt-in admission trace now additionally samples
+actual generic QUIC RTT, congestion window, sent/received UDP, received ACKs,
+losses and congestion events at the existing one-second cadence. This
+separates admitted packets from transport progress, without wire changes or
+relay source classification. Five actual QUIC transport tests and production
+FFI Clippy pass. The next phone campaign uses build 2191.
