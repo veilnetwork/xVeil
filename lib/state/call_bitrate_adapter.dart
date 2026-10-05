@@ -76,6 +76,12 @@ class CallBitrateAdapter {
   /// instead of oscillating.
   static const int recoverAfter = 12;
 
+  /// A multi-second RTT means even the ordinary sparse floor can keep an
+  /// ordered route queued. Reserve almost all local video bandwidth until
+  /// fresh audio feedback proves recovery; retain capture and remote video.
+  static const int severeRttMs = 2000;
+  static const int severePlayoutMs = 1000;
+
   /// Conservative receive-pipeline budget. These are native buffer estimates,
   /// not a measurement of acoustic latency; RTT still guards network queues.
   static const int playoutDegradeMs = 300;
@@ -107,6 +113,8 @@ class CallBitrateAdapter {
   int _floorBadStreak = 0;
   CallVideoAdvice _advice = CallVideoAdvice.keep;
   int _goodStreak = 0;
+  int _severeStreak = 0;
+  bool _audioReserve = false;
   int? _lastTxDrops;
   int? _curWindowMin;
   int? _prevWindowMin;
@@ -162,16 +170,28 @@ class CallBitrateAdapter {
   /// True while the ladder is on its last rung and cannot spend less.
   bool get atFloor => _level == ladder.length - 1;
 
+  bool get audioReserve => _audioReserve;
+
   /// Target for the current rung.
-  ({int maxBitrateKbps, double maxFps}) get target => (
-    maxBitrateKbps: (baseBitrateKbps * ladder[_level]).round().clamp(
-      supportsLowRateVideo ? 1 : (baseBitrateKbps < 30 ? baseBitrateKbps : 30),
-      baseBitrateKbps,
-    ),
-    maxFps: supportsLowRateVideo
-        ? (baseFps * cadenceLadder[_level]).clamp(0.02, baseFps.toDouble())
-        : (baseFps * cadenceLadder[_level]).round().clamp(1, 60).toDouble(),
-  );
+  ({int maxBitrateKbps, double maxFps}) get target => _audioReserve
+      ? (maxBitrateKbps: 1, maxFps: 0.02)
+      : (
+          maxBitrateKbps: (baseBitrateKbps * ladder[_level]).round().clamp(
+            supportsLowRateVideo
+                ? 1
+                : (baseBitrateKbps < 30 ? baseBitrateKbps : 30),
+            baseBitrateKbps,
+          ),
+          maxFps: supportsLowRateVideo
+              ? (baseFps * cadenceLadder[_level]).clamp(
+                  0.02,
+                  baseFps.toDouble(),
+                )
+              : (baseFps * cadenceLadder[_level])
+                    .round()
+                    .clamp(1, 60)
+                    .toDouble(),
+        );
 
   /// Native zero defaults, expired reports and older libraries without report
   /// freshness are unknown quality. Local drops still justify reducing video.
@@ -240,6 +260,7 @@ class CallBitrateAdapter {
       _badStreak = 0;
       _floorBadStreak = 0;
       _goodStreak = 0;
+      _severeStreak = 0;
       return null;
     }
 
@@ -267,6 +288,20 @@ class CallBitrateAdapter {
         rttGood &&
         !newDrops &&
         playoutGood;
+
+    final severe =
+        rttMs >= severeRttMs ||
+        (requirePeerAudioPlayout &&
+            peerAudioDelayMs != null &&
+            peerAudioDelayMs >= severePlayoutMs);
+    _severeStreak = atFloor && severe ? _severeStreak + 1 : 0;
+    if (supportsLowRateVideo &&
+        !_audioReserve &&
+        _severeStreak >= degradeAfter) {
+      _audioReserve = true;
+      _goodStreak = 0;
+      return target;
+    }
 
     if (bad) {
       _goodStreak = 0;
@@ -302,6 +337,12 @@ class CallBitrateAdapter {
       return null;
     }
     _goodStreak++;
+    if (_audioReserve && _goodStreak >= recoverAfter) {
+      _audioReserve = false;
+      _severeStreak = 0;
+      _goodStreak = 0;
+      return target;
+    }
     if (_goodStreak >= recoverAfter && _level > 0) {
       _goodStreak = 0;
       _level--;
