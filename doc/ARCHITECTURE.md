@@ -533,3 +533,15 @@ Production session Clippy with warnings denied and Android ARM64 Rust build
 passed. These stand results do not measure physical playout/acoustic delay or
 establish independent opaque connections through the previously observed old
 first-hop relays.
+
+Android standard debug 2165 (source c4a794cd, Veil 011f94f1) packages separate
+lossy admission budgets and retains the low-rate media library from 2164.
+Production Rust features, unchanged generated Rust FFI contract, ARM64-only
+APK, raw/staged/merged/stripped/packed libraries, 92 production media exports
+without stand hooks, and the full installed APK hash were verified. Blackview
+reached ready real-stack startup with no active call. Its process and owned
+API forward were independently verified absent after closing; the owned
+logcat reader exited. No datagram capability-offer event was captured during
+that startup, so it provides no new evidence about current independent-flow
+support. Poco remains absent in ADB; its signed 2165 APK is prepared. Physical
+loaded-call, playout and acoustic checks remain pending.
