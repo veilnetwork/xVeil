@@ -1120,3 +1120,19 @@ access checks remain in force. A full open/receipt/data/close regression also
 rejects another sibling's receipt and excludes a stale indexed device.
 115 IPC tests passed (5 ignored); production-feature FFI Clippy with warnings
 as errors passed. Physical file completion remains pending the next build.
+
+
+### Repaired direct-call fallback must remain a successful repair (2026-10-05)
+
+The Blackview-originated video call on build 2179 stalled and reproduced a
+second independent teardown defect. Native direct admission disappeared during
+receive repair; controller start restored the non-onion relay and logged
+success, but _rebuildLocalSession returned false solely because the restored
+route differed from the old P2P route. The FSM then sent end instead of its
+already implemented transportInfo(relay) transition. Rebuild now reports a
+successfully opened channel; the FSM retains responsibility for validating the
+actual route against both postures and announcing the permitted fallback.
+SwitchRoute still requires its requested route, so failed late upgrades retain
+the separate failure handling. 151 focused FSM/sealed-channel/realtime checks
+passed, including the existing peer-notified P2P-to-relay repair regression;
+analyzer clean. Physical call survival is pending build 2180.

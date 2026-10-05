@@ -692,7 +692,10 @@ class VeilCallMediaController implements CallMediaController {
             'xVeil[call-media]: local ${transport.name} session rebuilt '
             'call=${call.callId} ok=$ok',
       );
-      return ok && activeTransport == transport;
+      // start() can restore the explicitly permitted relay after direct
+      // admission disappears. The FSM checks the actual route and announces
+      // that downgrade; reporting false here kills the restored live channel.
+      return ok && activeTransport != null;
     } catch (error) {
       devLog(() => 'xVeil[call-media]: local session rebuild failed: $error');
       return false;
