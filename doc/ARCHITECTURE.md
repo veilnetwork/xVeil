@@ -2393,3 +2393,29 @@ one sparse probe and other local classes, and resumes after ACK progress/grace.
 Session gates 383 passed / five existing ignored; production-feature FFI
 Clippy passed with warnings denied. Private xveil-primary-ack-pressure-*
 logs. Build 2206 physical installation and load confirmation are pending.
+
+Build 2206 falsification and reliable-control correction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Full installed APKs verified (root 333c2a90 / Veil 0f17ece4). The AV/file
+phone load does NOT pass: ring/active 1.260/12.897 s, relay -> P2P, receive
+ages up to 10278/3699 ms, no worker stalls; source output gaps 401/407 ms and
+admission maxima 0/9 ms. File export stops at 2097152 bytes and the 8 MiB
+request times out after 240.2 s, then owned download/fixtures are canceled
+and removed. Ordinary ratchet open-failed events: 476/366 versus 0/1 in the
+previous 2205 loaded capture. These events are independent evidence of an
+unresolved crypto/session problem; do not assign the physical file stall
+solely to a scheduling change. Independent network probes on Poco also stall.
+All apps/children/readers/own forwards and scoped probe PIDs closed/reaped;
+independent process/forward checks verified cleanup.
+
+The earlier ACK-pressure rule also had a separately reproducible admission
+regression: a real QUIC test with low stored RTT, zero expiry and primary PTO
+shrinks the reliable parent window from 16 KiB to 1 KiB and blocks a 12 KiB
+control write while the independent primary has no ACK progress. The new
+control-write assertion fails on 0f17ece4. Veil 551239fe keeps early ACK/window
+pressure in a separate two-second secondary-only guard. The reliable parent's
+RTT/expiry window policy is preserved, while video bursts still stop early,
+sparse probes remain possible, and production resumes after recovery/grace.
+The bounded control write now fits. Session gates 383 / five existing ignored,
+production-feature FFI Clippy passed with warnings denied. Physical build 2207
+confirmation is pending; the remaining ratchet and network problems are open.
