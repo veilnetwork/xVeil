@@ -616,3 +616,13 @@ wire bytes and sealed-relay fields/source queues against the legacy APIs;
 only per-send random content ID and creation time are normalized for relay
 comparison. Expired admission is followed by a reliable ordering barrier.
 Two-phone loaded calls and physical playout/acoustic quality remain pending.
+
+Android standard debug 2167 (source 51798828, Veil 1c812f86) packages SDK IPC
+media expiry and retains the production low-rate media library from 2164.
+Production Rust features, unchanged generated Rust FFI contract, ARM64-only
+APK, raw/staged/merged/stripped/packed libraries, 92 production media exports
+without stand hooks, and the full installed APK hash were verified. Blackview
+reached ready real-stack startup with no active call; its processes and owned
+API forward were independently verified absent after closing. Poco remains
+absent in ADB; its signed 2167 APK is prepared. Mobile-network load/recovery
+calls and physical playout/acoustic measurements remain pending.
