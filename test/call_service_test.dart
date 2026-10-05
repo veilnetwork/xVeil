@@ -1597,6 +1597,313 @@ void main() {
     );
   });
 
+  group('late direct route after relay startup', () {
+    final peer = NodeId.fromHex('a' * 64);
+
+    CallSignal ready(String id, {int version = 6}) => CallSignal(
+      callId: id,
+      type: CallSignalType.transportInfo,
+      transport: const CallTransportProposal(CallTransportKind.p2p),
+      protocolVersion: version,
+    );
+
+    void offer(
+      _FakeMessaging fake,
+      String id, {
+      int version = 6,
+      CallTransportKind proposal = CallTransportKind.p2p,
+      CallPosture posture = CallPosture.direct,
+    }) => fake.onCallSignal!(
+      peer,
+      CallSignal(
+        callId: id,
+        type: CallSignalType.offer,
+        media: const CallMedia(audio: true),
+        posture: posture,
+        transport: CallTransportProposal(proposal),
+        protocolVersion: version,
+      ),
+    );
+
+    test('keeps relay until peer readiness; repeats a lost announcement', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'late');
+        svc.accept();
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(media.switches, isEmpty);
+        int announcements() => fake.sent
+            .where(
+              (s) =>
+                  s.type == CallSignalType.transportInfo &&
+                  s.transport?.kind == CallTransportKind.p2p,
+            )
+            .length;
+        expect(announcements(), 1);
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(announcements(), 2);
+        fake.onCallSignal!(peer, ready('late'));
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        fake.onCallSignal!(peer, ready('late'));
+        async.flushMicrotasks();
+        expect(media.switches.length, 1);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('waits for local admission even after peer readiness', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        var reachable = false;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => reachable,
+        )..start();
+        offer(fake, 'admission');
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(peer, ready('admission'));
+        async.flushMicrotasks();
+        expect(media.switches, isEmpty);
+        reachable = true;
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    for (final scenario in [
+      'peer denied',
+      'local denied',
+      'old peer',
+      'old local',
+      'anonymous',
+      'revoked local policy',
+    ]) {
+      test('does not upgrade when $scenario', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()
+            ..openedTransport = scenario == 'anonymous'
+                ? CallTransportKind.onion
+                : CallTransportKind.relay;
+          if (scenario == 'old local') media.signalVersion = 5;
+          var allowed = scenario != 'local denied';
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => allowed,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          offer(
+            fake,
+            scenario,
+            proposal: scenario == 'peer denied'
+                ? CallTransportKind.relay
+                : CallTransportKind.p2p,
+            version: scenario == 'old peer' ? 5 : 6,
+            posture: scenario == 'anonymous'
+                ? CallPosture.anonymous
+                : CallPosture.direct,
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          if (scenario == 'revoked local policy') allowed = false;
+          fake.onCallSignal!(peer, ready(scenario));
+          async.flushMicrotasks();
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+          expect(media.switches, isEmpty);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    test('ignores a different peer and stale call readiness', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'bound');
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(NodeId.fromHex('b' * 64), ready('bound'));
+        fake.onCallSignal!(peer, ready('previous'));
+        async.flushMicrotasks();
+        expect(media.switches, isEmpty);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('peer fallback during upgrade waits and suppresses oscillation', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _GatedSwitchMedia()
+          ..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'switch-race');
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(peer, ready('switch-race'));
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'switch-race',
+            type: CallSignalType.transportInfo,
+            transport: CallTransportProposal(CallTransportKind.relay),
+            protocolVersion: 6,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(media.switches.length, 1);
+        media.switchGate.complete(true);
+        async.flushMicrotasks();
+        expect(media.switches, [
+          CallTransportKind.p2p,
+          CallTransportKind.relay,
+        ]);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        fake.onCallSignal!(peer, ready('switch-race'));
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(media.switches.length, 2);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('caller retains original mutual consent through native fallback', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        svc.placeCall(peer, const CallMedia(audio: true));
+        async.flushMicrotasks();
+        final id = svc.current!.callId;
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: id,
+            type: CallSignalType.answer,
+            posture: CallPosture.direct,
+            transport: const CallTransportProposal(CallTransportKind.p2p),
+            protocolVersion: 6,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.relay);
+        fake.onCallSignal!(peer, ready(id));
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test(
+      'native admission loss announces relay and does not keep retrying',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _RejectDirectSwitchMedia()
+            ..openedTransport = CallTransportKind.relay;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          offer(fake, 'lost-admission');
+          svc.accept();
+          async.flushMicrotasks();
+          fake.sent.clear();
+          fake.onCallSignal!(peer, ready('lost-admission'));
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          expect(fake.sent.last.transport?.kind, CallTransportKind.relay);
+          fake.onCallSignal!(peer, ready('lost-admission'));
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+          expect(media.switches, [CallTransportKind.p2p]);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      },
+    );
+
+    test('late switch cannot resurrect a hung-up call', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _GatedSwitchMedia()
+          ..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'hangup-race');
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(peer, ready('hangup-race'));
+        async.flushMicrotasks();
+        svc.hangup();
+        async.flushMicrotasks();
+        media.switchGate.complete(true);
+        async.flushMicrotasks();
+        expect(svc.current, isNull);
+        expect(media.switches.length, 1);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+  });
+
   test('a route mismatch fails closed instead of changing posture', () {
     fakeAsync((async) {
       final peer = NodeId.fromHex('d' * 64);
@@ -3165,4 +3472,23 @@ class _FakeMessaging implements MessagingService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _GatedSwitchMedia extends _FakeMedia {
+  final switchGate = Completer<bool>();
+  @override
+  Future<bool> switchRoute(CallTransportKind transport) async {
+    switches.add(transport);
+    if (transport == CallTransportKind.p2p) await switchGate.future;
+    openedTransport = transport;
+    return true;
+  }
+}
+
+class _RejectDirectSwitchMedia extends _FakeMedia {
+  @override
+  Future<bool> switchRoute(CallTransportKind transport) async {
+    switches.add(transport);
+    return false;
+  }
 }
