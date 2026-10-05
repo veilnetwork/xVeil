@@ -2629,3 +2629,45 @@ own forwards/readers, two file fixtures, pending own downloads and scoped
 remote ICMP PIDs removed/reaped. Independent ps/forward checks confirm cleanup.
 Both phones retain 2209. No push/tag/release. Goal remains active: delivery
 recovery and bidirectional ratchet transitions are not declared repaired.
+
+
+Bounded authenticated source-primary recovery
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Veil 43ee52b8 may now warm one replacement for its locally selected primary
+when ACK progress stalls for 500 ms, PTO is nonzero, flight is occupied and
+new outgoing datagrams expire. Idle ACK silence, neutral transit and secondary
+producers cannot request this repair. Attempts are spaced by at least 2 s;
+the existing 3 s binding deadline and shared eight-connection quota remain.
+The old sender continues until the replacement verifies the live parent's
+exporter-bound proof. Failure retains it; restored ACK progress cancels the
+redundant candidate. Rekey/drop retire credentials and cancel pending tasks.
+Fresh children have independent TLS and datagram keys/counters. No congestion
+state is reset and no relay role, wire priority or authorization bypass is added.
+
+The generic exclusive accept path held its endpoint mutex through TLS and the
+first lazy stream, serializing unrelated children. It now locks only dequeue;
+two bounded generic accept jobs progress independently, with failure backoff
+inside each job. Empty waits reserve no child slot. Their old timeout also
+expired while merely awaiting an incoming connection, synchronizing receiver
+backoff just when the neutral outage ended. The deadline now bounds only an
+incoming TLS/first-stream attempt; idle waits remain parent-cancellable.
+Capacity exhaustion still rejects immediately. Shared-listener dispatch is
+unchanged. Every outgoing generic sibling seeds its local initial RTT from
+the same current parent path, clamped to 50 ms–1 s; wire parameters are unchanged.
+
+Actual production ParallelSession sender/receiver paths behind a neutral
+1 Mbps / 20 ms UDP FIFO reproduce a 4 s bidirectional blackout. Baseline first
+fresh frame after restoration: 1.331/1.507 s for small AppRtData / 2 KiB opaque
+circuit cells. Repair: 385/476 ms, post-return frame ages at most 27/56 ms,
+zero duplicates, 184/180 post-return frames, two attempts and one verified
+switch. The pending failed attempt retains the old exporter. Opaque circuit
+headers remain INTERACTIVE. The unmodified <600 ms recovery, <400 ms age and
+minimum 140-frame gates pass. This covers this outage fixture, not all network
+failures or phone audio quality. The isolated first-stream and idle-deadline
+regressions each fail with their old behavior restored and pass with the fixes.
+
+Final library gates: Session 387 passed / six existing manual ignored;
+Transport 116 passed. Temporary bind-stage instrumentation was removed.
+Production-feature FFI Clippy passes with warnings denied. Build 2210 phone
+coverage is pending.
+The ordinary bidirectional ratchet-root defect remains unresolved.
