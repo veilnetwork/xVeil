@@ -2487,3 +2487,25 @@ ps/forward verification confirms cleanup. This cycle adds diagnostic coverage
 and the physical report; phone production binaries remain 2207 / Veil 551239fe.
 The next concrete investigation is cold answer control delivery and bounded
 authenticated path recovery, while relay service stays neutral. No push/release.
+
+Cold control attachment fallback
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The compatibility control origin returned after any first-hop queue admitted
+the per-device copy; an admitted stale device attachment could therefore hide
+an available identity attachment. The handler now retains one bounded alternate
+addressing copy: identity plus the same verified instance, using the same
+ciphertext sealed once. No network certificate lookup or alias authorization
+is added. Each addressing path has its own outer content id so transit dedup
+cannot discard the alternate before recipient resolution; terminal ratchet
+replay and app frame-id rules remain authoritative. At most three first hops
+per path; relay headers remain INTERACTIVE with no role/traffic-class hint.
+
+A failing old-code test reproduces suppressed identity delivery despite
+successful device queue admission. New handler tests verify both recipient
+paths, identical ciphertext, authenticated opening, benign duplicate rejection
+without losing the authenticated chain, and separate decryptability for two
+devices. IPC gates 119 passed / five existing ignored. The actual dispatcher
+identity/instance/reload recipient gate passes; production-feature FFI Clippy
+passes with warnings denied. This repairs a reproducible attachment fallback
+omission; its contribution to the physical fourteen-second delay is not yet
+established. Build 2208 installation and cold phone coverage are pending.
