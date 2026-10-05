@@ -544,6 +544,7 @@ class CallService {
   /// re-drives and out-of-order deliveries fold strictly-newer (an old
   /// re-driven media set must never regress a newer one). Reset per call.
   int _lastRenegotiateAtMs = 0;
+  int _lastTransportInfoAtMs = 0;
 
   /// The single active (or just-ended) call, or null when idle.
   Call? get current => _current;
@@ -1152,6 +1153,14 @@ class CallService {
       case CallSignalType.renegotiate:
         _onRenegotiate(peer, sig);
       case CallSignalType.transportInfo:
+        final routeCall = _current;
+        if (routeCall?.callId == sig.callId && routeCall?.peer == peer) {
+          final at = sig.sentAtMs;
+          if (at != null) {
+            if (at <= _lastTransportInfoAtMs) break;
+            _lastTransportInfoAtMs = at;
+          }
+        }
         final upgrade = _current;
         if (upgrade != null &&
             upgrade.callId == sig.callId &&
@@ -1876,6 +1885,7 @@ class CallService {
       _resetLateP2P();
       _peerAudioExpectedSince = null;
       _lastRenegotiateAtMs = 0;
+      _lastTransportInfoAtMs = 0;
       _pendingRelayCallId = null;
       _pendingRelayPeer = null;
       _outgoingProposal = null;

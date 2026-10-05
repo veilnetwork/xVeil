@@ -435,7 +435,10 @@ class _MessagingRealtimeControl {
     // fan-out addresses sibling devices too — the comment at the top of this
     // method says so — and a shared id meant the first sibling took the only
     // durable row while the others got a live leg that is not awaited.
-    final frameId = stamped.type == CallSignalType.renegotiate
+    final frameId = stamped.type == CallSignalType.transportInfo
+        ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
+              ':${stamped.transport?.kind.index}:${peer.hex}'
+        : stamped.type == CallSignalType.renegotiate
         ? 'call:${signal.callId}:${signal.type.name}:${stamped.sentAtMs}'
               ':${peer.hex}'
         : 'call:${signal.callId}:${signal.type.name}:${peer.hex}';
