@@ -487,7 +487,10 @@ class _MessagingOutbox {
     // destination that cannot be reached costs the LIVE half of the pass and
     // nothing else. The dials keep their serial order and their ladder —
     // firing them all at once would trade a pile-up for a storm.
-    final redrive = <({NodeId peer, OutboxFrame frame, int attempt})>[];
+    final redrive =
+        <
+          ({NodeId peer, OutboxFrame frame, int attempt, bool contactIdentity})
+        >[];
     NodeId? selfNode;
     try {
       selfNode = await _owner._transport.nodeId();
@@ -642,7 +645,12 @@ class _MessagingOutbox {
         peer: frame.peerHex,
         lastSentAt: now,
       );
-      redrive.add((peer: peer, frame: frame, attempt: count));
+      redrive.add((
+        peer: peer,
+        frame: frame,
+        attempt: count,
+        contactIdentity: contact?.status == ContactStatus.accepted,
+      ));
     }
     // The live half, after every deposit this pass had to offer. Bounded per
     // send: this is NOT a delivery signal — a send returns when the local node
@@ -659,12 +667,47 @@ class _MessagingOutbox {
             't=${DateTime.now().millisecondsSinceEpoch}',
       );
       await boundedLiveLeg(
-        _owner._send(
+        _redriveLive(
           entry.peer,
           entry.frame.wire,
-          background: _backgroundWire(entry.frame.wire),
+          contactIdentity: entry.contactIdentity,
         ),
       );
+    }
+  }
+
+  /// Restore the original live lanes after restart and after the fast retry
+  /// ladder ends. A queued answer must still race realtime when the ordinary
+  /// stream is stalled. Classify the saved wire, never its frame-id prefix;
+  /// the caller has already checked contact/device/group authorization.
+  Future<void> _redriveLive(
+    NodeId peer,
+    Uint8List wire, {
+    required bool contactIdentity,
+  }) {
+    WireKind? kind;
+    try {
+      kind = WireEnvelope.decode(wire).kind;
+    } catch (_) {
+      // Keep the existing ordinary path for an unreadable legacy frame.
+    }
+    switch (kind) {
+      case WireKind.callSignal:
+        return _owner._realtimeControl._sendCallLive(
+          peer,
+          wire,
+          contactIdentity: contactIdentity,
+        );
+      case WireKind.groupCallSignal:
+        return _owner._realtimeControl._sendRealtimePaths(
+          'gcall-sig',
+          peer,
+          wire,
+        );
+      case WireKind.p2pEndpoints:
+        return _owner._realtimeControl._sendP2PBootstrap(peer, wire);
+      default:
+        return _owner._send(peer, wire, background: _backgroundWire(wire));
     }
   }
 
