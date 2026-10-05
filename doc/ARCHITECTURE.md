@@ -652,3 +652,13 @@ denied, 33 focused Flutter tests and transport analysis passed. This verifies
 local sender isolation, not physical call delay or file authorization from a
 previously unknown device. ADB currently exposes only Blackview; physical
 two-phone loaded calls and playout/acoustic measurements remain pending.
+
+Android standard debug 2168 (source 96532867, Veil 6bf4dfbd) packages the
+dedicated P2P file sender. Veil changes this cycle are test-only, so it retains
+2167's production Rust binary and 2164's production media binary. Production
+Rust features, FFI header contract, ARM64-only APK, raw/staged/merged/stripped/
+packed library hashes, 92 media exports without stand hooks, and the complete
+installed APK hash were verified. Blackview reached ready real-stack startup
+with no active call. Its processes and owned API forward were independently
+verified absent after closing. Poco remains absent in ADB; the signed 2168 APK
+is prepared. No new physical call or acoustic result is established.
