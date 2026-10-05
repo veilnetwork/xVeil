@@ -2121,7 +2121,8 @@ class MessagingService {
   }
 
   /// Device -> the identity it was proven to belong to, learned from
-  /// authenticated frames whose direct session named the device.
+  /// authenticated frames whose direct session or ratchet certificate named
+  /// the device. Relay envelope hints do not supply this evidence.
   final Map<String, NodeId> _identityOfDevice = {};
 
   /// The identity [device] speaks for, if this process has seen it prove so.
