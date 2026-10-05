@@ -102,7 +102,7 @@ void main() {
         expect(started, isTrue);
         engine.stats = {'audio_feedback_reports': 0};
         clock.elapse(const Duration(seconds: 30));
-        expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
         engine.stats = {
           'audio_feedback_reports': 2,
           'tx_loss_pct': 0,
@@ -117,10 +117,10 @@ void main() {
         expect(engine.targets, isEmpty);
         engine.acceptTarget = true;
         clock.elapse(const Duration(seconds: 1));
-        expect(engine.targets.last, (maxBitrateKbps: 45, maxFps: 2));
+        expect(engine.targets.last, (maxBitrateKbps: 45, maxFps: 1.5));
         engine.stats = {'audio_feedback_reports': 0};
         clock.elapse(const Duration(seconds: 30));
-        expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
         engine.stats = {
           'audio_feedback_reports': 2,
           'tx_loss_pct': 0,
@@ -134,12 +134,33 @@ void main() {
         controller.start(_call(self, [peer], video: true));
         clock.flushMicrotasks();
         clock.elapse(const Duration(seconds: 1));
-        expect(engine.targets.first, (maxBitrateKbps: 30, maxFps: 1));
+        expect(engine.targets.first, (maxBitrateKbps: 8, maxFps: 0.3));
         controller.stop();
         clock.flushMicrotasks();
       });
     },
   );
+
+  test('older group library gets an integer startup budget', () {
+    fakeAsync((clock) {
+      final self = _id(1);
+      final engine = _FakeEngine(supportsLowRateVideo: false);
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      controller.start(_call(self, [_id(2)], video: true));
+      clock.flushMicrotasks();
+      expect(engine.targets.first, (maxBitrateKbps: 30, maxFps: 1.0));
+      clock.elapse(const Duration(seconds: 3));
+      expect(engine.targets.length, 1);
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
 
   test('group audio-only telemetry does not retune video', () {
     fakeAsync((clock) {
@@ -194,12 +215,12 @@ void main() {
         reason: 'clean loss/RTT cannot hide a receiver playout queue',
       );
       clock.elapse(const Duration(seconds: 6));
-      expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
       engine.stats = {...engine.stats, 'audio_playout_ms': 250};
       clock.elapse(const Duration(seconds: 30));
       expect(
         engine.targets.last,
-        (maxBitrateKbps: 30, maxFps: 1),
+        (maxBitrateKbps: 8, maxFps: 0.3),
         reason: 'a borderline audio delay has not earned video recovery',
       );
       engine.stats = {...engine.stats, 'audio_playout_ms': 140};
@@ -231,10 +252,10 @@ void main() {
         'audio_playout_ms': 140,
       };
       clock.elapse(const Duration(seconds: 60));
-      expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
       engine.stats = {...engine.stats, 'audio_playout_ms': 450};
       clock.elapse(const Duration(seconds: 8));
-      expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
       engine.stats = {
         ...engine.stats,
         'audio_playout_reports': 2,
@@ -248,7 +269,7 @@ void main() {
         'audio_playout_ms': -1,
       };
       clock.elapse(const Duration(seconds: 8));
-      expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
       controller.setMicMuted(true);
       clock.flushMicrotasks();
       clock.elapse(const Duration(seconds: 48));
@@ -286,7 +307,7 @@ void main() {
         clock.elapse(const Duration(seconds: 60));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 30, maxFps: 1),
+          (maxBitrateKbps: 8, maxFps: 0.3),
           reason: 'one healthy receiver cannot speak for the silent one',
         );
         engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
@@ -296,7 +317,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 30, maxFps: 1),
+          (maxBitrateKbps: 8, maxFps: 0.3),
           reason: 'losing a receiver must release bandwidth for audio',
         );
         engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
@@ -308,7 +329,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 30, maxFps: 1),
+          (maxBitrateKbps: 8, maxFps: 0.3),
           reason: 'the newly connected receiver has not yet reported audio',
         );
         controller.update(_call(self, [alice, bob], video: true));
@@ -323,7 +344,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 30, maxFps: 1),
+          (maxBitrateKbps: 8, maxFps: 0.3),
           reason: 'unreadable native stats cannot keep full video',
         );
         engine.stats = healthy;
@@ -333,7 +354,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 30, maxFps: 1),
+          (maxBitrateKbps: 8, maxFps: 0.3),
           reason: 'a failed query must still apply the reduced video target',
         );
         engine.throwStats = false;
@@ -343,7 +364,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 30, maxFps: 1),
+          (maxBitrateKbps: 8, maxFps: 0.3),
           reason:
               'cached reports from a stalled audio worker cannot grow video',
         );
@@ -395,7 +416,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 30, maxFps: 1),
+          (maxBitrateKbps: 8, maxFps: 0.3),
           reason: 'unmute restores every-receiver audio protection',
         );
         controller.stop();
@@ -723,6 +744,9 @@ class _FakeTransport implements GroupMediaChannelTransport {
 }
 
 class _FakeEngine implements GroupAudioEngine {
+  _FakeEngine({this.supportsLowRateVideo = true});
+  @override
+  final bool supportsLowRateVideo;
   final List<NodeId> added = [];
   final List<NodeId> removed = [];
   final Map<String, int> rx = {};
@@ -733,7 +757,7 @@ class _FakeEngine implements GroupAudioEngine {
   final List<bool> audioStartMuted = [];
   Map<String, dynamic> stats = const {};
   bool throwStats = false;
-  final List<({int maxBitrateKbps, int maxFps})> targets = [];
+  final List<({int maxBitrateKbps, double maxFps})> targets = [];
   bool acceptTarget = true;
 
   @override
@@ -743,9 +767,9 @@ class _FakeEngine implements GroupAudioEngine {
   }
 
   @override
-  bool setVideoBitrate({required int maxBitrateKbps, required int maxFps}) {
+  bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) {
     if (!acceptTarget) return false;
-    targets.add((maxBitrateKbps: maxBitrateKbps, maxFps: maxFps));
+    targets.add((maxBitrateKbps: maxBitrateKbps, maxFps: maxFps.toDouble()));
     return true;
   }
 
