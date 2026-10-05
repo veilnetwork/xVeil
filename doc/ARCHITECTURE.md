@@ -1745,7 +1745,7 @@ reverse rang after 0.343 s, active after 1.446 s. The first call transitioned
 from relay to P2P; the second stayed P2P. Primary expiry ran physically (maximum
 local counters: Blackview 542, Poco 304). Workers stayed responsive. Audio still
 paused: maximum sampled native receive age 4132/4279 ms in the first call and
-633/665 ms in reverse. NetEq interruptions were 15/22 and 8/5, respectively.
+633/665 ms in reverse. Maximum reported NetEq interruption counts were 15/22 and 8/5, respectively.
 All owned apps, log readers and ADB forwards were closed; package-prefixed
 process absence was independently checked. Artifacts are the private
 /private/tmp/xveil-audio-2195-{summary,native,logs,network}.json and
@@ -1799,3 +1799,63 @@ Build 2196 will include the source feedback and readiness fix. Its packaging,
 installation, paired quality/load tests and ratchet investigation are pending.
 This is a measured improvement, not completion of every media isolation route,
 group call, sustained fallback or audio quality requirement.
+
+
+Build 2196 physical audio and video/file results
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Build 2196 packages root 50139485 / Veil 1fc2cfcc. Both installed APKs were
+pulled in full and their hashes verified, including Poco's matching signature.
+Both contain verified ARM64 production-feature Rust and unchanged 92-export
+media engine libraries. Private build manifest:
+/private/tmp/xveil-audio-build-2196.json.
+
+Two further 120-second audio calls completed with Poco on cellular. Poco ->
+Blackview rang in 0.183 s and became active in 3.089 s; reverse 0.541/1.769 s.
+The first upgraded relay -> P2P; reverse stayed P2P. Native receive ages peaked
+at 480/481 ms first and 2082/2087 ms reverse (Blackview/Poco). Maximum reported
+NetEq interruption counts were 6/5 and 24/29; route rebuilds reset engine
+counters, so these are not summed whole-call interruption totals. All media
+workers remained responsive. Neither phone logged delivery.decrypt_failed or
+unopenable replies in this campaign. Readiness sends were bounded to at most
+one per second (27/24 over both calls including startup/fallback), rather than
+an immediate mutual reply loop. This limited run does not establish that every
+ratchet-restart case is resolved.
+
+Blackview's external ICMP remained <=52.7 ms with no incomplete probes;
+Poco reached 921 ms, with repeated 571-855 ms samples during the second call.
+Both thermal statuses were 0. Those independent network excursions are real,
+but do not by themselves account for every audio interruption. Primary QUIC
+loss/expiry counters also rose. Artifacts:
+/private/tmp/xveil-audio-2196-{summary,native,logs,network}.json and
+/private/tmp/xveil-audio-load-2196.json.
+
+A separate physical video call added an 8 MiB random file Poco -> Blackview
+24.656 s after placing the call. The full file was exported in 105.45 s and its
+SHA-256 matched the source. The API's progress snapshot reported 8388607 bytes
+while the verified export actually contains all 8388608 bytes. This proves
+file completion, not media isolation: native receive age reached 17280 ms on
+Blackview and 20647 ms on Poco. Both video_rx_frames counters remained zero;
+the adaptive sender had fallen to 1 kbps / 0.02 fps. Workers stayed responsive.
+The call recovered through relay and completed, but this quality/isolation
+gate FAILS. The new source admission regression is therefore insufficient to
+close the physical video/file competition defect.
+
+At the blackout, logs show keepalive timeout reaping the direct peer session
+(unacked ~5 s, genuine data stale ~6 s), several relay-session closures and
+slow ordered body reads. The realtime receiver already records authenticated,
+replay-checked child progress in its shared activity tracker. Next investigation
+must distinguish actual transport silence, IPC/source backlog and ordered
+stream scheduling; a keepalive close alone does not prove missing child
+liveness accounting. Actual SDK byte-stream traffic also needs a session-runner
+integration test: the new synthetic load harness exercised a raw canonical
+QUIC file writer, not the full SDK/IPC/file-serving route.
+
+Artifacts: /private/tmp/xveil-av-file-load-2196.json,
+/private/tmp/xveil-av-file-2196-{native,logs,network,live-failure}.json and
+/private/tmp/xveil-av-file-2196-run.log. Both owned file fixtures were removed,
+only the campaign's download was cancelled/checked, both app processes and
+owned ADB forwards were closed, and reader subprocess exits were verified.
+An independent ps -A check found no package-prefixed process on either phone;
+ADB forwards are empty. Source edits are committed unsigned and unpushed.
+Physical quality, SDK file isolation, usable video, group-media and sustained
+fallback requirements remain open.
