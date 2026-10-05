@@ -2020,3 +2020,66 @@ early-check timer body fails the actual pre-grace assertion. Private logs:
 /private/tmp/xveil-call-closed-direct-{tests,negative,analyze}.log.
 Build 2198 with these changes requires packaging and fresh paired validation;
 build 2197 on the phones still has the observed 15 s recovery outage.
+
+
+Build 2198 physical validation and pending-prologue restart regression
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Build 2198 contains root 156eef4d / Veil e29411cf with the unchanged 92-export
+media library. Both installed APKs were pulled and verified against their
+manifests. Final session gate: 381 passed, five existing ignored.
+
+Two 120 s audio calls completed with Poco on cellular. Poco -> Blackview
+ring/active times: 0.997/3.238 s; reverse: 0.486/1.565 s. The first call
+falls back to relay; the reverse stays P2P. The early closed-session recovery
+actually fires on Poco. First-call direct sessions reap at epochs
+1791222817.775 / 1791222818.089 with swap_attempts=1, rather than the earlier
+trigger storm. This demonstrates execution, not adequate recovery quality:
+maximum native receive ages are 10969/15953 ms (Blackview/Poco) in that call,
+and 2938/2860 ms in reverse. Both workers stay responsive. Reported NetEq
+interruption maxima are 14/27 and 36/34; counters reset across media rebuilds,
+so these are not summed whole-call totals. Both relay IPC failure counters
+stay zero. Source relay_send samples continue during the later asymmetric
+Poco receive blackout; receiver ingress samples disappear until after the
+sender rebuild. Independent Poco ICMP recovers during that later blackout.
+This does not identify the dropping hop; a successful IPC enqueue is not
+end-to-end receipt. Quality is still failing.
+Private /private/tmp/xveil-audio-load-2198.json and
+/private/tmp/xveil-audio-2198-{summary,native,logs,network}.json.
+
+The fresh video/file campaign did not start a call: its file offer remained
+unavailable for the 30 s wait. Restored conversations were reported usable,
+but physical logs contain kind=1 and kind=0 authentication failures and signed
+unopenable replies, including repeated resets. This is not a loaded quality
+result. /private/tmp/xveil-av-file-2198-{run.log,native.json,logs.json}.
+All owned apps, ADB forwards, readers and the file fixture were closed/removed;
+independent ps -A checks confirmed no package-prefixed processes on both phones.
+
+A real dispatcher regression reproduces a separate cold-cache mistake:
+a sender awaiting its first answer attaches its original prologue to each
+new frame. The receiver restores the held conversation before certificate
+caches warm, but peer_identity_for_payload accepts only bare frames for that
+held context. It instead tries the physical envelope address as the AEAD
+identity and asks the sender to reset. The unchanged code fails the regression.
+The bounded context lookup now also accepts a retained prologue, with matching
+local/sending instances and a unique held identity. Unsupported versions/kinds,
+wrong recipients and ambiguous contexts fail closed. The ordinary ratchet open
+still verifies AEAD, refuses replays and requires verified device authorship
+and freshness for replacement prologues. The context neither authorizes a
+physical device nor refreshes a certificate nor teaches a route. The regression
+checks valid delivery after restore, forgery/replay rejection, identical held
+state on refusal, no reset reply, and rejection of a new unverified prologue.
+This fixes a reproduced reset cause; it does not establish that every physical
+restart/ratchet failure above has the same cause.
+
+Final gates: 263 dispatcher and 123 E2E tests pass, including the strengthened
+pending-prologue regression. IPC suite: 118 passed, five existing ignored.
+Production-feature FFI Clippy passes. Private
+/private/tmp/xveil-pending-prologue-{negative,regression,full-gates,clippy}.log.
+
+The existing local stand trace switch also enables bounded, sparse origin
+relay-admission observations: source/destination/first hop, local slot,
+accepted/refused counts and generic datagram-transport availability. Off by
+default, one observation per key/second with at most 256 retained keys. It
+parses no media, changes no relay policy or wire field, and explicitly measures
+only queue admission. New physical campaigns must correlate it with receiver
+ingress before assigning the asymmetric blackout to any hop or path.
