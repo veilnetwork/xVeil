@@ -1735,3 +1735,67 @@ and signature/library hashes verified, but its last verified installed build
 is 2193. Skip the superseded 2194 APK on return; install/verify both phones
 at 2195 before launching a paired stand. No phone call/media quality gate was
 completed in this cycle. Source edits are committed unsigned and unpushed.
+
+
+Build 2195 paired physical validation and endpoint load feedback
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both phones now have verified build 2195. Two 120-second audio calls completed
+with Poco on cellular. Poco -> Blackview rang after 0.247 s, active after 4.002 s;
+reverse rang after 0.343 s, active after 1.446 s. The first call transitioned
+from relay to P2P; the second stayed P2P. Primary expiry ran physically (maximum
+local counters: Blackview 542, Poco 304). Workers stayed responsive. Audio still
+paused: maximum sampled native receive age 4132/4279 ms in the first call and
+633/665 ms in reverse. NetEq interruptions were 15/22 and 8/5, respectively.
+All owned apps, log readers and ADB forwards were closed; package-prefixed
+process absence was independently checked. Artifacts are the private
+/private/tmp/xveil-audio-2195-{summary,native,logs,network}.json and
+/private/tmp/xveil-audio-load-2195.json.
+
+Do not infer ratchet success from the absence of literal Rust enum names:
+physical logs contain kind=1 authentication failures, missing/dropped
+conversations, signed unopenable replies, and a refused kind=0 PQ downgrade.
+The earlier replay correction therefore does not close the physical ratchet
+problem. These failures remain under investigation; no authentication or PQ
+check is bypassed.
+
+A separate concrete control defect was found: a fresh P2P readiness signal
+provoked another readiness signal even after both peers had upgraded, allowing
+a mutual reply loop. Only the first readiness transition now triggers an
+immediate check; heartbeat repetition remains at five seconds. All 116
+call-service tests pass, including repeated fresh readiness with no replies
+and one heartbeat retry. Disabling only this guard fails the real count
+assertion (23 announcements instead of 3).
+
+Veil 1fc2cfcc adds endpoint-local pressure feedback from the prepared primary
+connection's actual RTT (>150 ms) or increasing expired-packet counter, with a
+two-second hold. Under pressure, new reliable admission uses the existing
+1 KiB window instead of the independent 16 KiB budget; only local BULK lossy
+production is limited to one complete probe per 200 ms. Neutral INTERACTIVE
+traffic never selects or resets this gate; ChildCarrier forwarding bypasses
+it. Wire fields, relay priority, authentication and replay policy are unchanged.
+
+The new harness binds two genuinely distinct child QUIC connections to the
+canonical session using exporter-bound HELLO/ACK and fresh child keys, behind
+one neutral FIFO link (1 Mbps, 20 ms one-way). It sends 50 primary frames/s,
+overloads the secondary source at 100 padded cells/s and streams a reliable
+file. No role or QoS is visible to the link. The denominator is all 500 source
+attempts, including admission drops. Under padded-primary load, baseline
+received 160/500 with p95 age 454 ms; feedback received 467/500 with p95 287 ms.
+Short-primary load changes 489/500, p95 311 ms -> 487/500, p95 249 ms. File and
+secondary data both progress; file content is checked, but this short source
+harness does not prove complete large-file export/hash or perceptual quality.
+
+The automatic padded-load gate requires >=450/500 received, p95 <350 ms,
+maximum receive gap <300 ms, no duplicates and competing-producer progress.
+Interleaved neutral classes must remain admitted. Disabling only pressure
+observation fails this actual gate at 168/500, p95 448 ms. Source verification:
+381 session tests (5 manual ignored), 114 transport tests and 7 doctests pass;
+production-feature FFI Clippy passes with warnings denied. Logs:
+/private/tmp/xveil-bound-independent-{load,pressure,pressure-regression,pressure-negative}.log,
+/private/tmp/xveil-independent-pressure-{source-gates,clippy}.log and
+/private/tmp/xveil-call-readiness-storm-{test,negative}.log.
+
+Build 2196 will include the source feedback and readiness fix. Its packaging,
+installation, paired quality/load tests and ratchet investigation are pending.
+This is a measured improvement, not completion of every media isolation route,
+group call, sustained fallback or audio quality requirement.

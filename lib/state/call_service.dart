@@ -1180,8 +1180,12 @@ class CallService {
             _canUpgradeP2P(upgrade) &&
             sig.protocolVersion >= kCallLateP2PUpgradeMinVersion &&
             sig.transport?.kind == CallTransportKind.p2p) {
+          final firstReadiness = !_lateP2PPeerReady;
           _lateP2PPeerReady = true;
-          unawaited(_checkLateP2P());
+          // Each announcement used to provoke another announcement from its
+          // peer, even after both routes were active. Heartbeats already repeat
+          // readiness for lost signals; only the first transition needs a reply.
+          if (firstReadiness) unawaited(_checkLateP2P());
           break;
         }
         final c = _current;

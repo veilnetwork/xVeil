@@ -1793,9 +1793,19 @@ void main() {
         async.flushMicrotasks();
         expect(media.switches, [CallTransportKind.p2p]);
         expect(svc.current?.transport, CallTransportKind.p2p);
-        fake.onCallSignal!(peer, ready('late'));
-        async.flushMicrotasks();
+        final afterUpgrade = announcements();
+        // Distinct fresh signals, not merely a retransmitted timestamp: two
+        // peers repeating readiness must not sustain a reply feedback loop.
+        for (var i = 0; i < 20; i++) {
+          fake.onCallSignal!(peer, ready('late'));
+          async.flushMicrotasks();
+        }
+        expect(announcements(), afterUpgrade);
         expect(media.switches.length, 1);
+        media.rxAt = clock.now();
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(announcements(), afterUpgrade + 1);
         svc.dispose();
         async.flushMicrotasks();
       });
