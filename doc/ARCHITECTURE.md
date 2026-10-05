@@ -2083,3 +2083,57 @@ default, one observation per key/second with at most 256 retained keys. It
 parses no media, changes no relay policy or wire field, and explicitly measures
 only queue admission. New physical campaigns must correlate it with receiver
 ingress before assigning the asymmetric blackout to any hop or path.
+
+
+Build 2199 paired load and publication-pause experiment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Verified build 2199 contains root 3877306d / Veil 1ec4e7cf. The cold file offer
+arrived; video call ring/active times were 1.233/5.223 s. The complete random
+8 MiB file downloaded in 179.09 s and matched SHA-256. The API progress field
+again reports N-1, but the exported full N bytes are verified. The call lasted
+about 200 s, with initial relay then P2P. Maximum sampled native audio receive
+ages: Blackview 2624 ms / Poco 2673 ms; p95 448/461 ms. NetEq interruption
+maxima: 22/25, durations 13985/16303 ms, not whole-call sums across rebuilds.
+Workers stayed responsive; decoded remote_frames reached 203/80. Severe
+adaptation reduced Blackview's video target to 1 kb/s, so usable sustained
+video is not claimed. Source progress remained gradual; no shared IPC HELD
+warning was captured. The local origin relay-admission trace emitted 10/13
+rows. Physical ratchet errors remain: 54/52 delivery.decrypt_failed log rows,
+so a successful offer does not close the restart problem.
+Private /private/tmp/xveil-av-file-load-2199.json and
+/private/tmp/xveil-av-file-2199-{summary,native,logs,network,live-diagnostics}.json.
+
+Two subsequent 120 s Poco -> Blackview audio calls stayed P2P. Baseline maximum
+receive ages: 2408/2415 ms. In the second call only periodic native publication
+was paused from relative 24.073 to 84.158 s, then restored. Within that interval
+ages still reached 1096/1110 ms (p95 884/911); after publication resumed they
+reached 3338/3357 ms. Pausing publication therefore does not eliminate pauses;
+these different physical traces are insufficient to assign all residual loss
+or to deploy a permanent pause. Publication switches were restored in cleanup.
+Private /private/tmp/xveil-publish-audio-{load-2199,2199-summary,2199-native,
+2199-logs,2199-network}.json. Both apps and owned readers/forwards were closed;
+independent ps -A checks confirmed package process absence on both phones.
+
+Confirmed unresolved crossed-init defect
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A standalone regression seals A's and B's first messages BEFORE either side
+opens a message, then delivers both prologues in either order. Both stores
+replace their own pending root with the peer's root. B's next bare frame fails
+AEAD at A; the roots disagree. The reproduction fails on the current source:
+/private/tmp/xveil-crossed-init-negative.log. It is retained as the explicitly
+ignored simultaneous_initiations_converge_before_the_next_bare_frame test,
+not counted as a passing gate. Run with --ignored to reproduce.
+
+A prototype retained the lexicographically smaller identity/instance's pending
+root after verifying a competing prologue. That made the crossed-init test
+pass, but broke the existing a_peer_re_opening_a_conversation_we_never_heard_
+back_on_is_followed recovery contract by refusing the first genuine message.
+The prototype was removed. No deferred-init production change is installed
+or committed. The resolver must preserve first-message delivery, existing
+unanswered-peer recovery, authenticated device/instance binding, replay safety
+across restore, and bounded key retention. An immediate authenticated convergence
+control or a bounded temporary second receive chain needs those gates before
+adoption; discarding a first message merely to choose a root is insufficient.
+This is a reproduced protocol race, not proof that every physical ratchet
+error above comes from it. Audio quality, relay blackholes and this race remain
+open, with the goal active.
