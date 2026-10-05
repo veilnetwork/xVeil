@@ -1414,3 +1414,38 @@ missing ratchet conversation; this is evidence to investigate, not proof that
 ratchet persistence is their cause. Both apps independently absent, own forwards,
 readers and fixture removed; own pending downloads cleared. Further campaigns
 must retain startup ratchet diagnostics along with call/content logs.
+
+
+### Partial ordered frames stall independent sources (2026-10-05)
+
+2186 shows both endpoints continuing native media submission while the parent
+runner waits 6.4–6.5 s for an ordinary body, alongside a 7.074 s ordered write.
+The runner selected only the first header byte, then awaited the remaining
+header, inbound-memory reservation and body outside its scheduling select.
+Thus independent QUIC sender connections still depended on a blocked parent
+loop to dequeue new source frames.
+
+Ordered reads now retain partial header/body cursors inside the select.
+Cancellation preserves exact bytes, the node-wide body permit and absolute
+body/budget deadlines; outbox and source-channel scheduling continue meanwhile.
+Real body progress updates liveness without classifying transit traffic as
+local media. A replacement stream during a partial frame closes the session
+rather than discarding encrypted bytes under an unchanged implicit nonce.
+
+Two tests with actual runners and independent QUIC connections deliberately
+leave both parents with incomplete headers or bodies. Both fail on the old
+runner (zero independent progress) and pass with the reader fix. Three reader
+tests verify repeated cancellation, exact consecutive frames, the unchanged
+body deadline and size rejection before reservation/allocation. The final
+378 session tests (three ignored), 102 runner tests (one ignored), and
+production FFI Clippy passed. Physical verification proceeds in build 2189.
+
+2188 restored four ratchet conversations on Poco and one on Blackview, all
+accepted; the missing-conversation replies in 2187 do not by themselves prove
+that persistence lost state. No PayloadTooLarge was observed after the outbox
+fix. Both 60 s audio and 165 s video calls stayed active through relay, with
+no direct admission during this campaign. Cold rings took 19.198/16.027 s;
+maximum accepted-audio age reached 7.711 s. Both files timed out at 120 s,
+with actual partial exports of 2.5/4.5 MiB, so no full-hash success is claimed.
+Both own app processes absent, own downloads cleared and forwards/readers/four
+fixture paths removed. Earlier P2P results are separate route evidence.
