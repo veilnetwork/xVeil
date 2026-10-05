@@ -509,3 +509,27 @@ hash were verified. Blackview reached ready real-stack startup with no active
 call; its process and owned debug API forward were independently verified
 absent after closing. Poco remains absent in ADB; its signed 2164 APK is
 prepared, and installation plus loaded-call/acoustic verification are pending.
+
+### Separate admission budgets for local loss-tolerant traffic
+
+The session scheduler no longer puts all loss-tolerant sources into one
+64-frame admission pool. Local queue classes have independent 64-frame limits;
+a primary audio burst cannot evict another source's frames or lose its older
+packets merely because a newer video/background burst occupied that shared
+pool. Each class discards its own oldest lossy packet at capacity, leaving its
+reliable FIFO intact. Ordinary neutral transit retains one INTERACTIVE budget
+and equal treatment of forwarded users. Wire formats, relay priorities and
+transport-role signaling are unchanged. The 500-ms age bound and aggregate
+4096-frame cap stay in place; admitted lossy capacity across all four local
+classes is now at most 256 frames rather than 64 total.
+
+Gates: 363 session unit tests (3 existing ignored), 2 real encrypted-stream
+SessionRunner checks and 18 real-QUIC opaque/parallel/rekey checks passed.
+The mixed-burst regression checks all 256 received frames, exact bytes and
+order within each source. Reinstating shared admission drops primary packets
+0..31 and retains only 64 of the 256 queued frames; restoring separation passes.
+Counter checks include restore, expiration and aggregate-pressure shedding.
+Production session Clippy with warnings denied and Android ARM64 Rust build
+passed. These stand results do not measure physical playout/acoustic delay or
+establish independent opaque connections through the previously observed old
+first-hop relays.
