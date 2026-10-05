@@ -190,6 +190,17 @@ Uint8List _callMediaHash(Iterable<List<int>> parts) {
   }
 }
 
+/// Relay envelopes name the physical device even when P-Net is admitted.
+/// Only direct session media is received under the authenticated identity.
+@visibleForTesting
+NodeId callMediaRoutePeer(Call call, {required bool sessionAdmitted}) {
+  if (call.transport == CallTransportKind.onion) return call.mediaPeer;
+  if (call.transport == CallTransportKind.p2p && sessionAdmitted) {
+    return call.mediaIdentity;
+  }
+  return call.peerDevice ?? call.peer;
+}
+
 /// Open the media datagram channel for the route [call] negotiated, sealing it
 /// with the already-derived directional keys.
 ///
@@ -205,17 +216,6 @@ Uint8List _callMediaHash(Iterable<List<int>> parts) {
 /// PRIVATE on purpose: [openSealedCallMediaChannel] is the only entry point, so
 /// no caller can acquire a shortcut that reaches an open without deriving the
 /// keys first.
-/// Relay envelopes name the physical device even when P-Net is admitted.
-/// Only direct session media is received under the authenticated identity.
-@visibleForTesting
-NodeId callMediaRoutePeer(Call call, {required bool sessionAdmitted}) {
-  if (call.transport == CallTransportKind.onion) return call.mediaPeer;
-  if (call.transport == CallTransportKind.p2p && sessionAdmitted) {
-    return call.mediaIdentity;
-  }
-  return call.peerDevice ?? call.peer;
-}
-
 Future<
   ({
     int channel,
