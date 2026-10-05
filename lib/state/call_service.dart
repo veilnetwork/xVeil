@@ -592,10 +592,6 @@ class CallService {
     _cancelRingTimeout();
     final peerProposedP2P = c.transport == CallTransportKind.p2p;
     final localAllowsP2P = await _localAllowsP2P(c.peer);
-    final peerReachable =
-        peerProposedP2P &&
-        localAllowsP2P &&
-        await _peerReachableWithoutBlockingSignal(c.peer);
     final current = _current;
     if (current == null ||
         current.callId != c.callId ||
@@ -603,18 +599,16 @@ class CallService {
         current.status != CallStatus.ringing) {
       return;
     }
-    _directSessionUnavailable =
-        c.localPosture == CallPosture.direct &&
-        c.peerPosture == CallPosture.direct &&
-        peerProposedP2P &&
-        localAllowsP2P &&
-        !peerReachable;
+    _directSessionUnavailable = false;
+    // Like the offer, the answer expresses policy consent. Actual admission
+    // is checked by the native channel opener, which fails fast to the
+    // permitted relay fallback. Do not hold the answer for a full NAT ladder.
     final transport = negotiateCallTransport(
       local: c.localPosture,
       peer: c.peerPosture ?? CallPosture.anonymous,
       localConsentsP2P: localAllowsP2P,
       peerConsentsP2P: peerProposedP2P,
-      peerReachable: peerReachable,
+      peerReachable: true,
     );
     _set(
       c.copyWith(
@@ -630,7 +624,7 @@ class CallService {
     final answerDevice = c.localPosture == CallPosture.direct
         ? (await _messaging.localDeviceId()).hex
         : null;
-    await _messaging.sendCallSignal(
+    final sendAnswer = _messaging.sendCallSignal(
       c.peer,
       CallSignal(
         callId: c.callId,
@@ -643,6 +637,10 @@ class CallService {
         protocolVersion: _signalProtocolVersion,
       ),
     );
+    if (transport == CallTransportKind.p2p) {
+      unawaited(_peerReachableWithoutBlockingSignal(c.peer));
+    }
+    await sendAnswer;
     // Device fan-out: the ring may still be sounding on this identity's other
     // devices. Tell THEM (never the caller) it was answered here, so their
     // ringing stops without a missed call. `onBehalfOf` carries the caller so
