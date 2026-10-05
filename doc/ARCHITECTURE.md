@@ -794,3 +794,42 @@ by independent process/forward/reader/fixture checks. Both phones retain 2169
 and their identities/data. Physical network gaps, cold-call signaling, P2P
 establishment, reverse-direction file authorization, group/reconnect tests and
 acoustic quality remain open.
+
+
+### Paused publish experiment and origin path diversity
+
+A five-minute standard-2169 audio call with existing RT trace enabled compared
+90 seconds of normal publication, 120 seconds of temporarily paused DHT/ad
+publication, and 90 seconds after restoring it. Blackview/Poco maximum receive
+ages were 3.38/9.72 seconds before pause, 1.01/1.01 seconds while paused and
+1.37/4.55 seconds after restoration. This suggests a background/path interaction,
+but does not prove publication is the sole cause; no production publication
+policy is changed. Both diagnostic switches were reset before applications
+were closed and their process/forward/reader absence independently verified.
+
+Matching authenticated sealed-cell epoch/sequence samples across the phones
+showed median sender-to-receiver intervals of 133 ms Blackview-to-Poco and
+95 ms Poco-to-Blackview, with maxima 16.74 seconds and 1.35 seconds respectively.
+ADB clock midpoint offsets were -147/-154 ms relative to the host, with 73/52 ms
+request intervals; clock error cannot explain the long observed tail. This
+probe uses sparse matching cells, not acoustic timing or a claim that every
+packet exits its sender at the instant of the FFI admission log.
+
+The relay sender previously stopped after the first local queue admission even
+when that hop never delivered promptly. Small (at most 512-byte ciphertext)
+locally primary presealed lossy sends now try up to two distinct first hops.
+Both copies retain exactly the same encrypted payload and content ID, so the
+existing recipient replay/dedup gates accept the earliest arrival once. Secondary,
+background and oversized cells keep one copy; call lifecycle controls retain
+their existing three-hop bound and ACK sends retain their original single-hop
+semantics. No labels, priorities, capability bits, service roles or fields are
+added to network packets. Relay queue policy remains unchanged and neutral.
+This origin redundancy can approximately double bandwidth for the covered
+small cells; it is not an independent-flow negotiation or P2P fix.
+
+The relay send tests cover successful admission at the preferred hop while a
+second copy reaches another hop, a bounded copy count, exclusion of the final
+peer as a relay, matching ciphertext/content ID and unchanged network header
+flags. Twelve relay checks and warnings-denied production FFI Clippy passed.
+Current-build physical quality verification follows separately; no improvement
+is inferred merely from these caller-side tests.
