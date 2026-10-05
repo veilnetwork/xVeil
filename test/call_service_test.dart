@@ -1431,6 +1431,141 @@ void main() {
       expect(fake.sent, isEmpty);
     });
 
+    test('silent direct media recovers without an incoming peer heartbeat', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia();
+        final svc = CallService(
+          fake,
+          now: () => clock.now(),
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'silent-direct',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        media.rxAt = clock.now();
+        fake.sent.clear();
+        async.elapse(kCallMediaRepairAfter - const Duration(milliseconds: 1));
+        async.flushMicrotasks();
+        expect(media.switches, isEmpty, reason: 'honor the receive grace');
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(svc.current?.status, CallStatus.active);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(
+          fake.sent
+              .where((s) => s.type == CallSignalType.transportInfo)
+              .single
+              .transport
+              ?.kind,
+          CallTransportKind.relay,
+        );
+        // Fresh ingress on the recovery path keeps the same call alive.
+        for (var i = 0; i < 6; i++) {
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+        }
+        expect(svc.current?.callId, 'silent-direct');
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+        svc.dispose();
+      });
+    });
+
+    test(
+      'healthy direct ingress does not recover just because health is lost',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia();
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'healthy-direct',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          for (var i = 0; i < 8; i++) {
+            media.rxAt = clock.now();
+            async.elapse(kCallHeartbeatInterval);
+            async.flushMicrotasks();
+          }
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          expect(media.switches, isEmpty);
+          svc.dispose();
+        });
+      },
+    );
+
+    test('concurrent relay announcements join the same route switch', () async {
+      final fake = _FakeMessaging();
+      final media = _GatedRelaySwitchMedia();
+      final svc = CallService(
+        fake,
+        media: media,
+        localAllowsP2P: (_) async => true,
+        peerReachableForP2P: (_) async => true,
+      )..start();
+      addTearDown(svc.dispose);
+      fake.onCallSignal!(
+        peer,
+        const CallSignal(
+          callId: 'relay-flight',
+          type: CallSignalType.offer,
+          media: CallMedia(audio: true),
+          posture: CallPosture.direct,
+          transport: CallTransportProposal(CallTransportKind.p2p),
+        ),
+      );
+      await svc.accept();
+      await pumpEventQueue();
+      for (var i = 1; i <= 2; i++) {
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: 'relay-flight',
+            type: CallSignalType.transportInfo,
+            transport: const CallTransportProposal(CallTransportKind.relay),
+            sentAtMs: i,
+          ),
+        );
+      }
+      await pumpEventQueue();
+      expect(media.switches, [CallTransportKind.relay]);
+      expect(svc.current?.isLive, isTrue);
+      media.relayGate.complete(true);
+      await pumpEventQueue();
+      expect(svc.current?.transport, CallTransportKind.relay);
+      expect(svc.current?.status, CallStatus.active);
+      expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+    });
+
     test('failed P2P repair falls back to relay and tells the peer', () async {
       final fake = _FakeMessaging();
       final media = _FakeMedia()
@@ -3511,6 +3646,19 @@ class _FakeMedia extends CallMediaController {
   Future<bool> setScreenShareEnabled(bool enabled) async {
     log.add('screen:$enabled');
     return enabled ? screenOk : true;
+  }
+}
+
+class _GatedRelaySwitchMedia extends _FakeMedia {
+  final relayGate = Completer<bool>();
+  @override
+  Future<bool> switchRoute(CallTransportKind transport) async {
+    switches.add(transport);
+    // Match native: attempting a second switch during rebuilding fails.
+    if (switches.length > 1) return false;
+    final ok = await relayGate.future;
+    if (ok) openedTransport = transport;
+    return ok;
   }
 }
 
