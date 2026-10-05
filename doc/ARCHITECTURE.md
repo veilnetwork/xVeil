@@ -1668,3 +1668,53 @@ Artifacts: /private/tmp/xveil-quic-blackout-rtt-matrix.log and
 installed APK contents are unchanged; no new build is required for these
 test-only changes. Endpoint queue freshness and paired phone quality remain
 open. Blackview process absence and empty ADB forwards were rechecked.
+
+
+Endpoint primary DATAGRAM expiry
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Veil 6b4f5ad2 adds a 200 ms monotonic deadline only for the endpoint's own
+REALTIME source on a prepared independent sibling. All fragments of one
+frame share the deadline. Capacity queries remove expired packets before
+new admission; packet creation removes expired packets before encryption.
+Ordinary sends, shared fallback, neutral transit, reliable streams and
+congestion-controller settings keep their existing policy. Dropped payloads
+do not reset flow keys, nonces, replay counters or authenticated bindings.
+
+The locked Quinn 0.11.9 / quinn-proto 0.11.15 sources are vendored with
+licenses and registry archive SHA-256 provenance. Only four upstream source
+files differ: the wrapper API, protocol queue, pre-packet expiry hook and
+two regression tests. Their default APIs have no deadline. The extension
+adds no wire field, advertised transport parameter, media role or relay
+priority. An optional local diagnostic reports expired outgoing datagrams
+separately from wire losses. Maintenance and standalone upstream test
+commands are in third_party/veil/third_party/quinn/VEIL_PATCHES.md.
+
+The eight-case actual QUIC blackout matrix compares unchanged and expiring
+queues, with no competing application producers:
+
+  one-way delay   frame        maximum age before / after   fresh after reopen before / after
+  20 ms           short        1890 / 229 ms                 957 / 972 ms
+  20 ms           circuit      2840 / 163 ms                 946 / 946 ms
+  1000 ms         short        8971 / 1204 ms                6706 / 4262 ms
+  1000 ms         circuit      9292 / 1219 ms                6324 / 6337 ms
+
+All cases resume and have no duplicates. Propagation/neutral-router queueing
+remain outside the local deadline. In particular the several-second loss
+recovery is still visible and is not represented as fixed. The final short
+packet regression sees 1889 versus 228 ms age and 83 local expirations.
+Disabling only the production expiry selector makes that regression fail on
+stale delivery. The policy guard checks that shared fallback and every
+non-primary local class, including neutral transit, do not opt in.
+
+Verification: 379 session + 114 transport tests and 7 doctests pass, with
+4 manual session and 1 transport doctest ignored; the subsequently added
+policy guard and final expiry/diagnostic regressions pass separately.
+267 upstream protocol tests and 17 upstream Quinn tests pass (3 ignored).
+Production FFI Clippy passes with warnings denied. No C ABI changed.
+Logs: /private/tmp/xveil-quic-expiry-{blackout-matrix,app-gates,proto-all,
+quinn-all,loss-final,negative-control,production-final-clippy}.log.
+This is source validation, not proof of physical phone quality or every
+route's isolation. Build 2195 will carry the change. Poco is still absent;
+paired validation, replay confirmation, video/file load, fallback, group
+media and sustained playout quality remain pending. Apps were not started
+in this source-only cycle.
