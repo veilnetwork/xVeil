@@ -356,6 +356,17 @@ ARM64 Android media rebuilt with 90 production exports. These are native buffer
 estimates; acoustic two-phone quality and independent flows through the observed
 old first-hop relays remain unverified.
 
+Standard Android debug 2160 (source 76a753e2, Veil f2a49fb8) packages this group
+playout feedback. Production Rust features, ARM64-only ABI, raw/staged/packed
+native hashes, the FFI header contract and absence of native test exports were
+verified. Blackview's in-place install matched the full APK hash. Startup was
+ready/real-stack with no active call; force-stop, absent app processes and
+removal/absence of the owned ADB forward were verified. Native stands and
+Flutter tests exited; no phone test files or transfers were created. Poco's
+signed 2160 APK is prepared but not installed: only Blackview remains visible
+in ADB. Live two-phone/group playout verification and Poco's old stand cleanup
+are still pending.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
