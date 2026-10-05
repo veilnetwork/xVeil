@@ -2318,3 +2318,49 @@ passed with warnings denied. Native cadence smoke, Android production media
 build (92 exports, no test hooks), and actual WebRTC call-plane smoke passed.
 These observations prepare build 2205 phone attribution; they do not solve or
 prove the cause of the remaining physical audio pauses.
+
+Build 2205 physical source/transport attribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both installed full APKs verified (root 675b61b1 / Veil a36cf45b), identities
+preserved, Poco cellular. Two 120 s calls: ring/active 1.057/2.898 and
+1.243/2.319 s. First relay -> P2P, second P2P; audio received 4781/5262
+(epoch sums), then 5173/5594. Quality fails: receive ages 2832/2853 and
+964/873 ms. Source RTP maximum gaps 401/403 and 406/403 ms, local admission
+maximum 1/2 and 3/2 ms, no media worker stalls. In the first steady interval,
+11/15 late Blackview receive samples and all 13 late Poco samples coincide
+with peer source/admission ages <=200 ms. Individually atomic count snapshots
+occasionally differ by one while admission is in progress; no accumulating
+attempt/queue deficit was observed. Do not call such a snapshot a failed send.
+
+At 57.690 s, Poco receive age is 2853 ms while Blackview source/admission
+ages are 4 ms. Blackview independent primary admission continues (51 frames
+in its window), but ACK/UDP receive counts remain fixed, in-flight 17384 bytes
+exceeds cwnd 11575, PTO count four. The reciprocal primary connection shows
+PTO three with occupied cwnd. Generic trace: 596 admission rows, maximum PTO
+four. All eleven generic receive timer groups continue at ~1 s cadence
+(maximum consecutive timestamp gap 1.016 s), arguing against a whole-runtime
+multi-second stop; this does not rule out an individual driver or OS fault.
+Regular ratchet open-failed events 41/30 remain separate and unresolved.
+
+A fresh additional 120 s call (artifact suffix 2205gap) runs independent
+system ping processes to a public address on both phones, 0.5 s cadence, no
+DSCP/priority changes. Ring/active 1.130/4.792 s; direct open initially fails
+on Poco and the call uses relay after Blackview's startup switch. Receive
+ages 4689/6325 ms, packets 5008/4987, interruptions 29/33. No source-app
+mismatch; one startup no-channel event per phone, before stable media.
+Blackview independent ICMP: 343 replies, max RTT 127 ms, max receive gap
+0.580 s. Poco: 319 replies, max RTT 2851 ms, max receive gap 5.866 s.
+The longest Poco probe gap spans call seconds 32.745--38.611 (eight skipped
+sequence numbers); contemporaneous audio ages reach 4689/5549 ms. Another
+3.303 s probe gap at 39.370--42.673 overlaps Poco audio age 6325 ms.
+Thus prolonged reception gaps occur outside xVeil too, on Poco's network/OS
+path. Public ICMP follows a different route and cannot identify the modem,
+carrier, specific relay or OS component, nor explain every media interruption.
+This establishes external-path contribution, not a complete audio quality fix.
+
+Private xveil-audio-2205{,gap}-{source-summary,epoch-summary,native,logs,
+network}.json, xveil-audio-load-2205{,gap}.json, and 2205gap-*-icmp.log.
+All apps, child processes, readers and own forwards closed; scoped remote ping
+PIDs exited, host readers joined and adb probe processes reaped. Independent
+ps/forward checks confirmed cleanup. Quality remains an open gate; relay
+neutrality, authentication and replay rules are unchanged. No push/release.
