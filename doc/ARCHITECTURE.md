@@ -626,3 +626,29 @@ reached ready real-stack startup with no active call; its processes and owned
 API forward were independently verified absent after closing. Poco remains
 absent in ADB; its signed 2167 APK is prepared. Mobile-network load/recovery
 calls and physical playout/acoustic measurements remain pending.
+
+### Keep P2P file opens independent of the chat sender
+
+P2P file opens now use a dedicated SDK client, writer and FFI app sender.
+The previous call used the ordinary chat app handle: `veil_stream_open` holds
+its AppSender mutex while waiting for the remote receipt, which also blocked
+`veil_send` on that handle. Node-side stream opens already run off the IPC
+request loop; the reproduced bottleneck was this caller-side mutex. The new
+sender binds the same `xveil/inbox` app identity at local endpoint 16. Opens
+still address the peer's chat endpoint 0, and incoming streams stay on the
+existing identity/device inboxes. Connection failure and transport disposal
+close the added binding and client. Anonymous streams retain their existing
+hub/circuit ownership. Audio/video already have separate IPC sender clients.
+No service role, deadline or sender endpoint is added to stream wire bytes;
+relay policy remains neutral.
+
+A real C-FFI/SDK/Unix-IPC test holds the remote AppOpen receipt outstanding:
+the shared-sender negative control blocks chat, while the dedicated sender
+delivers it before the receipt is released. Source app IDs and complete
+AppOpen network frames match across both variants; chat uses its original
+source class and payload. Streams, clients, the server and bridge registrations
+are closed after each variant. That test, FFI test-target Clippy with warnings
+denied, 33 focused Flutter tests and transport analysis passed. This verifies
+local sender isolation, not physical call delay or file authorization from a
+previously unknown device. ADB currently exposes only Blackview; physical
+two-phone loaded calls and playout/acoustic measurements remain pending.
