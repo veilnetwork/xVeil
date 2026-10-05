@@ -440,6 +440,17 @@ test forces FIN ahead of withheld DATA, then verifies complete bytes and EOF.
 The provider in the IPC test records calls; it is not a live encryption or
 relay stand. Loaded two-phone audio quality remains unverified.
 
+Standard Android debug 2163 (source 29fa645f, Veil 1d2c0082) contains the
+fallback source policy. Production-feature clippy passed with warnings denied;
+the ARM64 Rust library was rebuilt. Production features, native library hashes
+through APK packaging, FFI header contract and 90 production media exports
+without test hooks were verified. Blackview's in-place install matched the
+full APK hash and reached ready/real-stack with no active call. App processes
+and the owned ADB forward were verified absent after force-stop. No phone
+fixtures or transfers were created; all scoped test processes exited. Poco
+remained absent in ADB. Its signed 2163 APK is prepared; updating it and the
+live loaded-call/acoustic check remain pending.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
