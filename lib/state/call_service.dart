@@ -89,6 +89,11 @@ const Duration kCallStartupLivenessTimeout = kCallRingTimeout;
 /// either anonymous party; two direct parties may only fall back P2P → relay.
 const Duration kCallMediaRepairAfter = Duration(seconds: 10);
 
+/// Query local direct admission only after sustained media silence. A closed
+/// authenticated session is stronger evidence than silence alone; healthy or
+/// unknown sessions retain the ordinary repair grace.
+const Duration kCallDirectSessionSilence = Duration(seconds: 3);
+
 /// Maximum time call setup waits for endpoint exchange, dialing, and native
 /// admission before falling back from a permitted direct route to relay.
 const Duration kCallP2PSetupTimeout = Duration(seconds: 5);
@@ -214,6 +219,10 @@ abstract class CallMediaController {
   /// An identity may have another online device, which is insufficient for
   /// opening this call's direct media channel.
   Future<bool> isDirectPeerAdmitted(Call call) async => false;
+
+  /// Read current LOCAL admission for the answering device, without dialing or
+  /// consulting identity hints. Null means unavailable/unsupported, not closed.
+  Future<bool?> currentDirectPeerAdmission(Call call) async => null;
 
   /// Follow a mutually safe mid-call route change between P2P and non-onion
   /// relay for two direct identities.
@@ -403,6 +412,8 @@ class CallService {
   Call? _current;
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
+  Timer? _directAdmissionTimer;
+  bool _directAdmissionCheckBusy = false;
   StreamSubscription<void>? _screenShareStoppedSub;
   DateTime? _lastPeerSignalAt;
   DateTime? _peerAudioExpectedSince;
@@ -1462,6 +1473,51 @@ class CallService {
     }
   }
 
+  bool _canCheckLostDirectSession(Call call) =>
+      !_disposed &&
+      call.status == CallStatus.active &&
+      call.transport == CallTransportKind.p2p &&
+      call.localPosture == CallPosture.direct &&
+      call.peerPosture == CallPosture.direct &&
+      !_lateP2PBusy &&
+      _relayFallbackFlight == null &&
+      _mediaReceiveNeedsRepair(call, after: kCallDirectSessionSilence);
+
+  Future<void> _checkLostDirectSession(Call call) async {
+    final media = _media;
+    if (media == null ||
+        _directAdmissionCheckBusy ||
+        !_canCheckLostDirectSession(call)) {
+      return;
+    }
+    _directAdmissionCheckBusy = true;
+    bool? admitted;
+    try {
+      admitted = await media
+          .currentDirectPeerAdmission(call)
+          .timeout(const Duration(seconds: 2), onTimeout: () => null);
+    } catch (_) {
+      // A failed query is not proof of a closed session.
+      admitted = null;
+    } finally {
+      _directAdmissionCheckBusy = false;
+    }
+    final current = _current;
+    if (admitted != false ||
+        current == null ||
+        current.callId != call.callId ||
+        current.peer != call.peer ||
+        current.peerDevice != call.peerDevice ||
+        !_canCheckLostDirectSession(current)) {
+      return;
+    }
+    devLog(
+      () =>
+          'xVeil[call-media]: silent direct session closed — early relay recovery call=${call.callId}',
+    );
+    await _recoverSilentDirect(current);
+  }
+
   Future<void> _announceRelayFallback(Call call) => _messaging.sendCallSignal(
     call.peer,
     CallSignal(
@@ -1844,6 +1900,10 @@ class CallService {
     _cancelHeartbeat();
     _lastPeerSignalAt = _now();
     _peerConfirmedAfterConnect = peerAlreadyConfirmed;
+    _directAdmissionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final call = _current;
+      if (call != null) unawaited(_checkLostDirectSession(call));
+    });
     _heartbeatTimer = Timer.periodic(kCallHeartbeatInterval, (_) {
       final c = _current;
       if (c == null || !c.isLive) {
@@ -1906,13 +1966,18 @@ class CallService {
   }
 
   void _cancelHeartbeat() {
+    _directAdmissionTimer?.cancel();
+    _directAdmissionTimer = null;
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _lastPeerSignalAt = null;
     _peerConfirmedAfterConnect = false;
   }
 
-  bool _mediaReceiveNeedsRepair(Call call) {
+  bool _mediaReceiveNeedsRepair(
+    Call call, {
+    Duration after = kCallMediaRepairAfter,
+  }) {
     final media = _media;
     if (media?.isRepairingReceiveSession == true) return false;
     var since = call.connectedAt ?? call.startedAt;
@@ -1924,7 +1989,7 @@ class CallService {
     final aggregateSince = anyRx != null && anyRx.isAfter(since)
         ? anyRx
         : since;
-    if (_now().difference(aggregateSince) >= kCallMediaRepairAfter) return true;
+    if (_now().difference(aggregateSince) >= after) return true;
     final expectedSince = _peerAudioExpectedSince;
     if (media == null ||
         !media.hasAudioReceiveTelemetry ||
@@ -1935,7 +2000,7 @@ class CallService {
     if (expectedSince.isAfter(since)) since = expectedSince;
     final audioRx = media.lastAudioRxAt;
     if (audioRx != null && audioRx.isAfter(since)) since = audioRx;
-    return _now().difference(since) >= kCallMediaRepairAfter;
+    return _now().difference(since) >= after;
   }
 
   void _set(Call call) {
