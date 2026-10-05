@@ -1249,3 +1249,32 @@ pre-poll admission assertion; the source was restored and rerun green.
 Five hole-punch gate/single-flight tests passed; production FFI Clippy clean.
 Physical verification of guard lifetime and source backpressure is pending
 Android build 2182.
+
+
+### Neutral forwarding and legacy relay compatibility (2026-10-05)
+
+The source still emitted a REALTIME Forward trailer and a default zero wire
+priority. Current relays ignored the requested queue priority, but older
+relays could honor it. Forward source headers are now INTERACTIVE regardless
+of local endpoint scheduling. Forwarders normalize legacy REALTIME trailers
+to the neutral INTERACTIVE transport hint, omit other queue hints, and emit
+neutral headers on direct, cached-route and gateway paths. Retry/trace/hop
+fields remain intact. This carries no audio/video role and requests no faster
+relay queue. Existing short-lived, unacknowledged, bounded datagram checks
+still apply.
+
+A new capability extension explicitly negotiates decoding of neutral forwarded
+datagrams. Peers without it receive those frames through the existing ordered
+transport. A real QUIC regression verifies endpoint payload delivery with the
+ordered writer stopped only when negotiated, and actual ordered delivery for
+legacy peers when the writer runs.
+
+Build 2182 physical verification was interrupted by Blackview USB loss before
+ringing; no media result is established. Poco was closed immediately. After
+Blackview returned its remaining test process was force-stopped and independently
+verified absent. Readers/forwards were removed; no file fixtures were created.
+Phone verification continues with build 2183.
+
+Verification: 825 protocol, 116 IPC (5 ignored), 374 session (3 ignored),
+260 dispatcher, and 20 real QUIC runner tests passed; production FFI
+Clippy with warnings as errors passed. Physical build 2183 remains pending.
