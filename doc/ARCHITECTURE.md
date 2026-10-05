@@ -2231,3 +2231,40 @@ fail. Physical verification of the combined correction is pending.
 Private xveil-{relay,warm-relay}-audio-2202-* artifacts under /private/tmp;
 both stands restored original P2P policies and closed apps/readers/forwards.
 Independent ps checks confirmed no package/child processes, adb forwards empty.
+
+Build 2203 explicitly warmed relay media confirmation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Full installed APKs verified on both phones (root 48b39d28 / Veil dabdef5c).
+Before EACH call both physical peers had admitted P-Net sessions, then media
+remained in relay mode by the temporary denied policy. Two 120 s calls received
+5576/5395 and 5687/5937 audio packets. No source-app mismatches; each native
+media epoch stayed stable through its call. The complete silent warm-relay
+failure passes with the combined sender and receive-address correction.
+Ring/active times 1.192/3.159 and 0.730/1.782 s. Quality still fails: maximum
+native receive ages 4381/6657 and 2806/880 ms; interruptions 26/29 and 14/20.
+No native worker stalls or relay IPC failures. Do not equate this attribution
+success with solving the remaining pauses. One no-channel log per phone remains
+in the lifecycle capture; it did not prevent either call's audio flow.
+Private xveil-warm-relay-audio-2203-{attribution-summary,native,logs,
+policy-restoration}.json and xveil-warm-relay-audio-load-2203.json. Warm admission
+prerequisites are recorded per call. Policies restored, apps/readers/forwards
+closed; independent ps/forward checks confirmed cleanup.
+
+A separate native replay regression reproduces a receive-history reset when
+the same call's keys move from an identity address to its physical device:
+a captured valid cell opens twice on current Veil. The existing route-rebuild
+regression used the SAME peer address and did not cover this switch. Fix and
+verification are in progress; no alias authority is being added to reception.
+
+Media replay scope correction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The address-rebind regression fails on the old native implementation at the
+assertion that a captured cell must not open twice. Replay history now uses a
+domain-separated digest of the exact directional receive key, shared across
+identity/device route addresses. This accepts no address aliases and searches
+no unrelated keys. AEAD, the atomic post-authentication replay commit, the
+four-epoch window and eight-entry LRU bounds are retained; digests are RAM-only,
+never logged or persisted, with no raw call-key retention beyond the channel.
+Production-feature native FFI gates: 232 passed / two existing ignored, Clippy
+including tests passed with warnings denied. Private negative/positive logs:
+xveil-media-route-replay-{negative,gates,clippy}.log. New phone build pending.
