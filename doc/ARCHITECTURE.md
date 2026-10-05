@@ -998,3 +998,45 @@ production only, with no relay instruction, wire field or remote priority.
 feedback, confirmed remote playout, bounded recovery and old-engine behavior.
 Physical validation of this new budget remains pending; source authorization,
 P2P convergence and actual independent-hop deployment remain unresolved.
+
+
+### Physical 2177 reserve and remaining congestion
+
+Two 165-second video calls completed on both standard 2177 phones without
+engine reset. The new native video reserve actually applied (1 kbit/s rather
+than 45 kbit/s) during the Poco-origin call, but audio receive ages still
+reached 3.85/9.58 seconds (Blackview/Poco). Matched ciphertext samples reached
+6.27 seconds Blackview-to-Poco and 2.91 seconds in reverse. The opposite call
+had ages below 1.61/1.40 seconds and did not need reserve. This variable real
+network result does not establish a causal acoustic-quality improvement.
+Neither 8 MiB file completed within 120 seconds; source authorization remains
+unresolved on those installed binaries. P2P was still unadmitted, and captured
+QUIC peers still negotiated no opaque independent flow. Owned processes,
+forwards, readers and fixtures were independently absent after cleanup.
+
+### Certified device evidence across relayed ratchet delivery
+
+A contact is stored under its identity, while an anonymous file request names
+its physical device. Ratchet delivery formerly surfaced a device only when the
+outer envelope happened to differ from the opened identity; that outer hint
+was explicitly not an authorization proof. A verified ML-KEM certificate now
+retains its document signing subkey's certified transport device address.
+The bounded ratchet key cache keeps this address beside the exact instance,
+X25519 key and validity window. After AEAD acceptance, the device is selected
+from that exact key while the ratchet entry is still locked, not from an
+independently reread entry or the envelope. Missing, mismatched or expired
+current evidence yields no device. The existing IPC origin-device slot carries
+this verified address to the app, including when the outer sender already
+names the canonical identity. Local reconstructed certificates have no such
+proof. C ABI, ratchet persistence and network encodings do not change.
+
+NAT probes can likewise address that verified physical device from the recent
+certificate cache, while TLS/OVL1 admission still pins the original registered
+identity. Missing, expired, stale, foreign or zero-device certificate evidence
+retains the previous identity target. No endpoint/DHT address claim becomes a
+membership proof. Anonymous refusal, quotas, token gates and relay neutrality
+remain unchanged. 260 dispatcher, 121 E2E, 454 identity, 34 resolver and one
+certificate-target tests passed, plus warnings-denied production FFI Clippy.
+Tests include a relay rewriting the envelope's device, exact opened-key proof,
+expired/mismatched evidence, and current/stale NAT targets. Phone verification
+of file authorization, NAT connectivity and competing traffic follows.

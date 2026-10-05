@@ -190,7 +190,8 @@ extension _MessagingInboundDispatch on MessagingService {
       if (device != null && device != m.src) {
         unawaited(notePeerSeen(device));
         // Which identity this device belongs to, on the same evidence: the
-        // session proved the device and the frame is authenticated as
+        // session or opened-key certificate proved the device, independently
+        // of any outer relay hint, and the frame is authenticated as
         // `m.src`. See [identityOfDevice].
         _identityOfDevice[device.hex] = m.src;
       }
