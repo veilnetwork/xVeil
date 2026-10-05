@@ -1216,3 +1216,36 @@ independent, preserve FIFO and release stalled waiters on close.
 374 session tests passed (3 ignored), 116 IPC tests passed (5 ignored),
 19 actual QUIC runner tests passed; production FFI Clippy clean. Physical
 file SHA verification under call load is pending Android build 2182.
+
+
+### Physical 2181 and punched-runner registration lifetime (2026-10-05)
+
+Build 2181 included authenticated datagram liveness and the exact answering
+device readiness guard. All four calls stayed relay: the guard correctly
+refused upgrades with no current direct admission. Cold Poco ringing still
+took 34.151 s (activation 36.572 s). Reverse audio ringing/activation was
+1.096/6.954 s. First video lasted 165 s but Poco's accepted-audio age reached
+9.614 s; second video ended early after Poco audio silence reached 38.133 s.
+Files did not complete, so this is not a successful load/continuity result.
+Own failed downloads were canceled per case and final cleanup independently
+verified both app processes absent and no forwards/readers/fixtures retained.
+Tracing and publish-pause are SEPARATE flags; rt_trace does not pause DHT
+publishing. The next driver explicitly clears publish_pause to avoid a stale
+experiment setting.
+
+Native logs repeatedly showed nat.udp_punch.session_registered immediately
+followed by session.close of that same outbound link, BEFORE the runner's
+datagram-enabled event. Rust precise async capture moved only referenced
+AttachedDebugSession fields into spawn_punched_outbound's future; the
+unreferenced _guard dropped at the function boundary. Its destructor removed
+the session registration and sender, ending the direct connection before media
+opened. The guard is now explicitly moved into, and retained by, the runner
+future. This changes neither handshake proof nor admission/security policy.
+
+The real spawn-boundary regression verifies registration before first poll,
+during the runner, after transport close, and after cancellation BEFORE first
+poll. Removing only the production guard ownership makes it fail at the
+pre-poll admission assertion; the source was restored and rerun green.
+Five hole-punch gate/single-flight tests passed; production FFI Clippy clean.
+Physical verification of guard lifetime and source backpressure is pending
+Android build 2182.
