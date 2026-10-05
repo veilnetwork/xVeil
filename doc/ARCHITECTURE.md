@@ -833,3 +833,30 @@ peer as a relay, matching ciphertext/content ID and unchanged network header
 flags. Twelve relay checks and warnings-denied production FFI Clippy passed.
 Current-build physical quality verification follows separately; no improvement
 is inferred merely from these caller-side tests.
+
+
+### Current-device regression and nonblocking call offers
+
+Standard debug 2170 (Veil 9f120ffc) exercised two 120-second audio calls
+and a 165-second video call with Poco on cellular and Blackview on its
+existing network. No receive-counter reset or local media rebuild occurred.
+Maximum audio receive ages were 3.58/9.71 seconds in the Poco-originated call
+and 5.88/6.46 seconds in the reverse call (Blackview/Poco respectively);
+origin path diversity has not eliminated the physical gaps. Median native
+audio-delay counters were 224/319 and 370/316 ms. These are not acoustic
+measurements. The reverse-direction 8 MiB fixture download timed out after
+120 seconds without an authenticated full-file result; neither phone logged
+a stream authorization denial for this fixture. This failure remains open.
+Both fixture content IDs were cancelled and absent from pending queues before
+apps, forwards, readers and plaintext fixtures were removed. Independent
+process/forward/reader checks confirmed cleanup. Identities/data were retained.
+
+Outgoing direct calls now send their permitted transport proposal before
+waiting for P2P endpoint preparation. Endpoint preparation runs while ringing;
+its late result cannot change a newer or already accepted call. The proposal
+expresses consent, while callee policy/reachability checks and native admitted
+session checks still gate actual P2P. Anonymous calls do not prepare P2P.
+A missing direct session continues to fall back to relay. This removes the
+previous up-to-five-second wait before the initial signal, not all network
+latency. 110 call, wire, slot and policy/fail-closed checks and focused analyzer
+passed; current physical validation follows separately.
