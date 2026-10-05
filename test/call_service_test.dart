@@ -791,6 +791,48 @@ void main() {
     });
 
     test(
+      'incoming answer does not wait for NAT and announces actual relay fallback',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+          final probe = Completer<bool>();
+          final svc = CallService(
+            fake,
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) => probe.future,
+          )..start();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'cold-incoming',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(fake.sent.first.type, CallSignalType.answer);
+          expect(fake.sent.first.transport?.kind, CallTransportKind.p2p);
+          expect(media.startedWith, [CallTransportKind.p2p]);
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          expect(fake.sent.last.type, CallSignalType.transportInfo);
+          expect(fake.sent.last.transport?.kind, CallTransportKind.relay);
+          probe.complete(false);
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      },
+    );
+
+    test(
       'incoming p2p offer falls back to relay when local policy denies',
       () async {
         final fake = _FakeMessaging();
