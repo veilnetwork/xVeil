@@ -662,3 +662,37 @@ installed APK hash were verified. Blackview reached ready real-stack startup
 with no active call. Its processes and owned API forward were independently
 verified absent after closing. Poco remains absent in ADB; the signed 2168 APK
 is prepared. No new physical call or acoustic result is established.
+
+### Continuous mixed-load verification and remaining live checks
+
+A ten-second encrypted QUIC check now combines 50 primary cells/s, compact
+secondary cells at 2/s and a continuously pending 4 MiB reliable writer over a
+neutral 1 Mbit/s FIFO with 20-ms one-way propagation. It uses the current
+endpoint reliable admission budget and verifies that secondary payloads and
+file bytes actually arrive, rather than merely being submitted. Its final
+run received all 500 primary cells without duplicates, all 20 secondary cells,
+and 91,136 file bytes with checked contents; primary p95 was 124 ms. The file
+remains incomplete in this interval: background throughput gives way to the
+primary source. The fixture checks transport delivery, not native Opus playout,
+full SessionRunner integration, adaptive video actuation or acoustic quality.
+
+Disabling only reliable admission in that same ten-second fixture admitted the
+whole 4 MiB writer, received 460/500 primary cells and raised p95 to 333 ms;
+the quality assertion failed. The exact source was restored afterwards. The
+older ignored characterization still fails with unbounded reliable admission
+and 100 secondary cells/s (72/100 primary received, p95 467 ms). It remains a
+negative characterization, not a claimed passing load gate. The backlog test
+group passes six checks, with those three manual characterizations ignored.
+Session library/test-target Clippy also passed with warnings denied. This
+cycle changes only test fixtures and documentation; installed 2168 production
+binaries remain applicable, and no phone app or log reader was launched.
+
+Completion still needs current-build physical calls on Blackview and cellular
+Poco: sustained simultaneous file/video traffic, native remote-audio feedback
+and playout measurements, reconnection, group receiver coverage, and actual
+first-hop independent-flow negotiation. The last physical observation used
+older binaries and reported `independent=false`; local opaque-QUIC tests do
+not establish deployment support. The previous device-owner file stream
+authorization denials also remain unresolved and must not be bypassed to
+make a load test pass. ADB still exposes only Blackview. No physical acoustic
+claim or complete-goal claim follows from this transport fixture.
