@@ -919,3 +919,21 @@ regression verifies immediate answer, actual relay fallback announcement
 and no change from a late false result. 107 call/native-route/wire/fail-closed
 checks and focused analysis passed. This is a setup fix, not evidence that
 loaded acoustic quality or carrier NAT convergence is solved.
+
+
+### Own background budgets across the node's links
+
+The local primary write-ahead guard was formerly scoped to the same session
+that carried its primary producer. Own background writes on the other links
+kept the ordinary multi-blob allowance, despite sharing the endpoint's radio.
+Session outboxes belonging to one registry now share a three-second local
+producer activity window. The same existing 4 KiB/empty-writer admission guard
+therefore applies to this node's own bulk/background ordered writes on its
+other links too. Whole-frame progress, transit INTERACTIVE FIFO/admission and
+the previous allowance after producer expiry remain intact; another node's
+registry is unaffected. Activity comes only from a local primary lossy/circuit
+source, not remotely asserted priority or relay traffic. There is no new
+wire field, remote role, relay priority request or audio classification.
+369 session checks (three ignored) and warnings-denied production FFI Clippy
+passed, including cross-link sharing, transit isolation, distinct-node
+isolation and expiry. Physical validation of competing loads remains pending.
