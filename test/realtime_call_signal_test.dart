@@ -413,9 +413,55 @@ void main() {
     expect(transport.normalSends, 1);
     expect(
       (await storage.pendingOutboxFrames()).map((f) => f.frameId),
-      contains('call:relay-transition:transportInfo:${peer.hex}'),
+      contains(startsWith('call:relay-transition:transportInfo:')),
     );
   });
+
+  test(
+    'relay fallback and later direct readiness have distinct durable ids',
+    () async {
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      final received = <CallTransportKind?>[];
+      messaging.onCallSignal = (_, signal) =>
+          received.add(signal.transport?.kind);
+      final wires = <Uint8List>[];
+      // Even with equal millisecond timestamps, opposite transitions differ.
+      for (final kind in [CallTransportKind.relay, CallTransportKind.p2p]) {
+        await messaging.sendCallSignal(
+          peer,
+          CallSignal(
+            callId: 'late-admission',
+            type: CallSignalType.transportInfo,
+            transport: CallTransportProposal(kind),
+            sentAtMs: 1000,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        wires.add(transport.lastRealtimePayload!);
+      }
+      final ids = wires
+          .map((wire) => WireEnvelope.decode(wire).frameId)
+          .toList();
+      expect(ids.toSet().length, 2);
+      for (final wire in [...wires, wires.first]) {
+        transport.realtimeInbound.add(
+          InboundMessage(
+            src: peer,
+            payload: wire,
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+      }
+      await pumpEventQueue();
+      expect(
+        received,
+        [CallTransportKind.relay, CallTransportKind.p2p],
+        reason:
+            'a new readiness must pass dedup, while a replay stays suppressed',
+      );
+    },
+  );
 
   test('dedicated realtime inbound stream reaches call signaling', () async {
     final messaging = MessagingService(transport, storage)..start();

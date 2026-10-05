@@ -1875,6 +1875,49 @@ void main() {
       },
     );
 
+    test('delayed initial fallback cannot undo newer direct readiness', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'reordered');
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: 'reordered',
+            type: CallSignalType.transportInfo,
+            protocolVersion: 6,
+            sentAtMs: 2000,
+            transport: const CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        async.flushMicrotasks();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'reordered',
+            type: CallSignalType.transportInfo,
+            protocolVersion: 6,
+            sentAtMs: 1000,
+            transport: CallTransportProposal(CallTransportKind.relay),
+          ),
+        );
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
     test('late switch cannot resurrect a hung-up call', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
