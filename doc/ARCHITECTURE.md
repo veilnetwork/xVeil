@@ -1504,3 +1504,41 @@ losses and congestion events at the existing one-second cadence. This
 separates admitted packets from transport progress, without wire changes or
 relay source classification. Five actual QUIC transport tests and production
 FFI Clippy pass. The next phone campaign uses build 2191.
+
+
+Phone campaign 2191 and durable live-lane restoration (2026-10-05)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both phones remained on their original networks (Poco cellular). Cold
+Poco -> Blackview rang in 0.194 s but caller activation took 20.747 s.
+Blackview sent its answer promptly; the first four rapid retries already
+raced ordinary/direct/relay realtime. Subsequent durable flushes, however,
+used only the ordinary sender, including after restart. Re-drive now
+restores call, group-call and endpoint-bootstrap live paths from the saved
+wire kind after the existing relationship and TTL gates. Contact call
+answers retain identity addressing. Frame-id prefixes cannot promote
+ordinary content into realtime; mailbox eligibility remains unchanged.
+
+A restart regression drops ordinary sends, restores an answer, delivers
+it on realtime, deduplicates a repeated copy, and retires only after the
+recipient ACK. The old implementation fails this regression. Blocked-peer
+and actual-wire-kind tests cover the lane selection boundary.
+
+2191 does not pass the phone quality gate: second audio native arrival
+gaps reach 3.112/3.132 s; video/file load reaches 22.979/26.466 s. Poco's
+independent primary QUIC path shows RTT around 2 s, few received ACKs,
+congestion losses and a full ~4 KiB datagram queue. Blackview closes the
+canonical stream on its body deadline and Poco reconnects later. These
+are observed transport failures, not proof of a particular radio or
+congestion-control cause. The file export did not complete before call
+termination; the stand's bounded future wait expired. Reverse video/load
+was therefore not run. Both started app processes, owned readers, forwards,
+pending fixture downloads and two fixture paths were closed/removed;
+process exit and fixture absence were checked independently.
+
+Verification: 143 call-service/realtime tests pass and scoped Flutter
+analysis is clean. The broader durable suite reports 5 offline-silence
+assertion failures both with this change and with the unchanged HEAD
+outbox (44 passing baseline tests). Its reconnect fixtures expect the
+older silent-peer probe policy, whereas the current policy applies the
+probe gate only to contact mailbox-eligible frames. These baseline
+failures are recorded, not represented as a fully green suite.
