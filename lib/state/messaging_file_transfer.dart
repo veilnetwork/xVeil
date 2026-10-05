@@ -287,6 +287,7 @@ class _MessagingFileTransfer {
       total: chunk.total,
       data: chunk.data,
     ).encode(),
+    background: true,
   );
 }
 

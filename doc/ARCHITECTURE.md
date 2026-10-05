@@ -367,6 +367,25 @@ signed 2160 APK is prepared but not installed: only Blackview remains visible
 in ADB. Live two-phone/group playout verification and Poco's old stand cleanup
 are still pending.
 
+Large group snapshot and shared-document slices now use endpoint-local source
+lane 3 on both initial durable sends and outbox re-drive. The re-drive derives
+the classification from persisted wire kind, so a restart does not restore
+normal-lane scheduling for queued bulk. Legacy small-file body chunks, including
+their NACK re-sends, also use lane 3. Small group/document updates and file
+metadata keep their previous path. Anonymity, frame bytes/ids, ratchet durability,
+ACKs, receiver authorization, mailbox eligibility and relay policy are unchanged;
+transports without optional source-lane support retain the normal fallback.
+
+Gates: 21 scoped bulk-lane, snapshot reassembly and anonymous-routing tests
+passed; scoped analysis found no issues. A fresh messaging service re-drives
+persisted slices with the same payloads, ids, anonymity and source lane.
+Disabling replication classification makes the source-lane regression fail.
+The broader durable re-drive suite has five failures in old generic long-silence
+expectations; all five also fail with both changed source files restored to
+their pre-change versions (baseline log:
+`/private/tmp/xveil-background-replication-baseline-redrive.log`). This cycle
+does not establish a green full suite or live loaded-phone audio quality.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
