@@ -1859,3 +1859,59 @@ An independent ps -A check found no package-prefixed process on either phone;
 ADB forwards are empty. Source edits are committed unsigned and unpushed.
 Physical quality, SDK file isolation, usable video, group-media and sustained
 fallback requirements remain open.
+
+
+Shared IPC file-write isolation (follow-up to build 2196)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The physical chronology is now clearer: the first relay audio receive freeze
+started 20.653 s after placing the call, BEFORE the download request at 24.656 s.
+Independent Poco ICMP probes were already incomplete or above one second before
+the download. Late P2P upgrade occurred at 42.021 s, and the file source first
+served data around 44 s after retrying open. The later P2P receive freeze and
+keepalive reap overlap file transfer, but the first blackout cannot be attributed
+to that transfer. Actual cellular brownouts and endpoint queueing must be
+separated; this change does not establish that all physical pauses are fixed.
+
+A separately reproduced defect existed in the actual app↔node IPC loop:
+remote STREAM_DATA and graceful STREAM_CLOSE awaited reliable source admission
+inline, up to 30 s, delaying subsequent media/control commands on the shared
+connection. A real Unix IPC regression blocks exactly that broadcaster await;
+the old path fails its 250 ms control-response deadline, the new path passes.
+
+The SDK/node negotiate an IPC-only source write credit in APP_HELLO/HELLO_OK.
+Each stream has 8 KiB including 128 bytes charged per frame to bound tiny-write
+allocations. Legacy clients/nodes retain the original behavior. Remote reliable
+writes are queued and their cancellation-safe admission future is polled beside
+IPC requests/delivery. Node admission refunds credit directly through the SDK
+reader; neither a slow file consumer nor exhausted source credit holds the
+shared IPC writer. Local pairs immediately refund successful source admission;
+the separate acceptor read window is unchanged. Data/close retain FIFO order
+and stream ownership/wire leases stay reserved through graceful close. A credit
+violation closes only that stream; foreign clients cannot spend/cancel its
+credit. Disconnect cancels the pending reliable await. Source-window close wakes
+blocked SDK writers with BrokenPipe. No inter-node wire, relay priority,
+authentication, device proof, PQ or replay policy is changed.
+
+Gates: IPC 118 passing / 5 existing ignored; SDK 38 passing at the initial gate,
+28 SDK integration tests passing; 1 SDK doctest passing / 2 existing doctests
+ignored overall. The added SDK close-wakeup test passes separately. Real SDK +
+IPC transfers 512 KiB + 19 bytes across many credit windows, checks every byte
+and ordered close, and admits a direct media cell and control response while
+reliable admission is blocked. The existing opener/bridge SDK file test also
+passes. This fixture ends at FrameBroadcaster; it does not cover an actual
+SessionRunner/crypto/neutral link or establish physical media quality.
+Production-feature FFI Clippy passes with warnings denied before the final small
+SDK close-wakeup addition. Private logs:
+/private/tmp/xveil-ipc-file-{negative,regression}.log,
+/private/tmp/xveil-ipc-credit-gates.log,
+/private/tmp/xveil-sdk-credit-close.log and /private/tmp/xveil-ipc-credit-clippy.log.
+
+An older SDK wire-neutrality assertion expected flags=0 on relay forwarding,
+but the existing production encoder writes constant neutral INTERACTIVE=1.
+It fails identically with legacy negotiation (private
+/private/tmp/xveil-relay-wire-legacy-baseline.log). The assertion now checks that
+existing constant, still compares complete decoded forwarding fields across
+local source classes/deadline APIs, and permits no source-credit/deadline bit.
+The production forwarding encoder was not changed.
+
+Build 2197 packaging, installation and paired physical validation are pending.
