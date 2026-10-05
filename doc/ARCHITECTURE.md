@@ -937,3 +937,25 @@ wire field, remote role, relay priority request or audio classification.
 369 session checks (three ignored) and warnings-denied production FFI Clippy
 passed, including cross-link sharing, transit isolation, distinct-node
 isolation and expiry. Physical validation of competing loads remains pending.
+
+
+### Peer fallback arriving during initial media setup
+
+Physical standard 2174 exposed a real setup race: Poco's native P2P open
+failed fast to the permitted relay and announced transportInfo while
+Blackview's controller was still awaiting its device-status lookup.
+Switching at that point found no active call/session, returned false and
+ended the call. The reverse call reached active relay media in 2.55 seconds.
+Endpoint exchange settled on both phones, but neither canonical identity nor
+physical device had an admitted P2P session at the final check. Thus the NAT
+identity responder fix has not established physical P2P convergence.
+
+The call FSM now remembers a peer relay fallback during connecting and applies
+it after the bounded initial controller start returns. It follows a completed
+P2P attempt, or retains an already opened relay without rebuilding. A setup
+timeout still ends the call: an unresolved underlying future is not a session
+that may safely be switched. Tests cover deferred switching, failed initial
+attempt recovery and a never-returning start with pending fallback plus a late
+success. 108 focused call/native-route/wire/fail-closed tests and analysis
+passed. Both 2174 app processes and forwards were independently absent after
+the stand; new setup/load verification follows separately.

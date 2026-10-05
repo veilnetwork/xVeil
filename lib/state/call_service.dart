@@ -1045,7 +1045,16 @@ class CallService {
             requested == CallTransportKind.relay &&
             c.localPosture == CallPosture.direct &&
             c.peerPosture == CallPosture.direct) {
-          unawaited(_followRelayFallback(peer, sig.callId));
+          if (c.status == CallStatus.connecting) {
+            // The controller may still be resolving its device route and
+            // have no active session to switch. Finish that bounded start
+            // before following the peer's fallback; racing a stop here could
+            // cancel both the initial route and its replacement.
+            _pendingRelayCallId = sig.callId;
+            _pendingRelayPeer = peer;
+          } else {
+            unawaited(_followRelayFallback(peer, sig.callId));
+          }
         }
         // Onion is never accepted here: the original posture negotiation is
         // the only authority that can select it.
@@ -1759,6 +1768,7 @@ class CallService {
     final callId = c.callId;
     final operationEpoch = ++_mediaOperationEpoch;
     bool ok = false;
+    var startTimedOut = false;
     try {
       devLog(
         () =>
@@ -1781,6 +1791,7 @@ class CallService {
           .timeout(
             visual ? kCallVisualMediaStartTimeout : kCallMediaStartTimeout,
             onTimeout: () {
+              startTimedOut = true;
               devLog(() => 'xVeil[call-media]: start timeout call=$callId');
               return false;
             },
@@ -1796,6 +1807,16 @@ class CallService {
         cur.callId != callId ||
         cur.status != CallStatus.connecting) {
       return;
+    }
+    if (!startTimedOut &&
+        _pendingRelayCallId == callId &&
+        _pendingRelayPeer == cur.peer) {
+      _pendingRelayCallId = null;
+      _pendingRelayPeer = null;
+      if (!ok || media.activeTransport != CallTransportKind.relay) {
+        await _followRelayFallback(cur.peer, callId);
+        return;
+      }
     }
     if (ok) {
       final actualTransport = media.activeTransport;
