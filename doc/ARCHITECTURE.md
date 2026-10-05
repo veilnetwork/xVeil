@@ -2364,3 +2364,32 @@ All apps, child processes, readers and own forwards closed; scoped remote ping
 PIDs exited, host readers joined and adb probe processes reaped. Independent
 ps/forward checks confirmed cleanup. Quality remains an open gate; relay
 neutrality, authentication and replay rules are unchanged. No push/release.
+
+Build 2205 audio/video/file source isolation and earlier ACK-pressure gate
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A 177 s active phone video call transfers an actual 8 MiB fixture Poco ->
+Blackview in 156.30 s; the exported file SHA-256 matches. Ring/active
+2.315/7.149 s. Both remote renderers receive video (73/205 texture frames);
+source/transport trace has independently admitted slots for audio and video.
+The native video_rx_frames field is zero and must not substitute for renderer
+coverage. Native source gaps max 401/407 ms, admission max 2/8 ms, no sampled
+video worker stalls. Audio still has receive ages 2237/2147 ms; quality fails.
+Private xveil-av-file-2205-* artifacts include network/independent ICMP, file
+export progress and final SHA verification. Apps/children, own fixtures,
+readers, forwards and remote system probe PIDs closed and independently checked.
+
+A concrete source-admission omission is fixed: while ACKs stop, the stored
+successful RTT can remain low and no unsent datagram may have expired yet.
+LocalReliableAdmission previously allowed competing video bursts in that
+interval. It now observes the authenticated local primary connection's PTO
+count and occupied congestion window, alongside existing RTT/expiry feedback.
+The existing sparse secondary probe, two-second pressure grace and reliable
+window bounds are retained; transit paths neither activate nor consume this
+source policy, and no relay wire role/priority is introduced.
+A real QUIC connection behind the neutral blackout fixture reproduces the
+omission with RTT below 150 ms and zero expired datagrams. The old policy
+fails at the secondary-burst assertion; the fix suppresses the burst, keeps
+one sparse probe and other local classes, and resumes after ACK progress/grace.
+Session gates 383 passed / five existing ignored; production-feature FFI
+Clippy passed with warnings denied. Private xveil-primary-ack-pressure-*
+logs. Build 2206 physical installation and load confirmation are pending.
