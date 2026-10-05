@@ -4,6 +4,56 @@ import 'package:xveil/state/call_audio_receive_activity.dart';
 void main() {
   final start = DateTime.utc(2026, 10, 5);
 
+  test('native arrival time excludes a delayed host timer', () {
+    final activity = CallAudioReceiveActivity();
+    activity.observe({
+      'audio_rx_pkts': 30,
+      'audio_rx_native_age_ms': 20,
+      'worker_stalled': 0,
+    }, start);
+    final delayed = start.add(const Duration(seconds: 3));
+    activity.observe({
+      'audio_rx_pkts': 180,
+      'audio_rx_native_age_ms': 15,
+      'worker_stalled': 0,
+    }, delayed);
+    expect(
+      activity.lastRxAt,
+      delayed.subtract(const Duration(milliseconds: 15)),
+    );
+    // RTCP/video alone cannot refresh a native arrival timestamp.
+    activity.observe({
+      'audio_rx_pkts': 180,
+      'audio_rx_native_age_ms': 4015,
+      'worker_stalled': 0,
+    }, delayed.add(const Duration(seconds: 4)));
+    expect(
+      activity.lastRxAt,
+      delayed.subtract(const Duration(milliseconds: 15)),
+    );
+  });
+
+  test('an unknown native timestamp cannot pretend audio just arrived', () {
+    final activity = CallAudioReceiveActivity();
+    activity.observe({
+      'audio_rx_pkts': 30,
+      'audio_rx_native_age_ms': -1,
+      'worker_stalled': 0,
+    }, start);
+    expect(activity.lastRxAt, isNull);
+    activity.observe({
+      'audio_rx_pkts': 31,
+      'audio_rx_native_age_ms': 25,
+      'worker_stalled': 0,
+    }, start);
+    activity.observe({
+      'audio_rx_pkts': 0,
+      'audio_rx_native_age_ms': -1,
+      'worker_stalled': 1,
+    }, start.add(const Duration(seconds: 4)));
+    expect(activity.lastRxAt, start.subtract(const Duration(milliseconds: 25)));
+  });
+
   test('video and RTCP ingress cannot advance accepted audio activity', () {
     final activity = CallAudioReceiveActivity();
     activity.observe({
