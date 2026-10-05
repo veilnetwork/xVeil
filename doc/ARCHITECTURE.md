@@ -1278,3 +1278,38 @@ Phone verification continues with build 2183.
 Verification: 825 protocol, 116 IPC (5 ignored), 374 session (3 ignored),
 260 dispatcher, and 20 real QUIC runner tests passed; production FFI
 Clippy with warnings as errors passed. Physical build 2183 remains pending.
+
+
+### Physical 2183 and blocking direct-stream Dart writes (2026-10-05)
+
+Both whole installed APK hashes were verified. Poco remained cellular.
+Punched P2P registration now survives and the cold call successfully upgraded
+from relay onto independent direct media connections. Cold ringing/activation
+still took 14.434/17.100 s; reverse audio took 1.402/2.426 s. Both audio calls
+remained active for a minute, but accepted-audio ages reached 1.810 s and
+3.752 s; this is not a clean continuity result. First video stayed active for
+165 s and its Poco-to-Blackview 8 MiB file passed the full exported SHA-256
+check in 84.12 s. Audio still had a 6.334 s receive-age sample and a 1.969 s
+playout-delay sample. Reverse video started in 0.337/1.465 s but Blackview's
+call-state API stopped responding after download started; that case is
+incomplete and cannot count as a successful reverse transfer or call soak.
+Native sealed media continued while the Dart API stalled, distinguishing this
+from USB loss or immediate native P2P connection death.
+
+VeilStream.write wrapped a potentially blocking Rust block_on/write_all in
+Future(), which still runs on the caller isolate. Reliable native source
+backpressure exposed that assumption. Direct stream writes now run on worker
+isolates, with 16 bounded workers and a FIFO gate per stream to preserve byte
+invocation order. Reads remain independent. A queued write rechecks close
+before entering native code; native generational handles/Arc lookup preserve
+in-flight safety. No transport admission or authority policy changes.
+
+The actual Dart FFI regression uses a small ABI-matched test-only C fixture
+whose native write waits for a Dart timer to release it. It verifies a live
+event loop, FIFO bytes and rejection after close. Replacing only Isolate.run
+with Future makes the regression fail at the native bounded wait; the fixed
+source was restored and rerun green (2 tests passed, 1 existing live-daemon
+skeleton skipped). Analyzer clean. Both phone app processes, own readers and
+forwards exited after 2183; four own fixture paths were removed. Blackview's
+API cancellation timed out before force-stop, so do not claim API cleanup on
+that phone was confirmed. Physical verification continues in build 2184.
