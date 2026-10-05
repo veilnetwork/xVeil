@@ -1613,6 +1613,7 @@ void main() {
       int version = 6,
       CallTransportKind proposal = CallTransportKind.p2p,
       CallPosture posture = CallPosture.direct,
+      NodeId? device,
     }) => fake.onCallSignal!(
       peer,
       CallSignal(
@@ -1622,6 +1623,7 @@ void main() {
         posture: posture,
         transport: CallTransportProposal(proposal),
         protocolVersion: version,
+        replyDevice: device?.hex,
       ),
     );
 
@@ -1683,6 +1685,46 @@ void main() {
         async.flushMicrotasks();
         expect(media.switches, isEmpty);
         reachable = true;
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('identity readiness cannot substitute for the answering device', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()
+          ..openedTransport = CallTransportKind.relay
+          ..directPeerAdmitted = false;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        final device = NodeId.fromHex('b' * 64);
+        offer(fake, 'device-admission', device: device);
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(peer, ready('device-admission'));
+        async.flushMicrotasks();
+        expect(media.admissionChecks, isNotEmpty);
+        expect(media.admissionChecks, everyElement(device));
+        expect(media.switches, isEmpty);
+        expect(
+          fake.sent.where(
+            (s) =>
+                s.type == CallSignalType.transportInfo &&
+                s.transport?.kind == CallTransportKind.p2p,
+          ),
+          isEmpty,
+        );
+        expect(svc.current?.transport, CallTransportKind.relay);
+        media.directPeerAdmitted = true;
         async.elapse(kCallHeartbeatInterval);
         async.flushMicrotasks();
         expect(media.switches, [CallTransportKind.p2p]);
@@ -3295,6 +3337,15 @@ void main() {
 /// Records camera/screen toggles; [screenOk] fakes the platform backend
 /// accepting or refusing to start the capture.
 class _FakeMedia extends CallMediaController {
+  bool directPeerAdmitted = true;
+  final List<NodeId> admissionChecks = [];
+
+  @override
+  Future<bool> isDirectPeerAdmitted(Call call) async {
+    admissionChecks.add(call.peerDevice ?? call.peer);
+    return directPeerAdmitted;
+  }
+
   int signalVersion = kCallSignalProtocolVersion;
   bool screenOk = true;
   bool videoOk = true;

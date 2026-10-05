@@ -743,6 +743,19 @@ class VeilCallMediaController implements CallMediaController {
       (VeilMediaNative.guard(requestPlatformScreenCaptureAccess) ?? false);
 
   @override
+  Future<bool> isDirectPeerAdmitted(Call call) async {
+    try {
+      final peer = call.peerDevice ?? call.peer;
+      final session = await _transport
+          .peerPnetStatus(peer.bytes)
+          .timeout(const Duration(seconds: 2));
+      return session.admitted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  @override
   Future<bool> start(Call call) async {
     if (!_microphoneState.belongsToCall(call.callId)) {
       _bitrateAdapter = null;
