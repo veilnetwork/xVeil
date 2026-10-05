@@ -35,6 +35,8 @@ class _RealtimeProbe
   NodeId? lastRealtimeDestination;
   NodeId? lastRelayRealtimeDestination;
   Uint8List? lastRealtimePayload;
+  void Function(NodeId dst, Uint8List payload)? onNormalSend;
+  void Function(NodeId dst, Uint8List payload)? onRealtimeSend;
 
   @override
   Future<NodeId> nodeId() async => me;
@@ -47,6 +49,7 @@ class _RealtimeProbe
   }) async {
     normalSends++;
     lastNormalDestination = dst;
+    onNormalSend?.call(dst, payload);
   }
 
   @override
@@ -60,6 +63,7 @@ class _RealtimeProbe
     lastRealtimeAnonymous = anonymous;
     lastRealtimePayload = Uint8List.fromList(payload);
     if (blockRealtime) await realtimeGate.future;
+    onRealtimeSend?.call(dst, payload);
   }
 
   @override
@@ -165,6 +169,157 @@ void main() {
     );
     addTearDown(transport.dispose);
     addTearDown(storage.close);
+  });
+
+  test(
+    'restored answer retries realtime and retires only after recipient ACK',
+    () async {
+      final sender = MessagingService(transport, storage);
+      await sender.sendCallSignal(
+        peer,
+        const CallSignal(
+          callId: 'restored-answer',
+          type: CallSignalType.answer,
+        ),
+      );
+      await sender.dispose(); // Drops the in-memory fast retry callbacks.
+      final saved = (await storage.pendingOutboxFrames()).single;
+
+      final receiverStorage = HiddenVolumeStorage(_memOpener());
+      await receiverStorage.open(password: 'pw', createIfMissing: true);
+      await receiverStorage.upsertContact(
+        Contact(nodeId: me, status: ContactStatus.accepted),
+      );
+      final receiverTransport = _RealtimeProbe(peer);
+      final receiver = MessagingService(receiverTransport, receiverStorage)
+        ..start();
+      final restored = MessagingService(transport, storage)..start();
+      addTearDown(() async {
+        await restored.dispose();
+        await receiver.dispose();
+        await receiverTransport.dispose();
+        await receiverStorage.close();
+      });
+      final received = Completer<CallSignal>();
+      var deliveries = 0;
+      receiver.onCallSignal = (_, signal) {
+        deliveries++;
+        if (!received.isCompleted) received.complete(signal);
+      };
+      transport.onRealtimeSend = (dst, wire) {
+        expect(dst, peer);
+        expect(WireEnvelope.decode(wire).frameId, saved.frameId);
+        receiverTransport.realtimeInbound.add(
+          InboundMessage(
+            src: me,
+            payload: wire,
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+      };
+      final realtimeBefore = transport.realtimeSends;
+      final relayBefore = transport.relayRealtimeSends;
+      await restored.flushOutbox(); // Ordinary sends continue to be lost.
+      expect(
+        (await received.future.timeout(const Duration(seconds: 1))).type,
+        CallSignalType.answer,
+      );
+      expect(transport.realtimeSends, greaterThan(realtimeBefore));
+      expect(transport.relayRealtimeSends, greaterThan(relayBefore));
+      expect(await storage.pendingOutboxFrames(), hasLength(1));
+
+      // A duplicate live copy is ACKed, but enters the call FSM only once.
+      final ack = Completer<void>();
+      receiverTransport.onNormalSend = (dst, wire) {
+        if (WireEnvelope.decode(wire).kind != WireKind.ack) return;
+        expect(dst, me);
+        transport.inbound.add(
+          InboundMessage(
+            src: peer,
+            payload: wire,
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        if (!ack.isCompleted) ack.complete();
+      };
+      receiverTransport.realtimeInbound.add(
+        InboundMessage(
+          src: me,
+          payload: saved.wire,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await ack.future.timeout(const Duration(seconds: 1));
+      for (var i = 0; i < 50; i++) {
+        if ((await storage.pendingOutboxFrames()).isEmpty) break;
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+      expect(deliveries, 1);
+    },
+  );
+
+  for (final kind in [WireKind.p2pEndpoints, WireKind.groupCallSignal]) {
+    test('restored ${kind.name} retains both realtime paths', () async {
+      final envelope = kind == WireKind.p2pEndpoints
+          ? const WireEnvelope.p2pEndpoints('{}')
+          : WireEnvelope.groupCallSignal(
+              '{}',
+              sentAtMs: DateTime.now().millisecondsSinceEpoch,
+            );
+      await storage.enqueueOutboxFrame(
+        'opaque-legacy-id',
+        peer.hex,
+        envelope.withFrameId('opaque-legacy-id').encode(),
+      );
+      final restored = MessagingService(transport, storage);
+      addTearDown(restored.dispose);
+      await restored.flushOutbox();
+      expect(transport.realtimeSends, 1);
+      expect(transport.relayRealtimeSends, 1);
+      expect(WireEnvelope.decode(transport.lastRealtimePayload!).kind, kind);
+      expect(await storage.pendingOutboxFrames(), hasLength(1));
+    });
+  }
+
+  test('a call frame-id cannot move chat content into realtime', () async {
+    final envelope = const WireEnvelope.reconnect('ordinary');
+    await storage.enqueueOutboxFrame(
+      'call:misleading:answer',
+      peer.hex,
+      envelope.withFrameId('call:misleading:answer').encode(),
+    );
+    final restored = MessagingService(transport, storage);
+    addTearDown(restored.dispose);
+    await restored.flushOutbox();
+    expect(transport.normalSends, 1);
+    expect(transport.realtimeSends, 0);
+    expect(transport.relayRealtimeSends, 0);
+  });
+
+  test('blocked contact cannot re-drive call control on realtime', () async {
+    final sender = MessagingService(transport, storage);
+    await sender.sendCallSignal(
+      peer,
+      const CallSignal(callId: 'blocked-retry', type: CallSignalType.answer),
+    );
+    await sender.dispose();
+    await storage.upsertContact(
+      Contact(nodeId: peer, status: ContactStatus.blocked),
+    );
+    final restarted = MessagingService(transport, storage);
+    addTearDown(restarted.dispose);
+    final before = (
+      transport.normalSends,
+      transport.realtimeSends,
+      transport.relayRealtimeSends,
+    );
+    await restarted.flushOutbox();
+    expect((
+      transport.normalSends,
+      transport.realtimeSends,
+      transport.relayRealtimeSends,
+    ), before);
   });
 
   test(
