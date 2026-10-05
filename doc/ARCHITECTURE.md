@@ -1136,3 +1136,41 @@ SwitchRoute still requires its requested route, so failed late upgrades retain
 the separate failure handling. 151 focused FSM/sealed-channel/realtime checks
 passed, including the existing peer-notified P2P-to-relay repair regression;
 analyzer clean. Physical call survival is pending build 2180.
+
+
+### Physical Android build 2180 and authenticated datagram liveness (2026-10-05)
+
+Four real-phone calls ran with Poco on cellular: audio Poco/BV ringing
+1.058/0.324 s, activation 5.019/1.393 s; video Poco/BV ringing 0.142/0.579 s,
+activation 2.172/2.703 s. The audio upgrade was ATTEMPTED but native admission
+failed at mount, so the first call stayed relay (epochs 1/3). A counter reset
+alone is not proof of direct upgrade. The second audio and first video used
+P2P; the second video stayed relay. Neither video call ended during its 165 s
+observation, but the last relay call needed repair and Poco's accepted-audio
+age reached 24.350 s. Full elimination of pauses remains unverified.
+
+Both 8 MiB file directions now opened authorized direct streams and produced
+server manifests, confirming the identity routing/authorization fixes on the
+phones. Both still timed out at 120 s: partials reached 768 KiB and 3 MiB.
+Source logs queued far more bytes than arrived. Acceptor remote STREAM_DATA
+currently discards send_app_data's false result; source admission/backpressure
+needs a separate follow-up. App processes, forwards, readers and owned
+fixtures were independently closed/removed.
+
+Poco's direct session to Blackview was reaped with the parent reporting
+5.894 s of stale genuine data despite independently received data channels.
+The realtime receiver did not update parent SessionTimers at all. A shared
+per-session atomic monotonic receive timestamp now records only fully
+AEAD-authenticated, replay-checked, eligible complete datagram frames. Parent
+idle/probe checks consume the ACTUAL receive instant, never observation time.
+Relay/circuit data proves ordinary liveness without enabling direct-session
+acceleration. Monotonic timer updates cannot regress a newer ordered receive.
+This changes no wire class, channel role, payload or relay priority.
+
+372 session tests passed (3 ignored), 19 actual QUIC runner tests passed, and
+production FFI Clippy with warnings as errors passed. A real bidirectional
+independent-channel test keeps a parent alive for multiple idle deadlines while
+its main writer is stopped, then verifies silence still reaps it and its child
+connections. Disabling the production datagram-liveness handoff makes this
+regression fail; the source was restored and the full QUIC subset rerun green.
+Phone verification of this liveness fix is pending the next build.
