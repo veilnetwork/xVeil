@@ -743,3 +743,54 @@ from these stands were closed/removed. Both phone process lists and the absence
 of owned forwards/readers/fixtures were independently checked. Physical sound
 quality, the cold offer delay, the one-way media outage, successful bulk-file
 authorization/delivery and the remaining group/reconnect scenarios are unresolved.
+
+
+### Android 2169 physical receipt and successful file direction
+
+Standard debug 2169 (xVeil 0907e39c, Veil 3d8ecee7) packages the corrected relay
+IPC diagnostics. Production Rust features and warnings-denied library Clippy
+passed; generated Rust FFI contract, ARM64-only APK, raw/staged/merged/stripped/
+packed libraries, 92 production media exports without stand hooks, and both
+complete installed APK hashes were verified. Native media remains 2164's
+unchanged production binary. Both phones reached ready real-stack startup;
+Poco's default transport was verified cellular.
+
+Poco-to-Blackview audio rang at 5.94 seconds and both endpoints became active
+at 8.37 seconds. In its 45-second active interval, native audio delay medians
+were 141/203 ms (Blackview/Poco), but receive ages reached 15.55/15.98 seconds.
+Both receive counters paused while native audio transmit packet counters
+continued advancing (roughly 50 packets/s); this was not merely an idle
+DTX interval. No engine reset or repair event occurred. Updated SDK admission/pre-write expiry counters stayed
+zero, sender mutex waits were 0 ms, and observed IPC admission maxima were
+0/1 ms. This narrows the measured caller-side wait hypothesis; it does not
+exclude node/session/relay/receiver loss or establish acoustic quality.
+
+The next Poco-to-Blackview video call rang at 6.13 seconds, became active at
+7.95 seconds and remained active for 165 seconds. A reversed file direction
+(Blackview to Poco) successfully exported all 8 MiB during that call in
+63.4 seconds, with the full-file SHA-256 verified. Its plain-file fallback
+succeeded; P2P stream opens still failed, so this does not establish successful
+P2P stream authorization or resolve the previous Poco-to-Blackview denials.
+No native counter reset occurred. Video targets were 45 kbps at 1.2 fps, with
+202 transmitted frames per phone and 141/188 decoded remote frames. Native
+audio delay medians were 350/362 ms, receive ages peaked at 4.55/3.29 seconds,
+and IPC admission maxima were 2 ms with zero tracked expirations/failures.
+The earlier 38-second outage did not recur in this run; this is not proof it
+is fixed. The native playout counters are not acoustic measurements.
+
+Captured production QUIC events include actual relay forwards on local slots
+0 and 2 with independent=false. Negotiated sessions reported opaque_flows=false
+and independent_available=false; separate opaque connections were therefore
+not demonstrated on these observed links. NAT signaling again timed out and
+both calls used relay fallback. Endpoint exchange knew two peer endpoints on
+each phone; no addresses or identity IDs were persisted in the status receipt.
+This does not identify which remote deployment needs updating or make all
+observed relay sessions equivalent. Relay queue policy remains neutral.
+
+All owned downloads were cancelled only by their fixture content ID after the
+call, and absence from both pending queues was checked. Both applications,
+forwards, readers and the two plaintext fixtures were closed/removed, followed
+by independent process/forward/reader/fixture checks. Both phones retain 2169
+and their identities/data. Physical network gaps, cold-call signaling, P2P
+establishment, reverse-direction file authorization, group/reconnect tests and
+acoustic quality remain open.
