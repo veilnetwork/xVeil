@@ -87,6 +87,67 @@ Call _call({
 );
 
 void main() {
+  group('warm session media attribution', () {
+    final device = _node(0xD2);
+    Call warmCall(CallTransportKind route) => _call(
+      route: route,
+      peerDevice: device,
+      localMediaKey: generateCallMediaKeyContribution(),
+      peerMediaKey: generateCallMediaKeyContribution(),
+    ).copyWith(mediaRoutePeer: _peer);
+
+    test(
+      'relay receives under the device even with an admitted session',
+      () async {
+        final call = warmCall(CallTransportKind.relay);
+        expect(callMediaRoutePeer(call, sessionAdmitted: true), device);
+        final opener = _RecordingOpener();
+        final opened = await openSealedCallMediaChannel(
+          call: call,
+          opener: opener,
+          localNodeId: _self.bytes,
+        );
+        expect(opener.opens.single.dstNode, device.bytes);
+        expect(opened!.peer, device);
+      },
+    );
+
+    test('direct media retains the authenticated identity address', () async {
+      final call = warmCall(CallTransportKind.p2p);
+      expect(callMediaRoutePeer(call, sessionAdmitted: true), _peer);
+      expect(callMediaRoutePeer(call, sessionAdmitted: false), device);
+      final opener = _RecordingOpener();
+      final opened = await openSealedCallMediaChannel(
+        call: call,
+        opener: opener,
+        localNodeId: _self.bytes,
+      );
+      expect(opener.opens.single.dstNode, _peer.bytes);
+      expect(opened!.peer, _peer);
+    });
+
+    test(
+      'failed direct media rebinds relay receive and repair to the device',
+      () async {
+        final call = warmCall(CallTransportKind.p2p);
+        final opener = _RecordingOpener(
+          directFailure: 'direct session not active',
+        );
+        final opened = await openSealedCallMediaChannel(
+          call: call,
+          opener: opener,
+          localNodeId: _self.bytes,
+        );
+        expect(opener.opens.first.dstNode, _peer.bytes);
+        expect(opener.opens.last.dstNode, device.bytes);
+        expect(opened!.peer, device);
+        expect(opened.transport, CallTransportKind.relay);
+        expect(opener.opens.last.txKey, opener.opens.first.txKey);
+        expect(opener.opens.last.rxKey, opener.opens.first.rxKey);
+      },
+    );
+  });
+
   const routes = [
     CallTransportKind.p2p,
     CallTransportKind.relay,

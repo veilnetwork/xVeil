@@ -2204,3 +2204,30 @@ Private artifacts: xveil-relay-audio-{load-2201,2201-native,2201-logs,
 2201-policy-backup,2201-policy-restoration}.json under /private/tmp. Both original
 policies restored; apps/readers/forwards closed. Independent ps checks confirmed
 package and child-process absence; adb forwards empty.
+
+Build 2202 cold and explicitly warmed relay comparisons
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The sender-app fix alone removed source-app mismatch drops but did not resolve
+all silent relay calls. Cold relay-only calls received 5692/6009 and 5943/5836
+audio packets; maximum native ages 2044/2101 and 1908/1964 ms (quality fails).
+Neither physical peer had P-Net admission in that run, so it is not counted as
+proof of the original warm condition. A fresh stand explicitly established
+P-Net admission on both phones BEFORE selecting relay. Both 120 s calls then
+received zero audio/media packets. Source-app mismatch was zero, while native
+media ingress reported no-channel drops: incoming physical device IDs differed
+from the controller's registered identity peer. Generic datagram receive and
+dispatch continued; this second rejection occurs before the media cipher.
+
+The controller had also chosen the identity receive address from admission
+alone, ignoring the negotiated relay route. Relay now always selects the
+physical device from the authenticated call signal. Direct media retains the
+identity for an admitted session. If direct channel creation falls back to
+relay, the opener returns the actual physical peer so channel reuse, liveness
+counters and repairs stay bound to the channel that was really opened. No
+receive alias search, weakened source-app gate, cipher or relay policy change.
+Focused sealing/sender/service gates: 139 passed; analysis clean. Restoring the
+old receive choice or fallback address separately makes the new regression
+fail. Physical verification of the combined correction is pending.
+Private xveil-{relay,warm-relay}-audio-2202-* artifacts under /private/tmp;
+both stands restored original P2P policies and closed apps/readers/forwards.
+Independent ps checks confirmed no package/child processes, adb forwards empty.
