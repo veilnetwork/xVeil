@@ -210,8 +210,13 @@ abstract class CallMediaController {
   /// route kind, be idempotent/rate-limited, and return whether media is usable.
   Future<bool> repairRoute() async => true;
 
-  /// Follow a mutually safe mid-call fallback. The only currently valid switch
-  /// is P2P -> non-onion relay for two direct identities.
+  /// Whether the answering device itself has an admitted native session.
+  /// An identity may have another online device, which is insufficient for
+  /// opening this call's direct media channel.
+  Future<bool> isDirectPeerAdmitted(Call call) async => false;
+
+  /// Follow a mutually safe mid-call route change between P2P and non-onion
+  /// relay for two direct identities.
   Future<bool> switchRoute(CallTransportKind transport) async => false;
 
   /// Non-sensitive live transport counters for diagnostics. Implementations
@@ -472,8 +477,14 @@ class CallService {
             !stillCurrent()) {
           return;
         }
-        _lateP2PLocalReady = true;
       }
+      // Admission can disappear between heartbeats while we await the peer.
+      // Withdraw local readiness before announcing or opening a stale route.
+      if (!await media.isDirectPeerAdmitted(c) || !stillCurrent()) {
+        _lateP2PLocalReady = false;
+        return;
+      }
+      _lateP2PLocalReady = true;
       await _messaging.sendCallSignal(
         c.peer,
         CallSignal(
