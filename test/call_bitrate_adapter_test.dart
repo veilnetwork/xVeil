@@ -8,10 +8,10 @@ void main() {
   CallBitrateAdapter direct() =>
       CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60, initialLevel: 0);
 
-  ({int maxBitrateKbps, int maxFps})? good(CallBitrateAdapter a) =>
+  ({int maxBitrateKbps, double maxFps})? good(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 0, txDrops: 0);
 
-  ({int maxBitrateKbps, int maxFps})? lossy(CallBitrateAdapter a) =>
+  ({int maxBitrateKbps, double maxFps})? lossy(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
 
   test('new calls reserve bandwidth for audio before feedback arrives', () {
@@ -21,8 +21,8 @@ void main() {
         baseFps: base == 900 ? 60 : 15,
       );
       final initial = a.target;
-      expect(initial.maxBitrateKbps, base == 900 ? 45 : 30);
-      expect(initial.maxFps, 1);
+      expect(initial.maxBitrateKbps, base == 900 ? 45 : 8);
+      expect(initial.maxFps, base == 900 ? 1.2 : 0.3);
       for (var i = 0; i < 60; i++) {
         a.onNativeStats({'audio_feedback_reports': 0});
       }
@@ -33,6 +33,56 @@ void main() {
       }
       expect(a.target, initial);
     }
+  });
+
+  test('one-fps routes have five genuinely distinct video budgets', () {
+    for (final base in [30, 45]) {
+      final adapter = CallBitrateAdapter(
+        baseBitrateKbps: base,
+        baseFps: 1,
+        initialLevel: 0,
+      );
+      final targets = [adapter.target];
+      for (var rung = 1; rung < CallBitrateAdapter.ladder.length; rung++) {
+        lossy(adapter);
+        targets.add(lossy(adapter)!);
+      }
+      expect(targets.map((t) => t.maxFps), [1, 0.5, 0.25, 0.1, 0.02]);
+      expect(targets.map((t) => t.maxBitrateKbps).toSet().length, 5);
+      expect(targets.last.maxBitrateKbps, 2);
+      for (final t in targets) {
+        expect(t.maxBitrateKbps, lessThanOrEqualTo(base));
+        expect(t.maxFps, inInclusiveRange(0.02, 1));
+      }
+    }
+  });
+
+  test('older native libraries retain their effective integer budget', () {
+    final adapter = CallBitrateAdapter(
+      baseBitrateKbps: 30,
+      baseFps: 1,
+      supportsLowRateVideo: false,
+    );
+    expect(adapter.target, (maxBitrateKbps: 30, maxFps: 1.0));
+    var calls = 0;
+    expect(
+      adapter.applyPendingTarget((_) {
+        calls++;
+        return true;
+      }),
+      isTrue,
+    );
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      good(adapter);
+    }
+    expect(
+      adapter.applyPendingTarget((_) {
+        calls++;
+        return true;
+      }),
+      isNull,
+    );
+    expect(calls, 1);
   });
 
   test('new video grows one rung per sustained healthy audio interval', () {
@@ -269,13 +319,13 @@ void main() {
 
   test('bottom rung limits video cadence and never goes lower', () {
     final a = direct();
-    ({int maxBitrateKbps, int maxFps})? last;
+    ({int maxBitrateKbps, double maxFps})? last;
     for (var i = 0; i < 20; i++) {
       last = lossy(a) ?? last;
     }
     expect(a.level, CallBitrateAdapter.ladder.length - 1);
     expect(last!.maxBitrateKbps, 45);
-    expect(last.maxFps, 1);
+    expect(last.maxFps, 1.2);
     // Further bad samples keep the floor.
     for (var i = 0; i < 10; i++) {
       expect(lossy(a), isNull);
@@ -304,7 +354,7 @@ void main() {
 
   test('high RTT degrades, unknown RTT (0) does not', () {
     final a = direct();
-    ({int maxBitrateKbps, int maxFps})? r;
+    ({int maxBitrateKbps, double maxFps})? r;
     for (var i = 0; i < 3; i++) {
       r = a.onSample(rttMs: 500, txJitterMs: 5, txLossPct: 0, txDrops: 0) ?? r;
     }
@@ -420,38 +470,35 @@ void main() {
         baseFps: 15,
         initialLevel: 0,
       );
-      final cadence = <int>[a.target.maxFps];
+      final cadence = <double>[a.target.maxFps];
       for (var rung = 1; rung < CallBitrateAdapter.ladder.length; rung++) {
         expect(lossy(a), isNull);
         cadence.add(lossy(a)!.maxFps);
       }
-      expect(cadence, [15, 8, 4, 2, 1]);
+      expect(cadence, [15, 7.5, 3.75, 1.5, 0.3]);
       // A two-second burst must not restore full video pressure on audio.
       expect(good(a), isNull);
       expect(good(a), isNull);
-      expect(a.target.maxFps, 1);
+      expect(a.target.maxFps, 0.3);
       for (var i = 2; i < CallBitrateAdapter.recoverAfter; i++) {
         good(a);
       }
-      expect(a.target.maxFps, 2);
+      expect(a.target.maxFps, 1.5);
     },
   );
 
-  test(
-    'weak anonymous video stays within the native minimum and route cap',
-    () {
-      final a = CallBitrateAdapter(
-        baseBitrateKbps: 150,
-        baseFps: 15,
-        initialLevel: 0,
-      );
-      for (var i = 0; i < 30; i++) {
-        lossy(a);
-        expect(a.target.maxBitrateKbps, inInclusiveRange(30, 150));
-      }
-      expect(a.target, (maxBitrateKbps: 30, maxFps: 1));
-    },
-  );
+  test('weak video can release bandwidth below the old native floor', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 150,
+      baseFps: 15,
+      initialLevel: 0,
+    );
+    for (var i = 0; i < 30; i++) {
+      lossy(a);
+      expect(a.target.maxBitrateKbps, inInclusiveRange(1, 150));
+    }
+    expect(a.target, (maxBitrateKbps: 8, maxFps: 0.3));
+  });
 
   test('a rebuilt encoder starts with the reduced audio-preserving budget', () {
     final a = direct();
@@ -463,7 +510,7 @@ void main() {
     // route. A missing new report must retain the call's previous decision.
     a.invalidateAppliedTarget();
     a.onNativeStats({'audio_feedback_reports': 0});
-    var replacement = (maxBitrateKbps: 900, maxFps: 60);
+    var replacement = (maxBitrateKbps: 900, maxFps: 60.0);
     expect(
       a.applyPendingTarget((target) {
         replacement = target;
@@ -471,20 +518,23 @@ void main() {
       }),
       isTrue,
     );
-    expect(replacement, (maxBitrateKbps: 45, maxFps: 1));
+    expect(replacement, (maxBitrateKbps: 45, maxFps: 1.2));
   });
 
-  test('a low-cadence profile always retains at least one video frame', () {
-    final a = CallBitrateAdapter(
-      baseBitrateKbps: 150,
-      baseFps: 5,
-      initialLevel: 0,
-    );
-    for (var i = 0; i < badSamplesToFloor; i++) {
-      lossy(a);
-    }
-    expect(a.target.maxFps, 1);
-  });
+  test(
+    'a low-cadence profile retains sparse video without rounding to one fps',
+    () {
+      final a = CallBitrateAdapter(
+        baseBitrateKbps: 150,
+        baseFps: 5,
+        initialLevel: 0,
+      );
+      for (var i = 0; i < badSamplesToFloor; i++) {
+        lossy(a);
+      }
+      expect(a.target.maxFps, 0.1);
+    },
+  );
 
   test('anonymous profile never exceeds its route budget', () {
     final a = CallBitrateAdapter(
