@@ -2575,3 +2575,57 @@ separation and the raw writer path are also checked. Full Session gates:
 385 passed / six existing manual ignored; final focused gate and production
 FFI Clippy with warnings denied pass. Phone build 2209 and actual video/file
 coverage are pending. Transport recovery and bidirectional ratchet remain open.
+
+
+Build 2209 control-admission physical regression coverage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Full installed APK SHA-256 verified on both phones, root 5b06e606 / Veil
+27a8af98, production Rust features, ARM64 only, unchanged production media
+library (92 exports, no test hooks). Identities preserved; Poco cellular.
+
+Poco -> Blackview video plus actual 8 MiB file: ring/active 0.217/4.534 s.
+Download took 234.96 s; exported bytes match SHA-256 (API progress still ends
+at 8388607/8388608, so the progress counter alone is not completion proof).
+Both cameras active; 280/287 decoded video frames. Audio receive packet epoch
+sums 11745/11960. Max receive ages after startup 3080/3107 ms, so audio quality
+still fails. Source max gaps 261/404 ms, queue-admission max 2/4 ms; no sampled
+audio/video worker stall. Occasional attempt/queued difference is at most one
+and can be a nontransactional in-progress admission. No ordinary ratchet open
+failure observed in this capture; the known bidirectional-root defect remains
+unfixed. Independent system ICMP: BV max RTT 75.3 ms / gap 0.528 s, Poco
+1570 ms / 5.051 s; different destination, not proof of the cause of every pause.
+
+Two subsequent 120 s audio-only calls, Poco -> BV then BV -> Poco:
+ring/active 1.479/5.617 and 0.441/2.758 s. Audio packet epoch sums 5759/5530,
+then 5362/5829. After-startup receive ages 2408/2422, then 811/363 ms.
+Source queue admission max 2/3, then 1/4 ms; no sampled worker stall.
+Both directions still miss the full receive-gap quality gate. No ordinary
+ratchet open failure observed; no security rule or key check was relaxed.
+
+The audio-only network probes show no increase in kernel UDP receive/send
+buffer errors and zero observed app UDP socket drops. During the actual call
+intervals BV ICMP max RTT/gap 49.7 ms/0.507 s, Poco 2287 ms/2.995 s. The much
+larger whole-capture Poco ICMP gap (14.944 s, max RTT 9360 ms) occurs before
+the first call during startup, and must not be presented as an active-call
+audio outage. Sampling cannot rule out every local scheduling delay.
+
+Refined private transport attribution matches producer first_send events
+(local REALTIME AppRtData) to each authenticated parent, then selects that
+parent/slot's independent admission observations. AV traces have 255/252
+matched primary observations, PTO up to four, sampled ACK plateaus 2.040/
+2.223 s and increasing outgoing expiry. Quiet traces have 241 observations
+per phone, PTO up to three/two, plateaus 1.010/2.026 s. These are stronger
+associations than arbitrary nearby QUIC rows, but not a packet-level proof:
+child replacement can split generations, no TLS exporter is logged, and
+system ICMP follows a different destination. Source admission remains short
+while transport delivery/ACK progress stalls. The controlled neutral-outage
+fixture from the earlier cycle independently demonstrates excess QUIC
+recovery delay; bounded authenticated recovery remains to be implemented.
+
+Private xveil-av-file-2209-* and xveil-audio-2209quiet-* retain paired samples,
+source/primary correlations, network and cleanup evidence; build manifest
+retains installed hashes. Apps including package child processes exited;
+own forwards/readers, two file fixtures, pending own downloads and scoped
+remote ICMP PIDs removed/reaped. Independent ps/forward checks confirm cleanup.
+Both phones retain 2209. No push/tag/release. Goal remains active: delivery
+recovery and bidirectional ratchet transitions are not declared repaired.
