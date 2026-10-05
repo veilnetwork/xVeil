@@ -1338,3 +1338,28 @@ reliable admission during local primary activity is a candidate for this
 remaining file slowdown, pending controlled measurement; do not call it proven.
 Both own pending downloads were canceled, both app processes independently
 verified absent, own readers/forwards exited and four fixture paths removed.
+
+### Physical 2185 admission evidence and signaling isolation (2026-10-05)
+
+Two 30 s audio probes and one 165 s Blackview-to-Poco video call stayed active;
+accepted-audio ages stayed at or below 1.022 s in this shorter campaign.
+This does not supersede the longer earlier pauses. The file again timed out
+at 120 s without a verified hash. Opt-in counters recorded 13,807 source-slot-0
+admissions and 1,705 complete-frame buffer admission drops on Poco, versus
+13,569/339 on Blackview; neither endpoint recorded outbound-cap drops. Counts
+are admission observations, not proof of packets delivered on the network.
+Both pending downloads were cleared, both app processes independently verified
+absent, own forwards/readers exited and two fixture paths removed.
+
+The FFI signaling API already stamps the XVSG application discriminator, but
+used the same local source slot as native audio. It now selects local BACKGROUND
+for its loss-tolerant datagrams, obtaining the separate generic source channel.
+Native media keeps its explicit primary/secondary source choices. The wire
+AppRtData classifier and payload are unchanged; the source choice is stripped
+at the IPC encoder and no relay receives an audio or signaling queue role.
+A test using the actual C entry point, SDK and Unix IPC server captures local
+BACKGROUND, legacy wire priority zero with no IPC lane bits, and unchanged
+application bytes/address/endpoint. It passed; production FFI Clippy and the
+Dart blocking-write/FIFO regression passed. The C ABI signature is unchanged;
+regenerated header documentation updated the matched Rust/Dart contract hash.
+Phone verification of this isolation proceeds in build 2186.
