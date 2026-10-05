@@ -7810,6 +7810,17 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// restored through the same product path after the run.
   Future<void> _p2pPolicy(HttpRequest req) async {
     if (!_requireReady(req)) return;
+    if (!req.uri.queryParameters.containsKey('value')) {
+      ref.read(p2pPolicyProvider);
+      final stored = await ref
+          .read(storageProvider)
+          .getSetting(kP2PGlobalPolicySettingKey);
+      return _json(req, {
+        'ok': true,
+        'value': ref.read(p2pPolicyProvider).name,
+        'stored': stored,
+      });
+    }
     final raw = req.uri.queryParameters['value']?.trim();
     final policy = P2PGlobalPolicy.values.where((value) => value.name == raw);
     if (policy.isEmpty) {
@@ -7819,8 +7830,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             'value must be one of ${P2PGlobalPolicy.values.map((v) => v.name).join(',')}',
       }, status: 400);
     }
-    await ref.read(p2pPolicyProvider.notifier).set(policy.single);
-    await _json(req, {'ok': true, 'value': policy.single.name});
+    final persisted = await ref
+        .read(p2pPolicyProvider.notifier)
+        .set(policy.single);
+    await _json(req, {'ok': persisted, 'value': policy.single.name});
   }
 
   /// `/p2p_status?peer=<hex>` → live admission status + what the endpoint
