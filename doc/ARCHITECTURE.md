@@ -425,6 +425,21 @@ test processes exited. Poco remained absent in ADB; its signed 2162 APK is
 prepared, and its update, prior stand process verification and two-phone
 loaded-call test remain pending.
 
+The anonymous stream datagram fallback now also uses source lane 3 for valid
+DATA cells and their retransmissions. Pacing, cell bytes, destination and
+authenticated anonymous routing are retained. Controls and undecodable cells
+keep the ordinary path. The source choice adds no wire role or relay policy;
+the pinned-circuit DATA backend already selected this lane.
+
+Gates: 20 anonymous-stream/media-route tests and four mux fault tests passed.
+The new fallback test drives the production CellSender through the real SDK
+and Unix IPC to the authenticated anonymous-send boundary; it checks exact
+bytes/address and source lane for DATA, repeat DATA, all stream controls and
+malformed cells. Restoring ordinary-lane DATA makes it fail. A StreamMux/driver
+test forces FIN ahead of withheld DATA, then verifies complete bytes and EOF.
+The provider in the IPC test records calls; it is not a live encryption or
+relay stand. Loaded two-phone audio quality remains unverified.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
