@@ -1313,3 +1313,11 @@ skeleton skipped). Analyzer clean. Both phone app processes, own readers and
 forwards exited after 2183; four own fixture paths were removed. Blackview's
 API cancellation timed out before force-stop, so do not claim API cleanup on
 that phone was confirmed. Physical verification continues in build 2184.
+
+For remaining direct media losses, opt-in rt_trace now counts per local slot
+accepted datagrams, complete-frame buffer admission drops and outbound cap
+drops, logging at most once per second per slot. It adds no wire role or queue
+priority, and never logs media plaintext or keys. It distinguishes source
+admission loss from transport/receive loss; disabled tracing does no counting.
+20 real QUIC runner tests and production FFI Clippy passed. Android build 2185
+is prepared for these measurements after the ongoing 2184 stand ends.
