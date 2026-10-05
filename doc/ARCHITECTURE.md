@@ -897,3 +897,25 @@ foreign again. Twelve NAT tests, including current identity/device acceptance,
 foreign forwarding and retired-identity rejection, plus warnings-denied
 production FFI Clippy passed. This does not establish P2P convergence through
 older remote coordinators or permissive carrier NAT.
+
+
+### Answer signaling before the NAT ladder
+
+Standard 2171 produced incoming rings at 1.09/1.41 seconds; active media
+was observed at 8.08/4.31 seconds (Poco/Blackview origin). Standard 2172's
+audio-only maximum receive ages were 1.58/1.97 seconds and 3.40/3.68 seconds,
+but video plus the original-direction file fixture reproduced 15.20/20.75
+second gaps with one Blackview media rebuild. The full-file fallback failed
+and the source logged 42 unmapped-requesting-device denials. Those defects
+remain open; transport preference alone is insufficient.
+
+Accepting a permitted P2P proposal no longer waits for the full reachability
+ladder before sending the answer. Both proposals express mutual policy
+consent; the existing native admitted-session check is the authoritative
+gate for opening P2P. Its failure selects the permitted relay route and
+announces that actual transport to the peer. Anonymous and policy-denied
+calls retain their existing route restrictions. A never-resolving probe
+regression verifies immediate answer, actual relay fallback announcement
+and no change from a late false result. 107 call/native-route/wire/fail-closed
+checks and focused analysis passed. This is a setup fix, not evidence that
+loaded acoustic quality or carrier NAT convergence is solved.
