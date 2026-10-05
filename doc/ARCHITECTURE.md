@@ -1189,3 +1189,30 @@ announcement or switch, then admits that exact device and observes the upgrade.
 153 focused call/realtime/sealed-channel tests passed; analyzer clean.
 Physical verification is pending Android build 2181, which also includes the
 authenticated datagram parent-liveness fix.
+
+
+### Reliable source backpressure across native scheduling (2026-10-05)
+
+Remote stream DATA now awaits source admission on both opener and acceptor
+sides. Each session has 64 endpoint-only reliable credits retained across
+ingress and scheduler buffering; draining ingress cannot renew capacity or
+shed already admitted stream bytes. Those entries share the existing local
+BACKGROUND FIFO/WRR but are protected by their separately bounded credits.
+Ordinary/transit capacity and wire INTERACTIVE headers remain unchanged;
+relay frames cannot acquire these credits. Registry locks are released before
+awaiting. A 30 s admission timeout reports failure instead of hanging forever.
+Graceful OPEN/DATA/CLOSE use the same admission and lane. Disconnect/error
+cleanup remains best effort and does not delay process teardown.
+
+Acceptor remote DATA previously ignored false admission. Merely closing the
+IPC local-pair table is also insufficient for a REMOTE inbound stream, which
+has no entry there. Failure now releases ownership, attempts peer close and
+explicitly notifies the originating SDK with STREAM_CLOSE. Native Unix IPC
+regression covers that notification and rejects subsequent writes on the
+released route. Capacity tests retain all 64 admitted frames through scheduler
+overflow, block frame 65 even after ingress drained, keep primary ingress
+independent, preserve FIFO and release stalled waiters on close.
+
+374 session tests passed (3 ignored), 116 IPC tests passed (5 ignored),
+19 actual QUIC runner tests passed; production FFI Clippy clean. Physical
+file SHA verification under call load is pending Android build 2182.
