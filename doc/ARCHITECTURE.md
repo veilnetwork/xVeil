@@ -2509,3 +2509,39 @@ identity/instance/reload recipient gate passes; production-feature FFI Clippy
 passes with warnings denied. This repairs a reproducible attachment fallback
 omission; its contribution to the physical fourteen-second delay is not yet
 established. Build 2208 installation and cold phone coverage are pending.
+
+Build 2208 control attachment physical coverage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Full installed APK SHA-256 verified on both phones (root cbfe5d70 / Veil
+ddae2171), original identities preserved, Poco default network cellular.
+Two 120 s audio calls: ring/active 0.177/2.713 and 1.176/2.189 s. Before the
+first call neither phone had admitted the peer identity/device session; its
+transport changes relay -> P2P. The second call uses P2P. Received answer ages
+reported by the device clocks are 8/207 ms, not independent network RTT proof.
+The fourteen-second answer delay did not recur in this capture; this does not
+prove all cold attachments or the sole cause of the previous delay.
+
+Audio packets 5652/5668 (epoch sums), then 5192/5738. Receive ages 1805/1795,
+then 2467/2482 ms, so quality still fails. Source RTP gaps max 402/402 then
+400/402 ms, admission max 1/3 then 2/3 ms, no sampled audio/video worker stalls.
+Independent system ICMP: Blackview 598 replies, max RTT 74.7 ms and gap 0.528 s;
+Poco 585 replies, max RTT 1528 ms and gap 3.647 s. Neither route correlation
+alone nor those aggregate values establish a cause for every media pause.
+
+Ordinary app.ratchet.open_failed events recur: 140/97. Captured failures include
+authentication, dropped conversations, no-session and retained-prologue PQ
+downgrade refusals (missing ML-KEM leg), rather than benign unavailable-message
+keys. This is an unresolved crypto/session failure, not passed replay coverage.
+It was also present in earlier 2206 runs, absent in 2207 quiet/load captures;
+these varying traces cannot establish whether the new addressing copy affects
+the race. The isolated same-ciphertext duplicate gate passes, but does not
+cover all bidirectional ratchet/root transitions. No crypto checks were relaxed.
+Do not attribute these ordinary AppData failures directly to inner-key media
+AppRtData reception, which uses the separate per-call cipher.
+
+Private xveil-audio-2208quiet-{native,logs,network,transport}.json and
+xveil-audio-load-2208quiet.json retain actual phone evidence; build/installed
+APK manifests retain hashes. Apps including package child processes exited,
+owned forwards/readers and scoped remote ICMP PIDs removed/reaped, independently
+verified with ps/forward checks. Both phones retain 2208. Audio transport
+recovery and bidirectional ratchet transitions remain open. No push/release.
