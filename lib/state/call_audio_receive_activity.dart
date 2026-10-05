@@ -44,7 +44,15 @@ class CallAudioReceiveActivity {
     }
     workerStalledSince = null;
     final count = packets.toInt();
-    if (count > _lastPackets) lastRxAt = now;
+    final nativeAge = stats['audio_rx_native_age_ms'];
+    if (count > 0 && nativeAge is num && nativeAge.isFinite && nativeAge >= 0) {
+      lastRxAt = now.subtract(Duration(milliseconds: nativeAge.toInt()));
+    } else if (!stats.containsKey('audio_rx_native_age_ms') &&
+        count > _lastPackets) {
+      // Older media libraries expose only the counter. A new library's
+      // unknown timestamp must stay unknown rather than look freshly received.
+      lastRxAt = now;
+    }
     _lastPackets = count;
     final delay = stats['audio_delay_ms'];
     // Only a successfully queried audio worker supplies a playout estimate.

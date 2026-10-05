@@ -30,7 +30,11 @@ void main() {
       )!;
       expect(back.audioPlayout!.sequence, 17);
       expect(back.audioPlayout!.delayMs, 540);
-      expect(back.protocolVersion, kCallAudioPlayoutFeedbackMinVersion);
+      expect(back.protocolVersion, kCallSignalProtocolVersion);
+      expect(
+        back.protocolVersion,
+        greaterThanOrEqualTo(kCallAudioPlayoutFeedbackMinVersion),
+      );
       final unknown = CallSignal.tryDecode(
         const CallSignal(
           callId: 'quality',
