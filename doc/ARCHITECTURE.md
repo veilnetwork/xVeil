@@ -1040,3 +1040,54 @@ certificate-target tests passed, plus warnings-denied production FFI Clippy.
 Tests include a relay rewriting the envelope's device, exact opened-key proof,
 expired/mismatched evidence, and current/stale NAT targets. Phone verification
 of file authorization, NAT connectivity and competing traffic follows.
+
+
+### Physical Android call follow-up: build 2178 (2026-10-05)
+
+Both real paired phones retained their identities; Poco used cellular data.
+Two video calls ran for 165 seconds after activation. Poco-originated ringing
+was 1.050 s, activation 4.615 s; Blackview-originated ringing was 0.491 s,
+activation 3.167 s. The first call stayed on relay (one engine epoch); the second
+used admitted direct P2P on both phones (one engine epoch). Native direct
+sessions negotiated opaque independent channels and sent on local slots 0 and
+2. A session becoming available after initial fallback did not upgrade the
+already active first call.
+
+Audio still had receive gaps: maximum accepted-audio ages were 1.533/2.637 s
+on Blackview/Poco for relay and 3.681/4.916 s for direct. Maximum direct RTT was
+969/810 ms; reported local playout estimates reached 834/1754 ms. These are
+endpoint telemetry, not an acoustic end-to-end measurement. Direct admission
+alone does not establish that the pauses are fixed.
+
+Both simultaneous 8 MiB file attempts timed out after 120 s. The stand's source
+was Poco in BOTH cases, regardless of the call direction: do not interpret
+these as two-direction file coverage. Exported partials reached 2.5 MiB and
+2.25 MiB. There were no recorded stream-server requests or authorization
+denials; background chunk delivery progressed. Successful authorized reliable
+stream transfer is therefore still unverified. Apps, forwards, log readers and
+owned fixtures were closed/removed; independent ADB process checks found both
+app processes absent.
+
+### Late direct-call upgrade and direct-send timing (2026-10-05)
+
+Call protocol v6 adds endpoint readiness using the existing encrypted
+transportInfo signal. Original offer AND answer must consent to P2P; both
+postures must be direct, both versions at least v6, local policy is checked
+again, and local direct admission must succeed. Neither direct posture nor a
+readiness frame alone grants consent. Each endpoint announces readiness,
+repeated on heartbeat for loss recovery, and only rebuilds relay to P2P after
+receiving the other endpoint's readiness. Native channel admission and media
+sealing remain mandatory. Old peers retain the prior route behavior.
+
+Only one upgrade attempt is allowed per call. Failed admission returns to the
+permitted relay and announces fallback; peer fallback during a rebuild waits
+for completion and suppresses further upgrades. Call/generation checks prevent
+an old probe or switch resurrecting a hung-up/disposed call. Receive repair is
+held while the switch owns the media controller. 128 focused call FSM, wire,
+and sealed-channel checks passed; focused analyzer was clean. Physical upgrade
+coverage is pending the next Android stand.
+
+Native trace-enabled direct primary sends now emit the same sealed epoch/
+sequence sample as relay sends. This local diagnostic allows send/receive
+latency correlation on P2P; it changes neither the wire format nor relay
+scheduling, and does not expose media keys. It is inactive without rt_trace.
