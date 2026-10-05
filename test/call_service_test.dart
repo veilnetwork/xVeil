@@ -1431,6 +1431,190 @@ void main() {
       expect(fake.sent, isEmpty);
     });
 
+    test(
+      'closed direct session recovers before the ordinary silence grace',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..liveDirectAdmission = false;
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          final device = NodeId.fromHex('b' * 64);
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'closed-direct',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: const CallTransportProposal(CallTransportKind.p2p),
+              replyDevice: device.hex,
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          media.rxAt = clock.now();
+          fake.sent.clear();
+          async.elapse(
+            kCallDirectSessionSilence - const Duration(milliseconds: 1),
+          );
+          async.flushMicrotasks();
+          expect(media.liveAdmissionChecks, isEmpty);
+          expect(media.switches, isEmpty);
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+          expect(media.liveAdmissionChecks, [device]);
+          expect(media.switches, [CallTransportKind.relay]);
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.callId, 'closed-direct');
+          expect(
+            fake.sent
+                .where((s) => s.type == CallSignalType.transportInfo)
+                .single
+                .transport
+                ?.kind,
+            CallTransportKind.relay,
+          );
+          svc.dispose();
+          async.flushMicrotasks();
+          final checked = media.liveAdmissionChecks.length;
+          async.elapse(const Duration(seconds: 5));
+          async.flushMicrotasks();
+          expect(
+            media.liveAdmissionChecks.length,
+            checked,
+            reason: 'disposed probe timer',
+          );
+        });
+      },
+    );
+
+    test('healthy and unknown direct admission retain the normal grace', () {
+      for (final verdict in [true, null]) {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..liveDirectAdmission = verdict;
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'uncertain-direct',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          media.rxAt = clock.now();
+          async.elapse(kCallMediaRepairAfter - const Duration(milliseconds: 1));
+          async.flushMicrotasks();
+          expect(media.liveAdmissionChecks, isNotEmpty);
+          expect(media.switches, isEmpty);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      }
+    });
+
+    test('a delayed closed-session reply cannot replace recovered media', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..liveAdmissionGate = Completer<bool?>();
+        final svc = CallService(
+          fake,
+          now: () => clock.now(),
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'probe-race',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        media.rxAt = clock.now();
+        async.elapse(kCallDirectSessionSilence);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(
+          media.liveAdmissionChecks,
+          hasLength(1),
+          reason: 'only one local query in flight',
+        );
+        media.rxAt = clock.now();
+        media.liveAdmissionGate!.complete(false);
+        async.flushMicrotasks();
+        expect(
+          media.switches,
+          isEmpty,
+          reason: 'media recovered while admission query was pending',
+        );
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('a closed-session reply after hangup cannot restart media', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..liveAdmissionGate = Completer<bool?>();
+        final svc = CallService(
+          fake,
+          now: () => clock.now(),
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'probe-hangup',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        media.rxAt = clock.now();
+        async.elapse(kCallDirectSessionSilence);
+        async.flushMicrotasks();
+        expect(media.liveAdmissionChecks, hasLength(1));
+        svc.hangup();
+        async.flushMicrotasks();
+        media.liveAdmissionGate!.complete(false);
+        async.flushMicrotasks();
+        expect(media.switches, isEmpty);
+        expect(svc.current, isNull);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
     test('silent direct media recovers without an incoming peer heartbeat', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -3483,6 +3667,16 @@ void main() {
 /// accepting or refusing to start the capture.
 class _FakeMedia extends CallMediaController {
   bool directPeerAdmitted = true;
+  bool? liveDirectAdmission;
+  Completer<bool?>? liveAdmissionGate;
+  final List<NodeId> liveAdmissionChecks = [];
+
+  @override
+  Future<bool?> currentDirectPeerAdmission(Call call) async {
+    liveAdmissionChecks.add(call.peerDevice ?? call.peer);
+    return await liveAdmissionGate?.future ?? liveDirectAdmission;
+  }
+
   final List<NodeId> admissionChecks = [];
 
   @override
