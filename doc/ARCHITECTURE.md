@@ -959,3 +959,42 @@ attempt recovery and a never-returning start with pending fallback plus a late
 success. 108 focused call/native-route/wire/fail-closed tests and analysis
 passed. Both 2174 app processes and forwards were independently absent after
 the stand; new setup/load verification follows separately.
+
+
+### Physical 2176 regression and residual delayed audio
+
+Both phones retained their identities on standard 2176 (xVeil b011b053,
+Veil 5d6671eb). Two 60-second audio calls and two 165-second video calls
+completed without engine rebuild or call termination. Incoming rings were
+0.22/4.45 seconds for audio and 1.01/0.40 seconds for video; observed active
+setup was 2.86/5.55 and 2.85/2.51 seconds, respectively (Poco/Blackview origin).
+Receive ages stayed below 3.42 seconds, but this is NOT an acoustic-quality
+pass: matched sealed-cell samples in the last Blackview-to-Poco leg still
+arrived up to 9.54 seconds late while receive counters progressed. Native RTT
+reached roughly 8.6/10.8 seconds there. A growing receive count does not prove
+fresh sound. Cross-call idle ingress-spacing windows are not call outages.
+
+Both 8 MiB downloads failed with HTTP 409 (77.93/115.40 seconds) and source
+stream authorization denials; neither exported file was hash verified. This
+is attempted competing traffic, not a successful full file/video load gate.
+Neither phone had an admitted identity/device P2P session at the final check.
+Captured Poco first-hop QUIC links still reported opaque_flows=false and
+independent_available=false; no Blackview independent-hop event was captured.
+Owned apps, API forwards, trace readers and cache fixtures were independently
+absent afterwards. Poco stayed on cellular.
+
+### Video reserve after confirmed multi-second audio congestion
+
+The ordinary video floor could still spend 45 kbit/s with multi-second RTT.
+After two confirmed severe samples at that floor, a native engine supporting
+fractional cadence now receives a 1 kbit/s, 0.02 fps video budget. This retains
+capture/preview and incoming video while reserving local sending capacity for
+audio. Unknown or expired feedback cannot activate this mode by itself or
+clear it. Twelve consecutive healthy samples restore only the ordinary sparse
+floor; later recovery continues through the existing ladder. Older native
+engines keep their representable integer budget. This changes endpoint video
+production only, with no relay instruction, wire field or remote priority.
+37 adapter checks and focused analysis passed, including delayed/expired
+feedback, confirmed remote playout, bounded recovery and old-engine behavior.
+Physical validation of this new budget remains pending; source authorization,
+P2P convergence and actual independent-hop deployment remain unresolved.

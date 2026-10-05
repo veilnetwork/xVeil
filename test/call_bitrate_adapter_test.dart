@@ -35,6 +35,75 @@ void main() {
     }
   });
 
+  test('multi-second queues release the ordinary video floor for audio', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    final ordinaryFloor = a.target;
+    expect(
+      a.onSample(rttMs: 8500, txJitterMs: 10, txLossPct: 0, txDrops: 0),
+      isNull,
+    );
+    expect(a.target, ordinaryFloor);
+    expect(a.onSample(rttMs: 8500, txJitterMs: 10, txLossPct: 0, txDrops: 0), (
+      maxBitrateKbps: 1,
+      maxFps: 0.02,
+    ));
+    expect(a.audioReserve, isTrue);
+    // A lost/expired report is not evidence that the ordered queue drained.
+    for (var i = 0; i < 60; i++) {
+      a.onNativeStats({'audio_feedback_reports': 0, 'rtt_ms': 0});
+    }
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      good(a);
+      expect(a.audioReserve, isTrue);
+    }
+    expect(good(a), ordinaryFloor);
+    expect(a.audioReserve, isFalse);
+    expect(
+      a.atFloor,
+      isTrue,
+      reason: 'recovery first restores only the sparse floor',
+    );
+  });
+
+  test(
+    'confirmed remote playout can release video but unknown playout cannot',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+      for (var i = 0; i < 20; i++) {
+        a.onNativeStats({
+          'audio_feedback_reports': 0,
+        }, requirePeerAudioPlayout: true);
+      }
+      expect(a.audioReserve, isFalse);
+      for (var i = 0; i < CallBitrateAdapter.degradeAfter; i++) {
+        a.onSample(
+          rttMs: 80,
+          txJitterMs: 10,
+          txLossPct: 0,
+          txDrops: 0,
+          requirePeerAudioPlayout: true,
+          peerAudioDelayMs: 1500,
+        );
+      }
+      expect(a.audioReserve, isTrue);
+      expect(a.target, (maxBitrateKbps: 1, maxFps: 0.02));
+    },
+  );
+
+  test('older native cannot pretend to apply a fractional reserve', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 60,
+      supportsLowRateVideo: false,
+    );
+    for (var i = 0; i < 20; i++) {
+      a.onSample(rttMs: 8500, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    }
+    expect(a.audioReserve, isFalse);
+    expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+  });
+
   test('one-fps routes have five genuinely distinct video budgets', () {
     for (final base in [30, 45]) {
       final adapter = CallBitrateAdapter(
