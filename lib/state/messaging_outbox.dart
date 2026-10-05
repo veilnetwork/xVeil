@@ -11,6 +11,21 @@ class _MessagingOutbox {
 
   final MessagingService _owner;
 
+  // Large replication slices share the endpoint's background source lane
+  // with file bodies. Small group/control updates keep their normal path.
+  // Derive this from durable wire kind so restart/re-drive keeps the lane;
+  // it adds no persistent flag or relay-visible scheduling metadata.
+  static bool _usesBackgroundLane(WireKind kind) =>
+      kind == WireKind.groupEntryChunk || kind == WireKind.cloudDocumentChunk;
+
+  static bool _backgroundWire(Uint8List wire) {
+    try {
+      return _usesBackgroundLane(WireEnvelope.decode(wire).kind);
+    } catch (_) {
+      return false;
+    }
+  }
+
   final Map<
     String,
     ({int count, DateTime nextAt, String peer, DateTime lastSentAt})
@@ -186,6 +201,7 @@ class _MessagingOutbox {
     }
     return delayMs - (hash % spread);
   }
+
   static const _callSignalTtl = Duration(minutes: 2);
 
   void recordQueued(String frameId, String peerHex, {bool callSignal = false}) {
@@ -265,11 +281,18 @@ class _MessagingOutbox {
     final mailboxEligible =
         envelope.kind == WireKind.request || envelope.kind == WireKind.accept;
     final skipLive =
-        mailboxEligible && !startLiveBeforeEnqueue && await _longSilent(peer.hex);
+        mailboxEligible &&
+        !startLiveBeforeEnqueue &&
+        await _longSilent(peer.hex);
     Future<void> tryLive() async {
       final stopwatch = Stopwatch()..start();
       try {
-        await (liveSender?.call(wire) ?? _owner._send(peer, wire));
+        await (liveSender?.call(wire) ??
+            _owner._send(
+              peer,
+              wire,
+              background: _usesBackgroundLane(envelope.kind),
+            ));
         devLog(
           () =>
               'xVeil[durable]: live leg ok fid=$frameId '
@@ -547,8 +570,7 @@ class _MessagingOutbox {
       // have reconsidered — outbox 0, sibling waiting forever, sender
       // convinced it had delivered.
       final ownDevice =
-          contact == null &&
-          (await _owner.isOwnDevice?.call(peer) ?? false);
+          contact == null && (await _owner.isOwnDevice?.call(peer) ?? false);
       if (contact == null &&
           !ownDevice &&
           !groupMemberCarrier &&
@@ -562,13 +584,15 @@ class _MessagingOutbox {
       // Contact handshake frames use these stable prefixes. Avoid parsing
       // each queued group snapshot on every three-second flush just to skip it.
       // The deposit gate still validates the actual wire kind.
-      final mailboxEligible = frame.frameId.startsWith('accept:') ||
+      final mailboxEligible =
+          frame.frameId.startsWith('accept:') ||
           frame.frameId.startsWith('request:');
-      if (mailboxEligible && _owner._mailboxDelivery.suppressedByBackoff(
-        frame.peerHex,
-        _owner._now(),
-        'outbox flush',
-      )) {
+      if (mailboxEligible &&
+          _owner._mailboxDelivery.suppressedByBackoff(
+            frame.peerHex,
+            _owner._now(),
+            'outbox flush',
+          )) {
         continue;
       }
       // Re-offer a contact acceptance only if it has not reached mailbox.
@@ -634,7 +658,13 @@ class _MessagingOutbox {
             'dst=${entry.peer.short} attempt=${entry.attempt} '
             't=${DateTime.now().millisecondsSinceEpoch}',
       );
-      await boundedLiveLeg(_owner._send(entry.peer, entry.frame.wire));
+      await boundedLiveLeg(
+        _owner._send(
+          entry.peer,
+          entry.frame.wire,
+          background: _backgroundWire(entry.frame.wire),
+        ),
+      );
     }
   }
 
@@ -689,8 +719,7 @@ class _MessagingOutbox {
     }
     final heard = _lastHeard[peerHex];
     if (heard == null) return false;
-    final silent =
-        _owner._now().difference(heard) >= _liveOnlyWhenHeardWithin;
+    final silent = _owner._now().difference(heard) >= _liveOnlyWhenHeardWithin;
     if (!silent) _liveSkipNoted.remove(peerHex);
     return silent;
   }
