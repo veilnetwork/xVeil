@@ -591,6 +591,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Native aggregates count only fresh AUDIO reports, not video reports.
       adapter.onNativeStats(
         stats,
+        requirePeerAudioPlayout:
+            _audioEnabled &&
+            !_microphoneState.muted &&
+            ((stats['audio_playout_peers'] as num?) ?? 0) > 0,
+        peerAudioDelayMs: _groupPeerAudioDelay(stats),
         expectedAudioFeedbackReports: _audioEnabled && !_microphoneState.muted
             ? _peers.length
             : null,
@@ -616,6 +621,25 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         () => 'xVeil[group-call-media]: quality sample unavailable: $error',
       );
     }
+  }
+
+  // Require every capable receiver before earning recovery. A known poor
+  // estimate still substantiates congestion when another estimate is missing.
+  int? _groupPeerAudioDelay(Map<String, dynamic> stats) {
+    final peers = (stats['audio_playout_peers'] as num?) ?? 0;
+    final reports = (stats['audio_playout_reports'] as num?) ?? 0;
+    final delay = stats['audio_playout_ms'];
+    if (delay is! num ||
+        !delay.isFinite ||
+        delay < 0 ||
+        delay > 60000 ||
+        peers <= 0 ||
+        reports <= 0) {
+      return null;
+    }
+    return reports >= peers || delay >= CallBitrateAdapter.playoutDegradeMs
+        ? delay.toInt()
+        : null;
   }
 
   void _pollFrames(GroupAudioEngine expected) {

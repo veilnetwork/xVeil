@@ -164,6 +164,104 @@ void main() {
     });
   });
 
+  test('clean RTCP cannot grow group video over delayed receiver audio', () {
+    fakeAsync((clock) {
+      final self = _id(1);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      controller.start(_call(self, [_id(2), _id(3)], video: true));
+      clock.flushMicrotasks();
+      engine.stats = {
+        'audio_feedback_reports': 2,
+        'rtt_ms': 80,
+        'audio_playout_peers': 2,
+        'audio_playout_reports': 2,
+        'audio_playout_ms': 140,
+      };
+      clock.elapse(const Duration(seconds: 48));
+      expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+      engine.stats = {...engine.stats, 'audio_playout_ms': 380};
+      clock.elapse(const Duration(seconds: 2));
+      expect(
+        engine.targets.last.maxFps,
+        lessThan(15),
+        reason: 'clean loss/RTT cannot hide a receiver playout queue',
+      );
+      clock.elapse(const Duration(seconds: 6));
+      expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+      engine.stats = {...engine.stats, 'audio_playout_ms': 250};
+      clock.elapse(const Duration(seconds: 30));
+      expect(
+        engine.targets.last,
+        (maxBitrateKbps: 30, maxFps: 1),
+        reason: 'a borderline audio delay has not earned video recovery',
+      );
+      engine.stats = {...engine.stats, 'audio_playout_ms': 140};
+      clock.elapse(const Duration(seconds: 48));
+      expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test('group playout recovery requires every capable receiver', () {
+    fakeAsync((clock) {
+      final self = _id(1);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      controller.start(_call(self, [_id(2), _id(3)], video: true));
+      clock.flushMicrotasks();
+      engine.stats = {
+        'audio_feedback_reports': 2,
+        'rtt_ms': 80,
+        'audio_playout_peers': 2,
+        'audio_playout_reports': 1,
+        'audio_playout_ms': 140,
+      };
+      clock.elapse(const Duration(seconds: 60));
+      expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+      engine.stats = {...engine.stats, 'audio_playout_ms': 450};
+      clock.elapse(const Duration(seconds: 8));
+      expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+      engine.stats = {
+        ...engine.stats,
+        'audio_playout_reports': 2,
+        'audio_playout_ms': 140,
+      };
+      clock.elapse(const Duration(seconds: 48));
+      expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+      engine.stats = {
+        ...engine.stats,
+        'audio_playout_reports': 0,
+        'audio_playout_ms': -1,
+      };
+      clock.elapse(const Duration(seconds: 8));
+      expect(engine.targets.last, (maxBitrateKbps: 30, maxFps: 1));
+      controller.setMicMuted(true);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 48));
+      expect(
+        engine.targets.last,
+        (maxBitrateKbps: 150, maxFps: 15),
+        reason: 'a muted sender has no outgoing audio playout to measure',
+      );
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
   test(
     'group video requires fresh audio feedback from every connected peer',
     () {

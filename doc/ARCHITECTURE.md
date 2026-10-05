@@ -321,6 +321,41 @@ Poco's signed 2159 APK is prepared; only Blackview was enumerated by ADB, so
 the Poco update, its old process verification and live two-phone test remain
 pending. Stand binaries and Flutter test processes have exited.
 
+Group receiver playout is now also reported to the sender through optional
+`VAP1` RTCP APP blocks appended to existing report packets. The APP block,
+including its target audio SSRC, 64-bit sample sequence and delay/unknown
+sentinel, passes through the same native end-to-end media sealing as RTP/RTCP.
+No relay-visible role, relay priority or additional standalone report timer is
+introduced. Unknown APP names are compatible with the RTCP extension mechanism
+([RFC 3550 §6.7](https://www.rfc-editor.org/rfc/rfc3550.html#section-6.7)).
+BYE and padded reports are left intact. Unicast continues using negotiated
+call-health feedback; only group receive samples enable the APP producer.
+
+The producer requires a valid receive-worker sample and accepted audio within
+three seconds; a stalled worker advertises unknown rather than the previous
+measurement. Sample sequences remain monotonic across peer rejoin within one
+group engine. Each recipient binds reports to its own audio SSRC, validates the
+entire compound packet, rejects duplicate/older sequences, and expires measured
+feedback after twelve seconds using local ingress time. Known support survives
+an unknown/expired estimate, so lack of new measurements cannot masquerade as
+a legacy endpoint. Removed/stopped peer shims contribute no reports.
+
+The shared group video budget now reacts to the worst fresh receiver estimate.
+At 300 ms or above it reduces video even with clean RTCP loss/jitter/RTT;
+recovery requires estimates below 200 ms from every capable receiver, together
+with the existing complete RTCP coverage. Partial/expired/unknown playout gives
+bandwidth back; a known bad estimate remains evidence of congestion even with
+partial coverage. Deliberately muted senders retain their previous policy.
+Gates: 95 scoped media/controller/FSM/teardown/audio/bitrate/seal tests passed;
+scoped analysis found no issues. Disabling receiver playout makes the real
+controller's clean-RTCP/delayed-audio regression fail. Native Call/queue tests
+passed with a real accepted Opus sample sent from one group engine to another,
+unknown-worker feedback, per-peer maxima, wrong-target/malformed/unsupported
+APP rejection, 64-bit ordering, replay resistance, expiry and peer removal.
+ARM64 Android media rebuilt with 90 production exports. These are native buffer
+estimates; acoustic two-phone quality and independent flows through the observed
+old first-hop relays remain unverified.
+
 **Not built:**
 - Remote push. Notifications are local-only (`flutter_local_notifications`): the
   notification layer displays what the caller hands it and holds no policy, and there
