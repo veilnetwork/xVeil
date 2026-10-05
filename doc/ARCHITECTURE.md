@@ -1449,3 +1449,42 @@ maximum accepted-audio age reached 7.711 s. Both files timed out at 120 s,
 with actual partial exports of 2.5/4.5 MiB, so no full-hash success is claimed.
 Both own app processes absent, own downloads cleared and forwards/readers/four
 fixture paths removed. Earlier P2P results are separate route evidence.
+
+### Physical 2189, resumed relay context and native audio timing (2026-10-05)
+
+Both phones remained available; Poco used cellular. Both 60 s audio calls
+and 165 s video calls stayed active. Cold Poco → Blackview rang in 18.425 s;
+the reverse warm call rang in 0.505 s. Video rings took 0.272/1.133 s.
+Poco → Blackview's 8 MiB file passed the complete export SHA-256 in 74.78 s.
+Blackview → Poco reached 7,602,176 actual export bytes before the diagnostic
+120 s deadline; it did not pass a full-hash check. The timeout alone does not
+show stalled transfer: the partial export continued growing. P2P became
+available in the first audio call and carried subsequent calls.
+
+The old audio-age field samples packet counts on a one-second Dart timer.
+It reached 2.6–2.9 s under load, sometimes while a newer diagnostic snapshot
+already showed more accepted audio packets. These maxima are not exact native
+arrival gaps. Native audio delay reached 2.3 s in one sample; physical audio
+quality is not yet established as free of interruptions. The media library
+now exports the receive stream's last accepted RTP age using its native clock,
+concealed samples/events and interruption count/duration. Dart liveness uses
+the native timestamp when present; unknown/worker-timeout samples remain
+unknown, and older libraries retain the counter fallback. Actual WebRTC tests
+verify age growth with RTCP-only ingress; 128 Flutter checks and analysis pass.
+
+The cold trace shows a missing-conversation reply at startup, followed by
+authentication failures and a second signed reset. Imported conversations
+use identity addresses, while relayed envelopes name physical devices.
+Until ephemeral verified certificate/session caches warm up, a valid bare
+frame could be looked up under the physical address and spuriously return
+NoSession. A unique held conversation matching both local/remote instances
+now supplies only the decryption context for bare frames. AEAD verification,
+certificate expiry, origin-device verification and route authority remain
+required. Ambiguous contexts fail closed. A dispatcher restore/relay test
+fails on the old resolver and passes with the fix; an expired-authorization
+test still reports unproven packet authorship. The 122 E2E, 261
+dispatcher and four integration tests pass. Phone verification of this
+context fix and exact audio timing proceeds in build 2190.
+
+Both 2189 app processes independently absent after cleanup; own forwards,
+readers and four fixture paths removed, own pending downloads cleared.

@@ -570,6 +570,8 @@ class VeilCallMediaController implements CallMediaController {
       final cameraDiagnostics = nativeDiagnostics.isNotEmpty
           ? nativeDiagnostics
           : androidCamera?.diagnostics ?? const <String, Object?>{};
+      final engineStats = engine.getStats();
+      final nativeAudioAge = engineStats['audio_rx_native_age_ms'];
       return {
         'transport': _chanTransport?.name,
         'running': true,
@@ -577,7 +579,13 @@ class VeilCallMediaController implements CallMediaController {
         'media_repairing': _routeRepairing,
         'audio_rx_supported': _audioReceiveActivity.supported,
         'peer_audio_playout_ms': _peerAudioPlayout.delayMs(DateTime.now()),
-        'audio_rx_age_ms': _audioReceiveActivity.lastRxAt == null
+        'audio_rx_age_ms': engineStats.containsKey('audio_rx_native_age_ms')
+            ? (engineStats['worker_stalled'] == 0 &&
+                      nativeAudioAge is num &&
+                      nativeAudioAge >= 0
+                  ? nativeAudioAge
+                  : null)
+            : _audioReceiveActivity.lastRxAt == null
             ? null
             : DateTime.now()
                   .difference(_audioReceiveActivity.lastRxAt!)
@@ -617,7 +625,7 @@ class VeilCallMediaController implements CallMediaController {
         if (cameraDiagnostics.isNotEmpty) ...cameraDiagnostics,
         if (nativeVideoDiagnostics.isNotEmpty) ...nativeVideoDiagnostics,
         if (relayDiagnostics.isNotEmpty) ...relayDiagnostics,
-        ...engine.getStats(),
+        ...engineStats,
       };
     } catch (_) {
       return {
