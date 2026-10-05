@@ -1573,3 +1573,46 @@ switches. Both defect regressions fail against the unchanged call service;
 all 116 call-service tests and scoped analysis pass with the fixes. Phone
 confirmation follows in build 2193. Campaign 2192's apps/readers/forwards
 were closed, with process exit independently verified.
+
+
+Campaign 2193 and replay-safe ratchet recovery
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both 120 s audio calls completed without ending. Cold Poco -> Blackview
+ring/active times were 32.454/34.697 s; reverse was 0.637/3.640 s. The
+answer arrived on realtime about 259 ms after sending; initial offer
+bootstrap delay remains unresolved. Active media used relay on both
+calls, so the new silent-P2P watchdog is covered by the state-machine
+regression, not by a live fallback in this campaign. Native arrival gaps
+reach 1.595/3.161 s in the first call and 2.043/1.314 s in the reverse.
+Quality is still not declared fixed. Both native workers remain responsive.
+Poco also records several ratchet AuthFailed/unopenable replies from
+Blackview during the first call; the new generic error log adds payload
+kind to distinguish bare mismatches from refused prologues in the next run.
+
+A concrete replay defect was reproduced independently: ordinary consumed
+bare frames counted toward the wedge threshold and earned unopenable
+replies, which reset the sender's healthy chain. Prologues refused against
+a held conversation, including stale authenticated prologues after
+restore, could also count toward a wedge or ask the sender to reset.
+Consumed-key errors now neither count nor request resets. Retained-session
+prologue refusals carry the original cryptographic error in a separate
+internal variant and do not trigger reset replies; downgrade/forged packets
+still fail and do not deliver plaintext. New valid prologues still require
+verified authorship and a newer peer send time before replacing state.
+
+An actual dispatcher regression repeats both prologue and bare payloads
+with distinct carrier IDs over direct and relayed paths, including restored
+stores with warm/cold certificate caches. It checks no duplicate delivery,
+no reset, byte-identical held state, and delivery of the next fresh frame.
+A separate bare-frame regression exercises the wedge threshold, and the
+old-prologue test now repeats enough times to cross it. The old open/reset
+policy fails both new regression controls. 123 E2E, 262 dispatcher and 4
+integration tests pass, as does production FFI Clippy; no wire or persisted
+state format changed. 146 Flutter call-service/realtime tests also pass.
+
+2193 cleanup was independently verified before Poco disconnected from ADB.
+The follow-up idle ICMP observation on Poco has no replies because ADB was
+unavailable and must not be interpreted as network packet loss. Blackview's
+idle probe completed 30 replies (47.8--76.8 ms). Both phone apps remain
+closed and own forwards/readers/fixtures are absent. Build 2194 will carry
+the replay fix; paired phone validation awaits Poco's return to ADB.
