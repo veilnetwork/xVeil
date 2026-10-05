@@ -200,6 +200,8 @@ class VeilFlutterTransport
     this._realtimeApp,
     this._siblingClient,
     this._siblingApp,
+    this._p2pStreamClient,
+    this._p2pStreamApp,
   );
 
   final String _socketPath;
@@ -210,6 +212,12 @@ class VeilFlutterTransport
   final VeilClient _mediaClient;
   final VeilClient _mailboxClient;
   final AppHandle _app;
+  // Sender-only binding with the same chat app identity. A file's remote
+  // open receipt holds the FFI AppSender mutex, so it needs its own sender
+  // and IPC writer to keep ordinary chat independent of that wait.
+  static const _p2pStreamEndpointId = 16;
+  final VeilClient _p2pStreamClient;
+  final AppHandle _p2pStreamApp;
   final AppHandle _mediaApp;
   final VeilClient? _mediaDeviceClient;
   final AppHandle? _mediaDeviceApp;
@@ -338,11 +346,13 @@ class VeilFlutterTransport
     VeilClient? mediaDeviceAuxClient;
     VeilClient? mailboxClient;
     VeilClient? siblingClient;
+    VeilClient? p2pStreamClient;
     AppHandle? realtimeApp;
     AppHandle? mediaDeviceApp;
     AppHandle? mediaAuxApp;
     AppHandle? mediaDeviceAuxApp;
     AppHandle? siblingApp;
+    AppHandle? p2pStreamApp;
     try {
       // Node identity is immutable for this transport lifetime. Cache it while
       // the IPC connection is otherwise idle so call setup never queues a
@@ -382,6 +392,14 @@ class VeilFlutterTransport
         namespace: veilChatNamespace,
         name: veilChatName,
         endpointId: veilChatEndpointId,
+      );
+      // Endpoint 16 is local sender state only. Opens still address the
+      // peer's chat endpoint 0; incoming streams remain on the chat inboxes.
+      p2pStreamClient = await VeilClient.connect(socketPath);
+      p2pStreamApp = await p2pStreamClient.bindNamed(
+        namespace: veilChatNamespace,
+        name: veilChatName,
+        endpointId: _p2pStreamEndpointId,
       );
       final mediaApp = await mediaClient.bindNamed(
         namespace: veilChatNamespace,
@@ -513,8 +531,12 @@ class VeilFlutterTransport
         realtimeApp,
         siblingClient,
         siblingApp,
+        p2pStreamClient,
+        p2pStreamApp,
       );
     } catch (_) {
+      await p2pStreamApp?.close();
+      await p2pStreamClient?.close();
       await siblingApp?.close();
       await siblingClient?.close();
       await realtimeApp?.close();
@@ -1112,7 +1134,7 @@ class VeilFlutterTransport
   @override
   Future<ReliableStream?> openP2PStream(NodeId dst) async {
     try {
-      final s = await _app.openStream(
+      final s = await _p2pStreamApp.openStream(
         dstNodeId: dst.bytes,
         dstAppId: chatAppIdFor(dst),
         dstEndpointId: veilChatEndpointId,
@@ -1310,6 +1332,7 @@ class VeilFlutterTransport
 
   @override
   Future<void> dispose() async {
+    await _p2pStreamApp.close();
     await _siblingApp?.close();
     await _realtimeApp.close();
     await _mediaApp.close();
@@ -1317,6 +1340,7 @@ class VeilFlutterTransport
     await _mediaAuxApp.close();
     await _mediaDeviceAuxApp?.close();
     await _app.close();
+    await _p2pStreamClient.close();
     await _siblingClient?.close();
     await _realtimeClient.close();
     await _mediaClient.close();
