@@ -419,6 +419,7 @@ class CallService {
   CallTransportKind? _outgoingProposal;
   bool _directSessionUnavailable = false;
   int _mediaOperationEpoch = 0;
+  ({NodeId peer, String callId, Future<void> future})? _relayFallbackFlight;
 
   // Consent is captured from BOTH original offer/answer proposals, before a
   // temporary route failure changes the active transport. A direct posture
@@ -1368,10 +1369,26 @@ class CallService {
     _end(CallEndReason.error);
   }
 
-  Future<void> _followRelayFallback(NodeId peer, String callId) async {
+  Future<void> _followRelayFallback(NodeId peer, String callId) {
+    final pending = _relayFallbackFlight;
+    if (pending != null && pending.peer == peer && pending.callId == callId) {
+      return pending.future;
+    }
+    late final Future<void> future;
+    future = _applyRelayFallback(peer, callId).whenComplete(() {
+      if (identical(_relayFallbackFlight?.future, future)) {
+        _relayFallbackFlight = null;
+      }
+    });
+    _relayFallbackFlight = (peer: peer, callId: callId, future: future);
+    return future;
+  }
+
+  Future<void> _applyRelayFallback(NodeId peer, String callId) async {
     final media = _media;
     final before = _current;
-    if (media == null ||
+    if (_disposed ||
+        media == null ||
         before == null ||
         before.callId != callId ||
         before.peer != peer ||
@@ -1390,7 +1407,8 @@ class CallService {
       devLog(() => 'xVeil[call-media]: relay follow failed call=$callId: $e');
     }
     final cur = _current;
-    if (cur == null ||
+    if (_disposed ||
+        cur == null ||
         cur.callId != callId ||
         cur.peer != peer ||
         !cur.isLive) {
@@ -1411,6 +1429,33 @@ class CallService {
       _sendControl(peer, callId, CallSignalType.end, CallEndReason.error),
     );
     _end(CallEndReason.error);
+  }
+
+  /// Both control and media can disappear with a punched UDP path. Waiting
+  /// for the peer's repair request then cannot recover this endpoint. After
+  /// the existing receive grace, use the already permitted direct-posture
+  /// relay and announce it on the durable live lanes.
+  Future<void> _recoverSilentDirect(Call call) async {
+    if (_relayFallbackFlight != null ||
+        call.transport != CallTransportKind.p2p ||
+        call.localPosture != CallPosture.direct ||
+        call.peerPosture != CallPosture.direct) {
+      return;
+    }
+    devLog(
+      () =>
+          'xVeil[call-media]: silent direct path — relay recovery '
+          'call=${call.callId}',
+    );
+    await _followRelayFallback(call.peer, call.callId);
+    final cur = _current;
+    if (!_disposed &&
+        cur?.callId == call.callId &&
+        cur?.peer == call.peer &&
+        cur?.status == CallStatus.active &&
+        cur?.transport == CallTransportKind.relay) {
+      await _announceRelayFallback(cur!);
+    }
   }
 
   Future<void> _announceRelayFallback(Call call) => _messaging.sendCallSignal(
@@ -1835,6 +1880,9 @@ class CallService {
         _end(CallEndReason.timeout);
         return;
       }
+      final receiveNeedsRepair =
+          c.status == CallStatus.active && _mediaReceiveNeedsRepair(c);
+      if (receiveNeedsRepair) unawaited(_recoverSilentDirect(c));
       unawaited(_checkLateP2P());
       unawaited(
         _messaging.sendCallSignal(
@@ -1842,8 +1890,7 @@ class CallService {
           CallSignal(
             callId: c.callId,
             type: CallSignalType.health,
-            mediaRepairRequested:
-                c.status == CallStatus.active && _mediaReceiveNeedsRepair(c),
+            mediaRepairRequested: receiveNeedsRepair,
             capture: _localCapture(c),
             audioPlayout: _media?.audioPlayoutFeedback,
             sentAtMs: _now().millisecondsSinceEpoch,
