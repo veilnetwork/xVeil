@@ -1625,3 +1625,46 @@ remains disconnected: its matching-certificate APK is prepared at
 /private/tmp/xveil-audio-2194-poco.apk, but installed version remains 2193.
 Do not claim paired validation or install/launch a mixed-version stand.
 Source roots are committed unsigned and unpushed.
+
+
+Neutral UDP loss and primary queue age characterization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Blackview returned to ADB with verified build 2194 and no app process.
+Poco remains absent; paired 2194 replay/quality validation is still pending.
+No phone app was launched during this work cycle and no forward was added.
+
+The real encrypted QUIC FIFO stand now has a test-only neutral blackout
+switch. Both UDP directions drop all packets (including ACKs and packets in
+propagation), without examining payloads or assigning traffic priorities.
+A manual characterization sends 50 frames/s on a fresh connection, warms it
+for 6 s, drops UDP for 2 s, and continues for 10 s. It compares a 128-byte
+AppRtData payload with a fragmented 2048-byte circuit cell. Handshake and
+application packets use the same FIFO; there is no video, file, call-control,
+ratchet reset or application route repair. Sequence/timestamp fields are
+inside the encrypted session datagrams, not exposed to the neutral link.
+
+Measured with the existing endpoint primary backlog admission:
+
+  one-way link delay   frame                  first fresh after reopen   maximum age
+  20 ms                short AppRtData         972 ms                     1884 ms
+  20 ms                padded circuit cell     814 ms                     2689 ms
+  1000 ms              short AppRtData         6637 ms                    8923 ms
+  1000 ms              padded circuit cell     6396 ms                    9336 ms
+
+All four cases resume on the same connection and have no logical duplicates.
+Maximum admitted queues remain 2990--3913 bytes; the 4 KiB backlog cap alone
+therefore does not establish an age bound. Under high RTT it can preserve
+old packets while refusing new ones. Reported age includes intentional loss,
+propagation and queueing; this stand does not separately attribute time to
+Quinn versus the neutral FIFO. A long interruption can be reproduced
+without competing application traffic, but these results do not prove the
+cause of every physical phone pause or resolve it.
+
+The characterization is ignored by default and asserts delivery/recovery,
+not a passing voice-quality threshold. Its four-case run passes. All seven
+existing automatic QUIC backlog tests pass (four manual tests ignored).
+Artifacts: /private/tmp/xveil-quic-blackout-rtt-matrix.log and
+/private/tmp/xveil-quic-blackout-existing-gates.log. Production source and
+installed APK contents are unchanged; no new build is required for these
+test-only changes. Endpoint queue freshness and paired phone quality remain
+open. Blackview process absence and empty ADB forwards were rechecked.
