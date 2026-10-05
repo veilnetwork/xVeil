@@ -1321,3 +1321,20 @@ priority, and never logs media plaintext or keys. It distinguishes source
 admission loss from transport/receive loss; disabled tracing does no counting.
 20 real QUIC runner tests and production FFI Clippy passed. Android build 2185
 is prepared for these measurements after the ongoing 2184 stand ends.
+
+### Physical 2184 follow-up (2026-10-05)
+
+Both minute-long audio calls and both 165 s video calls remained active.
+All calls used direct media; native independent primary and secondary sends
+were observed. Cold audio ringing/activation was 1.235/4.133 s, reverse audio
+0.633/1.837 s; video Blackview-to-Poco 0.951/2.390 s and reverse 1.024/2.182 s.
+Blackview's API remained responsive during source backpressure, validating the
+Dart worker fix. Accepted-audio ages still reached 4.484 s on audio-only and
+3.996 s on video; pauses are not fixed. Both 8 MiB downloads timed out at
+120 s with no verified hash. Sources queued ~2.3/2.8 MiB into SDK/native queues
+then hit the 30 s payload-write deadline. Actual exported progress was much
+lower, so queued bytes are not delivered bytes. The current 1 KiB canonical
+reliable admission during local primary activity is a candidate for this
+remaining file slowdown, pending controlled measurement; do not call it proven.
+Both own pending downloads were canceled, both app processes independently
+verified absent, own readers/forwards exited and four fixture paths removed.
