@@ -881,3 +881,19 @@ legacy links, change relay queue policy or label application roles on wire.
 Three readiness lifetime checks, 16 relay checks, 368 session checks
 (three ignored), and warnings-denied production FFI Clippy passed.
 Real-network validation of this choice follows separately.
+
+
+### Sovereign identity NAT responder address
+
+The NAT dispatcher previously classified a token-bearing request addressed
+to its own sovereign identity as a foreign forwarding target when the
+transport device ID differed. It now also accepts the identity from the
+runtime's current local-recipient lookup. The request still passes existing
+quota, token and asynchronous socket-worker gates; reply/device keys,
+cryptographic admission, forwarded-byte preservation and wire formats are
+unchanged. Identity claims in remote messages do not grant this alias.
+The lookup is evaluated per request, so a retired identity is immediately
+foreign again. Twelve NAT tests, including current identity/device acceptance,
+foreign forwarding and retired-identity rejection, plus warnings-denied
+production FFI Clippy passed. This does not establish P2P convergence through
+older remote coordinators or permissive carrier NAT.
