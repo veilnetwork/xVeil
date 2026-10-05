@@ -1363,3 +1363,28 @@ application bytes/address/endpoint. It passed; production FFI Clippy and the
 Dart blocking-write/FIFO regression passed. The C ABI signature is unchanged;
 regenerated header documentation updated the matched Rust/Dart contract hash.
 Phone verification of this isolation proceeds in build 2186.
+
+
+### Physical 2186 and independent reliable admission (2026-10-05)
+
+The full campaign completed: two 60 s audio and two 165 s video calls.
+The cold Poco offer rang after 34.054 s and became active after 36.157 s;
+warm calls rang in 1.362–4.450 s. Maximum accepted-audio ages were
+5.415/5.523 s during the first audio call, so pauses remain unresolved.
+Blackview-to-Poco 8 MiB transfer passed the complete SHA-256 check in
+65.86 s during video. The reverse transfer timed out at 120.21 s, with only
+786,432 bytes in the actual receiver export. Both own downloads were cleared;
+both app processes were independently absent and own forwards/readers/fixtures
+removed. Signaling isolation does not establish either file or audio quality.
+
+New reliable-write admission now checks the selected, prepared independent
+primary connection. When present, the canonical reliable send window remains
+bounded to 16 KiB instead of retaining the shared-connection 1 KiB limit.
+If preparation fails, the shared bound is immediately selected for new writes;
+already accepted bytes cannot be retracted. Transit frames cannot select this
+endpoint policy. This introduces no relay queue role or wire discriminator.
+An actual QUIC admission test checks file progress, bounded acceptance and
+return to the shared limit; it deliberately does not assert media quality,
+because that fixture supplies readiness and shares its connection. All 375
+session tests (three ignored), 20 real QUIC tests and production FFI Clippy
+passed. Physical quality verification proceeds in build 2187.
