@@ -3544,7 +3544,8 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   // migrates the legacy enqueue/ack journal without ever returning its former
   // 100,000-row RustBuffer across FFI in one allocation.
 
-  final Map<String, ({OutboxFrame frame, int logId})> _outboxById = {};
+  final Map<String, ({OutboxFrame frame, int logId, List<int> logIds})>
+  _outboxById = {};
   bool _outboxLoaded = false;
   Future<void> _outboxGate = Future<void>.value();
 
@@ -3556,6 +3557,107 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
 
   static Uint8List _outboxIndexKey(String frameId) =>
       Uint8List.fromList(crypto.sha256.convert(utf8.encode(frameId)).bytes);
+
+  // Incompressible control envelopes can exceed the ~4 KiB encrypted
+  // DataBatch capacity. Split the serialized row, not its network envelope.
+  // All parts, descriptor, index and allocation counter share one commit.
+  static const _outboxPartBytes = 1800;
+  static const _outboxMaxPayloadBytes = 512 * 1024;
+
+  Future<({int logId, List<int> logIds})> _persistOutboxPayload(
+    String frameId,
+    Uint8List payload,
+  ) async {
+    if (payload.length > _outboxMaxPayloadBytes) {
+      throw ArgumentError('outbox payload exceeds the storage bound');
+    }
+    final logId = await _allocLogId();
+    final ops = <KvLogOp>[];
+    final logIds = <int>[logId];
+    if (payload.length <= _outboxPartBytes) {
+      ops.add(AppendLogOp(Ns.outbox, logId, payload));
+    } else {
+      final count = (payload.length + _outboxPartBytes - 1) ~/ _outboxPartBytes;
+      // The allocator has initialized; reserving this contiguous range has
+      // no await and cannot interleave with another allocator on this isolate.
+      final first = _nextIdCache!;
+      _nextIdCache = first + count;
+      for (var i = 0; i < count; i++) {
+        final end = ((i + 1) * _outboxPartBytes).clamp(0, payload.length);
+        ops.add(
+          AppendLogOp(
+            Ns.outbox,
+            first + i,
+            Uint8List.sublistView(payload, i * _outboxPartBytes, end),
+          ),
+        );
+        logIds.add(first + i);
+      }
+      ops.add(
+        AppendLogOp(
+          Ns.outbox,
+          logId,
+          _sk(
+            jsonEncode({
+              'outboxParts': 1,
+              'first': first,
+              'count': count,
+              'length': payload.length,
+              'sha256': crypto.sha256.convert(payload).toString(),
+            }),
+          ),
+        ),
+      );
+    }
+    await _as.commit([
+      ...ops,
+      PutOp(Ns.outboxIndex, _outboxIndexKey(frameId), _sk('$logId')),
+      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${_nextIdCache!}')),
+    ]);
+    return (logId: logId, logIds: logIds);
+  }
+
+  Future<({Uint8List payload, List<int> logIds})?> _readOutboxPayload(
+    int logId,
+  ) async {
+    final raw = await _as.readLog(Ns.outbox, logId);
+    if (raw == null) return null;
+    final decoded = jsonDecode(utf8.decode(raw));
+    if (decoded is! Map || !decoded.containsKey('outboxParts')) {
+      return (payload: raw, logIds: [logId]); // old single-row format
+    }
+    final first = decoded['first'];
+    final count = decoded['count'];
+    final length = decoded['length'];
+    if (decoded['outboxParts'] != 1 ||
+        first is! int ||
+        first < 1 ||
+        count is! int ||
+        count < 1 ||
+        length is! int ||
+        length < 1 ||
+        length > _outboxMaxPayloadBytes ||
+        count != (length + _outboxPartBytes - 1) ~/ _outboxPartBytes ||
+        (logId >= first && logId < first + count)) {
+      return null;
+    }
+    final bytes = BytesBuilder(copy: false);
+    final logIds = <int>[logId];
+    for (var i = 0; i < count; i++) {
+      final part = await _as.readLog(Ns.outbox, first + i);
+      final expected = i == count - 1
+          ? length - i * _outboxPartBytes
+          : _outboxPartBytes;
+      if (part == null || part.length != expected) return null;
+      bytes.add(part);
+      logIds.add(first + i);
+    }
+    final payload = bytes.takeBytes();
+    if (crypto.sha256.convert(payload).toString() != decoded['sha256']) {
+      return null;
+    }
+    return (payload: payload, logIds: logIds);
+  }
 
   /// Whether a stored outbox record already carries its queue time.
   static bool _payloadCarriesStamp(Uint8List payload) {
@@ -3582,17 +3684,12 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
           'w': base64.encode(frame.wire),
           't': frame.enqueuedAtMs ?? DateTime.now().millisecondsSinceEpoch,
         });
-        final logId = await _commitAtNextLogId(
-          (logId) => [
-            AppendLogOp(Ns.outbox, logId, _sk(payload)),
-            PutOp(
-              Ns.outboxIndex,
-              _outboxIndexKey(frame.frameId),
-              _sk('$logId'),
-            ),
-          ],
+        final record = await _persistOutboxPayload(frame.frameId, _sk(payload));
+        _outboxById[frame.frameId] = (
+          frame: frame,
+          logId: record.logId,
+          logIds: record.logIds,
         );
-        _outboxById[frame.frameId] = (frame: frame, logId: logId);
       } catch (_) {
         // Best-effort: an unstamped frame is still bounded by the age its
         // decode gave it for this run, and the next start tries again.
@@ -3631,16 +3728,16 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     final keys = await _as.kvKeys(Ns.outboxIndex);
     final badKeys = <Uint8List>[];
     final unstamped = <OutboxFrame>[];
-    final loaded = <String, ({OutboxFrame frame, int logId})>{};
+    final loaded =
+        <String, ({OutboxFrame frame, int logId, List<int> logIds})>{};
     for (final key in keys) {
       try {
         final rawLogId = await _as.get(Ns.outboxIndex, key);
         final logId = rawLogId == null
             ? null
             : int.tryParse(utf8.decode(rawLogId));
-        final payload = logId == null
-            ? null
-            : await _as.readLog(Ns.outbox, logId);
+        final record = logId == null ? null : await _readOutboxPayload(logId);
+        final payload = record?.payload;
         final frame = payload == null
             ? null
             : _decodePendingOutboxPayload(payload);
@@ -3649,7 +3746,11 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
           badKeys.add(key);
           continue;
         }
-        loaded[frame.frameId] = (frame: frame, logId: logId!);
+        loaded[frame.frameId] = (
+          frame: frame,
+          logId: logId!,
+          logIds: record!.logIds,
+        );
         // A row from before stamping carries no time of its own. Decoding gave
         // it "now", which bounds it — but only until the next start, and a
         // backlog that resets its own clock on every launch is immortal again.
@@ -3699,7 +3800,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   }
 
   Future<void> _cleanupIndexedOutboxCritical() async {
-    final live = {for (final item in _outboxById.values) item.logId};
+    final live = {for (final item in _outboxById.values) ...item.logIds};
     final count = await _as.count(Ns.outbox);
     if (count <= live.length) return;
     final obsolete = <int>[];
@@ -3761,13 +3862,12 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       // failure counts. Additive: a reader without it sees the old shape.
       't': enqueuedAtMs,
     });
-    final logId = await _commitAtNextLogId(
-      (logId) => [
-        AppendLogOp(Ns.outbox, logId, _sk(payload)),
-        PutOp(Ns.outboxIndex, _outboxIndexKey(frameId), _sk('$logId')),
-      ],
+    final record = await _persistOutboxPayload(frameId, _sk(payload));
+    _outboxById[frameId] = (
+      frame: frame,
+      logId: record.logId,
+      logIds: record.logIds,
     );
-    _outboxById[frameId] = (frame: frame, logId: logId);
   });
 
   @override
@@ -3795,7 +3895,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       return;
     }
     await _as.commit([
-      DeleteLogOp(Ns.outbox, item.logId),
+      for (final logId in item.logIds) DeleteLogOp(Ns.outbox, logId),
       DeleteOp(Ns.outboxIndex, _outboxIndexKey(frameId)),
     ]);
     _outboxById.remove(frameId);
