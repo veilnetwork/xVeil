@@ -1091,3 +1091,32 @@ Native trace-enabled direct primary sends now emit the same sealed epoch/
 sequence sample as relay sends. This local diagnostic allows send/receive
 latency correlation on P2P; it changes neither the wire format nor relay
 scheduling, and does not expose media keys. It is inactive without rt_trace.
+
+
+### Route-control delivery and reliable-stream identity routing (2026-10-05)
+
+The build-2179 phone stand exposed a missing integration detail in the v6
+upgrade: all transportInfo signals previously shared one durable frame id.
+The earlier relay fallback primed dedup, so later P2P readiness was silently
+discarded even though both sessions became admitted. TransportInfo ids now
+include sender timestamp and proposed kind; different transitions remain
+separate even within one millisecond. The FSM ignores older timestamped route
+information after a newer proposal. A regression passes fallback and readiness
+through the actual MessagingService dedup pipeline (including a replay).
+154 focused realtime/FSM/wire/sealing checks passed; analyzer clean. Physical
+upgrade verification requires the next build; build 2179 does not contain this
+follow-up.
+
+Reliable stream opens independently returned code 6 (NO_SESSION) against
+identity addresses despite admitted direct device sessions. IPC now resolves
+an identity to ONE device from the verified live-session index before any
+receipt/data registration. Only currently registered device peers are chosen;
+an explicit device address, legacy identity session or unresolved address keeps
+its existing destination. The selected physical peer keys the receipt waiter,
+data bridge and subsequent stream frames; the original destination application
+id remains unchanged. Streams never use identity fan-out. No DHT advertisement
+or claimed outer sender establishes this mapping, and application content
+access checks remain in force. A full open/receipt/data/close regression also
+rejects another sibling's receipt and excludes a stale indexed device.
+115 IPC tests passed (5 ignored); production-feature FFI Clippy with warnings
+as errors passed. Physical file completion remains pending the next build.
