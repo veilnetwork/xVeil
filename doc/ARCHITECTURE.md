@@ -1388,3 +1388,29 @@ return to the shared limit; it deliberately does not assert media quality,
 because that fixture supplies readiness and shares its connection. All 375
 session tests (three ignored), 20 real QUIC tests and production FFI Clippy
 passed. Physical quality verification proceeds in build 2187.
+
+
+### Outbox record capacity and interrupted 2187 campaign (2026-10-05)
+
+During 2186, endpoint announcements reached ~4 KiB and their base64-enveloped
+outbox records threw `HvException.PayloadTooLarge`. Log batching splits batches,
+not an individual incompressible record. Large serialized outbox rows now use
+1800-byte parts plus a bounded descriptor (length, range and SHA-256), with all
+parts, index and allocator counter in one native commit. Existing small rows
+remain readable. Restart cleanup preserves live parts; recipient-bound ACK
+removes them together. Missing or replaced parts never become a modified wire
+frame. Envelopes remain unchanged on the network and inside the encrypted store.
+The serialized row is bounded to 512 KiB and remains below native batch limits.
+
+132 storage/outbox regressions and analyzer passed. A real hidden-volume test
+with the current macOS bundled library confirms an incompressible single row
+below the nominal 8 KiB limit is refused, then checks fragmented 16 KiB wire
+persistence across a true close/reopen and recipient-bound ACK cleanup.
+
+2187 did not establish either cold call and did not receive the file offer;
+there is no physical quality result for the independent reliable-window change.
+Native logs show route discovery misses and Poco rejecting six packets for a
+missing ratchet conversation; this is evidence to investigate, not proof that
+ratchet persistence is their cause. Both apps independently absent, own forwards,
+readers and fixture removed; own pending downloads cleared. Further campaigns
+must retain startup ratchet diagnostics along with call/content logs.
