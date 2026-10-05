@@ -2545,3 +2545,33 @@ APK manifests retain hashes. Apps including package child processes exited,
 owned forwards/readers and scoped remote ICMP PIDs removed/reaped, independently
 verified with ps/forward checks. Both phones retain 2208. Audio transport
 recovery and bidirectional ratchet transitions remain open. No push/release.
+
+
+Local reliable control admission under independent primary pressure
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Veil 27a8af98 separates bounded parent control writes from bulk admission.
+Actual exporter-bound independent QUIC child loss/expiry previously shrank
+all parent writes to 1 KiB. Always retaining 16 KiB was falsified by the
+existing neutral 1 Mbps file/video/audio gate: 274/500 primary opportunities
+received, p95 381 ms. That experimental policy was discarded.
+
+Parent bulk admission retains the existing pressure policy. Only while the
+writer actually writes a locally authored control blob does a bounded lease
+raise admission to at least 16 KiB. The lease spans all partial writes and
+concurrent primary observations, then restores the bulk limit on completion,
+error or cancellation. Ciphertext order and nonce ownership do not change.
+Coalescing cannot mix a control blob with bulk or neutral transit. A source
+REALTIME non-datagram frame or authored session/control response selects the
+lease; remote priority and raw public writer buffers cannot select it. No
+role metadata, wire change, relay priority or cryptographic bypass is added.
+
+The new actual neutral-UDP/QUIC test binds a child with a different exporter,
+induces real primary PTO/expiry, pauses the production writer after its first
+partial write, and applies concurrent source pressure. Its 12 KiB control
+blob remains admitted; subsequent 2 KiB neutral transit stays blocked at the
+bulk window, then arrives after recovery. Temporarily disabling the lease
+reproduces the specific control-admission failure. Source hint/remote header
+separation and the raw writer path are also checked. Full Session gates:
+385 passed / six existing manual ignored; final focused gate and production
+FFI Clippy with warnings denied pass. Phone build 2209 and actual video/file
+coverage are pending. Transport recovery and bidirectional ratchet remain open.
