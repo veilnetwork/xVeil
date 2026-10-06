@@ -2849,3 +2849,33 @@ and cleanup evidence. Goal remains active: quality gaps, exact physical cold
 race/replacement coverage, socket-loss attribution, ordinary ratchet
 convergence and remaining compatibility/group/screen cases are still open.
 No push, tag or release.
+
+
+Endpoint video pause for severe audio pressure (2026-10-06)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The previous severe-audio reservation still allowed 1 kbit/s at 0.02 fps.
+The optional native video-send-pause ABI now stops all encoder handoffs
+(camera, screen, synthetic and pushed sources) and blocks already encoded
+VP8 RTP at the unicast shim / group fanout before Veil admission. Audio,
+RTCP, local preview/capture and remote-video reception remain live. This is
+endpoint-local only: no relay role, priority or wire metadata is added.
+Packets already admitted into Veil cannot be recalled.
+
+The existing confirmed severe-audio policy controls the pause. Missing or
+expired feedback cannot earn recovery. Resume requests a keyframe on the
+existing stream, with a 20 ms scheduling wait; an abandoned resume remains
+paused and is retried next poll. Pause itself does not wait on a blocked
+video worker. Separate application caches track successful budget and pause
+changes. Older libraries lacking the additive export retain the sparse
+low-rate fallback without claiming a complete pause.
+
+Native real-Call/queue tests cover immediate pause with video queues held,
+failed/resubmitted resume, actual encoded frames stopping and restarting,
+blocked already-encoded video RTP, continuing audio/RTCP, fresh preview and
+inbound audio during pause, for both unicast and room engines. Flutter
+policy/controller gates cover severe pressure, unknown feedback, recovery,
+a busy setter and old low-rate ABI fallback. Engine type-check and Android
+ARM64 production build pass (94 media exports, no test hooks). Camera and
+screen use the tested common handoff gate; this is not a physical screen
+capture or an acoustic-quality measurement. Physical build 2213 verification
+is pending. Existing receive pauses and socket-drop attribution remain open.
