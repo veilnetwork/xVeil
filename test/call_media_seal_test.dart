@@ -32,11 +32,13 @@ class _Open {
 /// COPIED on arrival, because the caller wipes its own the instant the open
 /// returns — a fake that kept the reference would only ever see zeros.
 class _RecordingOpener implements CallMediaChannelOpener {
-  _RecordingOpener({this.directFailure});
+  _RecordingOpener({this.directFailure, this.directFailureAttempts});
 
   final String? directFailure;
+  final int? directFailureAttempts;
   final List<_Open> opens = [];
   int _nextChannel = 100;
+  int _directAttempts = 0;
 
   @override
   Future<int> openMediaChannel(
@@ -55,7 +57,14 @@ class _RecordingOpener implements CallMediaChannelOpener {
         relay: relay,
       ),
     );
-    if (direct && directFailure != null) throw StateError(directFailure!);
+    if (direct) {
+      _directAttempts++;
+      if (directFailure != null &&
+          (directFailureAttempts == null ||
+              _directAttempts <= directFailureAttempts!)) {
+        throw StateError(directFailure!);
+      }
+    }
     return ++_nextChannel;
   }
 }
@@ -125,6 +134,37 @@ void main() {
       expect(opener.opens.single.dstNode, _peer.bytes);
       expect(opened!.peer, _peer);
     });
+
+    test(
+      'cold admission retries the identity despite a stale device route',
+      () async {
+        final call = warmCall(
+          CallTransportKind.p2p,
+        ).copyWith(mediaRoutePeer: device);
+        final opener = _RecordingOpener(
+          directFailure: 'direct media session is not active',
+          directFailureAttempts: 1,
+        );
+        final opened = await openSealedCallMediaChannel(
+          call: call,
+          opener: opener,
+          localNodeId: _self.bytes,
+          directRetryDelay: Duration.zero,
+        );
+        expect(opened!.transport, CallTransportKind.p2p);
+        expect(opened.peer, _peer);
+        expect(opened.fallbackReason, isNull);
+        expect(opener.opens, hasLength(2));
+        final keys = deriveCallMediaKeys(call: call, localNodeId: _self.bytes);
+        for (final wire in opener.opens) {
+          expect(wire.direct, isTrue);
+          expect(wire.relay, isFalse);
+          expect(wire.dstNode, _peer.bytes);
+          expect(wire.txKey, keys.txKey);
+          expect(wire.rxKey, keys.rxKey);
+        }
+      },
+    );
 
     test(
       'failed direct media rebinds relay receive and repair to the device',
@@ -265,6 +305,8 @@ void main() {
       expect(opened, isNotNull);
       expect(opened!.transport, CallTransportKind.relay);
       expect(opened.fallbackReason, 'no direct session to peer');
+      expect(opener.opens, hasLength(3));
+      expect(opener.opens.take(2).every((wire) => wire.direct), isTrue);
       expect(opener.opens.last.relay, isTrue);
       final expected = deriveCallMediaKeys(call: call, localNodeId: _self.bytes);
       for (final wire in opener.opens) {
