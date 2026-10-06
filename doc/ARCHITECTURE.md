@@ -2741,3 +2741,62 @@ first fresh frames 384/435 ms, no duplicates and max post-return age 26/57 ms.
 Production-feature FFI Clippy passes with warnings denied. Build 2211 physical
 outcome capture and sustained forced-relay coverage are pending. The added
 diagnostics alone are not an audio-quality fix.
+
+
+Build 2211 physical outcome capture and cold direct-open race
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both full installed APK hashes verified (root 5a9adad9 / Veil 2fccc27b),
+production ARM64 libraries and unchanged 92-export media library. Identities
+preserved; Poco remains on its actual cellular default network.
+
+Two 120 s P2P audio calls: ring/active 1.033/3.244 and 0.644/1.949 s.
+After-startup max native receive ages 2643/2665 and 2278/2292 ms. Source queue
+admission maxima 2/2 and 1/7 ms; no sampled audio worker stalls. Pauses remain.
+All seven BV and three Poco primary replacements were cancelled because the
+old ACK path resumed, before verification: eight during connect, two waiting
+for binding ACK. No timeout, quota refusal or verified switch was recorded;
+free-slot snapshots at cancellation were at least two/three. This resolves
+these attempts' outcomes, not every outage's cause or physical switch coverage.
+Ordinary ratchet open failures recur 25/49; they do not establish causation for
+per-call AppRtData media gaps. During the first call, Poco's independent ICMP
+reply gaps reach 3.486 s while BV replies continue at about 0.5 s. A 15.579 s
+Poco gap was during startup before that call, not a 15 s audio outage. ICMP
+uses a different destination and does not identify the failing network layer.
+
+A warm P-Net prerequisite followed by temporary denied P2P media policy
+verified an actual relay video call for more than 165 s, with a concurrent
+Poco -> BV 8 MiB file: ring/active 0.710/3.571 s; bytes/hash verified in
+16.93 s; decoded video frames 284/195. After-startup max native receive ages
+1079/941 ms, source admission 0/3 ms and no sampled media worker stalls.
+Both policies restored to their original stored contacts value. No ordinary
+ratchet open failures in this capture. Kernel receive errors and sampled own
+socket drops remain zero; Poco's global UDP SndbufErrors grows by seven, which
+cannot be attributed to an individual app socket from this sampling. This is
+relay-media coverage, not proof that every file packet traversed a relay or
+that every compatibility hop had an independent connection.
+
+A repeat with the normal contacts policy initially negotiated P2P, then both
+ends used relay. It is not a P2P loaded pass. Ring/active 1.234/6.202 s; actual
+8 MiB export hash verified in 74.19 s; native receive ages up to 2691/2740 ms.
+No ordinary ratchet failure occurred, so such failures are not required to
+reproduce a media pause. Source/native worker samples remained live.
+
+The repeat identified a separate setup race: Poco's direct open returned not
+active at 03:39:26.584, but its authenticated direct session registered at
+03:39:26.765. The caller had retained the device receive address selected
+before admission; it immediately surrendered P2P and the peer rebuilt its
+already opened direct media on relay. A negotiated direct open now targets
+the identity and retries a not-active/probe failure once after 300 ms. Native
+admission still gates each attempt, the directional keys are unchanged and
+an unsuccessful retry still uses the permitted physical-device relay route.
+No retry delay follows the final attempt. Onion and relay opens are unchanged.
+
+The new cold-admission regression fails on the restored old source (relay
+instead of P2P) and passes with the fix; 138 media sealing/call-service tests
+pass with TMPDIR=/private/tmp/. Physical build 2212 race coverage is pending.
+All 2211 app/package children, owned forwards/readers, scoped ICMP processes
+and both file stands' fixtures were verified closed/reaped; only owned
+pending downloads cancelled. Private xveil-audio-2211quiet-*,
+xveil-relay-av-file-2211-* and xveil-av-file-2211-* retain sanitized evidence.
+Pauses, successful physical primary replacement, ordinary ratchet convergence
+and complete compatibility/group/screen coverage remain open. No push/release.
