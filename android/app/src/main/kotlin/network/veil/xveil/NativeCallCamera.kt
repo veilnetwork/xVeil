@@ -49,6 +49,8 @@ class NativeCallCamera(
     private var imageReader: ImageReader? = null
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
+    // Guarded by this monitor, including asynchronous Camera2 callbacks.
+    private var captureGeneration = 0L
 
     @Volatile private var engineAddress: Long = 0
     @Volatile private var running = false
@@ -90,6 +92,7 @@ class NativeCallCamera(
     ): Int
 
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun start(
         engineAddress: Long,
         requestedWidth: Int,
@@ -99,6 +102,9 @@ class NativeCallCamera(
         reply: (Map<String, Any?>?, String?) -> Unit,
     ) {
         stop()
+        val generation = captureGeneration
+        fun ownsCapture() = captureGeneration == generation &&
+            this.engineAddress == engineAddress
         if (engineAddress == 0L) {
             reply(null, "media engine is not available")
             return
@@ -172,156 +178,179 @@ class NativeCallCamera(
                 3,
             )
             imageReader = reader
-            reader.setOnImageAvailableListener({ source -> onImage(source, sensorRotation) }, cameraHandler)
+            reader.setOnImageAvailableListener(
+                { source -> onImage(source, sensorRotation, generation) }, cameraHandler,
+            )
 
             cameraManager.openCamera(
                 cameraId,
                 object : CameraDevice.StateCallback() {
                     override fun onOpened(device: CameraDevice) {
-                        if (this@NativeCallCamera.engineAddress == 0L) {
-                            device.close()
-                            return
-                        }
-                        cameraDevice = device
-                        val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
-                            addTarget(preview)
-                            addTarget(reader.surface)
-                            set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
-                            set(
-                                CaptureRequest.CONTROL_AF_MODE,
-                                CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO,
-                            )
-                            set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
-                            // TEMPLATE_RECORD enables SIMPLE face detection on
-                            // this OEM and feeds a face-priority scene pipeline.
-                            // A call needs stable low-latency frames, not face
-                            // metadata; explicitly bypass that variable-cost
-                            // analysis while retaining normal AE/AWB/AF.
-                            set(
-                                CaptureRequest.STATISTICS_FACE_DETECT_MODE,
-                                CaptureRequest.STATISTICS_FACE_DETECT_MODE_OFF,
-                            )
-                            set(
-                                CaptureRequest.CONTROL_SCENE_MODE,
-                                CaptureRequest.CONTROL_SCENE_MODE_DISABLED,
-                            )
-                            // The Xiaomi HAL selected its
-                            // `ZSLPreviewRawForThirdPartyApp` graph even for
-                            // TEMPLATE_RECORD. That graph retains/reorders raw
-                            // frames for zero-shutter-lag still capture, which
-                            // is useless in a call and showed up as a repeated
-                            // pause-then-burst cadence at ImageReader. Disable
-                            // it explicitly when this optional request key is
-                            // advertised by the device.
-                            if (characteristics.availableCaptureRequestKeys
-                                    ?.contains(CaptureRequest.CONTROL_ENABLE_ZSL) == true
-                            ) {
-                                set(CaptureRequest.CONTROL_ENABLE_ZSL, false)
+                        synchronized(this@NativeCallCamera) {
+                            if (!ownsCapture()) {
+                                device.close()
+                                return
                             }
-                            // Qualcomm's third-party video pipeline otherwise
-                            // keeps the GME/EIS stages live. On this Xiaomi the
-                            // GME node intermittently blocked 100-220 ms; the
-                            // Camera2 input cadence and the remote video froze
-                            // at exactly those timestamps even though native
-                            // frame push, encoder, P2P and renderer were idle.
-                            // A call at 640x360 benefits more from deterministic
-                            // cadence than from crop-based stabilization.
-                            val videoStabilizationModes = characteristics.get(
-                                CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES,
-                            )
-                            if (videoStabilizationModes?.contains(
-                                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
-                                ) == true
-                            ) {
-                                set(
-                                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
-                                    CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
-                                )
-                            }
-                            val opticalStabilizationModes = characteristics.get(
-                                CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION,
-                            )
-                            if (opticalStabilizationModes?.contains(
-                                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
-                                ) == true
-                            ) {
-                                set(
-                                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
-                                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
-                                )
-                            }
-                        }
-                        device.createCaptureSession(
-                            listOf(preview, reader.surface),
-                            object : CameraCaptureSession.StateCallback() {
-                                override fun onConfigured(session: CameraCaptureSession) {
-                                    if (this@NativeCallCamera.engineAddress == 0L) {
-                                        session.close()
-                                        return
-                                    }
-                                    captureSession = session
-                                    session.setRepeatingRequest(request.build(), null, cameraHandler)
-                                    running = true
-                                    // The SurfaceTexture path already applies
-                                    // the producer transform matrix in
-                                    // Flutter's external-texture renderer, so
-                                    // the texture ARRIVES upright and the
-                                    // preview rotation Dart should apply is
-                                    // zero. SENSOR_ORIENTATION is still
-                                    // required by the separate ImageReader/YUV
-                                    // path above; applying it again in Dart
-                                    // rotates the self-preview onto its side.
-                                    //
-                                    // But an upright texture has the sensor's
-                                    // axes SWAPPED, and these width/height are
-                                    // the size Dart lays the texture out at.
-                                    // Reporting the sensor size with a rotation
-                                    // of zero told Dart to put a portrait image
-                                    // in a landscape box, which is what
-                                    // squashed the self-view on the phone.
-                                    // Report the size the texture actually has.
-                                    val previewSwapsAxes =
-                                        sensorRotation == 90 || sensorRotation == 270
-                                    finish(
-                                        mapOf(
-                                            "textureId" to entry.id(),
-                                            "width" to
-                                                if (previewSwapsAxes) size.height else size.width,
-                                            "height" to
-                                                if (previewSwapsAxes) size.width else size.height,
-                                            "previewRotation" to 0,
-                                            "mirror" to mirror,
-                                            "fps" to fpsRange.upper,
-                                            "cameraId" to cameraId,
-                                            "facing" to lensFacingName(
-                                                characteristics.get(
-                                                    CameraCharacteristics.LENS_FACING,
-                                                ),
-                                            ),
-                                        ),
-                                        null,
+                            try {
+                                cameraDevice = device
+                                val request = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
+                                    addTarget(preview)
+                                    addTarget(reader.surface)
+                                    set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+                                    set(
+                                        CaptureRequest.CONTROL_AF_MODE,
+                                        CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO,
                                     )
+                                    set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange)
+                                    // TEMPLATE_RECORD enables SIMPLE face detection on
+                                    // this OEM and feeds a face-priority scene pipeline.
+                                    // A call needs stable low-latency frames, not face
+                                    // metadata; explicitly bypass that variable-cost
+                                    // analysis while retaining normal AE/AWB/AF.
+                                    set(
+                                        CaptureRequest.STATISTICS_FACE_DETECT_MODE,
+                                        CaptureRequest.STATISTICS_FACE_DETECT_MODE_OFF,
+                                    )
+                                    set(
+                                        CaptureRequest.CONTROL_SCENE_MODE,
+                                        CaptureRequest.CONTROL_SCENE_MODE_DISABLED,
+                                    )
+                                    // The Xiaomi HAL selected its
+                                    // `ZSLPreviewRawForThirdPartyApp` graph even for
+                                    // TEMPLATE_RECORD. That graph retains/reorders raw
+                                    // frames for zero-shutter-lag still capture, which
+                                    // is useless in a call and showed up as a repeated
+                                    // pause-then-burst cadence at ImageReader. Disable
+                                    // it explicitly when this optional request key is
+                                    // advertised by the device.
+                                    if (characteristics.availableCaptureRequestKeys
+                                            ?.contains(CaptureRequest.CONTROL_ENABLE_ZSL) == true
+                                    ) {
+                                        set(CaptureRequest.CONTROL_ENABLE_ZSL, false)
+                                    }
+                                    // Qualcomm's third-party video pipeline otherwise
+                                    // keeps the GME/EIS stages live. On this Xiaomi the
+                                    // GME node intermittently blocked 100-220 ms; the
+                                    // Camera2 input cadence and the remote video froze
+                                    // at exactly those timestamps even though native
+                                    // frame push, encoder, P2P and renderer were idle.
+                                    // A call at 640x360 benefits more from deterministic
+                                    // cadence than from crop-based stabilization.
+                                    val videoStabilizationModes = characteristics.get(
+                                        CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES,
+                                    )
+                                    if (videoStabilizationModes?.contains(
+                                            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+                                        ) == true
+                                    ) {
+                                        set(
+                                            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                                            CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+                                        )
+                                    }
+                                    val opticalStabilizationModes = characteristics.get(
+                                        CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION,
+                                    )
+                                    if (opticalStabilizationModes?.contains(
+                                            CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
+                                        ) == true
+                                    ) {
+                                        set(
+                                            CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                                            CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
+                                        )
+                                    }
                                 }
+                                device.createCaptureSession(
+                                    listOf(preview, reader.surface),
+                                    object : CameraCaptureSession.StateCallback() {
+                                        override fun onConfigured(session: CameraCaptureSession) {
+                                            synchronized(this@NativeCallCamera) {
+                                                try {
+                                                    if (!ownsCapture() || cameraDevice !== device) {
+                                                        session.close()
+                                                        return
+                                                    }
+                                                    captureSession = session
+                                                    session.setRepeatingRequest(request.build(), null, cameraHandler)
+                                                    running = true
+                                                    // The SurfaceTexture path already applies
+                                                    // the producer transform matrix in
+                                                    // Flutter's external-texture renderer, so
+                                                    // the texture ARRIVES upright and the
+                                                    // preview rotation Dart should apply is
+                                                    // zero. SENSOR_ORIENTATION is still
+                                                    // required by the separate ImageReader/YUV
+                                                    // path above; applying it again in Dart
+                                                    // rotates the self-preview onto its side.
+                                                    //
+                                                    // But an upright texture has the sensor's
+                                                    // axes SWAPPED, and these width/height are
+                                                    // the size Dart lays the texture out at.
+                                                    // Reporting the sensor size with a rotation
+                                                    // of zero told Dart to put a portrait image
+                                                    // in a landscape box, which is what
+                                                    // squashed the self-view on the phone.
+                                                    // Report the size the texture actually has.
+                                                    val previewSwapsAxes =
+                                                        sensorRotation == 90 || sensorRotation == 270
+                                                    finish(
+                                                        mapOf(
+                                                            "textureId" to entry.id(),
+                                                            "width" to
+                                                                if (previewSwapsAxes) size.height else size.width,
+                                                            "height" to
+                                                                if (previewSwapsAxes) size.width else size.height,
+                                                            "previewRotation" to 0,
+                                                            "mirror" to mirror,
+                                                            "fps" to fpsRange.upper,
+                                                            "cameraId" to cameraId,
+                                                            "facing" to lensFacingName(
+                                                                characteristics.get(
+                                                                    CameraCharacteristics.LENS_FACING,
+                                                                ),
+                                                            ),
+                                                        ),
+                                                        null,
+                                                    )
+                                                } catch (error: Exception) {
+                                                    finish(null, error.toString())
+                                                    if (ownsCapture()) stop()
+                                                }
+                                            }
+                                        }
 
-                                override fun onConfigureFailed(session: CameraCaptureSession) {
-                                    finish(null, "Camera2 session configuration failed")
-                                    stop()
-                                }
-                            },
-                            cameraHandler,
-                        )
+                                        override fun onConfigureFailed(session: CameraCaptureSession) {
+                                            synchronized(this@NativeCallCamera) {
+                                                session.close()
+                                                finish(null, "Camera2 session configuration failed")
+                                                if (ownsCapture()) stop()
+                                            }
+                                        }
+                                    },
+                                    cameraHandler,
+                                )
+                            } catch (error: Exception) {
+                                finish(null, error.toString())
+                                if (ownsCapture()) stop()
+                            }
+                        }
                     }
 
                     override fun onDisconnected(device: CameraDevice) {
-                        device.close()
-                        finish(null, "Camera2 device disconnected")
-                        stop()
+                        synchronized(this@NativeCallCamera) {
+                            device.close()
+                            finish(null, "Camera2 device disconnected")
+                            if (ownsCapture()) stop()
+                        }
                     }
 
                     override fun onError(device: CameraDevice, error: Int) {
-                        device.close()
-                        finish(null, "Camera2 device error $error")
-                        stop()
+                        synchronized(this@NativeCallCamera) {
+                            device.close()
+                            finish(null, "Camera2 device error $error")
+                            if (ownsCapture()) stop()
+                        }
                     }
                 },
                 cameraHandler,
@@ -338,7 +367,9 @@ class NativeCallCamera(
      * inside nativePushAndroid420 when Flutter asks to destroy the media
      * engine. Waiting for the handler fence makes that pointer lifetime exact.
      */
+    @Synchronized
     fun stop(done: (() -> Unit)? = null) {
+        captureGeneration++
         engineAddress = 0
         running = false
         val pending = pendingStartReply
@@ -460,8 +491,14 @@ class NativeCallCamera(
         replacedFrames = 0
     }
 
-    private fun onImage(source: ImageReader, rotation: Int) {
-        val image = source.acquireLatestImage() ?: return
+    @Synchronized
+    private fun onImage(source: ImageReader, rotation: Int, generation: Long) {
+        if (captureGeneration != generation || imageReader !== source) return
+        val image = try {
+            source.acquireLatestImage()
+        } catch (_: IllegalStateException) {
+            null
+        } ?: return
         if (engineAddress == 0L || image.planes.size < 3) {
             image.close()
             return
@@ -485,32 +522,40 @@ class NativeCallCamera(
             replaced.close()
             synchronized(statsLock) { replacedFrames++ }
         }
-        scheduleProcessor(rotation)
+        scheduleProcessor(rotation, generation)
     }
 
-    private fun scheduleProcessor(rotation: Int) {
+    private fun scheduleProcessor(rotation: Int, generation: Long) {
         if (!processorScheduled.compareAndSet(false, true)) return
         val target = processingHandler
-        if (target == null || !target.post { drainImages(rotation) }) {
+        if (target == null || !target.post { drainImages(rotation, generation) }) {
             processorScheduled.set(false)
             pendingImage.getAndSet(null)?.close()
         }
     }
 
-    private fun drainImages(rotation: Int) {
+    private fun drainImages(rotation: Int, generation: Long) {
         while (true) {
-            val image = pendingImage.getAndSet(null)
-            if (image != null) processImage(image, rotation)
+            val image = synchronized(this) {
+                if (captureGeneration != generation) return
+                pendingImage.getAndSet(null)
+            }
+            if (image != null) processImage(image, rotation, generation)
 
-            processorScheduled.set(false)
-            if (pendingImage.get() == null ||
-                !processorScheduled.compareAndSet(false, true)
-            ) return
+            synchronized(this) {
+                if (captureGeneration != generation) return
+                processorScheduled.set(false)
+                if (pendingImage.get() == null ||
+                    !processorScheduled.compareAndSet(false, true)
+                ) return
+            }
         }
     }
 
-    private fun processImage(image: android.media.Image, rotation: Int) {
+    @Synchronized
+    private fun processImage(image: android.media.Image, rotation: Int, generation: Long) {
         try {
+            if (captureGeneration != generation) return
             val address = engineAddress
             val planes = image.planes
             if (address == 0L || planes.size < 3) return
@@ -529,7 +574,13 @@ class NativeCallCamera(
                 planes[2].rowStride,
                 uvPixelStride,
                 rotation,
-                image.timestamp / 1_000,
+                // Camera2's sensor clock can include device suspend time,
+                // while WebRTC uses its own monotonic clock. Switching from
+                // that sensor clock to screen frames made timestamps go
+                // backwards and the encoder discard the entire screen stream.
+                // Zero asks the media engine to stamp its canonical clock,
+                // just as the screen and Flutter camera paths do.
+                0,
             )
             val pushNs = SystemClock.elapsedRealtimeNanos() - startedNs
             synchronized(statsLock) {

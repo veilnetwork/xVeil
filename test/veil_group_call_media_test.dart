@@ -658,6 +658,37 @@ void main() {
     expect(controller.videoFrameFor(peer).value?.rgba.first, 2);
   });
 
+  test(
+    'group screen source reaches existing and newly joined channels',
+    () async {
+      final self = _id(1);
+      final alice = _id(2);
+      final bob = _id(3);
+      final transport = _FakeTransport(self);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      addTearDown(controller.stop);
+      expect(await controller.start(_call(self, [alice], video: true)), isTrue);
+      expect(await controller.setScreenShareEnabled(true), isTrue);
+      expect(transport.screenModes[1], isTrue);
+      await controller.setCameraEnabled(true);
+      expect(transport.screenModes[1], isTrue);
+      await controller.update(_call(self, [alice, bob], video: true));
+      expect(transport.screenModes[2], isTrue);
+      expect(await controller.setScreenShareEnabled(false), isTrue);
+      expect(transport.screenModes, {1: false, 2: false});
+      transport.rejectScreen = true;
+      expect(await controller.setScreenShareEnabled(true), isFalse);
+      expect(transport.screenModes, {1: false, 2: false});
+    },
+  );
+
   group('room media is sealed per participant pair', () {
     test('the two ends of a pair derive the same directional keys', () {
       final alice = _id(1);
@@ -782,6 +813,8 @@ class _FakeTransport implements GroupMediaChannelTransport {
   final NodeId self;
   final List<NodeId> opened = [];
   final List<int> closed = [];
+  final Map<int, bool> screenModes = {};
+  bool rejectScreen = false;
   final Map<String, Uint8List> txKeys = {};
   final Map<String, Uint8List> rxKeys = {};
 
@@ -799,6 +832,13 @@ class _FakeTransport implements GroupMediaChannelTransport {
     txKeys[peer.hex] = Uint8List.fromList(txKey);
     rxKeys[peer.hex] = Uint8List.fromList(rxKey);
     return opened.length;
+  }
+
+  @override
+  int setScreenSharing(int channel, bool on) {
+    if (on && rejectScreen) return -1;
+    screenModes[channel] = on;
+    return 0;
   }
 
   @override

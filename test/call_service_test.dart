@@ -2573,6 +2573,7 @@ void main() {
           isEmpty,
           reason: 'the share owns the single video source',
         );
+        expect(media.cameraIntent, isFalse);
 
         svc.setScreenShareEnabled(false);
         async.flushMicrotasks();
@@ -3820,6 +3821,7 @@ class _FakeMedia extends CallMediaController {
   int signalVersion = kCallSignalProtocolVersion;
   bool screenOk = true;
   bool videoOk = true;
+  bool? cameraIntent;
   CallTransportKind? openedTransport;
   CallTransportKind? repairTo;
   DateTime? rxAt;
@@ -3966,6 +3968,9 @@ class _FakeMedia extends CallMediaController {
     openedTransport = transport;
     return true;
   }
+
+  @override
+  void updateCameraIntent(bool enabled) => cameraIntent = enabled;
 
   @override
   Future<void> setCameraEnabled(bool enabled) async {

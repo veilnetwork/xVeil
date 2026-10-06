@@ -22,6 +22,7 @@ import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
 import 'call_microphone_state.dart';
+import 'call_camera_state.dart';
 import 'call_peer_audio_playout.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
@@ -426,6 +427,7 @@ class VeilCallMediaController implements CallMediaController {
   static String get _speakerPreferenceKey =>
       'call.playout.speaker.${Platform.operatingSystem}';
   final _microphoneState = CallMicrophoneState();
+  final _cameraState = CallCameraState();
   VeilMediaEngine? _engine;
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
@@ -818,6 +820,7 @@ class VeilCallMediaController implements CallMediaController {
       _peerAudioPlayout = CallPeerAudioPlayout();
     }
     _microphoneState.beginCall(call.callId, micOn: call.micOn);
+    _cameraState.beginCall(call.callId, enabled: call.cameraOn);
     final device = call.peerDevice;
     if (device != null && device != call.mediaIdentity) {
       // Select the receive address from the actual route. An admitted session
@@ -1206,7 +1209,9 @@ class VeilCallMediaController implements CallMediaController {
       // the engine. Android uses an app-owned Camera2 SurfaceTexture + direct
       // JNI YUV bridge; the Flutter camera plugin is only a compatibility
       // fallback if the native session cannot open.
-      if (shouldStartInitialCallCamera(call)) {
+      if (shouldStartInitialCallCamera(
+        call.copyWith(cameraOn: _cameraState.enabledForCall(call.callId)),
+      )) {
         if (Platform.isAndroid) {
           // Do not hold the call FSM in `connecting` while camera permission or
           // device opening completes; the receive pipeline is already mounted.
@@ -1372,7 +1377,10 @@ class VeilCallMediaController implements CallMediaController {
     if (clearActiveCall) {
       _activeCall = null;
       _bitrateAdapter = null;
-      if (clearMicrophoneState) _microphoneState.clear();
+      if (clearMicrophoneState) {
+        _microphoneState.clear();
+        _cameraState.clear();
+      }
       // The prompt belongs to a call, not to the app. A route repair
       // (clearActiveCall: false) deliberately keeps it: the link that could
       // not carry video a second ago is the same link.
@@ -1810,9 +1818,19 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   @override
+  void updateCameraIntent(bool enabled) => _cameraState.setEnabled(enabled);
+
+  @override
   Future<void> setCameraEnabled(bool enabled) async {
+    _cameraState.setEnabled(enabled);
     final engine = _engine;
     if (engine == null) return;
+    if (enabled && (_screenSharing || _screenStarting != null)) return;
+    final chan = _chan;
+    if (enabled &&
+        (chan == null || _transport.setMediaScreenSharing(chan, false) != 0)) {
+      return;
+    }
     if (Platform.isAndroid) {
       if (enabled) {
         await _startAndroidCam(engine, highQuality: _highQualityRoute);
@@ -1855,12 +1873,16 @@ class VeilCallMediaController implements CallMediaController {
   @override
   Future<bool> setScreenShareEnabled(bool enabled) async {
     final engine = _engine;
-    if (engine == null) return false;
+    final chan = _chan;
+    if (engine == null || chan == null) return false;
     if (Platform.isAndroid) {
       if (!enabled) {
         final screen = _androidScreen;
         _androidScreen = null;
         if (screen != null) await screen.stop();
+        // The old channel may have closed while capture was stopping.
+        if (_chan != chan || _engine != engine) return false;
+        _transport.setMediaScreenSharing(chan, false);
         _screenSharing = false;
         _startFramePump(engine);
         return true;
@@ -1891,7 +1913,19 @@ class VeilCallMediaController implements CallMediaController {
         _androidCam = null;
         if (cam != null) await cam.stop();
         if (epoch != _mediaEpoch) return false;
-        final started = await _startAndroidScreen(engine);
+        if (_chan != chan ||
+            _transport.setMediaScreenSharing(chan, true) != 0) {
+          return false;
+        }
+        final bool started;
+        try {
+          started = await _startAndroidScreen(engine);
+        } catch (_) {
+          if (epoch == _mediaEpoch && _chan == chan) {
+            _transport.setMediaScreenSharing(chan, false);
+          }
+          rethrow;
+        }
         // And again on the way out: `_startAndroidScreen` publishes the source
         // before it awaits `start`, so a teardown landing THERE stops a source
         // that has not started yet and the start then succeeds behind it —
@@ -1907,10 +1941,15 @@ class VeilCallMediaController implements CallMediaController {
           }
           return false;
         }
+        if (!started) _transport.setMediaScreenSharing(chan, false);
         _screenSharing = started;
         if (started) _startFramePump(engine);
         if (!started && cameraWasRunning) {
-          await _startAndroidCam(engine, highQuality: _highQualityRoute);
+          await _startAndroidCam(
+            engine,
+            highQuality: _highQualityRoute,
+            restoringAfterScreenFailure: true,
+          );
         }
         return started;
       }();
@@ -1924,18 +1963,24 @@ class VeilCallMediaController implements CallMediaController {
     if (!Platform.isMacOS) return false;
     try {
       if (enabled) {
+        if (_transport.setMediaScreenSharing(chan, true) != 0) return false;
         final started = engine.startScreen(
           width: _highQualityRoute ? 960 : 640,
           fps: _highQualityRoute ? 15 : 10,
           sourceId: _selectedScreenId,
         );
+        if (!started) _transport.setMediaScreenSharing(chan, false);
         _screenSharing = started;
         return started;
       }
       final stopped = engine.stopScreen();
-      if (stopped) _screenSharing = false;
+      if (stopped) {
+        _transport.setMediaScreenSharing(chan, false);
+        _screenSharing = false;
+      }
       return stopped;
     } catch (_) {
+      if (enabled) _transport.setMediaScreenSharing(chan, false);
       return false;
     }
   }
@@ -1945,10 +1990,14 @@ class VeilCallMediaController implements CallMediaController {
 
   Future<bool> _startAndroidScreen(VeilMediaEngine engine) async {
     _androidScreenPushLogged = false;
+    final chan = _chan;
     late final AndroidScreenCaptureSource screen;
     screen = _screenCaptureFactory(() {
       if (_androidScreen != screen) return;
       _androidScreen = null;
+      if (_engine == engine && _chan == chan && chan != null) {
+        _transport.setMediaScreenSharing(chan, false);
+      }
       _screenSharing = false;
       localVideoFrame.value = null;
       _screenShareStops.add(null);
@@ -1998,13 +2047,23 @@ class VeilCallMediaController implements CallMediaController {
   Future<void> _startAndroidCam(
     VeilMediaEngine engine, {
     required bool highQuality,
+    bool restoringAfterScreenFailure = false,
   }) async {
+    bool mayCapture() =>
+        _engine == engine &&
+        _activeCall != null &&
+        _cameraState.enabledForCall(_activeCall!.callId) &&
+        !_screenSharing &&
+        _androidScreen == null &&
+        (_screenStarting == null || restoringAfterScreenFailure);
+    if (!mayCapture()) return;
     final existingNative = _androidNativeCam;
     if (existingNative?.isRunning ?? false) return;
     if (existingNative != null) {
       _androidNativeCam = null;
       await existingNative.stop();
     }
+    if (!mayCapture()) return;
     if (_androidCam != null) return;
     final profile = highQuality ? _directVideoProfile : _anonymousVideoProfile;
     final nativeCam = AndroidNativeCallCamera();
@@ -2016,8 +2075,9 @@ class VeilCallMediaController implements CallMediaController {
       fps: profile.maxFps,
       cameraId: _selectedCameraId,
     );
-    if (_engine != engine || _androidNativeCam != nativeCam) {
+    if (!mayCapture() || _androidNativeCam != nativeCam) {
       if (nativeOk) await nativeCam.stop();
+      if (_androidNativeCam == nativeCam) _androidNativeCam = null;
       return;
     }
     if (nativeOk) {
@@ -2045,7 +2105,7 @@ class VeilCallMediaController implements CallMediaController {
       uvPixelStride,
       rotation,
     ) {
-      if (_engine != engine) return false;
+      if (!mayCapture() || _androidCam != cam) return false;
       try {
         return engine.pushAndroid420Frame(
           y,
@@ -2063,8 +2123,9 @@ class VeilCallMediaController implements CallMediaController {
         return false;
       }
     });
-    if (!ok) {
-      _androidCam = null;
+    if (!ok || !mayCapture() || _androidCam != cam) {
+      if (ok) await cam.stop();
+      if (_androidCam == cam) _androidCam = null;
     } else {
       _startFramePump(engine);
     }
