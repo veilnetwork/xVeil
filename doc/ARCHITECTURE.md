@@ -2671,3 +2671,55 @@ Transport 116 passed. Temporary bind-stage instrumentation was removed.
 Production-feature FFI Clippy passes with warnings denied. Build 2210 phone
 coverage is pending.
 The ordinary bidirectional ratchet-root defect remains unresolved.
+
+
+Build 2210 physical recovery and loaded coverage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Full installed APK SHA-256 verified on both phones (root 7061759f / Veil
+43ee52b8), production Rust features, ARM64 and unchanged 92-export production
+media library. Identities preserved; Poco's actual default network cellular.
+
+Two 120 s audio calls: ring/active 0.261/3.241 and 0.435/1.426 s. After-startup
+max native receive ages 5816/5836, then 1876/1928 ms: quality still fails.
+Source max RTP gaps 400/404, then 400/405 ms; queue admission 1/2, then 1/1 ms;
+no sampled worker stalls. No ordinary ratchet open failure in these calls.
+Source-primary replacement attempts 7/5, with no logged verified switch.
+Short outages can restore the old ACK path before the proof completes; the
+capture does not distinguish every cancellation/failure and does not validate
+a successful physical replacement. The controlled authenticated fixture does.
+
+The first call's large pause overlaps an independent Poco ICMP receive gap
+of 6.935 s (ten missing sequence numbers; next reply RTT 1346 ms), while BV
+replies continue at about 0.5 s. Source-primary ACK plateaus 5.027/4.477 s,
+PTO up to five and rising outgoing expiry overlap it. Genuine authenticated
+data stops; the existing five-second unacknowledged keepalive policy closes
+the direct parents, and call recovery follows. Multiple Poco sessions close
+in this interval. This establishes a simultaneous broader network symptom,
+not a diagnosis of the carrier, modem or OS, nor every media pause's cause.
+System ICMP follows a different destination and cannot prove media packet paths.
+
+Poco -> BV video plus actual 8 MiB file: ring/active 1.187/4.766 s; download
+202.21 s, exported bytes SHA-256 verified. API progress still reports
+8388607/8388608, so completion is established by bytes/hash. Decoded video
+frames 149/257, audio receive epoch sums 9821/10300. Max native receive ages
+3456/3466 ms, so loaded quality also fails. Source gaps 401/403 ms, admission
+1/25 ms; no sampled audio/video worker stalls. Source-primary candidates 7/3,
+no verified switch logged. Ordinary app.ratchet.open_failed recurs 193/142,
+including authentication failures. The bidirectional-root defect is not fixed;
+these outer AppData failures are not proof of the cause of inner-key AppRtData
+media gaps. No key, PQ, replay or identity validation was relaxed.
+
+Loaded independent ICMP max RTT/gap: BV 74 ms/0.527 s, Poco 1587 ms/4.118 s.
+Kernel UDP receive-buffer errors increase by two on BV, zero on Poco; sampled
+own socket drops max two/zero. This is not a zero-drop capture. Sampled phone
+power states remain ACTIVE, charging and screen on, thermal status zero;
+sampling does not rule out every scheduling or radio transition.
+
+Private xveil-audio-2210quiet-* / xveil-av-file-2210-* preserve paired samples,
+primary/recovery attribution, independent probes, sanitized power/radio/kernel
+snapshots and cleanup evidence. Apps and package child processes exited;
+owned API forwards/readers, two file fixtures and scoped remote ICMP PIDs
+removed/reaped, only owned downloads cancelled. Independent ps/forward checks
+confirm cleanup. Both phones retain 2210. Source code and root pointer committed
+unsigned; no push/tag/release. Goal remains active: actual phone quality,
+successful physical replacement coverage and bidirectional ratchet remain open.
