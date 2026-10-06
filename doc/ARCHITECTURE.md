@@ -3188,3 +3188,72 @@ checks, path attribution and cleanup evidence. Goal remains active: bounded
 proxy source scheduling is fixed and installed, physical proxy-load coverage,
 complete transport separation, receive continuity and acoustic quality remain
 open. No push, tag or release.
+
+
+Reliable routed message packetization and ACK source admission
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A second producer gap existed beyond IPC byte streams and proxy bridges:
+ordinary large sealed message envelopes used 64 KiB Forward chunks and
+synchronous, lossy queue admission. Reliable locally originated relay messages
+now use the existing ChunkedEnvelopePayload format at 3600 data bytes per
+piece, including messages below the old 64 KiB chunking threshold. Actual
+Forward/metadata/hop-AEAD/padding length fits one 4096-byte bucket. The payload
+is sealed once before splitting, so this adds small carrier headers without
+repeating ML-KEM/ratchet sealing per chunk. Aggregate padding/bandwidth under
+load has not been measured for this new producer.
+
+Every piece awaits endpoint-owned reliable BACKGROUND source credits. A full
+queue waits without invalidating a healthy route or spraying the batch through
+alternatives; a missing/closed session retains indexed whole-batch rerouting.
+One admission deadline covers all candidate hops, at most 30 seconds and no
+later than the original envelope's remaining TTL. Partial failure reports
+NO_ROUTE rather than replaying a prefix in place. Metadata, transfer/original
+content ids, ciphertext, final ACK key and address remain unchanged. Received
+chunk/body/count/reassembly limits remain unchanged, and the origin checks
+chunk count before sending. Explicit lossy relay cells retain their prior
+size threshold, chunk size and local lane; they are not converted to reliable
+reassembled messages by the smaller reliable recommendation.
+
+ACK retransmission previously injected the same batch synchronously at
+INTERACTIVE priority. It now runs at most eight scoped async source-admission
+futures, leaves the ordinary single-frame ACK path and health/timer loop live,
+and drops these futures with the parent task on shutdown. The tracker excludes
+in-flight batch attempts and defers other batches when all slots are occupied,
+without spending attempts or expiring a currently admitted batch. Completion
+rearms the ACK wait after admission and updates an accepted alternate hop only
+for the same current attempt. A cleared authenticated ACK or replaced attempt
+cancels a blocked sender within the 100 ms polling interval; no registry or
+tracker lock spans a source wait. Whole retry admission is bounded by 30 s and
+the stored original TTL; expired batches do not consume source credits. Fresh
+outer chunk content ids bypass relay replay suppression on retry while inner
+transfer/index/original ids preserve terminal dedup and one logical ACK.
+No relay priority, media role hint, key validation or cryptographic rule changed.
+
+Verification: full IPC library suite 123 passed / five previously ignored,
+all ten pending-ACK tests, and three actual runtime chunk retry tests pass.
+Real handle_ipc_send tests split 12 KiB and 100 KiB, verify every neutral wire
+header and 4 KiB bound, reconstruct the sealed bytes, authenticate/decrypt the
+original payload and check one tracked batch with a nonzero ACK key. A held
+capacity-one source proves the real handler waits and retains its route.
+Real SessionTxRegistry retry tests preserve reserved primary admission while
+background is full, cover a closed original hop plus live alternate, feed a
+retained partial transfer and duplicate indices into the actual reassembler,
+then decrypt exactly once. Cancellation releases pending credits, and expiry
+neither sends nor forges an ACK. Tracker tests cover the bounded worker slots,
+current-attempt completion, no premature failure, single-frame timer progress
+and ACK-winning removal. These are component/handler gates, not a physical
+stand of the complete timer/controller under network loss.
+
+Negative gates restoring 64 KiB origin pieces, synchronous retry admission,
+or expiry of a busy final attempt fail their intended assertions. Sources
+restored and positive gates repeated. IPC/pending-ACK/runtime all-target
+Clippy passes with warnings denied; production ARM64 FFI builds with exactly
+production-seeds,node-embedded,packet-tunnel. Native artifact is prepared;
+phones still retain installed 2216, independently checked stopped with no
+package-prefix processes or forwards. No new phone/macOS app stand this cycle.
+
+Remaining scope includes large direct AppSend/fanout frames, arbitrary large
+control frames, complete group/screen/compatibility behavior and actual path
+separation through legacy relays. This change fixes the ordinary routed
+producer and its retries; it does not establish a repair of the receive pauses
+observed in 2216 or prove acoustic quality. Goal remains active. No push/tag.
