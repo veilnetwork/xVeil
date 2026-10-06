@@ -94,6 +94,15 @@ class _Node implements RatchetStateHandle {
   @override
   int skipSendTo(Uint8List key, RatchetSendPosition to) => 0;
   @override
+  List<RatchetSendPosition> sendPositions(Uint8List key) => [
+    ?sendPosition(key),
+  ];
+  @override
+  List<RatchetSendPosition> storedSendPositions(
+    Uint8List key,
+    Uint8List blob,
+  ) => [RatchetSendPosition(_chain(_hex(key)), 0)];
+  @override
   int stateVersion() => _version;
   @override
   ({List<Uint8List> keys, int remaining, int generation}) peekDirty(int max) =>

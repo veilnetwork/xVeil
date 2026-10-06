@@ -27,6 +27,7 @@ import 'package:xveil/state/ratchet_persistence.dart';
 /// chain, or one already passed, burns nothing.
 class _Node implements RatchetStateHandle {
   final Map<String, ({int sent, Uint8List blob})> _held = {};
+  final Map<String, Uint8List> _chains = {};
   final Map<String, int> _dirty = {};
   int _version = 0;
 
@@ -47,11 +48,37 @@ class _Node implements RatchetStateHandle {
     return index;
   }
 
+  void rotate(Uint8List key, int tag) {
+    final hex = _hex(key);
+    _chains[hex] = Uint8List(32)..fillRange(0, 32, tag);
+    _held[hex] = (sent: 0, blob: Uint8List(0));
+    _dirty[hex] = ++_version;
+  }
+
   @override
   RatchetSendPosition? sendPosition(Uint8List key) {
     final held = _held[_hex(key)];
     if (held == null) return null;
-    return RatchetSendPosition(_chainOf(_hex(key)), held.sent);
+    return RatchetSendPosition(
+      _chains[_hex(key)] ?? _chainOf(_hex(key)),
+      held.sent,
+    );
+  }
+
+  @override
+  List<RatchetSendPosition> sendPositions(Uint8List key) => [
+    ?sendPosition(key),
+  ];
+
+  @override
+  List<RatchetSendPosition> storedSendPositions(Uint8List key, Uint8List blob) {
+    if (blob.length != 34) throw StateError('invalid fake state');
+    return [
+      RatchetSendPosition(
+        Uint8List.fromList(blob.sublist(2)),
+        blob[0] | (blob[1] << 8),
+      ),
+    ];
   }
 
   @override
@@ -59,7 +86,10 @@ class _Node implements RatchetStateHandle {
     final hex = _hex(key);
     final held = _held[hex];
     if (held == null) return 0;
-    if (!_same(to.chain, _chainOf(hex)) || to.next <= held.sent) return 0;
+    if (!_same(to.chain, _chains[hex] ?? _chainOf(hex)) ||
+        to.next <= held.sent) {
+      return 0;
+    }
     final burned = to.next - held.sent;
     _held[hex] = (sent: to.next, blob: held.blob);
     _version++;
@@ -115,13 +145,18 @@ class _Node implements RatchetStateHandle {
     final held = _held[_hex(key)];
     if (held == null) return null;
     // The sent counter IS the state, for this double's purposes.
-    return Uint8List.fromList([held.sent & 0xff, (held.sent >> 8) & 0xff]);
+    return Uint8List.fromList([
+      held.sent & 0xff,
+      (held.sent >> 8) & 0xff,
+      ...(_chains[_hex(key)] ?? _chainOf(_hex(key))),
+    ]);
   }
 
   @override
   bool import(Uint8List key, Uint8List blob) {
-    if (blob.length < 2) return false;
+    if (blob.length != 34) return false;
     _held[_hex(key)] = (sent: blob[0] | (blob[1] << 8), blob: blob);
+    _chains[_hex(key)] = Uint8List.fromList(blob.sublist(2));
     return true;
   }
 
@@ -173,43 +208,196 @@ void main() {
     await storage.open(password: 'pw', createIfMissing: true);
   });
 
-  test('a send whose state never reached disk cannot reuse its index', () async {
+  test(
+    'a send whose state never reached disk cannot reuse its index',
+    () async {
+      final node = _Node();
+      final ratchet = RatchetPersistence(native: node, storage: storage);
+
+      // A conversation exists and its state IS on disk.
+      node.seal(key);
+      await ratchet.flush(why: 'setup');
+
+      // The send path takes a reservation, and four frames go out under it.
+      await ratchet.reserveBeforePublish(peer);
+      final published = [for (var i = 0; i < 4; i++) node.seal(key)];
+      expect(published, [1, 2, 3, 4]);
+
+      // Their state write never lands and the process dies. A fresh node comes
+      // up and is handed what the container actually holds.
+      final restarted = _Node();
+      await RatchetPersistence(native: restarted, storage: storage).restore();
+      expect(
+        restarted.sendPosition(key)!.next,
+        1,
+        reason: 'the restored state is the one from BEFORE the four sends',
+      );
+
+      final burned = await recoverReservedSendPositions(restarted, storage);
+      expect(
+        burned,
+        greaterThan(0),
+        reason: 'the reservation must be honoured',
+      );
+
+      final afterRestart = restarted.seal(key);
+      for (final index in published) {
+        expect(
+          afterRestart,
+          isNot(index),
+          reason:
+              'index $index was already published; sealing at it again is two '
+              'ciphertexts under one nonce',
+        );
+      }
+    },
+  );
+
+  test(
+    'a chain change cannot erase the reservation for the disk state',
+    () async {
+      final node = _Node();
+      final ratchet = RatchetPersistence(native: node, storage: storage);
+      node.seal(key);
+      await ratchet.flush(why: 'setup');
+      final old = node.sendPosition(key)!;
+      await ratchet.reserveBeforePublish(peer);
+      final published = [for (var i = 0; i < 4; i++) node.seal(key)];
+      node.rotate(key, 91);
+      await ratchet.reserveBeforePublish(peer);
+      node.seal(key);
+      // Both post-send state writes are lost, including the chain change.
+      final restarted = _Node();
+      await RatchetPersistence(native: restarted, storage: storage).restore();
+      expect(restarted.sendPosition(key)!.chain, old.chain);
+      await recoverReservedSendPositions(restarted, storage);
+      expect(restarted.seal(key), greaterThan(published.last));
+    },
+  );
+
+  test(
+    'many volatile epochs retain the disk mark within the ledger bound',
+    () async {
+      final node = _Node();
+      final ratchet = RatchetPersistence(native: node, storage: storage);
+      node.seal(key);
+      await ratchet.flush(why: 'setup');
+      final diskChain = node.sendPosition(key)!.chain;
+      await ratchet.reserveBeforePublish(peer);
+      node.seal(key);
+      for (var tag = 1; tag <= 200; tag++) {
+        node.rotate(key, tag);
+        await ratchet.reserveBeforePublish(peer);
+        final marks = decodeRatchetReservations(
+          await storage.getSetting(ratchetReservationKey(key)),
+        );
+        expect(marks.length, 2);
+        expect(marks.first.chain, diskChain);
+        node.seal(key);
+      }
+      final restarted = _Node();
+      await RatchetPersistence(native: restarted, storage: storage).restore();
+      await recoverReservedSendPositions(restarted, storage);
+      expect(restarted.seal(key), greaterThan(1));
+    },
+  );
+
+  test('retire an old mark only after the new snapshot is durable', () async {
     final node = _Node();
     final ratchet = RatchetPersistence(native: node, storage: storage);
-
-    // A conversation exists and its state IS on disk.
     node.seal(key);
     await ratchet.flush(why: 'setup');
-
-    // The send path takes a reservation, and four frames go out under it.
     await ratchet.reserveBeforePublish(peer);
-    final published = [for (var i = 0; i < 4; i++) node.seal(key)];
-    expect(published, [1, 2, 3, 4]);
-
-    // Their state write never lands and the process dies. A fresh node comes
-    // up and is handed what the container actually holds.
+    node.rotate(key, 91);
+    await ratchet.reserveBeforePublish(peer);
+    node.seal(key);
+    await ratchet.flush(why: 'new chain saved');
+    node.rotate(key, 92);
+    await ratchet.reserveBeforePublish(peer);
+    final marks = decodeRatchetReservations(
+      await storage.getSetting(ratchetReservationKey(key)),
+    );
+    expect(marks.map((m) => m.chain.first), [91, 92]);
     final restarted = _Node();
     await RatchetPersistence(native: restarted, storage: storage).restore();
-    expect(
-      restarted.sendPosition(key)!.next,
-      1,
-      reason: 'the restored state is the one from BEFORE the four sends',
-    );
-
-    final burned = await recoverReservedSendPositions(restarted, storage);
-    expect(burned, greaterThan(0), reason: 'the reservation must be honoured');
-
-    final afterRestart = restarted.seal(key);
-    for (final index in published) {
-      expect(
-        afterRestart,
-        isNot(index),
-        reason:
-            'index $index was already published; sealing at it again is two '
-            'ciphertexts under one nonce',
-      );
-    }
+    expect(restarted.sendPosition(key)!.chain.first, 91);
+    await recoverReservedSendPositions(restarted, storage);
+    expect(restarted.seal(key), greaterThan(0));
   });
+
+  test('legacy marks migrate; malformed marks prevent publication', () async {
+    final node = _Node();
+    final ratchet = RatchetPersistence(native: node, storage: storage);
+    node.seal(key);
+    await ratchet.flush(why: 'setup');
+    final old = node.sendPosition(key)!;
+    final legacy = encodeRatchetReservations([
+      RatchetSendPosition(old.chain, 33),
+    ]);
+    expect(legacy, isNot(startsWith('v2|')));
+    await storage.putSetting(ratchetReservationKey(key), legacy);
+    node.rotate(key, 91);
+    await ratchet.reserveBeforePublish(peer);
+    expect(
+      decodeRatchetReservations(
+        await storage.getSetting(ratchetReservationKey(key)),
+      ).length,
+      2,
+    );
+    await storage.putSetting(ratchetReservationKey(key), 'v2|corrupt');
+    node.rotate(key, 92);
+    await expectLater(ratchet.reserveBeforePublish(peer), throwsStateError);
+    await expectLater(
+      recoverReservedSendPositions(node, storage),
+      throwsStateError,
+    );
+  });
+
+  test('writers over one container share reservation retirement', () async {
+    final oldNode = _Node();
+    final oldWriter = RatchetPersistence(native: oldNode, storage: storage);
+    oldNode.seal(key);
+    await oldWriter.flush(why: 'setup');
+    await oldWriter.reserveBeforePublish(peer);
+    final oldChain = oldNode.sendPosition(key)!.chain;
+    oldNode.seal(key);
+    final replacement = _Node();
+    replacement.rotate(key, 91);
+    final newWriter = RatchetPersistence(native: replacement, storage: storage);
+    await newWriter.reserveBeforePublish(peer);
+    replacement.seal(key);
+    await newWriter.flush(why: 'replacement saved');
+    replacement.rotate(key, 92);
+    await newWriter.reserveBeforePublish(peer);
+    var marks = decodeRatchetReservations(
+      await storage.getSetting(ratchetReservationKey(key)),
+    );
+    expect(marks.map((m) => m.chain.first), [91, 92]);
+    // The retiring writer still has work. Its own earlier cache must not
+    // claim a mark that the replacement has since safely retired.
+    await oldWriter.reserveBeforePublish(peer);
+    marks = decodeRatchetReservations(
+      await storage.getSetting(ratchetReservationKey(key)),
+    );
+    expect(marks.any((m) => _Node._same(m.chain, oldChain)), isTrue);
+    expect(marks.any((m) => m.chain.first == 91), isTrue);
+  });
+
+  test(
+    'invalid durable metadata does not erase earlier reservations',
+    () async {
+      final node = _Node();
+      final ratchet = RatchetPersistence(native: node, storage: storage);
+      node.seal(key);
+      await ratchet.flush(why: 'setup');
+      await ratchet.reserveBeforePublish(peer);
+      final before = await storage.getSetting(ratchetReservationKey(key));
+      await storage.saveRatchetStates([RatchetStateEntry(key, Uint8List(3))]);
+      node.rotate(key, 91);
+      await expectLater(ratchet.reserveBeforePublish(peer), throwsStateError);
+      expect(await storage.getSetting(ratchetReservationKey(key)), before);
+    },
+  );
 
   test('the reservation writes once per run, not once per send', () async {
     // What the reservation amortises is the durable WRITE. It used to also
