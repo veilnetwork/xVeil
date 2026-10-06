@@ -3478,3 +3478,11 @@ evidence that the cellular receive pauses are repaired. Physical direct large
 payload/provenance coverage, generic control/legacy behavior, group/screen/
 compatibility coverage and measured audio quality remain open. Goal active;
 commits unsigned and unpushed.
+
+Paired ARM64 APKs 2219 are now prepared from root 03626f8b / Veil 1e9273a7.
+Production feature set, ELF/header ABI, raw/staged/merged/stripped library
+hashes, media exports, version and both packaged library sets verified. Debug
+BV and production-signed Poco artifacts are frozen privately; the installer
+checks each complete artifact hash before replacing an installed package.
+Neither APK is installed yet: Poco disappeared from ADB and is requested for
+the physical check. BV remains available/stopped; no new app stand started.
