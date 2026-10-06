@@ -2952,7 +2952,42 @@ bytes, all 64 reliable segments decrypt in original order and draining resumes
 without new inbound/input events. Full IPC suite: 120 pass, five previously
 ignored; doctest remains previously ignored. IPC/proto Clippy all-targets
 passes with warnings denied; a pre-existing complex test capture tuple was
-named, with no runtime change. Android ARM64 production FFI built; physical
-build 2214 verification pending. This limits IPC-owned byte-stream frames,
+named, with no runtime change. Android ARM64 production FFI built and both
+installed build 2214 APK hashes verified. This limits IPC-owned byte-stream frames,
 not arbitrary large control/Delivery frames or the proxy's separate producer.
 No relay classification, scheduling or application metadata is added.
+
+
+Build 2214 relay video/file capture: unresolved ingress outage
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Root 18996c92 / Veil 4fd398ff, profiles preserved and Poco cellular. PNet was
+warm before temporarily denying P2P; both media endpoints report relay in
+every active post-startup sample. Ring/active 1.119/3.349 s. The real 8 MiB
+Poco -> BV file is exported with the exact SHA-256 in 38.97 s. This does not
+establish the carrier used by every file packet or intermediate hop.
+
+At about call second 108, native inbound packet/byte and audio counters stop
+on both phones. Receive ages reach 22781/22828 ms while outbound audio keeps
+advancing, source admission max remains 0/6 ms, sampled media worker stalls
+remain zero and video_send_paused=1. The file had already completed around
+second 65. Call state disappears around second 131.8; an end reason was not
+captured, so a specific timeout cause is not established. Ordinary ratchet
+open failures and sampled own IPv4/IPv6 UDP socket drops are zero.
+
+Independent Poco ICMP receives its last reply at second 107.326 and then no
+replies for the remaining 26.944 s of the probe; the tail includes 13 sendmsg
+ENOBUFS errors. BV keeps replying. A consecutive-successful-replies metric
+alone misses this trailing outage. Both phones are awake/charging with idle
+state ACTIVE; Poco retains a cellular default. Some direct session health
+ACK counters still advance early in the outage, so complete network loss is
+not established. Multiple parent sessions are subsequently reaped after
+unacknowledged keepalives. Attribution to a particular carrier, socket,
+parent/child liveness interaction or network interface remains open. Later
+app-stopped ICMP succeeds, which alone does not prove causation by the app.
+
+Original P2P policies restored and verified on both phones. Owned exports,
+fixtures, API forwards, log readers and remote ICMP processes cleaned up;
+both package/process trees independently verified exited and packages stopped.
+Private xveil-relay-av-file-2214-* retain sanitized evidence. Goal remains
+active: this capture fails the physical receive-continuity check. No push,
+tag or release.
