@@ -3125,9 +3125,66 @@ neutral-wire-header checks pass. Negative gates restoring old synchronous
 routed admission or a 64 KiB proxy segment fail their intended assertions;
 sources restored and positive gates repeated. Proxy/runtime all-target
 Clippy passes with warnings denied. The wider integration-test Clippy run
-hits an existing untouched too_many_arguments helper in runner_realtime_tests;
+hits an existing untouched too_many_arguments helper in opaque_datagram_tests;
 no broad lint suppression or unrelated source edit was added.
 
 Physical follow-up on the two phones remains pending at this code checkpoint.
 This closes one producer scheduling gap, not the audio-only receive outage
 observed in build 2215. Goal remains active; no push, tag or release.
+
+
+Build 2216 installed proxy fix and denser network attribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The ARM64 production FFI builds with only production-seeds,node-embedded,
+packet-tunnel. Both installed full APK hashes and staged/merged/stripped/APK
+native libraries are verified against root bc55462b / Veil 498efe09; unchanged
+media library has 94 production exports. Profiles retained; Poco remains
+cellular (default net 143), BV Wi-Fi (net 136). No observed VPN transport;
+NOT_VPN capability text is not counted as an active VPN.
+
+Warm-PNet then temporary-P2P-denial audio-only relay repeat has 180 active
+seconds: ring/active 0.251/3.071 s, last sample 183.747 s. All active media
+samples remain relay. Actual media source-hop admission samples have neutral
+Forward datagram readiness=false and zero recorded refusals. These legacy
+hops still use compatibility transport; warming the phones' direct capable
+P-Net link is not proof that relay media uses independent datagrams. No video
+or proxy transfer was active in this capture: it verifies installation and
+remaining call behavior, not physical proxy-transfer scheduling.
+
+Receive continuity still fails: BV/Poco native ages max 2487/1878 ms, after
+startup too. All inbound packet/byte/audio counters plateau together on both
+phones at samples 94.094..95.664 s, resume at 96.460; another plateau starts
+109.202 s, ends 111.616 on BV / 110.778 on Poco, then resumes. Source RTP keeps
+advancing; max source admission 3/3 ms, source gap 406/405 ms, sampled native
+worker stalls zero. Native delay estimates max 566/591 ms. Opus DTX remains
+enabled: receive age and aggregate concealment/interruption counters are not
+an acoustic speech-loss or end-to-end latency measurement.
+
+Independent Poco ICMP reply gaps 92.917..95.559 s and 108.524..111.176 s
+(2.642/2.652 s) overlap these plateaus; max RTT 2182 ms. BV ICMP remains regular
+during active media (max RTT 103 ms); its largest 1.025 s gap precedes call
+start. Kernel IPv4 buffer error deltas and own UDP socket drops are zero on
+both. Ordinary app.ratchet.open_failed zero; separate Delivery decrypt/replay
+lines 45/42 are not identified as audio E2E failures.
+
+Fast own-UID socket sampling every ~0.5 s yields 286/280 samples, no reader
+errors. Around native-age peaks TCP receive queues are zero and largest
+transmit queue 2077/5720 bytes. A separate parsed TCP_INFO supplement covers
+call seconds about 77..185 (387 total samples); the first collector's TCP_INFO
+parser missed same-line fields, so earlier timer coverage is not claimed.
+Peak-window TCP RTO strings are 0.20..0.32 s on BV / 0.20..1.69 s on Poco, but
+observed cumulative retransmission counters do not increase in the supplement.
+Existing nonzero counters are not proof of retransmission in this call.
+Socket/timer observations are own-UID aggregates, not mapped to the chosen
+media first hop. Correlation narrows the shared outage interval, without
+identifying a carrier, relay or application fault as the proven cause.
+
+Both original hydrated/stored P2P policies restored and verified. Both
+packages stopped and complete package/process prefixes independently verified
+exited. API forwards, log readers, both scoped remote ICMP probes and both
+additional socket sampler threads exited/reaped; no fixtures or downloads
+created. Private xveil-relay-audio-2216-* retain sanitized samples, artifact
+checks, path attribution and cleanup evidence. Goal remains active: bounded
+proxy source scheduling is fixed and installed, physical proxy-load coverage,
+complete transport separation, receive continuity and acoustic quality remain
+open. No push, tag or release.
