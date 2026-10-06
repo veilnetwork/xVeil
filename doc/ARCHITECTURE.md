@@ -2991,3 +2991,55 @@ both package/process trees independently verified exited and packages stopped.
 Private xveil-relay-av-file-2214-* retain sanitized evidence. Goal remains
 active: this capture fails the physical receive-continuity check. No push,
 tag or release.
+
+
+Build 2214 audio-only relay repeat and frame-specific readiness
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Same installed build, warm PNet, temporary P2P denial and cellular Poco; no
+video or file transfer. Ring/active 4.142/6.243 s, 180 s active capture.
+Both media endpoints report relay throughout. Initial native receive ages
+reach 4395/4445 ms and then recover; after the first 15 active seconds they
+stay at most 388/370 ms. Native workers show no sampled stalls, source gaps
+max 404/404 ms, admission max 2/3 ms. This is not an acoustic quality pass:
+the native interruption counters reach 6/9, including the startup outage.
+The previous 23-second outage is not reproduced and a fixed call-second-108
+timer cause is not established. Kernel IPv4 send/receive-buffer errors and
+sampled own UDP socket drops remain zero. Independent Poco ICMP max RTT is
+1548 ms, completed reply gap 5.091 s, ENOBUFS zero; BV 152 ms/0.605 s.
+
+The complete route trace, unlike the earlier selected generic-peer event
+slice, identifies actual first-hop admission for locally primary cells.
+During startup Poco's matching ordered writers stall 610/895 ms and its
+primary queue waits 131/678 ms. In the previous video's outage window its
+first-hop trace includes both admissions and 271 refusals. These observations
+do not establish a single cause of that outage or make a generic peer's ACK
+progress proof of the actual media route's health.
+
+Found a separate route-selection bug: has_datagram_transport could be true
+for a legacy relay that negotiated no neutral-Forward support. The runner's
+eligibility gate correctly keeps that frame on the ordered writer, but origin
+sorting wrongly preferred this link as if the frame could use datagrams.
+Frame-specific readiness now requires both the live runner generation and
+the peer's existing neutral-Forward capability. Origin sorting and sparse
+relay-admission diagnostics use that readiness; generic availability remains
+separate. Unknown adapters conservatively retain route order. Replacing or
+retiring the runner expires its claim. Relay policy, wire bytes, crypto,
+fallback hops and origin copy bounds are unchanged.
+
+Full IPC suite passes 120 tests (five previously ignored, one ignored
+doctest). The enhanced routing gate includes a generic-QUIC-only candidate;
+temporarily restoring the old selection fails its route assertion, and the
+restored implementation passes. Four readiness tests cover capability,
+replacement and expiry. Real QUIC/SessionRunner regression checks published
+readiness against negotiation, delivers the neutral Forward with the ordered
+writer stopped only when negotiated, preserves old ordered fallback, and
+checks readiness expiry after exit. Session/IPC/runtime library Clippy passes
+with warnings denied; Android ARM64 production FFI builds with only
+production-seeds,node-embedded,packet-tunnel. Physical installation of this
+follow-up is pending; installed 2214 does not contain it yet.
+
+Both apps/process trees independently verified exited, package stopped,
+owned forwards/readers/remote ICMP probes gone, original policies restored.
+Private xveil-relay-audio-2214-* retain sanitized samples and cleanup evidence.
+Goal remains active; complete path separation and physical audio quality are
+not established. No push, tag or release.
