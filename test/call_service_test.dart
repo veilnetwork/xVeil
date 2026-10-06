@@ -3021,6 +3021,138 @@ void main() {
           sentAtMs: sentAtMs ?? DateTime.now().millisecondsSinceEpoch,
         );
 
+    for (final type in [CallSignalType.cancel, CallSignalType.end]) {
+      for (final relayed in [false, true]) {
+        test('${type.name} before an offer keeps the delayed ring silent '
+            '(relayed=$relayed)', () async {
+          final fake = _FakeMessaging();
+          final svc = CallService(fake)..start();
+          svc.isOwnDevice = (p) async => p == sibling;
+          final id = 'ending-first-${type.name}-$relayed';
+          fake.onCallSignal!(
+            relayed ? sibling : caller,
+            CallSignal(
+              callId: id,
+              type: type,
+              reason: type == CallSignalType.cancel
+                  ? CallEndReason.cancelled
+                  : CallEndReason.hangup,
+              onBehalfOf: relayed ? caller.hex : null,
+            ),
+          );
+          await pumpEventQueue();
+          fake.onCallSignal!(caller, offer(id));
+          await pumpEventQueue();
+          expect(svc.current, isNull);
+          expect(fake.sentTo, isEmpty);
+          svc.dispose();
+        });
+      }
+    }
+
+    test(
+      'a caller ending cannot suppress another peer with the same call id',
+      () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        fake.onCallSignal!(
+          stranger,
+          const CallSignal(callId: 'shared-id', type: CallSignalType.cancel),
+        );
+        fake.onCallSignal!(caller, offer('shared-id'));
+        await pumpEventQueue();
+        expect(svc.current?.status, CallStatus.ringing);
+        expect(svc.current?.peer, caller);
+        svc.dispose();
+      },
+    );
+
+    test('an untrusted relayed ending cannot suppress the caller', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.isOwnDevice = (p) async => p == sibling;
+      fake.onCallSignal!(
+        stranger,
+        CallSignal(
+          callId: 'untrusted-ending',
+          type: CallSignalType.cancel,
+          onBehalfOf: caller.hex,
+        ),
+      );
+      await pumpEventQueue();
+      fake.onCallSignal!(caller, offer('untrusted-ending'));
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.ringing);
+      svc.dispose();
+    });
+
+    test('another peer cannot consume the caller ending fan-out', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      svc.ownSiblingDevices = () async => [sibling];
+      fake.onCallSignal!(caller, offer('shared-fan-out'));
+      await pumpEventQueue();
+      fake.onCallSignal!(
+        stranger,
+        const CallSignal(callId: 'shared-fan-out', type: CallSignalType.cancel),
+      );
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.ringing);
+      fake.onCallSignal!(
+        caller,
+        const CallSignal(callId: 'shared-fan-out', type: CallSignalType.cancel),
+      );
+      await pumpEventQueue();
+      final endings = fake.sentTo.where(
+        (s) => s.$2.type == CallSignalType.cancel && s.$1 == sibling,
+      );
+      expect(endings.length, 1);
+      expect(endings.single.$2.onBehalfOf, caller.hex);
+      svc.dispose();
+    });
+
+    test(
+      'cancel while siblings resolve prevents a delayed offer fan-out',
+      () async {
+        final fake = _FakeMessaging();
+        final siblings = Completer<List<NodeId>>();
+        final svc = CallService(fake)..start();
+        svc.ownSiblingDevices = () => siblings.future;
+        fake.onCallSignal!(caller, offer('cancel-during-resolve'));
+        await pumpEventQueue();
+        fake.onCallSignal!(
+          caller,
+          const CallSignal(
+            callId: 'cancel-during-resolve',
+            type: CallSignalType.cancel,
+          ),
+        );
+        await pumpEventQueue();
+        siblings.complete([sibling]);
+        await pumpEventQueue();
+        expect(fake.sentTo, isEmpty);
+        svc.dispose();
+      },
+    );
+
+    test('a different peer cannot settle the current ring elsewhere', () async {
+      final fake = _FakeMessaging();
+      final svc = CallService(fake)..start();
+      fake.onCallSignal!(caller, offer('wrong-peer-settle'));
+      fake.onCallSignal!(
+        stranger,
+        const CallSignal(
+          callId: 'wrong-peer-settle',
+          type: CallSignalType.cancel,
+          reason: CallEndReason.answeredElsewhere,
+        ),
+      );
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.ringing);
+      expect(svc.current?.peer, caller);
+      svc.dispose();
+    });
+
     test(
       'an original offer is relayed to every sibling naming the caller',
       () async {

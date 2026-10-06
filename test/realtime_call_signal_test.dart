@@ -171,6 +171,63 @@ void main() {
     addTearDown(storage.close);
   });
 
+  for (final realtime in [false, true]) {
+    for (final type in [CallSignalType.cancel, CallSignalType.end]) {
+      test('unproven early ${type.name} cannot suppress its proven copy '
+          '(realtime=$realtime)', () async {
+        final messaging = MessagingService(transport, storage)..start();
+        addTearDown(messaging.dispose);
+        final received = <CallSignal>[];
+        messaging.onCallSignal = (_, signal) => received.add(signal);
+        final wire = WireEnvelope.callSignal(
+          CallSignal(callId: 'early-ending', type: type).encode(),
+        ).withFrameId('early-ending-${type.name}').encode();
+        final stream = realtime ? transport.realtimeInbound : transport.inbound;
+        final before = transport.normalSends;
+        stream.add(InboundMessage(src: peer, payload: wire));
+        await pumpEventQueue();
+        expect(received, isEmpty);
+        expect(transport.normalSends, before, reason: 'a claim must not ACK');
+        stream.add(
+          InboundMessage(
+            src: peer,
+            payload: wire,
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        await pumpEventQueue();
+        expect(received.map((s) => s.type), [type]);
+      });
+    }
+    for (final relayed in [false, true]) {
+      test('active call bearer still admits an unproven ending '
+          '(realtime=$realtime, relayed=$relayed)', () async {
+        final sibling = _id(3);
+        final messaging = MessagingService(transport, storage)..start();
+        addTearDown(messaging.dispose);
+        messaging.isOwnDevice = (p) async => p == sibling;
+        messaging.acceptsCallDeviceSignal = (p, s) =>
+            p == peer && s.callId == 'live-call' && s.onBehalfOf == null;
+        final received = <CallSignal>[];
+        messaging.onCallSignal = (_, signal) => received.add(signal);
+        final signal = CallSignal(
+          callId: 'live-call',
+          type: CallSignalType.cancel,
+          onBehalfOf: relayed ? peer.hex : null,
+        );
+        (realtime ? transport.realtimeInbound : transport.inbound).add(
+          InboundMessage(
+            src: relayed ? sibling : peer,
+            payload: WireEnvelope.callSignal(signal.encode()).encode(),
+          ),
+        );
+        await pumpEventQueue();
+        expect(received.map((s) => s.callId), ['live-call']);
+        expect(received.single.onBehalfOf, signal.onBehalfOf);
+      });
+    }
+  }
+
   test(
     'restored answer retries realtime and retires only after recipient ACK',
     () async {

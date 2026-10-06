@@ -3645,3 +3645,103 @@ verified exited, packages stopped, own forwards absent, probes/readers reaped,
 zero owned media/file fixtures/offers. Private xveil-p2p-av-file-2219quiet2*,
 xveil-direct-2219quiet2-network-attribution.json and
 xveil-phone-cleanup-2219quiet2.json retain evidence. No new APK is installed.
+
+Poco and macOS: congestion and reordered call endings
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The next cycle uses Poco on cellular and the existing standc macOS profile;
+Blackview is absent. Debug production-network builds preserve application data.
+The first Android build omitted the Dart production-network define: its
+unavailable routes were a stand configuration mistake, corrected before the
+following measurements. APK signer, installed full-file hash and packaged
+native ABI are checked. The macOS stand uses TMPDIR=/private/tmp/.
+
+In the 150-second Cubic audio-only P2P call, ring arrives in 0.366 s and both
+endpoints become active in 1.148 s. After discarding the first 15 active seconds,
+135.016 seconds of observations record 70 decoder interruptions / 21346 ms on
+Mac and 9 / 3220 ms on Poco. These are native decoder counters, not measured
+acoustic latency. The source audio lane on Poco expires 1356 queued datagrams;
+its congestion window reaches 2618 bytes. Mac expires 36. Source admission
+stays at most 1 ms and sampled media-worker stall/drop counters remain zero.
+No ordinary ratchet-open failure is captured. Independent ICMP observes gaps,
+but targets another destination and cannot identify the responsible hop.
+
+A subsequent call's cancel reaches Poco before its offer, which arrives nearly
+60 seconds after being sent and starts ringing after cancellation. CallService
+now remembers authenticated cancel/end even before the offer exists, scoped by
+caller and call id. The same pair scopes ending fan-out and finished-call
+suppression: a different peer with the same id cannot suppress a call or consume
+its sibling fan-out. The bounded in-memory cache does not survive restart or
+repair delayed native routing; outgoing offers still retry after local hangup.
+All 129 call-service tests and targeted analysis pass. Removing early-ending
+retention makes all four direct/verified-sibling reorder regressions fail;
+exact source is restored and the positive suite passes again. If cancel arrives
+while the sibling list is resolving, the completed resolver no longer sends
+that offer. Removing this guard independently reproduces the delayed fan-out.
+Both inbound lanes require authenticated provenance for an ending before a
+matching active call exists, before ACK and frame dedup. A claimed copy cannot
+suppress its authenticated successor with the same frame id. Active-call bearer
+capabilities and sibling membership checks retain their previous semantics.
+All 211 call/control, inbound-provenance and outbox tests pass; targeted analysis
+passes. Disabling this proof check independently fails all four early-ending
+checks (cancel/end, ordinary/realtime); exact bytes are restored and the positive
+suite is repeated. In-memory ending retention still does not cover restarts.
+
+An initial BBR-on-Poco-only warm retry rings in 0.389 s and becomes active in
+3.300 s, but immediately falls back to relay (399 Mac / 398 Poco samples).
+Its lower Mac interruption count does not establish a BBR improvement over
+the P2P baseline: the actual routes differ. Reverse receive quality remains
+poor. Both ended stands' owned macOS processes and complete Android UID are
+verified exited; log readers and network probes are stopped. Private evidence
+is retained under /private/tmp/xveil-call-2220/. All these results concern
+sampled packet/decoder behavior; full audio-quality success remains open.
+
+The next build (2222) tests BBR at both endpoints with Poco calling Mac. Incoming
+ring takes 26.974 s after cold startup; both are active at 27.345 s. The full
+150-second active call stays on P2P. After the 15-second exclusion, 135.081 s /
+360 samples per endpoint record 13 interruptions / 9021 ms on Mac and 13 /
+9751 ms on Poco. Receive ages reach 1955 / 2013 ms, reported loss 18% / 10%.
+Source admission remains 0 / 1 ms and sampled worker/drop counters stay zero.
+Both independent audio connections expire zero outgoing datagrams, but their
+source QUIC lost-packet deltas are 424 / 752 over 8530 / 7990 sent packets.
+Their congestion windows peak around 2.9 / 2.6 MB. Independent Poco ICMP reaches
+1561 ms RTT and a 2.862 s receive gap; this is another destination, with device
+and host clocks also differing. Sequential physical runs cannot establish a
+controlled congestion-controller comparison. Stable improvement in both audio
+directions is not demonstrated.
+
+Native ratchet-open failures in this capture first occur after hangup, during
+cleanup/locking (three Mac, four Poco), not within the measured active call.
+They do not explain its active-media gaps. Post-quantum downgrade checks remain
+enforced; teardown attribution and the previously reproduced crossed-init
+defect are not repaired by this experiment.
+
+Consequently production keeps Cubic. Veil adds a context-wide opt-in BBR choice
+for controlled tests, inherited by clients, servers and independent sibling
+connections; no media role, relay priority or wire label is added. The real
+TLS/QUIC outage fixture retains all original explicit-Cubic recovery assertions
+and separately checks opt-in BBR with small/large opaque frames, with and without
+replacement. The observed Cubic baseline waits 1.375 / 1.852 s after the outage;
+authenticated replacement takes 365 / 442 ms. BBR takes 39–49 ms in this fixture,
+without duplicate delivery or stale replay. Independent fresh-key/queue/parent
+lifetime checks and warnings-denied transport Clippy pass. These local results
+do not supersede the physical limitations above. Owned processes, Android UID,
+probes/readers and forwards for the 2222 stand are verified gone.
+
+Build 2223 restores Cubic on both endpoints and includes the ending-provenance
+guard. Poco is updated in place, with unchanged signer and full installed APK
+SHA-256 verified; existing identity/history are preserved. Its Veil source is
+d8c25ddd. The macOS stand is rebuilt against the same default controller.
+
+An 80-second cancellation check requests hangup 2.278 s after placing a cold
+Mac-to-Poco call. Unproven early copies are refused before ACK/dedup. Poco later
+dispatches the offer and cancel 138 ms apart, with logged ages approximately
+9.0 s / 6.9 s. The 350-ms state poll observes no late ringing samples, but cannot
+exclude a brief incoming-state/UI transition between those callbacks. This is
+not evidence that every delayed-cancellation case is repaired: early *claimed*
+endings still lack the proof needed to suppress an offer before it arrives.
+Authenticated early endings and the sibling resolver race are regression-tested;
+cold routing delay, this claimed-ending case and physical audio pauses remain
+open. No relay trust or authentication check is weakened to hide them.
+
+The 2223 stand's complete Android UID, owned macOS process/log reader and ADB
+forward are independently verified gone. No release/tag/push is performed.

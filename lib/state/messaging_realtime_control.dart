@@ -182,6 +182,7 @@ class _MessagingRealtimeControl {
 
     final signal = CallSignal.tryDecode(envelope.body);
     if (signal == null) return;
+    if (!admitCallEnding(message, signal)) return;
     // Only an offer can create a call. Follow-ups avoid a storage read because
     // CallService independently checks the exact active `(peer, callId)`.
     if (signal.type == CallSignalType.offer) {
@@ -246,6 +247,40 @@ class _MessagingRealtimeControl {
           'xVeil[call-sig]: realtime $what from ${message.src.short} DROPPED — '
           'the delivery is unauthenticated (${message.provenance.name}), so the '
           'name is a claim, not a contact',
+    );
+    return false;
+  }
+
+  /// An ending may now suppress a later offer, even with no active call.
+  /// Before recording it (or deduplicating its authenticated copy), require
+  /// sender proof. Existing active calls still accept their unguessable call
+  /// id as the bearer secret, including a verified sibling's relayed ending.
+  bool admitCallEnding(InboundMessage message, CallSignal signal) {
+    if (signal.type != CallSignalType.cancel &&
+        signal.type != CallSignalType.end) {
+      return true;
+    }
+    if (message.provenance.isAuthenticated) return true;
+    var caller = message.src;
+    var directSignal = signal;
+    final onBehalfOf = signal.onBehalfOf;
+    if (onBehalfOf != null) {
+      try {
+        caller = NodeId.fromHex(onBehalfOf);
+      } catch (_) {
+        return false;
+      }
+      // Only the bearer capability is queried; the original signal is still
+      // forwarded to CallService, which verifies sibling membership itself.
+      directSignal = CallSignal(callId: signal.callId, type: signal.type);
+    }
+    if (_owner.acceptsCallDeviceSignal?.call(caller, directSignal) ?? false) {
+      return true;
+    }
+    devLog(
+      () =>
+          'xVeil[call-sig]: early ${signal.type.name} from '
+          '${message.src.short} dropped: unproven sender and no active call',
     );
     return false;
   }
