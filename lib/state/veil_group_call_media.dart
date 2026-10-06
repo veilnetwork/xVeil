@@ -137,6 +137,8 @@ abstract interface class GroupAudioEngine {
   bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) =>
       false;
   bool get supportsLowRateVideo => false;
+  bool get supportsVideoSendPause => false;
+  bool setVideoSendPaused(bool paused) => false;
   bool startVideo() => false;
   bool stopVideo() => true;
   bool startCamera() => false;
@@ -196,6 +198,12 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
 
   @override
   bool get supportsLowRateVideo => _engine.supportsLowRateVideo;
+
+  @override
+  bool get supportsVideoSendPause => _engine.supportsVideoSendPause;
+
+  @override
+  bool setVideoSendPaused(bool paused) => _engine.setVideoSendPaused(paused);
 
   @override
   bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) =>
@@ -616,6 +624,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       );
       // Retry an abandoned video-worker operation on the next poll. Advancing
       // the policy is separate from successfully applying an encoder budget.
+      if (expected.supportsVideoSendPause) {
+        adapter.applyPendingPause(expected.setVideoSendPaused);
+      }
       final applied = adapter.applyPendingTarget(
         (target) => expected.setVideoBitrate(
           maxBitrateKbps: target.maxBitrateKbps,

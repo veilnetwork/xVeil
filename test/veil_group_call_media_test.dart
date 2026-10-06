@@ -141,6 +141,68 @@ void main() {
     },
   );
 
+  test('room pauses video for severe audio delay and retries recovery', () {
+    fakeAsync((clock) {
+      final self = _id(1);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      controller.start(_call(self, [_id(2)], video: true));
+      clock.flushMicrotasks();
+      engine.stats = {'audio_feedback_reports': 1, 'rtt_ms': 8500};
+      clock.elapse(const Duration(seconds: 2));
+      expect(engine.pauses.last, isTrue);
+      expect(engine.cameraStarted, 1);
+      engine.stats = {'audio_feedback_reports': 0};
+      clock.elapse(const Duration(seconds: 20));
+      expect(engine.pauses.last, isTrue);
+      engine.acceptPause = false;
+      engine.stats = {
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+        'tx_loss_pct': 0,
+      };
+      clock.elapse(const Duration(seconds: 12));
+      expect(engine.pauses.last, isTrue);
+      engine.acceptPause = true;
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.pauses.last, isFalse);
+      expect(engine.cameraStarted, 1);
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test(
+    'low-rate native library without pause keeps an honest sparse fallback',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1);
+        final engine = _FakeEngine(supportsVideoSendPause: false);
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        controller.start(_call(self, [_id(2)], video: true));
+        clock.flushMicrotasks();
+        engine.stats = {'audio_feedback_reports': 1, 'rtt_ms': 8500};
+        clock.elapse(const Duration(seconds: 2));
+        expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
+        expect(engine.pauses, isEmpty);
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
   test('older group library gets an integer startup budget', () {
     fakeAsync((clock) {
       final self = _id(1);
@@ -744,9 +806,23 @@ class _FakeTransport implements GroupMediaChannelTransport {
 }
 
 class _FakeEngine implements GroupAudioEngine {
-  _FakeEngine({this.supportsLowRateVideo = true});
+  _FakeEngine({
+    this.supportsLowRateVideo = true,
+    this.supportsVideoSendPause = true,
+  });
   @override
   final bool supportsLowRateVideo;
+  @override
+  final bool supportsVideoSendPause;
+  final List<bool> pauses = [];
+  bool acceptPause = true;
+  @override
+  bool setVideoSendPaused(bool paused) {
+    if (!acceptPause) return false;
+    pauses.add(paused);
+    return true;
+  }
+
   final List<NodeId> added = [];
   final List<NodeId> removed = [];
   final Map<String, int> rx = {};

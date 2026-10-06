@@ -1116,6 +1116,16 @@ class VeilCallMediaController implements CallMediaController {
                     kCallAudioPlayoutFeedbackMinVersion &&
                 !_microphoneState.muted,
           );
+          if (engine.supportsVideoSendPause) {
+            final paused = adapter.applyPendingPause(engine.setVideoSendPaused);
+            if (paused != null) {
+              devLog(
+                () =>
+                    'xVeil[call-media]: audio-reserve video pause='
+                    '${adapter.audioReserve} ok=$paused',
+              );
+            }
+          }
           if (_diagnosticVideoTarget == null) {
             final ok = adapter.applyPendingTarget(
               (target) => engine.setVideoBitrate(
