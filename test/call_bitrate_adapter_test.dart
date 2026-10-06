@@ -14,6 +14,33 @@ void main() {
   ({int maxBitrateKbps, double maxFps})? lossy(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
 
+  test('video pause retries a busy resume and survives unknown feedback', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    final pauses = <bool>[];
+    bool apply(bool paused) {
+      pauses.add(paused);
+      return true;
+    }
+
+    expect(a.applyPendingPause(apply), isTrue);
+    for (var i = 0; i < 2; i++) {
+      a.onSample(rttMs: 8500, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+    }
+    expect(a.applyPendingPause(apply), isTrue);
+    expect(pauses, [false, true]);
+    for (var i = 0; i < 20; i++) {
+      a.onNativeStats({'audio_feedback_reports': 0});
+      expect(a.applyPendingPause(apply), isNull);
+    }
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      good(a);
+    }
+    expect(a.applyPendingPause((_) => false), isFalse);
+    expect(a.applyPendingPause(apply), isTrue);
+    expect(pauses, [false, true, false]);
+    expect(a.applyPendingPause(apply), isNull);
+  });
+
   test('new calls reserve bandwidth for audio before feedback arrives', () {
     for (final base in [900, 150]) {
       final a = CallBitrateAdapter(

@@ -134,6 +134,18 @@ class CallBitrateAdapter {
     return true;
   }
 
+  bool? _appliedPause;
+
+  /// Pause immediately under severe audio pressure. A busy resume stays
+  /// pending; unknown feedback never resumes video by itself.
+  bool? applyPendingPause(bool Function(bool paused) apply) {
+    final desired = audioReserve;
+    if (_appliedPause == desired) return null;
+    if (!apply(desired)) return false;
+    _appliedPause = desired;
+    return true;
+  }
+
   /// A diagnostic override changed native state outside this policy.
   void invalidateAppliedTarget() => _appliedTarget = null;
 
