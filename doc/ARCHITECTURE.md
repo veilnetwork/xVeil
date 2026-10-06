@@ -3974,3 +3974,49 @@ restored before teardown. Both 2233 stands are closed; complete Android UID,
 owned Mac/log/probe processes, remote ping and ADB forward are verified absent.
 The next investigation is the unexpectedly large audio probe traffic, not a
 relay priority change. No acoustic-quality success or complete repair is claimed.
+
+
+Audio estimator/probe budget (2234)
+-----------------------------------
+
+The separate audio Call inherited WebRTC BitrateConstraints' 300-kbit/s
+startup prior and unlimited maximum, even though the camera uses its own Call.
+In the 140-second reverse stand the first 17.596-second stable voice interval
+contains 1598 Mac padding packets versus 880 audio payload packets; by 91.457 s
+padding accounts for 437515 bytes versus 269861 actual encoded-audio bytes.
+The ordinary source FIFO cannot treat such empty packets as useful speech.
+
+Both unicast and group audio CallConfig now start at 48 kbit/s with a 96-kbit/s
+estimator/probe ceiling. Opus/FEC/DTX settings, audio allocation behavior,
+video estimates and Veil/relay policies are unchanged. The real native gate
+uses a counting ADM, actual AudioState/Opus streams and synthetic video,
+verifying outgoing audio and independent video estimates. Before the fix it
+fails with audio=300000 and video=900000; afterward unicast audio=48000,
+video=900000 and group audio=48000, video=300000 pass. The complete native
+call-plane suite passes, including held video queues, source pause, low-rate
+encoding, feedback, muted capture/rebuild and teardown. Production Mac native
+media is rebuilt; the change has not been built into Android's native media.
+The local Android WebRTC output lacks its archive/compile database, and the
+Linux builder is not available in this workspace.
+
+Physical 2234 pairs the capped Mac with Poco app 2233 (uncapped Android native
+media). Mac-to-Poco rings in 0.369 s, both endpoints are active in 1.145 s and
+remain active for 115 seconds until deliberate hangup, in one P2P media epoch.
+Mac sends 5754 payload packets / 447376 payload bytes and 581 padding packets /
+29166 padding bytes, with no retransmitted or unclassified audio. Its maximum
+actual payload gap is 110 ms and admission below 1 ms. This demonstrates bounded
+probe load and continuing encoding, not an acoustic-quality success or a causal
+A/B estimate across different cellular conditions.
+
+The 28.669-second initial stable voice window still has 1/2 new Mac/Poco
+interruptions (304/768 ms). The 29.312-second camera interval has no new
+interruptions and 34 new Mac decoded frames. After camera stops, the final
+29.335-second voice window has 6/8 new interruptions (7700/7670 ms), with receive
+ages up to 4160/3980 ms despite regular Mac encoded audio and little padding.
+Independent ICMP reaches 2216 ms at Poco versus 53.203 ms at Mac. Poco's primary
+QUIC admission trace reaches 355 expired outgoing datagrams, despite nonblocking
+app admission. The remaining network/QUIC delivery gaps therefore are not solved
+by this one-ended cap, and Android deployment of the cap remains unverified.
+Cold authenticated signaling/ratchet recovery and same-case physical forked
+answer coverage are also open. The complete stand and native test processes,
+Android UID, local/remote probes and owned ADB forward are verified exited.
