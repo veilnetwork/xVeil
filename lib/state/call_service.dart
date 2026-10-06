@@ -1141,6 +1141,17 @@ class CallService {
     // Any signal from the current call's peer is proof of life — refresh the
     // liveness deadline before dispatching (covers offer/answer/health/… alike).
     final live = _current;
+    // A forked answer binds the dialog to a physical device, but a direct
+    // session can attribute its later encrypted control to the original
+    // contact identity. Normalize only that saved identity for this exact
+    // live call; another device or an unrelated identity is not an alias.
+    if (live != null &&
+        live.isLive &&
+        live.callId == sig.callId &&
+        live.peerIdentity == peer &&
+        live.peer != peer) {
+      peer = live.peer;
+    }
     if (live != null &&
         live.isLive &&
         live.callId == sig.callId &&
