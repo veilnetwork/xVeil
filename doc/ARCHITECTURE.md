@@ -3082,3 +3082,52 @@ fixtures or downloads created in this repeat. Private xveil-relay-audio-2215-*
 retain sanitized samples and artifact/cleanup checks. Goal remains active:
 the installed route-selection fix is verified, receive continuity and
 acoustic quality are not repaired. No push, tag or release.
+
+
+Proxy source admission and bounded stream frames
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The separate proxy producer previously sent each read (up to 64 KiB) into
+local INTERACTIVE admission, and ignored failure of its initial destination
+header. Both client and exit bridges now await endpoint-owned reliable
+BACKGROUND credits and packetize writes into at most 2500-byte AppData
+segments. APP_OPEN/header/data/APP_CLOSE retain their order in that local
+source lane; wire priorities remain neutral INTERACTIVE. A failed initial
+header prevents user bytes, and a failed partial write closes without replaying
+its already accepted prefix. Existing open route discovery has one overall
+12 s deadline including source waiting; each write/close has a bounded 30 s
+admission deadline. Inbound bridge tasks are aborted and awaited on exit.
+
+RoutedFrameBroadcaster now implements the async reliable admission API instead
+of inheriting its synchronous default. It waits for direct/first-hop local
+capacity without holding registry locks, invalidating a live route, or
+sending an alternate copy merely because that source queue is full. Missing
+or closed sessions retain encrypted routed fallback and verified peer-key
+resolution. The outer Forward header is neutral INTERACTIVE. No relay transit
+scheduler, role metadata, authentication or E2E cryptography was relaxed.
+
+2500 accounts for the routed ML-KEM-768 envelope, hop AEAD and padding space:
+an actual encrypted maximal first-hop frame fits one 4 KiB bucket. This is a
+producer recommendation, not a smaller receive/wire compatibility limit.
+The cost is more per-frame ML-KEM encapsulations and padding than a 64 KiB
+write; each short routed segment still uses the existing full E2E envelope.
+This does not create a new connection to legacy relays or upgrade their
+transport capabilities.
+
+Verification: all 50 veil-proxy tests (including actual connect/receipt/exit
+readiness/header/user-data/close lifecycle), 4 routed runtime tests, and all
+4 source stream integration tests pass. The real proxy bridge sends 256 KiB
+through an encrypted stream-only SessionRunner under held/slow reads; bytes
+are complete and ordered, close occurs once, and a fresh primary packet
+passes before 16 KiB is committed. Direct and routed capacity-one gates prove
+background backpressure leaves reserved primary admission and registry writes
+available, with no alternate direct copy. Actual ML-KEM encrypt/decrypt and
+neutral-wire-header checks pass. Negative gates restoring old synchronous
+routed admission or a 64 KiB proxy segment fail their intended assertions;
+sources restored and positive gates repeated. Proxy/runtime all-target
+Clippy passes with warnings denied. The wider integration-test Clippy run
+hits an existing untouched too_many_arguments helper in runner_realtime_tests;
+no broad lint suppression or unrelated source edit was added.
+
+Physical follow-up on the two phones remains pending at this code checkpoint.
+This closes one producer scheduling gap, not the audio-only receive outage
+observed in build 2215. Goal remains active; no push, tag or release.
