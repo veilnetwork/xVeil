@@ -3257,3 +3257,75 @@ control frames, complete group/screen/compatibility behavior and actual path
 separation through legacy relays. This change fixes the ordinary routed
 producer and its retries; it does not establish a repair of the receive pauses
 observed in 2216 or prove acoustic quality. Goal remains active. No push/tag.
+
+
+Build 2217 installed envelope fix and renewed phone continuity checks
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both physical devices returned on ADB (Blackview on Wi-Fi, Poco deliberately
+on cellular). Debug ARM64 APK 2217 packages root bbfb5467 / Veil af8801c4,
+with exactly production-seeds,node-embedded,packet-tunnel and the unchanged
+94-export production media library. Header ABI, native raw/staged/merged/
+stripped libraries, version code and complete installed APK hashes verified.
+BV retains its debug signature; Poco retains its production signature. Both
+installs use replacement with existing profiles preserved. No release/tag/push.
+
+Warm-PNet then temporary P2P denial audio-only repeat: incoming ring 0.182 s,
+both endpoints active 2.682 s, 180 active seconds captured without an observed
+ended state. All active media transports remain relay. After startup, largest
+native receive ages 1024/1077 ms (BV/Poco); source RTP maximum gaps 220/402 ms
+(DTX enabled), source admission maxima 2/3 ms and no sampled media worker stall.
+Late receive-age peaks recur around seconds 135, 139, 143, 147, 151, 155 and
+159: all native inbound packet and audio counters plateau, then resume. Poco's
+independent ICMP reply gaps around the same period recur roughly every four
+seconds at 1.20..1.35 s; BV ICMP remains regular. This is correlation at a
+different destination, not proof of a carrier/modem/OS/relay cause. Own-UID
+TCP information is parsed in this capture but not mapped to the selected
+media hop; no assertion of media-specific TCP retransmission is made.
+
+An attempted 12/100 KiB text load (six attempts per device) never reaches the
+transport: the existing encrypted storage record limit raises
+HvException.PayloadTooLarge. None of these attempts becomes a stored message
+on either endpoint. A 100-byte control is sent and received, then deleted on
+both devices; the repeated 12 KiB diagnostic returns that explicit storage
+error. Thus this capture is audio-only, not a large-message load verification,
+and does not physically exercise the new routed packetization/retry path.
+The Veil component gates for those larger payloads remain the separate
+evidence. The API storage refusal is not counted as a network delivery loss.
+
+Separate warm relay video + 8 MiB file capture: incoming ring 1.144 s, both
+active 4.314 s, last sample at 170.041 s. Download starts at 24.781 s, finishes
+at 101.907 s; export takes 76.94 s and the complete file SHA-256 matches.
+The progress snapshot says 8388607/8388608 bytes; the full exported file hash
+establishes completion rather than that one-byte-behind progress counter.
+Video decodes on both endpoints; source bitrate reaches the severe-audio
+floor. This verifies simultaneous file/video/audio operation and file integrity,
+not acceptable acoustic quality or complete path independence.
+
+After the file completes, native receive ages still reach 10053/11493 ms;
+source RTP maximum gaps remain 400/404 ms and source admission 0/4 ms, with
+no sampled media worker stall. Poco records 114 slow socket writes, including
+a 2098-byte write taking 18524 ms at second 78.185 and a 407-byte write taking
+11250 ms at second 157.682. BV records none. An independent Poco ICMP gap
+of 11.290 s overlaps the late outage; BV's largest reply gap is 0.527 s.
+All traced media first hops report neutral independent datagram readiness
+false, with no recorded source-admission refusals. This identifies real
+ordered socket stalls on Poco in addition to delayed native ingress; it does
+not establish their underlying cause or prove the message fix repairs them.
+The stream writer and reader were already split before this capture.
+
+BV locally rebuilds its relay media session around second 160, preserving
+the active call while changing the media epoch/channel. Its packet counters
+reset at 160.527 s. Counters across that rebuild are not treated as monotonic;
+the recovery is not counted as an observed call end or as seamless audio.
+No primary parallel-session replacement is evidenced in these captures.
+
+Original hydrated/stored P2P policies restored and verified. Both complete
+package/process prefixes independently verified exited, packages stopped with
+version 2217. Own API forwards, both log readers, all scoped remote ICMP probes
+and their reader processes reaped; own pending downloads canceled/absent,
+cache input/export fixtures removed, own visible file offers removed. Private
+xveil-audio-build-2217.json and xveil-relay-{audio,av-file}-2217-* retain artifact,
+sample, attribution and cleanup records. Phones now contain the envelope fix;
+goal remains active: large direct frames, complete transport separation,
+physical routed-message/proxy-load coverage and receive/acoustic quality remain
+open. Source changes remain unsigned and unpushed.
