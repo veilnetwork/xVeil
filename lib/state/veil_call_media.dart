@@ -232,23 +232,25 @@ _openCallMediaChannel({
   Duration directRetryDelay = const Duration(milliseconds: 300),
 }) async {
   if (call.transport == CallTransportKind.p2p) {
-    // The native admission probe is bounded but can lose its whole budget
-    // to a transient stall (busy client mutex, silently rate-limited
-    // query) even while the direct session is admitted. A timed-out probe
-    // is NOT an authoritative "no session" — give it one more attempt
-    // before surrendering the negotiated p2p route to relay.
+    // P-Net receives under the authenticated identity. A device address chosen
+    // before admission can already be stale when the session registers.
+    final directPeer = call.mediaIdentity;
+    // A cold negotiated session may register just after a not-active reply;
+    // an admission probe can also lose its budget to a mutex/rate-limit stall.
+    // Give either case one short retry. Every open still requires native
+    // admission; this cannot authorize a device or create a direct session.
     Object? lastError;
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
         final channel = await opener.openMediaChannel(
-          call.mediaPeer.bytes,
+          directPeer.bytes,
           txKey: txKey,
           rxKey: rxKey,
           direct: true,
         );
         return (
           channel: channel,
-          peer: call.mediaPeer,
+          peer: directPeer,
           transport: CallTransportKind.p2p,
           fallbackReason: null,
         );
@@ -259,9 +261,12 @@ _openCallMediaChannel({
               'xVeil[call-media]: direct open attempt ${attempt + 1} failed '
               'for ${call.peer.short}: $e',
         );
+        final error = '$e';
         final transient =
-            '$e'.contains('timed out') || '$e'.contains('probe failed');
-        if (!transient) break;
+            error.contains('timed out') ||
+            error.contains('probe failed') ||
+            (error.contains('direct') && error.contains('not active'));
+        if (!transient || attempt == 1) break;
         await Future<void>.delayed(directRetryDelay);
       }
     }
