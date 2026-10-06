@@ -3420,3 +3420,61 @@ xveil-idle-network-2218-* retain samples/artifact/attribution/cleanup evidence.
 Goal remains active: physical direct ratchet/proxy coverage, unsealed/control
 framing, complete group/screen/compatibility behavior and acoustic/receive
 quality remain open. No release, tag, signed commit or push this cycle.
+
+
+Negotiated bounded direct AppSend bytes and reconnect ownership
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Veil 1e9273a7 adds AppSendChunk (App message 9) for large reliable direct
+application bytes without daemon ratchet sealing. The existing marked
+capability extension has an explicit SUPPORTS_DIRECT_APP_CHUNKS bit, advertised
+by current handshakes and authenticated resumes. Legacy prefixes/random
+padding never enable it. Application bytes, including every possible first
+byte, remain opaque application data; they never enter envelope-marker or
+ratchet parsing merely because their content resembles a protocol prefix.
+
+Pieces carry the existing AppSend address metadata plus bounded chunk records,
+with 3600-byte data segments, lazy frame generation and neutral INTERACTIVE
+wire priority. The local producer waits for reliable background credit under
+the existing 30-second request deadline. Scoped identity copies retain the
+eight-future limit; a full sibling does not block the tested second sibling.
+No relay publication or new E2E delivery ACK protocol is introduced by this
+direct format. Old decoders retain the old whole-frame contract, so this does
+not bound legacy peers or unrelated arbitrary control frames.
+
+Decoder support is stamped on the exact session-owned outbox under the
+registration lock. Admission captures that sender and its capability together
+before waiting for credit: neither a late old handshake nor cached discovery
+can enable a replacement legacy outbox. Live session lookup drives initial
+format selection; actual queue admission independently enforces the ownership
+binding. The production OwnDeviceAwareLookup and SessionTxBroadcaster wiring
+is retained and supplies both checks.
+
+Direct plaintext and encrypted envelope transfers have separate reassembly
+keys, with direct keys also scoped to the authenticated device. They share
+the existing global byte/slot/per-sender/per-peer budgets. Every continuation
+checks recipient, sender, source/destination app, endpoint and ACK metadata.
+Completed direct application bytes route with the existing SessionPeer floor
+and actual origin device; they cannot acquire Signed provenance or complete
+an encrypted envelope transfer.
+
+Final gates: 134 IPC library tests pass (five pre-existing ignored), including
+five new real handler/dispatcher tests for all 256 initial byte values, exact
+metadata and replay suppression, legacy format, capacity-one primary progress,
+deadline/credit release and two-device independence. Seventeen reassembly,
+six directory/admission and 24 actual fresh/resumed/legacy handshake tests pass;
+the explicit capability codec test passes. Three negative gates restore whole
+plain frames, borrow an old capability for a replacement sender, or collapse
+reassembly domains; each fails its intended assertion, sources are restored,
+and positive gates repeat. IPC/session/dispatcher/runtime all-target Clippy
+passes with warnings denied. Three existing test lints fixed without changing
+the control-stream mechanism; ratchet reset now asserts the dropped count.
+Production ARM64 FFI builds with exactly production-seeds,node-embedded,
+packet-tunnel; ELF machine and embedded header contract verified and artifact
+frozen privately for the next installation.
+
+No new app stand or APK installation this source cycle. Phones retain 2218;
+no app instances were opened. This is a component framing/admission fix, not
+evidence that the cellular receive pauses are repaired. Physical direct large
+payload/provenance coverage, generic control/legacy behavior, group/screen/
+compatibility coverage and measured audio quality remain open. Goal active;
+commits unsigned and unpushed.
