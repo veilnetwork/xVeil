@@ -3329,3 +3329,43 @@ sample, attribution and cleanup records. Phones now contain the envelope fix;
 goal remains active: large direct frames, complete transport separation,
 physical routed-message/proxy-load coverage and receive/acoustic quality remain
 open. Source changes remain unsigned and unpushed.
+
+
+Direct reliable sealed source scheduling and device independence
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Veil 7a31b8a3 extends the 3600-byte source envelope packetizer to large
+ratchet-sealed direct sends and identity fanout. Existing Forward/chunk
+framing reaches the actual device session, uses endpoint background source
+credits, and keeps the wire priority neutral/INTERACTIVE with no application
+role hint or lossy datagram eligibility. Frame generation is lazy. Successful
+direct sends retain their old source-admission reply semantics; no new E2E
+ACK/retry protocol is silently introduced. A live full queue waits within a
+30-second request deadline. Timeout never falls back to the original large
+frame or sprays another copy. A missing/closed route can use the existing
+relay fallback with the same ciphertext rather than consuming another seal.
+
+Identity copies use at most eight scoped admission futures under one deadline.
+A blocked sibling does not hold up the other live sibling in the tested pair.
+Known session ownership is checked before and after certificate resolution;
+matching an instance alone cannot authorize a copy to another identity. Existing
+verified sender-device provenance is retained by the dispatcher: without a
+verified certificate association, origin_device is omitted rather than invented.
+
+129 IPC library tests pass (five pre-existing ignored), including six new real
+handler/dispatcher/session gates: 12/100 KiB authenticated direct delivery and
+metadata, duplicate and completed replay, capacity-one background wait with
+reserved primary progress, two-device queue independence and key isolation,
+virtual admission expiry without relay fallback or leaked credit, a closed
+partial direct route followed by exactly-once relay completion, and foreign
+identity refusal before sealing or plaintext fallback. Three negative gates
+restoring whole direct frames, synchronous admission, or serial fanout fail
+the intended assertions; sources restored and positive gates repeated.
+All-target IPC Clippy passes with warnings denied. Production ARM64 FFI
+builds with exactly production-seeds,node-embedded,packet-tunnel.
+
+This component change is not a phone audio repair claim. Unsealed arbitrary
+large direct/control bytes still need a distinct typed negotiated framing;
+more than eight simultaneously blocked siblings are not proven independent.
+Physical direct provenance/interoperability and audio/video/file separation
+remain to be checked on an installed build. Phones still retain 2217 at this
+source-cycle boundary. Goal remains active; commits unsigned and unpushed.
