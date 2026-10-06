@@ -2922,3 +2922,37 @@ xveil-av-file-2213-* preserve sanitized samples and cleanup evidence.
 Goal stays active: receive pauses, acoustic-quality measurement, actual
 primary replacement, complete group/screen coverage and prior socket-loss
 attribution remain open. No push, tag or release.
+
+
+Bounded reliable byte-stream packetization (2026-10-06)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The ordered compatibility writer retains whole frames: its 4096-byte local
+source budget cannot preempt one oversized frame already being written.
+IPC remote byte-stream writes are now packetized at their producer into
+at most 3900 data bytes per AppData. Fields/header/AEAD total 3988 bytes,
+leaving room for padding into the 4096-byte bucket. The wire receive limit
+and format are unchanged; stream segments concatenate to the original bytes.
+Local background admission, byte credits and open/data/close order remain;
+wire headers retain INTERACTIVE. A single 30-second deadline bounds the whole
+write. Failure after a segment reports false and stops further admission;
+the existing caller closes the failed stream rather than replaying its prefix.
+
+The actual producer regression sends one large write, checks every encoded
+frame's wire bound and neutral header, and reconstructs all original bytes in
+order. The real IPC backpressure test commits one segment of a 6000-byte
+write, blocks the next, handles control, resumes and verifies no duplicated
+prefix; the original 8-KiB IPC credit remains enforced. Partial-failure and
+empty-write regressions pass. Restoring the old 64-KiB segment cap makes the
+producer regression fail at the oversized source frame assertion; source
+restored and gates rerun.
+
+The real encrypted SessionRunner test now uses maximal valid AppData
+segments: a newly queued primary arrives before 16 KiB of committed stream
+bytes, all 64 reliable segments decrypt in original order and draining resumes
+without new inbound/input events. Full IPC suite: 120 pass, five previously
+ignored; doctest remains previously ignored. IPC/proto Clippy all-targets
+passes with warnings denied; a pre-existing complex test capture tuple was
+named, with no runtime change. Android ARM64 production FFI built; physical
+build 2214 verification pending. This limits IPC-owned byte-stream frames,
+not arbitrary large control/Delivery frames or the proxy's separate producer.
+No relay classification, scheduling or application metadata is added.
