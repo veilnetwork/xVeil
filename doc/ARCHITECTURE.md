@@ -2804,3 +2804,48 @@ pending downloads cancelled. Private xveil-audio-2211quiet-*,
 xveil-relay-av-file-2211-* and xveil-av-file-2211-* retain sanitized evidence.
 Pauses, successful physical primary replacement, ordinary ratchet convergence
 and complete compatibility/group/screen coverage remain open. No push/release.
+
+
+Build 2212 actual P2P load and app-off network baseline
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both full installed APK hashes verified against root 95224690 / Veil
+2fccc27b; production native libraries unchanged. This fixes the cold-open
+policy without changing native admission, keys, wire flags or relay service.
+
+Poco -> BV video with concurrent actual 8 MiB file remained P2P on both ends
+throughout all active samples. Ring/active 1.542/4.732 s; exported bytes/hash
+verified in 186.69 s. Decoded video frames 233/244, source gaps 399/405 ms,
+queue-admission maxima 1/6 ms; no sampled audio/video worker stalls. Both
+source-primary and secondary first_send events report independent=true.
+The direct sessions were ready before the first open in this capture: it
+validates real P2P/media/file operation with the fix, not a naturally occurring
+retry of the exact 181 ms cold-admission race. Its deterministic regression
+and wrong-device negative gate cover that policy change.
+
+After-startup native receive ages still reach 2080/2094 ms, so audio quality
+is not fixed. All ten BV / three Poco primary replacement attempts were
+cancelled after old ACK progress returned, twelve during connect and one
+waiting for binding ACK; no verified switch or failed proof/quota/timeout.
+No ordinary ratchet open failure in this capture. BV's kernel receive-buffer
+errors grow by four and a sampled own UDP socket records four drops; Poco
+records neither. This is not a zero-drop run; the socket's transport role and
+its contribution to individual gaps require attribution.
+
+Independent ICMP max RTT/reply gap during the stand: BV 120 ms/0.564 s,
+Poco 1748 ms/2.781 s. A further 90 s baseline with both xVeil packages
+force-stopped (no app or package child processes, no API forwards) reproduces
+Poco reply gaps up to 3.167 s, three missing sequence numbers across the largest
+gap and max RTT 1399 ms. BV has all 180 replies, max RTT 77 ms/gap 0.528 s;
+Poco has 174 replies. The broader symptom also exists outside the running
+xVeil process under these app-off conditions. It does not identify OS,
+modem, radio or carrier, or prove the cause of every media interruption.
+
+All stand apps and package children were independently verified exited;
+both packages remain stopped with 2212 installed, identities preserved,
+Poco cellular. Owned forwards/readers, scoped remote probes and both file
+fixtures were removed/reaped; only owned download jobs cancelled. Private
+xveil-av-file-2212-* / xveil-idle-network-2212-* preserve sanitized samples
+and cleanup evidence. Goal remains active: quality gaps, exact physical cold
+race/replacement coverage, socket-loss attribution, ordinary ratchet
+convergence and remaining compatibility/group/screen cases are still open.
+No push, tag or release.
