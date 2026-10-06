@@ -3561,3 +3561,87 @@ phones. Private xveil-audio-build-2219.json, xveil-p2p-av-file-2219* and
 xveil-direct-2219* retain artifact, capture, attribution, gate and cleanup
 evidence. Goal active; physical crypto divergence, crossed-init repair and
 audio receive quality remain open. Commits unsigned/unpushed; no release/tag.
+
+Durable send reservations across chain changes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Following the independently reproduced crossed-init failure, source inspection
+found a prerequisite for safely retaining an older ratchet context: a new
+sending chain overwrote the single reservation even while disk still held the
+old chain's state. A crash after that replacement could restore the old counter
+without burning its previously published indices. A host regression reproduces
+this ordinary epoch-change case without introducing inactive contexts.
+
+Veil a13d0987 adds bounded live and exact-stored-snapshot sending-position
+helpers. Stored metadata is decoded in native code without importing it or
+exposing secret state to Dart. The C/Dart ABI contract and header are regenerated;
+buffer records have explicit big-endian counters and record counts. Host
+reservations now retain the union of live and durable chains, retiring a mark
+only when both snapshots have stopped holding that chain. The ledger is bounded
+to four positions, accepts the previous single-chain format, rejects malformed
+marks, shares cache retirement across binders over one container and clears
+caches on a fresh binder/restore. Same-chain sends retain their amortized write
+window. Volatile epoch churn does not accumulate historical marks.
+
+Checks: 51 host persistence/publication tests pass, including crash after a
+chain change, 200 volatile epochs, durable retirement, legacy migration,
+malformed state/marks and competing binders. E2E: 124 pass, the existing
+crossed-init gate remains ignored and unresolved. Two FFI snapshot boundary
+checks and two ABI-contract checks pass; targeted Flutter analysis and E2E/FFI
+all-target Clippy pass. Two controlled negative gates discard the disk chain
+or restore separate binder caches; each fails its intended assertion, exact
+source bytes are restored, then the positive host suite is repeated.
+
+This repairs reservation retirement, not the full asynchronous send/publish
+contract or crossed-init convergence. A host position read followed by an
+asynchronous SDK send is not an atomic epoch fence; native state may change
+between them. Nor can the new format reconstruct a mark already overwritten
+by an older build. Installed phones are still 2219: neither this change nor
+620cc06d is installed. No audio-quality success is claimed from source tests.
+
+Paired 2219 quiet audio and independent network observations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Poco was visible in macOS USB while missing in ADB. After reconnection and a
+local ADB server restart, both phones are available. Starting the server with
+the host default TMPDIR failed because /Volumes/cfb/tmp was absent; using
+TMPDIR=/private/tmp/ succeeded. No app data or network settings were reset.
+
+The new stand retains installed 2219, existing contact/global policies and
+anonymous=false preferences. Poco's active default network is verified
+cellular. Warm P-Net is established before the call: this is not a cold-route
+signal test. Audio only, no video/file/live_send load. Incoming ring 0.191 s,
+both endpoints active 3.834 s, last sample 154.588 s, no sampled call end.
+After the first 15 active seconds, 173 samples per endpoint: last accepted RTP
+ages peak at 2187 ms BV / 2177 ms Poco, with twelve samples over one second at
+each end. Native media-cell inter-arrival windows separately report maxima
+2961.0 / 2885.3 ms; these are different measurements, not acoustic latency.
+Source audio cadence maxima are 220 / 358 ms, source admission at most 2 ms
+each, and no sampled audio worker stall. No ordinary ratchet open failures
+occur in this quiet capture, so its pauses do not require the large-send crypto
+failure seen in the preceding capture.
+
+Around call seconds 83–86, source admission stays approximately 50 datagrams/s
+while both audio connections stop advancing received-UDP/ACK counters. In-flight
+bytes grow past their roughly 25–27 KB congestion windows; queued datagrams
+then expire. Incoming datagram counters also stop during the gap and resume
+without decode rejection, rate limiting or slow dispatch. Recovery attempts
+cancel on ACK progress (seven BV, five Poco); no replacement is established.
+Poco's independent active-call ICMP reply gaps reach 3.048 s, maximum RTT
+1551 ms; its gaps at approximately 75–78, 83–86 and 91–94 s overlap the media
+pauses. BV also loses independent ICMP replies (maximum gap 3.053 s), but its
+active-call maximum RTT is 91.5 ms. ICMP targets another destination and may
+be rate limited: it does not identify the responsible hop or explain every
+media gap. The observed ACK/UDP stalls precede congestion-window exhaustion;
+source window fullness alone is not evidence of an application scheduling bug.
+
+Poco radio polling takes 178 active-call samples: the connected SIM remains
+registered on LTE, channel/bandwidth and reported signal fields do not change.
+This does not prove absence of modem events or a handover, since the queried
+fields do not expose a complete radio trace. Both phones remain charging,
+screen-on and ACTIVE in sampled device-idle state. No blanket carrier/modem
+root-cause claim is made. Audio quality and exact pause cause remain open.
+
+Original preferences are read back; both complete app UIDs are independently
+verified exited, packages stopped, own forwards absent, probes/readers reaped,
+zero owned media/file fixtures/offers. Private xveil-p2p-av-file-2219quiet2*,
+xveil-direct-2219quiet2-network-attribution.json and
+xveil-phone-cleanup-2219quiet2.json retain evidence. No new APK is installed.

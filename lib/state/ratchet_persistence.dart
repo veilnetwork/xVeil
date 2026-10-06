@@ -91,6 +91,9 @@ class RatchetPersistence {
     if (_dirtyBatch <= 0) {
       throw ArgumentError.value(_dirtyBatch, 'dirtyBatch', 'must be positive');
     }
+    // The same Storage object may have been closed/reopened or restored.
+    // A fresh binder starts from durable marks, never an earlier open's cache.
+    _reservations[_storage]?.clear();
   }
 
   final RatchetStateHandle _native;
@@ -157,8 +160,10 @@ class RatchetPersistence {
   /// container rather than retried forever: it can never open a frame again,
   /// and keeping unusable key material is the opposite of what this store is
   /// for.
-  Future<int> restore() =>
-      _exclusive(() => restoreRatchetStates(_native, _storage));
+  Future<int> restore() => _exclusive(() {
+    _reserved.clear();
+    return restoreRatchetStates(_native, _storage);
+  });
 
   /// True when the last flush did not reach the container.
   ///
@@ -181,7 +186,10 @@ class RatchetPersistence {
 
   /// Reservations this process has already written, so the ordinary send pays
   /// a map lookup rather than a container write.
-  final Map<String, ({Uint8List chain, int reservedTo})> _reserved = {};
+  static final Expando<Map<String, List<RatchetSendPosition>>> _reservations =
+      Expando('ratchet durable reservations');
+  Map<String, List<RatchetSendPosition>> get _reserved =>
+      _reservations[_storage] ??= {};
 
   /// Record, durably, where this conversation's sending chain is ALLOWED to
   /// get to — before anything sealed from it is published.
@@ -217,30 +225,64 @@ class RatchetPersistence {
   /// measured at 8 ms. What the reservation actually amortises is the durable
   /// WRITE, which still happens once per run of indices and not once per
   /// message.
-  List<Uint8List> _keysFor(NodeId peer) => [
-    for (final key in _native.list())
-      if (_peerNodeMatches(key, peer.bytes)) key,
-  ];
+  List<Uint8List> _keysFor(NodeId peer) {
+    final keys = _native.list();
+    final live = {for (final key in keys) _hex(key)};
+    _reserved.removeWhere((key, _) => !live.contains(key));
+    return [
+      for (final key in keys)
+        if (_peerNodeMatches(key, peer.bytes)) key,
+    ];
+  }
 
   Future<void> _reserveBeforePublish(NodeId peer) async {
     var wrote = false;
     for (final key in _keysFor(peer)) {
-      final at = _native.sendPosition(key);
-      // No sending chain yet means nothing has been sealed, so there is no
-      // published ciphertext to be accountable for.
-      if (at == null) continue;
+      final live = _native.sendPositions(key);
+      if (live.isEmpty) continue;
       final held = _reserved[_hex(key)];
-      if (held != null &&
-          _sameKey(held.chain, at.chain) &&
-          at.next < held.reservedTo) {
-        continue; // still inside what is already on disk
+      bool covers(List<RatchetSendPosition> marks) => live.every(
+        (at) =>
+            marks.any((m) => _sameKey(m.chain, at.chain) && at.next < m.next),
+      );
+      if (held != null && covers(held)) continue;
+
+      // Read fresh at a write boundary: another persistence object over this
+      // container may have reserved a different chain since our last write.
+      final marks = decodeRatchetReservations(
+        await _storage.getSetting(ratchetReservationKey(key)),
+      );
+      if (covers(marks)) {
+        _reserved[_hex(key)] = marks;
+        continue;
       }
-      final to = at.next + reserveAhead;
+      final blob = await _storage.loadRatchetState(key);
+      List<RatchetSendPosition> durable;
+      try {
+        durable = blob == null ? [] : _native.storedSendPositions(key, blob);
+      } finally {
+        if (blob != null) blob.fillRange(0, blob.length, 0);
+      }
+      // A chain absent from RAM can still be restored after a crash. Retire
+      // its mark only after the stored snapshot has also stopped holding it.
+      marks.removeWhere(
+        (m) => ![...live, ...durable].any((p) => _sameKey(p.chain, m.chain)),
+      );
+      for (final at in live) {
+        final i = marks.indexWhere((m) => _sameKey(m.chain, at.chain));
+        if (i >= 0 && at.next < marks[i].next) continue;
+        final mark = RatchetSendPosition(at.chain, at.next + reserveAhead);
+        if (i < 0) {
+          marks.add(mark);
+        } else {
+          marks[i] = mark;
+        }
+      }
       await _storage.putSetting(
         ratchetReservationKey(key),
-        '${_hex(at.chain)}:$to',
+        encodeRatchetReservations(marks),
       );
-      _reserved[_hex(key)] = (chain: at.chain, reservedTo: to);
+      _reserved[_hex(key)] = marks;
       wrote = true;
     }
     // The anchor moves with the reservation, and this is the only place it

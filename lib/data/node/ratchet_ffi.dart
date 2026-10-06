@@ -11,7 +11,8 @@ import 'package:ffi/ffi.dart';
 // it changed — which is the exact class of divergence this check exists to
 // catch, reintroduced by the check itself.
 // ignore: implementation_imports
-import 'package:veil_flutter/src/abi_contract.dart' show veilAbiContractHash;
+import 'package:veil_flutter/src/abi_contract.dart'
+    show veilAbiContractHash, veilRatchetMaxSendPositions;
 // ignore: implementation_imports
 import 'package:veil_flutter/src/native.dart'
     show VeilAbiContractMismatch, readAbiContractHash;
@@ -111,6 +112,16 @@ abstract interface class RatchetStateHandle {
   /// written after — and that ordering is what lets a failed write plus a
   /// restart re-derive a key already spent on the wire (report12 X-H5).
   RatchetSendPosition? sendPosition(Uint8List conversationKey);
+
+  /// All sending chains retained in memory, from one native snapshot.
+  List<RatchetSendPosition> sendPositions(Uint8List conversationKey);
+
+  /// Sending chains in these exact stored bytes. The host never parses the
+  /// secret state itself. Throws if native code cannot fully decode the blob.
+  List<RatchetSendPosition> storedSendPositions(
+    Uint8List conversationKey,
+    Uint8List blob,
+  );
 
   /// Step a conversation's sending chain past every index that might already
   /// have been spent, and return how many keys were burned.
@@ -250,6 +261,42 @@ typedef _SendPositionDart =
       Pointer<Uint8>,
       Pointer<Uint8>,
       Pointer<Uint32>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _SendPositionsNative =
+    Int32 Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Size>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _SendPositionsDart =
+    int Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      int,
+      Pointer<Size>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _StoredPositionsNative =
+    Int32 Function(
+      Pointer<Uint8>,
+      Size,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Size>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _StoredPositionsDart =
+    int Function(
+      Pointer<Uint8>,
+      int,
+      Pointer<Uint8>,
+      int,
+      Pointer<Size>,
       Pointer<Pointer<Utf8>>,
     );
 typedef _SkipSendNative =
@@ -654,9 +701,87 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
     }
   }
 
+  List<RatchetSendPosition> _readPositions(
+    int Function(Pointer<Uint8>, int, Pointer<Size>, Pointer<Pointer<Utf8>>)
+    read,
+  ) {
+    final cap = veilRatchetMaxSendPositions * 36;
+    final buf = calloc<Uint8>(cap);
+    final count = calloc<Size>();
+    final errOut = calloc<Pointer<Utf8>>();
+    try {
+      final rc = read(buf, cap, count, errOut);
+      if (rc != 0) {
+        throw StateError(
+          'ratchet sending-position snapshot failed: ${_takeErr(errOut)}',
+        );
+      }
+      if (count.value > veilRatchetMaxSendPositions) {
+        throw StateError('ratchet returned too many sending positions');
+      }
+      final bytes = buf.asTypedList(count.value * 36);
+      final data = ByteData.sublistView(bytes);
+      return [
+        for (var i = 0; i < count.value; i++)
+          RatchetSendPosition(
+            Uint8List.fromList(bytes.sublist(i * 36, i * 36 + 32)),
+            data.getUint32(i * 36 + 32, Endian.big),
+          ),
+      ];
+    } finally {
+      calloc.free(buf); // Only public keys and counters.
+      calloc.free(count);
+      calloc.free(errOut);
+    }
+  }
+
+  @override
+  List<RatchetSendPosition> sendPositions(Uint8List conversationKey) {
+    _checkKey(conversationKey);
+    final fn = _dl.lookupFunction<_SendPositionsNative, _SendPositionsDart>(
+      'veil_ratchet_send_positions',
+    );
+    final key = calloc<Uint8>(kRatchetKeyLen);
+    try {
+      key.asTypedList(kRatchetKeyLen).setAll(0, conversationKey);
+      return _readPositions(
+        (buf, cap, count, err) => fn(_handle, key, buf, cap, count, err),
+      );
+    } finally {
+      calloc.free(key);
+    }
+  }
+
+  @override
+  List<RatchetSendPosition> storedSendPositions(
+    Uint8List conversationKey,
+    Uint8List blob,
+  ) {
+    _checkKey(conversationKey);
+    if (blob.isEmpty || blob.length > kRatchetMaxStateLen) {
+      throw ArgumentError('implausible ratchet snapshot length');
+    }
+    final fn = _dl.lookupFunction<_StoredPositionsNative, _StoredPositionsDart>(
+      'veil_ratchet_stored_send_positions',
+    );
+    final ptr = calloc<Uint8>(blob.length);
+    try {
+      ptr.asTypedList(blob.length).setAll(0, blob);
+      return _readPositions(
+        (buf, cap, count, err) => fn(ptr, blob.length, buf, cap, count, err),
+      );
+    } finally {
+      wipeNativeSecret(ptr, blob.length);
+      calloc.free(ptr);
+    }
+  }
+
   @override
   int skipSendTo(Uint8List conversationKey, RatchetSendPosition to) {
     _checkKey(conversationKey);
+    if (to.next < 0 || to.next > 0xffffffff) {
+      throw ArgumentError.value(to.next, 'to.next', 'must fit a u32');
+    }
     if (to.chain.length != 32) {
       throw ArgumentError.value(
         to.chain.length,
@@ -913,6 +1038,54 @@ Future<void> dropRejectedRatchetStates(
 String ratchetReservationKey(Uint8List conversationKey) =>
     'ratchet_reserve:${[for (final b in conversationKey) b.toRadixString(16).padLeft(2, '0')].join()}';
 
+/// At most the union of the durable and live snapshots: two positions each.
+const kRatchetReservationMaxChains = 2 * veilRatchetMaxSendPositions;
+
+/// Reads the old single-chain mark and the bounded multi-chain format.
+/// Corrupt marks stop recovery/sending; silently ignoring one could reuse a
+/// key that was already published before the state write reached disk.
+List<RatchetSendPosition> decodeRatchetReservations(String? raw) {
+  if (raw == null) return [];
+  if (raw.length > 3 + kRatchetReservationMaxChains * 76) {
+    throw StateError('oversized ratchet reservation');
+  }
+  final parts = raw.startsWith('v2|') ? raw.substring(3).split('|') : [raw];
+  if (parts.isEmpty || parts.length > kRatchetReservationMaxChains) {
+    throw StateError('invalid ratchet reservation count');
+  }
+  final seen = <String>{};
+  final out = <RatchetSendPosition>[];
+  for (final part in parts) {
+    final at = part.lastIndexOf(':');
+    if (at != 64) throw StateError('invalid ratchet reservation');
+    final hex = part.substring(0, at);
+    final chain = _unhexChain(hex);
+    final next = int.tryParse(part.substring(at + 1));
+    if (chain == null ||
+        next == null ||
+        next < 0 ||
+        next > 0xffffffff ||
+        !seen.add(hex.toLowerCase())) {
+      throw StateError('invalid ratchet reservation position');
+    }
+    out.add(RatchetSendPosition(chain, next));
+  }
+  return out;
+}
+
+String encodeRatchetReservations(List<RatchetSendPosition> positions) {
+  if (positions.isEmpty || positions.length > kRatchetReservationMaxChains) {
+    throw StateError('invalid ratchet reservation count');
+  }
+  final marks = [
+    for (final p in positions)
+      '${[for (final b in p.chain) b.toRadixString(16).padLeft(2, '0')].join()}:${p.next}',
+  ];
+  final raw = marks.length == 1 ? marks.single : 'v2|${marks.join('|')}';
+  decodeRatchetReservations(raw); // Validate caller-produced metadata too.
+  return raw;
+}
+
 /// Step every restored conversation past the indices its last reservation
 /// allowed, and report how many keys were burned in total.
 ///
@@ -930,38 +1103,31 @@ Future<int> recoverReservedSendPositions(
   Storage storage, {
   int extraBurn = 0,
 }) async {
+  if (extraBurn < 0 || extraBurn > 0xffffffff) {
+    throw ArgumentError.value(extraBurn, 'extraBurn', 'must fit a u32');
+  }
   var burned = 0;
   for (final key in native.list()) {
     final raw = await storage.getSetting(ratchetReservationKey(key));
-    if (raw == null) {
-      // No reservation for this conversation. Ordinarily nothing to do — but
-      // when the container was put back in time, this conversation's state is
-      // stale too, and the positions it has already spent are not written
-      // anywhere we can read. Step it forward from where it now believes it
-      // is (report8 M8-14).
-      if (extraBurn > 0) {
-        final at = native.sendPosition(key);
-        if (at != null) {
+    final marks = decodeRatchetReservations(raw);
+    final live = native.sendPositions(key);
+    for (final mark in marks) {
+      burned += native.skipSendTo(
+        key,
+        RatchetSendPosition(mark.chain, mark.next + extraBurn),
+      );
+    }
+    // A rolled-back container may also predate the mark for a retained chain.
+    if (extraBurn > 0) {
+      for (final at in live) {
+        if (!marks.any((m) => _sameChain(m.chain, at.chain))) {
           burned += native.skipSendTo(
             key,
             RatchetSendPosition(at.chain, at.next + extraBurn),
           );
         }
       }
-      continue;
     }
-    final at = raw.lastIndexOf(':');
-    if (at <= 0) continue;
-    final chain = _unhexChain(raw.substring(0, at));
-    final next = int.tryParse(raw.substring(at + 1));
-    if (chain == null || next == null) continue;
-    // `extraBurn` is zero on an ordinary launch, so this is the same step it
-    // always was. After a detected rollback it covers every position the
-    // commits that went missing could have reserved.
-    burned += native.skipSendTo(
-      key,
-      RatchetSendPosition(chain, next + extraBurn),
-    );
   }
   if (burned > 0) {
     devLog(
@@ -971,6 +1137,14 @@ Future<int> recoverReservedSendPositions(
     );
   }
   return burned;
+}
+
+bool _sameChain(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 Uint8List? _unhexChain(String hex) {
