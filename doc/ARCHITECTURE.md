@@ -3369,3 +3369,54 @@ more than eight simultaneously blocked siblings are not proven independent.
 Physical direct provenance/interoperability and audio/video/file separation
 remain to be checked on an installed build. Phones still retain 2217 at this
 source-cycle boundary. Goal remains active; commits unsigned and unpushed.
+
+
+Installed 2218 direct call load and stopped-app network baseline
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both physical phones returned on ADB and now contain ARM64 build 2218,
+root a0588e85 / Veil 7a31b8a3. Production native features, header ABI,
+raw/staged/merged/stripped library hashes, the unchanged 94-export media
+library, full installed APK hashes and version codes verified. Both existing
+profiles/signatures retained. Blackview stays on Wi-Fi; Poco deliberately
+stays on cellular. Original contact/global P2P policies used without denial.
+
+Poco-to-Blackview video call rings in 0.317 s, both endpoints active in
+4.494 s. All sampled active media paths are P2P. The direct session negotiates
+independent QUIC channels, and first-send traces establish authenticated
+independent local slots 0, 2 and 3 after initial warmup fallback. The 8 MiB
+file exports in 81.41 s with its complete SHA-256 matching. Its progress
+snapshot remains one byte behind. Last call sample at 170.184 s, no sampled
+call end. Video decodes on both endpoints and reduces to the severe-audio
+floor; this is continuity and integrity evidence, not acceptable audio/video
+quality. This stand does not prove the new direct ratchet chunk/provenance
+path: P-Net admission itself reports hasCert=false.
+
+Native receive ages still reach 3850/3040 ms (BV/Poco), with both entire
+inbound packet counters plateauing near call seconds 64.6..67.9 before
+resuming. Source RTP maximum gaps stay 399/403 ms (DTX enabled), admission
+maxima 1/3 ms and no sampled media worker stall. Receiver dispatch maxima
+1432/2509 us, with no recorded decode/ineligible/rate-limit/violation errors.
+Independent Poco ICMP reply gap 3.966 s overlaps that outage; BV ICMP remains
+regular (largest gap 0.564 s). Ordered write maxima 1144/3151 ms are aggregate
+session evidence, not identification of the independently carried audio path.
+Primary recovery attempts cancel when ACKs resume (13 BV, 6 Poco); no
+successful replacement or media-session repair is established by this capture.
+
+A separate 75-second baseline runs after both applications and every process
+under their UIDs have exited. Poco still shows two ICMP reply gaps above one
+second, maximum 2.482 s and RTT 1490 ms; BV maximum gap 0.528 s and RTT
+76.3 ms. Thus some cellular-path variability exists without xVeil running.
+This excludes the app process as the sole cause of all observed network
+delays, but does not distinguish carrier/modem/OS/other traffic or establish
+that every call pause has the same cause. Independent ICMP uses a different
+destination; receive age is not measured end-to-end audio or acoustic quality.
+
+Original policies verified restored. Own downloads absent/canceled, visible
+offers and input/export fixtures removed; apps/package prefixes and complete
+UID process sets independently verified exited and stopped at version 2218.
+Own forwards, trace/network readers and call/baseline remote probes reaped.
+Private xveil-audio-build-2218.json, xveil-p2p-av-file-2218-* and
+xveil-idle-network-2218-* retain samples/artifact/attribution/cleanup evidence.
+Goal remains active: physical direct ratchet/proxy coverage, unsealed/control
+framing, complete group/screen/compatibility behavior and acoustic/receive
+quality remain open. No release, tag, signed commit or push this cycle.
