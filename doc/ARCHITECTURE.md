@@ -2723,3 +2723,21 @@ removed/reaped, only owned downloads cancelled. Independent ps/forward checks
 confirm cleanup. Both phones retain 2210. Source code and root pointer committed
 unsigned; no push/tag/release. Goal remains active: actual phone quality,
 successful physical replacement coverage and bidirectional ratchet remain open.
+
+
+Primary replacement outcome attribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Veil 2fccc27b records the bounded replacement's local phase and terminal
+outcome, including an aborted task before its first poll. Outcomes distinguish
+verified proof, failed connection/binding, deadline and cancellation; the
+source separately records cancellation because the old ACK path recovered.
+Local connection-budget snapshots include pending and accepted children and
+do not reserve capacity or change admission. Error reasons are authored labels;
+untrusted error strings, keys, exporters and proofs are never logged. There is
+no new wire field, relay scheduling rule or authorization change.
+
+The actual authenticated 4 s neutral-outage fixture still passes: small/large
+first fresh frames 384/435 ms, no duplicates and max post-return age 26/57 ms.
+Production-feature FFI Clippy passes with warnings denied. Build 2211 physical
+outcome capture and sustained forced-relay coverage are pending. The added
+diagnostics alone are not an audio-quality fix.
