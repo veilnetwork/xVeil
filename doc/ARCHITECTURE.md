@@ -3902,3 +3902,75 @@ padding remain diagnostic questions; no relay scheduling change is justified
 by the current evidence. The 2231 stand's whole Android UID, owned Mac/log/probe
 processes, remote ping and ADB forward are verified gone. No release/tag/push
 is performed in this cycle.
+
+
+Call identity/device control continuity (physical Mac + cellular Poco)
+----------------------------------------------------------------------
+
+The 2232 cold relay-to-P2P transition exposes a concrete receive/liveness bug.
+The forked answer binds the Mac dialog to physical device 487b486f, but later
+Poco transportInfo/health and direct media ingress use its original contact
+identity 418654b3. CallService rejects those identity-attributed controls as a
+different peer. Poco upgrades to P2P while Mac remains on relay with a native
+receiver registered only for the physical address. Mac logs `no-channel` for
+identity ingress; its audio receive counter freezes at 181 and native receive
+age grows beyond 22 seconds before the 24-second liveness timeout. Poco keeps
+receiving Mac's relay egress. The harness ends only after the endpoint is lost;
+it did not cause this timeout. Camera-load phases after that loss are invalid.
+
+CallService now normalizes only the saved original identity of the exact live
+call to its already accepted device dialog. Native admission still checks the
+answering physical device; policy and media-key verification are unchanged.
+The regression covers an unrelated readiness/health sender, identity readiness,
+physical-device admission, identity health for 60 seconds, and eventual timeout
+when authorized health stops. Removing just the normalization makes this test
+fail (expected P2P switch, actual none); restoring it passes. The call service,
+media seals, audio routes and identity/device policy gates total 160 passing
+tests.
+
+Endpoint-only native diagnostics now distinguish actual Opus RTP payload,
+header/padding-only probes, retransmitted audio and accepted RTCP sends. Bounds
+checks cover CSRC, RTP extensions and invalid padding; padding cannot renew the
+actual payload clock. Existing counters and packet sending remain unchanged.
+The C++ smoke test and rebuilt Mac native engine pass; the Android native media
+payload is unchanged, so these new diagnostic fields are Mac-only in stand
+2233. Nothing about media roles or priority is added to relay framing.
+
+
+Build 2233 installs the Dart control-continuity fix on both endpoints. Poco's
+APK retains the original signer and full pulled-APK SHA-256
+`52a9e64880d02d7edd58d427dc891c29237024f88ae10442412f00accb04ee71`.
+A 115-second Mac-to-Poco call rings in 1.127 s and becomes active in 2.460 s;
+both endpoints upgrade relay to P2P and continue receiving until deliberate
+hangup. This answer arrived under the identity, so physical coverage of the
+forked-device normalization itself remains the original failing capture plus
+the controlled regression, not an observed same-case hardware positive.
+
+Audio remains defective. In one stable P2P epoch, the 28.778-second voice-only
+window has 9 Mac / 11 Poco interruptions (9779 / 11793 ms), with receive ages
+up to 2943 / 2794 ms. Mac produces 1440 actual audio payload packets and 303
+padding packets, no retransmitted audio, and 197 RTCP packets. Its actual
+payload maximum gap is 101 ms, queue admission is below 1 ms, and pacer delay
+is zero: these counters distinguish a receiver gap from a stopped Mac encoder.
+The following 29.570-second phone-camera window has no new interruptions and
+33 new decoded Mac frames; this healthy interval does not resolve the earlier
+voice failures. Independent Poco ICMP reaches 1524 ms in this stand, while
+Mac ICMP reaches 61.371 ms.
+
+After restarting both apps without forcing endpoint exchange, a Mac call fails
+the harness's 45-second setup budget. Its offer arrives at Poco about 62 seconds
+after placing it, after the harness's cancellation. Native trace shows missing
+ratchet session/unavailable message keys, while unauthenticated realtime offers
+are correctly refused. This is unresolved cold delivery, not repaired by the
+control alias change; sender authentication is retained.
+
+A subsequent Poco-to-Mac call rings in 0.396 s and becomes active in 0.776 s,
+remaining active for 140 seconds. Voice-only P2P intervals repeat normal / paused
+publish-and-mailbox / normal / paused / normal operation. Pauses persist in both
+paused windows (6/8 and 5/6 new Mac/Poco interruptions). Pausing these two tasks
+is therefore not sufficient to remove the fault; already in-flight traffic and
+other traffic are not excluded. The process-local diagnostic switches are
+restored before teardown. Both 2233 stands are closed; complete Android UID,
+owned Mac/log/probe processes, remote ping and ADB forward are verified absent.
+The next investigation is the unexpectedly large audio probe traffic, not a
+relay priority change. No acoustic-quality success or complete repair is claimed.
