@@ -230,11 +230,10 @@ _openCallMediaChannel({
   required Uint8List txKey,
   required Uint8List rxKey,
   Duration directRetryDelay = const Duration(milliseconds: 300),
+  Future<NodeId> Function()? resolveDirectPeerOnRetry,
 }) async {
   if (call.transport == CallTransportKind.p2p) {
-    // P-Net receives under the authenticated identity. A device address chosen
-    // before admission can already be stale when the session registers.
-    final directPeer = call.mediaIdentity;
+    var directPeer = call.mediaPeer;
     // A cold negotiated session may register just after a not-active reply;
     // an admission probe can also lose its budget to a mutex/rate-limit stall.
     // Give either case one short retry. Every open still requires native
@@ -242,6 +241,14 @@ _openCallMediaChannel({
     Object? lastError;
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
+        if (attempt > 0 && resolveDirectPeerOnRetry != null) {
+          // Recheck the particular answering device. Another device's admitted
+          // identity session must not select its endpoint for this call.
+          directPeer = await resolveDirectPeerOnRetry().timeout(
+            const Duration(milliseconds: 300),
+            onTimeout: () => throw StateError('direct session probe timed out'),
+          );
+        }
         final channel = await opener.openMediaChannel(
           directPeer.bytes,
           txKey: txKey,
@@ -350,6 +357,7 @@ openSealedCallMediaChannel({
   required CallMediaChannelOpener opener,
   required Uint8List localNodeId,
   Duration directRetryDelay = const Duration(milliseconds: 300),
+  Future<NodeId> Function()? resolveDirectPeerOnRetry,
 }) async {
   final ({Uint8List txKey, Uint8List rxKey}) keys;
   try {
@@ -369,6 +377,7 @@ openSealedCallMediaChannel({
       txKey: keys.txKey,
       rxKey: keys.rxKey,
       directRetryDelay: directRetryDelay,
+      resolveDirectPeerOnRetry: resolveDirectPeerOnRetry,
     );
   } finally {
     keys.txKey.fillRange(0, keys.txKey.length, 0);
@@ -905,6 +914,12 @@ class VeilCallMediaController implements CallMediaController {
         call: call,
         opener: _transport,
         localNodeId: localId,
+        resolveDirectPeerOnRetry: () async {
+          final admitted = (await _transport.peerPnetStatus(
+            (call.peerDevice ?? call.peer).bytes,
+          )).admitted;
+          return callMediaRoutePeer(call, sessionAdmitted: admitted);
+        },
       );
       if (opened == null) return false;
       _transportFallbackReason = opened.fallbackReason;

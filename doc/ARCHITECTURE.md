@@ -2785,15 +2785,19 @@ The repeat identified a separate setup race: Poco's direct open returned not
 active at 03:39:26.584, but its authenticated direct session registered at
 03:39:26.765. The caller had retained the device receive address selected
 before admission; it immediately surrendered P2P and the peer rebuilt its
-already opened direct media on relay. A negotiated direct open now targets
-the identity and retries a not-active/probe failure once after 300 ms. Native
+already opened direct media on relay. A negotiated direct open now retries a not-active/probe failure once after
+300 ms. Before retrying it rechecks the exact answering device (query bound
+300 ms), choosing its identity address only after that device is admitted.
+Another device of the identity cannot substitute for it. Native
 admission still gates each attempt, the directional keys are unchanged and
 an unsuccessful retry still uses the permitted physical-device relay route.
 No retry delay follows the final attempt. Onion and relay opens are unchanged.
 
-The new cold-admission regression fails on the restored old source (relay
-instead of P2P) and passes with the fix; 138 media sealing/call-service tests
-pass with TMPDIR=/private/tmp/. Physical build 2212 race coverage is pending.
+The cold-admission regression fails with the old fail-fast behavior (relay
+instead of P2P) and passes with the fix. A separate wrong-device negative gate
+fails if the identity is selected without checking the answering device. All
+139 media sealing/call-service tests pass with TMPDIR=/private/tmp/. Physical
+build 2212 race coverage is pending.
 All 2211 app/package children, owned forwards/readers, scoped ICMP processes
 and both file stands' fixtures were verified closed/reaped; only owned
 pending downloads cancelled. Private xveil-audio-2211quiet-*,
