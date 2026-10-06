@@ -3035,11 +3035,50 @@ readiness against negotiation, delivers the neutral Forward with the ordered
 writer stopped only when negotiated, preserves old ordered fallback, and
 checks readiness expiry after exit. Session/IPC/runtime library Clippy passes
 with warnings denied; Android ARM64 production FFI builds with only
-production-seeds,node-embedded,packet-tunnel. Physical installation of this
-follow-up is pending; installed 2214 does not contain it yet.
+production-seeds,node-embedded,packet-tunnel. This capture used installed
+2214, before the readiness fix; installation and build 2215 results follow.
 
 Both apps/process trees independently verified exited, package stopped,
 owned forwards/readers/remote ICMP probes gone, original policies restored.
 Private xveil-relay-audio-2214-* retain sanitized samples and cleanup evidence.
 Goal remains active; complete path separation and physical audio quality are
 not established. No push, tag or release.
+
+
+Build 2215 installed readiness fix: remaining network receive gap
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both installed full APK hashes verified against root 215cd608 / Veil
+989b3241. ARM64 production FFI and unchanged 94-export media library verified
+in staged/merged/stripped/APK artifacts; profiles retained. Poco stays cellular.
+The same warm-PNet, temporary-P2P-denial audio-only capture runs for 180 active
+seconds. Ring/active 1.137/3.202 s; all active media samples report relay.
+
+Actual source relay-admission samples now report datagram_transport=false
+for every selected neutral-Forward first hop, including generic QUIC peers
+that negotiated opaque_flows=false/independent_available=false. There is no
+observed neutral-Forward datagram first-send event. This verifies honest
+frame-specific readiness; it does not upgrade legacy relays or establish an
+independent source connection through them. No logged slow ordered writes,
+sampled worker stalls, kernel IPv4 buffer errors or own UDP socket drops.
+Ordinary app.ratchet.open_failed zero; separate Delivery decrypt/replay
+diagnostics are present (45/42 lines) and are not proof of media AEAD failure.
+
+Quality still fails: native receive ages reach 3927/3950 ms at call second
+43.180. Both native packet/byte and audio counters freeze from about second
+39.2 until 44.0 while source RTP continues, then ingress catches up in bursts.
+Independent Poco ICMP has no successful replies from 38.626 to 43.371 s
+(completed gap 4.745 s), overlapping the media outage; BV ICMP stays regular
+(max gap 0.529 s). Poco ICMP max RTT 1736 ms, ENOBUFS zero. This narrows the
+investigation to the shared network interval but does not identify its failing
+component or prove every network flow stopped. Source gap max 400/403 ms,
+admission max 3/3 ms. Opus DTX is enabled, so individual source gaps and native
+concealment/interruption counters alone do not measure audible speech loss;
+the multi-second ingress-counter plateau here is separately observed.
+
+Both original P2P policies restored and verified; installed 2215 packages
+stopped and their complete process trees independently verified exited.
+Owned API forwards, log readers and remote ICMP probes exited/reaped; no file
+fixtures or downloads created in this repeat. Private xveil-relay-audio-2215-*
+retain sanitized samples and artifact/cleanup checks. Goal remains active:
+the installed route-selection fix is verified, receive continuity and
+acoustic quality are not repaired. No push, tag or release.
