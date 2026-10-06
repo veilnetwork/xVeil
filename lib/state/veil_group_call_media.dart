@@ -36,6 +36,9 @@ abstract interface class GroupMediaChannelTransport {
   });
 
   void close(int channel);
+
+  /// Select only this endpoint's independent screen producer.
+  int setScreenSharing(int channel, bool on);
 }
 
 class VeilGroupMediaChannelTransport implements GroupMediaChannelTransport {
@@ -52,6 +55,10 @@ class VeilGroupMediaChannelTransport implements GroupMediaChannelTransport {
     required Uint8List txKey,
     required Uint8List rxKey,
   }) => _transport.openMediaChannel(peer.bytes, txKey: txKey, rxKey: rxKey);
+
+  @override
+  int setScreenSharing(int channel, bool on) =>
+      _transport.setMediaScreenSharing(channel, on);
 
   @override
   void close(int channel) => _transport.closeMediaChannel(channel);
@@ -288,6 +295,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final AndroidScreenCaptureFactory _screenCaptureFactory =
       createAndroidScreenCapture;
   final Map<String, _GroupPeerChannel> _peers = {};
+  bool _screenSourceSelected = false;
   final Map<String, int> _lastRxPackets = {};
   final Map<String, DateTime> _lastRxAt = {};
   final Map<String, CallAudioReceiveActivity> _audioReceiveActivity = {};
@@ -469,6 +477,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       (_) => _pollFrames(engine),
     );
     if (startScreen) {
+      if (!_selectScreenSource(true)) return false;
       if (Platform.isAndroid) {
         _screenSharing = await _startAndroidScreen(engine);
       } else {
@@ -476,6 +485,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           _screenSharing = engine.startScreen(sourceId: _selectedScreenId);
         } catch (_) {}
       }
+      if (!_screenSharing) _selectScreenSource(false);
     } else if (startCamera) {
       if (Platform.isAndroid) {
         unawaited(_startAndroidCamera(engine));
@@ -485,6 +495,21 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         } catch (_) {}
       }
     }
+    return true;
+  }
+
+  bool _selectScreenSource(bool on) {
+    final changed = <int>[];
+    for (final peer in _peers.values) {
+      if (_transport.setScreenSharing(peer.channel, on) != 0) {
+        for (final channel in changed) {
+          _transport.setScreenSharing(channel, _screenSourceSelected);
+        }
+        return false;
+      }
+      changed.add(peer.channel);
+    }
+    _screenSourceSelected = on;
     return true;
   }
 
@@ -541,7 +566,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             txKey: keys.txKey,
             rxKey: keys.rxKey,
           );
-          if (!engine.addPeer(channel: channel, peer: entry.value)) {
+          if ((_screenSourceSelected &&
+                  _transport.setScreenSharing(channel, true) != 0) ||
+              !engine.addPeer(channel: channel, peer: entry.value)) {
             _transport.close(channel);
             continue;
           }
@@ -735,6 +762,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> setCameraEnabled(bool enabled) async {
     final engine = _engine;
     if (engine == null || !_videoRunning) return;
+    if (enabled && (_screenSharing || _screenStarting != null)) return;
+    if (enabled && !_selectScreenSource(false)) return;
     if (Platform.isAndroid) {
       if (enabled) {
         await _startAndroidCamera(engine);
@@ -769,6 +798,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         final screen = _androidScreen;
         _androidScreen = null;
         if (screen != null) await screen.stop();
+        if (_engine != engine) return false;
+        _selectScreenSource(false);
         _screenSharing = false;
         return true;
       }
@@ -786,14 +817,20 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (!Platform.isMacOS) return false;
     try {
       if (enabled) {
+        if (!_selectScreenSource(true)) return false;
         final started = engine.startScreen(sourceId: _selectedScreenId);
+        if (!started) _selectScreenSource(false);
         _screenSharing = started;
         return started;
       }
       final stopped = engine.stopScreen();
-      if (stopped) _screenSharing = false;
+      if (stopped) {
+        _selectScreenSource(false);
+        _screenSharing = false;
+      }
       return stopped;
     } catch (_) {
+      if (enabled) _selectScreenSource(false);
       return false;
     }
   }
@@ -872,7 +909,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _androidCamera = null;
     if (camera != null) await camera.stop();
     if (epoch != _mediaEpoch) return false;
-    final started = await _startAndroidScreen(engine);
+    if (!_selectScreenSource(true)) return false;
+    final bool started;
+    try {
+      started = await _startAndroidScreen(engine);
+    } catch (_) {
+      if (epoch == _mediaEpoch) _selectScreenSource(false);
+      rethrow;
+    }
     if (epoch != _mediaEpoch) {
       // `_startAndroidScreen` publishes its source before awaiting the
       // platform start, so a teardown landing there stops a source that has
@@ -887,6 +931,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       }
       return false;
     }
+    if (!started) _selectScreenSource(false);
     _screenSharing = started;
     if (!started && cameraWasRunning) await _startAndroidCamera(engine);
     return started;
@@ -896,6 +941,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (clearMicrophoneState) _microphoneState.clear();
     _audioEnabled = false;
     _mediaEpoch++;
+    _screenSourceSelected = false;
     _statsTimer?.cancel();
     _statsTimer = null;
     _bitrateAdapter = null;
@@ -981,6 +1027,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     screen = _screenCaptureFactory(() {
       if (_androidScreen != screen) return;
       _androidScreen = null;
+      if (_engine == engine) _selectScreenSource(false);
       _screenSharing = false;
       localVideoFrame.value = null;
       _screenShareStops.add(null);
