@@ -6,7 +6,6 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.projection.MediaProjectionManager
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.hardware.camera2.CameraCharacteristics
@@ -44,7 +43,7 @@ class MainActivity : FlutterActivity() {
     private val whisperModelChannelName = "xveil/whisper_model"
     private val secureScreenChannelName = "xveil/secure_screen"
     private val micRequestCode = 0x4D49 // 'MI'
-    private val screenCaptureRequestCode = 0x5343 // 'SC'
+    private var screenConsentToken: String? = null
     private var pending: MethodChannel.Result? = null
     private var pendingScreenCapture: MethodChannel.Result? = null
     private var callActionChannel: MethodChannel? = null
@@ -321,7 +320,6 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             screenCaptureChannelName,
         ).also { channel ->
-            ScreenCaptureBridge.attach(channel)
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
                     "start" -> requestScreenCapture(result)
@@ -520,13 +518,28 @@ class MainActivity : FlutterActivity() {
             result.success(false)
             return
         }
-        val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        // Bind only the requesting engine; a launcher resume cannot take over.
+        screenCaptureChannel?.let(ScreenCaptureBridge::attach)
         pendingScreenCapture = result
         try {
-            @Suppress("DEPRECATION")
-            startActivityForResult(manager.createScreenCaptureIntent(), screenCaptureRequestCode)
+            screenConsentToken = ScreenCapturePermissionActivity.launch(this) { resultCode, data ->
+                if (pendingScreenCapture !== result) return@launch
+                pendingScreenCapture = null
+                screenConsentToken = null
+                if (resultCode == Activity.RESULT_OK && data != null) {
+                    try {
+                        ScreenCaptureService.start(this, resultCode, data)
+                        result.success(true)
+                    } catch (error: Exception) {
+                        result.error("screen_capture", error.message, null)
+                    }
+                } else {
+                    result.success(false)
+                }
+            }
         } catch (error: Exception) {
             pendingScreenCapture = null
+            screenConsentToken = null
             result.error("screen_capture", error.message, null)
         }
     }
@@ -588,27 +601,6 @@ class MainActivity : FlutterActivity() {
                     "kind" to "input",
                 )
             }
-    }
-
-    @Deprecated("MediaProjection consent still uses the platform activity-result contract")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode == screenCaptureRequestCode) {
-            val result = pendingScreenCapture
-            pendingScreenCapture = null
-            if (result == null) return
-            if (resultCode == Activity.RESULT_OK && data != null) {
-                try {
-                    ScreenCaptureService.start(this, resultCode, data)
-                    result.success(true)
-                } catch (error: Exception) {
-                    result.error("screen_capture", error.message, null)
-                }
-            } else {
-                result.success(false)
-            }
-            return
-        }
-        super.onActivityResult(requestCode, resultCode, data)
     }
 
     /**
@@ -737,14 +729,9 @@ class MainActivity : FlutterActivity() {
     private fun stopScreenCapture() {
         val pendingResult = pendingScreenCapture
         pendingScreenCapture = null
-        if (pendingResult != null) {
-            try {
-                @Suppress("DEPRECATION")
-                finishActivity(screenCaptureRequestCode)
-            } catch (_: Exception) {
-            }
-            pendingResult.success(false)
-        }
+        ScreenCapturePermissionActivity.cancel(screenConsentToken)
+        screenConsentToken = null
+        pendingResult?.success(false)
         ScreenCaptureService.stop(this)
     }
 }
