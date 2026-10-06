@@ -4020,3 +4020,71 @@ by this one-ended cap, and Android deployment of the cap remains unverified.
 Cold authenticated signaling/ratchet recovery and same-case physical forked
 answer coverage are also open. The complete stand and native test processes,
 Android UID, local/remote probes and owned ADB forward are verified exited.
+
+
+Video RTCP source ownership (2235)
+----------------------------------
+
+The separate native audio/video Calls still shared one Transport::SendRtcp
+entry. Rust classified their RTCP as audio, putting video feedback/reports
+into the primary source queue, connection and cipher epoch. Both unicast
+video streams and both group video streams now use a video transport adapter.
+It preserves the producing Call's ownership through a new nonblocking
+veil_media_send_video_control_datagram boundary. Camera control uses the
+camera source; local screen sharing selects the screen source. Full/busy
+video admission never falls back into audio. Video RTCP also no longer reads
+the audio playout mutex or appends its VAP1 audio feedback extension.
+
+The direct camera pump explicitly retains Secondary sealing even for RTCP,
+whose packet type alone would classify it as Primary. Relay control enters
+as a complete work item, preserving any partially assembled VP8 frame. The
+existing relay video queue/frame counters therefore count these control work
+items as well as complete video frames. Source selection is endpoint-local;
+relay framing and transit scheduling are unchanged. Incoming RTCP is still
+dispatched to both native Calls for SSRC demultiplexing: this change isolates
+outbound source ownership, not the complete receive control path.
+
+All 33 Rust media-priority tests pass, including compound framing rejection,
+camera/screen backpressure with available audio, teardown and preservation of
+a partial relay frame around control. The complete real WebRTC Call suite
+passes twice. Its actual TWCC gate checks that audio/video feedback leaves
+through the respective source API, and its group gate holds video RTP and
+video RTCP sends while audio continues. Restoring only the four old video
+transport bindings fails on video feedback observed in the primary source;
+the fixed bindings are restored before production builds. Rust formatting and
+diff checks pass. Windows thunk/export filtering is updated but not compiled
+on this Mac. No full CI or acoustic-quality success is claimed.
+
+Mac SDK and production native media are rebuilt; Android SDK and APK 2235
+are rebuilt and installed with the original signer, preserving the phone's
+data. A complete pull matches APK SHA-256
+678b82d32c52a0d551bac3313de946d76e5322ff8ef40ed93a9ab1128c3b20fd.
+The new shared SDK ABI is
+9addb7381e09bc3545d0484a90399ba5855e7805e1b68ea03c0c6d64ab7f3136.
+Android's native WebRTC media artifact remains the previous binary: neither
+the audio estimator cap nor this C++ RTCP adapter is deployed on Poco yet.
+
+With Poco on cellular, Mac-to-Poco rings in 0.377 s, both are active in
+1.229 s, and the 115-second call ends by the harness's deliberate hangup.
+The answer actually rebinds root identity 418654b3 to physical device
+487b486f. Later readiness/health/control arrives from the original identity;
+the fixed caller upgrades to P2P and receives through the end. This provides
+the previously missing physical positive for the forked-answer normalization.
+No no-channel media drops appear in the captured app devlog. The measured
+windows all remain in media epoch 3.
+
+The 28.726-second initial voice window has no new interruptions on either
+endpoint. In the 29.531-second phone-camera window, Mac sends 278 video RTCP
+packets / 12468 bytes through the new source, and decodes 18 new video frames.
+Audio still has 5/7 new Mac/Poco interruptions (4927/6849 ms), with receive
+ages reaching 3287/2923 ms. The final 29.609-second voice window has another
+2/2 interruptions (1163/889 ms). Across the call Mac continuously produces
+5509 actual audio payload packets, with 353 padding packets, maximum actual
+payload gap 110 ms and admission below 1 ms. Independent ICMP reaches
+1541 ms at Poco versus 53.561 ms at Mac. Primary QUIC traces reach 208 Mac /
+96 Poco expired outgoing datagrams; separate camera traces show no expiry.
+These observations retain network/QUIC delivery gaps as an unresolved fault;
+they do not identify all causes or establish that the RTCP change solves it.
+Cold authenticated signaling/ratchet recovery and Android native deployment
+also remain open. Apps, complete Android UID, native tests, owned local/remote
+probes and ADB forward are verified gone after teardown.
