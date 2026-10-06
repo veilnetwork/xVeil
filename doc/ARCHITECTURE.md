@@ -2877,5 +2877,48 @@ policy/controller gates cover severe pressure, unknown feedback, recovery,
 a busy setter and old low-rate ABI fallback. Engine type-check and Android
 ARM64 production build pass (94 media exports, no test hooks). Camera and
 screen use the tested common handoff gate; this is not a physical screen
-capture or an acoustic-quality measurement. Physical build 2213 verification
-is pending. Existing receive pauses and socket-drop attribution remain open.
+capture or an acoustic-quality measurement. Physical build 2213 results follow. Existing receive pauses and socket-drop
+attribution remain open.
+
+
+Build 2213 physical video-send pause and file load
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Both installed full APK hashes verified against root 0c687e6a / Veil
+7b395a0b, with the rebuilt ARM64 production media library (94 exports).
+Poco remains cellular; profiles preserved. Poco -> BV video call, simultaneous
+8 MiB file: ring/active 1.897/5.756 s; exported file SHA-256 verified in
+186.85 s. All active post-startup samples remain P2P on both phones.
+
+BV's actual native video_send_paused=1 appears in 139 samples, from 99.366
+through 213.576 s. Its outbound video frame count stays exactly 112 while
+local preview progresses 2744 -> 6118 and accepted inbound audio increases
+by 4697 packets. Poco never enters the pause in this capture. Thus this
+is physical coverage of severe-pressure pause and continuing capture/audio,
+not a physical recovery/keyframe test; the latter passes on the native stand.
+
+Receive ages after startup still reach 2000/1997 ms: these are time since
+last accepted RTP, not end-to-end or acoustic latency. Source gaps max
+360/405 ms, admission max 1/5 ms; no sampled native worker stalls. Ordinary
+ratchet open failures zero. Both phones start three primary replacement
+attempts, all cancelled by restored old ACK progress; no verified switch.
+Sampled own IPv4/IPv6 UDP socket drops stay zero, and IPv4 kernel
+RcvbufErrors/SndbufErrors do not increase. This run retains the receive gap
+without reproducing the earlier BV receive-buffer drops, so those drops do
+not explain all pauses. Independent ICMP max RTT/reply gap: BV
+142 ms/0.594 s, Poco 1860 ms/2.388 s; the destinations differ from media.
+
+The follow-up also fixed the portable (non-Android) Android420 conversion
+branch to respect the same handoff gate. Its native regression checks
+frames_encoded rather than only transmitted frames, so dropping at the
+transport cannot mask continued encoding. Native Call/queue smoke passes
+again, Flutter policy/controller gates pass 57 tests, analysis is clean.
+This host-only branch change is not included in installed 2213; the Android
+branch in that installed build already uses the gate.
+
+Both package/process trees were independently verified exited and packages
+stopped, installed 2213. Owned API forwards, log readers, remote ICMP processes,
+file fixtures and own pending downloads were removed/reaped. Private
+xveil-av-file-2213-* preserve sanitized samples and cleanup evidence.
+Goal stays active: receive pauses, acoustic-quality measurement, actual
+primary replacement, complete group/screen coverage and prior socket-loss
+attribution remain open. No push, tag or release.
