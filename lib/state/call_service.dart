@@ -309,24 +309,26 @@ class CallService {
   ///
   /// Also recorded when a sibling's "answered/declined elsewhere" arrives
   /// before this device's own copy of the offer, so that copy does not ring.
-  final _finishedCalls = <String, DateTime>{};
+  final _finishedCalls = <(NodeId, String), DateTime>{};
   static const int _maxFinishedCalls = 64;
 
-  void _rememberFinished(String callId) {
-    _finishedCalls.remove(callId);
+  void _rememberFinished(NodeId peer, String callId) {
+    final key = (peer, callId);
+    _finishedCalls.remove(key);
     if (_finishedCalls.length >= _maxFinishedCalls) {
       _finishedCalls.remove(_finishedCalls.keys.first);
     }
-    _finishedCalls[callId] = _now();
+    _finishedCalls[key] = _now();
   }
 
   /// An offer for this id would ring a call that is already over. Kept for
   /// [_offerMaxAge]: past that, the offer is refused as stale anyway.
-  bool _isFinished(String callId) {
-    final at = _finishedCalls[callId];
+  bool _isFinished(NodeId peer, String callId) {
+    final key = (peer, callId);
+    final at = _finishedCalls[key];
     if (at == null) return false;
     if (_now().difference(at) > _offerMaxAge) {
-      _finishedCalls.remove(callId);
+      _finishedCalls.remove(key);
       return false;
     }
     return true;
@@ -1529,7 +1531,7 @@ class CallService {
   );
 
   void _onOffer(NodeId peer, CallSignal sig) {
-    if (_isFinished(sig.callId)) {
+    if (_isFinished(peer, sig.callId)) {
       devLog(
         () =>
             'xVeil[call-sig]: offer ${sig.callId} ignored — that call is '
@@ -1624,13 +1626,13 @@ class CallService {
   static bool _endedRemotely(CallSignalType type) =>
       type == CallSignalType.cancel || type == CallSignalType.end;
 
-  /// Call ids whose offer this device fanned out, so their ending can follow
-  /// the same path.
+  /// Caller/call pairs whose offer this device fanned out, so their ending
+  /// can follow the same path.
   ///
   /// Bounded: a set that only grows would keep every call id this device ever
   /// relayed for the life of the process. Ids are dropped as soon as the end
   /// is relayed, and the oldest is evicted if a caller never sends one.
-  final _fannedOffers = <String>{};
+  final _fannedOffers = <(NodeId, String)>{};
   static const int _maxFannedOffers = 32;
 
   /// Pass the caller's ending to the siblings this device rang on its behalf.
@@ -1646,7 +1648,7 @@ class CallService {
   /// missed, not as `answeredElsewhere`, which is a different lane with a
   /// different meaning (see [_onSettledElsewhere]).
   void _relayEndToSiblings(NodeId caller, CallSignal sig) {
-    if (!_fannedOffers.remove(sig.callId)) return;
+    if (!_fannedOffers.remove((caller, sig.callId))) return;
     unawaited(() async {
       final list = ownSiblingDevices;
       if (list == null || _disposed) return;
@@ -1682,7 +1684,9 @@ class CallService {
       final siblings = await list();
       // Same resolver, same reason: an offer fanned out after teardown would
       // reach the NEXT identity's devices carrying this one's caller.
-      if (siblings.isEmpty || _disposed) return;
+      if (siblings.isEmpty || _disposed || _isFinished(caller, sig.callId)) {
+        return;
+      }
       final relayed = sig.copyWith(
         onBehalfOf: caller.hex,
         sentAtMs: sig.sentAtMs ?? _now().millisecondsSinceEpoch,
@@ -1698,7 +1702,7 @@ class CallService {
       if (_fannedOffers.length >= _maxFannedOffers) {
         _fannedOffers.remove(_fannedOffers.first);
       }
-      _fannedOffers.add(sig.callId);
+      _fannedOffers.add((caller, sig.callId));
       for (final device in siblings) {
         unawaited(_messaging.sendCallSignal(device, relayed));
       }
@@ -1715,10 +1719,11 @@ class CallService {
   void _onSettledElsewhere(NodeId caller, CallSignal sig) {
     // Remembered even when nothing rings here yet: this device's own copy of
     // the offer may still be on its way, and it must not ring on arrival.
-    _rememberFinished(sig.callId);
+    _rememberFinished(caller, sig.callId);
     final c = _current;
     if (c == null ||
         c.callId != sig.callId ||
+        c.peer != caller ||
         c.direction != CallDirection.incoming ||
         c.status != CallStatus.ringing) {
       return;
@@ -1827,6 +1832,12 @@ class CallService {
   }
 
   void _onRemoteEnd(NodeId peer, CallSignal sig, CallEndReason reason) {
+    // Live routes can reorder control signals: on the Poco/Mac stand the
+    // cancel arrived before an offer delayed by a minute. Remember the
+    // authenticated caller's ending even before its offer reaches us.
+    if (sig.type == CallSignalType.cancel || sig.type == CallSignalType.end) {
+      _rememberFinished(peer, sig.callId);
+    }
     final c = _current;
     if (c == null || c.callId != sig.callId || c.peer != peer) return;
     // `busy` is an answer to DIALING. Once the call is past it — the fan-out
@@ -2156,9 +2167,9 @@ class CallService {
     _cancelRingTimeout();
     _cancelHeartbeat();
     _resetLateP2P();
-    final endingId = _current?.callId;
-    if (endingId != null) {
-      _rememberFinished(endingId);
+    final ending = _current;
+    if (ending != null) {
+      _rememberFinished(ending.peer, ending.callId);
     }
     _pendingRelayCallId = null;
     _pendingRelayPeer = null;

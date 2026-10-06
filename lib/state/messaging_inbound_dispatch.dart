@@ -240,6 +240,10 @@ extension _MessagingInboundDispatch on MessagingService {
     final activeCallDevice =
         callSignal != null &&
         (acceptsCallDeviceSignal?.call(m.src, callSignal) ?? false);
+    if (callSignal != null &&
+        !_realtimeControl.admitCallEnding(m, callSignal)) {
+      return;
+    }
     final deferredPersistenceAck =
         env.kind == WireKind.cloudDocument ||
         env.kind == WireKind.cloudDocumentChunk ||
