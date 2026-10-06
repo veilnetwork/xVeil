@@ -3486,3 +3486,78 @@ BV and production-signed Poco artifacts are frozen privately; the installer
 checks each complete artifact hash before replacing an installed package.
 Neither APK is installed yet: Poco disappeared from ADB and is requested for
 the physical check. BV remains available/stopped; no new app stand started.
+
+Paired 2219 installation, large direct sends and crypto refusals
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Poco returned on ADB. Both prepared APKs 2219 (root 03626f8b / Veil
+1e9273a7) installed with existing signatures/profiles retained; pulled installed
+APKs match the complete frozen artifact hashes. Poco's default network is
+verified cellular. Both existing contact/global P2P policies and anonymous
+routing preferences remain unchanged (anonymous routing was already false).
+
+Poco-to-BV video call: ring 0.988 s, both active 4.286 s, last sample 169.265 s,
+no sampled call end. Actual independent QUIC local slots 0/2/3 are established
+after warmup. Concurrent live_send probes bypass storage/outbox/mailbox: ten
+12 KiB and ten 100 KiB payloads per direction. Each recipient records all ten
+12 KiB arrivals, but BV records six 100 KiB arrivals and Poco two. The API's
+sent count only means the SDK/FFI accepted the request: its ordinary send
+returns before the asynchronous daemon admission/delivery result. It must not
+be reported as ten successful source admissions or deliveries. Daemon logs
+show identity_fanout waits up to 16.836 s and two ratchet reset events per
+device. The first capture omitted chunk-completion events; it alone cannot
+attribute all missing large payloads to a specific processing stage.
+
+Repeat without video, with chunk events captured: ring 0.174 s, both active
+3.143 s, last sample 98.756 s, no sampled call end. Each recipient reassembles
+all ten 104799-byte encrypted envelopes for the ten 102400-byte application
+payloads, but only two application arrivals occur at each end. No chunk quota
+rejection appears. After load, BV has four authentication failures, two wedged
+conversation drops and two NoSession refusals; Poco has two authentication
+failures, one wedged drop and five NoSession refusals. These eight refusals
+per endpoint accompany the eight missing application arrivals. Each sender
+receives one verified unopenable reset. This establishes a crypto-stage
+failure in this run, rather than a missing-chunk explanation. It does not
+establish exact physical ciphertext provenance, decrypted byte equality or
+the cause of every crypto state divergence.
+
+The existing ignored E2E test
+simultaneous_initiations_converge_before_the_next_bare_frame is run explicitly
+with --ignored and fails its next-bare-frame assertion with Ratchet(AuthFailed),
+not a build error. Crossed initiation is therefore an independently reproduced
+open component defect and a candidate for the physical divergence; matching
+physical transcript/state evidence is still needed. A fix must preserve
+pending-peer recovery and replay protection, not just choose a winning
+initiator and discard accepted traffic. The test is not newly disabled.
+
+Audio quality is still not acceptable. In video/direct load, maximum last-RTP
+ages are 1985/1995 ms (BV/Poco); in the audio-only repeat both reach 2877 ms.
+Source admission maxima are 1/6 ms with video and 1/1 ms without video; no
+sampled audio worker stall. Audio-only Poco independent ICMP reply gaps reach
+3.820 s during the call, versus 0.543 s on BV; some gaps precede the large
+load. Primary recovery attempts cancel on ACK progress (6 BV / 4 Poco), with
+no successful replacement established. Independent ICMP has another
+destination, and last-RTP age is not measured acoustic/end-to-end latency.
+Neither crypto refusals nor this cellular evidence prove the cause of all
+audible pauses. Source separation is not an audio-quality success claim.
+
+Veil 620cc06d separately fixes diagnostics exposed by these captures:
+note_decrypt_failure reset its count to zero after logging, then exempted
+every next count-of-one from throttling. Repeats now accumulate until the
+60-second boundary; metrics still count every refusal. Both failure-log and
+unopenable-reply sender tables enforce their actual 1024-entry bounds under
+varying claimed labels, retain known sender aggregates and admit new labels
+after expiry. Two new tests verify real log-file output/aggregation/boundary
+and sender-flood bounds/expiry/complete metrics. All 269 dispatcher tests pass;
+dispatcher/runtime all-target Clippy passes with warnings denied. Three
+negative gates individually restore repeat-log flooding, unbounded log labels
+or unbounded reset labels; each fails its intended assertion, original bytes
+are restored, then the full positive suite repeats. This diagnostic change
+does not fix crossed initiation or media delays and is not in installed 2219.
+
+Both stands restore/check original preferences, create no file fixtures or
+offers, reap their own forwards, trace/network readers and remote probes, and
+independently verify complete app UIDs exited and packages stopped on both
+phones. Private xveil-audio-build-2219.json, xveil-p2p-av-file-2219* and
+xveil-direct-2219* retain artifact, capture, attribution, gate and cleanup
+evidence. Goal active; physical crypto divergence, crossed-init repair and
+audio receive quality remain open. Commits unsigned/unpushed; no release/tag.
