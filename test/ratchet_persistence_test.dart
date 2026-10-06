@@ -109,6 +109,18 @@ class _FakeRatchetNode implements RatchetStateHandle {
     return burned;
   }
 
+  @override
+  List<RatchetSendPosition> sendPositions(Uint8List key) => [
+    ?sendPosition(key),
+  ];
+
+  @override
+  List<RatchetSendPosition> storedSendPositions(Uint8List key, Uint8List blob) {
+    final c = _FakeConversation.decode(blob);
+    if (c == null) throw StateError('invalid fake state');
+    return [RatchetSendPosition(_chainOf(_hex(key)), c.sent)];
+  }
+
   static bool _sameBytes(Uint8List a, Uint8List b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
