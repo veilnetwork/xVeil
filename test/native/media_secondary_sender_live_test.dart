@@ -72,8 +72,11 @@ void main() {
         );
         expect(chan, greaterThan(0));
         expect(transport.mediaChannelStats(chan), isNotNull);
+        expect(transport.setMediaScreenSharing(chan, true), 0);
+        expect(transport.setMediaScreenSharing(chan, false), 0);
         transport.closeMediaChannel(chan);
         expect(transport.mediaChannelStats(chan), isNull);
+        expect(transport.setMediaScreenSharing(chan, true), -1);
         chan = null;
 
         // Exercise the actual anonymous FFI opener, both queues, repair and
@@ -113,6 +116,7 @@ void main() {
 
         final primary = await bind('same-app', 21);
         final secondary = await bind('same-app', 22);
+        final screen = await bind('same-app', 24);
         final wrong = await bind('other-app', 23);
         expect(primary.appId, secondary.appId);
         expect(primary.appId, isNot(wrong.appId));
@@ -123,6 +127,7 @@ void main() {
           txKey: txKey,
           rxKey: rxKey,
           secondarySender: secondary,
+          screenSender: screen,
         );
         expect(primary.mediaChannelStats(chan), isNotNull);
         transport.closeMediaChannel(chan);
@@ -135,6 +140,24 @@ void main() {
             txKey: txKey,
             rxKey: rxKey,
             secondarySender: wrong,
+          ),
+          throwsA(
+            isA<VeilException>().having(
+              (error) => error.toString(),
+              'message',
+              contains('same app identity'),
+            ),
+          ),
+        );
+        await expectLater(
+          primary.openRelayMediaChannel(
+            dstNodeId: destination,
+            dstAppId: primary.appId,
+            dstEndpointId: 21,
+            txKey: txKey,
+            rxKey: rxKey,
+            secondarySender: secondary,
+            screenSender: wrong,
           ),
           throwsA(
             isA<VeilException>().having(

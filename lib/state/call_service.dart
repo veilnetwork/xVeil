@@ -165,6 +165,10 @@ abstract class CallMediaController {
   /// video). No-op if no media session is running or the call has no video.
   Future<void> setCameraEnabled(bool enabled) async {}
 
+  /// Remember the choice even while a screen share owns the capture source
+  /// or a replacement media session is still opening.
+  void updateCameraIntent(bool enabled) {}
+
   Future<List<CallMediaDevice>> listCameras() async => const [];
   Future<List<CallMediaDevice>> listMicrophones() async => const [];
   Future<List<CallMediaDevice>> listSpeakers() async => const [];
@@ -1017,12 +1021,14 @@ class CallService {
       _set(
         cur.copyWith(media: cur.media.copyWith(video: true), cameraOn: true),
       );
+      _media?.updateCameraIntent(true);
       await _media?.setCameraEnabled(true);
       await _announceMediaSet();
       return;
     }
     if (c.cameraOn == on) return;
     _set(c.copyWith(cameraOn: on));
+    _media?.updateCameraIntent(on);
     if (!c.screenOn) await _media?.setCameraEnabled(on);
   }
 

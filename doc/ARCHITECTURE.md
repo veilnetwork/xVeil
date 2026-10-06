@@ -3745,3 +3745,160 @@ open. No relay trust or authentication check is weakened to hide them.
 
 The 2223 stand's complete Android UID, owned macOS process/log reader and ADB
 forward are independently verified gone. No release/tag/push is performed.
+
+
+#### Independent screen producer and capture intent (2026-10-07)
+
+The endpoint now has three media producers: primary (audio and RTCP), camera,
+and screen. Screen capture selects its producer at native ingress, before
+queued packets drain. It has its own bounded queue/frame assembler, task,
+IPC writer and cipher salt/sequence/lock. Direct and non-onion relay sends use
+existing local source slots 0/2/3. Source congestion admission also limits
+slot 3 when the primary stalls; neutral transit scheduling is unchanged.
+There is no media role or priority instruction for relays on the wire.
+
+Anonymous Screen gets its own lazy producer pool, outgoing circuit, private
+return cookie, repair generation and route cache. VMR1 still advertises two
+receive addresses for existing peer compatibility; Screen uses the secondary
+receive address. This is independent source plumbing, not a claim that all
+anonymous receive paths are separate. VME1 framing is unchanged. The bounded
+receive cipher history retains six authenticated salts so three producers
+survive two overlapping route generations, with replay/reflection checks.
+
+The FFI/plugin installs and validates a same-app screen sender before exposing
+a channel. xVeil uses a separate Screen IPC writer on endpoint 17 (endpoint 16
+is already used for file streams). One-to-one and group controllers select
+Screen before capture and clear it on stop/failure. Newly joined group peers
+inherit the selected producer. Pending screen consent cannot be switched back
+to the camera producer by a concurrent camera enable.
+
+Hardware exposed an additional camera privacy defect: route replacement used
+an old call snapshot and reopened capture after the UI camera was switched
+off. Desired camera state now belongs to the call and survives replacement;
+late Android camera starts also check the current engine, capture owner and
+choice. A camera choice made while sharing updates this intent without
+switching the screen source.
+
+Verification completed before the final hardware confirmation:
+
+- 45 Rust media FFI/route checks and 27 cipher checks pass. Tests include a
+  blocked Screen writer while audio/camera progress, independent frame
+  assemblers, three-task close, and actual encrypted anonymous circuits with
+  a distinct Screen return cookie and unchanged receive advertisement.
+- The actual IPC Flutter fixture passes with a private embedded node: same-app
+  Screen writer accepted, another app rejected, close/repair lifetime checked,
+  and node shutdown not abandoned.
+- Real QUIC under neutral FIFO loss receives 467/474 admitted primary cells
+  from 500 attempts, zero duplicates, p95 278 ms and maximum gap 162 ms;
+  camera and Screen also decrypt, and the competing reliable file makes
+  progress. The separate ACK-blackout check passes without relaxing gates.
+- Targeted Flutter call/group/capture tests and static analysis pass. Native
+  Clippy with warnings denied passes; generated ABI/header and Rust formatting
+  are checked. A crypto fixture uses fresh directional key material to avoid
+  pollution from the process-wide replay cache of unrelated fixtures.
+
+The first 2224 screen test did not finish the Android app selector and is not
+screen delivery evidence. The second 2224 test completed projection, but
+produced no new decoded Screen frames. Build 2225 instrumentation identified
+the cause: selecting xVeil launched another MainActivity/Flutter engine;
+it attempted a second debug API bind and replaced the global frame channel.
+ScreenCaptureBridge now binds only when a particular engine requests capture.
+The initial singleTask experiment (2226) prevented the duplicate but cancelled
+the selector result by clearing activities above the main window. That failed
+experiment is superseded; the final launch mode must preserve both ownership
+and the OS consent result and is verified separately below.
+
+Audio remains unresolved. With cameras actually off after repair on 2225,
+a 13.376-second relay interval has no new encoded/decoded video frames, yet
+Mac and Poco each record three interruptions (2857/2890 ms), with receive ages
+up to 1702/1402 ms. The earlier 2224 P2P run also loses most Poco uplink audio
+and logs thousands of expired source datagrams. A 2226 cold offer rings only
+at 33.072 s and both endpoints become active at 35.174 s. These are not claims
+that queue separation cured physical audio or cold signalling. Video RTCP
+still shares the primary producer; its contribution is not established.
+
+Stands 2224/2225/2226 are closed: complete Android UID, owned macOS process,
+log readers and owned ADB forward are verified absent. Poco remains on cellular.
+
+Build 2227 reproduced a native Camera2 race: disabling capture while `onOpened`
+created its session could close the device underneath `createCaptureSession`
+and terminate the Poco process. Capture generations now fence device/session
+callbacks, image acquisition and the processing queue; publication/create/close
+and the native engine push have one ownership monitor. Stale callbacks may
+close only their own resource and cannot stop a successor capture. Build 2228
+survives the immediate post-answer disable and twelve concurrent on/off pairs
+in the same process, with the call still active and final camera intent off.
+
+The 2228 P2P voice interval (30.351 s, after startup) receives 1462 packets at
+Mac / 1515 at Poco, with no recorded interruptions and no new video. The next
+14.329 s with camera also records no interruptions. This short healthy sample
+is not resolution evidence: the following failed-consent interval has eight
+Mac and thirteen Poco interruptions (7047 / 7364 ms), with receive ages above
+one second. Whole-epoch counters must not be mixed across route replacements.
+
+The singleInstance experiment also fails to preserve projection consent on
+this HyperOS device (2228). The final approach uses a non-exported plain
+ScreenCapturePermissionActivity in its own task, with a process-local request
+capability and callback, while singleTask reuses the existing Flutter UI.
+An initial 2229 experiment explicitly removed that permission task after a
+successful consent. Android then stopped the package's stopWithTask services,
+including the live microphone and the not-yet-foreground Screen service, and
+raised ForegroundServiceDidNotStartInTimeException. The permission activity
+now finishes normally; the main application's stopWithTask policy is retained.
+The final physical delivery/cancellation results are recorded below.
+
+Stands 2227/2228/2229 are closed and their complete Android UID, owned Mac
+process, log reader and ADB forward are independently verified absent.
+
+Build 2230 completes app-only OS consent, receives the first RGBA image,
+converts it, delivers it to the original Dart controller and acknowledges a
+successful engine push. No second Flutter engine is started. OS cancellation
+and hangup while consent is pending both resolve without leaving the permission
+activity or starting an orphan projection. However, the physical receiver still
+gets no new Screen frames after native camera capture: source delivery alone
+is not successful encoding/delivery evidence.
+
+Inspection found that native Camera2 passed the sensor timestamp unchanged,
+whereas screen and the Flutter fallback ask the engine for webrtc::TimeMicros.
+The local WebRTC implementation uses CLOCK_MONOTONIC on Android. The Android
+[CameraMetadata reference](https://developer.android.com/reference/android/hardware/camera2/CameraMetadata#SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME)
+explicitly requires clock compensation when manually passing REALTIME sensor
+buffers to an encoder (that sensor clock includes device suspend). Build 2231
+therefore asks the media engine for its canonical timestamp in both sources;
+physical camera-to-Screen encoding is gated separately below.
+
+The 2230 voice pauses are still real: an independent Poco-to-1.1.1.1 probe
+reaches 1547 ms while the Mac probe reaches 53.255 ms. This shows cellular-path
+jitter beyond the app; it does not establish that all call pauses originate
+there or rule out local encoder/transport defects. Ten existing screen privacy
+and permission UI regression tests pass. The complete 2230 Android UID, owned
+Mac/log/probe processes, remote ping and ADB forward are verified gone.
+
+Build 2231 is the final tested Android source of this cycle. The installed APK
+has the original signer and full pulled-APK SHA-256
+`aaf3e4dbc3fed66033c527cc4ab3f9fdd279b503197f1cd5110130b854b29955`.
+Its Veil source is 1c1ebe98; packaged Android and Mac Veil share ABI
+`877231b66c54844b05eb0bf421d0d96f79378e2c6ece74ed53ac27bca9e38440`.
+The Android media/hidden-volume native payloads are unchanged by this app fix.
+The paired Mac stand uses the already rebuilt 2227 host with the same Veil
+library and Dart media source; the new capture/permission changes are Android-only.
+
+The physical camera-to-Screen gate now passes: the call rings in 0.386 s and
+both endpoints are active in 1.207 s. App-only consent completes, there is one
+debug API/Flutter engine start and no native crash. In a 28.365-second Screen
+interval within media epoch 1, Poco adds 75 transmitted video marker events
+(including possible retransmissions) and Mac receives 19 new decoded frames.
+This contrasts with the 2230 negative control, where the encoder/receiver
+counts stopped when switching from native camera timestamps to Screen.
+OS cancellation and hangup during a subsequent pending request pass again;
+the permission task is gone, and no orphan capture is started.
+
+Audio is still open: the same Screen interval records five Mac interruptions
+(3769 ms) and four Poco interruptions (1731 ms), with native receive ages up to
+2205 / 1265 ms. Independent probes in this stand reach 1492 ms on Poco versus
+113.931 ms on Mac. The healthy short 2228 sample cannot supersede this result.
+RTCP producer attribution and the distinction between encoded audio and BWE
+padding remain diagnostic questions; no relay scheduling change is justified
+by the current evidence. The 2231 stand's whole Android UID, owned Mac/log/probe
+processes, remote ping and ADB forward are verified gone. No release/tag/push
+is performed in this cycle.

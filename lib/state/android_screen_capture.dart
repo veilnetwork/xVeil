@@ -41,6 +41,7 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
   bool _running = false;
   bool _stopping = false;
   bool _firstFrameLogged = false;
+  bool _firstDeliveryLogged = false;
 
   @override
   Future<bool> start(I420FrameSink sink) async {
@@ -67,6 +68,16 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
     switch (call.method) {
       case 'frame':
         final bytes = call.arguments;
+        if (!_firstDeliveryLogged) {
+          _firstDeliveryLogged = true;
+          devLog(
+            () =>
+                'veil-screen: first platform delivery '
+                'type=${bytes.runtimeType} bytes='
+                '${bytes is Uint8List ? bytes.length : null} '
+                'sink=${_sink != null} stopping=$_stopping',
+          );
+        }
         if (bytes is! Uint8List) return;
         final frame = decodeAndroidScreenFrame(bytes);
         final sink = _sink;

@@ -39,10 +39,19 @@
              the device. allowBackup=false disables cloud + `adb backup` on every
              API level; data_extraction_rules additionally excludes the Android-12+
              device-to-device transfer path (which allowBackup alone does not). -->
+        <!-- Reuse the Flutter engine when projection selects this app.
+             Projection consent has its own task and result recipient. -->
+        <activity
+            android:name=".ScreenCapturePermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="${applicationId}.screenConsent"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop"
+            android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@style/LaunchTheme"
             android:resizeableActivity="true"

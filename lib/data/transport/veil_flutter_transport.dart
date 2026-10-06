@@ -205,6 +205,10 @@ class VeilFlutterTransport
     this._mediaAuxApp,
     this._mediaDeviceAuxClient,
     this._mediaDeviceAuxApp,
+    this._screenClient,
+    this._screenApp,
+    this._screenDeviceClient,
+    this._screenDeviceApp,
     this._realtimeApp,
     this._siblingClient,
     this._siblingApp,
@@ -236,6 +240,13 @@ class VeilFlutterTransport
   final AppHandle _mediaAuxApp;
   final VeilClient? _mediaDeviceAuxClient;
   final AppHandle? _mediaDeviceAuxApp;
+  // Separate sender-only screen IPC connections. Endpoint 17 is local only;
+  // the remote destination and source app identity match camera and audio.
+  static const _screenEndpointId = 17;
+  final VeilClient _screenClient;
+  final AppHandle _screenApp;
+  final VeilClient? _screenDeviceClient;
+  final AppHandle? _screenDeviceApp;
   final AppHandle _realtimeApp;
 
   /// The inbox a SIBLING device addresses, bound under this node's device id.
@@ -352,6 +363,8 @@ class VeilFlutterTransport
     VeilClient? mediaDeviceClient;
     VeilClient? mediaAuxClient;
     VeilClient? mediaDeviceAuxClient;
+    VeilClient? screenClient;
+    VeilClient? screenDeviceClient;
     VeilClient? mailboxClient;
     VeilClient? siblingClient;
     VeilClient? p2pStreamClient;
@@ -359,6 +372,8 @@ class VeilFlutterTransport
     AppHandle? mediaDeviceApp;
     AppHandle? mediaAuxApp;
     AppHandle? mediaDeviceAuxApp;
+    AppHandle? screenApp;
+    AppHandle? screenDeviceApp;
     AppHandle? siblingApp;
     AppHandle? p2pStreamApp;
     try {
@@ -462,6 +477,20 @@ class VeilFlutterTransport
           endpointId: _mediaAuxEndpointId,
         );
       }
+      screenClient = await VeilClient.connect(socketPath);
+      screenApp = await screenClient.bindNamed(
+        namespace: veilChatNamespace,
+        name: veilMediaName,
+        endpointId: _screenEndpointId,
+      );
+      if (mediaDeviceApp != null) {
+        screenDeviceClient = await VeilClient.connect(socketPath);
+        screenDeviceApp = await screenDeviceClient.bindDeviceScoped(
+          namespace: veilChatNamespace,
+          name: veilMediaName,
+          endpointId: _screenEndpointId,
+        );
+      }
       realtimeApp = await realtimeClient.bindNamed(
         namespace: veilChatNamespace,
         name: veilRealtimeName,
@@ -536,6 +565,10 @@ class VeilFlutterTransport
         mediaAuxApp,
         mediaDeviceAuxClient,
         mediaDeviceAuxApp,
+        screenClient,
+        screenApp,
+        screenDeviceClient,
+        screenDeviceApp,
         realtimeApp,
         siblingClient,
         siblingApp,
@@ -548,6 +581,10 @@ class VeilFlutterTransport
       await siblingApp?.close();
       await siblingClient?.close();
       await realtimeApp?.close();
+      await screenDeviceApp?.close();
+      await screenApp?.close();
+      await screenDeviceClient?.close();
+      await screenClient?.close();
       await mediaDeviceAuxApp?.close();
       await mediaAuxApp?.close();
       await mediaDeviceAuxClient?.close();
@@ -637,9 +674,13 @@ class VeilFlutterTransport
     final secondarySender = useIdentity
         ? _mediaAuxApp
         : (_mediaDeviceAuxApp ?? _mediaDeviceApp ?? _mediaAuxApp);
+    final screenSender = useIdentity
+        ? _screenApp
+        : (_screenDeviceApp ?? _mediaDeviceApp ?? _screenApp);
     if (!useIdentity &&
         (!_sameBytes(mediaSender.appId, mediaAppIdFor(_nodeId)) ||
-            !_sameBytes(secondarySender.appId, mediaAppIdFor(_nodeId)))) {
+            !_sameBytes(secondarySender.appId, mediaAppIdFor(_nodeId)) ||
+            !_sameBytes(screenSender.appId, mediaAppIdFor(_nodeId)))) {
       throw StateError('device-scoped media sender unavailable');
     }
     devLog(
@@ -650,6 +691,7 @@ class VeilFlutterTransport
     if (relay) {
       return mediaSender.openRelayMediaChannel(
         secondarySender: secondarySender,
+        screenSender: screenSender,
         dstNodeId: dstNode,
         dstAppId: mediaAppIdFor(peer),
         dstEndpointId: veilMediaEndpointId,
@@ -659,6 +701,7 @@ class VeilFlutterTransport
     }
     return mediaSender.openDirectMediaChannel(
       secondarySender: secondarySender,
+      screenSender: screenSender,
       dstNodeId: dstNode,
       dstAppId: mediaAppIdFor(peer),
       dstEndpointId: veilMediaEndpointId,
@@ -677,6 +720,10 @@ class VeilFlutterTransport
   /// path can read or rewrite. Nothing here needs the peer's protocol version.
   int setRelayMediaBatching(int chan, bool on, {bool compact = false}) =>
       _mediaApp.setRelayMediaBatching(chan, on, compact: compact);
+
+  /// Switch only the local capture queue; no role is exposed on the network.
+  int setMediaScreenSharing(int chan, bool on) =>
+      _mediaApp.setMediaScreenSharing(chan, on);
 
   /// Relay drain queue/IPC timing for live call diagnostics.
   Map<String, int>? mediaChannelStats(int chan) =>
@@ -1353,6 +1400,10 @@ class VeilFlutterTransport
     await _realtimeApp.close();
     await _mediaApp.close();
     await _mediaDeviceApp?.close();
+    await _screenApp.close();
+    await _screenDeviceApp?.close();
+    await _screenClient.close();
+    await _screenDeviceClient?.close();
     await _mediaAuxApp.close();
     await _mediaDeviceAuxApp?.close();
     await _app.close();
