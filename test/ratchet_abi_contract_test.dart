@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/ratchet_ffi.dart';
+import 'package:xveil/data/storage/storage.dart' show kRatchetMaxStateLen;
+// ignore: implementation_imports
+import 'package:veil_flutter/src/abi_contract.dart' show veilRatchetMaxStateLen;
 // ignore: implementation_imports
 import 'package:veil_flutter/src/native.dart' show VeilAbiContractMismatch;
 
@@ -17,6 +20,9 @@ import 'package:veil_flutter/src/native.dart' show VeilAbiContractMismatch;
 /// reported the door as available and failed later, somewhere else, on a symbol
 /// that had nothing to do with the real problem.
 void main() {
+  test('the host accepts every native conversation snapshot size', () {
+    expect(kRatchetMaxStateLen, veilRatchetMaxStateLen);
+  });
   test('a library that does not report the ABI contract is REFUSED, not '
       'probed for the ratchet symbol', () {
     // The test VM has no veil symbols at all, which is the same shape as a
