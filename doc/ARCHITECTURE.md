@@ -5138,3 +5138,36 @@ Mute periods and engine counter resets must not be counted as network-only
 interruption deltas. Both owned apps, full phone UID/package, helpers, ping
 and ADB forward are verified stopped after both stands. Identity/history are
 preserved. No push, tag or release is performed.
+
+Full duplex source and recovery capacity (2264)
+----------------------------------------------
+
+The shared eight-child QUIC cap prevented all six production source/transit
+connections in each direction from warming simultaneously. A real TLS/QUIC
+regression fails on the old implementation with a full-duplex source budget
+timeout. Incoming children could consume the capacity needed to establish a
+local source or authenticate its replacement.
+
+Each direction now has seven slots: six generic source/transit connections
+and one replacement candidate. The aggregate hard cap is fourteen, up from
+eight. Both permits follow the actual child QUIC lifetime, including clones;
+failed reservations and canceled handshakes release them. Incoming peers
+cannot consume the outgoing reserve. The same limits apply to every peer,
+independent of payload, and the source-slot count has a compile-time capacity
+assertion. This increases the bounded peak resource allocation per peer; it
+does not communicate media roles or priority to relays or change wire framing.
+
+Transport/session suites pass 512 tests (six ignored), and native SDK tests
+pass 223 (one ignored). The regression warms six children in each direction,
+then blocks both primary connections for four seconds through neutral opaque
+circuit identifiers. Both endpoints authenticate replacement connections,
+retain the old sender until proof succeeds, deliver fresh audio within 600 ms
+of recovery, and receive at least 140 post-outage packets per direction with
+no duplicates. Saturated incoming children leave outgoing capacity available;
+actual close releases capacity and replacement exporter keys differ.
+
+Fresh Android and Mac SDKs and stand apps are built as 0.13.84+2264. Physical
+installation and call measurements are recorded separately after verification.
+These transport checks do not establish low acoustic latency on cellular
+networks; the previous jitter-buffer and authenticated signaling findings
+remain open.
