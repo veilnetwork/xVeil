@@ -18,6 +18,46 @@ void main() {
   };
 
   test(
+    'remote interruptions cannot be replayed or erased by older feedback',
+    () {
+      final peer = CallPeerAudioPlayout();
+      void report(int sequence, int count) => peer.observe(
+        CallAudioPlayoutFeedback(
+          sequence: sequence,
+          delayMs: 60,
+          interruptionCount: count,
+        ),
+        start,
+      );
+      report(1, 30);
+      expect(peer.takeInterruption(), isFalse);
+      report(2, 31);
+      report(3, 31); // A newer good sample cannot erase the pending outage.
+      expect(peer.takeInterruption(), isTrue);
+      expect(peer.takeInterruption(), isFalse);
+      report(2, 100);
+      expect(peer.takeInterruption(), isFalse);
+      peer.invalidateMeasurement();
+      report(4, 32);
+      expect(peer.takeInterruption(), isTrue);
+      final decoded = CallSignal.tryDecode(
+        const CallSignal(
+          callId: 'quality',
+          type: CallSignalType.health,
+          audioPlayout: CallAudioPlayoutFeedback(
+            sequence: 5,
+            delayMs: 60,
+            interruptionCount: 33,
+          ),
+        ).encode(),
+      )!;
+      expect(decoded.audioPlayout!.interruptionCount, 33);
+      expect(CallAudioPlayoutFeedback.fromJson({'n': 1, 'i': -1}), isNull);
+      expect(CallAudioPlayoutFeedback.fromJson({'n': 1, 'i': 1.5}), isNull);
+    },
+  );
+
+  test(
     'playout feedback survives stamping, fanout copying and wire decode',
     () {
       const signal = CallSignal(
@@ -198,8 +238,9 @@ void main() {
           });
         }
         expect(adapter.atFloor, isTrue);
-        expect(native.maxFps, base == 900 ? 1.2 : 0.3);
-        expect(native.maxBitrateKbps, base == 900 ? 45 : 8);
+        expect(adapter.audioReserve, isTrue);
+        expect(native.maxFps, 0.02);
+        expect(native.maxBitrateKbps, 1);
         for (var i = 0; i < 12; i++) {
           adapter.onNativeStats(
             healthyNetwork,
@@ -212,6 +253,15 @@ void main() {
           isTrue,
           reason: 'marginal audio cannot grow video',
         );
+        for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+          adapter.onNativeStats(
+            healthyNetwork,
+            peerAudioDelayMs: 140,
+            requirePeerAudioPlayout: true,
+          );
+        }
+        expect(adapter.audioReserve, isFalse);
+        expect(adapter.atFloor, isTrue);
         for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
           adapter.onNativeStats(
             healthyNetwork,

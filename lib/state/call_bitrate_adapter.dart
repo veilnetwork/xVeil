@@ -202,6 +202,7 @@ class CallBitrateAdapter {
   /// applied before the send stream/capturer starts, retaining receive/preview.
   void prepareVideoSend(
     Map<String, dynamic> stats, {
+    bool audioInterrupted = false,
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
     bool receiveAudioExpected = false,
@@ -221,7 +222,7 @@ class CallBitrateAdapter {
     final playoutUnproven =
         requirePeerAudioPlayout &&
         (peerAudioDelayMs == null || peerAudioDelayMs >= playoutRecoverMs);
-    if (receiveUnproven || playoutUnproven) {
+    if (receiveUnproven || playoutUnproven || audioInterrupted) {
       _unprovenAudioHold = true;
       _audioReserve = true;
       _goodStreak = 0;
@@ -275,6 +276,7 @@ class CallBitrateAdapter {
   /// substantiate congestion even when other receivers have not reported.
   ({int maxBitrateKbps, double maxFps})? onNativeStats(
     Map<String, dynamic> stats, {
+    bool audioInterrupted = false,
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
     int? expectedAudioFeedbackReports,
@@ -322,12 +324,14 @@ class CallBitrateAdapter {
           expectedAudioFeedbackReports != null &&
           expectedAudioFeedbackReports > 0 &&
           !feedbackAvailable,
+      audioInterrupted: audioInterrupted,
     );
   }
 
   /// Feed one stats sample; returns the new target when the rung changed and
   /// null otherwise. `rttMs` of 0 means "unknown yet" and is not judged.
   ({int maxBitrateKbps, double maxFps})? onSample({
+    bool audioInterrupted = false,
     required int rttMs,
     required int txJitterMs,
     required int txLossPct,
@@ -362,7 +366,7 @@ class CallBitrateAdapter {
     // descending the ladder or waiting for a new RTCP report is too late.
     if (supportsLowRateVideo &&
         !_audioReserve &&
-        (receiveOutage || audioUnproven)) {
+        (receiveOutage || audioUnproven || audioInterrupted)) {
       _audioReserve = true;
       _unprovenAudioHold = audioUnproven;
       _goodStreak = 0;
@@ -406,7 +410,8 @@ class CallBitrateAdapter {
         networkBad ||
         playoutBad ||
         missingAudioReceiverFeedback ||
-        receiveOutage;
+        receiveOutage ||
+        audioInterrupted;
     final good =
         feedbackAvailable &&
         rttMs > 0 &&
@@ -415,6 +420,7 @@ class CallBitrateAdapter {
         rttGood &&
         !newDrops &&
         playoutGood &&
+        !audioInterrupted &&
         receiveGood;
 
     final severe =
