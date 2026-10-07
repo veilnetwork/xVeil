@@ -26,6 +26,7 @@ import 'call_camera_state.dart';
 import 'call_peer_audio_playout.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
+import 'call_media_route_operations.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
 import 'media_ffi.dart';
@@ -461,7 +462,8 @@ class VeilCallMediaController implements CallMediaController {
   CallBitrateAdapter? _bitrateAdapter; // sender-side video quality ladder
   DateTime? _lastRepairAt;
   Call? _activeCall;
-  bool _routeRepairing = false;
+  final _routeOperations = CallMediaRouteOperations();
+  bool get _routeRepairing => _routeOperations.busy;
   bool _androidCallNetworkActive = false;
   int _mediaEpoch = 0;
   bool _devicePreferencesLoaded = false;
@@ -739,49 +741,58 @@ class VeilCallMediaController implements CallMediaController {
     final transport = _chanTransport;
     if (active == null || transport == null) return false;
     final call = active.copyWith(transport: transport);
-    _routeRepairing = true;
-    try {
-      // Rebuild local audio/engine wiring even for onion. Refreshing only the
-      // outbound circuit cannot unblock a stalled local receive worker.
-      await _stopSession(clearActiveCall: false);
-      if (_activeCall?.callId != call.callId) return false;
-      final ok = await start(call);
-      _lastRepairAt = DateTime.now();
-      devLog(
-        () =>
-            'xVeil[call-media]: local ${transport.name} session rebuilt '
-            'call=${call.callId} ok=$ok',
-      );
-      // start() can restore the explicitly permitted relay after direct
-      // admission disappears. The FSM checks the actual route and announces
-      // that downgrade; reporting false here kills the restored live channel.
-      return ok && activeTransport != null;
-    } catch (error) {
-      devLog(() => 'xVeil[call-media]: local session rebuild failed: $error');
-      return false;
-    } finally {
-      _routeRepairing = false;
-    }
+    return _routeOperations.runForCall(
+      call.callId,
+      () => _activeCall?.callId,
+      () async {
+        try {
+          // Rebuild local audio/engine wiring even for onion. Refreshing only the
+          // outbound circuit cannot unblock a stalled local receive worker.
+          await _stopSession(clearActiveCall: false);
+          if (_activeCall?.callId != call.callId) return false;
+          final ok = await start(call);
+          _lastRepairAt = DateTime.now();
+          devLog(
+            () =>
+                'xVeil[call-media]: local ${transport.name} session rebuilt '
+                'call=${call.callId} ok=$ok',
+          );
+          // start() can restore the explicitly permitted relay after direct
+          // admission disappears. The FSM checks the actual route and announces
+          // that downgrade; reporting false here kills the restored live channel.
+          return ok && activeTransport != null;
+        } catch (error) {
+          devLog(
+            () => 'xVeil[call-media]: local session rebuild failed: $error',
+          );
+          return false;
+        }
+      },
+    );
   }
 
   @override
   Future<bool> switchRoute(CallTransportKind transport) async {
     final call = _activeCall;
     if (call == null ||
-        _routeRepairing ||
         (transport != CallTransportKind.relay &&
             transport != CallTransportKind.p2p)) {
       return false;
     }
-    _routeRepairing = true;
-    try {
-      await _stopSession(clearActiveCall: false);
-      if (_activeCall?.callId != call.callId) return false;
-      final ok = await start(call.copyWith(transport: transport));
-      return ok && activeTransport == transport;
-    } finally {
-      _routeRepairing = false;
-    }
+    // A peer can announce relay while a health-triggered repair is awaiting
+    // camera teardown. Queue behind it instead of returning a fatal failure.
+    return _routeOperations.runForCall(
+      call.callId,
+      () => _activeCall?.callId,
+      () async {
+        final current = _activeCall!;
+        if (activeTransport == transport) return true;
+        await _stopSession(clearActiveCall: false);
+        if (_activeCall?.callId != call.callId) return false;
+        final ok = await start(current.copyWith(transport: transport));
+        return ok && activeTransport == transport;
+      },
+    );
   }
 
   @override
