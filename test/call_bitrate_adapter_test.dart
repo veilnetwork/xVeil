@@ -171,6 +171,68 @@ void main() {
     expect(a.audioReserve, isTrue);
   });
 
+  test('lost live audio measurements pause full video until recovery', () {
+    for (final missing in [
+      <String, dynamic>{},
+      {'worker_stalled': 1, 'audio_rx_native_age_ms': 100},
+      {'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1},
+    ]) {
+      final a = direct();
+      final healthy = <String, dynamic>{
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+        'audio_rx_pkts': 100,
+        'audio_rx_native_age_ms': 100,
+      };
+      a.onNativeStats(healthy, receiveAudioExpected: true);
+      expect(a.audioReserve, isFalse);
+      a.onNativeStats(missing, receiveAudioExpected: true);
+      expect(
+        a.audioReserve,
+        isTrue,
+        reason: 'a missing sample cannot keep sending full video',
+      );
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+        a.onNativeStats(healthy, receiveAudioExpected: true);
+      }
+      expect(a.audioReserve, isTrue);
+      a.onNativeStats(healthy, receiveAudioExpected: true);
+      expect(a.audioReserve, isFalse);
+      expect(a.level, 0);
+    }
+  });
+
+  test('expired capable peer playout pauses video without false advice', () {
+    final a = direct();
+    final healthy = <String, dynamic>{
+      'audio_feedback_reports': 1,
+      'rtt_ms': 80,
+    };
+    a.onNativeStats(
+      healthy,
+      requirePeerAudioPlayout: true,
+      peerAudioDelayMs: 100,
+    );
+    expect(a.audioReserve, isFalse);
+    a.onNativeStats(healthy, requirePeerAudioPlayout: true);
+    expect(a.audioReserve, isTrue);
+    expect(a.videoAdvice, CallVideoAdvice.keep);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      a.onNativeStats(
+        healthy,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: 100,
+      );
+    }
+    expect(a.audioReserve, isTrue);
+    a.onNativeStats(
+      healthy,
+      requirePeerAudioPlayout: true,
+      peerAudioDelayMs: 100,
+    );
+    expect(a.audioReserve, isFalse);
+  });
+
   test('an RTP outage pauses video before remote delay feedback arrives', () {
     final a = direct();
     a.onNativeStats({
@@ -244,7 +306,8 @@ void main() {
       'audio_rx_pkts': 0,
       'audio_rx_native_age_ms': -1,
     }, receiveAudioExpected: true);
-    expect(unknown.audioReserve, isFalse);
+    expect(unknown.audioReserve, isTrue);
+    expect(unknown.videoAdvice, CallVideoAdvice.keep);
   });
 
   test('video pause retries a busy resume and survives unknown feedback', () {
@@ -335,7 +398,7 @@ void main() {
           'audio_feedback_reports': 0,
         }, requirePeerAudioPlayout: true);
       }
-      expect(a.audioReserve, isFalse);
+      expect(a.audioReserve, isTrue);
       for (var i = 0; i < CallBitrateAdapter.degradeAfter; i++) {
         a.onSample(
           rttMs: 80,
