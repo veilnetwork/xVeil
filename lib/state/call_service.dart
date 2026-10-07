@@ -507,7 +507,7 @@ class CallService {
         return;
       }
       _lateP2PLocalReady = true;
-      await _messaging.sendCallSignal(
+      await _sendCallSignal(
         c.peer,
         CallSignal(
           callId: c.callId,
@@ -699,7 +699,7 @@ class CallService {
     final replyDevice = posture == CallPosture.direct
         ? (await _messaging.localDeviceId()).hex
         : null;
-    final sendOffer = _messaging.sendCallSignal(
+    final sendOffer = _sendCallSignal(
       peer,
       CallSignal(
         callId: callId,
@@ -784,7 +784,7 @@ class CallService {
     final answerDevice = c.localPosture == CallPosture.direct
         ? (await _messaging.localDeviceId()).hex
         : null;
-    final sendAnswer = _messaging.sendCallSignal(
+    final sendAnswer = _sendCallSignal(
       c.peer,
       CallSignal(
         callId: c.callId,
@@ -832,7 +832,7 @@ class CallService {
         sentAtMs: _now().millisecondsSinceEpoch,
       );
       for (final device in siblings) {
-        unawaited(_messaging.sendCallSignal(device, signal));
+        unawaited(_sendCallSignal(device, signal));
       }
     } catch (e) {
       devLog(() => 'xVeil[call-sig]: ${reason.name} fan-out failed: $e');
@@ -932,7 +932,7 @@ class CallService {
   Future<void> _announceCapture() async {
     final cur = _current;
     if (cur == null || !cur.isLive || cur.isSettingUp) return;
-    await _messaging.sendCallSignal(
+    await _sendCallSignal(
       cur.peer,
       CallSignal(
         callId: cur.callId,
@@ -1061,7 +1061,7 @@ class CallService {
   Future<void> _announceMediaSet() async {
     final cur = _current;
     if (cur == null || !cur.isLive) return;
-    await _messaging.sendCallSignal(
+    await _sendCallSignal(
       cur.peer,
       CallSignal(
         callId: cur.callId,
@@ -1288,7 +1288,7 @@ class CallService {
   Future<void> askPeerToStopVideo() async {
     final cur = _current;
     if (cur == null || !cur.isLive) return;
-    await _messaging.sendCallSignal(
+    await _sendCallSignal(
       cur.peer,
       CallSignal(
         callId: cur.callId,
@@ -1542,7 +1542,7 @@ class CallService {
     await _recoverSilentDirect(current);
   }
 
-  Future<void> _announceRelayFallback(Call call) => _messaging.sendCallSignal(
+  Future<void> _announceRelayFallback(Call call) => _sendCallSignal(
     call.peer,
     CallSignal(
       callId: call.callId,
@@ -1687,7 +1687,7 @@ class CallService {
               '${caller.short} out to ${siblings.length} sibling device(s)',
         );
         for (final device in siblings) {
-          unawaited(_messaging.sendCallSignal(device, relayed));
+          unawaited(_sendCallSignal(device, relayed));
         }
       } catch (e) {
         // Best-effort, like the offer fan-out: this device has already ended
@@ -1726,7 +1726,7 @@ class CallService {
       }
       _fannedOffers.add((caller, sig.callId));
       for (final device in siblings) {
-        unawaited(_messaging.sendCallSignal(device, relayed));
+        unawaited(_sendCallSignal(device, relayed));
       }
     } catch (e) {
       // Best-effort by construction: this device is already ringing, and a
@@ -1873,13 +1873,33 @@ class CallService {
 
   // ---- helpers ------------------------------------------------------------
 
+  /// Keep control on the contact's identity conversation after a forked
+  /// answer pins media to a device. A device id has neither the identity's
+  /// realtime inbox nor its ratchet conversation; a later admitted session
+  /// must not move these controls into that unrelated conversation. The
+  /// receiver still matches the exact call id and saved answering peer.
+  /// Sibling fan-out remains device-addressed through onBehalfOf.
+  Future<void> _sendCallSignal(NodeId peer, CallSignal signal) {
+    final call = _current;
+    final destination =
+        call != null &&
+            call.callId == signal.callId &&
+            call.peer == peer &&
+            call.peerIdentity != null &&
+            signal.onBehalfOf == null &&
+            signal.type != CallSignalType.offer
+        ? call.mediaIdentity
+        : peer;
+    return _messaging.sendCallSignal(destination, signal);
+  }
+
   Future<void> _sendControl(
     NodeId peer,
     String callId,
     CallSignalType type,
     CallEndReason reason,
   ) {
-    return _messaging.sendCallSignal(
+    return _sendCallSignal(
       peer,
       CallSignal(
         callId: callId,
@@ -1982,7 +2002,7 @@ class CallService {
       if (receiveNeedsRepair) unawaited(_recoverSilentDirect(c));
       unawaited(_checkLateP2P());
       unawaited(
-        _messaging.sendCallSignal(
+        _sendCallSignal(
           c.peer,
           CallSignal(
             callId: c.callId,

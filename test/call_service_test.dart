@@ -1998,74 +1998,102 @@ void main() {
       });
     });
 
-    test(
-      'identity control survives a forked device answer and route change',
-      () {
-        fakeAsync((async) {
-          final fake = _FakeMessaging();
-          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
-          final svc = CallService(
-            fake,
-            media: media,
-            now: () => clock.now(),
-            localAllowsP2P: (_) async => true,
-            peerReachableForP2P: (_) async => true,
-          )..start();
-          final device = NodeId.fromHex('b' * 64);
-          final stranger = NodeId.fromHex('c' * 64);
-          svc.placeCall(peer, const CallMedia(audio: true));
-          async.flushMicrotasks();
-          final id = svc.current!.callId;
-          fake.onCallSignal!(
-            device,
-            CallSignal(
-              callId: id,
-              type: CallSignalType.answer,
-              posture: CallPosture.direct,
-              transport: const CallTransportProposal(CallTransportKind.p2p),
-              protocolVersion: 6,
-              mediaKey: generateCallMediaKeyContribution(),
-            ),
-          );
-          async.flushMicrotasks();
-          expect(svc.current?.peer, device);
-          expect(svc.current?.mediaIdentity, peer);
-          expect(svc.current?.transport, CallTransportKind.relay);
+    test('identity control survives a forked device answer and route change', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        final device = NodeId.fromHex('b' * 64);
+        final stranger = NodeId.fromHex('c' * 64);
+        svc.placeCall(peer, const CallMedia(audio: true));
+        async.flushMicrotasks();
+        final id = svc.current!.callId;
+        fake.onCallSignal!(
+          device,
+          CallSignal(
+            callId: id,
+            type: CallSignalType.answer,
+            posture: CallPosture.direct,
+            transport: const CallTransportProposal(CallTransportKind.p2p),
+            protocolVersion: 6,
+            mediaKey: generateCallMediaKeyContribution(),
+          ),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.peer, device);
+        expect(svc.current?.mediaIdentity, peer);
+        expect(svc.current?.transport, CallTransportKind.relay);
 
-          // Knowing a call id does not make another identity a readiness source.
-          fake.onCallSignal!(stranger, ready(id));
-          async.flushMicrotasks();
-          expect(media.switches, isEmpty);
-          fake.onCallSignal!(peer, ready(id));
-          async.flushMicrotasks();
-          expect(media.switches, [CallTransportKind.p2p]);
-          expect(media.admissionChecks, everyElement(device));
-          expect(svc.current?.peer, device);
-          expect(svc.current?.transport, CallTransportKind.p2p);
+        // Knowing a call id does not make another identity a readiness source.
+        fake.onCallSignal!(stranger, ready(id));
+        async.flushMicrotasks();
+        expect(media.switches, isEmpty);
+        fake.onCallSignal!(peer, ready(id));
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        expect(media.admissionChecks, everyElement(device));
+        expect(svc.current?.peer, device);
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        final readiness = fake.sentTo.where(
+          (entry) =>
+              entry.$2.type == CallSignalType.transportInfo &&
+              entry.$2.transport?.kind == CallTransportKind.p2p,
+        );
+        expect(readiness, isNotEmpty);
+        expect(
+          readiness.map((entry) => entry.$1),
+          everyElement(peer),
+          reason:
+              'device-addressed readiness loses the identity inbox and ratchet',
+        );
+        fake.sentTo.clear();
+        svc.setMicEnabled(false);
+        async.flushMicrotasks();
+        expect(
+          fake.sentTo
+              .where((entry) => entry.$2.type == CallSignalType.health)
+              .map((entry) => entry.$1),
+          contains(peer),
+        );
+        expect(
+          svc.current?.peer,
+          device,
+          reason: 'media remains pinned to the answerer',
+        );
 
-          // Identity-attributed health must keep the accepted dialog alive even
-          // with no media. Other identities with this id must not renew it.
-          for (var i = 0; i < 12; i++) {
-            async.elapse(kCallHeartbeatInterval);
-            fake.onCallSignal!(
-              peer,
-              CallSignal(callId: id, type: CallSignalType.health),
-            );
-            async.flushMicrotasks();
-            expect(svc.current?.status, CallStatus.active);
-          }
+        // Identity-attributed health must keep the accepted dialog alive even
+        // with no media. Other identities with this id must not renew it.
+        for (var i = 0; i < 12; i++) {
+          async.elapse(kCallHeartbeatInterval);
           fake.onCallSignal!(
-            stranger,
+            peer,
             CallSignal(callId: id, type: CallSignalType.health),
           );
-          async.elapse(kCallLivenessTimeout + kCallHeartbeatInterval * 2);
           async.flushMicrotasks();
-          expect(svc.current?.isLive ?? false, isFalse);
-          svc.dispose();
-          async.flushMicrotasks();
-        });
-      },
-    );
+          expect(svc.current?.status, CallStatus.active);
+        }
+        fake.onCallSignal!(
+          stranger,
+          CallSignal(callId: id, type: CallSignalType.health),
+        );
+        async.elapse(kCallLivenessTimeout + kCallHeartbeatInterval * 2);
+        async.flushMicrotasks();
+        expect(svc.current?.isLive ?? false, isFalse);
+        final endings = fake.sentTo.where(
+          (entry) => entry.$2.type == CallSignalType.end,
+        );
+        expect(endings, isNotEmpty);
+        expect(endings.map((entry) => entry.$1), everyElement(peer));
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
 
     test('waits for local admission even after peer readiness', () {
       fakeAsync((async) {
