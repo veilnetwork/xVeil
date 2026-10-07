@@ -10,6 +10,9 @@ class CallAudioReceiveActivity {
   int _sequence = 0;
   int? _playoutDelayMs;
   DateTime? _sampledAt;
+  int? _lastInterruptionCount;
+  int _interruptionCount = 0;
+  bool interrupted = false;
   static const sampleLifetime = Duration(seconds: 3);
 
   CallAudioPlayoutFeedback playoutFeedback(DateTime now) {
@@ -25,10 +28,14 @@ class CallAudioReceiveActivity {
     return CallAudioPlayoutFeedback(
       sequence: _sequence,
       delayMs: fresh ? _playoutDelayMs : null,
+      interruptionCount: fresh && _lastInterruptionCount != null
+          ? _interruptionCount
+          : null,
     );
   }
 
   void observe(Map<String, Object?> stats, DateTime now) {
+    interrupted = false;
     _sequence++;
     _playoutDelayMs = null;
     _sampledAt = null;
@@ -43,6 +50,17 @@ class CallAudioReceiveActivity {
       return;
     }
     workerStalledSince = null;
+    final interruptions = stats['audio_interruption_count'];
+    if (stats['worker_stalled'] == 0 &&
+        interruptions is int &&
+        interruptions >= 0) {
+      final previous = _lastInterruptionCount;
+      if (previous != null && interruptions > previous) {
+        _interruptionCount += interruptions - previous;
+        interrupted = true;
+      }
+      _lastInterruptionCount = interruptions;
+    }
     final count = packets.toInt();
     final nativeAge = stats['audio_rx_native_age_ms'];
     if (count > 0 && nativeAge is num && nativeAge.isFinite && nativeAge >= 0) {
@@ -73,6 +91,8 @@ class CallAudioReceiveActivity {
     _playoutDelayMs = null;
     _sampledAt = null;
     _lastPackets = 0;
+    _lastInterruptionCount = null;
+    interrupted = false;
     supported = false;
     lastRxAt = null;
     workerStalledSince = null;

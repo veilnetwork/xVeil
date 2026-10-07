@@ -15,6 +15,37 @@ void main() {
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
 
   test(
+    'decoded audio interruptions pause video despite fresh RTP and low delay',
+    () {
+      final a = direct();
+      void sample({bool interrupted = false}) => a.onNativeStats(
+        {
+          'worker_stalled': 0,
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'audio_rx_pkts': 100,
+          'audio_rx_native_age_ms': 10,
+        },
+        receiveAudioExpected: true,
+        peerAudioDelayMs: 60,
+        requirePeerAudioPlayout: true,
+        audioInterrupted: interrupted,
+      );
+      sample();
+      expect(a.audioReserve, isFalse);
+      sample(interrupted: true);
+      expect(a.audioReserve, isTrue);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; ++i) sample();
+      expect(a.audioReserve, isTrue);
+      sample(interrupted: true); // Another outage restarts recovery.
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; ++i) sample();
+      expect(a.audioReserve, isTrue);
+      sample();
+      expect(a.audioReserve, isFalse);
+    },
+  );
+
+  test(
     'video admission waits for expected incoming audio before its first frame',
     () {
       final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);

@@ -1115,11 +1115,17 @@ class VeilCallMediaController implements CallMediaController {
         }
         final adapter = _bitrateAdapter;
         if (adapter != null) {
+          final peerInterrupted = _peerAudioPlayout.takeInterruption();
           // Sender-side ladder driven by what the REMOTE receiver reports for
           // our outbound leg (RTCP report blocks) plus local queue drops. The
           // route profile stays the ceiling; adaptation only spends less.
           adapter.onNativeStats(
             stats,
+            audioInterrupted:
+                call.media.audio &&
+                ((_peerAudioCaptureEnabled &&
+                        _audioReceiveActivity.interrupted) ||
+                    (!_microphoneState.muted && peerInterrupted)),
             receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
             requirePeerAudioPlayout:
@@ -1277,6 +1283,11 @@ class VeilCallMediaController implements CallMediaController {
     }
     adapter.prepareVideoSend(
       stats,
+      audioInterrupted:
+          call.media.audio &&
+          ((_peerAudioCaptureEnabled && _audioReceiveActivity.interrupted) ||
+              (!_microphoneState.muted &&
+                  _peerAudioPlayout.takeInterruption())),
       receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
       peerAudioDelayMs: _peerAudioPlayout.delayMs(DateTime.now()),
       requirePeerAudioPlayout:

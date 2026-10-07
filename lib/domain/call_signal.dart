@@ -3,17 +3,17 @@ import 'dart:math';
 import 'dart:typed_data';
 
 /// Control-plane message for a call, carried as the JSON body of a
-/// `WireKind.callSignal` envelope over the ordinary (durable) messaging channel.
+/// `WireKind.callSignal` envelope over the realtime call lane.
 ///
-/// The signal is transport-agnostic: it rides the SAME anon-or-direct egress and
-/// the mailbox/rendezvous relay as chat, so it works identically for anon↔anon,
+/// The signal uses the permitted relay chain or direct path without a mailbox,
+/// respecting the same anonymity posture as messaging, for anon↔anon,
 /// anon↔non-anon, and non-anon↔non-anon pairings. The media itself flows on a
 /// separately-negotiated path (see [CallTransportProposal]) — the signal only
 /// sets it up and tears it down.
 ///
 /// Wire form is compact JSON with short keys so re-sends stay cheap:
 ///   {c:callId, k:type, m:{a,v,s}, p:posture, t:{k,r,e}, mk:mediaKey, r:reason,
-///    mr:mediaRepairRequested, cm:{a,v,s} capture, ap:{n,d} audio playout,
+///    mr:mediaRepairRequested, cm:{a,v,s} capture, ap:{n,d,i} audio playout,
 ///    v:protocolVersion, ts:sentAtMs}
 /// Unknown keys are ignored on decode, and an unknown [type]/[posture]/[kind]
 /// enum index decodes to its `.unknown` sentinel so a newer peer's additions
@@ -233,27 +233,46 @@ const int kCallAudioPlayoutFeedbackMinVersion = 5;
 /// repeated/delayed health frame cannot renew an old healthy measurement.
 /// Missing delay means the audio worker or accepted audio is not measurable.
 class CallAudioPlayoutFeedback {
-  const CallAudioPlayoutFeedback({required this.sequence, this.delayMs});
+  const CallAudioPlayoutFeedback({
+    required this.sequence,
+    this.delayMs,
+    this.interruptionCount,
+  });
 
   final int sequence;
   final int? delayMs;
 
+  /// Monotonic across receiver repairs. Optional for older peers.
+  final int? interruptionCount;
+
   Map<String, dynamic> toJson() => {
     'n': sequence,
     if (delayMs != null) 'd': delayMs,
+    if (interruptionCount != null) 'i': interruptionCount,
   };
 
   static CallAudioPlayoutFeedback? fromJson(Object? raw) {
     if (raw is! Map) return null;
     final sequence = raw['n'];
     final delay = raw['d'];
+    final interruptions = raw['i'];
     if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
       return null;
     }
     if (delay != null && (delay is! int || delay < 0 || delay > 60000)) {
       return null;
     }
-    return CallAudioPlayoutFeedback(sequence: sequence, delayMs: delay as int?);
+    if (interruptions != null &&
+        (interruptions is! int ||
+            interruptions < 0 ||
+            interruptions > 9007199254740991)) {
+      return null;
+    }
+    return CallAudioPlayoutFeedback(
+      sequence: sequence,
+      delayMs: delay as int?,
+      interruptionCount: interruptions as int?,
+    );
   }
 }
 
