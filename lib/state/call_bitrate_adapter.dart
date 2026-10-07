@@ -81,6 +81,11 @@ class CallBitrateAdapter {
   /// fresh audio feedback proves recovery; retain capture and remote video.
   static const int severeRttMs = 2000;
   static const int severePlayoutMs = 1000;
+  // Opus DTX still supplies comfort-noise packets about every 400 ms. A
+  // measured one-second RTP hole is already an audio outage, even when the
+  // last RTCP RTT/receiver buffer estimate remains small.
+  static const int audioReceivePauseMs = 1000;
+  static const int audioReceiveRecoverMs = 500;
 
   /// Conservative receive-pipeline budget. These are native buffer estimates,
   /// not a measurement of acoustic latency; RTT still guards network queues.
@@ -215,6 +220,7 @@ class CallBitrateAdapter {
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
     int? expectedAudioFeedbackReports,
+    bool receiveAudioExpected = false,
   }) {
     final requiredReports =
         expectedAudioFeedbackReports != null && expectedAudioFeedbackReports > 0
@@ -236,6 +242,13 @@ class CallBitrateAdapter {
       feedbackAvailable: feedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
       requirePeerAudioPlayout: requirePeerAudioPlayout,
+      requireAudioReceive:
+          receiveAudioExpected && stats.containsKey('audio_rx_native_age_ms'),
+      audioReceiveAgeMs:
+          ((stats['audio_rx_pkts'] as num?) ?? 0) > 0 &&
+              (stats['worker_stalled'] as num?) != 1
+          ? (stats['audio_rx_native_age_ms'] as num?)?.toInt()
+          : null,
       missingAudioReceiverFeedback:
           expectedAudioFeedbackReports != null &&
           expectedAudioFeedbackReports > 0 &&
@@ -254,9 +267,28 @@ class CallBitrateAdapter {
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
     bool missingAudioReceiverFeedback = false,
+    bool requireAudioReceive = false,
+    int? audioReceiveAgeMs,
   }) {
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
+    final receiveOutage =
+        requireAudioReceive &&
+        audioReceiveAgeMs != null &&
+        audioReceiveAgeMs >= audioReceivePauseMs;
+    final receiveGood =
+        !requireAudioReceive ||
+        (audioReceiveAgeMs != null &&
+            audioReceiveAgeMs >= 0 &&
+            audioReceiveAgeMs < audioReceiveRecoverMs);
+    // The captured cellular outage still transmitted screen frames while
+    // audio was absent for 4.4 s. Stop competing local video immediately;
+    // descending the ladder or waiting for a new RTCP report is too late.
+    if (supportsLowRateVideo && !_audioReserve && receiveOutage) {
+      _audioReserve = true;
+      _goodStreak = 0;
+      return target;
+    }
     // Missing/stale reports are not healthy samples. Actual new local audio
     // drops still justify reducing video while waiting for remote feedback.
     final playoutBad =
@@ -291,7 +323,11 @@ class CallBitrateAdapter {
             (baseline == null || rttMs <= baseline + bloatRecoverMs));
 
     final networkBad = txLossPct >= 5 || txJitterMs >= 80 || rttBad || newDrops;
-    final bad = networkBad || playoutBad || missingAudioReceiverFeedback;
+    final bad =
+        networkBad ||
+        playoutBad ||
+        missingAudioReceiverFeedback ||
+        receiveOutage;
     final good =
         feedbackAvailable &&
         rttMs > 0 &&
@@ -299,7 +335,8 @@ class CallBitrateAdapter {
         txJitterMs < 40 &&
         rttGood &&
         !newDrops &&
-        playoutGood;
+        playoutGood &&
+        receiveGood;
 
     final severe =
         rttMs >= severeRttMs ||

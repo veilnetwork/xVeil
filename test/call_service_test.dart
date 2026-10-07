@@ -1241,11 +1241,9 @@ void main() {
       () {
         fakeAsync((async) {
           final fake = _FakeMessaging();
-          final svc = CallService(
-            fake,
-            now: () => clock.now(),
-            media: _FakeMedia(),
-          )..start();
+          final media = _FakeMedia();
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
           fake.onCallSignal!(peer, offer('posture-order'));
           svc.accept();
           async.flushMicrotasks();
@@ -1270,6 +1268,11 @@ void main() {
           expect(svc.current!.peerMicOff, isFalse);
           expect(svc.current!.peerCaptureAtMs, stamp + 100);
           expect(updates.length, before);
+          expect(media.peerAudioCapture, [true]);
+          posture(false, stamp + 200);
+          async.flushMicrotasks();
+          expect(media.peerAudioCapture, [true, false]);
+          expect(svc.current!.peerMicOff, isTrue);
           svc.dispose();
         });
       },
@@ -3868,6 +3871,11 @@ void main() {
 /// Records camera/screen toggles; [screenOk] fakes the platform backend
 /// accepting or refusing to start the capture.
 class _FakeMedia extends CallMediaController {
+  final List<bool> peerAudioCapture = [];
+
+  @override
+  void observePeerAudioCapture(bool enabled) => peerAudioCapture.add(enabled);
+
   bool directPeerAdmitted = true;
   bool? liveDirectAdmission;
   Completer<bool?>? liveAdmissionGate;
