@@ -5198,3 +5198,33 @@ ADB forward are verified absent after the stand. The Mac runtime log is
 archived outside the bundle and its seal is verified again. Poco remains
 available with the verified 2264 build installed; identity/history are intact.
 No push, tag or release is performed.
+
+Primary pressure across endpoint neighbors (2265)
+------------------------------------------------
+
+Source connections are independent, but the previous pressure gate was scoped
+to one session neighbor. A P2P primary's stalled ACKs did not constrain local
+file/video/screen producers using other relay neighbors on the same endpoint.
+The new real TLS/QUIC regression fails before the correction: the primary
+path is blacked out while the other connection delivers normally, and the
+other connection's local DATA burst bypasses primary feedback.
+
+Session runners now share the registry's endpoint-local activity/pressure
+state. RTT, datagram expiry and PTO/congestion feedback from a locally authored
+primary constrain local secondary datagrams on all its neighbor sessions.
+One sparse recovery probe every 200 ms is shared across those producers;
+normal admission resumes after the two-second pressure grace or after three
+seconds without primary activity. Old concurrent observations cannot shorten
+newer activity/pressure deadlines. No runner's teardown clears another
+producer's shared state. Primary/control and neutral forwarded cells bypass
+this producer gate; another node owns independent state. Reliable control
+leases and the existing parent write-window policy remain separate.
+
+Transport/session suites pass 515 tests (six ignored); native SDK suites pass
+223 (one ignored). The two-connection blackout regression verifies healthy
+alternate-path delivery, suppressed local bursts across neighbors, one shared
+probe, preserved neutral/control and unrelated-node admission, and recovery
+after the grace. Sixteen simultaneous consumers acquire exactly one probe.
+Endpoint trace logs record the local gate's drop counts; source-slot arrays
+also include recoverable DATA's private selector. No role, pressure or priority
+metadata is added to relay framing or sent to remote nodes.
