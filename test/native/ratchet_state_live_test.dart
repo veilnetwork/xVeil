@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/ids.dart' show NodeId;
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/node/ratchet_ffi.dart';
@@ -299,6 +300,96 @@ void main() {
     // the first test in the file, not the third.
     timeout: const Timeout(Duration(minutes: 4)),
   );
+  test(
+    'both retained V4 chains reserve and recover through the real ABI',
+    () async {
+      final lib = DynamicLibrary.open(dylib!);
+      final node = await _bootNode(lib, 9176);
+      final store = FakeKvLogStore();
+      final storage = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) =>
+            password.isEmpty ? null : store,
+      );
+      await storage.open(password: 'pw', createIfMissing: true);
+      try {
+        final door = node.door;
+        final key = _convKey(peerNode: 9);
+        expect(
+          _settledImport(
+            () => door.import(key, _conversationBlob(sendingIndex: 7)),
+          ),
+          isTrue,
+        );
+        final main = door.export(key)!;
+        expect(main[4], 3);
+        expect(_settled(() => door.forget(key)), isTrue);
+        expect(
+          _settledImport(
+            () => door.import(
+              key,
+              _conversationBlob(sendingIndex: 19, sendingKey: 0x12),
+            ),
+          ),
+          isTrue,
+        );
+        final alternate = door.export(key)!;
+        expect(alternate[4], 3);
+        expect(_settled(() => door.forget(key)), isTrue);
+        main[4] = 4;
+        final crossed =
+            (BytesBuilder()
+                  ..add(main)
+                  ..add(const [
+                    0,
+                    0,
+                  ]) // no accepted main prologue in this structural fixture
+                  ..add(_u32(alternate.length))
+                  ..add(alternate)
+                  ..add(const [0, 0]))
+                .toBytes();
+        expect(_settledImport(() => door.import(key, crossed)), isTrue);
+        final before = door.sendPositions(key);
+        expect(before.map((p) => p.next), [7, 19]);
+        expect(before[0].chain, isNot(before[1].chain));
+        final stored = door.storedSendPositions(key, door.export(key)!);
+        expect(stored.map((p) => p.next), [7, 19]);
+        for (var i = 0; i < 2; i++) {
+          expect(stored[i].chain, before[i].chain);
+        }
+        final persistence = RatchetPersistence(native: door, storage: storage);
+        expect(await persistence.flush(), 1);
+        await persistence.reserveBeforePublish(
+          NodeId(Uint8List(32)..fillRange(0, 32, 9)),
+        );
+        final marks = decodeRatchetReservations(
+          await storage.getSetting(ratchetReservationKey(key)),
+        );
+        expect(marks.length, 2);
+        // A crash restores the older snapshot, including the receive-only root
+        // which can become a sender again after an authenticated peer choice.
+        expect(_settled(() => door.forget(key)), isTrue);
+        final restarted = RatchetPersistence(native: door, storage: storage);
+        expect(await restarted.restore(), 1);
+        expect(
+          await restarted.recoverReservedPositions(),
+          2 * RatchetPersistence.reserveAhead,
+        );
+        final recovered = door.sendPositions(key);
+        expect(recovered.map((p) => p.next), [
+          7 + RatchetPersistence.reserveAhead,
+          19 + RatchetPersistence.reserveAhead,
+        ]);
+        for (var i = 0; i < 2; i++) {
+          expect(recovered[i].chain, before[i].chain);
+        }
+      } finally {
+        await storage.close();
+        await node.dispose();
+      }
+    },
+    skip: skip,
+    timeout: const Timeout(Duration(seconds: 90)),
+  );
 }
 
 /// A node with its ratchet door open, and the one call that puts it all away.
@@ -428,11 +519,11 @@ const int _sendingIndexOffset =
 /// the `import` calls above assert veil still accepts it, so a change to either
 /// format fails this file loudly instead of quietly reducing it to the empty
 /// case it used to be.
-Uint8List _conversationBlob({required int sendingIndex}) {
+Uint8List _conversationBlob({required int sendingIndex, int sendingKey = 0x11}) {
   final session = BytesBuilder()
     ..add(const [0x56, 0x53, 0x52, 0x31]) // "VSR1"
     ..addByte(1) // STATE_V1
-    ..add(Uint8List(32)..fillRange(0, 32, 0x11)) // dh_sk
+    ..add(Uint8List(32)..fillRange(0, 32, sendingKey)) // dh_sk
     ..addByte(1)
     ..add(Uint8List(32)..fillRange(0, 32, 0x22)) // dh_pk_remote
     ..add(Uint8List(32)..fillRange(0, 32, 0x33)) // rk
