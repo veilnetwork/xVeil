@@ -4866,3 +4866,56 @@ peaked at 4.350/4.601 seconds. Direct transport loss/bursts, Apple capture
 cadence and actual audio latency remain open. Camera recovery is not validated.
 Both owned apps, complete phone UID/package, helpers, ping and ADB forward are
 verified stopped. No push, tag or release was performed.
+
+
+Hardware capture cadence and serialized route recovery (2255--2256)
+-----------------------------------------------------------------
+
+Mac capture now uses AVAudioSinkNode with prepared conversion buffers, retaining
+an asynchronous tap fallback and the original iOS tap. On the physical Bluetooth
+input, the new sink receives 320 frames at 16 kHz every 20 ms and delivers 960
+frames at 48 kHz, instead of the preceding roughly 100-ms tap batches. Measured
+output advances by 96,000 frames per 2,000 ms. A separate AVAudioConverter check
+rules out duplicated samples in the old large output chunks. Native Apple
+configuration recovery and the complete call-plane regression pass; production
+Mac media exports exclude test hooks.
+
+The reverse Poco-to-Mac 2255 call exposed another failure: a health-triggered
+local repair could still await camera teardown when the peer announced relay.
+The native controller returned false for a route switch during repair; the FSM
+then ended the call. Route mutations now serialize, preserve the camera JNI
+teardown fence, and recheck the original call ID after waiting and after stopping.
+A queued request cannot revive a hung-up call or change a replacement call.
+Existing call-service tests plus concurrency/retirement/error-release checks
+pass (135 tests); targeted Flutter analysis is clean.
+
+With that change, the same-direction 2256 physical call rings in 0.403 seconds,
+is active on both endpoints by 1.039 seconds and stays active for 180 seconds.
+Both endpoints move from P2P to relay around 38--40 seconds and continue, rather
+than ending during recovery. Poco retains Android media 2252 and corrected SDK
+2254; Mac uses the sink media. The installed signed APK is byte-verified:
+4a472ce98f7cf777225d3cca87e1a8332d8db525c57faa2d6a1382ce4cd15309.
+Identity/history are preserved. The initial simultaneous Flutter builds raced
+on a generated Swift package; the Mac build was rerun after Android completed,
+and the final bundle seal, Dart image and native code are verified.
+
+Audio quality is still unresolved, and zero video frames were transmitted or
+decoded despite a running Poco camera. P2P accepted-audio age peaks at 8.552 s
+on Mac and 6.688 s on Poco while the peer mic is enabled. Transport traces show
+stalled ACK progress and expiring outgoing datagrams on independent connections,
+with no recorded event-queue stalls. Relay also has repeated interruptions.
+A roughly 15-second gap in Poco capture coincides exactly with micOn=false;
+the actual AAudio stop/close and later reopen take tens of milliseconds. It is
+not evidence of a stuck microphone and is excluded from capture-failure claims.
+Raw cumulative NetEq interruption counts include that muted interval.
+
+An isolated real Opus/NetEq test uses two seconds of tone, ten seconds of exact
+silent PCM, then four seconds of tone over a fixed 40-ms path. DTX reduces the
+silent interval to 57 RTP packets, accepted-audio age stays below 390 ms, and
+there are zero added interruptions/concealed samples; decoded tone resumes.
+The regression also retains the preceding injected-jitter PCM checks. This
+rules out intentional codec silence alone as the source of the physical gaps.
+Further work remains on direct transport stalls/connection retirement, relay
+bursts, acoustic latency and bidirectional video recovery. Both physical stands
+are closed; phone UID/package, own Mac/helper processes, ping and ADB forward
+are verified absent. No push, tag or release is performed.
