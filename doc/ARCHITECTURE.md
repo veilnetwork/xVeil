@@ -4173,3 +4173,21 @@ Synchronization is still in progress: this environment setup does not yet
 establish a successful Android archive, media link, packaging or deployment.
 The next physical call must verify the new native artifact on Poco before
 claiming that the two native endpoint fixes are deployed there.
+
+
+The existing Mac checkout provides the exact pinned third_party commit
+773cf3db24ccb5c7da8cbb93bd1a95465ed07dbe. A private shallow object cache copies
+the original commit and its complete current tree, without synthetic commits.
+Git connectivity verification passes, and the tree matches
+e348f7a5566b444f2d50a9c369116f03ae439f86. The cache is 757940911 bytes;
+Linux imports it with a depth-one local fetch and reaches that exact HEAD.
+This replaces a remote dependency fetch requesting 3190283 history objects.
+The original upstream origin and source revision remain authoritative.
+
+Dependency synchronization, CIPD and resource/system-library hooks complete.
+GN generates compile_commands.json and 7317 targets; the Android arm64 webrtc
+archive starts a 4340-step build with ninja -j 6. Compilation is verified live,
+but archive completion, media linking and phone deployment are still pending.
+Private follow-up stand helpers prepare a 128 KiB checksum-verified file transfer
+alongside phone screen sharing and audio; that combined physical case has not
+yet run. No new acoustic or Android native-deployment success is claimed.
