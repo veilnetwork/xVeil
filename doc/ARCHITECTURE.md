@@ -5603,8 +5603,81 @@ relay scheduling, codec or native media 2258 is changed.
 
 Existing IPC/client suites pass 134/39 tests (five IPC ignored); these check the
 changed execution paths, not physical call quality. Fresh production SDKs and
-stand build 2270 are being prepared for a no-file repeat with the original
+stand build 2270 were prepared for a no-file repeat with the original
 contacts policy. Missing receive samples alone cannot distinguish a daemon
 refusal from network loss; the added boundary samples are required before
-choosing the next corrective change. No stand applications have been started
-in this cycle yet.
+choosing the next corrective change.
+
+### Cycle 2270: physical delivery-boundary findings
+
+Two no-file calls ran for 180 seconds after both endpoints became active.
+Poco stayed on cellular; the computer used its normal network. Build 2270
+used fresh production SDKs, unchanged production media 2258 and the existing
+production APK signer. Installed APK bytes and the Mac SDK code section were
+verified against the fresh outputs; identities/history were retained.
+
+With the original contacts P2P policy, ringing took 8.20 seconds and both
+endpoints became active at 9.11 seconds. P2P actually worked, starting around
+14 seconds. Receive gaps remained: maximum sampled native audio age was
+6,316 ms on Mac and 12,963 ms on Poco. Around 131 seconds, a silent direct
+session triggered relay recovery; the call continued to the end. The earlier
+expired delegation warning therefore does not establish that P2P is impossible
+or explain those gaps by itself.
+
+A second call temporarily denied P2P at both endpoints to isolate the relay
+path. Ringing took 17.29 seconds and both were active at 17.93 seconds.
+All 487 active samples used relay; maximum native audio age was 2,911/2,966 ms
+(Mac/Poco). The persistent bidirectional stop seen in 2269p did not recur in
+either call. This is not proof that its cause has been fixed.
+
+Each sampled sealed cell written to local IPC had matching daemon-read,
+handler-entry and successful relay-admission observations: 69/69 cells on each
+side in the mixed call; 198/198 Mac and 197/197 Poco in the relay-only call.
+No sampled source/rate refusal, writer expiry or socket failure was observed.
+Admission is not end-to-end delivery, and these observations do not localize
+loss farther along the route or the separate P2P receive gaps.
+
+The camera captured but encoded video stayed paused (zero transmitted video
+frames), so neither run proves quality under encoded video load. Duplicate
+fanout/replay and authentication failures share the ingress drop diagnostic;
+its count alone is not evidence of a cryptographic defect.
+
+Both stands and their probes/helpers exited. Full Poco UID/package checks,
+forward removal and Mac process checks passed. The relay-only test restored
+both contacts P2P policies. Runtime logs were archived outside the Mac bundle
+and its strict signature seal verified. Private evidence: neteq2270[r]-summary,
+samples/result/cleanup, mac-2270[r].stdout and packaged/installed build manifests.
+
+### Cycle 2271: retain ordinary small app-data origin
+
+Source inspection found a separate endpoint priority gap: normal small SDK
+AppIpcSend messages defaulted to the neutral INTERACTIVE local lane, so they
+could bypass the primary source's byte/pressure budget on the ordered path.
+Large source envelopes/streams already retained their owned admission path.
+
+Ordinary SDK sends now select the existing IPC-only recoverable DATA lane.
+Explicit media source selections and legacy media/lifecycle controls keep
+their existing paths. The anonymous fallback stream producer explicitly
+retains its INTERACTIVE flow-control lane for SYN/SYN_ACK/ACK/FIN/RST; DATA
+and retransmitted DATA retain recoverable admission. The default reply-aware encoder also retains local
+origin; anonymous reply routing may still use its existing independent
+admission path. Local header hints are not copied to network frames. No relay
+priority, payload role or new wire field is introduced. Generic neutral
+transit remains INTERACTIVE; carrier absence alone never proves local origin.
+
+This closes the small SDK-send bypass, not every internal origin path. In
+particular, the separate single-frame ACK retry and internal control/RPC
+producers still require a source-ownership audit. Physical audio quality and
+the 2269p delivery stop remain open investigations.
+
+Regression evidence: the real encrypted ordered runner delivered all 32 small
+400-byte messages in order, let neutral transit pass during source pressure,
+and resumed without further input. Reverting its local marker to INTERACTIVE
+fails the same test (all 12,800 bytes bypass the first pressure window).
+Reverting the SDK encoder also fails its origin test. Client/IPC/session/SDK
+suites pass 40/135/415/223 tests (813 total; 12 ignored); the anonymous
+flow-control and sender-isolation tests cover the changed classification.
+The debug call API now exposes accepted peer capture state and sparse sealed
+send/receive logs include local wall-clock milliseconds, without changing
+wire bytes. Flutter analysis of the changed debug file passes. Fresh stand
+2271 is prepared next; physical quality remains to be measured.
