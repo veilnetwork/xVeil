@@ -1599,7 +1599,7 @@ class CallService {
     final existing = _current;
     if (existing != null && existing.callId == sig.callId) {
       // A re-driven copy of the call we are already in (durable offers keep
-      // re-driving until acked, and acks defer while a call is active).
+      // re-driving until acked, and an ACK can be lost).
       // Answering it with `busy` — the old behavior — had the answering
       // device shelling its own caller with busy storms, one per re-drive.
       return;
