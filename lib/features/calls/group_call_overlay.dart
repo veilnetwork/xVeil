@@ -334,8 +334,11 @@ class GroupCallRoomView extends StatelessWidget {
                     // honesty rule as the 1:1 call view. The self preview
                     // stays unbadged: local capture state is visible anyway.
                     staleLabel: isSelf ? null : l.callVideoPaused,
-                    mirrored: isSelf &&
-                        selfViewMirrored(screenSharing: participant.media.screen),
+                    mirrored:
+                        isSelf &&
+                        selfViewMirrored(
+                          screenSharing: participant.media.screen,
+                        ),
                   );
                 },
               );
@@ -454,23 +457,19 @@ class _ParticipantCard extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               if ((media.video || media.screen) && videoFrame != null)
-                Transform.flip(
-                  flipX: mirrored,
-                  child: CallVideoFrameView(
-                    key: ValueKey(
-                      'group-call-video-${participant.nodeId.short}',
-                    ),
-                    frameListenable: videoFrame!,
-                    freshnessToken: (participant.nodeId.hex, media.screen),
-                    waitingLabel: media.screen
-                        ? l.callScreenWaiting
-                        : l.callVideoWaiting,
-                    staleLabel: staleLabel,
-                    placeholderIcon: media.screen
-                        ? Icons.screen_share_outlined
-                        : Icons.videocam_outlined,
-                    fit: BoxFit.cover,
-                  ),
+                CallVideoFrameView(
+                  mirrored: mirrored,
+                  key: ValueKey('group-call-video-${participant.nodeId.short}'),
+                  frameListenable: videoFrame!,
+                  freshnessToken: (participant.nodeId.hex, media.screen),
+                  waitingLabel: media.screen
+                      ? l.callScreenWaiting
+                      : l.callVideoWaiting,
+                  staleLabel: staleLabel,
+                  placeholderIcon: media.screen
+                      ? Icons.screen_share_outlined
+                      : Icons.videocam_outlined,
+                  fit: BoxFit.cover,
                 )
               else
                 Center(

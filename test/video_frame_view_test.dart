@@ -40,6 +40,48 @@ Future<void> _settleImageDecode(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('self preview mirrors pixels but keeps status text readable', (
+    tester,
+  ) async {
+    final frames = ValueNotifier<VeilVideoFrame?>(null);
+    addTearDown(frames.dispose);
+
+    Widget host({required bool mirrored}) => MaterialApp(
+      home: CallVideoFrameView(
+        frameListenable: frames,
+        freshnessToken: 'camera',
+        waitingLabel: 'Waiting for video',
+        staleLabel: 'Video paused',
+        staleAfter: const Duration(seconds: 3),
+        mirrored: mirrored,
+      ),
+    );
+
+    double horizontalDirection(Finder finder) {
+      final box = tester.renderObject<RenderBox>(finder);
+      return box.localToGlobal(const Offset(1, 0)).dx -
+          box.localToGlobal(Offset.zero).dx;
+    }
+
+    await tester.pumpWidget(host(mirrored: true));
+    expect(horizontalDirection(find.text('Waiting for video')), greaterThan(0));
+    expect(horizontalDirection(find.byType(Icon)), greaterThan(0));
+
+    frames.value = _frame(10);
+    await _settleImageDecode(tester);
+    expect(horizontalDirection(find.byType(RawImage)), lessThan(0));
+
+    await tester.pump(const Duration(seconds: 4));
+    expect(horizontalDirection(find.text('Video paused')), greaterThan(0));
+    expect(horizontalDirection(find.byType(Icon)), greaterThan(0));
+    expect(horizontalDirection(find.byType(RawImage)), lessThan(0));
+
+    await tester.pumpWidget(host(mirrored: false));
+    expect(horizontalDirection(find.byType(RawImage)), greaterThan(0));
+    expect(horizontalDirection(find.text('Video paused')), greaterThan(0));
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('source change hides stale frame until a newer frame arrives', (
     tester,
   ) async {

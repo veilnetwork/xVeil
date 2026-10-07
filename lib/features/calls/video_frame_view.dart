@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
+
 /// Whether a LOCAL preview should be shown mirrored.
 ///
 /// A person looking at themselves expects a mirror: that is what every mirror
@@ -16,7 +17,6 @@ import 'package:veil_media/veil_media.dart' show VeilVideoFrame;
 /// than a constant: text on a mirrored screen share is unreadable, and it is
 /// not a face — nobody expects a mirror of their desktop.
 bool selfViewMirrored({required bool screenSharing}) => !screenSharing;
-
 
 /// Coalescing RGBA renderer shared by direct and group calls.
 ///
@@ -35,6 +35,7 @@ class CallVideoFrameView extends StatefulWidget {
     required this.waitingLabel,
     this.fit = BoxFit.contain,
     this.placeholderIcon = Icons.videocam_outlined,
+    this.mirrored = false,
     this.staleLabel,
     this.staleAfter = const Duration(seconds: 4),
   });
@@ -44,6 +45,9 @@ class CallVideoFrameView extends StatefulWidget {
   final String waitingLabel;
   final BoxFit fit;
   final IconData placeholderIcon;
+
+  /// Mirror only the camera pixels; waiting and stale labels stay readable.
+  final bool mirrored;
 
   /// When set, a stream that STOPS delivering new frames (backgrounded peer
   /// app, stopped camera, stalled route) badges the last frame with this label
@@ -242,6 +246,10 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
     final image = _image;
     if (image != null) {
       final staleLabel = widget.staleLabel;
+      final rawImage = RawImage(image: image, fit: widget.fit);
+      final frame = widget.mirrored
+          ? Transform.flip(flipX: true, child: rawImage)
+          : rawImage;
       return ColoredBox(
         key: const ValueKey('call-video-frame'),
         color: Colors.black,
@@ -249,7 +257,7 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
             ? Stack(
                 fit: StackFit.expand,
                 children: [
-                  RawImage(image: image, fit: widget.fit),
+                  frame,
                   ColoredBox(
                     key: const ValueKey('call-video-stale'),
                     color: Colors.black54,
@@ -277,7 +285,7 @@ class _CallVideoFrameViewState extends State<CallVideoFrameView> {
                   ),
                 ],
               )
-            : RawImage(image: image, fit: widget.fit),
+            : frame,
       );
     }
     return Semantics(

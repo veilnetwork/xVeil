@@ -5769,3 +5769,34 @@ mute, unknown capture, legacy telemetry, startup, replacement-session grace,
 unmute, in-progress repair, anonymous peer policy and no bounce after recovery.
 Flutter analysis passes. Native SDK/media remain the verified production
 2271/2258 outputs; stand 2272 is rebuilt for the physical recovery test next.
+
+
+Physical stand 2272 (Mac and Poco on cellular) stayed active for the requested
+180 seconds and ended by explicit hangup. Ringing took 9.086 seconds; both
+endpoints were active at 10.306 seconds. The early established-audio recovery
+was observed on Poco and the call subsequently stayed on relay. Sampled native
+receive ages reached 4,154 ms on Mac and 3,508 ms on Poco: pauses remain, so
+this is progress rather than completion of audio quality work. Polling has
+observation gaps around session replacement; these sampled maxima cannot
+establish the exact duration of every outage. All 32 concurrent test messages
+arrived once and in order (11.489 seconds). Encoded video frames remained zero,
+so simultaneous encoded-video load is still unverified. All 167/171 sampled
+local relay writes reached daemon admission. Sparse matched relay cells had
+medians of about 130/91 ms and maxima of about 6,499/3,716 ms, with a 15 ms
+clock-probe half-width; these are transport observations, not acoustic delay.
+Cleanup verified no owned Mac/helper processes, Poco UID/package processes,
+remote probe or ADB forward remained. The runtime log was archived outside
+the Mac bundle and its strict code-signing seal passed verification.
+
+### Camera preview status mirroring
+
+The local camera tile applied a horizontal transform to the entire video
+widget, reversing its waiting text and icon. Group self tiles also transformed
+waiting and stale-video labels. Mirroring now belongs to the decoded image
+inside CallVideoFrameView, keeping every status label and placeholder upright.
+Existing self-camera, remote-camera and screen-share orientation choices are
+preserved; Android's native preview already mirrors only its texture.
+The renderer regression checks actual horizontal render coordinates for
+waiting text/icons, camera pixels and stale text/icons, including disabling
+mirroring on a mounted view. Renderer and group overlay suites pass all 10
+tests; analysis of the changed UI and regression test reports no issues.
