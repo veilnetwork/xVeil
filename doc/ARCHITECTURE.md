@@ -6365,3 +6365,47 @@ Evidence: asymmetric2279-before-metrics/after-metrics, playout/planes/host2279
 receive-overlap logs. This fix still needs fresh native packaging and a real
 Poco/Mac run. Network loss, first-offer delay and mixed encoded-media quality
 remain unresolved; the full goal stays active.
+
+### Cycle 2279: fresh native deployment and physical receive overlap
+
+Production native media is rebuilt for Mac and arm64 Android (97 exports,
+no test hooks), with both additive receive-overlap operations present. Fresh
+SDK/host 0.13.84+2279 is installed on Poco in place; signature, installed APK
+bytes, independently stripped native libraries, actual packaged SDK imports,
+Mac code sections and strict bundle seal verify. Root 3d866f6b / Veil 0a00988e
+are committed unsigned. No push/tag/release or /Applications replacement occurs.
+
+Mac calls Poco: ringing at 11.982 s, both active at 12.915 s. The call runs
+90 s and ends explicitly. Both start on relay, then switch to P2P; media epoch
+stays 1. Mac keeps one receive-only physical peer, Poco none (same physical
+peer on both of its routes). Native receive-age maxima are 635/374 ms. There
+is no repeat of the previous capture's multi-second receive gap; however, this
+capture has no late P2P-to-relay fallback, so the complete previous final-gap
+scenario is not reproduced physically. The asymmetric PCM fixture proves the
+deterministic old-binding loss separately. Network variation prevents assigning
+every improvement in this capture solely to the fix.
+
+Completed native interruptions are one per endpoint, 284 ms on Mac and 245 ms
+on Poco; peak delay/jitter buffer 452/422 and 432/447 ms. All sampled direct
+cells match authenticated receipt (96/43), with maxima 311.7/262.3 ms and a
+16.6-ms clock bound. Local post-pre-send stages remain at most 4 ms. All 32
+new message rows arrive exactly once in order, observed in 7.352 s. Old rows
+remain complete; identities, history and ratchets are preserved.
+
+Two remaining problems are now narrower. At setup, Poco logs several early
+realtime offers rejected as unauthenticated/claimed. A later authenticated
+offer is dispatched at age 10,929 ms; initial rejection is correct and must
+not be relaxed. The next investigation is why the fast call path sends a form
+the recipient cannot authenticate, then waits for its valid path. During the
+late call, peer playout feedback remains 420/407 ms despite RTT 57/186 ms and
+jitter 9/5 ms. Video stays paused, target 1,000 bps, encoded frames zero. Actual
+encoded-video/audio/screen mixed quality remains unverified; investigate the
+playout measurement and guard before altering policy.
+
+Both apps, UID/package processes, helpers, remote probes and ADB forwarding are
+verified gone. The Mac runtime log is archived separately and its strict seal
+verifies again. The owned xveil-media builder VM is stopped; the user's default
+Colima VM and default Docker context remain unchanged. Private evidence:
+build-screen/native-policy/installed2279, native-verification2279-packaged,
+neteq2279-result/stage-audit/playout/cleanup and message-phase2279. The full
+audio-priority goal stays active; this is not a full audio-quality completion.
