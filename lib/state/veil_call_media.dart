@@ -435,6 +435,10 @@ class VeilCallMediaController implements CallMediaController {
   CallTransportKind? _chanTransport;
   bool _handoverPacketSizeReady = false;
   final Map<int, Timer> _retiringChannels = {};
+  // Incoming and outgoing routes are independent. Keep one authenticated
+  // receive binding per older physical peer until that peer is replaced or
+  // the call ends, even when our outgoing route has already changed.
+  final Map<String, int> _receiveOnlyChannels = {};
   int _routeHandovers = 0;
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
   AndroidNativeCallCamera? _androidNativeCam; // zero-copy call camera path
@@ -634,6 +638,7 @@ class VeilCallMediaController implements CallMediaController {
         'running': true,
         'media_epoch': _mediaEpoch,
         'route_handovers': _routeHandovers,
+        'receive_only_channels': _receiveOnlyChannels.length,
         'media_repairing': _routeRepairing,
         'audio_rx_supported': _audioReceiveActivity.supported,
         'peer_audio_playout_ms': _peerAudioPlayout.delayMs(DateTime.now()),
@@ -812,8 +817,9 @@ class VeilCallMediaController implements CallMediaController {
     VeilMediaEngine engine,
   ) async {
     final previous = _chan;
+    final previousPeer = _chanPeer;
     final epoch = _mediaEpoch;
-    if (previous == null) return false;
+    if (previous == null || previousPeer == null) return false;
     int? candidate;
     var committed = false;
     try {
@@ -858,7 +864,13 @@ class VeilCallMediaController implements CallMediaController {
               0) {
         return false;
       }
-      if (!engine.rebindChannel(candidate)) return false;
+      final keepReceiver = engine.supportsReceiveChannelOverlap;
+      if (!engine.rebindChannel(
+        candidate,
+        retainPreviousReceiver: keepReceiver,
+      )) {
+        return false;
+      }
       committed = true;
       // Nothing below awaits: hangup cannot interleave between native commit
       // and host ownership. Keep the latest camera/mic/screen intent and all
@@ -876,18 +888,27 @@ class VeilCallMediaController implements CallMediaController {
       _routeHandovers++;
       _lastNativeRxCount = 0;
       _engineRxStalledSince = null;
-      // Already admitted old-channel packets keep their existing 200-ms local
-      // deadline. Give its pump that window before closing, without retaining
-      // its receive callback or putting packet bytes through Dart.
-      _retiringChannels[previous] = Timer(
-        const Duration(milliseconds: 200),
-        () {
-          _retiringChannels.remove(previous);
-          try {
-            _transport.closeMediaChannel(previous);
-          } catch (_) {}
-        },
-      );
+      if (keepReceiver) {
+        final replaced = _receiveOnlyChannels.remove(opened.peer.hex);
+        if (replaced != null) _retireReceiveChannel(engine, replaced);
+        if (previousPeer != opened.peer.hex) {
+          _receiveOnlyChannels[previousPeer] = previous;
+        } else {
+          _retireReceiveChannel(engine, previous);
+        }
+      } else {
+        // Compatibility for older engines without inbound overlap. Already
+        // queued packets retain their existing 200-ms local deadline.
+        _retiringChannels[previous] = Timer(
+          const Duration(milliseconds: 200),
+          () {
+            _retiringChannels.remove(previous);
+            try {
+              _transport.closeMediaChannel(previous);
+            } catch (_) {}
+          },
+        );
+      }
       devLog(
         () => 'xVeil[call-media]: route handover ${target.name} kept engine',
       );
@@ -900,6 +921,29 @@ class VeilCallMediaController implements CallMediaController {
         _transport.closeMediaChannel(candidate);
       }
     }
+  }
+
+  void _retireReceiveChannel(VeilMediaEngine engine, int channel) {
+    try {
+      engine.releaseReceiveChannel(channel);
+    } catch (_) {}
+    // Keep already-admitted outgoing packets within their original local
+    // deadline, even when the older receive binding has been superseded.
+    _retiringChannels[channel] = Timer(const Duration(milliseconds: 200), () {
+      _retiringChannels.remove(channel);
+      try {
+        _transport.closeMediaChannel(channel);
+      } catch (_) {}
+    });
+  }
+
+  void _closeReceiveOnlyChannel(VeilMediaEngine engine, int channel) {
+    try {
+      engine.releaseReceiveChannel(channel);
+    } catch (_) {}
+    try {
+      _transport.closeMediaChannel(channel);
+    } catch (_) {}
   }
 
   @override
@@ -1604,6 +1648,17 @@ class VeilCallMediaController implements CallMediaController {
       } catch (_) {}
     }
     _retiringChannels.clear();
+    for (final channel in _receiveOnlyChannels.values) {
+      final engine = _engine;
+      if (engine != null) {
+        _closeReceiveOnlyChannel(engine, channel);
+      } else {
+        try {
+          _transport.closeMediaChannel(channel);
+        } catch (_) {}
+      }
+    }
+    _receiveOnlyChannels.clear();
     // A MediaProjection grant is scoped to the live call, not to one native
     // route. Detach the retiring engine synchronously before teardown awaits;
     // keep the consented source only for an internal rebuild of this call.

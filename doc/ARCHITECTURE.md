@@ -6299,3 +6299,69 @@ direct payload and oversized declared length. All 137 enabled veil-ipc unit
 tests pass; five existing tests remain ignored. Existing source authorization,
 rate limiting, queues, priority and network encoding are unchanged. A fresh
 physical trace is still needed; this is instrumentation, not an audio fix.
+
+### Cycle 2278: physical local admission is fast; asymmetric receive loss found
+
+Fresh SDK/host 0.13.84+2278 is installed in place on Poco with the verified
+production signature and matching installed APK bytes. Native media remains
+the verified 2277 build; trace source hashes are recorded and tracked sources
+were clean when packaging. Ringing is observed at 4.132 s, both endpoints active
+at 5.502 s. The call runs for 90 s and ends explicitly. All 32 new rows arrive
+exactly once in order, observed in 7.413 s. No identities/history are reset.
+
+The new samples locate local post-pre-send admission: direct SDK-to-socket
+maxima are 3/1 ms (Mac/Poco), socket-to-daemon 1/2 ms, daemon-to-handler 1/1 ms,
+and handler-to-queue 1/1 ms. Relay local stages are likewise at most 1 ms.
+Sparse matched direct-send-to-authenticated-receive maxima are 263.1/469.9 ms,
+relay 439.1/224.9 ms, with a 23.1-ms clock-probe bound. Unmatched direct cells
+are counted separately (four/six); successful sample latency cannot rule out
+loss. These stages begin after the native sender lock, not at mic capture.
+
+Both endpoints start on relay and switch to P2P around observation +24.7 s.
+Mac later returns to relay around +85.8 s; Poco still sends directly. Mac audio
+receive count stops advancing and its receive age reaches 9,813 ms. Poco direct
+samples at +88.3, +90.8, +93.0 and +95.5 s are locally queued but lack a Mac
+authenticated-receive sample. An earlier no-channel sample shows a previously
+authenticated incoming peer no longer present in the receive registry.
+Source inspection exposes a deterministic defect: local outbound rebinding
+unregisters the prior inbound peer immediately, although directions may use
+different physical peer addresses/routes. The physical final gap is consistent
+with this defect; logs do not isolate every lost network packet's cause.
+
+Mac records two completed interruptions totalling 3,839 ms; Poco six totalling
+5,066 ms. Receive age can outlast a completed-interruption counter. Peak
+delay/jitter buffer are 479/404 and 478/618 ms. Mac keeps media epoch 1 across
+two handovers, Poco across one. Video encoding stays zero under the audio guard,
+so simultaneous encoded-video quality remains unverified. Apps, UID processes,
+helpers/probes and forwarding are verified gone; the separately archived Mac
+runtime log is removed from the bundle and its strict seal verifies again.
+Evidence: neteq2278-result/stage-audit/playout/cleanup, source hashes and manifests.
+
+### Cycle 2279: preserve independently routed incoming media
+
+An actual Opus/NetEq fixture moves the receiver's local channel two seconds
+before its sending peer, twice. The old implementation renders only 631/1000
+nonsilent PCM ticks and fails the unchanged >950 gate, with timer lateness
+4.94 ms. This reproduces route-induced silence without network congestion.
+
+An additive native rebind operation now retains the previous authenticated
+receive binding while switching only outbound transport. The host keeps one
+receive-only handle per previous physical peer, releases a superseded binding
+through the SDK owner/quiescence barrier, and fences all bindings at call end.
+The retained handles use the same pinned logical call/peer/key material; media
+still opens against its own cipher. Older engines keep their existing path.
+Already-queued packets retain their 200-ms local deadline before superseded
+handles close; the receive-only old route remains usable for the peer's
+independently chosen direction, including after the new route receives data.
+
+The fixed fixture renders 993/1000 nonsilent ticks, with no added concealed
+samples/interruptions and all tone markers within the unchanged 180-ms gate.
+It also rejects a bad candidate and attempts to release the active outbound
+binding, accepts idempotent release, and tears down with an unacknowledged old
+incoming leg still present. Callback ownership is empty afterwards. Existing
+DTX/jitter/symmetric handover and native direct/group plane isolation pass;
+164 selected host call/route/seal tests pass, targeted analysis is clean.
+Evidence: asymmetric2279-before-metrics/after-metrics, playout/planes/host2279
+receive-overlap logs. This fix still needs fresh native packaging and a real
+Poco/Mac run. Network loss, first-offer delay and mixed encoded-media quality
+remain unresolved; the full goal stays active.
