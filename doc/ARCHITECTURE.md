@@ -4191,3 +4191,92 @@ but archive completion, media linking and phone deployment are still pending.
 Private follow-up stand helpers prepare a 128 KiB checksum-verified file transfer
 alongside phone screen sharing and audio; that combined physical case has not
 yet run. No new acoustic or Android native-deployment success is claimed.
+
+
+Android native deployment and screen shutdown race (2237–2241)
+-------------------------------------------------------------
+
+The pinned Android build completes all 4340 steps and links an AArch64 ELF.
+Its SHA-256 before AGP processing is
+a0fa09ebc0f7719a5f634d26d5f2229aa55f14bd92d4acb7ebd51672e93b8b42.
+The Dart export check passes: 94 exports and 94 lookups. DT_NEEDED includes
+libveilclient_ffi.so; all three media imports resolve against the packaged SDK,
+including veil_media_send_video_control_datagram. Independent llvm-strip
+--strip-unneeded reproduces AGP's packaged artifact exactly, SHA-256
+442b95dfbd591f95e9c5b17cc832126e1813e6a721a914a295efb5e9376b2deb.
+Thus the audio startup cap and video RTCP source separation are now deployed
+on Poco. SDK ABI remains 9addb7381e09bc3545d0484a90399ba5855e7805e1b68ea03c0c6d64ab7f3136.
+The isolated builder VM is stopped before physical measurements.
+
+Poco receives install-r updates with the original signer. Full installed APK
+pulls match the signed artifacts: 2237 SHA-256
+255b2b337fc54e74316484a26fcf3eb8a21a468d4f9302349c5f0d4d6a390b15;
+2241 SHA-256 fc2be2e9ab8adf6cfa7a08fe935b404e9f5eb9f54c73f0935122b1e3c784ec70.
+Identity/history are retained; Mac uses the existing 2236 stand build.
+Relay scheduling and wire metadata receive no media roles or user priority.
+
+Physical native-android2237 lasts 115 seconds after both endpoints become
+active. Measurements are aligned to that event, rather than call placement;
+the ringing delay is 16.987 seconds and both-active delay 18.800 seconds.
+Media epoch 3 remains stable in each measurement window:
+
+| Window after active | New interruptions Mac/Poco | Added interruption duration Mac/Poco | Maximum native RX age Mac/Poco |
+| --- | --- | --- | --- |
+| Voice 16–45 s | 4 / 5 | 5130 / 6552 ms | 3470 / 3301 ms |
+| Camera 50–80 s | 0 / 0 | 0 / 0 ms | 664 / 387 ms |
+| Voice 85–115 s | 2 / 6 | 1440 / 5172 ms | 2112 / 1803 ms |
+
+The camera window receives 22 decoded frames at Mac. Video RTCP advances on
+both native endpoints: 319 packets at Mac and 59 at Poco in that window.
+Audio RTP admission maxima are 0 ms / 2 ms. Independent ICMP maxima are
+55.473 ms / 1527 ms. Primary QUIC expiry counters reach 316 / 106 and residual
+window transmission counters 46 / 26. These are transport/counter observations,
+not a controlled before/after comparison or an acoustic quality guarantee.
+Voice pauses remain unresolved.
+
+The first file case (2238) starts an audio-only call, so screen enabling is a
+no-op by the existing video-call guard. Its screen result is excluded. The
+128 KiB random file is nonetheless downloaded in 2.4 seconds with matching
+SHA-256, and the call lasts 170 seconds. In 2239 the video call's direct media
+path falls silent during projection consent; relay recovery cancels the pending
+capture as the old media channel closes. This is not counted as a successful
+screen-load case.
+
+A repeat without restarting applications (2240) rings in 0.376 seconds and is
+active in 1.809 seconds. Single-app projection of xVeil starts; the concurrent
+128 KiB download takes about 3 seconds and its SHA-256 matches. Mac receives
+66 decoded screen frames in the measured 42–100-second interval. In that
+interval Mac adds no audio interruptions; Poco adds two, and native RX ages
+reach 898 / 873 ms. At screen-off around 100 seconds, the Android process
+crashes with IllegalStateException: Image is already closed, from
+ScreenCaptureService.rgbaToI420 → onImageAvailable. The call consequently loses
+its Poco endpoint. This run proves screen/file delivery, not successful shutdown.
+
+The shutdown defect is a concrete ImageReader lifetime race: service teardown
+can close an acquired Image while the worker reads its planes. Conversion,
+Image.close and reader shutdown now share a service-local monitor. Late image
+callbacks check both shutdown and reader identity before acquiring anything;
+the shutdown flag is visible across threads. No audio or network lock is involved.
+APK 2241 compiles this fix. The repeat rings in 0.393 seconds, is active in
+1.726 seconds, and continues for 140 seconds until deliberate hangup. Screen
+capture starts at about 29 seconds; the 128 KiB file download takes 14.3 seconds
+with matching SHA-256. Screen-off at 100.065 seconds returns screenOn=false.
+Both endpoints remain active afterwards, through hangup. The phone log has no
+screen-capture fatal exception or closed-Image error. The same previously
+crashing lifecycle thus passes with the fix on the physical phone.
+
+This run still fails the audio-quality objective. In the 40–100-second window,
+Mac/Poco add 10 / 6 interruptions with 8431 / 10229 ms summed duration; native
+RX ages reach 4725 / 4456 ms. Mac decodes 62 screen frames, with a maximum
+inter-frame gap of 10283 ms. Audio admission maxima remain 0 / 4 ms and media
+epoch 3 is stable. ICMP maxima are 54.083 / 1568 ms; primary QUIC expiry counters
+reach 423 / 329, with PTO counts reaching 3. Screen shutdown is fixed, but
+cellular media pauses and cold signaling/recovery remain open. The shorter
+file transfer and cleaner camera window in other runs are not causal evidence
+of a general audio-quality improvement.
+
+Every physical stand is closed after collection. Final cleanup verifies the
+whole Android app UID, owned Mac/log/probe processes, remote ping and ADB
+forward are gone. The private builder VM remains stopped. Root owns the screen
+lifetime fix and report; Veil and hidden-volume have no new source changes in
+this cycle. No push, signing of commits, tag or release is performed.

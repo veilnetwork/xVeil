@@ -38,9 +38,12 @@ class ScreenCaptureService : Service() {
     private var reader: ImageReader? = null
     private var workerThread: HandlerThread? = null
     private var worker: Handler? = null
+    // ImageReader.close() also invalidates every acquired Image. Keep its
+    // lifetime together with conversion, including shutdown from the main thread.
+    private val imageLock = Any()
     private val frameInFlight = AtomicBoolean(false)
     private var lastFrameAtNs = 0L
-    private var shuttingDown = false
+    @Volatile private var shuttingDown = false
     private var stoppedEmitted = false
     private var firstImageLogged = false
     private var firstFrameLogged = false
@@ -128,38 +131,41 @@ class ScreenCaptureService : Service() {
     }
 
     private fun onImageAvailable(source: ImageReader) {
-        val image = try {
-            source.acquireLatestImage()
-        } catch (_: Exception) {
-            null
-        } ?: return
-        try {
-            if (!firstImageLogged) {
-                firstImageLogged = true
-                val plane = image.planes.firstOrNull()
-                XVeilLog.i(this, TAG) {
-                    "first image ${image.width}x${image.height} " +
-                        "pixelStride=${plane?.pixelStride} rowStride=${plane?.rowStride}"
+        synchronized(imageLock) {
+            if (shuttingDown || source !== reader) return
+            val image = try {
+                source.acquireLatestImage()
+            } catch (_: Exception) {
+                null
+            } ?: return
+            try {
+                if (!firstImageLogged) {
+                    firstImageLogged = true
+                    val plane = image.planes.firstOrNull()
+                    XVeilLog.i(this, TAG) {
+                        "first image ${image.width}x${image.height} " +
+                            "pixelStride=${plane?.pixelStride} rowStride=${plane?.rowStride}"
+                    }
                 }
+                val now = System.nanoTime()
+                if (now - lastFrameAtNs < FRAME_GAP_NS || !frameInFlight.compareAndSet(false, true)) {
+                    return
+                }
+                lastFrameAtNs = now
+                val frame = rgbaToI420(image)
+                if (frame == null) {
+                    XVeilLog.w(this, TAG) { "RGBA to I420 conversion rejected a frame" }
+                    frameInFlight.set(false)
+                    return
+                }
+                if (!firstFrameLogged) {
+                    firstFrameLogged = true
+                    XVeilLog.i(this, TAG) { "first I420 frame bytes=${frame.size}" }
+                }
+                ScreenCaptureBridge.emitFrame(frame) { frameInFlight.set(false) }
+            } finally {
+                image.close()
             }
-            val now = System.nanoTime()
-            if (now - lastFrameAtNs < FRAME_GAP_NS || !frameInFlight.compareAndSet(false, true)) {
-                return
-            }
-            lastFrameAtNs = now
-            val frame = rgbaToI420(image)
-            if (frame == null) {
-                XVeilLog.w(this, TAG) { "RGBA to I420 conversion rejected a frame" }
-                frameInFlight.set(false)
-                return
-            }
-            if (!firstFrameLogged) {
-                firstFrameLogged = true
-                XVeilLog.i(this, TAG) { "first I420 frame bytes=${frame.size}" }
-            }
-            ScreenCaptureBridge.emitFrame(frame) { frameInFlight.set(false) }
-        } finally {
-            image.close()
         }
     }
 
@@ -228,13 +234,15 @@ class ScreenCaptureService : Service() {
     }
 
     private fun shutdown(emitStopped: Boolean) {
-        if (shuttingDown) return
-        shuttingDown = true
-        reader?.setOnImageAvailableListener(null, null)
-        virtualDisplay?.release()
-        virtualDisplay = null
-        reader?.close()
-        reader = null
+        synchronized(imageLock) {
+            if (shuttingDown) return
+            shuttingDown = true
+            reader?.setOnImageAvailableListener(null, null)
+            virtualDisplay?.release()
+            virtualDisplay = null
+            reader?.close()
+            reader = null
+        }
         val activeProjection = projection
         projection = null
         if (activeProjection != null) {
