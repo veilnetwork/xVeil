@@ -6048,7 +6048,7 @@ history gap, nor prove the cause of either setup outcome.
 
 Maximum sampled native audio receive ages were 313/332 ms (Mac/Poco). These are
 freshness observations, not an acoustic delay measurement. Native playout stats
-still report two interruptions per endpoint, cumulative durations 803/503 ms;
+reach two interruptions in one engine epoch, cumulative durations 803/503 ms;
 audio delay maxima 510/407 ms and jitter-buffer maxima 560/424 ms. Poco sender
 payload/RTP maximum gaps reach 360 ms; Mac maxima are 28/26 ms. A capture pause,
 silence/DTX, dispatch stall and network loss have not been separated causally.
@@ -6072,3 +6072,34 @@ again. Distinct original stdout/logcat/devlogs for both runs survive; no history
 launch overwrote either capture. Private evidence: build-screen/build-mac/installed
 2275 manifests, physical/neteq/message-phase/cleanup captures for 2275 and 2275b,
 plus neteq2275b-summary and its raw samples. No commits were signed or pushed.
+
+### Cycle 2276: call-control dispatch must not await outbound device ACKs
+
+The ordinary inbound lane awaited a call frame's ACK before dedup and call FSM
+dispatch. An ACK to the authenticated sender device can need a slow outbound
+route/certificate lookup. Holding that send holds both the answer and subsequent
+ordinary-lane control events. Call signals now launch the same ACK asynchronously,
+as the dedicated realtime lane already does. Dedup is still recorded before the
+FSM callback; duplicates are ACKed without replaying the callback. Consent,
+provenance, group authorization and persistence-before-ACK gates are unchanged.
+No mailbox, wire priority or relay scheduling policy changes are introduced.
+
+A regression holds the device-addressed ACK unresolved, then delivers a duplicate
+answer and a route update. Original behavior times out at dispatch; the correction
+dispatches answer and route once, in order, while all three receipts still start
+their ACKs. All 40 realtime-call tests pass and targeted analysis reports no
+issues. The combined realtime/durable run has 74 passes and five durable silence
+policy failures. The same five failures occur with the original dispatch source;
+they are existing failures, not a green full-suite claim. Private logs are
+baseline2276-held-call-ack, baseline2276-durable, host2276-call-ack-final-tests,
+realtime2276-final and analyze2276-call-ack-final.
+
+Reanalysis of 2275b also corrects the interruption counts above: switching from
+relay to P2P recreates the native media engine and resets its counters around
+24.4 seconds. At least three interruptions per endpoint are observed across
+engine epochs, so a maximum counter of two is not a whole-call total. Most early
+playout gaps precede the message/camera load. Callee active is observed at 2.16 s
+versus caller active at 21.058 s; the outbound ACK dependency is now proven by a
+controlled test, but is not yet a proven cause of that physical delay. Physical
+verification of this change, acoustic delay and simultaneous encoded video
+remain outstanding; the full audio-priority goal remains active.
