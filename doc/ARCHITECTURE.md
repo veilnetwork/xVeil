@@ -4524,3 +4524,74 @@ audio quality and timely path recovery remain open.
 Both apps, the whole Android UID, owned Mac/log/probe processes, remote ping
 and the owned ADB forward are independently verified absent. No push, signed
 commit, tag or release is performed in this debugging cycle.
+
+
+Linked-device call control retains the identity conversation (2247)
+-----------------------------------------------------------------
+
+A subsequent 2246 audio-only run establishes the same call on both ends at
+1.139 s (ring 0.388 s). It initially uses relay, then Mac upgrades to P2P at
+placement +4.828 s while Poco stays on relay; Mac returns to relay at +15.852 s.
+The phone keeps announcing direct readiness, but does not receive Mac's later
+readiness/health control addressed to its physical device id. Its native trace
+rejects those sealed kind-1 frames: no ratchet session for that conversation,
+with sealed-for naming the physical device. An initial control delivery and a
+successful local live send are not proof of subsequent peer acceptance.
+
+CallService now sends exact-dialog controls through the saved contact identity
+after a forked answer. Media, native admission checks and the accepted peer
+remain pinned to the answering device. Offers and sibling fan-out retain their
+original addresses; onBehalfOf fan-out is not remapped. Identity routing also
+retains MessagingService's accepted-contact gate and certificate/ratchet lane.
+No mailbox, relay role field, priority rule or authentication bypass is added.
+This avoids using a device conversation for identity control; the separate
+crossed-init ratchet defect is not claimed fixed.
+
+169 selected call-service and realtime-delivery tests pass; analysis passes.
+The forked-answer regression checks identity destinations for direct readiness,
+capture health and the eventual end, while admission stays device-specific.
+Reverting the destination to the physical peer makes the regression fail.
+
+During the preceding run the screen is requested off at active +40.55 s and
+on at +100.68 s. Android's device-idle states remain ACTIVE throughout and the
+veil:daemon CPU wake lock is present in 33/34 power snapshots (the first is
+before call startup). Multi-second receive gaps also occur while Awake before
+the sleep phase, so this run does not implicate Doze or establish a causal
+screen effect. Poco ping reaches 2537 ms, Mac 53.488 ms; the cellular default
+network remains unchanged. Both apps and their full owned process sets,
+remote ping and ADB forward are independently verified gone after collection.
+
+
+Both platforms then run 0.13.84+2247 with the new control helper's actual
+source bytes present in their Dart kernels. Android's full installed APK
+matches the signed artifact (original signer), SHA-256:
+591fce0a7d6b56f4eca13cc2bed8d3419f52f327ee7dfbc921e5fbf563ff9dc7.
+Native SDK/media/ABI are the verified 2246 artifacts. Mac's bundle seal passes;
+its old stand debug log is archived before rebuilding. A preparatory endpoint
+exchange API times out, but both APIs remain responsive; that preparation is
+not counted as successful. The subsequent call rings at 0.419 s, both endpoints
+become active at 4.375 s with the same call id, and remain on P2P epoch 1 for
+180.360 s. Fresh reciprocal control heartbeats now reach both endpoints.
+This run verifies control delivery after rebinding; it does not reproduce the
+preceding cold relay-to-P2P transition and is not proof of that race's removal.
+
+Voice-only windows at active 15-55 and 125-175 s add zero reported audio
+interruptions on either endpoint. Cameras are requested on at +62.936 s and
+off around +110 s. During 70-105 s Mac adds one 200-ms interruption and Poco
+adds nine totalling 6085 ms. Mac sends 16 additional video frames and Poco
+decodes seven; Poco sends none. Local audio admission stays <=4 ms, but total
+estimated audio delay reaches 529/671 ms. Phone ping peaks at 1524 ms, Mac at
+52.759 ms. Thus stable signaling is improved; satisfactory mixed-media audio
+quality and healthy bidirectional video are still open.
+
+The actual pinned WebRTC source confirms delay_estimate_ms includes FILTERED
+NetEq buffer level plus future sync-buffer samples and ADM playout delay;
+jitter_buffer_ms is the instantaneous buffer size. Their discrepancy alone
+cannot establish a hardware playback backlog. A useful next check is the
+initial video-enable/capture gate: new video must not burst before existing
+poor or unknown audio is evaluated. Controlled audio playout measurements are
+also needed before changing NetEq based on silence/DTX telemetry alone.
+
+Both apps, whole Android UID including package processes, owned helpers,
+remote ping and the ADB forward are independently verified absent after this
+run. No push, signed commit, tag or release is performed.
