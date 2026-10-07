@@ -34,7 +34,7 @@ void main() {
         final source = File(path).readAsStringSync();
         expect(
           source,
-          contains('selfViewMirrored(screenSharing:'),
+          matches(RegExp(r'selfViewMirrored\(\s*screenSharing:')),
           reason: '$path mirrors (or does not) without asking, so a screen '
               'share is flipped or a face is not',
         );
