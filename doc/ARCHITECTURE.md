@@ -5166,8 +5166,35 @@ of recovery, and receive at least 140 post-outage packets per direction with
 no duplicates. Saturated incoming children leave outgoing capacity available;
 actual close releases capacity and replacement exporter keys differ.
 
-Fresh Android and Mac SDKs and stand apps are built as 0.13.84+2264. Physical
-installation and call measurements are recorded separately after verification.
-These transport checks do not establish low acoustic latency on cellular
-networks; the previous jitter-buffer and authenticated signaling findings
-remain open.
+Fresh Android and Mac SDKs and stand apps are built as 0.13.84+2264. The
+installed Poco APK is fully byte-verified with SHA-256
+6bdab8fed3402fac9146af854f4a6d5913a33f3616e2d93ef6e60a49927fc74a.
+Independent AGP stripping reproduces the packaged SDK, media remains the
+production 2258 implementation, and bundled native dependencies pass the
+packaging check. Mac code sections, kernel version and bundle seal match.
+
+In the 180-second Mac-to-cellular-Poco audio call, ringing takes 0.397 seconds
+and both endpoints are active by 1.313 seconds. Microphones stay on and cameras
+stay off. A 2-MiB file starts downloading at active +50.483 seconds, finishes
+at +99.964 and passes a full SHA-256 comparison. Both endpoints move to P2P
+around +4.587, then to relay at +93.662/+95.553 after a prolonged media gap.
+
+This physical stand does not establish good voice quality. Even before the
+file starts, both endpoints accumulate ten observed decoded interruptions,
+with accepted audio age reaching 1775/1800 ms. During the file, age reaches
+5541/6981 ms and observed interruption deltas are 16/14 across separate media
+epochs. Counter resets are segmented by epoch, never subtracted across rebuilds.
+After the file, interruptions continue (22/18 observed increments), with
+playout medians 256.5/245.5 ms. Local RTP admission maxima remain 0/1 ms.
+External ICMP reaches 1514 ms on Poco before the file and 1504/1402 ms during
+and after it, versus Mac maxima 130.570/96.990/152.617 ms. This corroborates
+cellular instability but does not explain every peer-path or decoded-audio
+gap; ICMP is a different destination. File contention and receive-buffer
+behavior still require investigation. Cold authenticated offer delivery is
+not reproduced in this warm stand and is not declared fixed.
+
+Own applications, the full phone UID/package, logcat/helper/ping processes and
+ADB forward are verified absent after the stand. The Mac runtime log is
+archived outside the bundle and its seal is verified again. Poco remains
+available with the verified 2264 build installed; identity/history are intact.
+No push, tag or release is performed.
