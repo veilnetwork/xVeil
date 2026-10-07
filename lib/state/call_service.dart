@@ -214,6 +214,10 @@ abstract class CallMediaController {
   CallAudioPlayoutFeedback? get audioPlayoutFeedback => null;
   void observePeerAudioPlayout(CallAudioPlayoutFeedback feedback) {}
 
+  /// Accepted capture posture, after the call/peer and timestamp checks.
+  /// Intentional microphone silence must not be treated as a network outage.
+  void observePeerAudioCapture(bool enabled) {}
+
   /// Rebuild/refresh the current outbound route after the peer reports
   /// end-to-end media silence. Implementations must preserve the negotiated
   /// route kind, be idempotent/rate-limited, and return whether media is usable.
@@ -1315,6 +1319,7 @@ class CallService {
       }
       return; // unchanged — every heartbeat must not churn the UI
     }
+    _media?.observePeerAudioCapture(capture.audio);
     _set(c.copyWith(peerCapture: capture, peerCaptureAtMs: at));
   }
 
