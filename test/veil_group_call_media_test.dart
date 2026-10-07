@@ -408,8 +408,8 @@ void main() {
         clock.elapse(const Duration(seconds: 48));
         expect(
           engine.pauses.last,
-          isFalse,
-          reason: 'never-received audio is unknown, not a fabricated outage',
+          isTrue,
+          reason: 'unknown expected audio pauses video without claiming outage',
         );
         expect(
           engine.targets.last.maxBitrateKbps,
@@ -587,6 +587,75 @@ void main() {
     });
   });
 
+  test('a new audio peer pauses live video before joining its fanout', () {
+    fakeAsync((clock) {
+      final self = _id(1), alice = _id(2), bob = _id(3);
+      final engine = _FakeEngine()
+        ..stats = {
+          'audio_rx_native_age_supported': 1,
+          'worker_stalled': 0,
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'audio_receivers': {
+            alice.hex: {'audio_rx_pkts': 100, 'audio_rx_native_age_ms': 100},
+          },
+        };
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      controller.start(_call(self, [alice], video: true));
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 48));
+      expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+      expect(engine.pauses.last, isFalse);
+      controller.update(_call(self, [alice, bob], video: true));
+      clock.flushMicrotasks();
+      expect(
+        engine.peerAddPauses.last,
+        isTrue,
+        reason: 'pause must precede the first frame sent to a new peer',
+      );
+      expect(engine.cameraStarted, 1);
+      clock.elapse(const Duration(seconds: 20));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason: 'Alice cannot establish incoming audio health for Bob',
+      );
+      engine.stats = {
+        ...engine.stats,
+        'audio_feedback_reports': 2,
+        'audio_receivers': {
+          alice.hex: {'audio_rx_pkts': 200, 'audio_rx_native_age_ms': 100},
+          bob.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 100},
+        },
+      };
+      clock.elapse(const Duration(seconds: 11));
+      expect(engine.pauses.last, isTrue);
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.pauses.last, isFalse);
+      expect(engine.cameraStarted, 1);
+      engine.throwStats = true;
+      clock.elapse(const Duration(seconds: 1));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason: 'a worker failure cannot preserve the old video budget',
+      );
+      engine.throwStats = false;
+      clock.elapse(const Duration(seconds: 11));
+      expect(engine.pauses.last, isTrue);
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.pauses.last, isFalse);
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
   test('group playout recovery requires every capable receiver', () {
     fakeAsync((clock) {
       final self = _id(1);
@@ -608,7 +677,7 @@ void main() {
         'audio_playout_ms': 140,
       };
       clock.elapse(const Duration(seconds: 60));
-      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
+      expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
       engine.stats = {...engine.stats, 'audio_playout_ms': 450};
       clock.elapse(const Duration(seconds: 8));
       expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
@@ -633,9 +702,11 @@ void main() {
         'audio_playout_ms': -1,
       };
       clock.elapse(const Duration(seconds: 8));
-      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
+      expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
       controller.setMicMuted(true);
       clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.pauses.last, isFalse);
       clock.elapse(const Duration(seconds: 48));
       expect(
         engine.targets.last,
@@ -1258,6 +1329,7 @@ class _FakeEngine implements GroupAudioEngine {
   }
 
   final List<NodeId> added = [];
+  final List<bool?> peerAddPauses = [];
   final List<NodeId> removed = [];
   final Map<String, int> rx = {};
   int started = 0;
@@ -1289,6 +1361,7 @@ class _FakeEngine implements GroupAudioEngine {
 
   @override
   bool addPeer({required int channel, required NodeId peer}) {
+    peerAddPauses.add(pauses.isEmpty ? null : pauses.last);
     added.add(peer);
     return true;
   }
