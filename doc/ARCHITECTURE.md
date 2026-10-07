@@ -5046,3 +5046,34 @@ call's full latency. It does establish severe phone network delays without
 xVeil, rather than attributing those delays to media/file queue contention.
 Own host/remote pings are verified stopped and the phone app remains absent.
 The normal call-quality and separate screen/file-connection work remain open.
+
+Recoverable DATA source separation (2261)
+---------------------------------------
+
+The screen/file sharing identified above is corrected. Recoverable anonymous
+file DATA now uses a fifth endpoint-only queue and its own lazy authenticated
+QUIC source connection/congestion controller. Audio, video, screen and
+recoverable DATA have distinct source connections. The aggregate queue cap
+is unchanged; each lossy source retains its existing bounded depth and expiry.
+Audio ACK/PTO/RTT/deadline pressure also limits this new file source through
+the existing sparse secondary recovery policy.
+
+The selector is carried only by an IPC header hint. An older local daemon sees
+BACKGROUND, while the new daemon resolves the separate DATA source. The
+two-bit network priority and relay framing remain unchanged; relays receive
+neither a media role nor a new priority. No exported native function signature
+is added. Reliable file controls retain the ordinary reliable lane.
+
+The initial regression fails on the old implementation: file DATA consumes the
+screen's bounded queue and evicts its packet. After the fix, 1618 tests pass
+across veil-session, veil-proto, veil-ipc, veilclient and veilclient-ffi (12
+existing tests remain ignored). A real four-source QUIC test proves distinct
+exporter bindings and continued audio/video/file delivery after closing the
+screen connection. A primary ACK blackout restricts file DATA without blocking
+audio or neutral control. IPC compatibility/body preservation and neutral
+relay framing tests pass; the native relay file-loss/ARQ regression passes.
+
+These checks establish transport/source separation, not acoustic call quality
+on the cellular phone. Fresh 2261 application builds and physical verification
+are still required; the prior installed phone build is 2258. The severe
+external delays observed in the no-app control remain a separate limitation.
