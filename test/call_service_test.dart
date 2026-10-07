@@ -1556,6 +1556,135 @@ void main() {
       },
     );
 
+    for (final mode in [
+      'stopped',
+      'flowing',
+      'muted',
+      'unknown capture',
+      'legacy engine',
+      'startup',
+      'new session',
+      'unmute',
+      'repairing',
+      'peer anonymous',
+    ]) {
+      test(
+        'established direct audio $mode is checked independently of parent admission',
+        () {
+          fakeAsync((async) {
+            final fake = _FakeMessaging();
+            final media = _FakeMedia()
+              ..liveDirectAdmission = true
+              ..audioTelemetry = mode != 'legacy engine';
+            final svc = CallService(
+              fake,
+              now: () => clock.now(),
+              media: media,
+              localAllowsP2P: (_) async => true,
+              peerReachableForP2P: (_) async => true,
+            )..start();
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'independent-audio',
+                type: CallSignalType.offer,
+                media: CallMedia(audio: true, video: true),
+                posture: mode == 'peer anonymous'
+                    ? CallPosture.anonymous
+                    : CallPosture.direct,
+                transport: const CallTransportProposal(CallTransportKind.p2p),
+              ),
+            );
+            svc.accept();
+            async.flushMicrotasks();
+            expect(
+              svc.current?.transport,
+              mode == 'peer anonymous'
+                  ? CallTransportKind.onion
+                  : CallTransportKind.p2p,
+            );
+            media.audioRxAt = mode == 'startup' ? null : clock.now();
+            media.receiveRepairing = mode == 'repairing';
+            void capture(bool audio) => fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'independent-audio',
+                type: CallSignalType.health,
+                capture: CallMedia(audio: audio, video: true),
+                sentAtMs: clock.now().millisecondsSinceEpoch,
+              ),
+            );
+            if (mode != 'unknown capture') {
+              capture(mode != 'muted' && mode != 'unmute');
+            }
+            fake.sent.clear();
+            for (var i = 0; i < 8; i++) {
+              media.rxAt = clock.now(); // RTCP/video and the parent stay live.
+              if (mode == 'flowing') media.audioRxAt = clock.now();
+              if (mode == 'new session' && i == 1) {
+                media.receiveStartedAt = clock.now();
+              }
+              if (mode == 'unmute' && i == 2) capture(true);
+              async.elapse(const Duration(milliseconds: 500));
+              async.flushMicrotasks();
+              if (i < 5) {
+                expect(
+                  media.switches,
+                  isEmpty,
+                  reason: 'honor audio silence grace',
+                );
+              }
+            }
+            expect(
+              media.switches,
+              mode == 'stopped' ? [CallTransportKind.relay] : isEmpty,
+            );
+            expect(svc.current?.status, CallStatus.active);
+            if (mode == 'stopped') {
+              expect(
+                media.liveAdmissionChecks,
+                isEmpty,
+                reason:
+                    'established audio delivery is stronger than parent eligibility',
+              );
+              expect(
+                fake.sent
+                    .where((s) => s.type == CallSignalType.transportInfo)
+                    .single
+                    .transport
+                    ?.kind,
+                CallTransportKind.relay,
+              );
+              // Fresh relay ingress and repeated old P2P readiness must not bounce
+              // this call back onto the failed media path.
+              for (var i = 0; i < 3; i++) {
+                media.rxAt = clock.now();
+                media.audioRxAt = clock.now();
+                fake.onCallSignal!(
+                  peer,
+                  const CallSignal(
+                    callId: 'independent-audio',
+                    type: CallSignalType.transportInfo,
+                    transport: CallTransportProposal(CallTransportKind.p2p),
+                  ),
+                );
+                async.elapse(kCallHeartbeatInterval);
+                async.flushMicrotasks();
+              }
+              expect(media.switches, [CallTransportKind.relay]);
+              expect(svc.current?.transport, CallTransportKind.relay);
+              expect(
+                fake.sent.where((s) => s.type == CallSignalType.end),
+                isEmpty,
+              );
+            }
+            svc.dispose();
+            async.flushMicrotasks();
+          });
+        },
+      );
+    }
+
     test('healthy and unknown direct admission retain the normal grace', () {
       for (final verdict in [true, null]) {
         fakeAsync((async) {

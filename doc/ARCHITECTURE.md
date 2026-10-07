@@ -5729,3 +5729,43 @@ remote probe removal, ADB-forward removal and Mac process checks passed.
 Runtime logs were moved outside the Mac bundle and its strict seal verified.
 Private evidence: neteq2271-summary/samples/result/cleanup, clock2271,
 message-phase2271, build/installed native manifests and Mac/Poco runtime logs.
+
+### Cycle 2272: recover established audio independently of parent admission
+
+Cycle 2271 was progress: source admission changed, encrypted delivery tests
+passed and the physical run narrowed the remaining outage. Current trees were
+clean and Poco was available before continuing.
+
+The 7.7-second Poco receive gap matches the Mac primary QUIC path: from about
+t69 it stopped receiving ACKs, UDP sends were limited to PTO probes, and queued
+datagrams expired. Replacement attempts at t70.75 and t73.77 timed out after
+3 seconds in the connect phase; an authenticated replacement at t77.71 resumed
+the primary. Event/timer queues did not stall. ACK-progress cancellation on
+the opposite endpoint was not the cause of this longest gap. This localizes
+the pause to primary transport delivery/recovery, not microphone intent or
+native audio production; it does not identify the underlying network loss.
+
+The call watchdog used parent direct-session admission as a prerequisite for
+early recovery. A healthy parent/control path cannot establish that a separate
+primary connection is delivering audio. Now, after the existing 3-second
+receive deadline, previously flowing audio may trigger the already permitted
+P2P-to-relay recovery without waiting for a negative parent query or for the
+peer's repair request. Both parties must be direct; authenticated peer capture
+must indicate audio on, audio receive telemetry must be available, and actual
+audio must have arrived in the current receive session after the current
+unmute/start boundary. New sessions and unmute without first audio retain
+the ordinary 10-second grace. Existing fallback suppresses further P2P
+upgrades in the same call and serializes route replacement.
+
+No relay priority, role disclosure, mailbox delivery, native transport timeout
+or QUIC congestion policy changed. The new policy gives missing established
+audio precedence over ongoing RTCP/video and parent eligibility. It is a
+recovery correction, not a claim that arbitrary cellular packet loss is fixed.
+
+The old implementation fails the new independent-audio test despite live
+parent admission and fresh video/RTCP. The updated call/route/audio activity/
+bitrate/playout suites pass 215 tests. They cover flowing and stopped audio,
+mute, unknown capture, legacy telemetry, startup, replacement-session grace,
+unmute, in-progress repair, anonymous peer policy and no bounce after recovery.
+Flutter analysis passes. Native SDK/media remain the verified production
+2271/2258 outputs; stand 2272 is rebuilt for the physical recovery test next.
