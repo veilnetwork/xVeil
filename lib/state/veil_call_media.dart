@@ -433,6 +433,9 @@ class VeilCallMediaController implements CallMediaController {
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
   CallTransportKind? _chanTransport;
+  bool _handoverPacketSizeReady = false;
+  final Map<int, Timer> _retiringChannels = {};
+  int _routeHandovers = 0;
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
   AndroidNativeCallCamera? _androidNativeCam; // zero-copy call camera path
   AndroidNativeCallVideoRenderer? _androidVideoRenderer;
@@ -630,6 +633,7 @@ class VeilCallMediaController implements CallMediaController {
         'transport': _chanTransport?.name,
         'running': true,
         'media_epoch': _mediaEpoch,
+        'route_handovers': _routeHandovers,
         'media_repairing': _routeRepairing,
         'audio_rx_supported': _audioReceiveActivity.supported,
         'peer_audio_playout_ms': _peerAudioPlayout.delayMs(DateTime.now()),
@@ -786,12 +790,116 @@ class VeilCallMediaController implements CallMediaController {
       () => _activeCall?.callId,
       () async {
         if (activeTransport == transport) return true;
+        final engine = _engine;
+        if (engine != null &&
+            engine.supportsChannelRebind &&
+            _handoverPacketSizeReady &&
+            (activeTransport == CallTransportKind.relay ||
+                activeTransport == CallTransportKind.p2p)) {
+          return _switchRoutePreservingEngine(call, transport, engine);
+        }
         await _stopSession(clearActiveCall: false);
         if (_activeCall?.callId != call.callId) return false;
         final ok = await start(_activeCall!.copyWith(transport: transport));
         return ok && activeTransport == transport;
       },
     );
+  }
+
+  Future<bool> _switchRoutePreservingEngine(
+    Call call,
+    CallTransportKind target,
+    VeilMediaEngine engine,
+  ) async {
+    final previous = _chan;
+    final epoch = _mediaEpoch;
+    if (previous == null) return false;
+    int? candidate;
+    var committed = false;
+    try {
+      var next = _activeCall!.copyWith(transport: target);
+      final device = next.peerDevice;
+      if (device != null && device != next.mediaIdentity) {
+        final admitted =
+            target == CallTransportKind.p2p &&
+            (await _transport
+                    .peerPnetStatus(device.bytes)
+                    .timeout(const Duration(seconds: 2)))
+                .admitted;
+        next = next.copyWith(
+          mediaRoutePeer: callMediaRoutePeer(next, sessionAdmitted: admitted),
+        );
+      }
+      final opened = await openSealedCallMediaChannel(
+        call: next,
+        opener: _transport,
+        localNodeId: (await _transport.peerFacingNodeId()).bytes,
+        resolveDirectPeerOnRetry: () async {
+          final admitted = (await _transport.peerPnetStatus(
+            (next.peerDevice ?? next.peer).bytes,
+          )).admitted;
+          return callMediaRoutePeer(next, sessionAdmitted: admitted);
+        },
+      );
+      if (opened == null) return false;
+      candidate = opened.channel;
+      final current = _activeCall;
+      if (_engine != engine ||
+          epoch != _mediaEpoch ||
+          current?.callId != call.callId ||
+          current?.mediaIdentity != next.mediaIdentity ||
+          current?.peerDevice != next.peerDevice ||
+          opened.transport != target) {
+        return false;
+      }
+      final relay = target == CallTransportKind.relay;
+      if (relay &&
+          _transport.setRelayMediaBatching(candidate, true, compact: true) !=
+              0) {
+        return false;
+      }
+      if (!engine.rebindChannel(candidate)) return false;
+      committed = true;
+      // Nothing below awaits: hangup cannot interleave between native commit
+      // and host ownership. Keep the latest camera/mic/screen intent and all
+      // receive counters, ADM, codec and playout state in the current engine.
+      _chan = candidate;
+      _chanPeer = opened.peer.hex;
+      _chanTransport = target;
+      _activeCall = current!.copyWith(
+        transport: target,
+        mediaRoutePeer: opened.peer,
+      );
+      _transportFallbackReason = opened.fallbackReason;
+      _mediaBatching = relay;
+      _compactRelayMedia = relay;
+      _routeHandovers++;
+      _lastNativeRxCount = 0;
+      _engineRxStalledSince = null;
+      // Already admitted old-channel packets keep their existing 200-ms local
+      // deadline. Give its pump that window before closing, without retaining
+      // its receive callback or putting packet bytes through Dart.
+      _retiringChannels[previous] = Timer(
+        const Duration(milliseconds: 200),
+        () {
+          _retiringChannels.remove(previous);
+          try {
+            _transport.closeMediaChannel(previous);
+          } catch (_) {}
+        },
+      );
+      devLog(
+        () => 'xVeil[call-media]: route handover ${target.name} kept engine',
+      );
+      return true;
+    } catch (error) {
+      devLog(() => 'xVeil[call-media]: route handover failed: $error');
+      return false;
+    } finally {
+      if (!committed && candidate != null) {
+        _transport.closeMediaChannel(candidate);
+      }
+    }
   }
 
   @override
@@ -1006,10 +1114,13 @@ class VeilCallMediaController implements CallMediaController {
     // cell inside one QUIC DATAGRAM instead of fragmenting video.
     _mediaBatching = false;
     _compactRelayMedia = false;
+    // Both non-onion routes can use the same fixed packet ceiling, allowing a
+    // live handover after codec configuration has frozen without recreating it.
+    _handoverPacketSizeReady =
+        transport != CallTransportKind.onion &&
+        engine.setMaxRtpPacketSize(_compactRelayRtpPacketSize);
     if (transport == CallTransportKind.relay) {
-      final packetSizeOk = engine.setMaxRtpPacketSize(
-        _compactRelayRtpPacketSize,
-      );
+      final packetSizeOk = _handoverPacketSizeReady;
       final batchingRc = _transport.setRelayMediaBatching(
         chan,
         true,
@@ -1079,7 +1190,11 @@ class VeilCallMediaController implements CallMediaController {
           );
         }
         final rx = (stats['rx_pkts'] as num?)?.toInt() ?? 0;
-        final nativeRx = _transport.mediaRecvCount(call.mediaPeer.bytes);
+        final currentCall = _activeCall;
+        if (currentCall?.callId != call.callId) return;
+        final nativeRx = _transport.mediaRecvCount(
+          currentCall!.mediaPeer.bytes,
+        );
         if (rx > _lastRxPkts) {
           _lastRxAt = DateTime.now();
           _engineRxStalledSince = null;
@@ -1481,6 +1596,14 @@ class VeilCallMediaController implements CallMediaController {
     bool clearMicrophoneState = true,
   }) async {
     _mediaEpoch++;
+    _handoverPacketSizeReady = false;
+    for (final entry in _retiringChannels.entries) {
+      entry.value.cancel();
+      try {
+        _transport.closeMediaChannel(entry.key);
+      } catch (_) {}
+    }
+    _retiringChannels.clear();
     // A MediaProjection grant is scoped to the live call, not to one native
     // route. Detach the retiring engine synchronously before teardown awaits;
     // keep the consented source only for an internal rebuild of this call.
@@ -1491,6 +1614,7 @@ class VeilCallMediaController implements CallMediaController {
         _androidScreen != null;
     _androidScreen?.rebindFrameSink(null);
     if (clearActiveCall) {
+      _routeHandovers = 0;
       _activeCall = null;
       _bitrateAdapter = null;
       if (clearMicrophoneState) {

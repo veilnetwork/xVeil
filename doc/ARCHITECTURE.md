@@ -6162,3 +6162,49 @@ native-policy, installed and build-mac 2276 manifests; neteq2276/2276b captures;
 message-phase2276b; neteq2276b-playout/summary; and both cleanup records.
 Source correction is committed unsigned as ed7185d6; nothing has been pushed.
 The full audio-priority goal remains active.
+
+### Cycle 2277: preserve the media engine across relay/P2P route handover
+
+Three receive-local NetEq smart-flushing experiments were rejected rather than
+deployed. The default retained a long PCM tail after a one-second arrival burst;
+a 120-ms threshold exceeded the 50-ms extra-concealment gate (2,485 extra samples),
+and a 240-ms threshold failed both recovery and concealment. Private traces are
+playout2277-smart-flush, smart-flush120 and smart-flush240. Experimental sources
+were archived privately, then restored exactly. Production remains at the
+30-packet capacity, fast acceleration, original flushing and uncapped target.
+
+Route changes previously destroyed the entire media engine, including ADM,
+Opus/NetEq, RTP sequence spaces and video streams. An additive native media ABI
+now rebinds the existing shim to a caller-owned candidate channel. Registration
+failure leaves the old channel active. The new callback is installed before
+outbound ownership moves atomically, then the old callback is cleared through
+the existing SDK owner/quiescence barrier. Calls, queues, RTP, receive buffers
+and capture devices are kept. No wire, identity, relay priority or crypto policy
+changes are made. Existing native engines without this optional symbol retain
+the previous host path.
+
+The host opens a sealed candidate for the same logical call and checks its
+actual route, device/identity and media epoch before committing synchronously.
+Current mic/camera/screen intent and receive state survive. Both non-onion
+routes use the same 1,000-byte RTP ceiling before codec configuration freezes;
+relay batching is configured on the candidate before binding. The retiring
+outbound pump gets its existing 200-ms local admission deadline; hangup cancels
+and closes all retiring handles. Receive telemetry now follows the current
+physical route peer rather than the peer captured by the original timer. A
+route_handovers diagnostic counts in-place transitions; the media epoch remains
+unchanged. Genuine local receive-worker repair still rebuilds its failed engine.
+
+Actual Opus/NetEq PCM fixtures pass silence/DTX and the unchanged injected-jitter
+recovery gates. The new ten-second fixture switches channels twice, rejects an
+unknown candidate and zero channel, verifies continuous RTP sequence numbers,
+monotonic receive counts, rendered markers within 180 ms over a 40-ms path,
+no added concealed samples/interruption counts, and cleared callbacks on teardown.
+The real native Call-plane fixture also passes after rebinding already-running
+audio/video: audio progresses with both video queues held, and separate feedback,
+group fanout, low-rate encoding and bounded telemetry still pass. Private logs:
+playout2277-handover, planes2277-handover. All 165 selected host call/route/seal
+tests pass, and targeted three-file analysis has no issues. No app profiles were
+opened by these fixtures; their binaries have exited. Fresh packaging and a
+physical call with preserved Poco/Mac identities remain required. Native jitter,
+first-offer delay and mixed encoded-video quality remain unresolved; the full
+audio-priority goal stays active.
