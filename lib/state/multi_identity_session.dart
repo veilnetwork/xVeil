@@ -20,6 +20,7 @@ import '../domain/chat.dart';
 import '../domain/p2p_policy.dart';
 import '../domain/roster.dart';
 import 'messaging.dart';
+import 'p2p_policy_controller.dart' show policyContactFor;
 import 'ratchet_persistence.dart' show ratchetPersistenceFor;
 import 'package:xveil/core/log.dart';
 
@@ -415,37 +416,44 @@ class MultiIdentitySession {
           rethrow;
         }
         _nodes[spec.label] = node;
-        _messaging[spec.label] =
-            MessagingService(
-                node.transport,
-                storage,
-                anonymous: spec.anonymous,
-                streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
-                streamRangeEnabled: xveilConfiguredStreamRangeEnabled(),
-                p2pStreamAllowed: (peer) async {
-                  final contact = await storage.getContact(peer);
-                  final global = p2pGlobalPolicyFromName(
-                    await storage.getSetting(kP2PGlobalPolicySettingKey),
-                  );
-                  return p2pPolicyAllows(
-                    global: global,
-                    override:
-                        contact?.p2pOverride ?? kDefaultContactP2POverride,
-                    contactKnown: contact != null,
-                    contactAccepted: contact?.status == ContactStatus.accepted,
-                    contactBlocked: contact?.status == ContactStatus.blocked,
-                    localAnonymous: spec.anonymous,
-                  );
-                },
-              )
-              ..sourceOpener =
-                  veilSourceOpener // DURABLE offers: re-open by path
-              // Per identity, over THIS identity's own storage and its own
-              // node. Sharing either would put one identity's chain keys in
-              // another's container, which is the whole thing separate spaces
-              // exist to prevent.
-              ..ratchet = ratchetPersistenceFor(node.stack, storage)
-              ..start();
+        late final MessagingService messaging;
+        messaging = MessagingService(
+          node.transport,
+          storage,
+          anonymous: spec.anonymous,
+          streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
+          streamRangeEnabled: xveilConfiguredStreamRangeEnabled(),
+          p2pStreamAllowed: (peer) async {
+            // A direct stream names the authenticated physical device.
+            // Resolve it only through THIS identity's proven mapping;
+            // the device itself is normally not a contact row.
+            final contact = await policyContactFor(
+              peer,
+              getContact: storage.getContact,
+              identityOfDevice: messaging.identityOfDevice,
+            );
+            final global = p2pGlobalPolicyFromName(
+              await storage.getSetting(kP2PGlobalPolicySettingKey),
+            );
+            return p2pPolicyAllows(
+              global: global,
+              override: contact?.p2pOverride ?? kDefaultContactP2POverride,
+              contactKnown: contact != null,
+              contactAccepted: contact?.status == ContactStatus.accepted,
+              contactBlocked: contact?.status == ContactStatus.blocked,
+              localAnonymous: spec.anonymous,
+            );
+          },
+        );
+        _messaging[spec.label] = messaging
+          ..sourceOpener =
+              veilSourceOpener // DURABLE offers: re-open by path
+          // Per identity, over THIS identity's own storage and its own
+          // node. Sharing either would put one identity's chain keys in
+          // another's container, which is the whole thing separate spaces
+          // exist to prevent.
+          ..ratchet = ratchetPersistenceFor(node.stack, storage)
+          ..start();
       } catch (_) {
         // Node didn't come up — keep the storage view so the UI shows history;
         // this identity just can't send/receive live until re-booted.
