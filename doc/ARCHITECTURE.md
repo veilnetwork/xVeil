@@ -4337,3 +4337,65 @@ independent ICMP maxima are 52.764 / 3012 ms. Primary datagram expiry counters
 reach 496 / 200. The local priority gap is fixed; audio quality and cold
 signaling remain unresolved, and no causal quality improvement is claimed.
 All stand applications, probes and the owned ADB forward are closed afterwards.
+
+
+Local QUIC scheduling is measured separately from path delay (2243)
+-----------------------------------------------------------------
+
+Quinn now records endpoint-to-connection protocol-event queue delay and timer
+lateness against each scheduled monotonic deadline. Last/maximum delays and
+counts of observations >= 100 ms are cumulative per connection. The existing
+local rt_trace admission snapshot exposes these six generic counters through
+veil-transport. Nothing new is transmitted; source roles, relay forwarding,
+congestion control and admission rules are unchanged.
+
+A real UDP/QUIC test blocks its current-thread runtime for 250 ms, checks that
+an expired timer reports the local stall, and verifies application datagram
+delivery afterwards. It passes against the vendored quinn-proto 0.11.15; the
+standalone Quinn lock names upstream 0.11.13, so this gate needs an explicit
+local patch and cargo update in its temporary test setup. The tracked standalone
+lock is restored after testing. The existing bounded-primary-recovery gate also
+passes. The Mac and Android production SDKs build successfully; ABI remains
+9addb738. Android's packaged SDK equals an independently stripped new artifact,
+all 94 native media exports resolve, and the installed APK equals the signed
+artifact (original signer retained). APK SHA-256:
+cd6c72214410a8efb35b6ec9bdca44889b772746e0c84466df1184fc422a1fa8.
+Mac's bundle seal and Dart version 0.13.84+2243 are verified. Early host build
+scripts waited in dyld_start during macOS provenance evaluation; the evaluation
+completed without changing system security policy.
+
+The physical Mac/Poco call rings at 0.400 s and is active at 1.609 s. Both use
+P2P and native media epoch 1 stays stable throughout 180 s until deliberate
+hangup. Poco's default network is CELLULAR. Cameras are disabled initially,
+enabled around active +60 s, and disabled around +110 s. During active 70–105 s,
+both endpoints receive 18 additional decoded video frames; Mac/Poco add 1/0
+NetEQ interruptions (150/0 ms), with native receive ages <= 447/374 ms.
+Video delivery is sparse (maximum gaps 6496/7529 ms), so this is not a claim
+of healthy video quality.
+
+During the final audio-only active 125–180 s window, Mac/Poco add 1/4 audio
+interruptions (876/2241 ms), with native RX ages up to 1095/1005 ms. The largest
+Poco RX age over the whole post-startup call is 1044 ms near camera activation.
+Audio submission maxima remain 0/2 ms. Primary protocol-event queue maxima are
+417/2597 us and timer-lateness maxima 3491/2972 us, with zero >=100-ms local
+stalls. Thus local QUIC driver scheduling does not explain this run's audio
+holes; this is not evidence excluding every other local processing layer or
+establishing the carrier as the sole cause of earlier 3–5-second gaps.
+Independent ICMP maxima are 52.960/1118 ms.
+
+Mac's primary expiry counter reaches 67 and one admission snapshot reports 41
+buffer-policy drops; Poco's expiry counter reaches 2. Checking the admission
+path confirms it already purges expired datagrams before reading capacity.
+The endpoint's 4-KiB backlog rule can still reject complete new frames while
+unexpired data occupies its bounded queue. The once-per-second trace aggregates
+drops but reports current capacity, so a snapshot with queued_wire_bytes=0 does
+not establish that an empty queue rejected that frame. The remaining work is
+to correlate loss/ACK/PTO and these admission decisions with audio delivery,
+then verify the appropriate endpoint fix. No quality improvement is attributed
+to the new diagnostic counters, and audio-quality work remains open.
+
+After collection, both applications, their whole Android UID, owned Mac/log/
+probe processes, remote ping and the owned ADB forward are independently
+verified absent. The private Android native builder VM remains stopped.
+Veil commit 45a89c37 contains the diagnostic change; hidden-volume is unchanged.
+No push, signed commit, tag or release is performed in this debugging cycle.
