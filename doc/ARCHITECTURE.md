@@ -4769,3 +4769,51 @@ apps, complete phone UID/package, helpers, remote ping and ADB forward are
 verified stopped; the owned build VM is stopped too. Physical audio quality,
 healthy bidirectional video recovery and cold relay-to-P2P validation remain
 open. No release or push was performed.
+
+
+Apple audio hardware configuration recovery (Mac 2253 / Poco 2252)
+----------------------------------------------------------------
+
+The Apple driver did not observe AVAudioEngineConfigurationChangeNotification.
+The pinned Apple SDK explicitly says a hardware sample-rate/channel-count
+change stops the engine and requires the client to reconnect/restart it. The
+ADM's requested recording/playing flags remain true in that state, so the
+existing start checks could report success without callbacks. Veil 3c214551
+now coalesces configuration notifications for 250 ms and restores a stopped
+engine on its existing serial graph queue. The notification handler never
+tears down the engine on Apple's internal queue. Each engine generation owns
+a detached observer state; clearing its owner during teardown prevents delayed
+notifications from accessing a freed ADM or reviving an old engine.
+
+A real silent AVAudioEngine stand stops only its own output engine and posts
+the hardware-change notification. Playout resumes with the fix and stays
+stopped (result=2) when the recovery call is removed. A second case destroys
+the ADM with a notification pending and verifies clean completion. No identity,
+network endpoint, microphone or system audio setting is used by this test.
+The full native Call-plane suite passes after the change. Fresh Mac production
+media still exports 94 functions, with no test hooks; bundle code matches the
+fresh library and its seal/kernel version are verified. Android is unchanged
+and remains the previously verified +2252 installation.
+
+The subsequent 180-second physical call rang at 0.446 seconds and both endpoints
+reported active at 1.512 seconds. It stayed in media epoch 1, but used relay
+throughout (`no direct session to peer`). Both capture and receive continued;
+there was no recurrence of the long zero-audio Mac sessions from +2252.
+No natural hardware-change notification occurred in this run, so it does not
+prove that configuration changes caused that preceding failure. Call quality
+still FAILED: Mac counted 18 interruptions/14.259 seconds, Poco 6/5.269 seconds.
+Mac NetEq flushed 24 times and discarded 712 packets; Poco flushed twice and
+discarded 30. Native delay estimates peaked at 551/699 ms, respectively.
+No video was transmitted or delivered at either endpoint, including the phase
+with both cameras requested. These audio pauses therefore cannot be attributed
+to transmitted video in this run. The Mac capture tap delivered 4096--5056
+converted 48-kHz frames per callback (85--105 ms of PCM), another unresolved
+source of bursty audio input; this is chunk duration, not acoustic latency.
+
+The physical drivers, complete phone UID/package, owned Mac app, helpers,
+remote ping and ADB forward are verified stopped. The prior cleanup briefly
+saw a defunct probe child; reaping helpers before checking avoids counting an
+exited child as a running process. Remaining work: direct-session establishment
+on the cellular setup, relay queueing/packet bursts, capture callback cadence,
+actual audio latency and quality, and healthy bidirectional video recovery.
+No push, tag or release was performed.
