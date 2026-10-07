@@ -5585,3 +5585,26 @@ neteq2269[p]-samples.ndjson, build-screen-2269.json and cleanup records.
 Source changes are committed unsigned and unpushed. The goal remains open
 for delivery-stop diagnosis, encoded video/screenshare load and complete
 local producer admission coverage.
+
+### Cycle 2270: observe the local delivery boundary
+
+The active call-priority goal is unchanged. Cycle 2269 made progress: source
+queue/partial-write defects were fixed and committed, and physical evidence
+changed the next investigation to bidirectional loss between sealed send and
+authenticated reception. The tree and Poco were revalidated before continuing.
+
+Debug-only sparse sealed-cell observations now cover the SDK socket completion,
+pre-write expiry/failure, daemon IPC read, source/rate refusal, handler entry and
+relay queue admission/refusal. Samples use the existing epoch/sequence every
+50 cells; no plaintext, key or new network field is logged or transmitted.
+The local parser borrows bytes so enabling diagnostics does not copy entire
+video cells. The debug switch is off by default. No routing policy, timeouts,
+relay scheduling, codec or native media 2258 is changed.
+
+Existing IPC/client suites pass 134/39 tests (five IPC ignored); these check the
+changed execution paths, not physical call quality. Fresh production SDKs and
+stand build 2270 are being prepared for a no-file repeat with the original
+contacts policy. Missing receive samples alone cannot distinguish a daemon
+refusal from network loss; the added boundary samples are required before
+choosing the next corrective change. No stand applications have been started
+in this cycle yet.
