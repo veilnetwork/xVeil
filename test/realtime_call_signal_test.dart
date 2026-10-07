@@ -28,6 +28,9 @@ class _RealtimeProbe
   final realtimeInbound = StreamController<InboundMessage>.broadcast();
   final realtimeGate = Completer<void>();
   bool blockRealtime = false;
+  final ackEntered = Completer<void>();
+  final releaseAck = Completer<void>();
+  bool blockAck = false;
   int normalSends = 0;
   int realtimeSends = 0;
   int relayRealtimeSends = 0;
@@ -50,6 +53,10 @@ class _RealtimeProbe
   }) async {
     normalSends++;
     lastNormalDestination = dst;
+    if (blockAck && WireEnvelope.decode(payload).kind == WireKind.ack) {
+      if (!ackEntered.isCompleted) ackEntered.complete();
+      await releaseAck.future;
+    }
     onNormalSend?.call(dst, payload);
   }
 
@@ -706,6 +713,57 @@ void main() {
         reason:
             'a new readiness must pass dedup, while a replay stays suppressed',
       );
+    },
+  );
+
+  test(
+    'durable call dispatch and dedup progress while its device ACK is held',
+    () async {
+      final messaging = MessagingService(transport, storage)..start();
+      final device = _id(3);
+      final received = <CallSignalType>[];
+      final dispatches = Completer<void>();
+      messaging.onCallSignal = (source, signal) {
+        expect(source, peer);
+        received.add(signal.type);
+        if (received.length == 2 && !dispatches.isCompleted) {
+          dispatches.complete();
+        }
+      };
+      transport.blockAck = true;
+      InboundMessage incoming(CallSignalType type, String frameId) =>
+          InboundMessage(
+            src: peer,
+            srcDevice: device,
+            provenance: SenderProvenance.sessionPeer,
+            payload: WireEnvelope.callSignal(
+              CallSignal(callId: 'held-device-ack', type: type).encode(),
+            ).withFrameId(frameId).encode(),
+          );
+      try {
+        transport.inbound.add(incoming(CallSignalType.answer, 'answer:held'));
+        await transport.ackEntered.future.timeout(const Duration(seconds: 1));
+        expect(transport.lastNormalDestination, device);
+        transport.inbound.add(incoming(CallSignalType.answer, 'answer:held'));
+        transport.inbound.add(
+          incoming(CallSignalType.transportInfo, 'route:held'),
+        );
+        await dispatches.future.timeout(const Duration(milliseconds: 500));
+        expect(received, [CallSignalType.answer, CallSignalType.transportInfo]);
+        await Future.doWhile(() async {
+          if (transport.normalSends >= 3) return false;
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+          return true;
+        }).timeout(const Duration(milliseconds: 500));
+        expect(
+          transport.normalSends,
+          3,
+          reason: 'both deliveries and the duplicate still owe ACKs',
+        );
+      } finally {
+        transport.releaseAck.complete();
+        await messaging.dispose();
+      }
     },
   );
 
