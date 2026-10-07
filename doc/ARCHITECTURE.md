@@ -5487,3 +5487,29 @@ and ABI checks pass. APK SHA-256 is
 It is not installed because Poco is still absent from ADB. The complete build
 manifest and corrected test-stage summary are private as build-screen-2268.json
 and tests2268-summary.json. No stand apps, helpers or ADB forward remain running.
+
+### Cycle 2269: primary waiting behind other ciphertext and slow progress
+
+A blocked neutral canonical write could conceal a locally authored primary
+waiting behind it, including a primary still in the scheduler while the eight
+writer slots were full. Endpoint-only connection state now counts immutable
+primary blobs with RAII leases and records scheduler freshness deadlines. A
+blocked writer can publish shared local producer pressure in either case. The
+state is per connection, cleared on retirement, and never changes relay roles
+or wire metadata. Expired scheduler marks and discarded leases cannot claim
+pressure on another live neighbor. Already committed bytes retain cipher order.
+
+The pressure clock now spans partial writes. Progress in small increments
+continues to renew the ordinary idle deadline but cannot conceal the total wait
+for a primary. A six-byte, one-byte-per-60-ms regression failed before this fix.
+Encrypted runner regressions cover one neutral prefix and 128 neutral prefixes
+(640000 bytes, filling the writer), preserve every neutral byte and the healthy
+neighbor's 11700-byte file, and admit fresh primary/secondary frames after stale
+plaintext drops. Disabling either the scheduler mark or pending-blob observer
+makes its corresponding regression fail for missing pressure.
+
+Session, native SDK and integration gates pass 741 tests, eight ignored
+(414/223/104). These are scheduling/transport regressions, not a physical audio
+quality result. Poco returned to ADB; production SDK and stand build 2269 are
+being prepared for a phone/computer test. Build 2267 is still on the phone;
+media production build 2258 is unchanged. The goal remains open.
