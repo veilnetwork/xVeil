@@ -5264,3 +5264,44 @@ Both owned applications, the full phone UID/package, helpers, host/remote
 pings and ADB forward are verified absent after the stand. Identity/history
 are preserved and Poco remains available. The goal remains open for actual
 content-stream path coverage and the remaining receive/audio delays.
+
+Ordered source pressure across neighbors (2266)
+----------------------------------------------
+
+Content pulls can use a direct ordered AppOpen/AppData/AppClose stream, or an
+anonymous stream after direct open fails. The former shares the canonical
+reliable session, so the secondary DATAGRAM gate alone does not constrain it.
+Successful initial and retry opens now log the actual selected backend, rather
+than the ambiguous `p2p-or-fallback` label. This is diagnostic output only.
+
+The registry's endpoint-local pressure state now also admits reliable authored
+payloads before encryption: 4096 estimated wire bytes per 200 ms while the local
+primary is active and pressured. Trusted local admission credits distinguish
+these frames from transit; the private recoverable DATA selector also covers
+its ordered compatibility path. No remote header selects this policy. Whole
+oversized compatibility frames can progress alone. Primary and neutral queues
+keep their admission policy. Source bytes and credits remain queued through a
+hold; no packet is dropped or ciphertext nonce consumed. The existing canonical
+QUIC window is not reduced on unrelated neighbors.
+
+A source hold can skip the selected WRR class while preserving its FIFO head
+and slot, so neutral work can pass. A batch boundary still flushes immediately.
+The session wakes at the quota, pressure or primary-idle deadline; an already
+idle writer cannot trigger a busy polling loop. A local trace records reliable
+source pressure waits. Pressure expires after two seconds, or primary activity
+after three seconds, without requiring a new incoming/outbox event.
+
+The real TLS/QUIC regression runs the complete encrypted SessionRunner. An ACK
+blackout on a different primary neighbor publishes pressure while its previous
+RTT is below 150 ms and no datagram expiry has occurred. With the new admission
+check disabled, all 187200 file bytes arrive inside the first 180 ms and the
+behavioral assertion fails. With the check enabled, at most one 3900-byte data
+segment passes that window; neutral transit passes while the file waits, and
+all bytes and Open/Data/Close ordering survive the holds and cipher batches.
+The peer receives the full file without additional incoming or producer events.
+Sixteen simultaneous neighbor consumers acquire exactly one shared reliable
+allowance; pressure/idle expiry and oversized-frame progress are covered.
+
+Transport/session suites pass 517 tests (six ignored); native SDK suites pass
+223 (one ignored). Flutter content transfer/reverse-pull suites pass 50 tests,
+and analysis of the changed content pull file reports no issues.

@@ -1637,11 +1637,13 @@ extension _MessagingContentPull on MessagingService {
       );
     });
     ReliableStream? stream;
+    var openedDirect = false;
     try {
       if (useP2P) {
         stream = await _contentStreams.awaitOpen(
           (t as P2PStreamTransport).openP2PStream(peer),
         );
+        openedDirect = stream != null;
       }
       if (_disposed || _contentStreams.closing) return null;
       stream ??= await _contentStreams.awaitOpen(
@@ -1665,11 +1667,11 @@ extension _MessagingContentPull on MessagingService {
       await stream.abort();
       return null;
     }
-    _bulkStreamLog(
+    devLog(
       () =>
           'xVeil[content]: stream-open ok ${cid.substring(0, 12)} '
           '-> ${peer.short} (${sw.elapsedMilliseconds}ms, '
-          '${useP2P && stream != null ? 'p2p-or-fallback' : 'anon'})',
+          '${openedDirect ? 'direct-session' : 'anonymous'})',
     );
     return _trackPullStream(cid, stream);
   }
@@ -2019,11 +2021,13 @@ extension _MessagingContentPull on MessagingService {
     );
     try {
       ReliableStream? stream;
+      var openedDirect = false;
       if (useP2P) {
         stream = await _contentStreams.awaitOpen(
           (t as P2PStreamTransport).openP2PStream(peer),
           timeout: timeout ?? _streamRequestTimeout,
         );
+        openedDirect = stream != null;
       }
       if (_disposed || _contentStreams.closing) return null;
       stream ??= await _contentStreams.awaitOpen(
@@ -2037,6 +2041,12 @@ extension _MessagingContentPull on MessagingService {
         await stream.abort();
         return null;
       }
+      devLog(
+        () =>
+            'xVeil[content]: stream-pull retry-open ok '
+            '${cid.substring(0, 12)} -> ${peer.short} '
+            '(attempt $attempt, ${openedDirect ? 'direct-session' : 'anonymous'})',
+      );
       return _trackPullStream(cid, stream);
     } catch (e) {
       devLog(
