@@ -4472,3 +4472,55 @@ membership or history is changed by cleanup.
 Both applications, whole Android UID, owned Mac/log/probe processes, remote
 ping and owned ADB forward are independently verified absent. The private
 builder VM remains stopped. No push, signed commit, tag or release is performed.
+
+
+Original source-age budget for local primary datagrams (2246)
+------------------------------------------------------------
+
+Veil 5cfc0468 fixes a local scheduling lifetime extension: primary audio could
+wait up to the generic 500-ms queue limit and then acquire another 200 ms at
+QUIC submission. Trusted endpoint-local REALTIME lossy frames now expire at
+200 ms in every queue path; all fragments retain the original envelope's
+queued_at deadline on both independent and shared QUIC senders. Expiry is
+checked before encoding/carrier charges. Reliable data does not expire under
+this rule. Transit packets retain the neutral INTERACTIVE classification and
+500-ms lossy budget, regardless of the wire's claimed priority. Relays receive
+no media-role/deadline field and apply no user traffic priority.
+
+29 queue, one blocked ingress and 14 realtime routing tests pass. Reverting
+the primary queue budget or renewing the transport deadline makes the new
+regressions fail; exact source bytes are restored afterwards. The existing
+real QUIC outage gate also passes (200-ms deadline plus a 20-ms link gives
+220-ms maximum delivered age). Its baseline comparison validates the expiry
+primitive, not the incremental phone-quality effect of this source-age fix.
+
+Mac and Poco run 0.13.84+2246 with freshly compiled SDKs. The Mac bundle's
+__TEXT,__text matches the fresh SDK. Android's packaged SDK equals an
+independently stripped fresh build, SHA-256:
+731f47dbd5006399b857cf377973f7bdb374a2f49433b3d14e37592a2086ac4a.
+ABI remains 9addb738; native media and hidden-volume are unchanged. The full
+installed APK matches the signed artifact, SHA-256:
+0fc3d65d2b5a9f97fe5459448513f5b5f250e76eec5692a6c4f903367846ed4f.
+
+The physical 180-s call rings at 0.383 s and both endpoints become active at
+1.623 s with the same call id. P2P initially delivers audio, then both primary
+ACK counts freeze around placement +7 s. Native accepted audio age reaches
+10.5/11.3 s, although local admission is <=2 ms and sampled primary scheduler
+lateness is below 3 ms. Both endpoints fall back to relay around +18/19 s;
+these observed relay hops use the legacy non-datagram carrier. Later relay
+windows still show multiple multi-second audio interruptions. Requested
+camera phases decode zero video frames, so healthy video recovery is unproven.
+
+The independent Android ping probe also stalls: the response at placement
++6.843 s is followed by a burst at +22.162 s with RTT up to 9989 ms. Android's
+own receive timestamps and reported RTT establish that this is not merely
+host ADB output buffering. The few quick replies inside the earlier stall
+window cannot establish a healthy phone Internet path: delayed replies arrive
+after that window. Mac's maximum ping RTT is 53.876 ms. This points to a wider
+phone/network interruption; carrier fault, device power policy and the exact
+cause are not established. The source-age defect is fixed, but satisfactory
+audio quality and timely path recovery remain open.
+
+Both apps, the whole Android UID, owned Mac/log/probe processes, remote ping
+and the owned ADB forward are independently verified absent. No push, signed
+commit, tag or release is performed in this debugging cycle.
