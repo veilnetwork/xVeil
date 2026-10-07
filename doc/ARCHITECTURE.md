@@ -5305,3 +5305,48 @@ allowance; pressure/idle expiry and oversized-frame progress are covered.
 Transport/session suites pass 517 tests (six ignored); native SDK suites pass
 223 (one ignored). Flutter content transfer/reverse-pull suites pass 50 tests,
 and analysis of the changed content pull file reports no issues.
+
+Physical build 2266 is installed on Poco with full APK byte verification,
+SHA-256 03ad34d429ef085ed5c1ef297a4633c41abad3324e2f3ec045a701383e00920f.
+The packaged SDK matches independent AGP stripping and contains the new reliable
+pressure trace. Production media remains build 2258; no test exports are
+packaged. Mac SDK code sections, Dart version and bundle seal are verified.
+
+The 180-second Mac-to-Poco audio call uses cellular on Poco. Its incoming ring
+is observed at 10.419 seconds and both endpoints are active by 11.752 seconds.
+The receiving call log sees the offer aged 9402 ms; this delayed signal is still
+unresolved. Both media endpoints switch from relay to P2P at active +4.518,
+then back to relay at +76.937 on Poco and +77.743 on Mac. Both microphones stay
+on and both cameras off; this run does not exercise encoded video load.
+
+The 2-MiB content download runs at active +30.322 to +127.118 (96.796 seconds),
+with a full checksum match. Actual open/retry logs confirm anonymous and direct
+session backends, including switches during retries. Mac records 34 reliable
+source pressure waits, all at active +35.821 to +74.085 within the file window;
+Poco records one within the same window. There are no reliable pressure waits
+before/after the file. This establishes physical pressure-gate execution with
+actual content-stream paths. Neither endpoint logs a recoverable DATA4 first
+DATAGRAM send; an anonymous open alone is not proof of that carrier.
+
+Receive interruptions remain. Before/file/after windows have observed decoded
+interruption increments of 4/34/22 on Mac and 4/33/7 on Poco, segmented by media
+epoch and excluding boundary events. Maximum accepted native RTP ages are
+1109/5406/2637 ms on Mac and 1353/3595/2947 ms on Poco. Sender admission maxima
+are 0 ms on Mac and 5/5/2 ms on Poco. Reported audio path delay medians are
+351/275/204 ms and 297/470/511 ms respectively. An isolated positive 172725-ms
+startup delay estimate on Poco is retained in raw evidence but is inconsistent
+with call age; no absolute delay conclusion is drawn from that maximum.
+Cellular external ICMP peaks are 1051/1717/1352 ms in those windows, versus
+Mac peaks under 86 ms. The destinations differ from call peers, so this does
+not explain every media gap. These timings, route transitions and differing
+conditions do not provide a controlled attribution of audio improvement.
+
+Both stand apps, the complete Android UID/package, helpers, pings and ADB
+forward are verified absent afterward. The Mac runtime log is archived outside
+the bundle and its seal verifies again. Poco remains accessible with identity
+and history preserved. Raw traces and summaries are private under
+`/private/tmp/xveil-call-2220` (`neteq2266-summary.json`, local policy/wait-phase
+records, sample rows and endpoint logs). The goal remains open for delayed
+signaling, the remaining native RTP gaps and receive/playout delay. The lack of
+reliable pressure waits after relay fallback merits transport-feedback coverage
+review; it is not proof of the cause of the remaining pauses.
