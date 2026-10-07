@@ -489,6 +489,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       _observeAudioPlayoutPeers(stats);
       adapter.prepareVideoSend(
         stats,
+        sendAudioExpected: _audioEnabled && !_microphoneState.muted,
+        receiveAudioExpected: _hasExpectedIncomingAudio,
+        requireAudioReceivePlayout:
+            _hasExpectedIncomingAudio && _supportsAudioReceiveAgeStats,
+        audioReceiveDelayMs: _groupAudioReceiveDelay(stats),
         audioInterrupted: _audioInterrupted,
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
@@ -709,10 +714,16 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Native aggregates count only fresh AUDIO reports, not video reports.
       adapter.onNativeStats(
         stats,
+        sendAudioExpected: _audioEnabled && !_microphoneState.muted,
+        receiveAudioExpected: _hasExpectedIncomingAudio,
+        requireAudioReceivePlayout:
+            _hasExpectedIncomingAudio && _supportsAudioReceiveAgeStats,
+        audioReceiveDelayMs: _groupAudioReceiveDelay(stats),
         audioInterrupted: _audioInterrupted,
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
+        expectedVideoFeedbackReports: _peers.length,
         expectedAudioFeedbackReports: _audioEnabled && !_microphoneState.muted
             ? _peers.length
             : null,
@@ -741,6 +752,35 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         () => 'xVeil[group-call-media]: quality sample unavailable: $error',
       );
     }
+  }
+
+  bool get _hasExpectedIncomingAudio =>
+      _audioEnabled && _peers.keys.any(_expectedAudioPeers.contains);
+
+  int? _groupAudioReceiveDelay(Map<String, dynamic> stats) {
+    if (stats['worker_stalled'] != 0) return null;
+    var complete = true;
+    var worstDelay = 0;
+    final receivers = stats['audio_receivers'];
+    for (final key in _peers.keys.where(_expectedAudioPeers.contains)) {
+      final receiver = receivers is Map ? receivers[key] : null;
+      final packets = receiver is Map ? receiver['audio_rx_pkts'] : null;
+      final delay = receiver is Map ? receiver['audio_delay_ms'] : null;
+      if (packets is! num ||
+          !packets.isFinite ||
+          packets <= 0 ||
+          delay is! num ||
+          !delay.isFinite ||
+          delay < 0 ||
+          delay > 60000) {
+        complete = false;
+        continue;
+      }
+      if (delay > worstDelay) worstDelay = delay.toInt();
+    }
+    return complete || worstDelay >= CallBitrateAdapter.playoutDegradeMs
+        ? worstDelay
+        : null;
   }
 
   bool get _audioInterrupted =>
@@ -874,8 +914,21 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   @override
   Future<void> setMicMuted(bool muted) async {
+    final changed = muted != _microphoneState.muted;
     _microphoneState.setMuted(muted);
     try {
+      final adapter = _bitrateAdapter;
+      final engine = _engine;
+      if (changed &&
+          !muted &&
+          _audioEnabled &&
+          _videoRunning &&
+          adapter != null &&
+          engine != null &&
+          engine.supportsVideoSendPause) {
+        adapter.prepareVideoSend(const {}, requirePeerAudioPlayout: true);
+        adapter.applyPendingPause(engine.setVideoSendPaused);
+      }
       _engine?.setMicMuted(muted);
     } catch (_) {}
   }

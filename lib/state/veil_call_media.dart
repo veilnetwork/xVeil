@@ -1132,6 +1132,9 @@ class VeilCallMediaController implements CallMediaController {
           // route profile stays the ceiling; adaptation only spends less.
           adapter.onNativeStats(
             stats,
+            sendAudioExpected: call.media.audio && !_microphoneState.muted,
+            requireAudioReceivePlayout:
+                call.media.audio && _peerAudioCaptureEnabled,
             audioInterrupted:
                 call.media.audio &&
                 ((_peerAudioCaptureEnabled &&
@@ -1294,6 +1297,8 @@ class VeilCallMediaController implements CallMediaController {
     }
     adapter.prepareVideoSend(
       stats,
+      sendAudioExpected: call.media.audio && !_microphoneState.muted,
+      requireAudioReceivePlayout: call.media.audio && _peerAudioCaptureEnabled,
       audioInterrupted:
           call.media.audio &&
           ((_peerAudioCaptureEnabled && _audioReceiveActivity.interrupted) ||
@@ -1576,7 +1581,8 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<void> setMicMuted(bool muted) async {
-    if (muted != _microphoneState.muted) {
+    final changed = muted != _microphoneState.muted;
+    if (changed) {
       _peerAudioPlayout.invalidateMeasurement();
     }
     // Remember choices made before the engine exists or during a repair gap.
@@ -1584,6 +1590,19 @@ class VeilCallMediaController implements CallMediaController {
     try {
       final call = _activeCall;
       if (call != null && _microphoneState.belongsToCall(call.callId)) {
+        final adapter = _bitrateAdapter;
+        final engine = _engine;
+        if (changed &&
+            !muted &&
+            call.media.audio &&
+            adapter != null &&
+            engine != null &&
+            engine.supportsVideoSendPause) {
+          // Reserve the outgoing leg before restarting capture. Old video
+          // reports cannot prove that this newly enabled audio reaches peer.
+          adapter.prepareVideoSend(const {}, requirePeerAudioPlayout: true);
+          adapter.applyPendingPause(engine.setVideoSendPaused);
+        }
         _engine?.setMicMuted(muted);
       }
     } catch (_) {}

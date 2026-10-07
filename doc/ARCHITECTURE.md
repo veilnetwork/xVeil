@@ -4943,3 +4943,52 @@ in the 15-second capture gap. No stand helper invokes /call_mic. The capture
 stop/start follows the application's explicit mute state; no long native
 stream-open/close operation occurs. This gap must remain separate from the
 unresolved network interruptions in reports.
+
+
+Muted-audio video recovery and distinct receiver feedback (2258)
+---------------------------------------------------------------
+
+A regression reproduced a video hold that never cleared after a measured
+audio interruption when both endpoints subsequently muted their microphones.
+No outgoing audio reports can arrive in that state. Explicit absence of both
+audio directions now releases that hold to the sparse video floor. With the
+local microphone muted but incoming voice expected, recovery needs twelve
+consecutive healthy incoming samples, including native playout below 200 ms
+when supported; missing measurements or renewed interruptions retain the hold.
+Local microphone reactivation pauses video before restarting audio capture.
+
+Native authenticated RR/SR observations now keep separate audio and video
+snapshots with their respective 48/90-kHz jitter clocks and 15-second freshness.
+Video reports can earn video growth when no outgoing audio is expected; they
+cannot establish outgoing voice quality. Rooms require reports from every
+connected receiver and aggregate the worst quality. Feedback remains inside
+the existing endpoint-encrypted traffic: no media role or priority is exposed
+to relay nodes, and no exported native ABI is added. Incoming audio playout
+above 300 ms also pauses video even if packet arrivals remain fresh.
+
+The initial measured-hold/mute regression failed before the fix. The selected
+adapter, group controller and call-service suite now passes 213 tests; targeted
+analysis reports no issues. The complete native call-plane regression passes,
+including video report freshness, independent group reports, 90-kHz jitter
+conversion, and audio progress while the video worker is blocked. Production
+Mac and Android media are rebuilt without test exports. Both stand apps use
+2258; the full installed signed Poco APK is byte-verified with SHA-256
+700576d10a962e86e16a801264728b393debbe5029a8add830a63ac0957a1a71.
+The corrected Rust SDK from 2254 is retained; identity/history are preserved.
+
+The 240-second Mac-to-cellular-Poco call rings in 0.424 seconds and is active
+on both sides by 1.128 seconds. P2P remains in epoch 1 until the explicit final
+hangup. Both microphones are deliberately muted at 20.34 seconds, cameras
+enabled at 21.11, Poco microphone enabled at 80.28, Mac microphone at 160.35,
+and cameras disabled at 220.39. During the muted-camera phase each sender
+transmits approximately 81/82 frames and each receiver decodes 65 frames;
+fresh independent video reports are observed. This establishes bidirectional
+video recovery after mute, not video recovery with healthy active voice.
+After microphones resume, high audio playout delay holds video paused, with
+final transmitted/decoded counts 88/82 and 65/66. Voice quality remains
+unresolved: final native playout is 341/390 ms despite fresh packet arrivals.
+Raw interruption totals include the intentional mute intervals and must not
+be reported as network-only interruption counts. Acoustic latency and video
+recovery under healthy active voice are still unverified. Both owned apps,
+the full phone UID/package, helpers, ping and ADB forward are verified stopped.
+No push, tag or release is performed.
