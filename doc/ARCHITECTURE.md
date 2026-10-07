@@ -5228,3 +5228,39 @@ after the grace. Sixteen simultaneous consumers acquire exactly one probe.
 Endpoint trace logs record the local gate's drop counts; source-slot arrays
 also include recoverable DATA's private selector. No role, pressure or priority
 metadata is added to relay framing or sent to remote nodes.
+
+Build 2265 is installed on Poco, with full APK byte verification and SHA-256
+0f549f362c97ca5695c16e9c69d5222fb3cd59fc7e8e43433890502dc3b37553.
+Packaged SDK bytes match independent AGP stripping and contain the new local
+pressure trace; production media remains unchanged. Mac SDK code sections,
+Dart version and bundle seal are verified before and after the stand.
+
+The 180-second Mac-to-cellular-Poco video-capable call rings in 0.405 seconds
+and both endpoints are active by 2.433 seconds. Both settle on P2P at active
++1.331 and stay there. Cameras are disabled at start; Poco camera is requested
+at +20.385 and disabled at +150 seconds. It captures up to 3802 frames at
+approximately 30 fps during the observed requested window, but native video
+send stays paused and encodes zero frames. This proves capture plus the
+existing audio-first sender policy, not simultaneous encoded-video load.
+
+A 512-KiB file downloads at active +50.507 to +57.058 and passes a full hash
+comparison. Neither endpoint's decoded interruption count increases within
+that short file window. Sizes and cellular conditions differ from 2264, so
+this is not a controlled attribution of improvement to the new gate. Local
+trace records 25/17 pressure drops on Mac slots 3/2 and 22/8 on Poco slots 3/2.
+The recoverable DATA selector 4 is not observed in this physical trace; the
+chosen content-stream backend still needs to be traced before claiming this
+file exercises the anonymous DATA connection or its pressure gate.
+
+Voice remains imperfect. Before the file, accepted packet age reaches
+1799/1814 ms and decoded interruptions increase by 9/12. After the file,
+playout medians are 361/414 ms, accepted age reaches 667/1093 ms, and observed
+interruption increments are 7/3. RTP admission maxima are 0/8 ms. External
+ICMP on Poco reaches 1563 ms before the file and 941 ms afterwards, while Mac
+maxima stay below 54 ms; this is a different path and cannot explain every
+voice gap. No microphone mute or media epoch reset occurs in these windows.
+
+Both owned applications, the full phone UID/package, helpers, host/remote
+pings and ADB forward are verified absent after the stand. Identity/history
+are preserved and Poco remains available. The goal remains open for actual
+content-stream path coverage and the remaining receive/audio delays.
