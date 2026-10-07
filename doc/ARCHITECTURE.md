@@ -6788,3 +6788,71 @@ The full goal stays active: actual encoded video/screen coexistence with accepta
 audio is still unproved. Next inspect recovery after delivery stalls and delayed
 packet bursts with a controlled PCM fixture before changing receive buffering
 or audio path duplication; do not repeat failed NetEq cap/flush tuning blindly.
+
+### Cycle 2287 — PCM outage recovery and awake Poco comparison
+
+Veil b6b7edea adds two production-Opus/NetEq PCM scenarios to the existing
+audio playout fixture and runner. No production codec, buffer, SDK, wire or
+relay scheduling setting changes. The fixture holds packets before reception
+for 1 second and then 2.7 seconds; one case releases old packets in send order
+alongside new audio, the other drops the same outage's packets. Decoded tone
+markers, rather than a jitter gauge alone, must recover below 300 ms at the
+first post-outage marker and below 180 ms at all subsequent markers. Final
+PCM must remain nonsilent for over 290/300 ticks. Timer lateness must stay below
+30 ms, callbacks must be gone after destruction, and assertions ensure that
+both the large burst and the loss control actually occur.
+
+Both new scenarios pass against the unchanged 2279 test-hook media library,
+matching the installed production engine source. The delayed case delivers
+a 135-packet batch; six post-outage markers are 180.15, 100.21, 101.83, 97.25,
+100.43 and 98.84 ms. The loss case drops 185 packets; markers are 91.00, 89.68,
+86.89, 87.36, 88.76 and 89.92 ms. Both render all final 300 PCM ticks. This
+controlled recovered path does not reproduce an additional multi-second
+decoder recovery delay. It does not prove behavior under continuing mobile
+jitter, or physical acoustic latency. Private audio-stall2287 evidence retains
+source/library hashes and final gate logs. The runner's shell syntax also passes.
+
+Physical power2287 reuses the existing installed/bundled 0.13.84+2286 binaries
+and 2279 media, with Poco still on cellular and P2P policy contacts. Warmup rings
+at 1.960 s/both active at 3.270 s. The main Poco-to-Mac call rings at 0.438 s and
+both become active at 0.850 s, then runs 60 seconds. Both endpoints retain one
+engine epoch. Of 159 active samples each, 147 show P2P and 12 relay; fallback
+appears at test t=56.627 s. This is not a pure P2P run.
+
+Fifteen power observations keep Awake, screen on, charging/stay-on and device
+idle/light idle/low-power standby false. Fourteen observations after call startup
+show the microphone service and two foreground services. An independent deviceidle
+query during the call confirms ACTIVE/ACTIVE and force-idle false. The generic
+monitor's `mState` matches a power/display field, so it must not be used as
+deviceidle evidence. The retained explicit deviceidle query is authoritative.
+Sleep/Doze is not supported as an explanation for this observed run.
+
+Native interruptions remain Mac 5/9169 ms and Poco 7/5112 ms. Receive-age maxima
+are 7160/8012 ms. Near the end both audio receive counters stop advancing;
+the established-audio fallback keeps each engine but audio does not immediately
+resume. Mac receives again around t=60.410 s; Poco does not show equivalent
+recovery before the test ends. The missing future received packets must not be
+reported as measured loss without a complete delivery window.
+
+Packet-matched UDP timing, with a conservative 20.3-ms clock bound, shows
+Mac-to-Poco 257 matches, median 7.37 ms/max 1312.37 ms. Precise kernel stamps
+show maximum handoff-to-kernel 1196.73 ms and kernel-to-read 2.27 ms; shared
+GRO stamps remain excluded. Poco-to-Mac 195 matches have median 46.64 ms and
+max 1538.63 ms; Mac kernel receipt is not instrumented. These generic UDP
+samples cannot account for the whole final audio gap on their own. Separately,
+matched sealed primary cells show direct queue-to-authenticated-receive maxima
+1201.4 ms Mac-to-Poco and 916.6 ms reverse. Local admission stages peak at
+1–3 ms. Four sampled Mac relay sends near fallback have no matching receive
+within the capture; the one reverse relay sample arrives after 712.6 ms.
+This is a concrete next boundary to inspect: first sealed-cell delivery on the
+replacement route, retaining the existing inbound overlap. Faster native buffer
+flushing is not supported by the controlled PCM result.
+
+Both owned stand applications, phone UID/package processes and PCM helpers are
+verified exited; forwarding is removed and the Mac strict seal verifies. No
+identities/history, /Applications, network policy or production libraries are
+changed. Root retains the new test revision, not an invented 2287 app release.
+Private power2287 call/playout, clocks, kernel audit, sealed-cell stage audit,
+power/deviceidle observations and neteqpower2287 cleanup retain evidence.
+The audio-priority goal remains active; these results are diagnostics and
+regression coverage, not a fix for the remaining physical call pauses.
