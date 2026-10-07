@@ -44,6 +44,65 @@ GroupCall _call(NodeId self, List<NodeId> peers, {bool video = false}) {
 
 void main() {
   test(
+    'group video mounts paused before capture until all audio receivers are fresh',
+    () {
+      for (final initialVideo in [false, true]) {
+        fakeAsync((clock) {
+          final self = _id(1), peer = _id(2);
+          final engine = _FakeEngine()
+            ..stats = {
+              'audio_rx_native_age_supported': 1,
+              'worker_stalled': 0,
+              'audio_feedback_reports': 1,
+              'rtt_ms': 80,
+              'audio_receivers': {
+                peer.hex: {'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1},
+              },
+            };
+          final controller = VeilGroupCallMediaController(
+            _FakeTransport(self),
+            roomMediaSecret: _room(),
+            engineFactory: (_) => engine,
+            requestMicrophone: () async => true,
+            requestCamera: () async => true,
+          );
+          controller.start(_call(self, [peer], video: initialVideo));
+          clock.flushMicrotasks();
+          if (!initialVideo) {
+            controller.setVideoEnabled(true);
+            clock.flushMicrotasks();
+            controller.setCameraEnabled(true);
+            clock.flushMicrotasks();
+          }
+          expect(engine.videoMountPauses, [
+            true,
+          ], reason: 'pause precedes stream creation');
+          expect(
+            engine.cameraStarted,
+            1,
+            reason: 'preview/capture intent remains live',
+          );
+          clock.elapse(const Duration(seconds: 20));
+          expect(engine.pauses.last, isTrue);
+          engine.stats = {
+            ...engine.stats,
+            'audio_receivers': {
+              peer.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 100},
+            },
+          };
+          clock.elapse(const Duration(seconds: 11));
+          expect(engine.pauses.last, isTrue);
+          clock.elapse(const Duration(seconds: 1));
+          expect(engine.pauses.last, isFalse);
+          expect(engine.cameraStarted, 1);
+          controller.stop();
+          clock.flushMicrotasks();
+        });
+      }
+    },
+  );
+
+  test(
     'linked device uses its room identity for peers and media keys',
     () async {
       final identity = _id(1);
@@ -552,12 +611,20 @@ void main() {
       expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
       engine.stats = {...engine.stats, 'audio_playout_ms': 450};
       clock.elapse(const Duration(seconds: 8));
-      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
+      expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason:
+            '450-ms audio delay cannot keep spending the sparse video floor',
+      );
       engine.stats = {
         ...engine.stats,
         'audio_playout_reports': 2,
         'audio_playout_ms': 140,
       };
+      clock.elapse(const Duration(seconds: 12));
+      expect(engine.pauses.last, isFalse);
       clock.elapse(const Duration(seconds: 48));
       expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
       engine.stats = {
@@ -1195,6 +1262,7 @@ class _FakeEngine implements GroupAudioEngine {
   final Map<String, int> rx = {};
   int started = 0;
   int videoStarted = 0;
+  final List<bool?> videoMountPauses = [];
   int cameraStarted = 0;
   bool muted = false;
   final List<bool> audioStartMuted = [];
@@ -1252,6 +1320,7 @@ class _FakeEngine implements GroupAudioEngine {
 
   @override
   bool startVideo() {
+    videoMountPauses.add(pauses.isEmpty ? null : pauses.last);
     videoStarted++;
     return true;
   }

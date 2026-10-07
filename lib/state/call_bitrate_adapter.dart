@@ -80,7 +80,6 @@ class CallBitrateAdapter {
   /// ordered route queued. Reserve almost all local video bandwidth until
   /// fresh audio feedback proves recovery; retain capture and remote video.
   static const int severeRttMs = 2000;
-  static const int severePlayoutMs = 1000;
   // Opus DTX still supplies comfort-noise packets about every 400 ms. A
   // measured one-second RTP hole is already an audio outage, even when the
   // last RTCP RTT/receiver buffer estimate remains small.
@@ -120,6 +119,8 @@ class CallBitrateAdapter {
   int _goodStreak = 0;
   int _severeStreak = 0;
   bool _audioReserve = false;
+  bool _initialAudioHold = false;
+  bool _supportsNativeReceiveAge = false;
   int? _lastTxDrops;
   int? _curWindowMin;
   int? _prevWindowMin;
@@ -153,6 +154,13 @@ class CallBitrateAdapter {
 
   /// A diagnostic override changed native state outside this policy.
   void invalidateAppliedTarget() => _appliedTarget = null;
+
+  /// A replacement engine has no memory of either the bitrate or the pause
+  /// applied to its predecessor. Keep the policy, reapply both native controls.
+  void invalidateAppliedState() {
+    _appliedTarget = null;
+    _appliedPause = null;
+  }
 
   /// Current RTT baseline (windowed min), or null before any RTT sample.
   int? get rttBaselineMs => switch ((_curWindowMin, _prevWindowMin)) {
@@ -188,6 +196,56 @@ class CallBitrateAdapter {
   bool get atFloor => _level == ladder.length - 1;
 
   bool get audioReserve => _audioReserve;
+
+  /// Mounting video must not spend even its sparse startup budget before
+  /// expected audio has a current healthy measurement. The native pause is
+  /// applied before the send stream/capturer starts, retaining receive/preview.
+  void prepareVideoSend(
+    Map<String, dynamic> stats, {
+    int? peerAudioDelayMs,
+    bool requirePeerAudioPlayout = false,
+    bool receiveAudioExpected = false,
+    ({bool expected, int? ageMs})? audioReceiveQuality,
+  }) {
+    if (!supportsLowRateVideo) return;
+    final receive = _receiveQuality(
+      stats,
+      receiveAudioExpected,
+      audioReceiveQuality,
+    );
+    final receiveUnproven =
+        receive.expected &&
+        (receive.ageMs == null ||
+            receive.ageMs! < 0 ||
+            receive.ageMs! >= audioReceiveRecoverMs);
+    final playoutUnproven =
+        requirePeerAudioPlayout &&
+        (peerAudioDelayMs == null || peerAudioDelayMs >= playoutRecoverMs);
+    if (receiveUnproven || playoutUnproven) {
+      _initialAudioHold = true;
+      _audioReserve = true;
+      _goodStreak = 0;
+    }
+  }
+
+  ({bool expected, int? ageMs}) _receiveQuality(
+    Map<String, dynamic> stats,
+    bool receiveAudioExpected,
+    ({bool expected, int? ageMs})? audioReceiveQuality,
+  ) {
+    if (stats.containsKey('audio_rx_native_age_ms')) {
+      _supportsNativeReceiveAge = true;
+    }
+    return audioReceiveQuality ??
+        (
+          expected: receiveAudioExpected && _supportsNativeReceiveAge,
+          ageMs:
+              ((stats['audio_rx_pkts'] as num?) ?? 0) > 0 &&
+                  (stats['worker_stalled'] as num?) != 1
+              ? (stats['audio_rx_native_age_ms'] as num?)?.toInt()
+              : null,
+        );
+  }
 
   /// Target for the current rung.
   ({int maxBitrateKbps, double maxFps}) get target => _audioReserve
@@ -233,18 +291,19 @@ class CallBitrateAdapter {
     final anyFeedbackAvailable = stats['worker_stalled'] != 1 && reports > 0;
     final feedbackAvailable =
         anyFeedbackAvailable && reports >= requiredReports;
-    final receive =
-        audioReceiveQuality ??
-        (
-          expected:
-              receiveAudioExpected &&
-              stats.containsKey('audio_rx_native_age_ms'),
-          ageMs:
-              ((stats['audio_rx_pkts'] as num?) ?? 0) > 0 &&
-                  (stats['worker_stalled'] as num?) != 1
-              ? (stats['audio_rx_native_age_ms'] as num?)?.toInt()
-              : null,
-        );
+    final receive = _receiveQuality(
+      stats,
+      receiveAudioExpected,
+      audioReceiveQuality,
+    );
+    if (_initialAudioHold && !receive.expected && !requirePeerAudioPlayout) {
+      // All relevant audio was intentionally muted/removed. Do not wait for
+      // packets that the endpoints have explicitly stopped sending.
+      _initialAudioHold = false;
+      _audioReserve = false;
+      _goodStreak = 0;
+      return target;
+    }
     return onSample(
       rttMs: anyFeedbackAvailable ? (stats['rtt_ms'] as num?)?.toInt() ?? 0 : 0,
       txJitterMs: anyFeedbackAvailable
@@ -352,7 +411,7 @@ class CallBitrateAdapter {
         rttMs >= severeRttMs ||
         (requirePeerAudioPlayout &&
             peerAudioDelayMs != null &&
-            peerAudioDelayMs >= severePlayoutMs);
+            peerAudioDelayMs >= playoutDegradeMs);
     _severeStreak = atFloor && severe ? _severeStreak + 1 : 0;
     if (supportsLowRateVideo &&
         !_audioReserve &&
@@ -398,6 +457,7 @@ class CallBitrateAdapter {
     _goodStreak++;
     if (_audioReserve && _goodStreak >= recoverAfter) {
       _audioReserve = false;
+      _initialAudioHold = false;
       _severeStreak = 0;
       _goodStreak = 0;
       return target;
