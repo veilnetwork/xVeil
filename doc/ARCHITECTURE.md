@@ -6280,3 +6280,22 @@ included in installed build 2277: only camera pixels are mirrored. All nine
 preview/pixel/source-freshness tests pass. The older source-shape assertion now
 allows whitespace before screenSharing, retaining its mirror-decision check
 across ordinary Dart formatting. This follow-up opens no app instances.
+
+### Cycle 2278: correlate direct IPC and relay-origin admission precisely
+
+Opt-in origin tracing now samples typed LOCAL_APP_RT_SEND sealed cells through
+socket write, daemon receipt, handler entry and direct queue admission/refusal.
+These correlate the same existing sealed epoch/sequence with native pre-send
+and authenticated receipt, without adding a timestamp or source role to the
+wire. Existing relay-origin samples include at_ms alongside their legacy
+second-resolution at field, plus the first physical hop for each fan-out
+admission. This distinguishes local admission from remote receipt and separates
+the two accepted paths of one cell. No network relay parses media headers.
+
+Parsing borrows local IPC bytes without copying ciphertext. Diagnostics remain
+off by default and sample one in fifty nonzero sequences. New parser tests
+cover typed direct/relay encoders, sampling gates, invalid magic, every truncated
+direct payload and oversized declared length. All 137 enabled veil-ipc unit
+tests pass; five existing tests remain ignored. Existing source authorization,
+rate limiting, queues, priority and network encoding are unchanged. A fresh
+physical trace is still needed; this is instrumentation, not an audio fix.
