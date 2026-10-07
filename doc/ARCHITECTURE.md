@@ -5838,3 +5838,53 @@ neutral transit, wakeups and cross-neighbor source throttling. No relay
 priority or payload-role disclosure is added. Internal RPC/control origin
 paths and physical audio pauses remain open; this cycle does not prove the
 full audio-quality objective complete.
+
+
+### Cycle 2273: packaged SDK and physical evidence
+
+Fresh Mac/arm64 Android production-feature SDKs include Veil 2bfd1ddd and root
+baa6ed87. Stand Dart build 0.13.84+2273 includes the camera-label correction.
+Poco was updated in place with the same production signing certificate; its
+pulled full APK hash matches the signed artifact. Independent Android SDK
+stripping matches the packaged bytes, Mac SDK code sections match the fresh
+build, ABI matches, and Mac strict signature verification passes. Native media
+2258 and hidden-volume are unchanged. Source hashes include the ACK retry
+producer and its runtime consumer. The production /Applications installation
+was not replaced.
+
+The 90-second Mac-to-cellular-Poco call rang at 0.417 seconds and both endpoints
+were active at 2.207 seconds. It stayed active and ended by explicit hangup.
+Most observations used P2P after initial relay: 165/164 P2P and 39/38 relay
+active samples on Mac/Poco. Maximum sampled native audio ages were
+2,887/2,908 ms; this still does not prove interruption-free or low-latency
+acoustic playback. All 18/15 sampled local relay writes reached admission.
+Camera capture ran but transmitted encoded video remained zero, paused by
+audio reservation, so mixed encoded-video quality remains unverified.
+
+The concurrent message phase did not complete its receiver check before
+shutdown. Poco logged 32 successful send API responses. A separate 30-second
+history check after both endpoints restarted found all 32 distinct, ordered
+rows on Poco (status sent), but only one matching delivered row on Mac at
+every observation. This is a newly observed delivery failure, not a successful
+load test or proof of permanent loss. Its cause and relationship to the source
+retry correction are unproven. During the original call, Poco additionally
+logged 90 app.ratchet.open_failed observations, including 65 missing-ML-KEM-leg
+prologue refusals and 19 authentication failures. These are in the reverse
+direction from the message burst, so they do not by themselves explain its
+missing messages. Do not weaken the existing downgrade/authentication guards.
+The next investigation must capture both native sender and receiver errors,
+queue admission and crypto state while reproducing the burst.
+
+Both call and history stands passed cleanup: every owned process exited, no
+Poco UID/package process or remote probe remained, and the test ADB forward
+was removed. Mac runtime logs were archived and its strict seal rechecked.
+The short history launch reused and overwrote the original Mac stdio file;
+original-call Mac native stdout evidence is unavailable. Its Dart devlog,
+API samples and result survive. Original-call Poco native logs were recovered
+from the device ring buffer with an explicit timestamp window and saved as
+poco-logcat2273-recovered.txt. Use the preserved call devlogs separately from
+the later history devlogs; do not infer absent events from overwritten files.
+Private evidence includes neteq2273 samples/result/summary/call-cleanup,
+history2273 observations/cleanup, build/native/installed manifests and test
+logs. This cycle changed source, verified packaging and exposed a delivery
+failure. The full audio-priority goal remains active.
