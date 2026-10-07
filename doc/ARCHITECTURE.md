@@ -5110,7 +5110,26 @@ grant expiry retire the source; a stopped source cannot be resumed by sink
 rebinding. macOS restores the requested screen source after rebuilding.
 The method-channel lifetime/expiry tests and selected call, route, bitrate and
 capture-security suite pass 210 tests; targeted analysis reports no issues.
-Physical verification of this correction in build 2263 is still pending.
+Build 2263 is installed on Poco and its full APK is byte-verified with SHA-256
+37ded12e9489e454924ba62770e87df25f9765d451736aefa15a79388ca03a2a.
+The Mac stand bundle's seal, Dart version and native code are verified. The
+180-second Poco-to-Mac video-capable call rings in 2.075 seconds and is active
+on both endpoints by 6.752 seconds; cameras and microphones are disabled for
+the capture lifetime check. Screen consent completes at active +13.694.
+Before forced phone media repair at +17.839, Poco has sent four screen frames
+and Mac has delivered four. The repair returns at +17.967; by +21.038 the
+phone's new epoch 5 has sent three frames and Mac's retained epoch 3 has
+delivered seven. Screen intent stays on and no second consent request occurs.
+Screen-off at +21.146 clears public intent. Android reports no projection and
+no ScreenCaptureService while the voice call remains active.
+
+Microphones resume at +21.154/+21.313. At +56.326 both remain P2P, with native
+audio admission maxima 0/2 ms and playout 334/402 ms. Across observations after
+driver time +65 seconds, median playout is approximately 350/338 ms; fresh
+packet arrivals alone do not establish low acoustic latency. Jitter-buffer
+delay/flushes and cold authenticated offer delivery still need investigation.
+Both owned apps, complete phone UID/package, helpers, ping and forward are
+verified absent after the stand; the consented projection is also gone.
 
 The 2262 stand does not establish healthy active voice: after microphones
 resume, audio playout medians are 372/340 ms with interruptions; after screen
