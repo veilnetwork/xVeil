@@ -7776,6 +7776,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'micOn': c.micOn,
               'cameraOn': c.cameraOn,
               'screenOn': c.screenOn,
+              'peerCapture': c.peerCapture == null
+                  ? null
+                  : {
+                      'audio': c.peerCapture!.audio,
+                      'video': c.peerCapture!.video,
+                      'screen': c.peerCapture!.screen,
+                      'atMs': c.peerCaptureAtMs,
+                    },
               'mediaStats': ref.read(callServiceProvider).mediaDiagnostics,
             },
     });
