@@ -4148,3 +4148,28 @@ improvement over previous calls with different cellular conditions. Delivery
 pauses, Android native deployment and cold authenticated signaling/ratchet
 recovery remain unresolved. Both apps, the complete Android UID, owned
 local/remote probes and ADB forward are independently verified exited.
+
+
+Android native builder recovery
+-------------------------------
+
+An isolated Colima profile `xveil-media` now runs an aarch64 VZ VM with Rosetta,
+8 CPUs, 12 GiB RAM and an 80 GiB data disk. An actual Linux amd64 container
+reports x86_64 and runs the compiler/dependency tools. Its Ubuntu image is
+pinned to sha256:5ec03bb3441e8b0bf3b4f9cd4629a1ae763010dc3035bb8da3ae6cf026486401.
+The media source is mounted read-only; output uses a private stand directory,
+and the checkout/cache uses the named volume `xveil-webrtc-android-4ef980bc`.
+The Docker host is the profile's explicit Unix socket. The container is
+`xveil-media-build-2236`; it preserves installed build tools between retries.
+
+The actual WebRTC checkout is verified at
+4ef980bc2c70834276c791e71e7834b8809f24ad, matching the Mac archive.
+The literal gclient configuration selects target_os=['android'] and
+custom_vars.checkout_instrumented_libraries=False for this non-MSan release
+build. A stalled unused Linux instrumented archive is excluded. Dependency
+sync requests --no-history; compiler parallelism is bounded to six jobs.
+Patchelf is installed for the required libveilclient_ffi.so ELF dependency.
+Synchronization is still in progress: this environment setup does not yet
+establish a successful Android archive, media link, packaging or deployment.
+The next physical call must verify the new native artifact on Poco before
+claiming that the two native endpoint fixes are deployed there.
