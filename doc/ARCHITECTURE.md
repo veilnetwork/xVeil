@@ -5350,3 +5350,39 @@ records, sample rows and endpoint logs). The goal remains open for delayed
 signaling, the remaining native RTP gaps and receive/playout delay. The lack of
 reliable pressure waits after relay fallback merits transport-feedback coverage
 review; it is not proof of the cause of the remaining pauses.
+
+Ordered primary transport feedback (2267)
+-----------------------------------------
+
+The local source-pressure publisher previously ran only when selecting a
+DATAGRAM sender. Ordered primary traffic could therefore lose feedback when
+the authenticated peer lacked the DATAGRAM decoder, neutral Forward support,
+or the newer circuit carrier. Retaining a QUIC handle for feedback now has
+separate authenticated permission from enabling its DATAGRAM sender/receiver.
+Compatibility peers receive exactly the canonical encrypted ordered frames.
+
+Before encrypting an ordered frame, the session observes its parent QUIC path
+only for a complete locally authored primary frame. Trusted local queue metadata
+and absence of a return carrier exclude forwarded work; an incoming REALTIME
+header alone cannot activate the policy. The old CircuitData discriminant is
+covered too. Pressure is published to the endpoint's existing shared source
+state without reducing the parent window used by ordered primary bytes. A
+stream swap clears feedback from the retired connection. No remote role or QoS
+metadata is added, and relay forwarding keeps its neutral admission policy.
+
+Three real TLS/QUIC SessionRunner regressions exercise each compatibility case.
+A primary ACK blackout publishes pressure before RTT or DATAGRAM expiry can
+reveal it. A separate healthy neighbor then holds its local file producer while
+neutral work passes. Full encrypted file bytes, cipher order and timer-only
+resumption are verified. Disabling only the ordered feedback call makes all
+three tests fail because no pressure reaches the other neighbor. The session,
+transport, SDK and runner integration suites pass 847 tests, with eight ignored.
+This verifies the feedback path; physical audio improvement is not yet verified.
+
+A counter review of physical build 2266 rules out ordinary sender silence for
+the worst Mac receive gap: during its approximately 5.3-second sampled interval,
+Poco's stable media epoch produces 257 payload audio packets, with no recorded
+native transmit drops. Sender counters precede later transport processing, so
+this does not locate the delay or prove delivery. Counter deltas remain positive
+in the reviewed Poco receive gaps too. The goal remains open for actual route
+coverage, end-to-end receive gaps and delayed signaling.
