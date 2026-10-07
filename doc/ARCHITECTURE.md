@@ -6595,3 +6595,56 @@ bundle with its strict seal verified again. Private evidence: file2282-regressio
 before/after, file2282-stream-policy-tests, build-screen/native-policy/installed2282,
 mixed2282 result/playout/runtime logs, voice-file2282 events and neteqmixed2282
 cleanup. The full audio-priority goal remains active.
+
+
+### Cycle 2283 — direct stream principal and physical reply route
+
+`APP_OPEN` now carries the session-proved sovereign identity as local endpoint
+metadata, separately from its physical opener. The IPC notification uses that
+identity for application access checks; acceptor data/close replies still use the
+physical opener route. Legacy peers and same-node opens keep their original
+address; an unauthenticated hint cannot rename an initiator. No network or IPC
+payload size, FFI contract, crypto state, or relay role/priority changes.
+
+The actual dispatcher regression covers proved and legacy sessions. A Unix IPC
+regression checks both application-visible authorization identity and bytes
+returned to the physical device, plus a Claimed hint's fallback. All affected
+app/dispatcher/IPC suites pass: 452 tests, 7 existing ignored tests. Veil
+48038b54 and xVeil 003a173a are unsigned local commits.
+
+Fresh SDK/host 0.13.84+2283 is installed on Poco in place with the existing
+production signer. Packaged libraries, installed APK bytes, Mac native code
+sections, version and strict bundle seal verify. C++ media remains exactly
+2279; identities/history/ratchets and /Applications are retained. Poco Wi-Fi
+is off, mobile data on.
+
+The mixed2283 warmup rings at 3.682 s, both active at 5.000 s. The reverse main
+call rings at 0.413 s, both active at 0.812 s, stays P2P throughout 85 active
+seconds, and retains one engine epoch per endpoint. The 512-KiB file now
+completes: first observed partial bytes at active 30.205 s, successful download
+at 32.289 s (about 7 s after beginning), SHA-256 matches. Owned partial-file
+probes distinguish an existing empty file from no partial file. This fixes the
+physical transfer failure; it does not establish uninterrupted mixed media.
+
+Native interruptions still reach Mac 4/1996 ms and Poco 8/3503 ms, including
+interruptions before file transfer. Encoded video remains zero under the
+unchanged audio reservation despite active camera capture. Sampled encrypted
+cell delivery after local admission reaches 319.4 ms Mac→Poco and 787.6 ms
+Poco→Mac, with a 19.5-ms initial clock-probe bound (no claim of acoustic delay).
+Sampled prepared-packet-to-UDP maxima are 1356/3246 us, with zero 100-ms UDP
+send stalls; primary datagram expiry counters reach 27/0. Those are cumulative
+connection metrics, not packet-matched attribution. The queue-to-peer gap still
+includes congestion waiting before packet preparation and kernel/carrier time.
+A next packet-matched UDP handoff/receive observation is required to distinguish
+these stages, without transmitting diagnostics or roles on the network.
+
+Note: `audio_tx_rtp_queue_age_ms` is time since the LAST successful local
+admission (`AudioSendStats::last_queued_ns_`), not residence time in a pending
+queue. A ~400-ms value can be DTX cadence and must not be called queue backlog.
+
+All owned apps/helpers and phone UID/package processes have exited; ADB forward
+removed, camera off, call ended, owned download cancelled/sink removed, Mac
+runtime logs archived outside the bundle and strict seal verified. Private
+mixed2283 result/playout/stage-audit, file events, build/native/installed metadata,
+stream2283 suite output and neteqmixed2283 cleanup retain the evidence. The
+full audio-priority goal remains active.
