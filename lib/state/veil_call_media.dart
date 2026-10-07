@@ -1201,6 +1201,7 @@ class VeilCallMediaController implements CallMediaController {
           ? _directVideoProfile
           : _anonymousVideoProfile;
       final adapter = _videoAdapterForProfile(profile, engine);
+      if (!_prepareVideoAudioAdmission(call, engine, adapter)) return audioOk;
       final target = adapter.target;
       videoOk = engine.startVideo(
         send: true,
@@ -1217,9 +1218,10 @@ class VeilCallMediaController implements CallMediaController {
       // the engine. Android uses an app-owned Camera2 SurfaceTexture + direct
       // JNI YUV bridge; the Flutter camera plugin is only a compatibility
       // fallback if the native session cannot open.
-      if (shouldStartInitialCallCamera(
-        call.copyWith(cameraOn: _cameraState.enabledForCall(call.callId)),
-      )) {
+      if (videoOk &&
+          shouldStartInitialCallCamera(
+            call.copyWith(cameraOn: _cameraState.enabledForCall(call.callId)),
+          )) {
         if (Platform.isAndroid) {
           // Do not hold the call FSM in `connecting` while camera permission or
           // device opening completes; the receive pipeline is already mounted.
@@ -1258,6 +1260,44 @@ class VeilCallMediaController implements CallMediaController {
       baseFps: profile.maxFps,
       supportsLowRateVideo: engine.supportsLowRateVideo,
     );
+  }
+
+  bool _prepareVideoAudioAdmission(
+    Call call,
+    VeilMediaEngine engine,
+    CallBitrateAdapter adapter,
+  ) {
+    if (!engine.supportsVideoSendPause) return true;
+    Map<String, dynamic> stats;
+    try {
+      stats = engine.getStats();
+    } catch (_) {
+      stats = {'worker_stalled': 1};
+    }
+    adapter.prepareVideoSend(
+      stats,
+      receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
+      peerAudioDelayMs: _peerAudioPlayout.delayMs(DateTime.now()),
+      requirePeerAudioPlayout:
+          call.media.audio &&
+          (call.peerProtocolVersion ?? 1) >=
+              kCallAudioPlayoutFeedbackMinVersion &&
+          !_microphoneState.muted,
+      audioReceiveQuality:
+          !stats.containsKey('audio_rx_native_age_ms') &&
+              _audioReceiveActivity.supported
+          ? (
+              expected: call.media.audio && _peerAudioCaptureEnabled,
+              ageMs: null,
+            )
+          : null,
+    );
+    final applied = adapter.applyPendingPause(engine.setVideoSendPaused);
+    devLog(
+      () =>
+          'xVeil[call-media]: before-video audio pause=${adapter.audioReserve} ok=$applied',
+    );
+    return applied != false;
   }
 
   /// Pump the latest decoded frames into the shared notifier for the UI.
@@ -1351,6 +1391,7 @@ class VeilCallMediaController implements CallMediaController {
         ? _directVideoProfile
         : _anonymousVideoProfile;
     final adapter = _videoAdapterForProfile(profile, engine);
+    if (!_prepareVideoAudioAdmission(call, engine, adapter)) return false;
     final target = adapter.target;
     final bool ok;
     try {
@@ -1411,7 +1452,7 @@ class VeilCallMediaController implements CallMediaController {
     _engineRxStalledSince = null;
     // Congestion belongs to the call, not the native engine. A route rebuild
     // must start video at its reduced budget instead of injecting a new burst.
-    _bitrateAdapter?.invalidateAppliedTarget();
+    _bitrateAdapter?.invalidateAppliedState();
     _screenSharing = false;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;

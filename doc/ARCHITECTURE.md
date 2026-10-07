@@ -4595,3 +4595,57 @@ also needed before changing NetEq based on silence/DTX telemetry alone.
 Both apps, whole Android UID including package processes, owned helpers,
 remote ping and the ADB forward are independently verified absent after this
 run. No push, signed commit, tag or release is performed.
+
+
+Audio admission before video mount and after engine replacement (2248)
+--------------------------------------------------------------------
+
+Video now evaluates expected incoming audio and capable peer playout BEFORE
+creating its send stream or starting capture. A capable receiver with no
+accepted RTP, stale/unknown receive age, or required poor/unknown remote
+playout starts with native outbound video paused. Receive and preview remain
+available. Twelve consecutive healthy audio samples earn resume; explicit
+mute/removal can release an initial hold when no relevant audio remains.
+Healthy DTX, video without expected audio and legacy low-rate capability
+retain their appropriate paths. Known receive-age support remains sticky
+through missing fields/worker timeouts so a partial sample cannot earn resume.
+
+At the sparse video floor, two measured remote playout samples >=300 ms now
+pause the send stream, rather than allowing sparse frames up to 1000 ms.
+Unknown feedback does not substantiate a bad-link advisory. Recovery still
+uses the existing <200-ms playout budget and twelve good samples. This changes
+an endpoint policy; no wire role, mailbox delivery or relay QoS is added.
+
+Engine replacement also invalidates BOTH applied native caches: the previous
+engine having been paused cannot establish that its replacement is paused.
+The existing budget/pause policy survives and is reapplied before video mount.
+Group startup uses the same admission policy and checks all expected peers.
+
+246 selected Flutter tests and five-file analysis pass. Four negative controls
+fail at their intended assertions: removed startup hold, stale predecessor
+pause cache, the old 1000-ms floor threshold and omitted group pre-mount pause.
+Exact source bytes are restored and the positive suite rerun. The real native
+WebRTC suite passes; additional direct/group checks set pause BEFORE mounting
+video and verify mounting retains it. Its existing real encoding/preview and
+held-video/audio queue gates also pass. Veil a01c33ab contains only those
+additional native tests; deployed SDK/media/ABI remain the verified 2246
+artifacts, and hidden-volume is unchanged.
+
+Both actual Dart kernels contain the new admission helper. Mac's bundle seal
+passes. Poco retains its original signer and its full installed APK equals the
+signed 0.13.84+2248 artifact, SHA-256:
+f2ff38311311a2dd5f7aedd7a5fffc3a7d1282214aedd5f22b089f0a7ecfe0e7.
+
+The attempted physical comparison becomes unobservable after Poco disappears
+from ADB before the camera-on phase. Mac still reports fresh received audio;
+the driver's endpoint_lost label is caused by API transport URLError, not
+proof of a dropped call. Its first request's timestamp is not a precise ring
+latency measurement. The driver now distinguishes missing observations from
+an actual successful response with no call, and timestamps observations after
+both API reads. This aborted run does NOT validate mixed-media improvement,
+healthy physical video resume or satisfactory audio latency.
+
+Mac hangup/lock succeeds and all owned host app/helper/probe PIDs and the ADB
+forward are verified absent. Phone force-stop/UID and remote ping verification
+remain explicitly pending until ADB reconnects; cleanup is not claimed complete
+for that device. No push, signed commit, tag or release is performed.
