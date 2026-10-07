@@ -6253,3 +6253,30 @@ neteq2277-result/playout/summary/cleanup and handover-phase2277. Native handover
 is committed unsigned as Veil 23078ec2 and host 302155b9; nothing is pushed.
 The full audio-priority goal remains active: multisecond direct/relay delays,
 first-offer delay and actual mixed-media quality still require investigation.
+
+Further audit of the same capture narrows some transport stalls. Direct local
+slot 0 already uses an independent QUIC connection. Its sampled loss counters
+reach 148 packets on Mac and three on Poco, unsent expired datagrams 214/56,
+PTO counts four/three, and RTT estimates 597/894 ms. The sampled event-queue and
+timer delays on these senders stay below 3 ms; authenticated datagram dispatch
+maxima across the active-call receive windows are below 1.5 ms, with no receiver
+rate limiting. This supports a transport/acknowledgment stall rather than a
+seconds-long measured datagram handler, but does not isolate network loss from
+every unobserved local stage.
+
+The relay cell with the largest matched delay (2,179.6 ms from Mac) is observed
+through socket_written, daemon_read, handler_enter and relay_queued. Those IPC
+timestamps have one-second resolution: even using the latest end of the sampled
+admission second, remote authenticated receipt is over 1.25 s later after the
+16.6-ms clock uncertainty. Thus this delay cannot be wholly assigned to the
+SDK sender lock or pre-write queue. Logged slow ordered writes elsewhere in the
+call reach 1,922/2,646 ms, but are not correlated to this particular cell/hop;
+they remain candidates, not a proven explanation. Evidence is the private
+neteq2277-stage-audit record. More precise direct IPC and per-hop observations
+are still needed before changing transport policy.
+
+The screenshot's reversed waiting label is already fixed by ee3da8bc and is
+included in installed build 2277: only camera pixels are mirrored. All nine
+preview/pixel/source-freshness tests pass. The older source-shape assertion now
+allows whitespace before screenSharing, retaining its mirror-decision check
+across ordinary Dart formatting. This follow-up opens no app instances.
