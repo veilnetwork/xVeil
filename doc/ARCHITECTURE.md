@@ -6409,3 +6409,60 @@ Colima VM and default Docker context remain unchanged. Private evidence:
 build-screen/native-policy/installed2279, native-verification2279-packaged,
 neteq2279-result/stage-audit/playout/cleanup and message-phase2279. The full
 audio-priority goal stays active; this is not a full audio-quality completion.
+
+### Cycle 2280: repeated cold setup and terminal authentication diagnostics
+
+Poco is available on cellular (Wi-Fi off). With the unchanged 2279 media
+engine, one restart capture rings at 15.331 s, both endpoints active at
+16.507 s; the subsequent reverse call rings at 0.820 s and becomes active at
+1.256 s. This supports investigating cold preparation, but does not establish
+whether the rejected earlier offers used legacy ML-KEM encryption or an
+unproven ratchet. Both can reach the app as Claimed; neither may pass the
+existing contact/offer authorization gate.
+
+Sparse successful packet matches in those two calls show direct delays up to
+932.8/1146.2 ms and 1889.8/1142.2 ms (Mac/Poco), with relay maxima
+1529.8/803.2 ms in the second call. Individual local IPC stages remain at most
+1 ms. The clock bound is 21.7 ms, measured after the capture; results assume
+no intervening clock adjustment. Unmatched samples remain separate and are
+not asserted to be network loss. These observations locate delay after local
+admission, without identifying its complete cause.
+
+A separate 85-second mixed attempt rings at 1.457 s after an eight-second
+warmup call. Camera starts at about 13 s; encoded video remains zero under
+audio reservation. Both endpoints keep engine epoch 3 throughout this call
+(epoch advanced between calls, not on camera start or route handover).
+Native interruptions reach 9/8126 ms on Mac and 25/29311 ms on Poco. A 512-KiB
+file is offered, but its download does not complete within the explicitly
+chosen 45-second observation deadline. The owned download is cancelled and
+its temporary sink removed. This does not prove permanent file loss; actual
+mixed encoded-video/audio quality remains unverified.
+
+An opt-in, bounded terminal diagnostic now reports encryption form and sender
+verdict only after local decryption. It records no addresses, content or keys,
+adds no wire fields, and is absent from relay forwarding. The existing stand
+trace switch enables it; default operation leaves it off. Authorization,
+cryptography, queueing and relay policy are unchanged. All 269 dispatcher
+tests pass. Veil d5bdbabb and root 793ccbed are committed unsigned/unpushed.
+
+Fresh SDK/host diagnostic build 0.13.84+2280 is installed in place on Poco,
+with the same signing certificate and verified installed APK. Mac code
+sections/seal, Android stripped SDK bytes and packaged native dependencies
+verify. Production media remains the exact 2279 artifact: CPP sources match
+its manifest, 97 exports, no test hooks. The /Applications app is not replaced.
+
+The new diagnostic capture rings at 3.475 s after restart and 1.153 s on the
+reverse call; all observed terminal samples are ratchet/Signed (85 Mac,
+48 Poco). Earlier Claimed offers do not recur here, so this capture does not
+resolve their cause or prove a signaling fix. Audio still fails: during the
+two 20-second calls, completed interruptions reach 8/3958 and 6/4255 ms on
+Mac, 11/5218 and 11/8490 ms on Poco. Engines remain intact across handovers.
+
+Every owned app/helper, UID/package process and ADB forward is verified gone
+after each capture; runtime-added Mac logs are archived outside the bundle,
+whose strict seal verifies again. Identities/history/ratchets are retained.
+Private evidence: auth2280 and mixed2280 result/metric-summary/cleanup,
+trace2280 result/metric-summary/terminal logs/cleanup, build-screen-2280,
+installed2280, native-verification2280-packaged and dispatcher test log.
+The full goal remains active; cold authentication, network delay and mixed
+encoded-media quality still require work.
