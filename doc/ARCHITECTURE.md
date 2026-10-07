@@ -6208,3 +6208,48 @@ opened by these fixtures; their binaries have exited. Fresh packaging and a
 physical call with preserved Poco/Mac identities remain required. Native jitter,
 first-offer delay and mixed encoded-video quality remain unresolved; the full
 audio-priority goal stays active.
+
+### Cycle 2277: physical handover verified; audio interruptions remain
+
+Fresh production native media libraries, the SDK and host were packaged as
+0.13.84+2277, then installed on Poco in place. Installed APK bytes, signing
+certificate, native source/ABI checks and the strict Mac bundle seal pass.
+The packaging source-dirty flag came from a generated duplicate JNI staging
+file only; that file was removed after packaging and tracked sources are clean.
+Actual profiles, identities and history were preserved; the /Applications
+production app was not replaced. Poco remained on cellular with Wi-Fi off.
+
+Mac calls Poco: ringing is observed at 0.436 s, both endpoints active at
+1.341 s. The call stays active for 90 s and ends by explicit hangup. All 32
+new message rows arrive exactly once in order, observed in 15.23 s; the older
+priority-2273 rows remain complete on both endpoints without reset.
+
+Natural direct-audio stalls trigger a P2P-to-relay handover around 17.635 s.
+Each endpoint creates its controller once and logs one in-place route handover.
+Media epoch remains 1 and receive counters never decrease: the physical run
+verifies preservation of the live media engine. Camera starts around 30 s and
+the message load later, so neither caused this initial direct stall. The planned
+Poco policy change occurs only at 58.525 s, when both endpoints are already on
+relay; contacts policy is restored at 84.318 s and verified again during cleanup.
+That policy phase cannot be credited with inducing the earlier handover.
+
+Audio quality still fails. Without counter resets, Mac records ten interruptions
+totalling 7,869 ms, Poco fifteen totalling 11,179 ms. Delay/jitter-buffer maxima
+are 1,376/535 ms on Mac and 578/579 ms on Poco; native receive-age maxima are
+2,695/2,712 ms. Sparse matched packet traces show maxima of 3,028.6 ms direct
+and 2,179.6 ms relay from Mac, and 998.4/1,420.4 ms from Poco, with a 16.6-ms
+clock probe bound. These are sparse network observations, not acoustic latency.
+They do not isolate which queue, transport or capture stage caused each pause.
+Camera capture is enabled but encoded video remains zero under audio reservation;
+mixed encoded-video quality remains unverified. Network variation prevents an
+audio-quality comparison with the previous capture.
+
+Owned apps, helper processes, UID/package processes, remote probes and ADB
+forwarding are verified gone; Poco remains available. The runtime-added Mac log
+is archived as mac2277-runtime-debug and the bundle seal verifies again. The
+owned xveil-media builder VM is stopped; the user's default Colima VM remains
+running. Private evidence: installed2277, native-verification2277,
+neteq2277-result/playout/summary/cleanup and handover-phase2277. Native handover
+is committed unsigned as Veil 23078ec2 and host 302155b9; nothing is pushed.
+The full audio-priority goal remains active: multisecond direct/relay delays,
+first-offer delay and actual mixed-media quality still require investigation.
