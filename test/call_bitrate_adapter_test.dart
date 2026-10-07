@@ -14,6 +14,163 @@ void main() {
   ({int maxBitrateKbps, double maxFps})? lossy(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
 
+  test(
+    'video admission waits for expected incoming audio before its first frame',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      a.prepareVideoSend({
+        'audio_rx_pkts': 0,
+        'audio_rx_native_age_ms': -1,
+      }, receiveAudioExpected: true);
+      expect(a.audioReserve, isTrue);
+      final pauses = <bool>[];
+      a.applyPendingPause((value) {
+        pauses.add(value);
+        return true;
+      });
+      expect(pauses, [true]);
+      for (var i = 0; i < 20; i++) {
+        a.onNativeStats({
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'audio_rx_pkts': 0,
+          'audio_rx_native_age_ms': -1,
+        }, receiveAudioExpected: true);
+      }
+      expect(a.audioReserve, isTrue);
+      // A timeout cannot erase a capability that the engine already reported.
+      for (var i = 0; i < 20; i++) {
+        a.onNativeStats({
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'worker_stalled': 1,
+        }, receiveAudioExpected: true);
+      }
+      expect(a.audioReserve, isTrue);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+        a.onNativeStats({
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'audio_rx_pkts': i + 1,
+          'audio_rx_native_age_ms': 100,
+        }, receiveAudioExpected: true);
+      }
+      expect(a.audioReserve, isTrue);
+      a.onNativeStats({
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+        'audio_rx_pkts': 30,
+        'audio_rx_native_age_ms': 100,
+      }, receiveAudioExpected: true);
+      expect(a.audioReserve, isFalse);
+    },
+  );
+
+  test('video mount respects poor or unknown remote audio playout', () {
+    for (final delay in <int?>[null, 450]) {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      a.prepareVideoSend(
+        {'audio_rx_pkts': 100, 'audio_rx_native_age_ms': 100},
+        receiveAudioExpected: true,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: delay,
+      );
+      expect(a.audioReserve, isTrue);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+        a.onNativeStats(
+          {
+            'audio_feedback_reports': 1,
+            'rtt_ms': 80,
+            'audio_rx_pkts': 100 + i,
+            'audio_rx_native_age_ms': 100,
+          },
+          receiveAudioExpected: true,
+          requirePeerAudioPlayout: true,
+          peerAudioDelayMs: 140,
+        );
+      }
+      expect(a.audioReserve, isFalse);
+    }
+  });
+
+  test('healthy DTX and video without expected audio mount without a hold', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    a.prepareVideoSend(
+      {'audio_rx_pkts': 100, 'audio_rx_native_age_ms': 400},
+      receiveAudioExpected: true,
+      requirePeerAudioPlayout: true,
+      peerAudioDelayMs: 140,
+    );
+    expect(a.audioReserve, isFalse);
+    a.prepareVideoSend({'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1});
+    expect(a.audioReserve, isFalse);
+    final legacy = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 60,
+      supportsLowRateVideo: false,
+    );
+    legacy.prepareVideoSend({
+      'audio_rx_pkts': 0,
+      'audio_rx_native_age_ms': -1,
+    }, receiveAudioExpected: true);
+    expect(legacy.audioReserve, isFalse);
+  });
+
+  test(
+    'intentional mute can release an initial hold without invented feedback',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      a.prepareVideoSend({
+        'audio_rx_pkts': 0,
+        'audio_rx_native_age_ms': -1,
+      }, receiveAudioExpected: true);
+      expect(a.audioReserve, isTrue);
+      a.onNativeStats({
+        'audio_feedback_reports': 0,
+        'worker_stalled': 0,
+      }, receiveAudioExpected: false);
+      expect(a.audioReserve, isFalse);
+    },
+  );
+
+  test('the sparse floor stops after two measured 450-ms audio samples', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    for (var i = 0; i < CallBitrateAdapter.degradeAfter; i++) {
+      a.onSample(
+        rttMs: 80,
+        txJitterMs: 0,
+        txLossPct: 0,
+        txDrops: 0,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: 450,
+      );
+    }
+    expect(a.audioReserve, isTrue);
+    expect(a.target, (maxBitrateKbps: 1, maxFps: 0.02));
+  });
+
+  test('a rebuilt native engine must reapply the existing audio pause', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    a.prepareVideoSend({
+      'audio_rx_pkts': 0,
+      'audio_rx_native_age_ms': -1,
+    }, receiveAudioExpected: true);
+    final firstEngine = <bool>[];
+    a.applyPendingPause((paused) {
+      firstEngine.add(paused);
+      return true;
+    });
+    expect(firstEngine, [true]);
+    a.invalidateAppliedState();
+    final replacement = <bool>[];
+    a.applyPendingPause((paused) {
+      replacement.add(paused);
+      return true;
+    });
+    expect(replacement, [true]);
+    expect(a.audioReserve, isTrue);
+  });
+
   test('an RTP outage pauses video before remote delay feedback arrives', () {
     final a = direct();
     a.onNativeStats({

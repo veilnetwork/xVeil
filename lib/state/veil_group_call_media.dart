@@ -470,14 +470,37 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final engine = _engine;
     if (engine == null) return false;
     if (_videoRunning) return true;
-    final ready = engine.startVideo();
-    if (!ready) return false;
-    _videoRunning = true;
     final adapter = _bitrateAdapter = CallBitrateAdapter(
       baseBitrateKbps: 150,
       baseFps: 15,
       supportsLowRateVideo: engine.supportsLowRateVideo,
     );
+    if (engine.supportsVideoSendPause) {
+      Map<String, dynamic> stats;
+      try {
+        stats = engine.getStats();
+      } catch (_) {
+        stats = {'worker_stalled': 1};
+      }
+      if (stats['audio_rx_native_age_supported'] == 1) {
+        _supportsAudioReceiveAgeStats = true;
+      }
+      adapter.prepareVideoSend(
+        stats,
+        audioReceiveQuality: _groupAudioReceiveQuality(stats),
+        peerAudioDelayMs: _groupPeerAudioDelay(stats),
+        requirePeerAudioPlayout:
+            _audioEnabled &&
+            !_microphoneState.muted &&
+            ((stats['audio_playout_peers'] as num?) ?? 0) > 0,
+      );
+      if (adapter.applyPendingPause(engine.setVideoSendPaused) == false) {
+        return false;
+      }
+    }
+    final ready = engine.startVideo();
+    if (!ready) return false;
+    _videoRunning = true;
     adapter.applyPendingTarget(
       (target) => engine.setVideoBitrate(
         maxBitrateKbps: target.maxBitrateKbps,
