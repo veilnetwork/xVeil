@@ -4817,3 +4817,52 @@ exited child as a running process. Remaining work: direct-session establishment
 on the cellular setup, relay queueing/packet bursts, capture callback cadence,
 actual audio latency and quality, and healthy bidirectional video recovery.
 No push, tag or release was performed.
+
+
+Punched responder direction and Android packaging (2254)
+-------------------------------------------------------
+
+The 2253 native logs show a more specific P2P failure than the Dart NAT
+retry message: three punched QUIC connections completed their authenticated
+handshake, then Poco rejected their inbound direction as a duplicate and the
+Mac immediately lost the stream. The explicit punched initiator already
+bypassed the configured mesh's direction selection; the responder used the
+ordinary listener path. Veil a8eb5efd applies the same direction exemption
+only at the local punched-responder spawn boundary. Peer authentication,
+P-Net/capacity admission and live-session replacement rules remain unchanged.
+
+A real QUIC + OVL1 regression checks noncanonical configured inbound rejection
+for a listener, successful punched admission and rejection of a second live
+punched connection. Reverting the responder call site reproduces the intended
+admission failure; source is restored byte for byte afterward. Thirty-eight
+selected runtime checks pass, including handshake/identity expectations,
+sovereign proofs, P-Net status, punch single-flight and runner ownership.
+
+The standalone Android SDK helper also differed from the Flutter Gradle
+feature policy: it enabled BoringSSL and produced an SDK needing an unbundled
+libc++_shared.so. The first 2254 APK consequently failed during activity startup,
+before a call. That failed stand was closed and verified; Poco was temporarily
+returned to the working 2252 APK. Veil 19602459 aligns the Android helper with
+Gradle's no-default-features policy, retaining explicit tls-boring opt-in.
+The corrected SDK needs only liblog/libdl/libm/libc. The APK dependency gate
+now reads every packaged ELF's DT_NEEDED through program headers (32/64-bit,
+no host NDK needed) and rejects missing non-system libraries, including
+transitive dependencies and copies bundled only for a different ABI. The real
+failed APK is rejected and the working APK passes. Packaging fixture checks
+and the existing build-support suite pass. The corrected installed APK's full
+SHA-256 is dbb9d958ec1fbaba4455095acd297c719a7e0d9d1b3907e7690e1aeb0b7ac859.
+Mac SDK code matches the freshly built artifact; media remains Mac 2253 /
+Android 2252 to isolate the network change. Signer, bundle seal and version
+are checked. No identity or history was reset.
+
+The subsequent physical call rang in 0.399 seconds and both sides became active
+by 1.219 seconds. P2P remained live for all 180 seconds, in media epoch 1 on
+both endpoints. Audio quality still FAILS: Mac registered 44 interruptions /
+44.383 seconds, Poco 19 / 21.490 seconds. Mac NetEq flushed 21 times and
+discarded 600 packets; Poco flushed three times and discarded 58. Neither
+endpoint transmitted or decoded video frames, including the requested-camera
+phase. Local audio RTP admission peaked at 0/2 ms; native accepted-RTP gaps
+peaked at 4.350/4.601 seconds. Direct transport loss/bursts, Apple capture
+cadence and actual audio latency remain open. Camera recovery is not validated.
+Both owned apps, complete phone UID/package, helpers, ping and ADB forward are
+verified stopped. No push, tag or release was performed.
