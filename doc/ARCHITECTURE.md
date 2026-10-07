@@ -4712,3 +4712,60 @@ Poco remains absent from ADB. No new apps are launched; installation, physical
 mixed-media/audio-latency comparison, healthy bidirectional video recovery,
 cold relay-to-P2P verification and the preceding phone cleanup remain open.
 These policy gates do not establish satisfactory physical call quality.
+
+
+Decoded audio interruptions and burst-capacity rollback (2252)
+-------------------------------------------------------------
+
+Poco returned. The 180-second 2250 warm P2P call remained in one media epoch.
+Both cameras were requested for 50 seconds, but audio pressure kept both video
+senders paused throughout that phase: no new interruptions there, and no video
+was transmitted. This established the hold, not healthy mixed-media recovery.
+
+The 2251 12-packet NetEq capacity experiment failed physical quality: before
+video, the 15--55-second window contained 15 Mac and 12 Poco interruptions
+(11.768/8.451 seconds). Cellular delays were worse in that run too; the comparison
+does not attribute every pause to capacity. A controlled real Opus/NetEq PCM
+trace nevertheless reproduced an additional buffer flush and concealed samples
+with 12 packets. Production capacity is restored to 30 in Veil 262f2c53; the
+PCM regression now checks rendered markers AND concealment/buffer flushes.
+Standalone max-target experiments of 180/100 ms did not meet the recovery
+quality gate and are not deployed. The 40-ms network fixture still retains
+roughly 340-ms PCM latency shortly after jitter, returning to about 100 ms;
+this rollback is not a claim that interactive audio latency has been solved.
+
+A fresh RTP timestamp and low delay estimate previously allowed video despite
+new decoded-audio interruptions. Local receive samples now track interruption
+increments, and encrypted unicast health feedback carries optional `ap.i` with
+a logical counter preserved across receive-engine repairs. Replay cannot renew
+an event; a later healthy frame cannot erase a pending one. Video pauses on a
+new interruption and requires twelve healthy samples before resuming. Group
+receive stats expose each participant's interruptions, so one affected expected
+participant pauses the local fanout. Legacy fields remain optional; relay
+scheduling and transit metadata are unchanged. Group outgoing RTCP playout
+feedback still carries delay only, not this interruption counter.
+
+268 selected Flutter tests and six-file analysis pass. Removing either the
+adapter interruption branch or group counter wiring reproduces the intended
+regressions. Real native Call-plane tests pass, including independent blocked
+video queues, sparse video/preview/recovery, capture mute and bounded telemetry.
+An older feedback test still expected sparse sending under severe audio pressure;
+it failed on the preceding adapter too and now asserts the existing full pause
+and separate pause/ladder recovery steps.
+
+Fresh 0.13.84+2252 Mac/Android builds have 94 production native exports, the
+same SDK ABI and phone signer. Mac bundled code matches the fresh native code
+section; independently stripped Android media bytes match the packaged library;
+the installed full APK SHA-256 is
+1f7e2f0d3807be9dca848ef4cb0f724de992558df0ca92a31f36682a9cca86d0.
+The physical 180-second call rang in 0.410 seconds and both endpoints reported
+active by 1.503 seconds, but its audio quality FAILED: P2P fell back to relay
+and the Mac repeatedly rebuilt media. In epochs 3--11 it accepted hundreds of
+audio packets while sending zero audio, generating zero decoded concealment,
+and flushing NetEq up to 25 times. Zero reported delay in that state is not
+healthy playout. The current default Mac audio device is a Bluetooth headset;
+AVAudioEngine configuration-change recovery requires investigation. Both owned
+apps, complete phone UID/package, helpers, remote ping and ADB forward are
+verified stopped; the owned build VM is stopped too. Physical audio quality,
+healthy bidirectional video recovery and cold relay-to-P2P validation remain
+open. No release or push was performed.

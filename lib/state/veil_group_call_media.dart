@@ -489,6 +489,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       _observeAudioPlayoutPeers(stats);
       adapter.prepareVideoSend(
         stats,
+        audioInterrupted: _audioInterrupted,
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
@@ -692,6 +693,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             'audio_rx_pkts': receiver['audio_rx_pkts'],
           'worker_stalled': stats['worker_stalled'],
           if (receiver is Map) 'audio_delay_ms': receiver['audio_delay_ms'],
+          if (receiver is Map)
+            'audio_interruption_count': receiver['audio_interruption_count'],
           if (receiver is Map && _supportsAudioReceiveAgeStats)
             'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
         }, now);
@@ -706,6 +709,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Native aggregates count only fresh AUDIO reports, not video reports.
       adapter.onNativeStats(
         stats,
+        audioInterrupted: _audioInterrupted,
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
@@ -738,6 +742,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       );
     }
   }
+
+  bool get _audioInterrupted =>
+      _audioEnabled &&
+      _expectedAudioPeers.any(
+        (key) => _audioReceiveActivity[key]?.interrupted == true,
+      );
 
   ({bool expected, int? ageMs}) _groupAudioReceiveQuality(
     Map<String, dynamic> stats,
