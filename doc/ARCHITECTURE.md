@@ -4088,3 +4088,63 @@ they do not identify all causes or establish that the RTCP change solves it.
 Cold authenticated signaling/ratchet recovery and Android native deployment
 also remain open. Apps, complete Android UID, native tests, owned local/remote
 probes and ADB forward are verified gone after teardown.
+
+
+Residual QUIC congestion-window capacity (2236)
+-----------------------------------------------
+
+A local protocol reproduction identifies an additional admission defect:
+ordinary small packets were required to have room for an entire MTU in the
+congestion window. Two outstanding 1000-byte datagrams in a valid 3000-byte
+window therefore prevented a queued 64-byte datagram from being transmitted,
+even though the complete encrypted packet fit. The reproduction fails on
+the previous packetizer before waiting for an ACK; its source deadline is
+75 ms. This identifies a protocol defect, not the sole cause of cellular
+playout pauses.
+
+Established ordinary 1-RTT packets can now use the residual window, preserving
+the existing strict in-flight budget and pacing checks. A short final GSO
+segment retains the alignment of earlier segments. Whole oversized datagrams
+remain queued until ACK progress; reliable streams can use a shorter packet.
+Initial/coalescing requirements, requested MTU padding, PATH_RESPONSE padding
+and loss-probe exceptions are retained. The optimization is generic for all
+connections/frames, without inspecting application roles or changing relay
+priorities. The endpoint trace exports a generic residual_window_transmits
+counter to verify actual use on physical connections.
+
+All 270 standalone quinn-proto tests and 3 doctests pass. New gates verify
+small expiring datagram delivery, preservation of a larger queued datagram,
+reliable stream completion and requested MTU padding. The original GSO I/O
+count gate remains unchanged and passes. Veil's limited neutral FIFO UDP
+suite passes 13 tests covering primary freshness, concurrent video/files,
+file progress and recovery; 6 ignored manual/characterization experiments
+are not executed. Formatting and diff checks pass. No full CI result is
+claimed.
+
+Mac SDK/app and Android SDK/APK 2236 are rebuilt. Poco receives an install-r
+with the original signer; the completely pulled APK matches SHA-256
+bc3bffd760b97331d38a08c48902f493b4f4ee1a5c9e0954c439473b93453cba.
+The shared ABI remains 9addb7381e09bc3545d0484a90399ba5855e7805e1b68ea03c0c6d64ab7f3136.
+Mac uses the current native audio cap and video RTCP adapter; Android native
+media remains the previous artifact, so those C++ fixes are still not deployed
+on Poco in this measurement.
+
+With Poco explicitly on cellular, Mac-to-Poco rings in 0.389 s, both endpoints
+are active in 1.177 s, and the call stays active for 115 seconds until the
+harness hangs up. Stable measured windows retain P2P media epoch 3. Primary
+connection traces reach 104 Mac / 39 Poco residual-window transmits, confirming
+that the new packetizer is exercised physically. Primary outgoing expiry
+still reaches 317 / 123; separate camera traces show no expiry.
+
+The 28.827-second initial voice window has 10/13 new Mac/Poco interruptions
+(10686/10157 ms), with receive ages up to 2580/2829 ms. During the 29.819-second
+camera window there are no new audio interruptions; Mac decodes 33 new frames
+and sends 240 video RTCP packets / 10136 bytes on the video source. Final voice
+has 4/5 new interruptions (3297/2349 ms) over 29.538 seconds. Mac produces
+5254 actual audio payload packets and 875 padding packets, maximum payload
+gap 106 ms and admission below 1 ms. Independent ICMP reaches 1566 ms at Poco
+versus 77.315 ms at Mac. This measurement does not establish a causal quality
+improvement over previous calls with different cellular conditions. Delivery
+pauses, Android native deployment and cold authenticated signaling/ratchet
+recovery remain unresolved. Both apps, the complete Android UID, owned
+local/remote probes and ADB forward are independently verified exited.
