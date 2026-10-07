@@ -10,6 +10,10 @@ import 'android_camera_capture.dart' show I420FrameSink;
 /// Injectable boundary around Android's user-consented MediaProjection source.
 abstract interface class AndroidScreenCaptureSource {
   Future<bool> start(I420FrameSink sink);
+
+  /// Detach a retiring engine or attach its replacement without obtaining a
+  /// second MediaProjection token. A stopped source cannot be resumed here.
+  bool rebindFrameSink(I420FrameSink? sink);
   Future<void> stop();
 }
 
@@ -100,6 +104,17 @@ class AndroidScreenCapture implements AndroidScreenCaptureSource {
         if (!expected) _onUnexpectedStop();
         return;
     }
+  }
+
+  @override
+  bool rebindFrameSink(I420FrameSink? sink) {
+    if (sink == null) {
+      _sink = null;
+      return true;
+    }
+    if (!_running || _stopping) return false;
+    _sink = sink;
+    return true;
   }
 
   @override

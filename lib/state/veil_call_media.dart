@@ -750,7 +750,7 @@ class VeilCallMediaController implements CallMediaController {
           // outbound circuit cannot unblock a stalled local receive worker.
           await _stopSession(clearActiveCall: false);
           if (_activeCall?.callId != call.callId) return false;
-          final ok = await start(call);
+          final ok = await start(_activeCall!.copyWith(transport: transport));
           _lastRepairAt = DateTime.now();
           devLog(
             () =>
@@ -785,11 +785,10 @@ class VeilCallMediaController implements CallMediaController {
       call.callId,
       () => _activeCall?.callId,
       () async {
-        final current = _activeCall!;
         if (activeTransport == transport) return true;
         await _stopSession(clearActiveCall: false);
         if (_activeCall?.callId != call.callId) return false;
-        final ok = await start(current.copyWith(transport: transport));
+        final ok = await start(_activeCall!.copyWith(transport: transport));
         return ok && activeTransport == transport;
       },
     );
@@ -965,6 +964,15 @@ class VeilCallMediaController implements CallMediaController {
     // A negotiated P2P open may have taken the explicitly permitted non-onion
     // relay fallback. Keep subsequent repair/switch operations anchored to the
     // route that is actually carrying this call, not the stale proposal.
+    // Screen-off during an asynchronous route open also retires the retained
+    // projection. Do not restore the snapshot taken before that user action.
+    final latestCall = _activeCall;
+    if (latestCall != null && latestCall.callId == call.callId) {
+      call = call.copyWith(
+        screenOn: latestCall.screenOn,
+        media: call.media.copyWith(screen: latestCall.media.screen),
+      );
+    }
     _activeCall = call.copyWith(transport: transport);
     final highQuality = transport != CallTransportKind.onion;
     final engine = VeilMediaEngine.create(
@@ -1260,6 +1268,28 @@ class VeilCallMediaController implements CallMediaController {
       }
       _startFramePump(engine);
     }
+    if (videoOk &&
+        _activeCall?.callId == call.callId &&
+        _activeCall?.screenOn == true) {
+      if (Platform.isAndroid) {
+        final screen = _androidScreen;
+        final restored =
+            _screenSharing &&
+            screen != null &&
+            _transport.setMediaScreenSharing(chan, true) == 0 &&
+            screen.rebindFrameSink(_androidScreenSink(engine, screen));
+        if (!restored) {
+          // An expired grant must not silently start another projection.
+          await setScreenShareEnabled(false);
+          _screenShareStops.add(null);
+        }
+      } else if (Platform.isMacOS) {
+        if (!await setScreenShareEnabled(true)) {
+          _rememberScreenSharing(false);
+          _screenShareStops.add(null);
+        }
+      }
+    }
     final ok = audioOk || videoOk;
     devLog(() => 'xVeil[call-media]: controller start result=$ok');
     return ok;
@@ -1451,6 +1481,15 @@ class VeilCallMediaController implements CallMediaController {
     bool clearMicrophoneState = true,
   }) async {
     _mediaEpoch++;
+    // A MediaProjection grant is scoped to the live call, not to one native
+    // route. Detach the retiring engine synchronously before teardown awaits;
+    // keep the consented source only for an internal rebuild of this call.
+    final keepScreenCapture =
+        !clearActiveCall &&
+        _screenSharing &&
+        _screenStarting == null &&
+        _androidScreen != null;
+    _androidScreen?.rebindFrameSink(null);
     if (clearActiveCall) {
       _activeCall = null;
       _bitrateAdapter = null;
@@ -1481,7 +1520,7 @@ class VeilCallMediaController implements CallMediaController {
     // Congestion belongs to the call, not the native engine. A route rebuild
     // must start video at its reduced budget instead of injecting a new burst.
     _bitrateAdapter?.invalidateAppliedState();
-    _screenSharing = false;
+    if (!keepScreenCapture) _screenSharing = false;
     remoteVideoFrame.value = null;
     localVideoFrame.value = null;
     final videoRenderer = _androidVideoRenderer;
@@ -1512,8 +1551,10 @@ class VeilCallMediaController implements CallMediaController {
     _androidCam = null;
     if (cam != null) closing.add(cam.stop().catchError((Object _) {}));
     final screen = _androidScreen;
-    _androidScreen = null;
-    if (screen != null) closing.add(screen.stop().catchError((Object _) {}));
+    if (!keepScreenCapture) {
+      _androidScreen = null;
+      if (screen != null) closing.add(screen.stop().catchError((Object _) {}));
+    }
     final e = _engine;
     _engine = null;
     if (identical(_diagnosticMediaController, this)) {
@@ -1965,19 +2006,20 @@ class VeilCallMediaController implements CallMediaController {
   Future<bool> setScreenShareEnabled(bool enabled) async {
     final engine = _engine;
     final chan = _chan;
-    if (engine == null || chan == null) return false;
+    if (!enabled) _rememberScreenSharing(false);
     if (Platform.isAndroid) {
       if (!enabled) {
         final screen = _androidScreen;
         _androidScreen = null;
+        _screenSharing = false;
         if (screen != null) await screen.stop();
         // The old channel may have closed while capture was stopping.
         if (_chan != chan || _engine != engine) return false;
-        _transport.setMediaScreenSharing(chan, false);
-        _screenSharing = false;
-        _startFramePump(engine);
+        if (chan != null) _transport.setMediaScreenSharing(chan, false);
+        if (engine != null) _startFramePump(engine);
         return true;
       }
+      if (engine == null || chan == null) return false;
       if (_androidScreen != null) return true;
       // One start at a time. Two enables in flight both stop the camera,
       // then both create a source into the same field and the same platform
@@ -2034,6 +2076,7 @@ class VeilCallMediaController implements CallMediaController {
         }
         if (!started) _transport.setMediaScreenSharing(chan, false);
         _screenSharing = started;
+        if (started) _rememberScreenSharing(true);
         if (started) _startFramePump(engine);
         if (!started && cameraWasRunning) {
           await _startAndroidCam(
@@ -2051,6 +2094,7 @@ class VeilCallMediaController implements CallMediaController {
         if (identical(_screenStarting, starting)) _screenStarting = null;
       }
     }
+    if (engine == null || chan == null) return false;
     if (!Platform.isMacOS) return false;
     try {
       if (enabled) {
@@ -2062,6 +2106,7 @@ class VeilCallMediaController implements CallMediaController {
         );
         if (!started) _transport.setMediaScreenSharing(chan, false);
         _screenSharing = started;
+        if (started) _rememberScreenSharing(true);
         return started;
       }
       final stopped = engine.stopScreen();
@@ -2079,23 +2124,27 @@ class VeilCallMediaController implements CallMediaController {
   /// One screen start, from the camera stop to the source that replaces it.
   Future<bool>? _screenStarting;
 
-  Future<bool> _startAndroidScreen(VeilMediaEngine engine) async {
-    _androidScreenPushLogged = false;
-    final chan = _chan;
-    late final AndroidScreenCaptureSource screen;
-    screen = _screenCaptureFactory(() {
-      if (_androidScreen != screen) return;
-      _androidScreen = null;
-      if (_engine == engine && _chan == chan && chan != null) {
-        _transport.setMediaScreenSharing(chan, false);
+  void _rememberScreenSharing(bool enabled) {
+    final call = _activeCall;
+    if (call != null) {
+      _activeCall = call.copyWith(
+        screenOn: enabled,
+        media: call.media.copyWith(screen: enabled),
+      );
+    }
+  }
+
+  I420FrameSink _androidScreenSink(
+    VeilMediaEngine engine,
+    AndroidScreenCaptureSource screen,
+  ) {
+    final callId = _activeCall?.callId;
+    return (y, u, v, w, h) {
+      if (_engine != engine ||
+          _androidScreen != screen ||
+          _activeCall?.callId != callId) {
+        return;
       }
-      _screenSharing = false;
-      localVideoFrame.value = null;
-      _screenShareStops.add(null);
-    });
-    _androidScreen = screen;
-    final started = await screen.start((y, u, v, w, h) {
-      if (_engine != engine || _androidScreen != screen) return;
       try {
         final pushed = engine.pushVideoFrame(y, u, v, w, h);
         if (!_androidScreenPushLogged) {
@@ -2103,7 +2152,26 @@ class VeilCallMediaController implements CallMediaController {
           devLog(() => 'veil-screen: first direct engine push=$pushed');
         }
       } catch (_) {}
+    };
+  }
+
+  Future<bool> _startAndroidScreen(VeilMediaEngine engine) async {
+    _androidScreenPushLogged = false;
+    late final AndroidScreenCaptureSource screen;
+    screen = _screenCaptureFactory(() {
+      if (_androidScreen != screen) return;
+      _androidScreen = null;
+      final chan = _chan;
+      if (chan != null) {
+        _transport.setMediaScreenSharing(chan, false);
+      }
+      _screenSharing = false;
+      _rememberScreenSharing(false);
+      localVideoFrame.value = null;
+      _screenShareStops.add(null);
     });
+    _androidScreen = screen;
+    final started = await screen.start(_androidScreenSink(engine, screen));
     if (!started && _androidScreen == screen) _androidScreen = null;
     return started;
   }
