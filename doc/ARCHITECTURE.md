@@ -5477,3 +5477,13 @@ intact. The goal stays open for physical gate execution, encoded video load,
 remaining audio gaps, anonymous content delivery and delayed signaling. This
 local pressure policy cannot itself remove a network outage or infer congestion
 on a remote relay path from a healthy first hop.
+
+Production SDK binaries and stand apps for build 2268 are now prepared. Mac SDK
+code sections, unchanged media 2258, Dart kernel version and strict bundle seal
+are verified. The Android APK matches the original production signer, freshly
+and independently stripped SDK bytes and unchanged media bytes; native dependency
+and ABI checks pass. APK SHA-256 is
+02dc29b18f53fbde5bdf2b9a7bc9cdc58a4147bd80c034f58bf27af1d0b852c7.
+It is not installed because Poco is still absent from ADB. The complete build
+manifest and corrected test-stage summary are private as build-screen-2268.json
+and tests2268-summary.json. No stand apps, helpers or ADB forward remain running.
