@@ -6534,3 +6534,64 @@ Private evidence: udp2281-quinn-tests/full-tests; build-screen-2281,
 native-policy2281, native-verification2281-packaged, installed2281;
 trace2281 cold/warm result/playout/stage-audit; clocktrace2281 before/after;
 neteqtrace2281-cleanup. The audio-priority goal remains active.
+
+
+### Cycle 2282: scoped contact-device stream policy and remaining mixed failure
+
+The old mixed2280 Mac runtime log contains five `stream-accept p2p DENIED`
+records, each for a device address different from the known contact identity.
+The failure was before the serve request, not evidence that audio scheduling
+starved a payload already being served. The timeout observer also omits its
+last progress values, so null done/total alone must not be read as zero progress.
+
+MultiIdentitySession's stream policy looked up only a contact row at the raw
+physical-device address. It now uses the existing policyContactFor helper with
+THIS messaging instance's authenticated device-owner map and THIS storage view.
+The messaging instance is assigned before its start/callbacks. Explicit device
+rows retain precedence; unknown devices, blocked owners, anonymity posture and
+P2P overrides remain subject to their previous gates. No wire authentication,
+relay scheduling, producer budget, or audio/video guard is changed.
+
+A regression boots the actual session factory, learns a device-owner pair from
+an authenticated inbound message, then downloads and verifies a 90-KB file over
+P2P with no anonymous fallback. It times out on the original factory and passes
+after the change. It additionally verifies stream EOF for an unknown device,
+a blocked owner, and an explicitly blocked device despite an accepted owner.
+All 66 stream/session/contact-policy tests pass. Root d9d3561a is committed
+unsigned and unpushed.
+
+Host 0.13.84+2282 is built and installed in place on Poco. Its SDK is byte-for-byte
+2281 (Veil b58743fa), C++ media byte-for-byte 2279; source hashes, packaged
+imports/exports, signing certificate, installed APK, Mac code sections and strict
+seal verify. Identities/history/ratchets are retained; /Applications is unchanged.
+
+Physical mixed2282 still fails. The warmup rings at 3.861 s, both active at
+4.738 s; the main reverse call rings at 19.806 s and becomes active at 20.200 s.
+During its 85 active seconds native interruptions reach 2/405 ms on Mac and
+6/2285 ms on Poco, with one engine epoch per endpoint. Camera is enabled, but
+encoded video remains zero under the unchanged audio reservation, so actual
+encoded-video/audio coexistence remains unverified.
+
+A 512-KiB file is offered during the call. Forty-two owned partial-file size
+probes report no positive size; the download times out after 45 seconds and
+reports destination size zero. The Mac log still records six direct-stream
+policy refusals and no serve request or completion. Thus resolving an ALREADY
+PROVEN owner is tested, but the physical pair still has a policy/ownership
+problem that must be distinguished from bandwidth admission. The fix is not
+claimed to resolve this complete physical transfer.
+
+Across the mixed capture, terminal authentication samples on Mac include
+92 legacy ML-KEM/Claimed and 3 ratchet/Signed; Poco records 34 ratchet/Signed.
+These aggregate terminal counts do not identify individual call offers or file
+requests. They do establish that legacy unauthenticated delivery recurs, unlike
+the all-Signed trace2280 capture. Next work must trace the authenticated identity/
+device relation and the sender's legacy sealing choice; permission must not be
+inferred from a claimed name or bypassed to make the test pass.
+
+The owned download is cancelled, temporary sink removed, camera disabled and
+calls hung up. All owned apps/helpers, phone UID/package processes and ADB
+forwarding are verified gone, and runtime-added Mac logs archived outside the
+bundle with its strict seal verified again. Private evidence: file2282-regression
+before/after, file2282-stream-policy-tests, build-screen/native-policy/installed2282,
+mixed2282 result/playout/runtime logs, voice-file2282 events and neteqmixed2282
+cleanup. The full audio-priority goal remains active.
