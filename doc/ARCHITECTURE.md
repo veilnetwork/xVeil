@@ -6648,3 +6648,67 @@ runtime logs archived outside the bundle and strict seal verified. Private
 mixed2283 result/playout/stage-audit, file events, build/native/installed metadata,
 stream2283 suite output and neteqmixed2283 cleanup retain the evidence. The
 full audio-priority goal remains active.
+
+
+### Cycles 2284–2285 — packet-matched UDP delay
+
+A new default-off endpoint diagnostic samples encrypted UDP datagram hashes
+(one in sixteen, selected by the hash), immediately after successful socket
+handoff and before the peer's endpoint packet handler. GSO/GRO fragments are
+hashed as their actual separate UDP datagrams. Logs contain only local time,
+short correlation hash and size, without addresses, connection IDs, content,
+source roles or wire changes. Hashes are diagnostic correlation, never an
+authentication primitive. Runtime `/rt_trace` enables/disables the same local
+gate through veil-session and veil-transport; relay priority is unchanged.
+
+The segmentation regression passes. All 422 session tests pass (6 existing
+ignored, plus one ignored doctest); an old primary-recovery fixture needed four
+zero-initialized UDP-wait fields already introduced in 2281. The 2284 capture
+had no UDP observations: the embedded runtime consumes `log`, while the first
+diagnostic used `tracing` without a usable bridge on its task. Thus it supplies
+no packet-matched UDP attribution. Its 60-second audio run still records
+Mac 7/2186 ms and Poco 10/6275 ms of native interruptions, with cleanup verified.
+
+2285 fixes emission through the existing embedded `log` bridge. A new regression
+installs a log consumer, verifies selected GSO send/receive hashes actually
+reach it, and verifies a disabled gate emits nothing. Both module tests and an
+integrated veil-session cargo check pass. SDK/host 0.13.84+2285 is freshly built
+and installed on Poco with the production signer, complete packaged/installed
+bytes, SDK ABI/imports, unchanged media 2279 and strict Mac seal verified.
+Unsigned local source commits: Veil c16cc15a/f7a00014, root adee5dc5/33cbd644.
+
+The 2285 cold warmup rings at 17.655 s and becomes active at 18.976 s: cold call
+setup remains a defect to trace separately. The following Poco→Mac call rings
+at 0.901 s, becomes active at 1.280 s and stays P2P throughout 60 active seconds.
+No file or camera runs. Native interruption counters reach Mac 2/783 ms and
+Poco 3/956 ms, with one epoch per endpoint. Native receive-buffer estimates
+reach 452/514 ms delay and 328/547 ms jitter buffer. These are not acoustic delay
+measurements and this is not a quality pass.
+
+Clock probes before/after the run give a conservative 19.5-ms correlation bound
+and only -0.2 ms offset change. Matching exact encrypted UDP samples yields:
+Mac→Poco 292 packets, median 6.7 ms, maximum 769.7 ms (14 over 200 ms, 2 over
+500 ms); Poco→Mac 198, median 48.3 ms, maximum 382.3 ms (11 over 200 ms).
+The 769.7-ms packet is handed off at active 35.9 s and read at 36.7 s; the
+712.7-ms packet at 39.4/40.1 s. Poco's native interruption counter advances
+at 36.709 s (+443 ms) and 40.478 s (+320 ms); Mac also advances at 36.709 s.
+This temporal agreement supports a delivery-stall explanation, but the sampled
+UDP packets include generic P2P payload/control/ACK traffic and are not each
+identified as audio. Unmatched endpoint samples can be third-party/relay traffic
+and must not be reported as observed P2P loss.
+
+The delay of those matching packets is AFTER successful local socket handoff.
+Thus pre-packet QUIC congestion/IPC/encoder admission cannot explain that part
+of their delay. It still includes kernel send buffering, the mobile path,
+kernel receive buffering and endpoint polling/scheduling. The next useful
+boundary is kernel receive timestamps vs endpoint read time (or a controlled
+route comparison); it is premature to blame only the carrier or to tune NetEq
+blindly. This is progress in attribution, not a fix for the remaining pauses.
+
+All owned applications/helpers and phone UID/package processes are verified
+exited, forwarding removed and Mac runtime logs archived with its strict seal
+verified. Poco remains Wi-Fi off/mobile data on. Identities/history/ratchets,
+/Applications and network/relay role policy are retained. Private udp2284/2285
+result/playout, udp2285 audit/interruption edges, before/after clocks,
+neteqmixed2284/2285 cleanup and build/native/installed metadata retain evidence.
+The full audio-priority goal remains active.
