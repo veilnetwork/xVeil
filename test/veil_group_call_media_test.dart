@@ -656,6 +656,76 @@ void main() {
     });
   });
 
+  test('group cannot forget capable playout when native stats fail', () {
+    fakeAsync((clock) {
+      final self = _id(1), peer = _id(2);
+      final engine = _FakeEngine()
+        ..stats = {
+          'worker_stalled': 0,
+          'audio_rx_native_age_supported': 1,
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'audio_playout_peers': 1,
+          'audio_playout_reports': 0,
+          'audio_playout_ms': -1,
+        };
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      final room = _call(self, [peer], video: true);
+      final receivingMuted = room.copyWith(
+        participants: {
+          ...room.participants,
+          peer.hex: room.participants[peer.hex]!.copyWith(
+            media: const CallMedia(audio: false, video: true),
+          ),
+        },
+      );
+      controller.start(receivingMuted);
+      clock.flushMicrotasks();
+      expect(engine.pauses.last, isTrue);
+      engine.throwStats = true;
+      clock.elapse(const Duration(seconds: 1));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason: 'a failed sample is not explicit removal of capable peers',
+      );
+      engine.throwStats = false;
+      engine.stats = const {};
+      clock.elapse(const Duration(seconds: 20));
+      expect(engine.pauses.last, isTrue);
+      engine.stats = {
+        'worker_stalled': 0,
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+        'audio_playout_peers': 1,
+        'audio_playout_reports': 1,
+        'audio_playout_ms': 100,
+      };
+      clock.elapse(const Duration(seconds: 11));
+      expect(engine.pauses.last, isTrue);
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.pauses.last, isFalse);
+      engine.stats = {...engine.stats, 'audio_playout_reports': 0};
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.pauses.last, isTrue);
+      engine.stats = {...engine.stats, 'audio_playout_peers': 0};
+      clock.elapse(const Duration(seconds: 1));
+      expect(
+        engine.pauses.last,
+        isFalse,
+        reason: 'an explicit current zero really removes the requirement',
+      );
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
   test('group playout recovery requires every capable receiver', () {
     fakeAsync((clock) {
       final self = _id(1);
