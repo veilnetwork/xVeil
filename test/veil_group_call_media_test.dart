@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/state/veil_group_call_media.dart';
@@ -42,6 +43,40 @@ GroupCall _call(NodeId self, List<NodeId> peers, {bool video = false}) {
 }
 
 void main() {
+  test(
+    'linked device uses its room identity for peers and media keys',
+    () async {
+      final identity = _id(1);
+      final device = _id(7);
+      final remote = _id(2);
+      final sdk = _LinkedSdkTransport(identity, device);
+      final engine = _FakeEngine();
+      Uint8List? nativeLocalId;
+      final controller = VeilGroupCallMediaController(
+        VeilGroupMediaChannelTransport(sdk),
+        roomMediaSecret: _room(),
+        engineFactory: (id) {
+          nativeLocalId = Uint8List.fromList(id);
+          return engine;
+        },
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      addTearDown(controller.stop);
+      expect(await controller.start(_call(identity, [remote])), isTrue);
+      expect(nativeLocalId, identity.bytes);
+      expect(sdk.opened, [remote]);
+      expect(engine.added, [remote]);
+      final remoteKeys = deriveGroupCallMediaKeys(
+        roomSecret: _secret(0x5a),
+        localNode: remote,
+        peerNode: identity,
+      );
+      expect(sdk.txKeys[remote.hex], remoteKeys.rxKey);
+      expect(sdk.rxKeys[remote.hex], remoteKeys.txKey);
+    },
+  );
+
   test('native group media capability includes iOS and rebuilt Linux ABI', () {
     expect(supportsNativeGroupMedia('macos'), isTrue);
     expect(supportsNativeGroupMedia('ios'), isTrue);
@@ -135,6 +170,206 @@ void main() {
         clock.flushMicrotasks();
         clock.elapse(const Duration(seconds: 1));
         expect(engine.targets.first, (maxBitrateKbps: 8, maxFps: 0.3));
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test('one group audio outage pauses video despite another healthy peer', () {
+    fakeAsync((clock) {
+      final self = _id(1), alice = _id(2), bob = _id(3);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      final room = _call(self, [alice, bob], video: true);
+      controller.start(room);
+      clock.flushMicrotasks();
+      Map<String, dynamic> sample(int? aliceAge, int? bobAge) => {
+        'audio_rx_supported': 1,
+        'audio_rx_native_age_supported': 1,
+        'worker_stalled': 0,
+        'audio_feedback_reports': 2,
+        'rtt_ms': 80,
+        'audio_receivers': {
+          alice.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': aliceAge},
+          bob.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': bobAge},
+        },
+      };
+      engine.stats = sample(100, 100);
+      clock.elapse(const Duration(seconds: 48));
+      expect(engine.targets.last.maxBitrateKbps, 150);
+      engine.stats = sample(100, 4456); // measured single-call outage
+      clock.elapse(const Duration(seconds: 1));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason: 'healthy Alice cannot mask Bob',
+      );
+      expect(engine.cameraStarted, 1, reason: 'pause retains capture');
+      engine.stats = sample(100, null);
+      clock.elapse(const Duration(seconds: 20));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason: 'unknown Bob cannot earn recovery',
+      );
+      engine.stats = {'audio_feedback_reports': 2, 'rtt_ms': 80};
+      clock.elapse(const Duration(seconds: 20));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason: 'missing capability field cannot forget known native support',
+      );
+      engine.stats = {...sample(0, 0), 'worker_stalled': 1};
+      clock.elapse(const Duration(seconds: 20));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason: 'a stalled audio worker is unknown',
+      );
+      engine.stats = sample(100, 100);
+      clock.elapse(const Duration(seconds: 11));
+      expect(engine.pauses.last, isTrue);
+      clock.elapse(const Duration(seconds: 1));
+      expect(
+        engine.pauses.last,
+        isFalse,
+        reason: 'all expected audio must be fresh for twelve samples',
+      );
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test('group receive priority follows remote mute, unmute and removal', () {
+    fakeAsync((clock) {
+      final self = _id(1), alice = _id(2), bob = _id(3);
+      final engine = _FakeEngine();
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      final room = _call(self, [alice, bob], video: true);
+      final muted = room.copyWith(
+        participants: {
+          ...room.participants,
+          bob.hex: room.participants[bob.hex]!.copyWith(
+            media: const CallMedia(audio: false, video: true),
+          ),
+        },
+      );
+      controller.start(muted);
+      clock.flushMicrotasks();
+      controller.setMicMuted(true);
+      clock.flushMicrotasks();
+      engine.stats = {
+        'audio_rx_supported': 1,
+        'audio_rx_native_age_supported': 1,
+        'worker_stalled': 0,
+        'audio_feedback_reports': 2,
+        'rtt_ms': 80,
+        'audio_receivers': {
+          alice.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 100},
+          bob.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 13000},
+        },
+      };
+      clock.elapse(const Duration(seconds: 48));
+      expect(
+        engine.pauses.last,
+        isFalse,
+        reason: 'intentional remote mute is not a receive outage',
+      );
+      controller.update(room);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 1));
+      expect(
+        engine.pauses.last,
+        isTrue,
+        reason: 'local mute does not waive expected incoming audio',
+      );
+      controller.update(muted);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 12));
+      expect(
+        engine.pauses.last,
+        isFalse,
+        reason: 'remote mute removes Bob from required sources',
+      );
+      controller.update(room);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.pauses.last, isTrue);
+      controller.update(_call(self, [alice], video: true));
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 12));
+      expect(
+        engine.pauses.last,
+        isFalse,
+        reason: 'departed peers cannot keep video paused',
+      );
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test(
+    'known group outage remains actionable when another peer never sent audio',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final engine = _FakeEngine();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        controller.start(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        engine.stats = {
+          'audio_rx_native_age_supported': 1,
+          'worker_stalled': 0,
+          'audio_feedback_reports': 2,
+          'rtt_ms': 80,
+          'audio_receivers': {
+            alice.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 100},
+            bob.hex: {'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1},
+          },
+        };
+        clock.elapse(const Duration(seconds: 48));
+        expect(
+          engine.pauses.last,
+          isFalse,
+          reason: 'never-received audio is unknown, not a fabricated outage',
+        );
+        expect(
+          engine.targets.last.maxBitrateKbps,
+          lessThan(150),
+          reason: 'one healthy peer cannot earn the full shared budget',
+        );
+        engine.stats = {
+          ...engine.stats,
+          'audio_receivers': {
+            alice.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 1085},
+            bob.hex: {'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1},
+          },
+        };
+        clock.elapse(const Duration(seconds: 1));
+        expect(
+          engine.pauses.last,
+          isTrue,
+          reason: 'known Alice outage is sufficient despite unknown Bob',
+        );
         controller.stop();
         clock.flushMicrotasks();
       });
@@ -496,6 +731,59 @@ void main() {
     },
   );
 
+  test(
+    'native group RTP age drives liveness even after delayed host polling',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), peer = _id(2);
+        final base = DateTime(2026, 10, 7);
+        final engine = _FakeEngine();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          now: () => base.add(clock.elapsed),
+        );
+        controller.start(_call(self, [peer]));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 5));
+        engine.stats = {
+          'audio_rx_supported': 1,
+          'audio_rx_native_age_supported': 1,
+          'worker_stalled': 0,
+          'audio_receivers': {
+            peer.hex: {'audio_rx_pkts': 4, 'audio_rx_native_age_ms': 2500},
+          },
+        };
+        clock.elapse(const Duration(seconds: 1));
+        final acceptedAt = base.add(const Duration(milliseconds: 3500));
+        expect(
+          controller.lastAudioRxAt(peer),
+          acceptedAt,
+          reason: 'a late count sample is not a fresh packet',
+        );
+        expect(
+          controller.debugNativeStatsAt,
+          base.add(const Duration(seconds: 6)),
+        );
+        expect(controller.debugNativeStats['audio_rx_native_age_supported'], 1);
+        engine.stats = {
+          ...engine.stats,
+          'audio_receivers': {
+            peer.hex: {'audio_rx_pkts': 4, 'audio_rx_native_age_ms': 3500},
+          },
+        };
+        clock.elapse(const Duration(seconds: 1));
+        expect(controller.lastAudioRxAt(peer), acceptedAt);
+        controller.stop();
+        clock.flushMicrotasks();
+        expect(controller.debugNativeStats, isEmpty);
+        expect(controller.debugNativeStatsAt, isNull);
+      });
+    },
+  );
+
   test('native packet counters become per-peer media liveness', () async {
     final self = _id(1);
     final peer = _id(2);
@@ -806,6 +1094,45 @@ VeilVideoFrame _frame(int byte) => VeilVideoFrame(
   width: 2,
   height: 2,
 );
+
+class _LinkedSdkTransport implements VeilFlutterTransport {
+  _LinkedSdkTransport(this.identity, this.device);
+
+  final NodeId identity;
+  final NodeId device;
+  final List<NodeId> opened = [];
+  final Map<String, Uint8List> txKeys = {};
+  final Map<String, Uint8List> rxKeys = {};
+
+  @override
+  Future<NodeId> nodeId() async => device;
+
+  @override
+  Future<NodeId> peerFacingNodeId({
+    Duration timeout = const Duration(seconds: 2),
+  }) async => identity;
+
+  @override
+  Future<int> openMediaChannel(
+    Uint8List dstNode, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+    bool direct = false,
+    bool relay = false,
+  }) async {
+    final peer = NodeId(dstNode);
+    opened.add(peer);
+    txKeys[peer.hex] = Uint8List.fromList(txKey);
+    rxKeys[peer.hex] = Uint8List.fromList(rxKey);
+    return opened.length;
+  }
+
+  @override
+  void closeMediaChannel(int channel) {}
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 class _FakeTransport implements GroupMediaChannelTransport {
   _FakeTransport(this.self);

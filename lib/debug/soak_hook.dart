@@ -1200,6 +1200,22 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/group_call_end':
           await _groupCallAction(req, (service) => service.endForEveryone());
           return;
+        case '/group_call_mic':
+          await _groupCallAction(req, (service) async {
+            final enabled = req.uri.queryParameters['on'] != '0';
+            await service.setMicEnabled(enabled);
+            return service.current?.isLive == true &&
+                service.current?.micOn == enabled;
+          });
+          return;
+        case '/group_call_camera':
+          await _groupCallAction(req, (service) async {
+            final enabled = req.uri.queryParameters['on'] != '0';
+            await service.setCameraEnabled(enabled);
+            return service.current?.isLive == true &&
+                service.current?.cameraOn == enabled;
+          });
+          return;
         case '/group_call_state':
           await _groupCallState(req);
           return;
@@ -8509,6 +8525,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
               'mediaPlane': media is VeilGroupCallMediaController
                   ? {
                       'nativeAudio': media.audioRunning,
+                      'nativeStats': media.debugNativeStats,
+                      'nativeStatsAtMs':
+                          media.debugNativeStatsAt?.millisecondsSinceEpoch,
                       'nativeVideo': media.videoRunning,
                       'peerChannels': media.connectedPeerCount,
                       'rxPeers': media.receivingPeerCount,

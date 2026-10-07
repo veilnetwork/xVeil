@@ -699,10 +699,10 @@ class _MessagingOutbox {
           contactIdentity: contactIdentity,
         );
       case WireKind.groupCallSignal:
-        return _owner._realtimeControl._sendRealtimePaths(
-          'gcall-sig',
+        return _owner._realtimeControl._sendCallLive(
           peer,
           wire,
+          contactIdentity: true,
         );
       case WireKind.p2pEndpoints:
         return _owner._realtimeControl._sendP2PBootstrap(peer, wire);
