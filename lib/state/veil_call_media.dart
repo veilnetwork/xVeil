@@ -446,6 +446,7 @@ class VeilCallMediaController implements CallMediaController {
   int _lastRxPkts = 0;
   final _audioReceiveActivity = CallAudioReceiveActivity();
   CallPeerAudioPlayout _peerAudioPlayout = CallPeerAudioPlayout();
+  bool _peerAudioCaptureEnabled = true;
   DateTime? _receiveSessionStartedAt;
   int _lastNativeRxCount = 0;
   DateTime? _engineRxStalledSince; // node receives, engine doesn't — since when
@@ -590,6 +591,11 @@ class VeilCallMediaController implements CallMediaController {
   @override
   void observePeerAudioPlayout(CallAudioPlayoutFeedback feedback) {
     _peerAudioPlayout.observe(feedback, DateTime.now());
+  }
+
+  @override
+  void observePeerAudioCapture(bool enabled) {
+    _peerAudioCaptureEnabled = enabled;
   }
 
   @override
@@ -818,6 +824,7 @@ class VeilCallMediaController implements CallMediaController {
     if (!_microphoneState.belongsToCall(call.callId)) {
       _bitrateAdapter = null;
       _peerAudioPlayout = CallPeerAudioPlayout();
+      _peerAudioCaptureEnabled = call.peerCapture?.audio ?? call.media.audio;
     }
     _microphoneState.beginCall(call.callId, micOn: call.micOn);
     _cameraState.beginCall(call.callId, enabled: call.cameraOn);
@@ -1113,6 +1120,7 @@ class VeilCallMediaController implements CallMediaController {
           // route profile stays the ceiling; adaptation only spends less.
           adapter.onNativeStats(
             stats,
+            receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
             requirePeerAudioPlayout:
                 (call.peerProtocolVersion ?? 1) >=

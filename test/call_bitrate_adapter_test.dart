@@ -14,6 +14,82 @@ void main() {
   ({int maxBitrateKbps, double maxFps})? lossy(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
 
+  test('an RTP outage pauses video before remote delay feedback arrives', () {
+    final a = direct();
+    a.onNativeStats({
+      'audio_feedback_reports': 1,
+      'rtt_ms': 1844,
+      'tx_jitter_ms': 129,
+      'tx_loss_pct': 3,
+      'audio_rx_pkts': 100,
+      'audio_rx_native_age_ms': 4456,
+    }, receiveAudioExpected: true);
+    expect(a.audioReserve, isTrue);
+    final pauses = <bool>[];
+    a.applyPendingPause((value) {
+      pauses.add(value);
+      return true;
+    });
+    expect(pauses, [true]);
+    // A healthy last RTT is not proof that incoming audio returned.
+    for (var i = 0; i < 20; i++) {
+      a.onNativeStats({
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+        'audio_rx_pkts': 100,
+        'audio_rx_native_age_ms': 2000,
+      }, receiveAudioExpected: true);
+    }
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      a.onNativeStats({
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+        'audio_rx_pkts': 101 + i,
+        'audio_rx_native_age_ms': 100,
+      }, receiveAudioExpected: true);
+    }
+    expect(a.audioReserve, isFalse);
+  });
+
+  test('DTX, a muted peer and legacy telemetry do not claim an RTP outage', () {
+    for (final age in [0, 400, 499]) {
+      final a = direct();
+      for (var i = 0; i < 20; i++) {
+        a.onNativeStats({
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'audio_rx_pkts': 100,
+          'audio_rx_native_age_ms': age,
+        }, receiveAudioExpected: true);
+      }
+      expect(a.audioReserve, isFalse);
+    }
+    final muted = direct();
+    for (var i = 0; i < 20; i++) {
+      muted.onNativeStats({
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+        'audio_rx_pkts': 100,
+        'audio_rx_native_age_ms': 10000,
+      }, receiveAudioExpected: false);
+    }
+    expect(muted.audioReserve, isFalse);
+    final legacy = direct();
+    legacy.onNativeStats({
+      'audio_feedback_reports': 1,
+      'rtt_ms': 80,
+    }, receiveAudioExpected: true);
+    expect(legacy.audioReserve, isFalse);
+    final unknown = direct();
+    unknown.onNativeStats({
+      'audio_feedback_reports': 0,
+      'audio_rx_pkts': 0,
+      'audio_rx_native_age_ms': -1,
+    }, receiveAudioExpected: true);
+    expect(unknown.audioReserve, isFalse);
+  });
+
   test('video pause retries a busy resume and survives unknown feedback', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
     final pauses = <bool>[];

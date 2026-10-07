@@ -4280,3 +4280,60 @@ whole Android app UID, owned Mac/log/probe processes, remote ping and ADB
 forward are gone. The private builder VM remains stopped. Root owns the screen
 lifetime fix and report; Veil and hidden-volume have no new source changes in
 this cycle. No push, signing of commits, tag or release is performed.
+
+
+Incoming audio outage also reserves local video bandwidth (2242)
+---------------------------------------------------------------
+
+2241's largest measured audio hole shows the priority gap: Poco still has
+video_send_paused=0 at audio RX age 4456 ms, RTT 1844 ms and no fresh remote
+playout delay. The old severe guard needs RTT >= 2000 ms or confirmed remote
+playout >= 1000 ms; these last-known estimates do not reveal a receive outage.
+Primary QUIC counters freeze incoming UDP/ACK progress through that hole and
+reach three PTOs. The concurrent ICMP stream also has cellular delay bursts;
+this does not establish whether all additional QUIC delay is network-side.
+
+The single-call controller now supplies expected incoming audio posture to
+CallBitrateAdapter. An actual native RTP gap >= 1000 ms immediately reserves
+video bandwidth at any ladder level, rather than waiting for fresh RTCP or
+descending each rung. This pauses local encoded video/screen sending through
+the existing native pause API, retaining capture and reception. Recovery still
+needs 12 healthy samples and now also requires native audio age < 500 ms.
+The received-packet counter and valid native telemetry are prerequisites;
+ordinary Opus DTX intervals, unknown/legacy telemetry and the peer's intentional
+microphone-off posture do not claim a receive outage. CallService propagates
+only capture changes passing its existing call/peer and timestamp checks.
+The policy and measurements remain local; no relay rule or wire role changes.
+Group calls keep their existing aggregate-feedback policy; this new receive
+age guard is currently for the single-call native stream.
+
+170 adapter/service tests pass, including the captured 4456-ms sample, stale
+good RTT during missing audio, recovery, DTX, mute and timestamp ordering.
+Disabling the new outage-to-reserve branch makes the captured-sample regression
+fail with expected true / actual false. Analysis of the three changed runtime
+files passes. Both Mac and Poco use Dart build 2242; native SDK/media libraries
+are unchanged from the verified 2241 set. Mac's bundle seal/kernel version and
+Poco's original signer/full installed APK match are verified. APK SHA-256:
+d3a855a19c661ef306dbae94ccfb27e418c06501b3f462f48d43fcbda6a5833b.
+
+The physical call rings at 12.515 seconds, is active at 14.283 seconds, and
+lasts 140 seconds until deliberate hangup. At placement-relative 25.668 seconds,
+Mac native RX age is 1085 ms with video still unpaused; the next sample at
+26.034 seconds shows paused video, RTT 1076 ms and remote playout 55 ms.
+Poco's sample at 39.783 seconds has RX age 1292 ms, RTT 454 ms and remote
+playout 511 ms; at 40.175 seconds video is paused. These RTT/playout values do
+not meet the old severe guard. A newly arriving audio packet does not immediately
+resume competing video: both endpoints retain the pause through this unstable
+run. Healthy-path physical recovery is not demonstrated by this run.
+
+Single-app screen capture starts around 28.6 seconds after the active event,
+but encoded screen frames remain paused for audio, so this run is not a
+successful screen-delivery load test. The 128 KiB file is received in 19.9
+seconds with matching SHA-256. Screen-off at 100 seconds and final hangup
+succeed without the earlier ImageReader crash. During the 40–100-second window,
+Mac/Poco still add 5 / 5 audio interruptions, with 4962 / 5060 ms summed
+duration and RX ages up to 3775 / 3578 ms. Admission maxima are 0 / 4 ms;
+independent ICMP maxima are 52.764 / 3012 ms. Primary datagram expiry counters
+reach 496 / 200. The local priority gap is fixed; audio quality and cold
+signaling remain unresolved, and no causal quality improvement is claimed.
+All stand applications, probes and the owned ADB forward are closed afterwards.
