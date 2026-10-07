@@ -8,6 +8,7 @@ import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/call_service.dart';
+import 'package:xveil/state/call_media_route_operations.dart';
 import 'package:xveil/state/call_slot.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
@@ -1394,6 +1395,63 @@ void main() {
         expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
       });
     });
+
+    test(
+      'peer relay announcement waits for a health-triggered repair',
+      () async {
+        final fake = _FakeMessaging();
+        final media = _RepairThenRelayMedia()
+          ..openedTransport = CallTransportKind.p2p;
+        final svc = CallService(
+          fake,
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        addTearDown(svc.dispose);
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'repair-relay-overlap',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        await svc.accept();
+        await pumpEventQueue();
+        fake.sent.clear();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'repair-relay-overlap',
+            type: CallSignalType.health,
+            mediaRepairRequested: true,
+          ),
+        );
+        await pumpEventQueue();
+        expect(media.receiveRepairing, isTrue);
+        expect(media.activeTransport, isNull);
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'repair-relay-overlap',
+            type: CallSignalType.transportInfo,
+            transport: CallTransportProposal(CallTransportKind.relay),
+          ),
+        );
+        await pumpEventQueue();
+        expect(svc.current?.isLive, isTrue);
+        expect(media.switches, isEmpty);
+        media.cameraStopped.complete();
+        await pumpEventQueue();
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(svc.current?.status, CallStatus.active);
+        expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+      },
+    );
 
     test('silent P2P is repaired in place and never announces onion', () async {
       final fake = _FakeMessaging();
@@ -4093,6 +4151,26 @@ class _FakeMedia extends CallMediaController {
     log.add('screen:$enabled');
     return enabled ? screenOk : true;
   }
+}
+
+class _RepairThenRelayMedia extends _FakeMedia {
+  final operations = CallMediaRouteOperations();
+  final cameraStopped = Completer<void>();
+
+  @override
+  Future<bool> repairRoute() => operations.run(() async {
+    repairs++;
+    receiveRepairing = true;
+    openedTransport = null;
+    await cameraStopped.future;
+    openedTransport = CallTransportKind.p2p;
+    receiveRepairing = false;
+    return true;
+  });
+
+  @override
+  Future<bool> switchRoute(CallTransportKind transport) =>
+      operations.run(() => super.switchRoute(transport));
 }
 
 class _GatedRelaySwitchMedia extends _FakeMedia {
