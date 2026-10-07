@@ -291,7 +291,17 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
       } else {
-        await _ackFrame(m, fid);
+        if (callSignal != null) {
+          // A call-control copy can arrive on the ordinary lane even when
+          // APP_RT is unavailable. Its device ACK may need a slow route or
+          // certificate lookup; do not hold answer/end/route dispatch behind
+          // that outbound work. Dedup below is recorded before the call FSM
+          // runs, just as on the dedicated realtime lane. A missed ACK still
+          // prompts the sender to retry and is answered again on the duplicate.
+          unawaited(_ackFrame(m, fid));
+        } else {
+          await _ackFrame(m, fid);
+        }
         // A CHUNK is re-consumed, never replay-dropped. Reassembly is in-RAM
         // and keyed per transfer; "processed" for a chunk means "consumed
         // into a buffer", not "landed". A restart mid-transfer killed the
