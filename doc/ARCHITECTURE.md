@@ -6103,3 +6103,62 @@ versus caller active at 21.058 s; the outbound ACK dependency is now proven by a
 controlled test, but is not yet a proven cause of that physical delay. Physical
 verification of this change, acoustic delay and simultaneous encoded video
 remain outstanding; the full audio-priority goal remains active.
+
+### Cycle 2276: returning Poco physical captures with asynchronous call ACK
+
+Built Mac and Android 0.13.84+2276 from root ed7185d6 and Veil ad49c3ff,
+with unchanged native media 2258. Production APK signer, full pulled installed
+APK bytes, independently stripped SDK/media bytes, ABI, Mac SDK/media code
+sections and strict bundle seal were verified. Poco updated in place with Wi-Fi
+off and USB charging (99% at preparation). Actual identities, history and
+ratchets were preserved. The production /Applications app was not replaced.
+
+First run (2276) failed setup after 45.251 s. The offer's first logged realtime
+dispatch on Poco was about 68.4 s old, after its cancel; the finished-call guard
+correctly ignored it. One native decryption failure reports unavailable message
+key (replay/too far behind), not the previous run's missing ML-KEM leg. Available
+logs do not establish that this packet was the offer or explain its late arrival.
+Sender live-leg success means local acceptance, not remote delivery. No active
+call, message-load or video result can be claimed for this attempt.
+
+Second run (2276b, same installed APK/profiles) rings at 0.381 s, with both APIs
+active at 1.275 s. It stays active for the requested 90 s and ends by explicit
+hangup. Call establishment improved in this attempt, but network variation and
+the preceding failed attempt prevent attributing this change solely to the ACK
+fix. All 32 newly authored rows arrive exactly once, in order, observed in
+12.216 s. This cycle's message phase waits for both endpoints to show the same
+active call before its 35-second offset; the earlier phase used callee active.
+
+The older priority-2273 burst is finally complete without reset: Mac has 2/32
+before the first run, and 32/32 before and after the second; Poco retains 32/32.
+Recovery occurred between those observations. This does not establish which
+retries repaired it or the cause of the original missing rows.
+
+Audio is still not acceptable. Across sampled counter resets, Mac observes at
+least eight native interruptions (2,741 ms accumulated) and Poco at least 17
+(6,128 ms). Delay/jitter-buffer maxima are 561/567 ms on Mac and 408/402 ms on
+Poco; receive freshness maxima are 1,795/897 ms. Mac discards 30 buffered audio
+packets at approximately 47 s and another 30 at approximately 71 s, with native
+buffer flushes and interruption growth. These are evidence of a playout failure
+even while fresh packets subsequently arrive, not proof of the original burst's
+cause. Around 76 s Poco logs early relay recovery for stalled established direct
+audio; both controllers then recreate the media engine on the relay transition,
+with additional interruption growth. This requires separating genuine direct
+loss, delayed local telemetry and disruption introduced by route teardown.
+
+Sparse aligned packet traces show direct-send maxima around 386/1,014 ms
+(Mac/Poco) and relay-send maxima around 1,892/1,072 ms. The clock probe bound
+is 14.5 ms; these are sparse packet observations, not acoustic delay. Initial
+P2P success does not prove a stable link for the full call. Camera capture was
+enabled at joint-active +31 s, but encoded video remains zero under audio
+reservation. Simultaneous encoded-video/audio quality remains unverified;
+do not relax the guard to label this check successful.
+
+Both captures' owned apps, helpers, UID/package processes, remote probes and ADB
+forwarding are verified closed. Runtime-added Mac logs are archived separately
+as mac2276-runtime-debug and mac2276b-runtime-debug; strict bundle seal passes
+again. Poco is still available over ADB. Private evidence is build-screen,
+native-policy, installed and build-mac 2276 manifests; neteq2276/2276b captures;
+message-phase2276b; neteq2276b-playout/summary; and both cleanup records.
+Source correction is committed unsigned as ed7185d6; nothing has been pushed.
+The full audio-priority goal remains active.
