@@ -6712,3 +6712,79 @@ verified. Poco remains Wi-Fi off/mobile data on. Identities/history/ratchets,
 result/playout, udp2285 audit/interruption edges, before/after clocks,
 neteqmixed2284/2285 cleanup and build/native/installed metadata retain evidence.
 The full audio-priority goal remains active.
+
+
+### Cycle 2286 — kernel receipt boundary and neutral relay comparison
+
+Veil 32a8d34d/root d808e258 vendor the unchanged-version quinn-udp 0.5.14
+baseline (archive checksum and upstream licenses retained) for a narrow,
+default-off Linux/Android kernel receive timestamp extension. The Windows
+transitive baseline stays pinned to windows-sys 0.60.2; the parent lockfile only
+removes the UDP registry source/checksum. The Tokio socket opts in while local
+`/rt_trace` is enabled. NEW nanosecond timestamps are preferred, with OLD fallback;
+unsupported kernels continue with None. Disabled/default paths do not enable
+timestamps. The ancillary buffer grows to include time beside existing packet
+info, ECN and GRO. Metadata is local Rust state, never a packet/IPC/FFI field.
+
+GRO has one shared receive timestamp, so those buffers are explicitly marked and
+excluded from per-datagram attribution. Invalid/overflow times remain None.
+The log sampler carries the kernel timestamp and sharing flag, without addresses,
+content, connection IDs or roles. No relay scheduling/priority change is made.
+Kernel timestamp semantics are documented in
+https://docs.kernel.org/networking/timestamping.html; the boundary is software
+kernel receipt, not an over-the-air hardware receive timestamp.
+
+A committed loopback probe runs on actual Poco using the parent libc/socket2/
+cfg_aliases baseline. Default-off yields None, then two packets deliberately
+held before application read retain distinct kernel stamps near their send
+syscalls: kernel-to-read 172 and 141 ms. Contents, ECN and destination survive;
+disabling restores None. Probe exits and its owned remote executable is removed.
+The log consumer/GRO/default-off regressions pass, locked veil-session cargo
+check passes, and upstream UDP Mac tests pass (7, one existing ignored).
+
+Fresh SDK/host 0.13.84+2286 is built and installed with the production signer;
+source hashes, packaged/installed APK bytes, SDK ABI/imports, unchanged media
+2279 and strict Mac seal verify. Identities/history/ratchets and /Applications
+are retained.
+
+The main udp2286 call rings at 0.404 s, both active at 0.932 s. It initially uses
+P2P, then BOTH endpoints switch to relay at active 52.693 s without an engine
+rebuild (140 P2P/21 relay samples). This is not 60 seconds of pure P2P. Native
+interruptions reach Mac 5/2942 ms, Poco 14/11773 ms, with video/file absent.
+
+Before/after clocks give a conservative 22.2-ms bound and -3.6-ms offset change.
+Matching exact UDP bytes gives Mac→Poco 213 datagrams: median 5.86 ms, max
+2739.86 ms. 190 have precise kernel stamps; 23 GRO-shared stamps are excluded.
+Kernel-to-endpoint-read median is 0.083 ms and max 2.086 ms (read logging is
+quantized to milliseconds). Maximum handoff-to-kernel is 2739.42 ms. Example:
+a packet handed off at active 48.925 s reaches kernel at 51.665 s and is read
+0.439 ms later. Others show 1046.77/935.06/879.61 ms before kernel and at most
+1.79 ms afterward. Poco→Mac matches 156 packets, median 51.14 ms, max 1451.14 ms;
+Mac kernel timestamps are unsupported by this Linux/Android patch. These are
+sampled generic P2P packet observations, not an identification of every packet
+as audio, and not an acoustic measurement. Packet-matched evidence locates
+those long delays before Poco's software kernel-receive boundary, rather than
+in its endpoint read task. Sender kernel/NIC, route, modem and ingress driver
+remain included; blaming only the carrier would overstate the evidence.
+
+A second 60-second run uses the same 2286 binaries with global P2P temporarily
+`denied` through the product controller on both endpoints. The existing persisted
+`contacts` values are saved before mutation and restored successfully afterward.
+All 161 active samples per endpoint show relay, and encrypted cell traces show
+only relay sends (Mac 63/Poco 24 sampled sends), not a merely changed UI label.
+No network/mailbox policy or relay priority is introduced. Warmup rings at 3.458 s,
+both active at 4.043 s; main at 1.294/1.689 s. Native interruptions remain
+Mac 5/2764 ms, Poco 16/10500 ms. Sampled Mac→Poco relay cell delivery peaks at
+1309.4 ms. Across that capture 134 ungrouped Poco kernel stamps show read median
+0.112 ms/max 3.172 ms; 27 shared GRO buffers are excluded. Switching to this
+ordinary relay route is not a quality fix.
+
+Both runs close owned apps/helpers, verify phone UID/package processes exited,
+remove forwarding and archive Mac runtime logs before verifying its strict seal.
+P2P restoration is confirmed on BOTH endpoints. Private kernel2286 probe/check/
+upstream logs, build/native/installed metadata, udp2286 audit/playout/route changes,
+relay2286 stage audit/playout and neteqmixed/relay2286 cleanup retain evidence.
+The full goal stays active: actual encoded video/screen coexistence with acceptable
+audio is still unproved. Next inspect recovery after delivery stalls and delayed
+packet bursts with a controlled PCM fixture before changing receive buffering
+or audio path duplication; do not repeat failed NetEq cap/flush tuning blindly.
