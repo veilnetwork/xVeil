@@ -10,13 +10,19 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/group_content.dart';
+import 'package:xveil/domain/p2p_policy.dart';
+import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/space_public_feed_transport.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/multi_identity_session.dart';
+
+import 'support/fake_multi_space.dart';
 
 NodeId _id(int s) => NodeId(Uint8List.fromList(List.filled(32, s)));
 
@@ -325,6 +331,7 @@ class _StreamLink
   /// own id; production names the opener's DEVICE, which for an identity
   /// with its own device key is not the identity.
   NodeId? anonStreamSrc;
+  NodeId? p2pStreamSrc;
 
   /// The device this node's frames prove they came from, as the node reports
   /// it on inbound messages (`InboundMessage.srcDevice`).
@@ -422,7 +429,7 @@ class _StreamLink
     }
     p._p2pAccepts.add((
       stream: peerStream,
-      src: _me,
+      src: p2pStreamSrc ?? _me,
       // A direct open IS authenticated in production (remote APP_OPEN rides
       // the OVL1 session it was read from), so an honest fake says so. The
       // ACCEPTING side owns the knob because in production the accepting node
@@ -851,6 +858,81 @@ void main() {
       expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
       await got.timeout(const Duration(seconds: 20));
       expect(await sB.loadFile(cid), data);
+    },
+  );
+
+  test(
+    'always-online session serves a proven contact device over P2P',
+    () async {
+      await mA.dispose();
+      await mB.dispose();
+      final session = MultiIdentitySession(
+        SyncWrappedAsyncMultiSpaceBacking(FakeMultiSpaceBacking()),
+        runtimeDirBase: '/run',
+        listenPortBase: 9000,
+        boot: (spec, storage) async =>
+            IdentityNode(transport: tA, dispose: () async {}),
+      );
+      addTearDown(session.disposeAll);
+      await session.bootAll([
+        RosterEntry(
+          label: 'sender',
+          spaceKeys: Uint8List(64)..fillRange(0, 64, 1),
+        ),
+      ]);
+      mA = session.messagingFor('sender')!;
+      sA = session.storageFor('sender')! as HiddenVolumeStorage;
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      await sA.putSetting(
+        kP2PGlobalPolicySettingKey,
+        P2PGlobalPolicy.contacts.name,
+      );
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+        p2pStreamAllowed: (_) async => true,
+      )..start();
+      final device = _id(0x2D);
+      tB.srcDevice = device;
+      tB.p2pStreamSrc = device;
+      await mB.sendText(a, 'authenticated device evidence');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(mA.identityOfDevice(device), b);
+      final bytes = _rnd(90000, 2282);
+      final cid = await advertiseFromA(bytes, name: 'device-p2p.bin');
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 4));
+      expect(await sB.loadFile(cid), bytes);
+      expect(tB.p2pOpenedStreamCount, greaterThan(0));
+      expect(tB.openStreamAttemptCount, 0);
+      Future<void> expectStreamDenied() async {
+        final stream = (await tB.openP2PStream(a))!;
+        expect(
+          await stream.read(maxBytes: 4).timeout(const Duration(seconds: 3)),
+          isEmpty,
+        );
+        await stream.close();
+      }
+
+      // A device without authenticated ownership evidence remains unknown.
+      tB.p2pStreamSrc = _id(0x2E);
+      await expectStreamDenied();
+      tB.p2pStreamSrc = device;
+      await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.blocked));
+      await expectStreamDenied();
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      // An explicit row for the device takes precedence over its owner's row.
+      await sA.upsertContact(
+        Contact(nodeId: device, status: ContactStatus.blocked),
+      );
+      await expectStreamDenied();
     },
   );
 
