@@ -89,9 +89,9 @@ const Duration kCallStartupLivenessTimeout = kCallRingTimeout;
 /// either anonymous party; two direct parties may only fall back P2P → relay.
 const Duration kCallMediaRepairAfter = Duration(seconds: 10);
 
-/// Query local direct admission only after sustained media silence. A closed
-/// authenticated session is stronger evidence than silence alone; healthy or
-/// unknown sessions retain the ordinary repair grace.
+/// Check the direct path after sustained receive silence. Established audio
+/// has its own deadline: a live parent session does not prove delivery on the
+/// independent audio connection. Unknown/startup audio keeps the normal grace.
 const Duration kCallDirectSessionSilence = Duration(seconds: 3);
 
 /// Maximum time call setup waits for endpoint exchange, dialing, and native
@@ -1507,13 +1507,48 @@ class CallService {
       _relayFallbackFlight == null &&
       _mediaReceiveNeedsRepair(call, after: kCallDirectSessionSilence);
 
+  bool _establishedAudioReceiveStalled(Call call) {
+    final media = _media;
+    final audioRx = media?.lastAudioRxAt;
+    final expectedSince = _peerAudioExpectedSince;
+    if (media == null ||
+        !media.hasAudioReceiveTelemetry ||
+        !call.media.audio ||
+        call.peerCapture?.audio != true ||
+        audioRx == null ||
+        expectedSince == null) {
+      return false;
+    }
+    var since = call.connectedAt ?? call.startedAt;
+    final sessionStart = media.receiveSessionStartedAt;
+    if (sessionStart != null && sessionStart.isAfter(since)) {
+      since = sessionStart;
+    }
+    if (expectedSince.isAfter(since)) since = expectedSince;
+    // A new receive session or unmute must first establish actual audio.
+    // Old counters cannot shorten startup grace on the replacement route.
+    return !audioRx.isBefore(since) &&
+        _now().difference(audioRx) >= kCallDirectSessionSilence;
+  }
+
   Future<void> _checkLostDirectSession(Call call) async {
     final media = _media;
-    if (media == null ||
-        _directAdmissionCheckBusy ||
-        !_canCheckLostDirectSession(call)) {
+    if (media == null || !_canCheckLostDirectSession(call)) {
       return;
     }
+    if (_establishedAudioReceiveStalled(call)) {
+      // Primary QUIC can stop delivering while parent admission, RTCP or video
+      // still works. Recover on permitted live relay lanes; do not wait for a
+      // negative parent query or a peer repair message on the stalled path.
+      devLog(
+        () =>
+            'xVeil[call-media]: established direct audio stalled — '
+            'early relay recovery call=${call.callId}',
+      );
+      await _recoverSilentDirect(call);
+      return;
+    }
+    if (_directAdmissionCheckBusy) return;
     _directAdmissionCheckBusy = true;
     bool? admitted;
     try {
