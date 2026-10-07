@@ -5386,3 +5386,40 @@ native transmit drops. Sender counters precede later transport processing, so
 this does not locate the delay or prove delivery. Counter deltas remain positive
 in the reviewed Poco receive gaps too. The goal remains open for actual route
 coverage, end-to-end receive gaps and delayed signaling.
+
+Physical relay-only build 2267 is installed on Poco with full APK verification,
+SHA-256 3f7beddcf2fbecfe727c64061abdfbdbf6ada2a83cd6e6db275dcb2fa93348e3.
+Both test profiles temporarily use global P2P denied, after checking that no
+explicit per-contact allow defeats it; their original contacts policy is
+restored and verified after the run. Media remains production build 2258.
+The incoming ring is observed at 0.445 seconds and both endpoints are active
+at 3.884 seconds. Both stay on relay for the 180-second audio run. This is a
+different network condition from 2266, so it does not establish an improvement
+attributable to the new code. Encoded video is not exercised here.
+
+The 2-MiB file attempt starts at active +30.388 and times out at +150.440;
+there is no successful full-file checksum and no file completion claim. New
+ordered pressure and reliable source holds are absent on both endpoints. Thus
+this physical run does not establish execution of the new QUIC feedback gate.
+Poco instead records prolonged canonical writer stalls. Generic stream-only
+transports and a swapped stream without a QUIC handle still lack a path-pressure
+publisher; this needs separate coverage, rather than inferring their transport
+from a failed/dialed QUIC URI or from missing traces.
+
+Before/during/after the file attempt, accepted native RTP age maxima are
+2795/2963/15771 ms on Mac and 2592/1516/1870 ms on Poco. Observed interruption
+increments are 15/84/8 and 5/19/2, with media-epoch boundaries excluded. Native
+send admission maxima are 0 ms on Mac and 1 ms on Poco. In the long Mac receive
+gap beginning around active +150.6, Poco continues producing audio in epoch 1;
+Mac has received no new native RTP by +164.15. Poco switches to epoch 3 at
++164.908, after the gap has already started; Mac receives again afterward.
+The receiver gap therefore must not be attributed to the later media repair.
+External cellular ICMP reaches 2617/1170/665 ms in these windows, against Mac
+maxima below 54 ms. Its unrelated destination limits causal attribution.
+
+Both owned apps, the entire Android UID/package, helpers, pings and ADB forward
+are verified absent. The runtime Mac log is archived and its bundle seal passes
+strict verification. Poco remains available; identity and history are preserved.
+Evidence is private under `/private/tmp/xveil-call-2220` with prefix neteq2267.
+The goal remains open for stream-only feedback, failed anonymous content pull,
+remaining receive gaps, delayed signaling and actual encoded-video load.
