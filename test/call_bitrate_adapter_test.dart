@@ -14,6 +14,119 @@ void main() {
   ({int maxBitrateKbps, double maxFps})? lossy(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
 
+  test('intentional silence releases an already measured audio hold', () {
+    final a = direct();
+    a.onSample(
+      rttMs: 80,
+      txJitterMs: 10,
+      txLossPct: 0,
+      txDrops: 0,
+      audioInterrupted: true,
+    );
+    expect(a.audioReserve, isTrue);
+    // Both endpoints explicitly muted: missing audio reports are expected.
+    for (var i = 0; i < 20; i++) {
+      a.onNativeStats(
+        {'audio_feedback_reports': 0},
+        sendAudioExpected: false,
+        receiveAudioExpected: false,
+        requirePeerAudioPlayout: false,
+      );
+    }
+    expect(a.audioReserve, isFalse);
+    expect(a.atFloor, isTrue, reason: 'unknown video has only earned a probe');
+  });
+
+  test('muted sender recovers a probe only after healthy incoming playout', () {
+    final a = direct();
+    a.onSample(
+      rttMs: 80,
+      txJitterMs: 0,
+      txLossPct: 0,
+      txDrops: 0,
+      audioInterrupted: true,
+    );
+    void sample(int? delay, {bool interrupted = false, int videoReports = 0}) =>
+        a.onNativeStats(
+          {
+            'worker_stalled': 0,
+            'video_worker_stalled': 0,
+            'audio_rx_pkts': 100,
+            'audio_rx_native_age_ms': 20,
+            'audio_delay_ms': ?delay,
+            'video_feedback_reports': videoReports,
+            'video_feedback_rtt_ms': 80,
+            'video_feedback_jitter_ms': 10,
+          },
+          sendAudioExpected: false,
+          receiveAudioExpected: true,
+          requireAudioReceivePlayout: true,
+          audioInterrupted: interrupted,
+        );
+    // Fresh packets and even video reports cannot hide buffered audio.
+    for (var i = 0; i < 20; i++) {
+      sample(500, videoReports: 1);
+    }
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < 20; i++) {
+      sample(null, videoReports: 1);
+    }
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      sample(100);
+    }
+    sample(100, interrupted: true);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      sample(100);
+    }
+    expect(a.audioReserve, isTrue);
+    sample(100);
+    expect(a.audioReserve, isFalse);
+    expect(a.atFloor, isTrue);
+    for (var i = 0; i < 30; i++) {
+      sample(100);
+    }
+    expect(a.atFloor, isTrue, reason: 'no video report has earned growth');
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter * 4; i++) {
+      sample(100, videoReports: 1);
+    }
+    expect(a.level, 0);
+  });
+
+  test('video reports never stand in for expected outgoing audio', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    for (var i = 0; i < 60; i++) {
+      a.onNativeStats({
+        'audio_feedback_reports': 0,
+        'video_feedback_reports': 1,
+        'video_feedback_rtt_ms': 80,
+        'video_feedback_jitter_ms': 10,
+      });
+    }
+    expect(a.atFloor, isTrue);
+  });
+
+  test('muted room needs video reports from every receiver to grow', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 150, baseFps: 15);
+    void sample(int reports) => a.onNativeStats(
+      {
+        'video_feedback_reports': reports,
+        'video_feedback_rtt_ms': 80,
+        'video_feedback_jitter_ms': 10,
+      },
+      sendAudioExpected: false,
+      expectedVideoFeedbackReports: 2,
+    );
+    for (var i = 0; i < 60; i++) {
+      sample(1);
+    }
+    expect(a.atFloor, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter * 4; i++) {
+      sample(2);
+    }
+    expect(a.level, 0);
+  });
+
   test(
     'decoded audio interruptions pause video despite fresh RTP and low delay',
     () {
@@ -35,10 +148,14 @@ void main() {
       expect(a.audioReserve, isFalse);
       sample(interrupted: true);
       expect(a.audioReserve, isTrue);
-      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; ++i) sample();
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; ++i) {
+        sample();
+      }
       expect(a.audioReserve, isTrue);
       sample(interrupted: true); // Another outage restarts recovery.
-      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; ++i) sample();
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; ++i) {
+        sample();
+      }
       expect(a.audioReserve, isTrue);
       sample();
       expect(a.audioReserve, isFalse);
@@ -156,10 +273,11 @@ void main() {
         'audio_rx_native_age_ms': -1,
       }, receiveAudioExpected: true);
       expect(a.audioReserve, isTrue);
-      a.onNativeStats({
-        'audio_feedback_reports': 0,
-        'worker_stalled': 0,
-      }, receiveAudioExpected: false);
+      a.onNativeStats(
+        {'audio_feedback_reports': 0, 'worker_stalled': 0},
+        sendAudioExpected: false,
+        receiveAudioExpected: false,
+      );
       expect(a.audioReserve, isFalse);
     },
   );

@@ -65,11 +65,13 @@ void main() {
           'audio_receivers': {
             alice.hex: {
               'audio_rx_pkts': 20,
+              'audio_delay_ms': 100,
               'audio_rx_native_age_ms': 10,
               'audio_interruption_count': 0,
             },
             bob.hex: {
               'audio_rx_pkts': 20,
+              'audio_delay_ms': 100,
               'audio_rx_native_age_ms': 10,
               'audio_interruption_count': interruptions,
             },
@@ -106,7 +108,11 @@ void main() {
               'audio_feedback_reports': 1,
               'rtt_ms': 80,
               'audio_receivers': {
-                peer.hex: {'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1},
+                peer.hex: {
+                  'audio_rx_pkts': 0,
+                  'audio_delay_ms': 100,
+                  'audio_rx_native_age_ms': -1,
+                },
               },
             };
           final controller = VeilGroupCallMediaController(
@@ -137,7 +143,11 @@ void main() {
           engine.stats = {
             ...engine.stats,
             'audio_receivers': {
-              peer.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 100},
+              peer.hex: {
+                'audio_rx_pkts': 20,
+                'audio_delay_ms': 100,
+                'audio_rx_native_age_ms': 100,
+              },
             },
           };
           clock.elapse(const Duration(seconds: 11));
@@ -306,8 +316,16 @@ void main() {
         'audio_feedback_reports': 2,
         'rtt_ms': 80,
         'audio_receivers': {
-          alice.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': aliceAge},
-          bob.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': bobAge},
+          alice.hex: {
+            'audio_rx_pkts': 20,
+            'audio_delay_ms': 100,
+            'audio_rx_native_age_ms': aliceAge,
+          },
+          bob.hex: {
+            'audio_rx_pkts': 20,
+            'audio_delay_ms': 100,
+            'audio_rx_native_age_ms': bobAge,
+          },
         },
       };
       engine.stats = sample(100, 100);
@@ -387,8 +405,16 @@ void main() {
         'audio_feedback_reports': 2,
         'rtt_ms': 80,
         'audio_receivers': {
-          alice.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 100},
-          bob.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 13000},
+          alice.hex: {
+            'audio_rx_pkts': 20,
+            'audio_delay_ms': 100,
+            'audio_rx_native_age_ms': 100,
+          },
+          bob.hex: {
+            'audio_rx_pkts': 20,
+            'audio_delay_ms': 100,
+            'audio_rx_native_age_ms': 13000,
+          },
         },
       };
       clock.elapse(const Duration(seconds: 48));
@@ -451,8 +477,16 @@ void main() {
           'audio_feedback_reports': 2,
           'rtt_ms': 80,
           'audio_receivers': {
-            alice.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 100},
-            bob.hex: {'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1},
+            alice.hex: {
+              'audio_rx_pkts': 20,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': 100,
+            },
+            bob.hex: {
+              'audio_rx_pkts': 0,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': -1,
+            },
           },
         };
         clock.elapse(const Duration(seconds: 48));
@@ -469,8 +503,16 @@ void main() {
         engine.stats = {
           ...engine.stats,
           'audio_receivers': {
-            alice.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 1085},
-            bob.hex: {'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1},
+            alice.hex: {
+              'audio_rx_pkts': 20,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': 1085,
+            },
+            bob.hex: {
+              'audio_rx_pkts': 0,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': -1,
+            },
           },
         };
         clock.elapse(const Duration(seconds: 1));
@@ -647,7 +689,11 @@ void main() {
           'audio_feedback_reports': 1,
           'rtt_ms': 80,
           'audio_receivers': {
-            alice.hex: {'audio_rx_pkts': 100, 'audio_rx_native_age_ms': 100},
+            alice.hex: {
+              'audio_rx_pkts': 100,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': 100,
+            },
           },
         };
       final controller = VeilGroupCallMediaController(
@@ -680,8 +726,16 @@ void main() {
         ...engine.stats,
         'audio_feedback_reports': 2,
         'audio_receivers': {
-          alice.hex: {'audio_rx_pkts': 200, 'audio_rx_native_age_ms': 100},
-          bob.hex: {'audio_rx_pkts': 20, 'audio_rx_native_age_ms': 100},
+          alice.hex: {
+            'audio_rx_pkts': 200,
+            'audio_delay_ms': 100,
+            'audio_rx_native_age_ms': 100,
+          },
+          bob.hex: {
+            'audio_rx_pkts': 20,
+            'audio_delay_ms': 100,
+            'audio_rx_native_age_ms': 100,
+          },
         },
       };
       clock.elapse(const Duration(seconds: 11));
@@ -825,6 +879,24 @@ void main() {
       expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
       controller.setMicMuted(true);
       clock.flushMicrotasks();
+      engine.stats = {
+        ...engine.stats,
+        'worker_stalled': 0,
+        'audio_rx_native_age_supported': 1,
+        'audio_receivers': {
+          for (final id in [_id(2), _id(3)])
+            id.hex: {
+              'audio_rx_pkts': 100,
+              'audio_rx_native_age_ms': 20,
+              'audio_delay_ms': 100,
+            },
+        },
+        'video_feedback_reports': 2,
+        'video_feedback_rtt_ms': 80,
+        'video_feedback_jitter_ms': 10,
+      };
+      clock.elapse(const Duration(seconds: 11));
+      expect(engine.pauses.last, isTrue);
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
       clock.elapse(const Duration(seconds: 48));
@@ -955,6 +1027,10 @@ void main() {
           reason: 'the stale start snapshot must not open microphone capture',
         );
         engine.stats = {
+          'video_feedback_reports': 2,
+          'video_feedback_rtt_ms': 80,
+          'video_feedback_loss_pct': 0,
+          'video_feedback_jitter_ms': 10,
           'audio_feedback_reports': 1,
           'rtt_ms': 80,
           'tx_loss_pct': 0,
@@ -968,12 +1044,21 @@ void main() {
         );
         controller.setMicMuted(false);
         clock.flushMicrotasks();
+        expect(
+          engine.pauses.last,
+          isTrue,
+          reason: 'video pauses before newly enabled audio captures',
+        );
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 0.3),
-          reason: 'unmute restores every-receiver audio protection',
+          (maxBitrateKbps: 1, maxFps: 0.02),
+          reason:
+              'video reports cannot prove that both peers hear the new audio',
         );
+        engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
+        clock.elapse(const Duration(seconds: 12));
+        expect(engine.pauses.last, isFalse);
         controller.stop();
         clock.flushMicrotasks();
         controller.start(_call(self, [alice, bob], video: true));
@@ -1011,7 +1096,11 @@ void main() {
           'audio_rx_native_age_supported': 1,
           'worker_stalled': 0,
           'audio_receivers': {
-            peer.hex: {'audio_rx_pkts': 4, 'audio_rx_native_age_ms': 2500},
+            peer.hex: {
+              'audio_rx_pkts': 4,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': 2500,
+            },
           },
         };
         clock.elapse(const Duration(seconds: 1));
@@ -1029,7 +1118,11 @@ void main() {
         engine.stats = {
           ...engine.stats,
           'audio_receivers': {
-            peer.hex: {'audio_rx_pkts': 4, 'audio_rx_native_age_ms': 3500},
+            peer.hex: {
+              'audio_rx_pkts': 4,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': 3500,
+            },
           },
         };
         clock.elapse(const Duration(seconds: 1));
@@ -1110,8 +1203,8 @@ void main() {
           ...engine.stats,
           'worker_stalled': 1,
           'audio_receivers': {
-            alice.hex: {'audio_rx_pkts': 999},
-            bob.hex: {'audio_rx_pkts': 999},
+            alice.hex: {'audio_rx_pkts': 999, 'audio_delay_ms': 100},
+            bob.hex: {'audio_rx_pkts': 999, 'audio_delay_ms': 100},
           },
         };
         clock.elapse(const Duration(seconds: 1));
@@ -1126,8 +1219,8 @@ void main() {
           'audio_rx_supported': 1,
           'worker_stalled': 0,
           'audio_receivers': {
-            alice.hex: {'audio_rx_pkts': 4},
-            bob.hex: {'audio_rx_pkts': 2},
+            alice.hex: {'audio_rx_pkts': 4, 'audio_delay_ms': 100},
+            bob.hex: {'audio_rx_pkts': 2, 'audio_delay_ms': 100},
           },
         };
         clock.elapse(const Duration(seconds: 1));
@@ -1143,7 +1236,7 @@ void main() {
           'audio_rx_supported': 1,
           'worker_stalled': 0,
           'audio_receivers': {
-            alice.hex: {'audio_rx_pkts': 0},
+            alice.hex: {'audio_rx_pkts': 0, 'audio_delay_ms': 100},
           },
         };
         clock.elapse(const Duration(seconds: 1));
