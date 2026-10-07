@@ -580,6 +580,33 @@ def _media_symbols_problem(*, bundle_path: str, abi: str) -> list[str]:
         return _media_symbols_verdict(extracted, label=f"{abi}: {_MEDIA_SO}")
 
 
+def _android_native_dependency_problems(*, bundle_path: str, abi: str) -> list[str]:
+    """Every non-system loader dependency must be packaged for the same ABI."""
+    import zipfile
+    from xveil_elf import needed_libraries
+
+    system = {
+        "libc.so", "libm.so", "libdl.so", "liblog.so", "libandroid.so",
+        "libz.so", "libEGL.so", "libGLESv1_CM.so", "libGLESv2.so",
+        "libGLESv3.so", "libOpenSLES.so", "libjnigraphics.so", "libvulkan.so",
+        "libaaudio.so", "libmediandk.so", "libnativewindow.so", "libstdc++.so",
+    }
+    problems = []
+    with zipfile.ZipFile(bundle_path) as bundle:
+        libs = {entry.rsplit("/", 1)[-1]: entry for entry in bundle.namelist()
+                if entry.startswith(f"lib/{abi}/") and entry.endswith(".so")}
+        for name, entry in sorted(libs.items()):
+            try:
+                needed = needed_libraries(bundle.read(entry))
+            except ValueError as error:
+                problems.append(f"{abi}: cannot read {name}'s loader dependencies: {error}")
+                continue
+            for dependency in needed:
+                if dependency not in system and dependency not in libs:
+                    problems.append(f"{abi}: {name} needs missing {dependency}")
+    return problems
+
+
 def _check_android_native_libs() -> None:
     """Verify the ARTIFACT, not the exit status.
 
@@ -627,6 +654,7 @@ def _check_android_native_libs() -> None:
             problems.append(f"{abi}: missing {', '.join(missing)}")
         else:
             print(f"    {abi}: {len(names)} native libs, all required ones present")
+            problems.extend(_android_native_dependency_problems(bundle_path=apk, abi=abi))
             if abi in _MEDIA_ABIS:
                 # Present is not the same as current. The media engine is a
                 # prebuilt nobody in an APK build rebuilds, so the stale one

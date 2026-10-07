@@ -244,10 +244,12 @@ with tempfile.TemporaryDirectory() as _tmp:
         _make_apk(f"app-{_abi}-release.apk", _abi)
 
     _held_root, _held_sym = builder.ROOT, builder._media_symbols_problem
+    _held_deps = builder._android_native_dependency_problems
     builder.ROOT = _tmp
     # The symbol check reads a real ELF; these fixtures are zip files with
     # one-byte members, and what is under test here is the file list.
     builder._media_symbols_problem = lambda **_kw: []
+    builder._android_native_dependency_problems = lambda **_kw: []
     try:
         try:
             builder._check_android_native_libs()
@@ -271,6 +273,7 @@ with tempfile.TemporaryDirectory() as _tmp:
         )
     finally:
         builder.ROOT, builder._media_symbols_problem = _held_root, _held_sym
+        builder._android_native_dependency_problems = _held_deps
 
 
 # The windows bundle path follows the HOST, not a spelled-out architecture.
