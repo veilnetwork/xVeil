@@ -5513,3 +5513,75 @@ Session, native SDK and integration gates pass 741 tests, eight ignored
 quality result. Poco returned to ADB; production SDK and stand build 2269 are
 being prepared for a phone/computer test. Build 2267 is still on the phone;
 media production build 2258 is unchanged. The goal remains open.
+
+### Cycle 2269: Poco/Mac physical findings
+
+Production-signed stand APK 2269 was installed with `adb install -r`; identity
+and history were retained. Its full pulled installed APK matches SHA-256
+5dcb405b4133f77120458aa1bccfa2a4db33f1cdbd0c5d211d58acb8c1775da7. Fresh
+production Android/Mac SDKs, independently stripped Android SDK, Mac code
+sections/strict seal and unchanged production media 2258 were verified. Poco
+returned on Wi-Fi; before placing the call it was restored to the requested
+cellular default route. No production /Applications bundle was replaced.
+
+The first call denied P2P temporarily on both existing stand profiles, checking
+that no explicit contact allow defeated the policy. Both original `contacts`
+policies were saved beforehand and restored/verified afterward. Ringing was
+observed at 0.513 s; both endpoints became active at 4.615 s. The same call
+remained relay/epoch 1 for 240 s. A real 2 MiB file offered at active +90.26 s
+finished downloading in 38.48 s, with the complete received SHA-256 matching
+the source. This does not establish that the changed pressure code caused the
+improvement over the previous file timeout: route/radio conditions varied.
+
+Endpoint pressure was physically exercised on Poco: 65 ordered-primary
+pressure observations and a completed 324-ms own primary write reported two
+source pressure ticks. Mac did not report a slow canonical write. No reliable
+secondary admission hold was recorded, so the full cross-producer gate is
+still demonstrated by encrypted runner regressions rather than this stand.
+Every recorded sealed relay admission used ordered compatibility, with
+`datagram_transport=false`; other received generic datagrams do not establish
+that the call's first hop used the neutral Forward DATAGRAM path.
+
+Native receive-age maxima before/during/after the file were Mac
+536/628/1075 ms and Poco 1726/1277/4141 ms. The observed interruption count
+deltas in those windows were Mac 1/3/7 and Poco 32/4/44 (window boundaries
+excluded, so these are not total call counts). Cell ICMP to a different
+destination reached 722/712/1246 ms; it cannot identify the cause of the
+end-to-end call gaps. Poco's camera did capture frames after active +30 s,
+but video stayed paused and encoded frame counters stayed zero on both ends.
+This is not a successful encoded-video load test.
+
+A second attempt with the original contacts policy tried direct opening.
+Neither initial direct exchange admitted the peer, and the call remained
+relay/epoch 1 throughout. Mac logged an expired sovereign signing delegation;
+this is a test-identity obstacle to direct certification, not proof of a
+particular NAT or radio failure. Ringing took 0.599 s and both active 2.785 s.
+Without a file, incoming audio stopped on both endpoints near call +110 s.
+Between +110.08 and +130.08, native audio receive counters stayed unchanged
+(Mac 5299, Poco 3711), while produced payload counters grew 5303→6299 and
+5286→6240. Sender admission was at most 0/3 ms, worker-stalled stayed zero,
+and no media rebuild occurred. Authenticated sealed-cell receive samples
+also stopped while send samples continued. Both FSMs then logged the normal
+20-s media-and-control liveness timeout. Logical call state was absent by
++131.20 s; the driver's eight-second confirmation ended at +139.76 s.
+
+The receive stop is upstream of the sampled native audio worker. Its root
+cause is unresolved: the timing alone does not prove cache TTL, and the
+current IPC failure metric covers enqueue/pre-write failures, not every
+asynchronous daemon refusal. A useful next boundary is sampled own sealed
+cells at daemon IPC entry, together with daemon refusal reasons, matched to
+the existing sender/authenticated-receiver samples. Existing relay route
+repair depends on receiving a peer request; the autonomous silence recovery
+currently applies to direct calls. Do not change timeouts or rebuild relay
+media blindly before checking the failed delivery boundary.
+
+Both stands have been closed, with no remaining owned helpers, macOS app
+process, UID 10521/package processes, remote probe or ADB forward. The second
+stand's private cleanup helper initially had an invalid numeric suffix after
+copying; it was corrected, run explicitly, and the same process checks passed.
+Runtime Mac logs were moved out of the bundle and its strict seal reverified.
+Private evidence: neteq2269-summary.json, neteq2269p-summary.json,
+neteq2269[p]-samples.ndjson, build-screen-2269.json and cleanup records.
+Source changes are committed unsigned and unpushed. The goal remains open
+for delivery-stop diagnosis, encoded video/screenshare load and complete
+local producer admission coverage.
