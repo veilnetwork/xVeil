@@ -5423,3 +5423,57 @@ strict verification. Poco remains available; identity and history are preserved.
 Evidence is private under `/private/tmp/xveil-call-2220` with prefix neteq2267.
 The goal remains open for stream-only feedback, failed anonymous content pull,
 remaining receive gaps, delayed signaling and actual encoded-video load.
+
+Stream-only local producer feedback (2268)
+-----------------------------------------
+
+In physical 2267, Poco records 44 completed slow canonical writes, the longest
+21358 ms. Missing QUIC feedback traces do not identify their transport. The
+new source-only slow-write field distinguishes a locally authored primary
+from generic control/transit without adding anything to the wire.
+
+An authenticated local primary's complete frame now carries its shared source
+activity through canonical encryption/batching into an endpoint-local writer
+lease. If a partial write remains blocked for 150 ms, the writer publishes
+pressure every 150 ms to other local producers. The partial-write future stays
+pinned across feedback ticks: bytes, cipher nonce/order, and the original idle
+progress deadline are preserved. Activity still comes from the producer;
+feedback does not renew the activity of an old buffered blob. Raw/public writer
+entrypoints, replies and neutral transit do not acquire this source metadata.
+The metadata survives an ordinary stream swap through the new blob's local
+admission, independently of a retired QUIC handle.
+
+Ordered compatibility for local lossy secondary producers now also shares the
+existing DATAGRAM recovery-probe budget. Only complete locally classified
+secondary realtime frames without a reliable source credit enter that gate.
+A rejected plaintext frame retains its FIFO position and wakes at the probe,
+pressure or activity expiry. The existing lossy age policy can discard stale
+frames before encryption; primary/control and neutral transit keep their
+admission policy. Reliable file holds continue to preserve all bytes/credits.
+No media role, deadline, source priority or preference is added to relay traffic.
+
+A full encrypted SessionRunner regression blocks a stream-only primary on a
+64-byte in-memory transport, with no QUIC handle, while another real TLS/QUIC
+neighbor carries a file and a third healthy stream carries secondary realtime
+and neutral frames. The held primary publishes pressure without incoming or
+producer events. At most one secondary frame passes the first 180 ms; neutral
+work passes, the file keeps all 11700 bytes and its cipher order, and fresh
+secondary bytes pass after grace despite the intervening stale-frame drops.
+Both complete primary frames decrypt after unblocking. This is a transport
+backpressure regression, not a decoded PCM or physical cellular quality test.
+Disabling the writer publisher makes it fail for missing pressure; disabling
+only the ordered secondary gate makes it fail for secondary bypass.
+
+Separate writer regressions verify neutral stalls cannot claim primary pressure,
+complete byte/order preservation, pressure expiry, and that feedback ticks do
+not renew a stalled writer's idle deadline. The changed session, native SDK and
+runner integration suites pass 735 tests with eight ignored (408/223/104).
+The unchanged transport suite previously passed 116 in cycle 2267.
+
+Physical build 2268 has not been tested: Poco disconnected from ADB after the
+completed 2267 stand and has been requested for reconnection. No test apps or
+helpers remain running. Build 2267 remains installed with its identity/history
+intact. The goal stays open for physical gate execution, encoded video load,
+remaining audio gaps, anonymous content delivery and delayed signaling. This
+local pressure policy cannot itself remove a network outage or infer congestion
+on a remote relay path from a healthy first hop.
