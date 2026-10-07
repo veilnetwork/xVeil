@@ -5972,3 +5972,46 @@ or reset ratchets to mask it. Actual encoded-video/screen load alongside
 low-latency acoustic audio, the physical gaps, and the remaining producer
 admission audit are still unverified. The full audio-priority objective remains
 active.
+
+### Cycle 2275: separate locally authored network queries from neutral transit
+
+Own SessionOutbox RPCs and the three NodeServices recursive-DHT fanout paths
+previously used the same local INTERACTIVE scheduling class as opaque transit.
+They could bypass endpoint audio-pressure limits. Own network requests now use
+an internal sixth queue (selector 5, interactive WRR weight), separate reserved
+FrameSender ingress and bounded admission credits retained through the priority
+queue. It is not an IPC selector, capability or wire field. Encoded headers,
+received/forwarded traffic, and relay policy remain unchanged. No remote caller
+can select this class with the two-bit wire priority.
+
+During authenticated pressure on an active local primary, all neighbors share
+an independent 1,024-byte network allowance per 200 ms, distinct from the
+4,096-byte reliable DATA allowance. Whole oversized compatibility frames can
+progress alone. Source FIFO and credits survive deferral; a deadline wakes the
+runner without a new producer/incoming event. Primary ingress remains separate,
+and bounded interleaving prevents continuous primary/control producers from
+starving neutral ingress. Closing control ingress wakes a producer even while
+all its credits remain held by the scheduler. RPC replacement-session ownership
+cannot consume or release another registration's credits.
+
+Verification: 422 veil-session tests pass (six existing manual characterization
+fixtures remain ignored); 648 veil-node-runtime tests pass (11 existing ignored).
+Clippy on both libraries and their tests passes with --no-deps -D warnings.
+The new actual TLS/QUIC fixtures exercise both SessionOutbox and FrameSender
+producers, check unchanged decrypted query headers/bodies, neutral progress,
+ordered once-only completion after pressure deadlines, and independent progress
+when DATA is exhausted. An original-behavior negative baseline, restoring both
+INTERACTIVE admission and the absence of retained RPC credits, fails because
+3,504 bytes escape in the first pressure window. The source was restored exactly.
+An earlier partial baseline retaining new credits instead fails DATA starvation;
+it is not the evidence for the original bypass. Private logs: session2275-tests-v2,
+runtime2275-tests, clippy2275-tests and negative2275-rpc-v2.
+
+The camera-label regression was rechecked: four video_frame_view widget tests
+pass; only camera pixels mirror, while waiting/stale text and icons remain
+readable and screen sharing remains unmirrored. The correction is ee3da8bc.
+No fixture app was launched by these tests and flutter_tester has exited.
+Poco has returned on ADB; packaging and a fresh physical call/message check are
+next. Acoustic delay, simultaneous encoded video and the older physical missing
+message burst remain unverified. Other locally originated anonymous/network
+producer paths have not all been audited; the full goal remains active.
