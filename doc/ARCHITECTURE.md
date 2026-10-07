@@ -5074,6 +5074,48 @@ audio or neutral control. IPC compatibility/body preservation and neutral
 relay framing tests pass; the native relay file-loss/ARQ regression passes.
 
 These checks establish transport/source separation, not acoustic call quality
-on the cellular phone. Fresh 2261 application builds and physical verification
-are still required; the prior installed phone build is 2258. The severe
-external delays observed in the no-app control remain a separate limitation.
+on the cellular phone. Fresh Mac/Android SDKs are packaged in stand app 2261;
+the installed Poco APK is fully byte-verified with SHA-256
+0fd45279c6535f57130fb13b5fd172106a12d2e42d9898895a988a1f072aef11.
+Production media from 2258 is retained unchanged. The severe external delays
+observed in the no-app control remain a separate limitation.
+
+Screen capture across route rebuilds (2262/2263)
+----------------------------------------------
+
+The first Poco-to-Mac audio call rings in 0.398 seconds and is active by 0.983
+seconds. Its audio-only media set cannot start the screen, so that stand is
+explicitly ended and repeated with video negotiated and cameras disabled.
+In the repeated 240-second stand, an authenticated offer takes 32.277 seconds
+to arrive, then both endpoints are active at 33.299 seconds. Earlier realtime
+copies arrive with a claimed physical sender and are correctly refused by the
+existing provenance gate. Cold authenticated signaling remains unresolved;
+this observation does not authorize weakening contact authentication.
+
+Both microphones are muted at active +10 seconds, screen consent is requested
+at +20.294 and completes at +90.327 (including stand UI automation delay).
+A 2-MiB Poco-to-Mac file is received at +145.766, after 54.285 seconds of
+download, with full size/hash equality. Microphones resume at +120 seconds.
+At +114.160 the media sessions rebuild in epoch 3 and move from P2P to relay.
+The phone had sent 44 screen frames before rebuilding, then sends no more
+while its public call state still says screenOn. Code confirms that teardown
+destroys the projection and the new session does not restore the screen.
+
+The correction retains an already consented Android projection during a
+rebuild of the same live call. Its old engine sink detaches synchronously
+before teardown awaits; the replacement engine rebinds without obtaining
+another projection token. Screen intent is kept in the controller and latest
+screen-off changes survive an asynchronous route open. Hangup, user stop and
+grant expiry retire the source; a stopped source cannot be resumed by sink
+rebinding. macOS restores the requested screen source after rebuilding.
+The method-channel lifetime/expiry tests and selected call, route, bitrate and
+capture-security suite pass 210 tests; targeted analysis reports no issues.
+Physical verification of this correction in build 2263 is still pending.
+
+The 2262 stand does not establish healthy active voice: after microphones
+resume, audio playout medians are 372/340 ms with interruptions; after screen
+off the medians are 391/280 ms. Local audio admission maxima are 0/3 ms.
+Mute periods and engine counter resets must not be counted as network-only
+interruption deltas. Both owned apps, full phone UID/package, helpers, ping
+and ADB forward are verified stopped after both stands. Identity/history are
+preserved. No push, tag or release is performed.

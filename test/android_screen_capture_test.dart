@@ -1,10 +1,106 @@
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/android_screen_capture.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'a consented source detaches the old engine and feeds its replacement',
+    () async {
+      const channel = MethodChannel('xveil/test_screen_rebuild');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final calls = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call.method);
+        return call.method == 'start' ? true : null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      var oldFrames = 0;
+      var newFrames = 0;
+      var unexpectedStops = 0;
+      final capture = AndroidScreenCapture(
+        () => unexpectedStops++,
+        channel: channel,
+        isAndroid: true,
+      );
+      expect(await capture.start((_, _, _, _, _) => oldFrames++), isTrue);
+      Future<void> frame() => messenger.handlePlatformMessage(
+        channel.name,
+        const StandardMethodCodec().encodeMethodCall(
+          MethodCall('frame', _frame()),
+        ),
+        (_) {},
+      );
+      await frame();
+      expect(oldFrames, 1);
+
+      expect(capture.rebindFrameSink(null), isTrue);
+      await frame();
+      expect(
+        oldFrames,
+        1,
+        reason: 'a retiring native engine must see no frames',
+      );
+      expect(capture.rebindFrameSink((_, _, _, _, _) => newFrames++), isTrue);
+      await frame();
+      expect((oldFrames, newFrames), (1, 1));
+      expect(calls, [
+        'start',
+      ], reason: 'reuse the existing consented projection');
+
+      await capture.stop();
+      expect(capture.rebindFrameSink((_, _, _, _, _) => newFrames++), isFalse);
+      await frame();
+      expect(
+        newFrames,
+        1,
+        reason: 'hangup must retire the projection and sink',
+      );
+      expect(calls, ['start', 'stop']);
+      expect(unexpectedStops, 0);
+    },
+  );
+
+  test('an expired grant cannot feed the replacement engine', () async {
+    const channel = MethodChannel('xveil/test_screen_expiry');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(
+      channel,
+      (call) async => call.method == 'start' ? true : null,
+    );
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    var stopped = 0;
+    var frames = 0;
+    final capture = AndroidScreenCapture(
+      () => stopped++,
+      channel: channel,
+      isAndroid: true,
+    );
+    expect(await capture.start((_, _, _, _, _) => frames++), isTrue);
+    capture.rebindFrameSink(null);
+    await messenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(const MethodCall('stopped')),
+      (_) {},
+    );
+    expect(stopped, 1);
+    expect(capture.rebindFrameSink((_, _, _, _, _) => frames++), isFalse);
+    await messenger.handlePlatformMessage(
+      channel.name,
+      const StandardMethodCodec().encodeMethodCall(
+        MethodCall('frame', _frame()),
+      ),
+      (_) {},
+    );
+    expect(frames, 0);
+    await capture.stop();
+  });
+
   test('decodes the strict width/height + I420 platform frame', () {
     final bytes = Uint8List(8 + 8 + 2 + 2);
     final header = ByteData.sublistView(bytes);
@@ -60,6 +156,10 @@ void main() {
     }
   });
 }
+
+Uint8List _frame() => Uint8List(8 + 8 + 2 + 2)
+  ..buffer.asByteData().setUint32(0, 4)
+  ..buffer.asByteData().setUint32(4, 2);
 
 void _screenShareIsBoundToItsSession(String file) {
   final source = File(file).readAsStringSync();
