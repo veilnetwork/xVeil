@@ -4992,3 +4992,57 @@ be reported as network-only interruption counts. Acoustic latency and video
 recovery under healthy active voice are still unverified. Both owned apps,
 the full phone UID/package, helpers, ping and ADB forward are verified stopped.
 No push, tag or release is performed.
+
+
+Audio and file contention check (stand 2259, app 2258)
+----------------------------------------------------
+
+The same app binaries were tested for 180 seconds with both microphones
+continuously enabled, cameras off, and a random 2-MiB Mac-to-Poco file transfer.
+The call rings in 0.389 seconds and is active on both endpoints by 1.321 seconds.
+Both move from relay to P2P by active +1.553 seconds, then remain in media epoch
+3 until explicit hangup. File download runs at active +50.530--65.732 seconds;
+full byte count and SHA-256 equality are verified. The owned download is
+cancelled after verification, and its temporary plaintext phone file is removed.
+
+In the file window neither endpoint adds a decoded-audio interruption. Mac/Poco
+native accepted-audio age peaks at 307/317 ms; cumulative local RTP admission
+maxima are 0/1 ms. This supports separation of audio from this file workload,
+not a guarantee under every transfer size, route or saturated radio link.
+The preceding active +5--50.395-second window adds 6/3 interruptions, with
+median native playout 301.5/280.5 ms; after the transfer both endpoints add six
+interruptions and playout medians remain 330/306 ms. The phone microphone is
+not muted in this run, so these intervals do not have the preceding mute
+confound. Cumulative local audio admission remains bounded at 0/2 ms.
+
+At active +158, +162, +166, +170, +174 and +178 seconds both sides register
+new interruptions. An unrelated Poco ICMP probe has 0.7--1.014-second RTT
+spikes in the same intervals; Mac ICMP stays below 54 ms there. These are
+correlated observations, not identification of a specific modem/carrier cause
+or measurement of mouth-to-ear latency. Audio-only playout remains unresolved.
+The full phone UID/package, own Mac app, helpers, ping and ADB forward are
+verified absent after the stand. No new native build or APK installation was
+needed for this control; the phone retains the byte-verified 2258 build.
+
+The source audit confirms separate audio/video/screen IPC senders and separate
+audio/video/screen drain tasks. Ordinary messaging, realtime control, mailbox
+and file streams have their own IPC domains. One remaining transport-sharing
+case is identified: screen datagrams and recoverable anonymous-file DATA both
+select the endpoint's BACKGROUND QUIC source sibling. Their route pools and IPC
+writers are separate, and the audio sibling is independent, but those two
+sources do not yet have distinct QUIC congestion controllers. Neutral relay
+shards remain role-independent; this audit does not authorize relay priorities.
+
+The subsequent no-app 2260 control uses the same 250-ms ICMP interval and
+destination for 192.39 seconds, with concurrent readers recording both paths.
+xVeil remains absent throughout the control; the screen remains Awake, the
+default network remains CELLULAR, and all 36 thermal snapshots report status 0.
+Poco has 654 replies, median 36.1 ms, p95 885 ms, maximum 10,550 ms and maximum
+host-observed inter-reply gap 15.612 seconds. Mac has 465 replies, median
+51.206 ms, p95 101.896 ms, maximum 106.343 ms; reply loss also produces a
+3.552-second arrival gap on that path. These external ICMP paths need not be
+the call's peer path, and this non-simultaneous control does not apportion the
+call's full latency. It does establish severe phone network delays without
+xVeil, rather than attributing those delays to media/file queue contention.
+Own host/remote pings are verified stopped and the phone app remains absent.
+The normal call-quality and separate screen/file-connection work remain open.
