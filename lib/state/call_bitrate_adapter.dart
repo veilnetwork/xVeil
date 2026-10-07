@@ -119,7 +119,7 @@ class CallBitrateAdapter {
   int _goodStreak = 0;
   int _severeStreak = 0;
   bool _audioReserve = false;
-  bool _initialAudioHold = false;
+  bool _unprovenAudioHold = false;
   bool _supportsNativeReceiveAge = false;
   int? _lastTxDrops;
   int? _curWindowMin;
@@ -222,7 +222,7 @@ class CallBitrateAdapter {
         requirePeerAudioPlayout &&
         (peerAudioDelayMs == null || peerAudioDelayMs >= playoutRecoverMs);
     if (receiveUnproven || playoutUnproven) {
-      _initialAudioHold = true;
+      _unprovenAudioHold = true;
       _audioReserve = true;
       _goodStreak = 0;
     }
@@ -296,10 +296,10 @@ class CallBitrateAdapter {
       receiveAudioExpected,
       audioReceiveQuality,
     );
-    if (_initialAudioHold && !receive.expected && !requirePeerAudioPlayout) {
+    if (_unprovenAudioHold && !receive.expected && !requirePeerAudioPlayout) {
       // All relevant audio was intentionally muted/removed. Do not wait for
       // packets that the endpoints have explicitly stopped sending.
-      _initialAudioHold = false;
+      _unprovenAudioHold = false;
       _audioReserve = false;
       _goodStreak = 0;
       return target;
@@ -350,11 +350,21 @@ class CallBitrateAdapter {
         (audioReceiveAgeMs != null &&
             audioReceiveAgeMs >= 0 &&
             audioReceiveAgeMs < audioReceiveRecoverMs);
+    // Losing a measurement during a live call cannot justify continuing a
+    // previously earned video budget. This also covers a newly expected room
+    // receiver; clean RTCP from another receiver cannot establish its health.
+    final audioUnproven =
+        (requireAudioReceive &&
+            (audioReceiveAgeMs == null || audioReceiveAgeMs < 0)) ||
+        (requirePeerAudioPlayout && peerAudioDelayMs == null);
     // The captured cellular outage still transmitted screen frames while
     // audio was absent for 4.4 s. Stop competing local video immediately;
     // descending the ladder or waiting for a new RTCP report is too late.
-    if (supportsLowRateVideo && !_audioReserve && receiveOutage) {
+    if (supportsLowRateVideo &&
+        !_audioReserve &&
+        (receiveOutage || audioUnproven)) {
       _audioReserve = true;
+      _unprovenAudioHold = audioUnproven;
       _goodStreak = 0;
       return target;
     }
@@ -457,7 +467,7 @@ class CallBitrateAdapter {
     _goodStreak++;
     if (_audioReserve && _goodStreak >= recoverAfter) {
       _audioReserve = false;
-      _initialAudioHold = false;
+      _unprovenAudioHold = false;
       _severeStreak = 0;
       _goodStreak = 0;
       return target;

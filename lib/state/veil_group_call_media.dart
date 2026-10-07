@@ -552,13 +552,29 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> _syncPeersLocked(GroupCall call) async {
     final engine = _engine;
     if (engine == null) return;
+    final nextAudioPeers = call.participants.values
+        .where((peer) => peer.nodeId.hex != _localIdHex && peer.media.audio)
+        .map((peer) => peer.nodeId.hex)
+        .toSet();
+    if (_audioEnabled &&
+        _videoRunning &&
+        _supportsAudioReceiveAgeStats &&
+        nextAudioPeers.any((key) => !_expectedAudioPeers.contains(key))) {
+      // Hold BEFORE opening/adding the fanout, including an existing peer
+      // that unmutes. The next fresh samples must establish this peer's audio
+      // health rather than spending the old roster's earned video budget.
+      final adapter = _bitrateAdapter;
+      if (adapter != null && engine.supportsVideoSendPause) {
+        adapter.prepareVideoSend(
+          const {},
+          audioReceiveQuality: (expected: true, ageMs: null),
+        );
+        adapter.applyPendingPause(engine.setVideoSendPaused);
+      }
+    }
     _expectedAudioPeers
       ..clear()
-      ..addAll(
-        call.participants.values
-            .where((peer) => peer.nodeId.hex != _localIdHex && peer.media.audio)
-            .map((peer) => peer.nodeId.hex),
-      );
+      ..addAll(nextAudioPeers);
     final desired = <String, NodeId>{
       for (final participant in call.participants.values)
         if (participant.nodeId.hex != _localIdHex)
