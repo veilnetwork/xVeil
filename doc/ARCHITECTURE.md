@@ -6015,3 +6015,60 @@ Poco has returned on ADB; packaging and a fresh physical call/message check are
 next. Acoustic delay, simultaneous encoded video and the older physical missing
 message burst remain unverified. Other locally originated anonymous/network
 producer paths have not all been audited; the full goal remains active.
+
+### Cycle 2275: package verification and physical retry with returning Poco
+
+Mac and arm64 Android SDKs were rebuilt from Veil ad49c3ff/root 8a027fbc,
+including both crossed-root persistence and own-network admission. Stand version
+0.13.84+2275 was built for production networking. Poco was updated in place:
+production certificate matches, the pulled installed full APK matches the signed
+artifact, independently stripped SDK bytes match the package, and both platforms'
+ABI checks match. Mac SDK code sections match the raw rebuild and its initial
+strict bundle seal passes. Native media remains 2258 and hidden-volume 2.6.1.
+Poco has Wi-Fi disabled, USB charging and 97% charge at preparation. Existing
+identities, histories and ratchets were preserved; no forget/reset was used.
+The production /Applications installation was not replaced.
+
+First run (2275) failed setup: Mac dialed and Poco did not ring before the
+45.276-second observation deadline. The helper's exit code 0 is not a passed
+call; its JSON explicitly records setup_failed. Message and camera phases did
+not reach their active-call prerequisite, so it provides no audio/load result.
+Poco logged prologue refusals with a missing ML-KEM asymmetric leg from the
+known Mac peer. Later Dart logs show the cancel reaching Poco. The available
+observations do not yet establish why the original offer was unreadable or
+whether the later exchange repaired a legacy crypto state. Keep the guard.
+
+Second run (2275b, same installed build/profiles) rang at 1.022 seconds; both
+APIs first showed active at 21.105 seconds. It remained active for the requested
+90 seconds and ended by explicit hangup. All 32 newly authored Poco-to-Mac rows
+arrived exactly once in order, observed in 12.488 seconds. Before this run, only
+2 of the older 32 `priority-2273` rows were on Mac; it stayed at 2 afterwards,
+while Poco had 32 throughout. New success does not repair or explain that old
+history gap, nor prove the cause of either setup outcome.
+
+Maximum sampled native audio receive ages were 313/332 ms (Mac/Poco). These are
+freshness observations, not an acoustic delay measurement. Native playout stats
+still report two interruptions per endpoint, cumulative durations 803/503 ms;
+audio delay maxima 510/407 ms and jitter-buffer maxima 560/424 ms. Poco sender
+payload/RTP maximum gaps reach 360 ms; Mac maxima are 28/26 ms. A capture pause,
+silence/DTX, dispatch stall and network loss have not been separated causally.
+Most active observations used P2P (Mac 153 P2P/10 relay; Poco 154/59). Sparse
+cross-device trace estimates include a Poco direct maximum around 1,168 ms;
+the ADB clock probe bound is 21.5 ms and slightly negative Mac estimates expose
+alignment uncertainty, so do not present these as precise acoustic latency.
+
+Poco camera captures at about 30 fps (1,523 frames), but both video_tx_frames
+remain zero and video_send_paused is set under audio reservation. This has not
+verified simultaneous encoded-video quality; relaxing the audio guard would
+hide the remaining playout issue. The full audio-priority goal remains active.
+
+Both runs' owned apps, UID/package processes, remote probes and ADB forwarding
+are verified closed. The second private cleanup script initially failed to parse
+because a capture suffix was substituted into a numeric build field; it was
+corrected and cleanup rerun successfully (cleanup2275b-recovery log). No helper
+or app is left running. Mac's appended runtime log is archived privately as
+mac2275-and-2275b-runtime-debug.log, then strict bundle seal verification passes
+again. Distinct original stdout/logcat/devlogs for both runs survive; no history
+launch overwrote either capture. Private evidence: build-screen/build-mac/installed
+2275 manifests, physical/neteq/message-phase/cleanup captures for 2275 and 2275b,
+plus neteq2275b-summary and its raw samples. No commits were signed or pushed.
