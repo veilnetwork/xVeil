@@ -4687,3 +4687,28 @@ ADB still lists no devices. The new APK is not installed and mixed-media
 physical validation remains pending. No new stand apps are launched; the
 previous phone's force-stop/whole UID/remote ping cleanup remains pending
 reconnection. The host apps/helpers and owned ADB forward remain absent.
+
+
+Required group playout capability survives failed samples (2250)
+--------------------------------------------------------------
+
+A failed or missing native snapshot previously reset the observed capable
+playout peer count to zero. With incoming microphones intentionally muted,
+this incorrectly released the video hold despite unknown OUTGOING audio
+quality. Group admission/polling now share a retained count; explicit current
+zero clears the requirement and teardown resets it for the next call. A
+regression fails on 2249 at the erroneous resume, then passes for thrown and
+empty samples, twelve healthy recovery samples, and explicit zero. Unicast
+polling also requires call.media.audio, matching its pre-mount guard.
+
+250 selected Flutter tests and three-file analysis pass. Prepared Mac/Android
+stand builds are 0.13.84+2250, with updated source bytes in both Dart kernels
+and a verified Mac bundle seal. APK SHA-256:
+9564fa7c52db4eafda0bd7b5133e1c100956ae0b80e53119f2698c4c230e805a.
+The original phone signer, packaged native artifacts and native production
+source hashes match 2248; native production code is unchanged.
+
+Poco remains absent from ADB. No new apps are launched; installation, physical
+mixed-media/audio-latency comparison, healthy bidirectional video recovery,
+cold relay-to-P2P verification and the preceding phone cleanup remain open.
+These policy gates do not establish satisfactory physical call quality.

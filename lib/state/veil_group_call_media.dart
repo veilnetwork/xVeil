@@ -305,6 +305,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final Map<String, CallAudioReceiveActivity> _audioReceiveActivity = {};
   bool _supportsAudioReceiveStats = false;
   bool _supportsAudioReceiveAgeStats = false;
+  int _peerAudioPlayoutPeers = 0;
   Map<String, dynamic> _latestNativeStats = const {};
   DateTime? _latestNativeStatsAt;
 
@@ -485,14 +486,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       if (stats['audio_rx_native_age_supported'] == 1) {
         _supportsAudioReceiveAgeStats = true;
       }
+      _observeAudioPlayoutPeers(stats);
       adapter.prepareVideoSend(
         stats,
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
-        requirePeerAudioPlayout:
-            _audioEnabled &&
-            !_microphoneState.muted &&
-            ((stats['audio_playout_peers'] as num?) ?? 0) > 0,
+        requirePeerAudioPlayout: _requirePeerAudioPlayout,
       );
       if (adapter.applyPendingPause(engine.setVideoSendPaused) == false) {
         return false;
@@ -675,6 +674,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
     _latestNativeStats = Map.unmodifiable(stats);
     _latestNativeStatsAt = now;
+    _observeAudioPlayoutPeers(stats);
     if (stats['audio_rx_supported'] == 1) _supportsAudioReceiveStats = true;
     if (stats['audio_rx_native_age_supported'] == 1) {
       _supportsAudioReceiveAgeStats = true;
@@ -706,10 +706,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Native aggregates count only fresh AUDIO reports, not video reports.
       adapter.onNativeStats(
         stats,
-        requirePeerAudioPlayout:
-            _audioEnabled &&
-            !_microphoneState.muted &&
-            ((stats['audio_playout_peers'] as num?) ?? 0) > 0,
+        requirePeerAudioPlayout: _requirePeerAudioPlayout,
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
         expectedAudioFeedbackReports: _audioEnabled && !_microphoneState.muted
@@ -778,10 +775,22 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     );
   }
 
+  bool get _requirePeerAudioPlayout =>
+      _audioEnabled && !_microphoneState.muted && _peerAudioPlayoutPeers > 0;
+
+  void _observeAudioPlayoutPeers(Map<String, dynamic> stats) {
+    final peers = stats['audio_playout_peers'];
+    // A missing/failed sample cannot revoke a capability already observed.
+    // Native explicitly reports zero when the last capable peer leaves.
+    if (peers is num && peers.isFinite && peers >= 0) {
+      _peerAudioPlayoutPeers = peers.toInt();
+    }
+  }
+
   // Require every capable receiver before earning recovery. A known poor
   // estimate still substantiates congestion when another estimate is missing.
   int? _groupPeerAudioDelay(Map<String, dynamic> stats) {
-    final peers = (stats['audio_playout_peers'] as num?) ?? 0;
+    final peers = _peerAudioPlayoutPeers;
     final reports = (stats['audio_playout_reports'] as num?) ?? 0;
     final delay = stats['audio_playout_ms'];
     if (delay is! num ||
@@ -1043,6 +1052,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> _stopLocked({bool clearMicrophoneState = true}) async {
     if (clearMicrophoneState) _microphoneState.clear();
     _audioEnabled = false;
+    _peerAudioPlayoutPeers = 0;
     _supportsAudioReceiveAgeStats = false;
     _latestNativeStats = const {};
     _latestNativeStatsAt = null;
