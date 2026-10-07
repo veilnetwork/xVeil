@@ -4649,3 +4649,41 @@ Mac hangup/lock succeeds and all owned host app/helper/probe PIDs and the ADB
 forward are verified absent. Phone force-stop/UID and remote ping verification
 remain explicitly pending until ADB reconnects; cleanup is not claimed complete
 for that device. No push, signed commit, tag or release is performed.
+
+
+Live audio measurement loss and group fanout admission (2249)
+-----------------------------------------------------------
+
+The startup admission guard alone did not protect a video budget already
+earned during a call: a missing expected incoming audio sample or expired
+capable peer playout could leave video sending. These unknown measurements
+now pause outbound video immediately, retaining capture/preview and incoming
+media. Twelve consecutive healthy samples earn resume. Known receive-age
+support survives missing fields; legacy telemetry and intentionally muted
+audio retain their existing behavior. Unknown quality alone does not justify
+the bad-link advisory.
+
+In a capable group engine, a newly expected audio participant (including an
+existing participant unmuting) puts video on hold before opening/adding its
+fanout. Healthy old participants cannot establish the new participant's audio
+quality. A rejected native pause remains pending for the existing poll retry.
+Explicit removal/mute can release a hold when no relevant audio remains.
+All scheduling remains endpoint local; no relay role or QoS is introduced.
+
+Three new regressions fail at their intended assertions against 2248: lost
+live audio measurement, expired required playout and pause before peer add.
+After the fix, 249 selected Flutter tests and four-file analysis pass. The
+group regression also verifies real controller ordering, retained camera
+intent, worker-sample failure, and twelve-sample resume. Native production
+code is unchanged; no new acoustic or network-quality claim is made.
+
+Debug stand builds 0.13.84+2249 are prepared for Mac and Android. Both actual
+Dart kernels contain the updated policy and fanout admission source bytes;
+Mac's bundle seal passes. The APK preserves the original phone signer and
+the verified 2246 native SDK/media/ABI. APK SHA-256:
+b25bb229fcfe000e7f46e9b72d2710c2e4c97c842d9d9c06a3aee4b48958a5ea.
+
+ADB still lists no devices. The new APK is not installed and mixed-media
+physical validation remains pending. No new stand apps are launched; the
+previous phone's force-stop/whole UID/remote ping cleanup remains pending
+reconnection. The host apps/helpers and owned ADB forward remain absent.
