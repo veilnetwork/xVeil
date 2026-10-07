@@ -6856,3 +6856,68 @@ Private power2287 call/playout, clocks, kernel audit, sealed-cell stage audit,
 power/deviceidle observations and neteqpower2287 cleanup retain evidence.
 The audio-priority goal remains active; these results are diagnostics and
 regression coverage, not a fix for the remaining physical call pauses.
+
+### Cycle 2288 — controlled route handover without a broken direct path
+
+Root fadf92d8 adds authenticated, opt-in `/call_relay_recovery` to the existing
+stand hook. It invokes the ordinary serialized direct-to-relay recovery and
+authenticated peer announcement, rather than changing P2P policy or tearing
+down the direct connection. Disposed, inactive, ringing, connecting and
+non-direct postures cannot use it. CallService's 144 tests pass, including
+anonymous/unknown posture protection and an active direct recovery announcement.
+Host-only 0.13.84+2288 is installed on Poco and built for the Mac stand; packaged
+SDK bytes remain exactly 2286 and production media exactly 2279. The APK signer,
+installed whole-APK hash, native imports/exports, Mac code sections and strict
+bundle seal verify. This is a diagnostic build, not a release tag.
+
+Two 40-second voice calls retain flowing P2P receipt on both endpoints before
+forcing recovery 10 seconds into the active call. Mac-initiated recovery rings
+at 0.206 s/both active 1.142 s; both show relay within 0.360 s of the request.
+Poco-initiated recovery rings at 0.401 s/both active 0.900 s; Poco shows relay
+after 0.361 s and Mac after 0.736 s. Each keeps one engine epoch and neither
+adds a native interruption after the request. Maximum post-request audio receive
+ages are 520/377 ms in the first run and 745/463 ms in the second; some intentional
+Opus DTX intervals are included. This does not reproduce the preceding
+multi-second total gap and does not prove a failed network recovers equally fast.
+
+A separate 75-second early2288 run enables Poco's camera about 5 seconds after
+both endpoints become active and sends a 512-KiB file at about 20 seconds.
+The main call rings at 0.590 s/both active 0.970 s. The file is received after
+about 16 seconds with a matching SHA-256. Camera capture runs, but adaptive
+audio reservation leaves encoded/received video at zero throughout. Native
+interruptions remain Mac 5/5278 ms and Poco 16/13736 ms; 131 active samples
+are P2P and 68 relay. Thus earlier camera activation did not demonstrate
+acceptable actual encoded mixed traffic and is not a completion gate.
+
+Owned applications, phase helpers and phone UID/package processes exit after
+both stands; forwarding is removed, runtime logs archived and Mac strict seal
+verified. Policies, cellular connectivity, identities/history and /Applications
+are retained. Private forced2288 call/handover audit, early2288 samples/playout,
+camera/file events and both cleanup reports retain evidence.
+
+### Cycle 2289 — relay discovery must not reuse a direct-only cache hit
+
+Inspection finds a concrete fallback bug: `warm_media_route` stops on any
+cached route, including the destination's own direct session. Its background
+discovery helper also immediately returns that direct cache hit and can query
+the final direct peer again. The forced-relay sender correctly excludes that
+peer, so discovering a usable relay can be suppressed precisely while the
+direct cache entry survives. This source defect is distinct from a claim that
+it explains every observed network interruption.
+
+Veil 9fe4aa50 makes relay-only discovery select a non-destination, live cached
+first hop and otherwise query ordinary mesh peers excluding the direct endpoint.
+It preserves the direct cache entry and the existing ordinary discovery path.
+Negative results are separated by discovery kind so an ordinary/direct miss
+cannot suppress the independent fallback walk. Discovery remains bounded,
+deduplicated and asynchronous; media never waits for its 500-ms deadline.
+No traffic marker, encryption, mailbox path or relay scheduling change is made.
+
+The new test drives the actual background warmup with direct and dead cached
+routes. Ordinary lookup still uses the direct route; relay warmup sends exactly
+two ordinary RecursiveQuery frames to mesh peers, suppresses duplicate in-flight
+queries, accepts a newly learned live relay and retains the direct route.
+The negative-cache test also checks discovery-kind isolation. Locked veil-ipc
+tests pass: 139, with five pre-existing ignored and one pre-existing ignored
+doctest. Rebuilding both embedded SDK targets and physical verification of this
+new routing change remain required before calling it deployed.
