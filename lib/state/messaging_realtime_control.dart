@@ -348,11 +348,12 @@ class _MessagingRealtimeControl {
       frameJson,
       sentAtMs: signal.sentAtMs,
     );
-    // Keep group-call control on the dedicated realtime IPC connection. The
-    // main client can be occupied by mailbox drains, anonymous sends or file
-    // streams on the node's sequential per-connection loop.
+    // Like direct calls, race the dedicated realtime connection with the
+    // contact identity lane. Transport acceptance on an admitted realtime
+    // session does not prove the other endpoint can decrypt its ratchet frame.
+    // The signed group event and durable id still deduplicate accepted copies.
     if (signal.type == GroupCallSignalType.heartbeat) {
-      await _sendRealtimePaths('gcall-sig', peer, envelope.encode());
+      await _sendCallLive(peer, envelope.encode(), contactIdentity: true);
       return;
     }
     // The DESTINATION is part of the id, and it was not.
@@ -368,7 +369,7 @@ class _MessagingRealtimeControl {
       'gcall:${signal.groupId.hex}:${signal.callId}:'
       '${signal.type.name}:${signal.nonce}:${peer.hex}',
       envelope,
-      liveSender: (wire) => _sendRealtimePaths('gcall-sig', peer, wire),
+      liveSender: (wire) => _sendCallLive(peer, wire, contactIdentity: true),
       awaitLive: false,
     );
   }

@@ -221,6 +221,9 @@ class CallBitrateAdapter {
     bool requirePeerAudioPlayout = false,
     int? expectedAudioFeedbackReports,
     bool receiveAudioExpected = false,
+    // A room supplies the worst expected receiver, retaining unknown when
+    // another receiver is missing. A healthy peer cannot mask a silent one.
+    ({bool expected, int? ageMs})? audioReceiveQuality,
   }) {
     final requiredReports =
         expectedAudioFeedbackReports != null && expectedAudioFeedbackReports > 0
@@ -230,6 +233,18 @@ class CallBitrateAdapter {
     final anyFeedbackAvailable = stats['worker_stalled'] != 1 && reports > 0;
     final feedbackAvailable =
         anyFeedbackAvailable && reports >= requiredReports;
+    final receive =
+        audioReceiveQuality ??
+        (
+          expected:
+              receiveAudioExpected &&
+              stats.containsKey('audio_rx_native_age_ms'),
+          ageMs:
+              ((stats['audio_rx_pkts'] as num?) ?? 0) > 0 &&
+                  (stats['worker_stalled'] as num?) != 1
+              ? (stats['audio_rx_native_age_ms'] as num?)?.toInt()
+              : null,
+        );
     return onSample(
       rttMs: anyFeedbackAvailable ? (stats['rtt_ms'] as num?)?.toInt() ?? 0 : 0,
       txJitterMs: anyFeedbackAvailable
@@ -242,13 +257,8 @@ class CallBitrateAdapter {
       feedbackAvailable: feedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
       requirePeerAudioPlayout: requirePeerAudioPlayout,
-      requireAudioReceive:
-          receiveAudioExpected && stats.containsKey('audio_rx_native_age_ms'),
-      audioReceiveAgeMs:
-          ((stats['audio_rx_pkts'] as num?) ?? 0) > 0 &&
-              (stats['worker_stalled'] as num?) != 1
-          ? (stats['audio_rx_native_age_ms'] as num?)?.toInt()
-          : null,
+      requireAudioReceive: receive.expected,
+      audioReceiveAgeMs: receive.ageMs,
       missingAudioReceiverFeedback:
           expectedAudioFeedbackReports != null &&
           expectedAudioFeedbackReports > 0 &&

@@ -10,6 +10,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -334,10 +335,43 @@ void main() {
       await restored.flushOutbox();
       expect(transport.realtimeSends, 1);
       expect(transport.relayRealtimeSends, 1);
+      expect(transport.normalSends, 1);
       expect(WireEnvelope.decode(transport.lastRealtimePayload!).kind, kind);
       expect(await storage.pendingOutboxFrames(), hasLength(1));
     });
   }
+
+  test('group announce reaches contact while realtime cannot finish', () async {
+    transport.blockRealtime = true;
+    final messaging = MessagingService(transport, storage);
+    addTearDown(messaging.dispose);
+    messaging.routeFor = (_) => _id(3); // A cached different physical device.
+    final received = <WireEnvelope>[];
+    transport.onNormalSend = (_, wire) =>
+        received.add(WireEnvelope.decode(wire));
+    final signal = GroupCallSignal(
+      groupId: _id(9),
+      callId: 'group-cold',
+      author: me,
+      membershipEpoch: 1,
+      type: GroupCallSignalType.announce,
+      media: const CallMedia(audio: true),
+      sentAtMs: DateTime.now().millisecondsSinceEpoch,
+      nonce: '000000000000000000000001',
+      signature: Uint8List(0),
+      authorPubKey: Uint8List(0),
+    );
+    await messaging
+        .sendGroupCallSignal(peer, signal, 'opaque epoch-encrypted signal')
+        .timeout(const Duration(milliseconds: 500));
+    await pumpEventQueue();
+    expect(received.single.kind, WireKind.groupCallSignal);
+    expect(transport.lastNormalDestination, peer);
+    expect(transport.realtimeSends, 1);
+    expect(transport.relayRealtimeSends, 1);
+    expect((await storage.pendingOutboxFrames()).single.peerHex, peer.hex);
+    transport.realtimeGate.complete();
+  });
 
   test('a call frame-id cannot move chat content into realtime', () async {
     final envelope = const WireEnvelope.reconnect('ordinary');

@@ -4399,3 +4399,76 @@ probe processes, remote ping and the owned ADB forward are independently
 verified absent. The private Android native builder VM remains stopped.
 Veil commit 45a89c37 contains the diagnostic change; hidden-volume is unchanged.
 No push, signed commit, tag or release is performed in this debugging cycle.
+
+
+Group receive priority and linked-device media identity (2245)
+-------------------------------------------------------------
+
+The group native engine now reports each receiver's accepted audio RTP age,
+using WebRTC's packet timestamp rather than the host's last stats poll. Unknown
+receivers report -1; an explicit capability remains present on worker timeout.
+Group video uses the same >=1000-ms immediate receive-outage pause as direct
+calls. Recovery requires every expected, unmuted remote participant to have
+fresh accepted audio; unknown or stalled receivers cannot earn recovery.
+Muting the local microphone does not waive incoming-audio protection. The debug
+API exposes the controller's cached sample, so API polling cannot refresh it.
+
+Physical testing also found that the group adapter used the SDK device id for
+its local media identity. On linked Poco this opened a channel to its own
+identity roster entry and hashed the wrong participant pair. It now awaits
+peerFacingNodeId, matching direct calls and the authenticated room roster.
+A test drives the actual production adapter over a linked SDK double, verifies
+that only the remote channel opens, and compares its keys with the remote's
+directional derivation. Group control now races the ordinary contact identity
+lane with existing realtime paths, including restored local outbox frames.
+Anonymous posture is retained; no call control enters relay mailbox storage.
+Membership, epoch encryption, sender signature and dedup/ACK gates are unchanged.
+This is delivery redundancy, not a fix to the underlying ratchet failure.
+
+248 selected Flutter tests pass (adapter, group media/service, direct-call
+service and realtime delivery); analysis of five changed runtime files passes.
+Reverting either the identity choice or the group contact leg makes its new
+regression fail. The earlier receive-priority negative gate also fails with
+the guard disconnected. The real native WebRTC suite passes with video RTP/
+RTCP queues held, age advancing without host polling, rejoin age reset and
+worker-timeout capability reporting. Veil commit 65a2f25c contains the native
+age and smoke-test changes; SDK and hidden-volume code are unchanged.
+
+Mac and Poco run 0.13.84+2245. The Mac bundle seal, Dart image and new group
+media capability are checked. Android retains the original signer; the full
+installed APK equals the signed artifact, SHA-256:
+ec0c05bf5d764e68f8745afba69b63e2a82f1f57c8b74220519028c586acf736.
+The packaged media equals an independently stripped new native artifact;
+all 94 Dart exports and three SDK imports resolve. Its SHA-256 is
+1661835e86745a68347a667544f22a1ff89d99ef79e9e91b54accfe5a5b9bf2f;
+the unchanged SDK is 2a84700a5b12dbadbadd8c0f1212b8b3fd551195e073c17e7fffea39173d5d1b,
+ABI 9addb738. Only the cached WebRTC archives are reused for native compilation;
+the private builder VM is stopped afterwards.
+
+The valid two-device group run rings at 1.027 s and both sides hold the SAME
+call id with two participants at 18.841 s. Each endpoint opens exactly one
+remote channel. It runs for 175.228 s after that event, ending by explicit
+local leave on both sides. Earlier 2244 trials did not establish a shared room
+and are not media-quality evidence; the driver now checks call id and roster,
+and uses leave rather than an owner-only end action for cleanup.
+
+At placement +25.404 s Mac pauses video with accepted audio age 2207 ms, RTT
+0 ms and peer playout 20 ms: the old severe RTT/playout thresholds would not
+explain that decision. Poco also pauses. The phone microphone is off at
+active +30.004 s and on at +45.181 s. Cellular data is intentionally off from
+active +85.135 to +89.337 s and then restored; CELLULAR is independently
+confirmed as the default network. Both audio streams recover. During active
+110-175 s they receive another 518/3144 packets (Mac/Poco), with receive ages
+<=864/359 ms. Final accepted totals are 1246/8294, ages 195/13 ms.
+
+Video remains paused (seven encoded frames on each endpoint), so healthy-path
+physical video recovery is still unproven. Audio delay estimates reach
+499/563 ms and group establishment still takes 18.8 s; no satisfactory audio
+quality or resolved cold signaling is claimed. Ratchet message-key failures
+were observed in the earlier invitation run. The test's ordinary owner group
+remains on Poco (its owner cannot leave); Mac has left it. No existing group
+membership or history is changed by cleanup.
+
+Both applications, whole Android UID, owned Mac/log/probe processes, remote
+ping and owned ADB forward are independently verified absent. The private
+builder VM remains stopped. No push, signed commit, tag or release is performed.
