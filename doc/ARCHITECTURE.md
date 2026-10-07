@@ -5888,3 +5888,87 @@ Private evidence includes neteq2273 samples/result/summary/call-cleanup,
 history2273 observations/cleanup, build/native/installed manifests and test
 logs. This cycle changed source, verified packaging and exposed a delivery
 failure. The full audio-priority goal remains active.
+
+
+### Cycle 2274: preserve reliable delivery across simultaneous crypto starts
+
+Cycle 2273 made progress by changing retry admission, rebuilding/installing the
+SDK, and discovering the 32-to-1 delivery failure. The current trees were
+clean. Poco is absent from authoritative ADB enumeration this cycle; no new
+phone/Mac call stand was launched. A prepared quiet-message diagnostic stopped
+at its first ADB forward before launching an app. Source work continued.
+
+The previously ignored simultaneous-initiation regression fails on the original
+Veil tree with AuthFailed. Both endpoints can replace their outstanding own
+PQXDH roots with the other endpoint's root, leaving opposite sending/receiving
+chains. This is a confirmed independent defect, not yet the established cause
+of physical 2273's missing messages or voice gaps. Veil 448774f9 fixes this
+without changing the wire format, primitive cryptography, relay scheduling or
+payload-role visibility.
+
+Verified crossed initiation chooses an initiator by (node, instance), retaining
+one alternate receive session for already sealed messages. Pending prologues
+remain attached until the corresponding root is answered. A bare frame that
+opens under the alternate can select it, including a peer using the former
+unconditional displacement policy. An unanswered sending chain beyond the
+fresh linear skip window follows the incoming root so one-way peer recovery
+is not pinned to an unreadable old chain. Only a verified same-device key can
+create an alternate; a newer restart of an answered session retains the
+existing freshness/authorship checks. Consumed keys under either root and
+recognized prologue replays do not diagnose a wedge. Receivers recheck a
+recognized prologue under the store lock after unlocked PQXDH work, preventing
+concurrent admission from returning the same plaintext twice.
+
+Ordinary conversations still write V3; conversations holding two roots write
+V4 and read V2/V3/V4. V4 preserves both sessions and accepted prologue prefixes,
+rejects nested alternates and malformed/trailing data, and costs at most two
+primitive sessions per conversation. Older SDKs do not read V4: downgrade is
+not supported for such persisted conversations. The alternate's skipped keys
+are counted in the store budget; normal eviction protection remains intact.
+Both sending positions are exposed and reservation recovery advances either
+retained chain, including a receive-only chain that can later become a sender.
+The snapshot exporter reserves its exact complete size before copying secrets
+and zeroizes its output, avoiding an abandoned allocation during growth.
+
+The native and host snapshot ceilings are now 1 MiB to cover two bounded
+primitive skipped-key/tree banks and prologues. This is an input/output ceiling,
+not a per-conversation allocation or a change to ordinary state size. The C
+header and Rust/Dart ABI contracts were regenerated together (fe3251ea2a912196
+prefix); regeneration also incorporates the existing source DATA-selector-4
+API comment. The ABI guard prevents mixing the new Dart bindings with an older
+native library. The pending-peer recovery test still requires its reply to
+open immediately; it now allows a repeated own prologue because its inputs are
+indistinguishable from crossed initiation, and a forced bare reply would
+restore opposite-root displacement.
+
+All 134 E2E and 93 primitive tests pass, with no ignored crypto regression.
+Coverage includes 32 messages each way, reordered delivery, both stores
+restored before completing the backlog, exact delivery ACK keys, consumed-key
+replays after another restart, same-identity devices, an advanced unanswered
+chain, forged same-node/instance claims, sixteen simultaneous receivers, two
+sending reservations and a simulated non-arbitrating peer. Disabling crossed
+retention makes the burst regression fail on actual AuthFailed after restore,
+not on a format assertion. E2E Clippy passes with warnings denied.
+
+Four production-feature native FFI tests pass, including a real crossed V4
+snapshot returning two position records and refusing short buffers without
+partial output. The host persistence/reservation/ABI suites pass 53 tests with
+one environment-gated native check skipped. A freshly built production-feature
+Mac SDK passes all seven live-node/ABI tests, including that gated check. An
+additional real-ABI V4 test persists two retained chains, reserves both,
+forgets the in-memory conversation to model a crash, restores the older
+snapshot from the container and burns 32 indices in EACH chain. That test
+passes. Native test nodes stop in their finally blocks; the test runner exited
+and no flutter_tester process remains. No user app or phone installation was
+changed this cycle; commits are unsigned and unpushed.
+
+Private evidence is baseline2274-crossed, negative2274-crossed-burst-v2,
+crypto2274-final-tests, ffi2274-final-tests, clippy2274-final,
+host2274-ratchet-final-tests, host2274-native-tests,
+host2274-crossed-live-tests, header2274 and sdk-mac2274-build under the existing
+private scratch directory. The original-call receiver failure still needs a
+new capture with both endpoint native logs; do not discard identities/history
+or reset ratchets to mask it. Actual encoded-video/screen load alongside
+low-latency acoustic audio, the physical gaps, and the remaining producer
+admission audit are still unverified. The full audio-priority objective remains
+active.

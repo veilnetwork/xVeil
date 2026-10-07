@@ -658,10 +658,10 @@ const int kRatchetKeyPeerNodeOffset = 16;
 /// Upper bound on one conversation's exported state. Mirrors
 /// `VEIL_RATCHET_MAX_STATE_LEN`.
 ///
-/// An established session is about 1.4 kB. The rest is the skipped-message-key
-/// cache — 68 bytes per key banked for a frame that has not arrived yet — and
-/// the ratchet caps that, so a store sized to this never sees a short write.
-const int kRatchetMaxStateLen = 256 * 1024;
+/// Ordinary state is about 1.4 kB. Crossed initiation retains at most two
+/// ratchets with bounded skipped keys and tree nodes. This ceiling covers
+/// their combined worst case; buffers are sized to actual exported bytes.
+const int kRatchetMaxStateLen = 1024 * 1024;
 
 /// One conversation's persisted ratchet state.
 ///
