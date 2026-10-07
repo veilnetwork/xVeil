@@ -5680,4 +5680,52 @@ flow-control and sender-isolation tests cover the changed classification.
 The debug call API now exposes accepted peer capture state and sparse sealed
 send/receive logs include local wall-clock milliseconds, without changing
 wire bytes. Flutter analysis of the changed debug file passes. Fresh stand
-2271 is prepared next; physical quality remains to be measured.
+2271 was prepared next; physical findings follow.
+
+### Cycle 2271: physical message load and P2P receive gaps
+
+Fresh production SDKs were built for Mac and Android and packaged in stand
+0.13.84+2271. APK signer, full installed APK hash, independently stripped
+Android SDK and the Mac SDK code section were verified. Native media 2258
+and hidden-volume stayed unchanged. Poco data was preserved; its Wi-Fi
+remained disabled. The production Mac application was not replaced.
+
+The call rang at 8.46 seconds and both endpoints were active at 9.55 seconds.
+It stayed active for the requested 180 seconds, switching from initial relay
+to P2P and ending by explicit test hangup. While active, Poco sent 32 distinct
+small messages to the computer. All 32 appeared exactly once, in source order,
+within 11.73 seconds of starting that phase. This confirms delivery under
+the changed local source classification; it does not measure acoustic delay.
+
+Audio quality still failed: maximum sampled native audio ages were 6,182 ms
+on Mac and 7,714 ms on Poco. At those gaps the peer's accepted audio capture
+was on and receive telemetry was supported. Missing capture knowledge does
+not explain these outages. The normal repair grace remains 10 seconds; the
+3-second early direct-session check only falls back after a negative admission
+result, which is eligibility rather than proof of primary media delivery.
+Those facts are not yet a justification for changing timeouts or causing
+additional route rebuilds.
+
+All 21 Mac and 19 Poco sparse relay samples crossed socket completion,
+daemon read, handler entry and successful queue admission. Matching decrypted
+receive samples show asymmetric initial relay transit: Mac-to-Poco median
+2,552 ms / maximum 5,383 ms, reverse median 84 ms / maximum 300 ms. The clock
+probe's round-trip half-width was 17.8 ms. These are sparse sealed-cell
+transport observations, not mouth-to-ear measurements or a whole-call loss
+percentage. P2P matched samples usually arrived quickly (medians about 4/60 ms),
+but 57/190 and 74/186 sparse direct sends had no matching receive observation.
+Send observations precede final SDK/QUIC admission, so this still cannot
+distinguish a sender-side expiry, transport loss or an unobserved ingress.
+
+Independent local primary QUIC recovery attempts and cancellations on ACK
+progress were observed on both endpoints. The next investigation must match
+those events and sender admission/expiry to the actual receive gaps; an ACK
+or a live parent control session alone does not prove audio is arriving.
+Video remained paused with zero encoded frames, so mixed encoded video load
+is still unverified. The earlier persistent 2269p relay stop did not recur.
+
+The call driver and all stand/helpers exited. Full Poco UID/package checks,
+remote probe removal, ADB-forward removal and Mac process checks passed.
+Runtime logs were moved outside the Mac bundle and its strict seal verified.
+Private evidence: neteq2271-summary/samples/result/cleanup, clock2271,
+message-phase2271, build/installed native manifests and Mac/Poco runtime logs.
