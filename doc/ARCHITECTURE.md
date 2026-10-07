@@ -6466,3 +6466,71 @@ trace2280 result/metric-summary/terminal logs/cleanup, build-screen-2280,
 installed2280, native-verification2280-packaged and dispatcher test log.
 The full goal remains active; cold authentication, network delay and mixed
 encoded-media quality still require work.
+
+
+### Cycle 2281: prepared UDP transmit wait and physical audio evidence
+
+Poco returned and is available on cellular, with Wi-Fi off. Veil b58743fa
+adds generic local counters for the interval between QUIC packet preparation
+and successful UDP socket handoff. The preparation time survives writability
+waits and WouldBlock retries; a snapshot also reports the age of a transmit
+still pending. These counters do not measure time in the kernel or network.
+They inspect no producer roles or content and change neither scheduling,
+congestion, authentication nor relay policy. The existing opt-in, once-per-second
+source trace exports them. No new wire fields or native ABI symbols are added.
+
+An actual TLS/UDP test holds socket writability for 150 ms without blocking the
+executor, checks the in-progress age, releases the socket, verifies the original
+datagram arrives, and observes a completed send stall. The existing runtime
+stall test also passes. The full Quinn library suite passes 19 tests, with
+3 upstream tests ignored. Standalone tests explicitly use the local patched
+quinn-proto 0.11.15; the temporary test lockfile update is not committed.
+
+Fresh SDK/host diagnostic build 0.13.84+2281 is installed in place on Poco with
+the same signing certificate and verified installed APK. Mac code sections and
+strict seal, Android independently stripped SDK bytes, production media exports
+and packaged dependencies verify. C++ media sources and artifacts are still
+exactly 2279, including receive overlap; /Applications is not replaced.
+
+Two 45-second audio calls ring at 1.291 s after restart and 0.641 s on the
+reverse call, both active at 2.595/1.010 s. The first call initially uses relay
+and later P2P, with stable media epoch 1; the second remains P2P throughout,
+with stable epoch 3. Completed native interruptions remain: Mac 2/722 ms and
+0/0 ms, Poco 4/1642 ms and 5/1478 ms. Native receive-buffer estimates reach
+408/566 ms in the first call and 453/572 ms in the second (Mac/Poco). This is
+not an audio-quality completion, nor evidence that diagnostics fixed signaling.
+
+Across sampled independent local-primary connection snapshots, completed
+packet-to-UDP wait maxima are 702 us on Mac and 2087 us on Poco, with zero
+100-ms send stalls and zero pending age in those snapshots. Event-queue maxima
+are 408/1729 us, timer lateness at most 3841/2376 us, and receive dispatch at
+most 981/1078 us. Connection maxima include their earlier lifetime; call-window
+filtering prevents the first call's observations from including the second.
+These measurements exclude a large observed socket-writability wait in this
+capture. The pre-packet outgoing local-primary expiry remains 200 ms; no
+outgoing expirations appear in these sampled primary connections.
+
+Sparse successful direct sealed-cell matches take at most 593.4/859.6 ms in
+the first call and 250.4/140.6 ms in the second (Mac/Poco sending). IPC stages
+are at most 1 ms except one 8-ms Poco socket-to-daemon interval. The clock probe
+bounds before/after are 21.8/23.9 ms; estimated offsets differ by 9.1 ms, within
+those uncertainties. Matches are sparse sealed cells, not a complete audio
+packet timing trace, and the one unmatched first-call send is not asserted to
+be wire loss. Remaining delay may include kernel/network time and receive
+playout; this does not isolate the cellular carrier as the cause.
+
+Native buffer flushes coincide with some, but not all, completed interruptions:
+first call Mac discards 30 packets and Poco 60; second call Mac discards none
+and Poco 30 near the end. Prior reduced-capacity, target-cap and smart-flush
+experiments failed their PCM/physical gates, so no such tuning is redeployed.
+Further work must distinguish arrival bursts from receive-buffer recovery
+using actual packet/PCM evidence. Encoded video and file coexistence remain
+unverified by this audio-only capture.
+
+All owned apps/helpers, phone UID/package processes and ADB forwarding are
+verified gone. Runtime-added Mac logs are archived outside the bundle, whose
+strict seal verifies again. Identities, history and ratchets are preserved.
+Private evidence: udp2281-quinn-tests/full-tests; build-screen-2281,
+native-policy2281, native-verification2281-packaged, installed2281;
+trace2281 cold/warm result/playout/stage-audit; clocktrace2281 before/after;
+neteqtrace2281-cleanup. The audio-priority goal remains active.
