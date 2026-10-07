@@ -2018,6 +2018,75 @@ void main() {
       expect(fake.sent, isEmpty);
     });
 
+    for (final posture in CallPosture.values) {
+      test('diagnostic relay recovery preserves $posture posture', () async {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()
+          ..openedTransport = posture == CallPosture.anonymous
+              ? CallTransportKind.onion
+              : CallTransportKind.p2p;
+        final svc = CallService(
+          fake,
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        addTearDown(svc.dispose);
+        expect(await svc.requestRelayRecoveryForDiagnostics(), isFalse);
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: 'diagnostic-relay-recovery',
+            type: CallSignalType.offer,
+            media: const CallMedia(audio: true),
+            posture: posture,
+            transport: const CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        expect(await svc.requestRelayRecoveryForDiagnostics(), isFalse);
+        expect(
+          media.switches,
+          isEmpty,
+          reason: 'ringing is not an active route',
+        );
+        await svc.accept();
+        await Future<void>.delayed(Duration.zero);
+        final previousTransport = svc.current?.transport;
+        fake.sent.clear();
+        final recovered = await svc.requestRelayRecoveryForDiagnostics();
+        if (posture == CallPosture.direct) {
+          expect(recovered, isTrue);
+          expect(media.switches, [CallTransportKind.relay]);
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          expect(
+            fake.sent
+                .where((s) => s.type == CallSignalType.transportInfo)
+                .single
+                .transport
+                ?.kind,
+            CallTransportKind.relay,
+            reason:
+                'the peer follows the ordinary authenticated recovery signal',
+          );
+        } else {
+          expect(recovered, isFalse);
+          expect(media.switches, isEmpty);
+          expect(svc.current?.transport, previousTransport);
+          if (posture == CallPosture.anonymous) {
+            expect(previousTransport, CallTransportKind.onion);
+          }
+          expect(
+            fake.sent,
+            isEmpty,
+            reason: 'an anonymous call cannot be exposed',
+          );
+        }
+        svc.dispose();
+        expect(await svc.requestRelayRecoveryForDiagnostics(), isFalse);
+      });
+    }
+
     test('peer relay fallback is followed for a direct P2P call', () async {
       final fake = _FakeMessaging();
       final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
