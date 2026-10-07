@@ -4,6 +4,43 @@ import 'package:xveil/state/call_audio_receive_activity.dart';
 void main() {
   final start = DateTime.utc(2026, 10, 5);
 
+  test('interruption feedback survives repairs without inventing outages', () {
+    final activity = CallAudioReceiveActivity();
+    void sample(int count, {int stalled = 0}) => activity.observe({
+      'audio_rx_pkts': 20,
+      'audio_rx_native_age_ms': 10,
+      'worker_stalled': stalled,
+      'audio_delay_ms': 60,
+      'audio_interruption_count': count,
+    }, start);
+    sample(40); // Historical counters are a baseline, not a new outage.
+    expect(activity.interrupted, isFalse);
+    expect(activity.playoutFeedback(start).interruptionCount, 0);
+    sample(41);
+    expect(activity.interrupted, isTrue);
+    expect(activity.playoutFeedback(start).interruptionCount, 1);
+    sample(0, stalled: 1); // Native timeout defaults must not rebase.
+    expect(activity.interrupted, isFalse);
+    expect(activity.playoutFeedback(start).interruptionCount, isNull);
+    sample(42);
+    expect(activity.interrupted, isTrue);
+    expect(activity.playoutFeedback(start).interruptionCount, 2);
+    activity.reset();
+    sample(0);
+    expect(activity.interrupted, isFalse);
+    expect(activity.playoutFeedback(start).interruptionCount, 2);
+    sample(1);
+    expect(activity.playoutFeedback(start).interruptionCount, 3);
+    sample(1);
+    expect(activity.interrupted, isFalse);
+    expect(
+      activity
+          .playoutFeedback(start.add(const Duration(seconds: 4)))
+          .interruptionCount,
+      isNull,
+    );
+  });
+
   test('native arrival time excludes a delayed host timer', () {
     final activity = CallAudioReceiveActivity();
     activity.observe({

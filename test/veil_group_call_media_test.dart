@@ -44,6 +44,56 @@ GroupCall _call(NodeId self, List<NodeId> peers, {bool video = false}) {
 
 void main() {
   test(
+    'one interrupted audio receiver pauses group video with fresh packets',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final engine = _FakeEngine();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        Map<String, dynamic> sample(int interruptions) => {
+          'audio_rx_supported': 1,
+          'audio_rx_native_age_supported': 1,
+          'worker_stalled': 0,
+          'audio_feedback_reports': 2,
+          'rtt_ms': 80,
+          'audio_receivers': {
+            alice.hex: {
+              'audio_rx_pkts': 20,
+              'audio_rx_native_age_ms': 10,
+              'audio_interruption_count': 0,
+            },
+            bob.hex: {
+              'audio_rx_pkts': 20,
+              'audio_rx_native_age_ms': 10,
+              'audio_interruption_count': interruptions,
+            },
+          },
+        };
+        engine.stats = sample(0);
+        controller.start(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last.maxBitrateKbps, 150);
+        engine.stats = sample(1);
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.pauses.last, isTrue);
+        expect(engine.cameraStarted, 1);
+        clock.elapse(const Duration(seconds: 11));
+        expect(engine.pauses.last, isTrue);
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.pauses.last, isFalse);
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+  test(
     'group video mounts paused before capture until all audio receivers are fresh',
     () {
       for (final initialVideo in [false, true]) {
