@@ -47,7 +47,11 @@ class VeilGroupMediaChannelTransport implements GroupMediaChannelTransport {
   final VeilFlutterTransport _transport;
 
   @override
-  Future<Uint8List> localNodeId() async => (await _transport.nodeId()).bytes;
+  // The authenticated room roster names identities. A linked device's SDK
+  // node id differs: using it opens a channel to our own roster entry and
+  // derives keys/SSRCs that the other participants cannot reproduce.
+  Future<Uint8List> localNodeId() async =>
+      (await _transport.peerFacingNodeId()).bytes;
 
   @override
   Future<int> open(
@@ -300,6 +304,15 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final Map<String, DateTime> _lastRxAt = {};
   final Map<String, CallAudioReceiveActivity> _audioReceiveActivity = {};
   bool _supportsAudioReceiveStats = false;
+  bool _supportsAudioReceiveAgeStats = false;
+  Map<String, dynamic> _latestNativeStats = const {};
+  DateTime? _latestNativeStatsAt;
+
+  // The debug API reads the same sample used by the audio-priority policy;
+  // polling the API must not cause additional native worker/RTCP sampling.
+  Map<String, dynamic> get debugNativeStats => _latestNativeStats;
+  DateTime? get debugNativeStatsAt => _latestNativeStatsAt;
+  final Set<String> _expectedAudioPeers = {};
   final Map<String, ValueNotifier<VeilVideoFrame?>> _peerVideoFrames = {};
   final ValueNotifier<VeilVideoFrame?> localVideoFrame = ValueNotifier(null);
 
@@ -516,6 +529,13 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> _syncPeersLocked(GroupCall call) async {
     final engine = _engine;
     if (engine == null) return;
+    _expectedAudioPeers
+      ..clear()
+      ..addAll(
+        call.participants.values
+            .where((peer) => peer.nodeId.hex != _localIdHex && peer.media.audio)
+            .map((peer) => peer.nodeId.hex),
+      );
     final desired = <String, NodeId>{
       for (final participant in call.participants.values)
         if (participant.nodeId.hex != _localIdHex)
@@ -614,7 +634,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         () => 'xVeil[group-call-media]: quality sample unavailable: $error',
       );
     }
+    _latestNativeStats = Map.unmodifiable(stats);
+    _latestNativeStatsAt = now;
     if (stats['audio_rx_supported'] == 1) _supportsAudioReceiveStats = true;
+    if (stats['audio_rx_native_age_supported'] == 1) {
+      _supportsAudioReceiveAgeStats = true;
+    }
     if (_supportsAudioReceiveStats) {
       final receivers = stats['audio_receivers'];
       for (final key in _peers.keys) {
@@ -628,6 +653,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             'audio_rx_pkts': receiver['audio_rx_pkts'],
           'worker_stalled': stats['worker_stalled'],
           if (receiver is Map) 'audio_delay_ms': receiver['audio_delay_ms'],
+          if (receiver is Map && _supportsAudioReceiveAgeStats)
+            'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
         }, now);
       }
     }
@@ -645,6 +672,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             !_microphoneState.muted &&
             ((stats['audio_playout_peers'] as num?) ?? 0) > 0,
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
+        audioReceiveQuality: _groupAudioReceiveQuality(stats),
         expectedAudioFeedbackReports: _audioEnabled && !_microphoneState.muted
             ? _peers.length
             : null,
@@ -673,6 +701,42 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         () => 'xVeil[group-call-media]: quality sample unavailable: $error',
       );
     }
+  }
+
+  ({bool expected, int? ageMs}) _groupAudioReceiveQuality(
+    Map<String, dynamic> stats,
+  ) {
+    final peers = _peers.keys.where(_expectedAudioPeers.contains);
+    if (!_audioEnabled || !_supportsAudioReceiveAgeStats || peers.isEmpty) {
+      return (expected: false, ageMs: null);
+    }
+    var complete = true;
+    var worstAge = 0;
+    final receivers = stats['audio_receivers'];
+    for (final key in peers) {
+      final receiver = receivers is Map ? receivers[key] : null;
+      final packets = receiver is Map ? receiver['audio_rx_pkts'] : null;
+      final age = receiver is Map ? receiver['audio_rx_native_age_ms'] : null;
+      if (stats['worker_stalled'] != 0 ||
+          packets is! num ||
+          !packets.isFinite ||
+          packets <= 0 ||
+          age is! num ||
+          !age.isFinite ||
+          age < 0) {
+        complete = false;
+        continue;
+      }
+      if (age > worstAge) worstAge = age.toInt();
+    }
+    // A known outage suffices to pause even if another peer is unknown.
+    // Recovery requires every expected peer; mute/removal changes that set.
+    return (
+      expected: true,
+      ageMs: complete || worstAge >= CallBitrateAdapter.audioReceivePauseMs
+          ? worstAge
+          : null,
+    );
   }
 
   // Require every capable receiver before earning recovery. A known poor
@@ -940,6 +1004,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> _stopLocked({bool clearMicrophoneState = true}) async {
     if (clearMicrophoneState) _microphoneState.clear();
     _audioEnabled = false;
+    _supportsAudioReceiveAgeStats = false;
+    _latestNativeStats = const {};
+    _latestNativeStatsAt = null;
+    _expectedAudioPeers.clear();
     _mediaEpoch++;
     _screenSourceSelected = false;
     _statsTimer?.cancel();
