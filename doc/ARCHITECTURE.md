@@ -4919,3 +4919,27 @@ Further work remains on direct transport stalls/connection retirement, relay
 bursts, acoustic latency and bidirectional video recovery. Both physical stands
 are closed; phone UID/package, own Mac/helper processes, ping and ADB forward
 are verified absent. No push, tag or release is performed.
+
+
+Correlated network and mute observations (2256--2257)
+----------------------------------------------------
+
+During 2256's P2P outage, the independent Poco ICMP probe also has an 8.636-s
+host-observed arrival gap; no reply arrives in the 35--40-s slice and late
+replies report up to 4,849 ms RTT. The Mac probe stays below 66 ms. Several
+Poco peer sessions are reaped together for unacknowledged keepalives around
+the same time. Cellular remains the active default network, screen is awake,
+the daemon wake lock is held, and device idle is inactive. These observations
+support a general cellular path interruption during this particular pause;
+they do not determine its carrier/modem cause or explain every audio pause.
+The short no-app 2257 control also has variable Poco latency (29 replies,
+median 32.5 ms, p95 594 ms, maximum 720 ms); Mac median is 49.456 ms and maximum
+54.463 ms. Probe destination/rate and network conditions differ from the
+actual media path, so this is corroboration rather than an acoustic-quality
+measurement. Own pings and phone app UID/package are verified stopped.
+
+Android touch events delivered to xVeil immediately precede both micOn changes
+in the 15-second capture gap. No stand helper invokes /call_mic. The capture
+stop/start follows the application's explicit mute state; no long native
+stream-open/close operation occurs. This gap must remain separate from the
+unresolved network interruptions in reports.
