@@ -1286,6 +1286,14 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           if (!_requireReady(req)) return;
           await _json(req, {'ok': await repairActiveCallMediaForDiagnostics()});
           return;
+        case '/call_relay_recovery':
+          if (!_requireReady(req)) return;
+          await _json(req, {
+            'ok': await ref
+                .read(callServiceProvider)
+                .requestRelayRecoveryForDiagnostics(),
+          });
+          return;
         case '/media_engine_selftest':
           await _mediaEngineSelftest(req);
           return;

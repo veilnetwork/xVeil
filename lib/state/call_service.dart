@@ -1470,6 +1470,28 @@ class CallService {
     _end(CallEndReason.error);
   }
 
+  /// Exercise the existing direct-to-relay recovery on an authenticated stand.
+  /// The diagnostic hook must never expose an anonymous call or start a route
+  /// for a call that is still ringing/connecting. Signaling and operation
+  /// serialization stay identical to the real outage recovery below.
+  Future<bool> requestRelayRecoveryForDiagnostics() async {
+    final call = _current;
+    if (_disposed ||
+        call == null ||
+        call.status != CallStatus.active ||
+        call.transport != CallTransportKind.p2p ||
+        call.localPosture != CallPosture.direct ||
+        call.peerPosture != CallPosture.direct) {
+      return false;
+    }
+    await _recoverSilentDirect(call);
+    final current = _current;
+    return !_disposed &&
+        current?.callId == call.callId &&
+        current?.status == CallStatus.active &&
+        current?.transport == CallTransportKind.relay;
+  }
+
   /// Both control and media can disappear with a punched UDP path. Waiting
   /// for the peer's repair request then cannot recover this endpoint. After
   /// the existing receive grace, use the already permitted direct-posture
