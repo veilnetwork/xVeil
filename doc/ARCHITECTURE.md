@@ -5800,3 +5800,41 @@ The renderer regression checks actual horizontal render coordinates for
 waiting text/icons, camera pixels and stale text/icons, including disabling
 mirroring on a mounted view. Renderer and group overlay suites pass all 10
 tests; analysis of the changed UI and regression test reports no issues.
+
+
+### Cycle 2273: preserve source admission on single-frame ACK retry
+
+Cycle 2272 was progress: source recovery and the UI correction changed the
+current tree, and the physical run established remaining receive gaps. The
+current root and Veil trees were clean; Poco was available on ADB.
+
+Re-reading physical 2272 capture diagnostics establishes why no video load
+was encoded: Poco camera capture was running at about 30 fps, while video
+send remained paused by audio reservation. After t45, 321 samples report a
+running camera and 322 report paused video. Native audio buffer estimates
+reached 537/569 ms (Mac/Poco); 293/199 samples were at least 300 ms, with fresh
+peer playout feedback also crossing the limit. This was not a camera startup
+failure. Do not lower audio protection thresholds just to obtain video load;
+a separate controlled healthy-path mixed-load proof remains required.
+
+The single-frame end-to-end ACK retry path still submitted this node's
+retained Forward frame as neutral INTERACTIVE data. It now keeps the existing
+endpoint-only recoverable DATA selector, as the initial ordinary SDK send
+does. Retrying no longer bypasses source scheduling or shared byte admission
+under independent primary pressure. The wire header, E2E envelope, content ID,
+ACK key, retry attempt policy and synchronous queue-refusal/reroute semantics
+are unchanged. Only the hop and existing attempt suffix are patched as before.
+This path owns locally registered pending messages; transit forwarding does
+not call it. Chunk retries retain their separate bounded credit-waiting path.
+
+The regression submits 32 real E2E envelopes through the retry producer and
+session scheduler, admits primary and neutral transit ahead of that burst,
+and verifies ordered complete delivery, unchanged wire headers/envelopes,
+valid decryption and rejection of missing hops or invalid attempts. Restoring
+the old neutral selector fails the ordering assertion. All four retry tests,
+ten pending-ACK tests and eight encrypted QUIC source-pressure tests pass
+(22 tests). The existing pressure fixtures verify retained byte order,
+neutral transit, wakeups and cross-neighbor source throttling. No relay
+priority or payload-role disclosure is added. Internal RPC/control origin
+paths and physical audio pauses remain open; this cycle does not prove the
+full audio-quality objective complete.
