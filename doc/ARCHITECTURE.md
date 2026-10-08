@@ -7794,3 +7794,18 @@ Dart tests pass; static analysis of the four changed files reports no issues.
 A fresh real mixed codec fixture is pending; this unit result is not proof
 of acoustic or physical cellular quality. Production Mac and Android SDK
 binaries were rebuilt from ab705e8c, without changing the exported ABI.
+
+
+The follow-up 2335 fixture PASSes the complete real Opus/VP8/file gate at
+360 seconds with the unchanged 1024-kbps blind cap. Both files hash-complete
+with no missing chunks in 197.7/167.9 seconds. All 340 mixed-phase PCM
+transitions per direction arrive, maxima 181.0/191.5 ms, p95 160.0/159.5 ms,
+zero quiet ticks and native interruptions. Actual VP8 TX 228/489 and RX
+479/182 occurred. Native filtered-delay maxima 151/154 ms and current-buffer
+maxima 151/162 ms are recorded separately. Blind FIFO maxima 116.9/90.2 ms,
+zero UDP drops; driver maximum 30.92 ms stays within the 40-ms fixture gate.
+All workers exit, three nodes stop successfully and fixture sockets are zero.
+This verifies synthetic decoded audio with real codecs and file coexistence
+on the constrained relay; it does not establish physical cellular quality,
+camera/screen capture correctness or acoustic microphone-to-speaker latency.
+Production packaging and physical validation follow this successful gate.
