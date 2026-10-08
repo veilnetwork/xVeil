@@ -159,15 +159,17 @@ class _BlackholeWriteStream implements ReliableStream {
 }
 
 class _CloseOnWriteStream implements ReliableStream {
-  _CloseOnWriteStream(this._inner);
+  _CloseOnWriteStream(this._inner, {this.beforeClose});
 
   final ReliableStream _inner;
+  final Future<void> Function()? beforeClose;
   bool _closed = false;
 
   @override
   Future<void> write(Uint8List data) async {
     if (_closed) return;
     _closed = true;
+    await beforeClose?.call();
     await _inner.close();
   }
 
@@ -547,6 +549,57 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 80));
     return cid;
   }
+
+  test('plain save uses a blob completed while its stream failed', () async {
+    final data = _rnd(32768, 2372);
+    final manifest = ContentManifest.fromBytes('arriving-cache.bin', data);
+    final cid = await advertiseFromA(data, name: manifest.name);
+    expect(await sB.hasFile(cid), isFalse);
+    tA.acceptStreamWrappers.add(
+      (stream) => _CloseOnWriteStream(
+        stream,
+        beforeClose: () async {
+          await sB.storeFile(cid, data, name: manifest.name);
+          await sB.storeFile(
+            'mf:$cid',
+            Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+          );
+        },
+      ),
+    );
+    // The remote route stays unusable after the concurrent receive completes.
+    for (var i = 0; i < 30; i++) {
+      tA.acceptStreamWrappers.add(_CloseOnWriteStream.new);
+    }
+    final bytes = Uint8List(data.length);
+    var closes = 0;
+    final failures = <String>[];
+    final sub = mB.contentDownloadFailed.listen(failures.add);
+    addTearDown(sub.cancel);
+    final received = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+    expect(
+      await mB.downloadContentToFile(
+        a,
+        cid,
+        '/virtual/arriving-cache.bin',
+        write: (offset, chunk) async =>
+            bytes.setRange(offset, offset + chunk.length, chunk),
+        close: () async => closes++,
+      ),
+      ContentDownloadResult.started,
+    );
+    final event = await received.timeout(const Duration(seconds: 3));
+    expect(event.savedToPath, '/virtual/arriving-cache.bin');
+    expect(bytes, data);
+    expect(closes, 1);
+    expect(failures, isEmpty);
+    expect(
+      tB.openStreamAttemptCount,
+      1,
+      reason: 'the completed local copy needs no further network opens',
+    );
+    expect(tB.localStreamCloses, 1);
+  });
 
   test('STREAM serve: a durable source swapped after the send streams nothing, '
       'while an untouched one still streams', () async {
