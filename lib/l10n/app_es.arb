@@ -3113,6 +3113,8 @@
   "settingsTransferHint": "Mover todo a otro dispositivo mediante un archivo",
   "transferTooLarge": "El archivo describe un registro mucho mayor de lo que xVeil escribe, así que no se leyó.",
   "cloudFolderShareRevokeFailed": "No se pudo revocar el enlace: puede seguir funcionando. Inténtalo de nuevo.",
+  "callVideoPausedForAudioTitle": "Vídeo pausado para proteger el audio",
+  "callVideoPausedForAudioBody": "La transmisión de vídeo se reanudará automáticamente cuando el audio sea estable. La cámara o la pantalla compartida sigue activa.",
   "callWeakLinkTitle": "Conexión débil",
   "callWeakLinkBodyLocal": "Tu vídeo no está llegando. Desactivarlo debería estabilizar el audio.",
   "callWeakLinkBodyPeer": "La conexión de tu contacto no soporta vídeo. Desactivar el tuyo debería estabilizar el audio.",

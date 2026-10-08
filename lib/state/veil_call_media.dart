@@ -672,6 +672,7 @@ class VeilCallMediaController implements CallMediaController {
           'diagnostic_video_target':
               '${target.bitrateKbps}kbps@${target.fps}fps',
         if (_bitrateAdapter != null) 'adaptLevel': _bitrateAdapter!.level,
+        'video_paused_for_audio': callVideoSendPausedForAudio.value,
         'remote_frame_fps':
             nativeVideoDiagnostics['video_texture_fps'] ?? _remoteFrameFps,
         'remote_frame_max_gap_ms':
@@ -1374,7 +1375,9 @@ class VeilCallMediaController implements CallMediaController {
                 !_microphoneState.muted,
           );
           if (engine.supportsVideoSendPause) {
-            final paused = adapter.applyPendingPause(engine.setVideoSendPaused);
+            final paused = adapter.applyPendingPause(
+              (paused) => _setVideoSendPausedForAudio(engine, paused),
+            );
             if (paused != null) {
               devLog(
                 () =>
@@ -1530,6 +1533,14 @@ class VeilCallMediaController implements CallMediaController {
     );
   }
 
+  bool _setVideoSendPausedForAudio(VeilMediaEngine engine, bool paused) {
+    final applied = engine.setVideoSendPaused(paused);
+    // Publish only accepted native state. A busy worker leaves the previous
+    // state visible while the adapter retries its pending change.
+    if (applied) callVideoSendPausedForAudio.value = paused;
+    return applied;
+  }
+
   bool _prepareVideoAudioAdmission(
     Call call,
     VeilMediaEngine engine,
@@ -1567,7 +1578,9 @@ class VeilCallMediaController implements CallMediaController {
             )
           : null,
     );
-    final applied = adapter.applyPendingPause(engine.setVideoSendPaused);
+    final applied = adapter.applyPendingPause(
+      (paused) => _setVideoSendPausedForAudio(engine, paused),
+    );
     devLog(
       () =>
           'xVeil[call-media]: before-video audio pause=${adapter.audioReserve} ok=$applied',
@@ -1698,6 +1711,7 @@ class VeilCallMediaController implements CallMediaController {
     bool clearMicrophoneState = true,
   }) async {
     _mediaEpoch++;
+    callVideoSendPausedForAudio.value = false;
     _handoverPacketSizeReady = false;
     for (final entry in _retiringChannels.entries) {
       entry.value.cancel();
@@ -1879,7 +1893,9 @@ class VeilCallMediaController implements CallMediaController {
           // Reserve the outgoing leg before restarting capture. Old video
           // reports cannot prove that this newly enabled audio reaches peer.
           adapter.prepareVideoSend(const {}, requirePeerAudioPlayout: true);
-          adapter.applyPendingPause(engine.setVideoSendPaused);
+          adapter.applyPendingPause(
+            (paused) => _setVideoSendPausedForAudio(engine, paused),
+          );
         }
         _engine?.setMicMuted(muted);
       }
