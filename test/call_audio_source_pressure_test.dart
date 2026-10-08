@@ -42,6 +42,20 @@ void main() {
     recover(policy);
   });
 
+  test(
+    'standing delay throttles other bindings before the PCM budget is spent',
+    () {
+      final policy = CallAudioSourcePressure();
+      recover(policy);
+      expect(sample(policy, peer: 180), isTrue);
+      for (var i = 0; i < 20; i++) {
+        expect(sample(policy, peer: 140), isTrue);
+      }
+      recover(policy);
+      expect(sample(policy, local: 180), isTrue);
+    },
+  );
+
   test('fresh peer measurements cannot hide stalled or old local audio', () {
     final policy = CallAudioSourcePressure();
     recover(policy);
