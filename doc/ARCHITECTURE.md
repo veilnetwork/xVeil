@@ -7270,3 +7270,36 @@ probe readers eliminate the earlier cleanup race; strict Mac seal verifies.
 SIMs, connectivity, P2P policy, identities and history are retained. The source
 quota defect is fixed, but the physical pauses and encoded mixed-video/screen
 quality remain unresolved; the goal stays active.
+
+The next physical comparison (mixed2301, unchanged SDK/media build 2298)
+requests 120 seconds of Poco-to-Mac video. Both endpoints become active at
+2.387 s. P2P remains selected for about 63 seconds, then the call recovers to
+relay without an engine restart and completes its requested duration. Before
+recovery, Mac has 2 audio interruptions/1667 ms and Poco 3/2210 ms; the full
+run reaches 9/8730 ms and 8/11157 ms respectively. Thus the failure also occurs
+on P2P. No independent network probe was captured in this run, so it cannot
+localize the delay to a carrier, modem or a particular transport stage.
+
+Poco captures/processes 3566 camera frames, but both endpoints transmit and
+decode zero video frames. Native video-send pause remains asserted: the audio
+quality guard prevents video transmission. This is not an encoded mixed-media
+pass, and video congestion cannot explain these pauses. All owned apps and
+helpers, the Poco UID/package and ADB forwarding are verified absent afterward;
+the Mac bundle seal verifies. Connectivity, SIMs and application data are kept.
+
+`scripts/relay-media-control.py` adds a reproducible transport control using
+three distinct SDK nodes, actual loopback QUIC sessions and sealed media through
+a neutral middle node. Run with Python 3.11+ and `--sdk /absolute/path/to/SDK`;
+it creates an owner-only fixture under `/private/tmp`, disables public discovery,
+retains raw logs/keys privately and prints counters only. `--directory` reuses
+only a marked private fixture. Named app binding is required by the native media
+source-app check; an ephemeral binding is not an equivalent receiver.
+
+The verified control receives 500/500 unique packets in each direction with
+no duplicates, maximum delivery delays 4.8/4.5 ms, 20 source admissions all
+using the fixture relay's neutral datagram transport, and 20 independent
+datagram admissions. All three SDK nodes stop normally and leave no sockets.
+This proves the current neutral datagram path works on loopback; it does not
+prove audio playout quality, cellular delivery or priority under congestion.
+A mobile comparison through a reachable current relay is still needed; the
+physical pauses remain unresolved and the goal remains active.
