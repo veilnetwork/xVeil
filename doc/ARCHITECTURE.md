@@ -8888,3 +8888,42 @@ integration gates remain before production activation and updated physical
 file/call tests. `with_reliable()` remains opt-in; production offers remain off.
 Video recovery and cellular audio interruptions remain unresolved. The original
 quality/isolation goal remains active.
+
+
+### Reliable carrier capability activation (2026-10-09)
+
+The marked capability extension now uses its remaining bit, bit 7, for generic
+`SUPPORTS_RELIABLE_PARALLEL`. The helper requires explicit parent ordered-codec
+or QUIC-duplex support plus coordinated rekey. The shared local advertisement
+factory includes it in full and resumed handshakes; legacy resumes without
+fresh authenticated metadata still expose no extra permissions. A resume gate
+flips bit 7 and confirms the capability MAC rejects the change. Legacy prefixes,
+random padding and old loss-tolerant capability bits alone cannot enable it.
+No audio/video label, deadline, relay priority or client privilege is advertised.
+
+Node runtime derives this permission from authenticated remote capabilities.
+Ordered offers opt in only with that permission; QUIC offers additionally
+require the peer's duplex implementation and preserve shared-listener guards.
+The unchanged eight-connection-per-direction generic quota applies equally to
+all peers. A once-per-session local first-send log now proves an App source
+actually enters a child, rather than merely observing a capability announcement.
+
+A third normal-runner obfs4 integration gate releases both blocked canonical
+writers after proving independent App transfer, completes the real canonical
+rekey exchange, checks both endpoints abort old App streams and release receipt
+waiters/readers, then opens fresh child streams and decrypts fresh data. It
+attempts to send old stream data too; the receiver sees only the new stream.
+The initial idle fixture failed to rekey because keepalive/idle timers are
+intentionally disabled in these fixtures. Sending normal padding through the
+canonical connection wakes the real loop to evaluate rekey age; no key or worker
+state is replaced by the test. Backlog frames are now valid session padding.
+
+All three normal-runner reliable integration gates pass. Twenty-five handshake
+gates pass, including actual full and resumed exchanges with reliable permission
+assertions. The final capability/admission selection passes one protocol and 62
+session tests (two existing ignores). Node-runtime test targets compile, but the
+`reliable` filter selects zero runtime tests; their compilation alone is not a
+runtime behavioral claim. App builds/installation and actual audio/video/file
+behavior remain the next verification step. The quality/isolation goal remains
+active; cellular audio interruptions and automatic video recovery are not fixed
+by declaring support.
