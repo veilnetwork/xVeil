@@ -8493,3 +8493,66 @@ Header regeneration leaves the C header and both ABI contracts byte-identical
 locally and the source pin is updated here. Poco remains absent from ADB;
 cellular audio/video and full mixed-media coexistence are still unverified, and
 the goal remains active.
+
+### Physical cellular checks after Poco reconnects (2026-10-08, build 2363)
+
+Poco returns on cellular data. Both owned endpoints now use SDK 39168872 and
+application 0.13.84+2363. The Android APK retains its previous certificate;
+packaged native SDK/media bytes match independently stripped build references.
+Production media libraries remain unchanged (Mac 2325, Android 2326). Installation
+uses an update, preserving the phone's identity and encrypted storage. The owned
+Mac stand's Dart version and strict bundle seal verify.
+
+Three bounded calls use the normally selected route and finally clean up their
+owned processes. The first two checks temporarily register existing runtime
+peers and warm discovery; their setup times therefore describe a prepared stand.
+The third omits that registration and the attachment.
+
+* Audio plus a 2 MiB attachment: ring 0.388 s, both active 1.593 s; the call
+  survives 120 seconds. Its route starts on P2P and later repairs through relay.
+  The encrypted download completes all eight validated pieces in 146.792 s from
+  offering the file, after call hangup. Direct retries and an IPC writer closure
+  still occur; anonymous stream retries encounter the accepted-contact/grant
+  check and fall back to encrypted chunk delivery. This establishes eventual
+  completion in this run, with substantial recovery cost.
+* Camera plus another 2 MiB attachment: ring 0.386 s, both active 2.046 s; the
+  call survives 90 seconds on P2P. Both cameras are enabled, but native video
+  send remains paused and encoded-frame counts stay zero while the microphones
+  are enabled. At 71.959 s both microphones are explicitly disabled for a
+  diagnostic phase. Encoding starts around 72.9/73.2 s: Mac sends 30 frames and
+  receives 22; Poco sends 25 and delivers 20, with 19 decoded texture frames
+  observed. The camera/encoder/video path works when audio expectations are
+  withdrawn. This phase establishes no simultaneous healthy audio/video result.
+  The attachment completes in 140.337 s; its materialized destination is exactly
+  2 MiB and its SHA-256 matches the source. The owned plaintext phone scratch
+  file is removed after verification.
+* Audio without attachment or manual peer registration: ring 1.512 s, both
+  active 2.439 s; the call survives 90 seconds on P2P. Receive-stream playout
+  counters still report Mac 8 interruptions / 5718 ms and Poco 14 / 7929 ms.
+  Pauses therefore reproduce without the attachment or that preparation step.
+
+In the last call, deterministic encrypted UDP sampling matches 440 unique
+Mac-to-Poco packets and 359 Poco-to-Mac packets during the active window. At
+constant clock offset, excess delay above each direction's minimum reaches
+1081/1805 ms (p95 130/508 ms). Receiver kernel timestamp to socket-read trace
+maxima are 12.962/0.919 ms; sampled SDK delivery age maxima are 0.524/3.086 ms.
+These are generic encrypted UDP observations, including control traffic, and
+the minimum-relative calculation is not an absolute acoustic latency. Bounded
+ADB clock calibrations before and after overlap; a transient clock step inside
+the call is not excluded. The measured large packet delays lie after successful
+sender UDP admission and before receiver kernel receipt. Sender kernel/driver,
+host Wi-Fi, Internet/NAT and the cellular leg remain within that interval; the
+measurement does not identify one of them as the sole cause.
+
+The complete file checks verify progress and recovery after the recent stream
+queue/idle/cancellation changes. Physical audio pauses, simultaneous encoded
+audio/video/screen operation and separation of ordinary reliable traffic still
+require work. Repeated anonymous content-stream authorization failures also
+remain: a claimed anonymous opener cannot acquire an identity mapping simply
+because it requested a known content ID. The goal remains active.
+
+Each call's cleanup verifies zero owned Mac/helper processes, zero phone
+package/UID processes and removal of its ADB forwarding. Fresh final checks
+confirm the installed phone package is versionCode 2363, the owned stand is
+stopped, its strict bundle seal is valid, and no live stand resource record
+remains. User applications and the default VM are untouched.
