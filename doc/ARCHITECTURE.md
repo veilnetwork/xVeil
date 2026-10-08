@@ -7809,3 +7809,31 @@ This verifies synthetic decoded audio with real codecs and file coexistence
 on the constrained relay; it does not establish physical cellular quality,
 camera/screen capture correctness or acoustic microphone-to-speaker latency.
 Production packaging and physical validation follow this successful gate.
+
+
+Production debug build 0.13.84+2335 is packaged and installed on Poco, with
+Mac stand updated; /Applications is untouched. Mac code sections match the
+fresh SDK and native media; packaged Android native libraries match their
+independently stripped inputs. The APK signer matches the installed prior
+application and the complete installed APK hash matches the signed artifact.
+Production media exports contain no test-only hooks; SDK ABI is unchanged.
+The update preserves profiles, identities, history and cryptographic state.
+
+Physical validation FAILS at call setup, before any audio measurement:
+Poco→Mac audio, Poco→Mac video and Mac→Poco audio never reached ringing or
+both-active within 45.1/45.2/45.3 seconds. Both APIs were ready with realStack
+true; outgoing offers were logged but no corresponding incoming offer was
+observed. These samples do not prove the cause or physical media quality.
+The pre-call exchange returned admitted=true, while raw identity-addressed
+status returned admitted=false/hasCert=false; alias/device routing must be
+checked before treating those status observations as a contradiction or
+a routing diagnosis. Recorded invite/destination prefixes match the saved
+fixture peers, but full physical-device/receive-address probes remain needed.
+No app data was wiped, policy/SIM/Wi-Fi settings were not changed.
+
+Every owned Mac/Android app/helper is stopped, ADB forward removed and Poco
+package processes are zero. A late Mac SDK debug log was archived privately
+and removed from the owned stand bundle after process exit; its strict seal
+verifies again. Raw logs, probes, identifiers, credentials and device config
+remain private. The objective remains active: physical signaling recovery,
+cellular audio/video quality and screen-share coexistence remain unverified.
