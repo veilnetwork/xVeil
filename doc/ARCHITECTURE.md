@@ -7925,3 +7925,17 @@ prioritization or its cause; socket/TCP versus wrapper waits must be isolated.
 Relay fairness, wire privacy and device network policies were not changed.
 All owned stand apps/helpers exit, temporary directories are removed and
 the Mac strict bundle seal verifies. The full media objective remains active.
+
+The next SDK diagnostic adds opt-in, bounded local obfs4 write-wait probes
+behind the existing VEIL_RT_TRACE/embedded debug toggle. They sample TCP
+RTT, retransmissions, congestion window and socket backlog at the first
+Pending and after a slow re-poll/completion, with local ciphertext remaining
+and poll gaps. Durations include task scheduling, not just network latency.
+Process-local connection numbers contain no peer identity; no media labels,
+wire changes, relay priorities or socket tuning are introduced. Missing
+platform fields stay unavailable rather than falsely reporting zero.
+Darwin TCP_CONNECTION_INFO uses packed TFO bitfields that libc 0.2 expands
+incorrectly; native-header offsets and Android TCP_INFO offsets were checked
+with the system compiler. Five obfs4 stream tests, two socket/wait tests and
+five transport smoke tests pass; fresh production-feature SDK builds succeed
+on Mac and Android. This is instrumentation, not yet a fix for physical pauses.
