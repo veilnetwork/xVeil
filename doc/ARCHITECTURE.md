@@ -9135,3 +9135,12 @@ Both owned apps, their processes, the phone package/UID and the owned ADB
 forward are verified absent afterwards. The Mac seal verifies after removing
 the owned late debug log. Private diagnostic archives and timestamped sample
 data are retained. No release or push is performed.
+
+The following native diagnostic addition exports `audio_jb_target_ms` from
+WebRTC's `jitter_buffer_preferred_ms` alongside the filtered estimate and
+current packet-buffer occupancy. It is sampled on the existing audio worker,
+with the same freshness/receive-packet requirements; it changes no audio
+controller, Dart protection threshold, transport metadata or relay behavior.
+Production Mac and Android builds pass with the unchanged 97-symbol ABI.
+This field is for attributing the remaining live buffering before choosing
+another adaptation change; the currently installed 2373 does not contain it.
