@@ -7535,3 +7535,71 @@ Veil implementation: fafa9559. Additional integration checks verify that a
 bound client without negotiation is refused, and that a daemon without an
 admission sink does not advertise the capability. Both pass. Commits for this
 cycle are unsigned and unpushed; no release or installed identity was changed.
+
+
+Origin pacing and packet-size isolation (2319–2322)
+--------------------------------------------------
+
+Poco is connected over ADB; cellular settings remain unchanged. The 160-second
+real-Opus/DATA isolation with no video (2319) still failed the strict 200-ms
+PCM gate: maxima 241.5/211.6 ms, native 212/181 ms. All tone transitions arrived,
+with no PCM quiet ticks, native interruptions or blind-shaper UDP drops. Both
+512-KiB files were incomplete at teardown. This rules out video as the sole
+cause; it does not establish irreversible file loss.
+
+Reliable source admission now charges exact wire bytes continuously at the
+existing 4096-byte/200-ms rate. It does not accumulate idle credit, shares debt
+across local neighbors, and preserves oversized compatibility frames until
+primary idle expiry. Route-recovery RPCs retain their separate pressure-only
+allowance; neutral transit is unchanged. The isolated 160-second pacing-only
+run (2320) still failed: PCM maxima 221.1/231.7 ms, no quiet ticks/interruption,
+and incomplete files. Exact pacing alone does not resolve audio delay.
+
+An endpoint-only, trace-enabled admission sample records actual wire cost and
+pending writer blobs without application identity, payload role or any new
+network metadata. It measured 3940-byte ordinary source frames. A short 40-s
+instrumented run (2321) recorded no asynchronous SDK send failures on either
+file connection, but cannot establish eventual completion. The tool now
+records those failures separately from IPC queue success and reports receipt
+time only after complete hash-verified reassembly. Its optional no-video
+mode is explicitly an isolation test, not the full media-priority gate.
+
+During active local primary traffic, the origin registry now recommends
+768-byte envelope pieces, yielding measured 1108-byte hop-encrypted frames.
+Canonical packetization returns after primary idle expiry. The existing
+chunk format, neutral relay header and receiver bounds are preserved. Large
+valid transfers increase their segment size enough to retain the chunk-count
+limit; adapters without advice retain canonical behavior. IPC tests exercise
+small-frame sealed delivery through the real dispatcher and check relay
+header neutrality, reassembly and large-transfer limits. All 145 IPC tests
+pass (five previous ignores). The final 428 session tests also pass (six previous ignores).
+The 220-second full audio/video/file run (2322) delivered both encrypted
+512-KiB files with matching hashes in 83.8 seconds, no missing chunks,
+duplicates, authentication failures or asynchronous SDK send failures. Actual
+VP8 transmit/receive and all 200 mixed-phase PCM tone transitions per direction
+were observed. There were no native interruptions, but three quiet 10-ms PCM
+ticks on one side. PCM maxima were 198.5/283.3 ms (p95 162.5/238.8); native
+maxima 189/210 ms. The strict quality gate still FAILS. Both directions' receive
+age stayed at or below 42 ms, and the blind shared FIFO dropped no packets
+(maximum queues 114.1/75.4 ms). Driver interval stayed below 20.51 ms. Files
+completed roughly 104 seconds into the call; elevated receiver buffering on
+one side persisted through 127 seconds. Video adaptation frequently reported
+no source pressure despite native receive delay around 200 ms, and one sender
+retained a 450-kbps target. The same packetization with no video (160 seconds, 2323) delivered both
+files in 83.4 seconds with matching hashes, zero missing chunks/duplicates,
+authentication or asynchronous send failures. All 140 tone transitions per
+direction arrived, with zero quiet PCM ticks and native interruptions. PCM
+p95 fell to 170.3/141.5 ms, but maxima were 209.6/210.2 ms, so the strict
+200-ms gate still FAILS. Native receive maxima were 183/182 ms, receive age
+23/22 ms, and blind FIFO queue maxima 101.1/92.3 ms with zero UDP drops.
+Feedback delivery and all 160 IPC quality submissions per endpoint succeeded.
+This isolates a remaining audio/file delay peak as well as the additional
+video contention; reducing chunk size is useful but not a complete fix. All workers exited, all three
+SDK nodes stopped, and fixture socket count is zero. Raw captures are
+private, test nodes/helpers were reaped on exit in both final runs. These edits are not
+yet installed on physical endpoints. The overall audio objective remains
+active; laboratory improvement will still require cellular verification.
+
+Veil implementation for this cycle: 0a636984. Commits are unsigned and
+unpushed. Physical Mac/Poco remain on 2309; no app was opened or installed
+during these isolated SDK runs. The audio quality goal remains active.
