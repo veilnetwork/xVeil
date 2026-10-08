@@ -8753,3 +8753,62 @@ independent child admission. The existing six generic children plus a reliable
 child must also preserve replacement capacity. Physical call pauses and healthy
 simultaneous audio/video remain unresolved; these gates do not establish an
 improvement in real cellular calls. The original goal remains active.
+
+### Canonical-owned reliable duplex pool (2026-10-09, SDK 66b1f655)
+
+`ParallelSession` and `OrderedSession` now optionally own one duplex reliable
+child alongside their existing source and neutral children. The trusted offer's
+`with_reliable()` opts the same registration into its reliable inbox; its default
+is false. Shared QUIC/TCP listeners use the existing registry, while exclusively
+owned punched QUIC accepts classify reliable proofs before the old datagram
+receiver. The original transport dialer alone establishes the reliable child;
+the accepted endpoint uses its duplex return path. This avoids trying to dial a
+TCP client's source port or a QUIC client endpoint without a server listener.
+The child handshake uses its actual fresh exporter, flushes hello/ACK, and retains
+transport/accounting ownership through failure or cancelled binding.
+
+Every peer has the same eight generic connection slots per direction on both
+transport types: six existing children, one reliable child, and one replacement.
+The two direction partitions remain separate. No audio/video label, scheduling
+request or client-specific privilege is added. A compile-time assertion preserves
+replacement capacity. The ordered pool gate observes all seven normal children
+live simultaneously with exactly one outgoing slot still available.
+
+The worker publishes an owned readiness snapshot with a child generation ID.
+Its cancellation-safe `next()` returns authenticated frames/read errors with that
+ID, readiness changes, or a terminal `Stopped` event. Ordinary child EOF retains
+its completed receive tail until the canonical reader explicitly acknowledges
+failure; reconnect cannot silently discard queued frames or move an existing
+stream onto new keys. Session drop/rekey closes retained snapshots and replaces
+the pool under a new parent. Binding retries are bounded and back off, with only
+one handshake attempt and one incoming candidate at a time.
+
+An adversarial lifetime gate caught a defect in the intermediate worker: clearing
+the readiness owner before retiring externally retained snapshots left a queued
+authenticated frame readable after the actual canonical TCP owner ended. The
+gate first failed, then passed after retirement moved before publication cleanup.
+It waits for the record reader's actual received counter before closing the
+canonical transport; it does not assume a sleep proves queued data. Worker exit
+and panic cleanup also close snapshots before publishing an empty state.
+
+Four actual-I/O pool gates exercise normal ordered-session construction, seven
+concurrent children/replacement capacity, duplex data, rekey and fresh child IDs,
+EOF-tail recovery and explicit failure acknowledgement, exclusive punched QUIC
+acceptance, actual quota reclamation and canonical stream survival. The final
+host suites pass 469 session tests (six existing ignores), 153 transport tests,
+five obfs4 integrations and two transport doc-tests. Final ARM executables
+postdate the last source changes. Poco passes four pool, nine frame-owner,
+fifteen registry, eleven binding, five stream-transport and two QUIC-accept tests
+(46 total). The transport helper originally expected four stream tests; its
+counter assertion failed after all five native tests passed. The remaining two
+QUIC gates then ran separately and passed. Both private helper directories were
+removed and helpers/app processes are absent. No Mac stand or app install occurs
+in this cycle; installed applications/native libraries remain build 2365.
+
+This completes pool lifetime integration, not activation in normal application
+traffic. New capability advertisement/negotiation and the canonical runner's
+complete-stream selection, reply routing, failure/rekey aborts, byte reservations
+and independent admission while its old writer is full still need integration.
+The offer remains disabled in production until those paths are implemented and
+verified. Real cellular audio pauses and simultaneous healthy audio/video remain
+unresolved; no physical call improvement is claimed. The original goal is active.
