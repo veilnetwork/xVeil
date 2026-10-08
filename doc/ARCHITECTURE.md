@@ -8366,3 +8366,44 @@ The optional privileged interface capture remains unexecuted. These new
 boundaries refine the next investigation; source priority/segregation still
 needs successful physical encoded video/screen/file coexistence evidence,
 and no elimination of the physical audio pauses is claimed.
+
+### Independent endpoint stream admission (2026-10-08, probe 2360)
+
+The IPC remote stream writer had one pending reliable write for the entire
+client. A stream waiting for capacity in the middle of a segmented write kept
+independent streams, including streams to other peers, behind that admission.
+It did not hold the IPC read loop, but it serialized unrelated reliable source
+interactions. A regression commits a first segment, blocks the second, and
+requests two other streams: the original implementation fails the 200 ms gate.
+
+The writer now owns at most one admission future per stream and polls these
+independently in rotation. The existing per-stream write window and client
+stream cap bound queued bytes and active futures. Data and close retain each
+stream's FIFO. Select cancellation retains partially committed admissions;
+cancelling one stream drops only its queued and pending work. No tasks are
+spawned and no application role or scheduling priority is added on the wire.
+This removes an endpoint queue dependency; ordinary reliable bytes still use
+their canonical ordered session transport and this is not evidence of a new
+separate physical connection for them.
+
+The new regression verifies independent completion and exact reconstruction of
+the delayed file, with no duplicate prefix and a final close after data. A
+second gate cancels one of two partial writes, reuses its local id with a new
+route, and verifies the surviving stream and absence of stale data/close. A
+real Unix IPC socket test verifies another peer's write and exact StreamWindow
+credit return while the first admission remains blocked. The complete default
+veil-ipc suite passes 148 tests, with five existing ignored tests and one
+existing ignored doc-test. These are controlled endpoint tests, not a new
+physical mixed-media quality pass; installed phone and stand are unchanged.
+
+The earlier `load2354retry` sender log also contains 30-second payload write
+timeouts at source offset zero and at a resumed offset. Its serving code applies
+that deadline to each full 256 KiB write, although the endpoint's pressured
+background allowance is 1024 wire bytes per 200 ms. Even without overhead or
+competition, 256 KiB needs 51.2 seconds at that allowance. The source offset
+advances only when the whole write returns; it cannot show whether bytes were
+progressing inside that interval. This exposes a mismatch between the claimed
+write-idle bound and the actual whole-write deadline. A progress-aware deadline
+still needs implementation and verification; the queue change alone is not
+claimed to fix the earlier incomplete physical download. Persistent audio
+pauses and zero encoded video in the camera probes also remain unresolved.
