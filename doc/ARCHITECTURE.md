@@ -8017,3 +8017,36 @@ Formatting passes. This transport primitive is NOT yet activated in call or
 session routing: generic capability negotiation and canonical child dispatch
 must still be connected before claiming TCP media separation. No media labels,
 relay priority requests, identity admissions or wire framing changes are added.
+
+Production debug build 0.13.84+2351 packages the committed SDK 3d198382 on
+Mac and Poco. Both fresh native builds succeed; the packaged Android SDK
+contains the new final-frame and handshake flush paths. The SDK ABI remains
+unchanged, native dependency checks pass and media exports remain production
+only. The same-signer update preserves installed data; the full pulled APK
+matches the signed artifact. The Mac stand's native code and strict seal
+verify. The transport primitive remains explicitly inactive in runtime routing.
+
+Two subsequent Poco→Mac controls stay active for 90 seconds each. Audio
+rings/connects in 1.523/2.217 seconds; camera mode in 0.392/2.482. Network
+warm-up still uses temporary known-peer registration, not a discovery fix.
+Quality still FAILS: audio interruption counts are 24/14 (Mac/Poco), durations
+27.511/13.853 seconds and filtered-delay maxima 533/960 ms. Camera mode
+records 24/12 interruptions, 22.821/5.817 seconds and maxima 505/968 ms.
+These telemetry observations do not establish acoustic latency or controlled
+improvement over earlier network conditions. Source RTP admission is at most
+1 ms in audio and 5 ms in camera mode. Camera capture is real (2732/2667
+local frames), but video_send_paused remains 1 and encoded/delivered frames
+remain zero; this is not a successful coexistence test.
+
+Two opt-in phone TCP snapshots now observe flush, send MSS 1188, roughly
+107/112 KiB queued and 97/104 KiB not yet sent, with retransmissions and RTO
+around 2.4 seconds. Their observed Pending duration is 151 ms; these sparse
+samples do not establish the full call-pause duration or its exact location.
+Existing QUIC datagram traces also include independent-path sends, so all
+traffic in this run must not be described as TCP. Generic ordered children
+still need authenticated capability negotiation, canonical registry dispatch
+and local source/neutral transit selection before deployment. Relay fairness
+and wire privacy remain unchanged. All owned app/helper processes and ADB
+forwards are verified absent; captures stay private and the Mac strict seal
+verifies after cleanup. Commits remain unsigned and unpushed; the media goal
+is active and no complete physical quality fix is claimed.
