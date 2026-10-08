@@ -8601,3 +8601,49 @@ observes ready native stacks; lsof confirms the Mac loads its bundled fresh SDK.
 The phone's installed versionCode is 2364. No call is made in this final boot
 check. Cleanup verifies stopped apps/helpers and removed ADB forwarding; the
 Mac strict seal remains valid after removing its generated debug log.
+
+
+### Showing the audio reserve in the call UI (2026-10-08, build 2365)
+
+A two-minute physical Mac/Poco video call on build 2364 reproduces the unresolved
+quality issue without a concurrent file transfer. Ringing begins at 0.843 s and
+both endpoints are active at 3.189 s. Both microphones and cameras remain enabled.
+The call automatically changes from P2P to relay around 69 s without changing its
+media epoch. Sampled interruption maxima are 20 / 20,182 ms on Mac and
+22 / 17,553 ms on Poco. Native accepted-audio ages peak at 2,837 / 3,008 ms,
+and native receive-delay estimates at 830 / 2,667 ms. These are native buffering
+and continuity measurements, not acoustic end-to-end latency or attribution to a
+carrier. Source RTP admission maxima are 0 / 4 ms, with no source RTP drops.
+Both encoders produce zero video frames: the existing audio reserve keeps their
+senders paused. No diagnostic microphone mute or forced video override is used.
+The final cleanup confirms no owned app/helper processes or forwarding remain.
+
+The direct-call UI previously hid this automatic pause unless the independent,
+dismissible weak-link suggestion was raised. It now shows a live localized status
+explaining that video transmission resumes automatically once audio is stable;
+camera/screen capture remains enabled. The status follows accepted native pause
+and resume controls, retains its preceding value when a worker rejects a change,
+and is cleared when the media session stops. Capture-off hides it. Dismissing the
+optional suggestion cannot hide an ongoing reserve. This is local UI state;
+no extra protocol field or relay priority is introduced.
+
+The focused call/UI/quality/service suite passes 225 tests. Four new widget cases
+cover live pause/resume, dismissal independence, capture-off, and narrow Russian
+layout. Two pre-existing audio-feedback fixtures still expected recovery at
+140 ms and delayed degradation; their assertions are updated to the already
+implemented <120 ms recovery and immediate pause policy. The stale/replayed sample
+case now uses genuinely healthy feedback before breaking the recovery streak.
+Production adaptation thresholds are unchanged. Targeted Dart analysis and
+whitespace validation pass. APK and owned Mac stand builds 0.13.84+2365 succeed;
+the Poco update preserves data and signing identity, and its SDK/media/hidden-volume
+libraries are byte-identical to 2364.
+
+A subsequent 35-second physical video call on 2365 starts ringing at 0.416 s
+and is active on both endpoints at 2.167 s. Authenticated UI trees on both Mac
+and Poco contain the new pause status while both microphones/cameras remain on;
+each endpoint's local diagnostic pause flag agrees with native video_send_paused.
+The phone retains Wi-Fi off, mobile data on, and its default route is cellular.
+Owned app/helper processes and ADB forwarding are absent after teardown, and the
+Mac strict bundle seal verifies. This validates the UI fix and installation;
+physical audio pauses and healthy simultaneous encoded video remain unresolved.
+Separation of ordinary reliable traffic also remains outstanding.
