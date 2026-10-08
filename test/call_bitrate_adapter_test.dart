@@ -30,6 +30,32 @@ void main() {
     'audio_tx_rtp_drops': ?audio,
   };
 
+  test('current audio buffer reserves video before filtered delay rises', () {
+    final a = direct();
+    a.onNativeStats(
+      {...healthyDrops(0, audio: 0), 'audio_delay_ms': 53, 'audio_jb_ms': 163},
+      receiveAudioExpected: true,
+      requireAudioReceivePlayout: true,
+    );
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter * 2; i++) {
+      a.onNativeStats(
+        {...healthyDrops(0, audio: 0), 'audio_jb_ms': 130},
+        receiveAudioExpected: true,
+        requireAudioReceivePlayout: true,
+      );
+    }
+    expect(a.audioReserve, isTrue, reason: 'buffer has not drained enough');
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      a.onNativeStats(
+        {...healthyDrops(0, audio: 0), 'audio_jb_ms': 60},
+        receiveAudioExpected: true,
+        requireAudioReceivePlayout: true,
+      );
+    }
+    expect(a.audioReserve, isFalse);
+  });
+
   test('secondary drops allow only a sparse probe after audio recovery', () {
     final a = direct();
     a.prepareVideoSend(

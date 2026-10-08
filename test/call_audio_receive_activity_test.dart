@@ -4,6 +4,29 @@ import 'package:xveil/state/call_audio_receive_activity.dart';
 void main() {
   final start = DateTime.utc(2026, 10, 5);
 
+  test('current buffer growth reaches feedback before filtered delay', () {
+    final activity = CallAudioReceiveActivity();
+    final stats = <String, Object?>{
+      'audio_rx_pkts': 100,
+      'audio_rx_native_age_ms': 10,
+      'worker_stalled': 0,
+      'audio_delay_ms': 53,
+      'audio_jb_ms': 163,
+    };
+    activity.observe(stats, start);
+    expect(activity.playoutFeedback(start).delayMs, 163);
+    activity.observe({...stats, 'audio_delay_ms': 180}, start);
+    expect(activity.playoutFeedback(start).delayMs, 180);
+    for (final buffer in [null, -1, double.nan, double.infinity, 60001]) {
+      activity.observe({...stats, 'audio_jb_ms': buffer}, start);
+      expect(activity.playoutFeedback(start).delayMs, 53);
+    }
+    activity.observe({...stats, 'worker_stalled': 1}, start);
+    expect(activity.playoutFeedback(start).delayMs, isNull);
+    activity.observe({...stats, 'audio_delay_ms': null}, start);
+    expect(activity.playoutFeedback(start).delayMs, isNull);
+  });
+
   test('interruption feedback survives repairs without inventing outages', () {
     final activity = CallAudioReceiveActivity();
     void sample(int count, {int stalled = 0}) => activity.observe({
