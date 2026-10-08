@@ -7065,3 +7065,106 @@ forced2291/2292 call, stage, receive-boundary, handover, file and cleanup eviden
 is retained. The goal remains active: the mixed file case fails, actual encoded
 video/screen coexistence remains unproved, and neither the successful baseline
 nor the new diagnostics establish a fix for this connection-wide outage.
+
+### Cycle 2293 — independent cellular delay correlates with relay audio gaps
+
+This 150-second Poco-to-Mac relay call uses the unchanged installed 2291 SDK/host
+and production media 2279. Poco remains cellular with Wi-Fi off. Independent
+public-target ICMP probes run simultaneously on both endpoints, with phone
+clock calibration before and after the call (conservative bound 23.469 ms).
+No SIM or network settings change. Main ring/both-active times are 1.091/1.488 s;
+healthy direct recovery is requested at 11.711 s and both show relay 0.353 s
+later. Each media engine retains one epoch. The call completes its full duration.
+
+The concurrent Mac-to-Poco 2-MiB file finishes about 16 seconds after offer,
+with matching checksum, and its owned transfer is cancelled during cleanup.
+This disproves a deterministic 512-KiB transfer ceiling suggested by the prior
+incomplete run; it does not establish reliable coexistence under every outage.
+Audio still fails the quality criterion: native interruptions are Mac 14/9046 ms
+and Poco 34/24407 ms, with maximum receive ages 2427/2106 ms. Receive-queue drops
+remain zero; no actual video frames are encoded. All sparse relay-cell source
+samples match authenticated receipt (148 forward/69 reverse), with delivery
+peaks 1900.6/1941.4 ms. Measured local receive stages stay short: daemon encoding
+to authentication max 870/3161 us, SDK decoding to authentication 786/2029 us.
+These boundaries do not measure queues earlier than daemon encoding.
+
+The independent Poco probe has 598 replies, median 38.5 ms and maximum 1354 ms;
+Mac has 592 replies, median 8.834 ms and maximum 16.022 ms. Poco reply gaps of
+roughly 1.17--1.58 seconds recur about every four seconds, including before file
+offer and after file completion. A 2.601-second gap at elapsed 84.907--87.508 s
+aligns with growing audio receive ages on both endpoints, reaching 2427/2106 ms.
+Delayed ping replies also arrive in clusters at earlier audio gaps. This points
+to a phone network-path contribution outside the measured IPC/SDK boundaries.
+The public ICMP target uses a different path from media: correlation does not
+identify the modem, operating system, carrier or relay as the sole cause, nor
+explain all latency. Earlier app-closed ping controls also showed long delays.
+
+Read-only current radio inspection finds two loaded, enabled SIMs. The first
+slot has emergency-only service and no data connection; the second has an
+active LTE data connection. Allowed radio technologies do not include NR.
+Historical radio records and preferred-network-mode integers must not be read
+as current 5G state. Shared-radio scanning is a hypothesis requiring a separate
+controlled comparison; disabling a real SIM needs user authorization and has
+not been performed.
+
+Cleanup verifies owned apps, phone UID/package processes, probe processes and
+forwarding absent. A transient probe-exit observation is resolved with a second
+authoritative process check and cleanup retry; task-owned Mac runtime logs are
+archived and the strict bundle seal verified. Private call, file, receive-stage,
+independent-network and radio evidence remains outside the repository. No code,
+installed binary, identity, history, P2P policy or /Applications changes. Physical
+pauses, cold setup delays and encoded video/screen coexistence remain unresolved.
+
+### Control 2294 — repeat app-closed probe with read-only radio observations
+
+After Poco reconnects, a 90-second app-closed control runs independent ICMP on
+both endpoints and captures private modem logs. Forty-five read-only service
+snapshots show no registration transition: first slot remains out of service
+with data disconnected; second slot remains in service with data connected.
+Poco has 361 replies, median 33.2 ms/max 311 ms; Mac 352 replies, median
+8.677 ms/max 27.834 ms. Neither has an observed reply gap over one second.
+This control does not reproduce the periodic gaps in the preceding live call.
+Together with older app-closed failures, it establishes variability rather than
+a deterministic app-only or modem-only diagnosis. No SIM/network settings are
+changed. Owned ping/log readers exit; remote probe and phone package absence
+are verified. No application is launched by this control.
+
+### Cycle 2295 — app-on voice comparison with independent modem logging
+
+Using the same unchanged 2291/2279 binaries, a 90-second Poco-to-Mac voice call
+captures independent ICMP and read-only radio logs, without a file or video.
+Warmup still has slow setup (ring 19.902 s/both-active 21.202 s). Main setup is
+fast (0.394/0.782 s). Healthy P2P recovery is requested at 11.106 s; each engine
+retains one epoch and the call completes the requested active duration. No SIM,
+P2P policy or connectivity setting changes.
+
+The quality failure repeats without concurrent file traffic: Mac records
+6 interruptions/5219 ms and Poco 19/17342 ms; maximum audio receive ages are
+2118/2077 ms. All 84 forward/25 reverse sampled relay cells match authenticated
+receipt; first-hop-queue-to-receipt maxima are 1653.6/1300.4 ms. Local receiver
+boundaries remain short: daemon-to-authentication 430/4027 us and SDK-to-
+authentication 268/1494 us. Native receive-queue drops remain zero, although
+Poco records 720 discarded audio packets in playout. These are different
+counters and must not be described as zero audio loss or acceptable quality.
+
+Across warmup, main call and post-call observation, Poco ICMP has 569 replies,
+median 36.3 ms/max 1514 ms and 19 observed reply gaps over one second; Mac has
+583 replies, median 8.775 ms/max 12.85 ms and none. Phone reply timestamps, rather
+than USB-reader timestamps, define these gaps; clock calibration bounds timing
+by 23.051 ms. The largest 4.505-second gap in this whole capture must not be
+reported as an active-call audio gap. Radio registration queries/responses all
+occur before the main call; no recurring registration transition is captured
+during its audio gaps. Activity-info requests are present, but their presence
+alone is not evidence that they cause a radio pause. A spot check finds the
+screen awake, thermal status zero and app CPU 37 percent (top), not proof that
+every scheduler stall is excluded.
+
+The app-closed control immediately preceding this call was healthy. Older
+app-closed controls were not, so this sequence does not prove app causation or
+exclude network variability. Both controlled comparisons narrow the next
+investigation to endpoint traffic/load and the cellular path; the shared-SIM
+hypothesis remains unverified, and no SIM is disabled. Cleanup retry resolves
+another transient probe-exit observation; all owned apps/helpers and remote
+probe exit, forwarding is removed, and archived Mac logs leave a valid strict
+bundle seal. Numeric audits and sensitive raw modem logs remain private. These
+observations do not resolve the audio-priority goal.
