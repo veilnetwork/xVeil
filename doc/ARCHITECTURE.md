@@ -7716,3 +7716,66 @@ All diagnostic workers exited, all nodes stopped with zero status, and all
 fixture sockets were removed. No physical apps were started or updated.
 The audio objective remains active. This cycle's changes are committed
 unsigned and unpushed; production packaging/cellular validation remain pending.
+
+
+### Forward expiration under local source backpressure (2026-10-08)
+
+The longer 1024-kbps mixed fixture (2331) finally observed expired Forward
+envelopes: sampled ages 31–32 seconds exceeded their unchanged 30-second
+TTL. SDK queue/relay/IPC/decrypt/rate-limit counter deltas and blind UDP drops
+were all zero; these counters do not count the early Forward TTL rejection.
+Files reached 270336/307200 bytes, including holes below the latest received
+index, not just pending tails. PCM maxima 239.6/240.2 ms still fail the
+strict 200-ms gate. Driver maximum 17.31 ms was within the measurement gate.
+
+An opt-in generic encrypted-chunk correlation fixture (2332, 120 seconds)
+found eight transfers whose complete six-fragment sets were admitted at
+the source and received by the relay, but only four or five fragments were
+forwarded. The same capture sampled TTL rejection at ages 31–33 seconds.
+This establishes loss before relay enqueue, despite no UDP drops, E2E
+failures or asynchronous send failures. The shorter run's other missing
+indices include pending tails and do not all establish loss. Both fixtures
+joined every worker, stopped all three nodes successfully and left zero
+fixture sockets. No physical application was started or updated.
+
+The local reliable source now keeps four credits of sealed-frame lookahead,
+weighted by 1536-byte units; one oversized compatibility frame owns the
+whole lookahead. Credits survive ingress draining and scheduler queuing.
+This bounds aging encrypted data before publishing without changing neutral
+transit queues, primary reserve, wire metadata, relay fairness or TTL.
+Tests use concurrent producers and consumers so genuine bounded admission
+can apply backpressure; neutral traffic stays independent of a waiting file
+producer. Completion of real simultaneous audio/video/file transfers and
+physical cellular validation are still required.
+
+The benchmark exposes existing generic runtime counters via local-only
+admin metrics, verifies metrics are enabled and records before/after deltas.
+Optional chunk traces contain bounded random fragment identifiers and
+source/receive/enqueue timestamps plus age/TTL; they are off by default and
+do not identify application media roles or disclose payloads. Raw fixture
+keys, identifiers and captures remain private.
+
+
+The weighted-lookahead fixture (2334, 360 seconds, the same 1024-kbps blind
+cap) delivered both 512-KiB files with exact hashes and no missing chunks:
+129.7/123.0 seconds from submission. Every generic drop/decrypt counter delta
+was zero; reassembly reached 256 messages at each endpoint. No Forward
+expiry occurred, and the largest recorded envelope age was six seconds.
+All 340 mixed-phase PCM transitions arrived per direction, with zero quiet
+ticks or native interruptions. Actual VP8 TX 153/191 and RX 136/108 occurred.
+PCM maxima improved to 181.7/201.5 ms, p95 150.3/170.5 ms; the latter still
+fails the strict 200-ms gate. Native delay maxima 163/184 ms and blind FIFO
+maxima 90.9/89.4 ms leave an outstanding latency issue. Driver maximum was
+24.91 ms. All workers exited, three node stops returned zero and sockets
+were removed. Session tests pass: 430 passed, six existing unit ignores,
+plus one ignored documentation test. These results resolve the demonstrated
+TTL/file-loss defect, not the complete audio/physical/screen-share objective.
+
+The largest residual PCM delays began immediately after file/video startup.
+At 21 seconds the filtered native delay estimate was only 63/53 ms while
+the current jitter buffers were already 152/143 ms. Native WebRTC
+GetDelayEstimate uses FilteredCurrentDelayMs plus device playout delay;
+jitter_buffer_ms instead reports currentBufferSize. The current adapter
+and peer feedback consume only the filtered estimate. This is evidence
+for examining delayed endpoint congestion response, not proof that all
+remaining physical network pauses have the same cause.

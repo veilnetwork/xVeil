@@ -21,6 +21,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
 parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per UDP direction; 0 leaves transport unrestricted')
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
+parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
 parser.add_argument('--duration', type=int, default=100)
@@ -28,6 +29,8 @@ parser.add_argument('--local-source-feedback', action='store_true', help='Feed a
 parser.add_argument('--compete-file', action='store_true', help='Transfer 512 KiB of encrypted file chunks through the reliable local DATA lane in each direction during real audio/video')
 parser.add_argument('--no-video', action='store_true', help='Isolate real audio/file coexistence without starting a video encoder; not a full media-priority gate')
 args = parser.parse_args()
+if args.chunk_trace:
+    os.environ['VEIL_DIAG_CHUNKS'] = '1'
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
 sdk_path = args.sdk.resolve(strict=True)
@@ -152,6 +155,9 @@ try:
         lines = ['persist_enabled = false', '[global]', 'meeting_points = "off"', 'builtin_seed_policy = "never"', 'admin_socket = ' + json.dumps('unix://' + str(directory / 'admin.sock')), '[Identity]']
         for key in ['algo', 'public_key', 'private_key', 'nonce', 'node_id']:
             lines.append(key + ' = ' + json.dumps(identity[key]))
+        # Local-only runtime counters cover drops before the UDP shaper and
+        # after transport receipt. No externally reachable metrics listener.
+        lines += ['[metrics]', 'listen = "tcp://127.0.0.1:0"']
         lines += ['[anonymity]', 'relay_capable = true', '[ipc]', 'enabled = true', 'socket_uri = ' + json.dumps('unix://' + str(directory / 'ipc.sock')), '[[listen]]', 'id = "0x00000001"', 'transport = ' + json.dumps('quic://127.0.0.1:' + str(ports[index]))]
         if shaper is not None:
             lines.append('advertise = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[index])))
@@ -328,6 +334,9 @@ try:
         checked(normalsend,controlapps[i],ids[1-i],controlids[1-i],2,payload,len(payload))
     command({'index':0,'op':'ack','pauseOk':False,'budgetOk':False})
     time.sleep(4)
+    metrics_before = [admin(i, 'metrics')['result'] for i in range(3)]
+    assert all(m.get('metrics_enabled') for m in metrics_before), 'Fixture metrics are disabled'
+    (ROOT/'metrics-before.json').write_text(json.dumps(metrics_before))
     if shaper:shaper.rate_bps=args.rate_kbps*1000
     startat=time.monotonic();lasttick=startat;maxscheduler=0;videostarted=False;latestfeedback=[None,None];targets=[None,None]
     def audio_loop():
@@ -397,6 +406,16 @@ try:
     audio_stop.set();audio_thread.join(timeout=5)
     assert not audio_thread.is_alive()
     if audio_failure:(ROOT/'audio-thread-failure.txt').write_text(''.join(audio_failure))
+    metrics_after = [admin(i, 'metrics')['result'] for i in range(3)]
+    (ROOT/'metrics-after.json').write_text(json.dumps(metrics_after))
+    counter_names = ['session_tx_drops_total','priority_queue_drops_total',
+                     'session_outbox_drops_total','ipc_delivery_drops_total',
+                     'send_to_failed_total','dropped_relay_frames_total',
+                     'session_write_stalled_total','chunks_reassembled_total',
+                     'decrypt_failures_total','app_msg_channel_full_total',
+                     'app_msg_channel_closed_total','rate_limit_drops_total']
+    result['runtime_counter_deltas'] = [{k:after[k]-before[k] for k in counter_names}
+                                      for before,after in zip(metrics_before,metrics_after)]
     (ROOT/'pcm-samples.json').write_text(json.dumps(pcmrows))
     (ROOT/'codec-samples.json').write_text(json.dumps(samples))
     result.update(real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
