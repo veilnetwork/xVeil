@@ -729,6 +729,16 @@ class VeilFlutterTransport
   Map<String, int>? mediaChannelStats(int chan) =>
       _mediaApp.mediaChannelStats(chan);
 
+  /// Trusted end-to-end observation for this node's own outgoing budgets.
+  /// The generic IPC lease exposes no traffic role to relays or peers.
+  Future<bool> reportLocalSourcePressure({
+    required bool pressured,
+    required DateTime sampledAt,
+  }) => _mediaApp.reportLocalSourcePressure(
+    pressured: pressured,
+    sampledAt: sampledAt,
+  );
+
   /// Refresh a black-holed anonymous media route after end-to-end silence.
   /// Direct channels reject this with -1; callers should only invoke it for an
   /// actual anonymous route.
