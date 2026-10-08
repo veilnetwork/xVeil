@@ -7987,3 +7987,33 @@ remaining waits are downstream. No successful physical coexistence result
 is claimed, and discovery, loss/ACK waits and transport separation still need
 work. Every owned app/helper process and forward is verified absent and the
 Mac bundle's strict seal verifies after cleanup. No commits are signed/pushed.
+
+SDK 1b4d4404 fixes a separate buffered-write defect: the session writer
+could accept the last plaintext frame while obfs4 still held ciphertext,
+then wait for the next queued frame without flushing. OVL1 handshake flights
+also lacked a flush before waiting for a reply. Both regressions fail against
+the old implementation and pass with the fix. The writer keeps its existing
+local source-pressure lease through flush; partial writes renew the 30-second
+idle budget, while flush, which exposes no partial progress, has a bounded
+30-second completion budget. Nine writer-progress tests and the buffered
+handshake regression pass. This is not yet proof of a physical pause cure.
+
+SDK 3d198382 supplies independent obfs4/TCP transport children with fresh,
+domain-separated channel bindings, seven bounded slots per direction and
+canonical-parent cancellation. Only the dialing endpoint opens TCP children;
+accepted children are duplex rather than reverse-dialing a client's source
+port. A real obfs4 child passes the existing exporter-bound canonical-session
+proof; a proof captured on another connection fails. Exact handshake reads
+also preserve subsequent coalesced bytes; the old boundary regression fails,
+but occurrence in the installed production handshake has not been proved.
+
+All 434 host session tests (six existing ignores), 123 host transport tests,
+five transport smoke tests, two transport doc tests and 59 obfs4 tests pass.
+The five independent-TCP tests also pass on the actual Poco, including a
+roundtrip while the parent's real TCP write is blocked, fresh bindings,
+parent-drop cancellation, sibling survival and budget reclamation. Its
+exclusive temporary fixture is removed and helper/app processes are absent.
+Formatting passes. This transport primitive is NOT yet activated in call or
+session routing: generic capability negotiation and canonical child dispatch
+must still be connected before claiming TCP media separation. No media labels,
+relay priority requests, identity admissions or wire framing changes are added.
