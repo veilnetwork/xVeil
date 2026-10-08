@@ -8120,3 +8120,40 @@ waiting/stale labels. Phone fixtures/helpers and the Mac stand process are
 verified absent. Installed apps remain 2351; no update, release, data reset or
 physical call-quality cure is claimed in this cycle. Ordered-child capability
 negotiation and live session pool/source selection still need activation.
+
+SDK 9e247eec activates parent-bound ordered children in the normal runtime and
+SessionRunner. Both peers must explicitly negotiate the marked ordered-child
+capability together with the existing authenticated flow codec and rekey. Old
+peers retain the ordered compatibility path. The original TCP dialer warms six
+generic duplex connections: four local source slots and two neutral circuit
+shards, under the existing seven-child directional quota. Accepted endpoints
+reuse the duplex children rather than dialing an ephemeral client port. Local
+source roles never appear in proofs or record metadata; relays retain neutral
+admission and dispatch. Ordinary reliable messages/RPC/files still use the
+canonical reliable plane. Readiness, retirement, bounded reconnect backoff and
+normal key rotation now apply to ordered children as well as QUIC children.
+Ordered source pressure uses actual local expiry/flush observations; no QUIC
+RTT/ACK/CWND metrics are synthesized.
+
+The actual SessionRunner tests exchange small and fragmented frames in both
+directions over real obfs4/TCP children, including a deliberately Pending
+canonical writer and ordinary negotiated rekey. Rekey retires old lossy records,
+so the transition test continues producing fresh media, validates every received
+payload and rejects duplicates, checks a two-second delivery gap bound and
+requires every source to deliver both before and after rekey. It does not assert
+lossless delivery across retirement. A reproduced cancellation leak was fixed:
+runner cancellation now aborts its owned canonical writer, releasing the stream
+and dial authority; tests verify children and canonical transport retire.
+
+The full integration run also exposed two fixture issues: a live slow proxy
+receiver must acknowledge keepalives, and these tests must share the rotation
+tests' lock while the process-global 1–2 second lifetime override is active.
+Final host gates pass: 445 session tests (six existing ignores), 829 protocol
+tests, 649 runtime tests (11 existing ignores), and 106 runner integration tests
+(one existing ignore). The rekey delivery check also passes five successive
+repeats. Production macOS/Android FFI and final Android test executables build;
+macOS ABI is unchanged and Android production source freshness is verified.
+Poco is absent from both ADB and the macOS USB list despite the reconnect report.
+No new phone test, app installation or physical call-quality improvement is
+claimed here. Existing installed apps remain 2351; deployments on both endpoints
+and relays are needed to exercise the new capability on a physical call.
