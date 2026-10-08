@@ -8185,3 +8185,107 @@ installed phone data and identities remain untouched. The controlled chain
 checks prove routing and neutral relay behavior, not physical audio quality.
 A physical mixed audio/video/screen/file call still needs an available phone,
 and new ordered capability must be deployed on the participating hops.
+
+### Physical build 2354 with returned Poco — 2026-10-08
+
+Poco is available again over ADB. Fresh ARM64 runner executables pass both
+ordered-child tests and all four neutral QUIC/TCP chain variants on the actual
+phone (six tests total); the temporary executables and helper processes are
+removed. Production build 2354 is installed with `adb install -r`, preserving
+identity/history. The complete pulled APK matches the prepared signed APK.
+Both app runtimes use SDK 9e247eec; SDK 217bcd2d adds tests only, so production
+runtime source is unchanged. The owned Mac stand is build 2354 too; the normal
+/Applications installation is untouched. Poco remains cellular with Wi-Fi off.
+
+Four 90-second Poco-to-Mac calls reach ringing/active in 0.450/1.472,
+1.488/1.931, 0.461/0.957 and 0.462/1.318 seconds respectively. All remain active
+to the end, with no observed endpoint loss or timeout. This uses a 60-second
+warm-up and temporary runtime registration of known authenticated peers, so
+it does not prove unattended cold bootstrap. The first two calls force the
+already permitted relay recovery; the latter two keep normal selection and
+actually remain P2P. These physical relay captures initialize QUIC parallel
+carriers, with no observed ordered-child initialization; the fixture name
+`tcp2354` must not be treated as proof of a physical ordered route.
+
+| Physical observation | Mac interruptions / total ms | Poco interruptions / total ms |
+| --- | ---: | ---: |
+| Relay audio | 7 / 4408 | 7 / 6782 |
+| Relay camera enabled | 6 / 2518 | 7 / 3689 |
+| P2P audio | 9 / 5163 | 12 / 5606 |
+| P2P camera enabled | 7 / 2520 | 7 / 2813 |
+
+These are native playout telemetry, not direct acoustic PCM measurements. Audio
+quality still fails. Camera capture advances on both endpoints, but the source
+guard pauses video throughout the measured camera calls: zero frames encode,
+transmit or arrive remotely. This is not evidence of successful mixed video,
+screen and audio quality. Production media remains the existing 30-packet
+Opus receive buffer with fast acceleration, FEC and DTX; previously rejected
+small-buffer and target-delay experiments are not reintroduced.
+
+Sparse matching local source cells across SDK entry, IPC socket write, daemon
+read, handler entry and direct enqueue yields 184 Mac and 190 Poco matches.
+Direct enqueue is within 3/6 ms respectively (p95 1 ms), and sampled successful
+receive decoding/authentication is below 1.1/3.8 ms. These short local boundaries
+do not prove that all earlier transport queues were short or that unmatched
+cells were permanently lost.
+
+Paired samples of identical encrypted UDP bytes during the P2P audio period
+place substantial delay after Mac `try_send` succeeds and before the Android
+kernel receive timestamp. Of 440 pairs, p95 excess above the fastest observed
+arrival is 281 ms and maximum excess is 1923 ms; Android kernel-to-poll maximum
+is 3.94 ms. The camera period has 480 pairs, maximum excess 389 ms and
+kernel-to-poll maximum 2.51 ms. Reverse audio has 436 pairs with maximum excess
+1510 ms, but Mac has no valid kernel receive timestamp, so its poll scheduling
+cannot be separated from path delay. Pairing is encrypted-byte sampling on
+active connections, which also carry controls; individual UDP packets are not
+proved to be audio. Receiver timestamps can be coalesced by GRO. Wall-clock
+one-way values are not reported as absolute latency: post-test calibration
+bounds Poco-minus-Mac offset at -126.93..-84.23 ms but cannot establish an
+unchanged offset throughout earlier calls. Excess delay assumes approximately
+constant offset over the observation. The localized forward interval includes
+Mac kernel/driver queues, Wi-Fi, Internet/NAT and phone radio arrival. It does
+not identify a carrier, modem, OS or relay as the sole cause.
+
+A further 120-second Mac-to-Poco P2P audio call with an own 2-MiB attachment
+remains active throughout. Final native interruptions are Mac 8/2182 ms and
+Poco 1/213 ms; audio RTP admission maximum is 0 ms on both endpoints. The
+attachment is offered but its initial 120-second encrypted-download observer
+times out, with several direct-stream writes stalling after 6758 bytes and
+chunk retries verifying 3/8 pieces near call completion. This is not proof of
+permanent loss or a successful mixed-file gate. The harness initially calls
+an invalid cancel path; a separate owned stand uses `/download_cancel` and
+verifies that this exact content ID is absent from durable pending downloads.
+
+An independent 2-MiB encrypted-download control without any call completes
+all eight verified pieces approximately ten seconds after the offer. Reliable
+source admission is visibly paced during the voice run. The existing shared
+endpoint allowance under source pressure is 1024 wire bytes per 200 ms; even
+an ideal 2-MiB payload cannot finish in 120 seconds at that ceiling. Retries,
+envelope overhead and other local producers cost additional allowance. A
+short observer timeout therefore must not be classified as a new permanent
+transfer failure solely from this run. The longer-observer repeat below tests
+completion after voice ends without removing the audio guard or increasing
+relay priority.
+
+The longer-observer repeat (`load2354retry`) reaches ringing/active in
+0.465/1.168 s and remains P2P/active for the requested 120 seconds. Final native
+interruptions are Mac 10/6363 ms and Poco 10/5321 ms, with RTP admission maximum
+0/2 ms. The encrypted-file observer nevertheless times out after 240 seconds,
+including roughly two minutes after call hangup. Four of eight pieces verify;
+there is no COMPLETE event. Later stream attempts repeatedly fail to obtain a
+manifest, and a retry-open eventually becomes unavailable. Source-admission
+traces return to `primary_active=false` after the call, so persistent source
+pressure alone does not explain the whole post-call failure. The earlier
+120-second observer was insufficient to establish a cause; extending it does
+not cure this physical transfer. The own transfer is cancelled successfully
+through the correct endpoint. There is no successful checksum/mixed-file gate
+for this repeat, and its root cause remains open.
+
+Every stand ends with owned Mac/logcat/helper processes absent, Poco app/UID
+processes absent, ADB forwarding removed, trace disabled and the owned Mac
+bundle's strict seal valid. A fresh process check after the final stand also
+passes. Captures, credentials, peer IDs, addresses and timing fingerprints stay
+in the restricted private scratch directory. This cycle changes only this
+evidence record, not relay scheduling, production media tuning or user network
+policy. Audio pauses, persistent video suppression, encoded screen coexistence
+and the incomplete mixed-file transfer remain unresolved; the goal is active.
