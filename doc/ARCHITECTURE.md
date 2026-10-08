@@ -7234,3 +7234,39 @@ pre-existing ignored, including actual encrypted QUIC scheduling/recovery and
 neutral-transit tests. This defect is proved in admission; the idle captures do
 not prove that oversized frames caused the physical Poco pauses. SDK rebuild
 and physical verification follow separately.
+
+Both SDK targets are rebuilt from Veil 18219f4e and packaged in stand host
+0.13.84+2298. The source hash of the debt accounting is retained in the private
+manifest; packaged SDK bytes differ from 2291. Original APK signer, complete
+installed Poco APK hash, native imports/exports, independently stripped SDK,
+fresh Mac SDK code sections and strict bundle seal verify. Production media
+remains byte-for-byte 2279; no /Applications replacement, push or release occurs.
+
+Forced2299 repeats 150 seconds of Poco-to-Mac audio with a concurrent 2-MiB
+Mac-to-Poco file. Warmup rings/both-active at 0.406/1.011 s, main 0.610/1.017 s.
+Healthy P2P recovery is requested at 11.382 s; both show relay 0.352 s later,
+retain one engine epoch and complete the requested active duration. File offer
+at active+20.242 s finishes at +29.263 s; its checksum matches at +29.483 s and
+the owned download is cancelled normally. No video/screen capture is started.
+
+This run still fails physical audio quality. Mac records 8 interruptions/
+13641 ms and Poco 17/29644 ms, with maximum receive ages 8651/9617 ms and
+native discarded-audio counts 136/450. Receive-queue drops remain zero; they
+are not equivalent to discarded audio. Matched relay-cell delivery reaches
+9877.8/5122.2 ms forward/reverse, while source local stages peak at 7 ms and
+authenticated receiver stages at 3.938 ms. There are 20/2 source relay samples
+unmatched before capture ends; these are not proof of permanent loss. All
+captured source first hops still lack neutral-Forward datagram readiness and
+retain the ordered compatibility carrier. The capture does not prove that
+an oversized admission was exercised, so it cannot validate or reject that
+specific fix's physical contribution merely by comparing interruption counts.
+
+Independent probes still delay on Poco (706 replies, median 30.7 ms/max
+5054 ms), versus Mac (736, median 8.805 ms/max 13.530 ms). As with earlier
+controls, this does not localize all delay to the modem or carrier. Apps are
+locked and tracing disabled before close; owned apps/helpers and complete
+phone UID/package, remote probe and forwarding are verified absent. Reaped
+probe readers eliminate the earlier cleanup race; strict Mac seal verifies.
+SIMs, connectivity, P2P policy, identities and history are retained. The source
+quota defect is fixed, but the physical pauses and encoded mixed-video/screen
+quality remain unresolved; the goal stays active.
