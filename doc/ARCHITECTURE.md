@@ -8812,3 +8812,79 @@ and independent admission while its old writer is full still need integration.
 The offer remains disabled in production until those paths are implemented and
 verified. Real cellular audio pauses and simultaneous healthy audio/video remain
 unresolved; no physical call improvement is claimed. The original goal is active.
+
+
+### Normal-runner reliable App streams (2026-10-09, SDK ad284ea8)
+
+The canonical `SessionRunner` now selects one carrier at AppOpen admission and
+pins the whole App stream to that canonical connection or one authenticated
+reliable child generation. Open/data/receipt/close and window updates cannot
+change carriers midway through a stream. A failed child leaves a bounded
+ownership tombstone: queued old data is never replayed on the canonical
+connection or a replacement child's keys. Streams opened before readiness remain
+canonical. The ownership map is bounded to 1,024 stream IDs per session.
+
+The scheduler reserves both actor bytes and queue capacity before popping
+plaintext. Cancelling an unused reservation returns credits without publishing
+anything or consuming a nonce. Parent retirement rejects retained reservations
+synchronously. A full canonical writer defers its own heads while allowing
+eligible App source heads to enter the child. Endpoint source admission remains
+in force; no remote priority, application role or relay privilege is added.
+
+Incoming child frames use the normal authenticated peer and app dispatcher.
+Responses stay plaintext in a bounded FIFO (512 entries / 64 KiB) until the
+child writer and endpoint bandwidth admission allow commitment. A full writer
+or temporary bandwidth denial leaves the reply queued and does not consume a
+nonce. RX continues while replies wait, rather than stopping both sides of a
+duplex transfer behind their TX writers. Resource exhaustion fails the child
+explicitly. Child TX/RX and replies count toward parent rekey thresholds and
+transport accounting without using the canonical connection's cipher.
+
+Trusted teardown bypasses remote rate limits to release stream-table entries,
+IPC receive senders and pending Open/Close receipt waiters. Endpoint close
+notifications occur only for still-active streams; waiter cleanup also runs for
+already-closed streams. An incoming close is not locally complete until the
+normal dispatcher accepts it. An outgoing close remains abortable until a
+remote acceptance arrives. Window-update body stream IDs use the same stored
+carrier even when their header stream ID is zero; conflicting IDs are rejected.
+
+Two real obfs4/TCP integration gates drive normal runners, independent frame
+ciphers and real app dispatchers in both directions. They transfer ordered
+2-KiB chunks without duplicates and carry Open/Close receipts on the child.
+Each canonical writer is blocked on actual I/O and receives 400 queued 16-KiB
+frames. A local admission counter proves the child accepts while that writer's
+queue has zero capacity; a sleep or connection count alone is not the witness.
+Aborting a runner releases pending receipts, closes IPC readers and produces
+one endpoint close per active stream. Unit gates cover sticky carrier ownership,
+scope changes, replacement/rekey tombstones, close completion, window updates,
+reply bounds and actual encrypted reply recovery after byte-credit saturation.
+
+The host selected gates pass 61 session tests (two existing ignores) and six
+runner integrations, including four existing opaque-datagram backlog checks.
+The full session suite passes 479 tests (six existing ignores); two ordered
+DATAGRAM and four endpoint source-budget integration regressions also pass.
+The strengthened zero-capacity writer witness passes both new integration gates.
+The final ARM test executable postdates the final source changes. Poco passes
+four actual-I/O pool, eleven frame-owner and eight stream/reply tests (23 total).
+The owned native helper exits, its private directory is removed and the app
+remains stopped. CodeGraph cannot resolve this new path with the missing
+rust-analyzer toolchain; conclusions are checked against the focused sources
+and executable gates, not inferred from its empty graph slice.
+
+A separate physical 90-second Mac/Poco video call uses installed build 2365;
+it does not contain this new runner integration. Poco stays on cellular data
+with Wi-Fi off. Ringing takes 409 ms and both endpoints become active at 2.354 s.
+Both microphones and cameras are on, but encoded video TX/RX frames stay zero:
+the automatic audio protection pauses video. The increasing video-labelled
+queue counters are RTCP packets, not encoded video frames. Native statistics
+report 9 audio interruptions / 18,300 ms on Mac and 19 / 29,968 ms on Poco;
+maximum receive audio buffer delay is 675 / 550 ms. These are sampled native
+counters, not acoustic end-to-end latency measurements. Both owned app instances
+are hung up, locked and stopped; their processes and the ADB forward are absent,
+and the Mac stand bundle seal verifies. Applications are not upgraded here.
+
+Capability advertisement/negotiation and actual normal-runner rekey/crash
+integration gates remain before production activation and updated physical
+file/call tests. `with_reliable()` remains opt-in; production offers remain off.
+Video recovery and cellular audio interruptions remain unresolved. The original
+quality/isolation goal remains active.
