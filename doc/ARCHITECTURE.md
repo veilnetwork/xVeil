@@ -9168,3 +9168,14 @@ the existing two-to-four-second startup burst, and check actual resumed PCM
 before changing more adaptation parameters. Both owned apps/processes and
 the phone package/UID/ADB forward are verified absent after the test. Diagnostic
 archives and the strict Mac seal are retained; all commits remain unpushed.
+
+A private follow-up warms the same real Opus/NetEq fixture for twenty seconds,
+moves its 40/300-ms burst to seconds twenty-to-twenty-two, then measures ten
+healthy DTX seconds and resumed PCM. The installed configuration (only reorder
+decay 0.95) still passes: 140-ms resumed PCM, target down to 20 ms before
+resumption, zero added concealment/interruptions, timer lateness below 5 ms.
+Thus estimator warm-up plus one recovered burst does not reproduce the live
+persistent 280/300-ms target. No additional underrun-memory change is made on
+that hypothesis. Further attribution must examine repeated live arrival gaps
+and actual route/transport behavior; successful single-burst recovery is not
+proof of acceptable buffering on the physical relay path.
