@@ -7006,3 +7006,62 @@ never emit a cell log. Tests verify duplicate timing, absent boundaries,
 expiry, capacity and same-header/different-ciphertext isolation. Locked library
 tests pass: IPC 141 (five pre-existing ignored), client SDK 40. Production media
 is unchanged; rebuilt SDK packaging and physical measurements follow.
+
+Both SDK targets are rebuilt from Veil 621cfbc9 and packaged in 0.13.84+2291.
+Production signer, complete installed Poco APK hash, native dependencies and
+exports, fresh SDK bytes and Mac code sections/strict seal verify. Production
+media remains byte-for-byte 2279; no release is tagged or /Applications replaced.
+
+A 120-second forced2291 Poco-to-Mac audio-only call rings at 0.992 s/both active
+at 1.367 s. Healthy direct receipt is verified before recovery at t=11.520 s;
+both show relay 0.353 s later and retain one engine epoch. Neither adds a native
+interruption after recovery; one startup interruption each precedes it. Of 316
+active samples each, 28 show direct and 288 relay. Sampled relay delivery peaks
+at 268/384 ms, with all 118/67 source samples matched to authenticated receipt.
+This run does not reproduce the preceding multi-second outage.
+
+The new receiver boundaries are populated on actual delivered cells: daemon
+encoding-to-authentication max 648 us Mac/4607 us Poco (67/118 relay samples),
+SDK decoding-to-authentication max 462/816 us (74/129 direct+relay samples).
+Direct ingress lacks the daemon stage and reports unknown rather than zero.
+These measured local stages are fast in this run; they cannot exclude a stall
+that did not occur. Maximum native audio delay is 339/338 ms, and no encoded
+video or file transfer runs in this baseline.
+
+### Cycle 2292 — relay voice with a concurrent 2-MiB file does not pass
+
+This observation still uses installed SDK/host 2291 and production media 2279.
+Poco stays cellular. A planned 150-second Poco-to-Mac voice call first verifies
+healthy direct receipt, switches to relay at t=28.437 s, then begins a Mac-to-Poco
+2-MiB file transfer about 20 seconds after becoming active. Cold setup is also
+poor: warmup reaches both-active after 11.300 s; main rings after 17.861 s/both
+active 18.243 s. No video is enabled.
+
+Audio already has interruptions before the file offer, so coincidence does not
+prove that file traffic caused the failure. Both audio receive counters stop
+advancing around main t=43--44 s. At the last active sample (t=67.638 s) native
+audio receipt ages reach 24865/23785 ms. The call is gone on both endpoints by
+t=76.167 s; the harness records endpoint_lost and ends early, not a successful
+150-second call. Keepalive timeout-close events begin around t=48.879--49.677 s,
+after audio stops. The file reaches only 524288 of 2097152 bytes before the
+owned download is cancelled during cleanup; it has no successful checksum gate.
+
+Source relay cells still enter their local send stages quickly (each sampled
+stage max 1 ms, except Mac handler entry 4 ms). Matched relay cells before the
+freeze show first-hop-queue-to-authenticated-receipt max 1178/1119 ms. For those
+received cells the new local decoder/authentication boundaries remain below
+1 ms: daemon stage max 304/791 us, SDK stage 193/877 us. The timing evidence
+places those observed delayed arrivals before local delivery encoding, rather
+than in the measured receiver IPC/SDK stages. It does not locate packets that
+never arrive: 25/14 relay source samples have no matched authentication before
+capture ends, and must not be claimed as proved permanent loss. Each audio
+engine keeps one epoch and reports zero native receive-queue drops.
+
+Both stands verify owned apps/helpers and phone UID/package processes exited,
+forwarding removed and Mac strict seal valid. Only task-owned failed-download
+cache fragments are removed and their absence verified; identities/history,
+P2P policy, cellular connectivity and /Applications remain intact. Private
+forced2291/2292 call, stage, receive-boundary, handover, file and cleanup evidence
+is retained. The goal remains active: the mixed file case fails, actual encoded
+video/screen coexistence remains unproved, and neither the successful baseline
+nor the new diagnostics establish a fix for this connection-wide outage.
