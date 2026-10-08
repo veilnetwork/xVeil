@@ -7939,3 +7939,27 @@ incorrectly; native-header offsets and Android TCP_INFO offsets were checked
 with the system compiler. Five obfs4 stream tests, two socket/wait tests and
 five transport smoke tests pass; fresh production-feature SDK builds succeed
 on Mac and Android. This is instrumentation, not yet a fix for physical pauses.
+
+The 2349 Poco→Mac relay audio control rings in 0.421 seconds and connects
+in 0.988, but still fails quality: 22/24 interruptions, 26.280/26.797 seconds
+of accumulated interruption, and delay maxima 690/484 ms. TCP write-wait
+snapshots on Poco prove actual kernel backlog/retransmission rather than a
+large obfs4 wrapper buffer: 54–114 KiB not yet sent, only 503–662 ciphertext
+bytes pending locally, retransmissions increasing and waits up to 2263 ms.
+Polling continues within 153 ms. This does not locate where packets are lost.
+The video control has real camera capture (853/686 local frames), but zero
+encoded/delivered frames and both endpoints' 21-second liveness timeout;
+coexistence validation is still failing. Owned apps/helpers and forwards exit.
+
+A standalone socket control on the same Poco exposes a concrete existing
+MSS-clamp defect. Setting TCP_MAXSEG=1200 after connect leaves client/peer
+MSS at 32767/32768 on loopback; setting it before connect negotiates 1188
+on both sides. SDK connect_tcp_stream used only the late call. It now also
+sets the existing limit before connect on Linux/Android, so it is advertised
+in the SYN. Darwin rejects the pre-connect option in the matching control,
+so its established-socket handling is retained. A Linux/Android regression
+checks both connected endpoints, and socket diagnostics now report send MSS.
+Four host TCP/obfs4 tests and two diagnostic tests pass, both native builds
+succeed, and the temporary phone control is removed. These changes introduce
+no media classification, relay priority or new routing policy. Physical
+call quality must be measured again before declaring this a complete cure.
