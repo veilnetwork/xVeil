@@ -8591,3 +8591,13 @@ embedded FFI builds succeed for macOS (with tls-boring) and Android (its usual
 pure Rust TLS). The ABI and wire framing remain unchanged. Physical cellular
 audio pauses and the full requested interaction separation remain outstanding;
 these gates establish bounded child lifetime and isolation, not acoustic quality.
+
+Both application artifacts are updated to 0.13.84+2364. The phone APK's native
+SDK matches an independently stripped production build, its certificate matches
+2363, and packaged media/hidden-volume libraries are byte-identical to 2363.
+The update preserves application data. The owned Mac stand's Dart version and
+strict seal verify. A bounded boot check unlocks both existing profiles and
+observes ready native stacks; lsof confirms the Mac loads its bundled fresh SDK.
+The phone's installed versionCode is 2364. No call is made in this final boot
+check. Cleanup verifies stopped apps/helpers and removed ADB forwarding; the
+Mac strict seal remains valid after removing its generated debug log.
