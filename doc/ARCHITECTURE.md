@@ -6988,3 +6988,21 @@ Private forced2290 call/playout/handover/stage audits and cleanup retain evidenc
 The remaining boundary is delivery between first-hop admission and authenticated
 endpoint receipt; do not attribute these multi-second gaps to the instantaneous
 healthy handover or declare the full audio-priority goal complete.
+
+### Cycle 2291 — distinguish local receipt queues after relay admission
+
+New opt-in endpoint diagnostics retain process-local monotonic stamps before
+daemon delivery encoding and after SDK delivery decoding. The authenticated
+media receive sample consumes their ages only after the channel cipher opens
+the cell. IncomingMessage, IPC frames, network formats, scheduling and relay
+policy are unchanged. Missing boundaries report unknown (-1), including the
+daemon stamp when SDK and daemon are separate processes.
+
+The silent staging table hashes the complete ciphertext rather than trusting
+an unverified epoch/sequence. It samples one in fifty existing sealed cells,
+keeps first receipt across duplicates, is capped at 256 entries, expires after
+30 seconds and clears when tracing is disabled. Unauthenticated observations
+never emit a cell log. Tests verify duplicate timing, absent boundaries,
+expiry, capacity and same-header/different-ciphertext isolation. Locked library
+tests pass: IPC 141 (five pre-existing ignored), client SDK 40. Production media
+is unchanged; rebuilt SDK packaging and physical measurements follow.
