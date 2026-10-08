@@ -3,6 +3,27 @@ import '../domain/call_signal.dart';
 /// Audio activity measured at the receive stream, separately from video and
 /// RTCP ingress. Default counters from a timed-out native worker are not data.
 class CallAudioReceiveActivity {
+  /// WebRTC's delay estimate filters recent buffer growth. Protect audio
+  /// using the larger current buffer too, before that filter catches up.
+  /// Missing buffer stats on older libraries retain the validated estimate.
+  static int? nativePlayoutDelay(Map<String, Object?> stats) {
+    final packets = stats['audio_rx_pkts'];
+    if (stats['worker_stalled'] != 0 ||
+        packets is! num ||
+        !packets.isFinite ||
+        packets <= 0) {
+      return null;
+    }
+    int? valid(Object? value) =>
+        value is num && value.isFinite && value >= 0 && value <= 60000
+        ? value.toInt()
+        : null;
+    final delay = valid(stats['audio_delay_ms']);
+    if (delay == null) return null;
+    final buffer = valid(stats['audio_jb_ms']);
+    return buffer != null && buffer > delay ? buffer : delay;
+  }
+
   int _lastPackets = 0;
   bool supported = false;
   DateTime? lastRxAt;
@@ -72,15 +93,10 @@ class CallAudioReceiveActivity {
       lastRxAt = now;
     }
     _lastPackets = count;
-    final delay = stats['audio_delay_ms'];
+    final delay = nativePlayoutDelay(stats);
     // Only a successfully queried audio worker supplies a playout estimate.
-    if (stats['worker_stalled'] == 0 &&
-        count > 0 &&
-        delay is num &&
-        delay.isFinite &&
-        delay >= 0 &&
-        delay <= 60000) {
-      _playoutDelayMs = delay.toInt();
+    if (delay != null) {
+      _playoutDelayMs = delay;
       _sampledAt = now;
     }
   }

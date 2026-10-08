@@ -1,3 +1,5 @@
+import 'call_audio_receive_activity.dart';
+
 /// Pure sender-side link-quality ladder for live call video.
 ///
 /// Consumes the per-second engine stats sample (remote-reported outbound loss
@@ -646,14 +648,6 @@ class CallBitrateAdapter {
   }
 
   int? _nativeReceiveDelay(Map<String, dynamic> stats) {
-    final raw = stats['audio_delay_ms'];
-    return stats['worker_stalled'] == 0 &&
-            ((stats['audio_rx_pkts'] as num?) ?? 0) > 0 &&
-            raw is num &&
-            raw.isFinite &&
-            raw >= 0 &&
-            raw <= 60000
-        ? raw.toInt()
-        : null;
+    return CallAudioReceiveActivity.nativePlayoutDelay(stats);
   }
 }
