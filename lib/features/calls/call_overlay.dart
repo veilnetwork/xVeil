@@ -593,7 +593,8 @@ String callStatusLabel(AppL10n l, Call call) {
 /// overlay: which actions it offers depends on WHO raised the prompt, and that
 /// branch is not reachable from the service tests.
 ///
-/// Shows nothing at all until [callVideoPrompt] is raised — by the local
+/// Shows the confirmed automatic audio reserve even without a prompt.
+/// The dismissible suggestion is raised by the local
 /// bitrate ladder running out of rungs on a still-failing link, or by the peer
 /// asking. It never acts on its own: the whole point is that a camera the user
 /// switched on is not switched off by a measurement or by a remote party.
@@ -608,11 +609,15 @@ class WeakLinkBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final theme = Theme.of(context);
-    return ValueListenableBuilder<CallVideoPromptCause?>(
-      valueListenable: callVideoPrompt,
-      builder: (context, cause, _) {
-        // Nothing to drop means nothing to offer, whatever raised the prompt.
-        if (cause == null || (!call.cameraOn && !call.screenOn)) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        callVideoPrompt,
+        callVideoSendPausedForAudio,
+      ]),
+      builder: (context, _) {
+        final cause = callVideoPrompt.value;
+        final paused = callVideoSendPausedForAudio.value;
+        if ((cause == null && !paused) || (!call.cameraOn && !call.screenOn)) {
           return const SizedBox.shrink();
         }
         final peerAsked = cause == CallVideoPromptCause.peerAsked;
@@ -633,47 +638,58 @@ class WeakLinkBanner extends StatelessWidget {
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      l.callWeakLinkTitle,
-                      style: theme.textTheme.titleSmall,
+                    Expanded(
+                      child: Text(
+                        paused && !peerAsked
+                            ? l.callVideoPausedForAudioTitle
+                            : l.callWeakLinkTitle,
+                        style: theme.textTheme.titleSmall,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  peerAsked ? l.callWeakLinkBodyPeer : l.callWeakLinkBodyLocal,
+                  peerAsked
+                      ? l.callWeakLinkBodyPeer
+                      : paused
+                      ? l.callVideoPausedForAudioBody
+                      : l.callWeakLinkBodyLocal,
                   style: theme.textTheme.bodySmall,
                 ),
-                Wrap(
-                  spacing: 4,
-                  children: [
-                    TextButton(
-                      onPressed: () {
-                        callVideoPrompt.value = null;
-                        unawaited(svc.setCameraEnabled(false));
-                      },
-                      child: Text(l.callWeakLinkTurnOffVideo),
-                    ),
-                    // Only when WE measured it. A peer that already asked does
-                    // not need to be asked back, and offering it would invite
-                    // the two sides to ping-pong the same request.
-                    if (!peerAsked)
+                if (cause != null)
+                  Wrap(
+                    spacing: 4,
+                    children: [
                       TextButton(
-                        onPressed: () async {
-                          final messenger = ScaffoldMessenger.maybeOf(context);
-                          await svc.askPeerToStopVideo();
-                          messenger?.showSnackBar(
-                            SnackBar(content: Text(l.callWeakLinkAsked)),
-                          );
+                        onPressed: () {
+                          callVideoPrompt.value = null;
+                          unawaited(svc.setCameraEnabled(false));
                         },
-                        child: Text(l.callWeakLinkAskPeer),
+                        child: Text(l.callWeakLinkTurnOffVideo),
                       ),
-                    TextButton(
-                      onPressed: () => callVideoPrompt.value = null,
-                      child: Text(l.callWeakLinkDismiss),
-                    ),
-                  ],
-                ),
+                      // Only when WE measured it. A peer that already asked does
+                      // not need to be asked back, and offering it would invite
+                      // the two sides to ping-pong the same request.
+                      if (!peerAsked)
+                        TextButton(
+                          onPressed: () async {
+                            final messenger = ScaffoldMessenger.maybeOf(
+                              context,
+                            );
+                            await svc.askPeerToStopVideo();
+                            messenger?.showSnackBar(
+                              SnackBar(content: Text(l.callWeakLinkAsked)),
+                            );
+                          },
+                          child: Text(l.callWeakLinkAskPeer),
+                        ),
+                      TextButton(
+                        onPressed: () => callVideoPrompt.value = null,
+                        child: Text(l.callWeakLinkDismiss),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
