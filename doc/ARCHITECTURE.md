@@ -9072,3 +9072,38 @@ host gate remain the evidence for the specific change. Network file delivery,
 route discovery and audio quality remain unresolved. Both owned apps, their
 processes and the owned ADB forward are verified absent after the final run;
 Mac strict seal verification passes. Commits are unsigned and unpushed.
+
+### Audio recovery after jitter followed by DTX — 2026-10-09
+
+Veil 160e067d changes receiver-local NetEq reordering-history decay from the
+WebRTC default 0.9993 to 0.95. Packet capacity remains 30, fast acceleration,
+underrun-estimator configuration and Opus settings remain unchanged. This
+changes neither transport scheduling nor any wire metadata or relay policy.
+
+A new actual decoded-PCM gate injects the existing 40/300-ms jitter burst
+between seconds two and four, then sends ten seconds of silence over the
+recovered 40-ms path before resuming speech. The production baseline receives
+57 DTX packets, has no additional concealed samples or interruptions during
+silence, and has only 43 ms of current packet buffering; nevertheless its
+filtered delay remains 202 ms and resumed speech takes 340 ms. The gate fails
+with the old production media library. A private preferred-delay trace shows
+the old target remains 280 ms through silence. Changing only the underrun
+forget factor to 0.9 does not improve resumed PCM (still 340 ms); changing only
+reordering decay to 0.95 does. This separates the responsible estimator from
+ordinary DTX cadence and from the previously rejected capacity/flush changes.
+
+The fixed production source passes all seven PCM scenarios: healthy DTX,
+jitter followed by DTX, continuous speech under jitter, symmetric/asymmetric
+channel handover, queued-delivery stall and delivery loss. The new scenario
+resumes speech in 140 ms, ends silence with filtered delay at most 82 ms, and
+adds no concealment or interruptions. Timer lateness is below 5 ms. An initial
+run with 50.8-ms host timer lateness is discarded; its strict timing gate is
+retained and the full repeat passes.
+
+In a separate unchanged continuous-speech control, the 30-packet baseline's
+five-second/seven-second decoded markers take 340/342 ms, versus 231/140 ms
+with the change. Concealed samples are 20710 versus 20273, with the same two
+interruptions and one buffer flush. These controlled results establish a
+local audio recovery improvement; they do not yet establish physical cellular
+call quality or successful automatic video recovery. Those require the next
+stand installation and live Mac/Poco measurement.
