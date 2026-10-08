@@ -7168,3 +7168,69 @@ another transient probe-exit observation; all owned apps/helpers and remote
 probe exit, forwarding is removed, and archived Mac logs leave a valid strict
 bundle seal. Numeric audits and sensitive raw modem logs remain private. These
 observations do not resolve the audio-priority goal.
+
+### Controls 2296/2297 — idle app traffic and UID attribution
+
+Both controls use unchanged installed host/SDK 2291 and media 2279. The Poco
+stays on cellular; no SIM/network settings change. The two stand applications
+are unlocked and complete the ordinary endpoint exchange, then remain open
+without a call for 60 seconds. Each control has 29 successful paired API gates
+confirming call absence. No camera, screen, audio engine or file fixture is
+started. Independent ICMP and private modem logging run throughout observation.
+
+Idle2296 reproduces long independent delay: Poco has 196 replies, median
+40.9 ms/max 15408 ms; Mac has 241, median 8.587 ms/max 12.532 ms. Device-wide
+cellular-interface counters show median receive/send rates 22.843/37.799 kbit/s
+and one-second peaks 788.935/1009.981 kbit/s, including startup. Those counters
+alone cannot attribute traffic to a process or prove link saturation.
+
+Idle2297 forces Android network-counter polling before startup and after the
+idle window, with acknowledgement at each boundary. Standard UID histories
+are summed only for MOBILE (numeric type 0 on this phone), excluding the
+duplicate tagged-history section and Wi-Fi. The same 63 app mobile buckets
+exist at both boundaries. Across 87.730 seconds including startup, xVeil
+receives/sends 835161/1550945 bytes; all mobile UIDs total 861982/1579548 bytes.
+Thus almost all accounted traffic belongs to xVeil, but this does not show
+which protocol produces it or that its byte rate causes a radio outage.
+This repeated idle probe reaches Poco max 1684 ms versus Mac 12.77 ms.
+The absence of a call establishes that codec/camera/file traffic is not needed
+for these independent delay failures. It does not establish deterministic app
+causation: earlier app-closed controls also failed, and network conditions vary.
+
+Both controls reap their owned network readers before lifecycle cleanup,
+avoiding the earlier transient defunct-child observations. API tracing is
+disabled and profiles locked; owned apps/helpers, complete phone UID/package,
+remote probe and ADB forward are verified absent, and the Mac strict seal is
+valid. Sensitive radio and network histories remain private. Production code,
+installed binaries, identities/history and /Applications remain unchanged.
+
+### Cycle 2298 — oversized local background frames retain spent allowance
+
+Source inspection identifies a separate endpoint admission defect. While local
+primary audio is active and pressured, reliable background producers share a
+4096-byte/200-ms allowance and own network queries a separate 1024-byte/200-ms
+allowance. A whole legacy frame larger than its allowance must be allowed to
+progress, but the old implementation replenished all bytes at the next 200-ms
+window. Repeated large frames could therefore exceed the intended sustained
+budget on different neighbors even while primary pressure persisted.
+
+Oversized frames now spend enough consecutive future windows to cover their
+bytes. Refreshing primary activity/pressure does not replenish that debt.
+The first indivisible frame still passes whole; this bounds sustained competing
+traffic, not the serialization delay of that one frame. When pressure or primary
+activity expires, the ordinary unthrottled behavior returns. Reliable FIFO,
+admission credits, independent network-query allowance, loss-tolerant source
+policy and neutral transit are retained. No relay priority, media-role label,
+network format, cryptographic state or audio-quality threshold changes.
+
+The initial regression fails on the old implementation at the first renewed
+window. The stronger final case keeps primary/pressure fresh across their
+original grace deadlines, verifies no new bytes pass until the oversized
+allowance is paid, then verifies prompt normal resumption. A runner may wake
+earlier to recheck pressure expiry without forgiving the debt. Existing tests
+also verify independent query/file allowances and immediate pressure/idle
+release. The locked veil-session library suite passes: 423, zero failed, six
+pre-existing ignored, including actual encrypted QUIC scheduling/recovery and
+neutral-transit tests. This defect is proved in admission; the idle captures do
+not prove that oversized frames caused the physical Poco pauses. SDK rebuild
+and physical verification follow separately.
