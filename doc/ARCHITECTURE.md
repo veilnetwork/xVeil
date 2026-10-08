@@ -8050,3 +8050,43 @@ and wire privacy remain unchanged. All owned app/helper processes and ADB
 forwards are verified absent; captures stay private and the Mac strict seal
 verifies after cleanup. Commits remain unsigned and unpushed; the media goal
 is active and no complete physical quality fix is claimed.
+
+### Ordered child record plane and shared listener — 2026-10-08
+
+SDK 440829b1 adds a bounded loss-tolerant record codec on authenticated
+independent obfs4/TCP children. Its only framing field is an encrypted two-byte
+length; producer role, local priority and expiry are not transmitted. Each
+direction has a 64 KiB byte/metadata budget. Outgoing reservations remain held
+through flush, and expiry can cancel a write only before any bytes were accepted.
+An incomplete record closes the entire child instead of corrupting subsequent
+framing. Incoming records have identical oldest-first eviction and a 200 ms
+local residence bound; this is not a bound on TCP transit time. Reliable
+messages must never use this codec. Local writer progress is not ACK or RTT.
+
+The runtime's shared encrypted listener now distinguishes ordinary OVL1 from
+generic auxiliary proofs on both QUIC and obfs4/TCP. Ordered children require
+the fresh accepted transport's binding and the live canonical parent's proof
+before acquiring one of seven incoming leases. They create no peer identity or
+new dispatcher budget. Parent retirement immediately rejects admission and
+wakes idle child I/O. A stale registration guard cannot remove a replacement
+registration. Ordinary OVL1 bytes and existing QUIC dispatch are preserved.
+
+All ten record tests, six binding tests and nine shared-registry tests pass on
+the actual Poco, using freshly compiled Android test executables. The registry
+test blocks a real canonical TCP write and exchanges authenticated records on
+three independently bound children through the same listener; dropping one
+child leaves its sibling alive. Tests also cover replay on a different fresh
+transport, retired/pending parents, malformed lengths, queue expiry, bounded
+admission and lease reclamation. The exclusive phone fixture was removed and
+helper/application processes were verified absent; no app/data reset occurred.
+
+Host gates pass: 133 transport unit tests, five smoke tests, two doc tests,
+442 session tests (six existing ignores), and the final six binding/nine
+registry tests after the prefix/payload coalescing change. Production macOS and
+Android FFI builds and formatting succeed; the compiled ABI is unchanged.
+The installed apps remain build 2351. This commit prepares the record plane
+and shared receiver only: normal SessionRunner still offers QUIC children.
+Ordered capability negotiation, source selection and duplex pool ownership
+remain to be connected before deployment and another physical call-quality
+test. These protocol tests do not establish that the physical audio pauses
+are fixed or that encoded video can coexist successfully with audio.
