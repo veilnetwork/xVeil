@@ -23,6 +23,8 @@ parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FI
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
 parser.add_argument('--duration', type=int, default=100)
+parser.add_argument('--local-source-feedback', action='store_true', help='Feed actual endpoint quality to the shared local producer budget over negotiated IPC')
+parser.add_argument('--compete-file', action='store_true', help='Transfer 512 KiB of encrypted file chunks through the reliable local DATA lane in each direction during real audio/video')
 args = parser.parse_args()
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
@@ -74,6 +76,7 @@ openmedia = fn('veil_media_open_relay_channel', [P, P, P, C.c_uint32, P, P, E], 
 mediaclose = fn('veil_media_close_channel', [C.c_uint64], None)
 trace = fn('veil_debug_set_rt_trace', [C.c_int], None)
 secondary_sender = fn('veil_media_channel_set_secondary_sender', [C.c_uint64, P, E], C.c_int)
+source_report = fn('veil_app_report_local_source_pressure', [P, C.c_uint8, C.c_uint64, E], C.c_int) if args.local_source_feedback else None
 shaper = None
 
 def checked(f, *args):
@@ -109,6 +112,15 @@ media=None
 audio_thread=None
 audio_stop=threading.Event()
 audio_failure=[]
+source_feedback_queued=[0,0]
+source_feedback_skipped=[0,0]
+file_threads=[]
+file_stop=threading.Event()
+file_lock=threading.Lock()
+file_results=[{},{}]
+file_apps=[]
+file_bytes=512*1024
+file_payloads=[os.urandom(file_bytes),os.urandom(file_bytes)] if args.compete_file else []
 result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False}
 try:
     for index in range(3):
@@ -216,6 +228,53 @@ try:
         control=checked(bind,handles[index],service,len(service),b'opaque',6,2)
         extra_apps.append(control);controlapps.append(control)
         aid=C.create_string_buffer(32);assert appid(control,aid)==0;controlids.append(aid)
+    if args.compete_file:
+        filesend=fn('veil_send_on_local_lane',[P,P,P,C.c_uint32,P,C.c_size_t,C.c_uint8,C.c_uint8,E],C.c_int)
+        fileids=[];filekeys=[AESGCM(os.urandom(32)),AESGCM(os.urandom(32))]
+        chunks=[{},{}];file_auth_errors=[0,0];file_duplicates=[0,0]
+        for i in range(2):
+            uri=str(ROOT / str(i+1) / 'ipc.sock').encode()
+            handle=checked(connect,uri,len(uri));extra_handles.append(handle)
+            app=checked(bind,handle,service,len(service),b'file',4,3)
+            assert app;extra_apps.append(app);file_apps.append(app)
+            aid=C.create_string_buffer(32);assert appid(app,aid)==0;fileids.append(aid)
+        for i in range(2):
+            def receive_file(user,node,app,provenance,reply,data,size,i=i):
+                try:
+                    assert C.string_at(node,32)==ids[1-i].raw[:32]
+                    assert C.string_at(app,32)==fileids[1-i].raw[:32]
+                    raw=C.string_at(data,size);index=int.from_bytes(raw[:12],'big')
+                    assert 0<=index<file_bytes//2048
+                    chunk=filekeys[1-i].decrypt(raw[:12],raw[12:],b'codec-file-v1')
+                    assert len(chunk)==2048
+                    with file_lock:
+                        if index in chunks[i]:file_duplicates[i]+=1
+                        chunks[i][index]=chunk
+                        file_results[i].update(received=len(chunks[i])*2048,missing_chunks=file_bytes//2048-len(chunks[i]))
+                        if len(chunks[i])==file_bytes//2048:
+                            data=b''.join(chunks[i][n] for n in range(file_bytes//2048))
+                            file_results[i].update(received=len(data),hash_matches=hashlib.sha256(data).digest()==hashlib.sha256(file_payloads[1-i]).digest())
+                except Exception:file_auth_errors[i]+=1
+                finally:freebuf(node,64+size)
+            cb=handler_type(receive_file);callbacks.append(cb)
+            assert checked(handler,file_apps[i],cb,None)==0
+        def write_file(i):
+            try:
+                began=time.monotonic()
+                sent=0
+                for off in range(0,file_bytes,2048):
+                    if file_stop.is_set():break
+                    nonce=(off//2048).to_bytes(12,'big')
+                    payload=nonce+filekeys[i].encrypt(nonce,file_payloads[i][off:off+2048],b'codec-file-v1')
+                    # Local selector 4 is stripped by IPC before the network.
+                    # This exercises reliable DATA admission and the app's
+                    # encrypted datagram-file fallback, not a direct-only stream.
+                    assert checked(filesend,file_apps[i],ids[1-i],fileids[1-i],3,payload,len(payload),4,0)==0
+                    sent+=2048
+                with file_lock:file_results[i].update(queued=sent,queue_duration_ms=round((time.monotonic()-began)*1000,1))
+            except Exception as e:
+                with file_lock:file_results[i]['write_error']=type(e).__name__
+                (ROOT/f'file-{i}-write-error.log').write_text(traceback.format_exc())
     for index in range(2):
         def receive_health(user,node,app,provenance,reply,data,size,index=index):
             try:
@@ -288,7 +347,13 @@ try:
                 finally:mfree(ptr)
                 feedback=[]
                 while inbox[i]:feedback.append(inbox[i].popleft())
-                r=command({'index':i,'op':'stats','now':int(time.time()*1000),'stats':stats,'feedback':feedback,'prepare':prepare})
+                sampled_at=int(time.time()*1000)
+                r=command({'index':i,'op':'stats','now':sampled_at,'stats':stats,'feedback':feedback,'prepare':prepare})
+                if source_report is not None and r['sourcePressured'] is not None:
+                    rc=checked(source_report,apps[i],int(r['sourcePressured']),sampled_at)
+                    if rc==0:source_feedback_queued[i]+=1
+                    elif rc==1:source_feedback_skipped[i]+=1
+                    else:raise RuntimeError('Local source feedback refused')
                 latestfeedback[i]=r['feedback'];targets[i]=r['target']
                 pauseok=True;budgetok=True
                 if r['pause'] is not None:pauseok=pause(e,int(r['pause']))==0
@@ -301,6 +366,10 @@ try:
                     assert startvideo(e,1,1,t['kbps'],max(1,math.ceil(t['fps'])))==0
                     budget(e,t['kbps'],t['fps'])
                 videostarted=True
+                if args.compete_file:
+                    for i in range(2):
+                        thread=threading.Thread(target=write_file,args=(i,),name='stand-file')
+                        file_threads.append(thread);thread.start()
             if tick%500==0:
                 for i in range(2):
                     nonce=noncecounter[i].to_bytes(12,'big');noncecounter[i]+=1
@@ -360,6 +429,11 @@ try:
     mixed=phases[-1]['directions']
     pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
     result['ok']=pcm_ok and not audio_failure and maxscheduler<40 and result['neutral_datagram_route_verified'] and not any(nativefail+pollfail+healthbad) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 and d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed)
+    result.update(local_source_feedback=args.local_source_feedback,source_feedback_queued=source_feedback_queued,source_feedback_skipped=source_feedback_skipped,reliable_file_contention=args.compete_file,file_results=file_results if args.compete_file else [])
+    if args.local_source_feedback:result['ok']=result['ok'] and all(source_feedback_queued) and not any(source_feedback_skipped)
+    if args.compete_file:
+        result.update(file_auth_errors=file_auth_errors,file_duplicates=file_duplicates)
+        result['ok']=result['ok'] and all(x.get('hash_matches') and x.get('queued')==file_bytes for x in file_results) and not any(file_auth_errors+file_duplicates)
 except Exception:
     (ROOT/'failure.txt').write_text(traceback.format_exc())
     result['ok']=False;result['failure_saved_privately']=True
@@ -368,6 +442,11 @@ finally:
     if audio_thread is not None:
         audio_thread.join(timeout=5)
         result['audio_thread_exited']=not audio_thread.is_alive()
+    file_stop.set()
+    # Join producers before closing their application bindings.
+    for thread in file_threads:thread.join(timeout=5)
+    result['file_threads_exited']=all(not t.is_alive() for t in file_threads)
+    result['ok']=result['ok'] and result['file_threads_exited']
     if policy is not None:
         policy.stdin.close()
         try:policy.wait(timeout=5)

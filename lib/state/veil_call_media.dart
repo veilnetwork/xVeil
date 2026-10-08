@@ -21,6 +21,7 @@ import 'android_native_call_video.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
+import 'call_audio_source_pressure.dart';
 import 'call_microphone_state.dart';
 import 'call_camera_state.dart';
 import 'call_peer_audio_playout.dart';
@@ -454,6 +455,11 @@ class VeilCallMediaController implements CallMediaController {
   int _lastRxPkts = 0;
   final _audioReceiveActivity = CallAudioReceiveActivity();
   CallPeerAudioPlayout _peerAudioPlayout = CallPeerAudioPlayout();
+  final _sourcePressure = CallAudioSourcePressure();
+  bool _sourceFeedbackPending = false;
+  int _sourceFeedbackQueued = 0;
+  int _sourceFeedbackSkipped = 0;
+  bool? _sourcePressured;
   bool _peerAudioCaptureEnabled = true;
   DateTime? _receiveSessionStartedAt;
   int _lastNativeRxCount = 0;
@@ -642,6 +648,9 @@ class VeilCallMediaController implements CallMediaController {
         'media_repairing': _routeRepairing,
         'audio_rx_supported': _audioReceiveActivity.supported,
         'peer_audio_playout_ms': _peerAudioPlayout.delayMs(DateTime.now()),
+        'local_source_pressured': _sourcePressured,
+        'local_source_feedback_queued': _sourceFeedbackQueued,
+        'local_source_feedback_skipped': _sourceFeedbackSkipped,
         'audio_rx_age_ms': engineStats.containsKey('audio_rx_native_age_ms')
             ? (engineStats['worker_stalled'] == 0 &&
                       nativeAudioAge is num &&
@@ -986,6 +995,9 @@ class VeilCallMediaController implements CallMediaController {
     if (!_microphoneState.belongsToCall(call.callId)) {
       _bitrateAdapter = null;
       _peerAudioPlayout = CallPeerAudioPlayout();
+      _sourceFeedbackQueued = 0;
+      _sourceFeedbackSkipped = 0;
+      _sourcePressured = null;
       _peerAudioCaptureEnabled = call.peerCapture?.audio ?? call.media.audio;
     }
     _microphoneState.beginCall(call.callId, micOn: call.micOn);
@@ -1200,6 +1212,7 @@ class VeilCallMediaController implements CallMediaController {
     _lastRxPkts = 0;
     _audioReceiveActivity.reset();
     _receiveSessionStartedAt = DateTime.now();
+    _sourcePressure.reset();
     _lastNativeRxCount = _transport.mediaRecvCount(call.mediaPeer.bytes);
     _engineRxStalledSince = null;
     _lastRepairAt = null;
@@ -1210,6 +1223,56 @@ class VeilCallMediaController implements CallMediaController {
         final stats = engine.getStats();
         final now = DateTime.now();
         _audioReceiveActivity.observe(stats, now);
+        final peerInterrupted = _peerAudioPlayout.takeInterruption();
+        final audioInterrupted =
+            call.media.audio &&
+            ((_peerAudioCaptureEnabled && _audioReceiveActivity.interrupted) ||
+                (!_microphoneState.muted && peerInterrupted));
+        final receiveDelay = _audioReceiveActivity.playoutFeedback(now).delayMs;
+        final receiveAt = _audioReceiveActivity.lastRxAt;
+        final nativeDrops = stats['audio_tx_rtp_drops'];
+        final sourcePressured = _sourcePressure.observe(
+          sendExpected: call.media.audio && !_microphoneState.muted,
+          receiveExpected: call.media.audio && _peerAudioCaptureEnabled,
+          requirePeerPlayout:
+              (call.peerProtocolVersion ?? 1) >=
+              kCallAudioPlayoutFeedbackMinVersion,
+          peerDelayMs: _peerAudioPlayout.delayMs(now),
+          receiveDelayMs: receiveDelay,
+          receiveAgeMs: receiveAt == null
+              ? null
+              : now.difference(receiveAt).inMilliseconds,
+          interrupted: audioInterrupted,
+          audioTxDrops: nativeDrops is int ? nativeDrops : null,
+        );
+        _sourcePressured = sourcePressured;
+        if (sourcePressured != null && !_sourceFeedbackPending) {
+          // One small outstanding report, with the ORIGINAL sampling time.
+          // Delayed workers/writes cannot renew pressure after this call ends.
+          _sourceFeedbackPending = true;
+          unawaited(
+            _transport
+                .reportLocalSourcePressure(
+                  pressured: sourcePressured,
+                  sampledAt: now,
+                )
+                .then<void>(
+                  (queued) {
+                    if (_engine != engine) return;
+                    if (queued) {
+                      _sourceFeedbackQueued++;
+                    } else {
+                      _sourceFeedbackSkipped++;
+                    }
+                  },
+                  onError: (Object _) {
+                    // The lease expires naturally on unavailable/older IPC.
+                    if (_engine == engine) _sourceFeedbackSkipped++;
+                  },
+                )
+                .whenComplete(() => _sourceFeedbackPending = false),
+          );
+        }
         // Per-second quality trace into the devLog ring (2 s cadence to leave
         // ring headroom): the live "delay grows over the call" report needs
         // the full curve — RTCP rtt/jitter AND the direct receive-pipeline
@@ -1293,7 +1356,6 @@ class VeilCallMediaController implements CallMediaController {
         }
         final adapter = _bitrateAdapter;
         if (adapter != null) {
-          final peerInterrupted = _peerAudioPlayout.takeInterruption();
           // Sender-side ladder driven by what the REMOTE receiver reports for
           // our outbound leg (RTCP report blocks) plus local queue drops. The
           // route profile stays the ceiling; adaptation only spends less.
@@ -1302,11 +1364,7 @@ class VeilCallMediaController implements CallMediaController {
             sendAudioExpected: call.media.audio && !_microphoneState.muted,
             requireAudioReceivePlayout:
                 call.media.audio && _peerAudioCaptureEnabled,
-            audioInterrupted:
-                call.media.audio &&
-                ((_peerAudioCaptureEnabled &&
-                        _audioReceiveActivity.interrupted) ||
-                    (!_microphoneState.muted && peerInterrupted)),
+            audioInterrupted: audioInterrupted,
             receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
             requirePeerAudioPlayout:

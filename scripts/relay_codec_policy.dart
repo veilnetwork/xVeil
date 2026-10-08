@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:xveil/state/call_bitrate_adapter.dart';
 import 'package:xveil/state/call_audio_receive_activity.dart';
 import 'package:xveil/state/call_peer_audio_playout.dart';
+import 'package:xveil/state/call_audio_source_pressure.dart';
 import 'package:xveil/domain/call_signal.dart';
 
 Future<void> main() async {
@@ -16,6 +17,7 @@ Future<void> main() async {
   );
   final activity = List.generate(2, (_) => CallAudioReceiveActivity());
   final peer = List.generate(2, (_) => CallPeerAudioPlayout());
+  final sourcePressure = List.generate(2, (_) => CallAudioSourcePressure());
   await for (final line
       in stdin.transform(utf8.decoder).transform(const LineSplitter())) {
     final req = jsonDecode(line) as Map<String, dynamic>;
@@ -41,6 +43,20 @@ Future<void> main() async {
     activity[i].observe(stats, now);
     final peerInterrupted = peer[i].takeInterruption();
     final interrupted = activity[i].interrupted || peerInterrupted;
+    final sourcePressured = sourcePressure[i].observe(
+      sendExpected: true,
+      receiveExpected: true,
+      requirePeerPlayout: true,
+      peerDelayMs: peer[i].delayMs(now),
+      receiveDelayMs: activity[i].playoutFeedback(now).delayMs,
+      receiveAgeMs: activity[i].lastRxAt == null
+          ? null
+          : now.difference(activity[i].lastRxAt!).inMilliseconds,
+      interrupted: interrupted,
+      audioTxDrops: stats['audio_tx_rtp_drops'] is int
+          ? stats['audio_tx_rtp_drops'] as int
+          : null,
+    );
     if (req['prepare'] == true) {
       a.prepareVideoSend(
         stats,
@@ -80,6 +96,7 @@ Future<void> main() async {
         'target': {'kbps': target.maxBitrateKbps, 'fps': target.maxFps},
         'audioReserve': a.audioReserve,
         'peerDelay': peer[i].delayMs(now),
+        'sourcePressured': sourcePressured,
       }),
     );
   }

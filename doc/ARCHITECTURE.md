@@ -7456,3 +7456,82 @@ to authenticated local IPC, preserve separate queues and source ownership,
 expire naturally after the local producer ends, and never classify audio or
 prioritise ordinary transit on a relay. Real audio/video plus reliable-file
 contention, followed by physical verification, remains required.
+
+Trusted endpoint feedback and bounded DATA during healthy audio (2315–2318)
+-------------------------------------------------------------------------
+
+Poco was reconnected on cellular without changing Wi-Fi/SIM settings. A
+90-second audio-only call on the installed 2309 build rang in 3.199 seconds
+and both endpoints became active in 7.140 seconds. Most observations used
+P2P, with no encoded video. The Mac recorded one 447-ms interruption; Poco
+recorded two totaling 913 ms. Native receive-delay maxima were 699/471 ms.
+These failures cannot all be attributed to video contention. Both owned apps,
+logcat and the ADB forward were closed. A debug log written during late Mac
+shutdown was preserved privately and removed after process exit; the stand
+bundle's strict signature verification passes again.
+
+LocalApp message 93 now carries a generic local source observation, with a
+negotiated app↔daemon capability, owned application ID, boolean pressure and
+original host sampling timestamp. Malformed, foreign, unnegotiated and stale
+reports cannot mutate admission. Samples older than 1500 ms or more than
+250 ms in the future are refused. SDK/FFI admission is bounded to 250 ms;
+writer freshness and daemon timestamp validation prevent backlog from
+renewing retired observations. Healthy reports do not erase another source's
+pressure. The existing activity/pressure grace expires naturally. No content
+role, destination, service class or new network flag is transmitted to peers.
+The regenerated C header and both ABI contracts match the built host SDK.
+
+The call controller reports once per second through its own media IPC binding
+for audio-only calls as well as video calls, with one outstanding operation.
+It uses authenticated fresh peer playout, separately measured receive age and
+playout, interruptions and completed primary RTP failures. Missing expected
+measurements restrain competing producers; twelve healthy observations earn
+recovery. Muted directions are excluded and a call with no expected audio
+stops refreshing the lease. Queued/skipped counts are exposed in diagnostics,
+explicitly as IPC admission counts rather than daemon acknowledgments.
+
+Actual file contention exposed another defect: healthy source observations
+removed the entire reliable DATA limit, allowing a fast first hop to build a
+downstream queue before the next pressure observation. Reliable local DATA
+now retains its shared 4096-byte/200-ms allowance while a local primary is
+active. Whole compatibility frames preserve byte debt and FIFO. The separate
+recovery RPC allowance remains pressure-only; neutral transit is unchanged.
+Pressure-specific writer regressions now probe that independent RPC allowance
+instead of assuming healthy DATA is unlimited. All 427 session tests pass
+(six pre-existing ignores), as do 143 IPC and 42 SDK unit tests. The invalid
+FFI argument/handle regression passes. All 85 selected Flutter policy,
+playout, preview and real-library ABI tests pass; analysis is clean.
+
+The real codec control now optionally publishes the same source policy over
+actual negotiated IPC and transfers encrypted file chunks through reliable
+local DATA in both directions. The initial direct-stream attempt in the relay
+topology was an invalid test: ordinary SDK streams require a direct peer; the
+application uses anonymous streams or datagram fallback for that topology.
+That failed fixture is retained privately, not treated as a product regression.
+The supported DATA run before the healthy-source limit had complete files but
+decoded PCM maxima of 440.5/480.0 ms and native interruptions. The first bounded
+100-second run had maxima 221.1/241.3 ms, with files still in flight at teardown.
+
+The retained 160-second bounded run delivered both 512-KiB files completely,
+matching hashes, zero missing chunks, duplicates or authentication failures.
+All 160 feedback submissions per endpoint were admitted. It delivered all 140
+mixed-phase tone transitions per direction, zero quiet PCM ticks and zero
+native interruptions, with actual VP8 transmit/receive frames. However decoded
+PCM maxima were 230.6/250.5 ms (p95 228.9/249.7), and native receive maxima were
+195/225 ms: the strict 200-ms quality gate still FAILS. The blind shared FIFO
+shaper dropped no packets and its maximum queues were 112.6/106.8 ms. Driver
+interval stayed below 17.44 ms. All file/audio/policy workers exited, all three
+SDK nodes stopped and no fixture sockets remained. Raw evidence is private.
+Test media libraries remain outside app bundles. Installed Mac/Poco remain
+2309; these new SDK and application changes are not installed there yet.
+
+The audio quality objective remains active. Receiver buffering and the
+remaining source-to-playout delay need further work; reliable file completion
+or unit tests do not establish physical cellular quality or meet the 200-ms
+gate. Production SDK/media packaging and another physical verification remain
+required before claiming the requested fix complete.
+
+Veil implementation: fafa9559. Additional integration checks verify that a
+bound client without negotiation is refused, and that a daemon without an
+admission sink does not advertise the capability. Both pass. Commits for this
+cycle are unsigned and unpushed; no release or installed identity was changed.
