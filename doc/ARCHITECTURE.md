@@ -9144,3 +9144,27 @@ controller, Dart protection threshold, transport metadata or relay behavior.
 Production Mac and Android builds pass with the unchanged 97-symbol ABI.
 This field is for attributing the remaining live buffering before choosing
 another adaptation change; the currently installed 2373 does not contain it.
+
+Stand 2374 subsequently installs that diagnostic field (Veil 7922d8b9) on
+both owned stands. It retains the 2373 audio configuration, unchanged SDK and
+hidden-volume, matching previous Android signer and byte-verified installed
+APK. Mac production media code matches its independent build, the kernel
+carries 2374 and the seal verifies. Both camera controls and microphones stay
+enabled throughout the second 90-second relay call: ringing starts in
+0.411 seconds and both endpoints are active in 2.087 seconds. Video remains
+automatically paused, with zero encoded/received frames. Mac/Poco interruption
+maxima are 1/4, lasting 490/1347 ms, but filtered delay reaches 531/407 ms and
+current buffering reaches 531/432 ms. Preferred target reaches 340/300 ms.
+Neither worker stalls; source admission maxima remain 0/2 ms. Different live
+arrival gaps prevent attributing the lower interruption count versus 2373 to
+the diagnostic-only change.
+
+At 36 seconds the Mac target is 300 ms while current buffering is 41 ms;
+Poco's target is 280 ms with 108 ms buffered. At 56 seconds both targets are
+300 ms with 140/157 ms buffered. Thus the target itself can remain high beside
+low current occupancy; this is not solely slow feedback filtering. The next
+controlled case must warm the estimators before introducing a burst, unlike
+the existing two-to-four-second startup burst, and check actual resumed PCM
+before changing more adaptation parameters. Both owned apps/processes and
+the phone package/UID/ADB forward are verified absent after the test. Diagnostic
+archives and the strict Mac seal are retained; all commits remain unpushed.
