@@ -1712,6 +1712,16 @@ extension _MessagingContentPull on MessagingService {
             !_cancelledDownloads.contains(cid);
         attempt++
       ) {
+        // Another receive path may have completed the verified local blob
+        // while this stream was waiting for its manifest. Save that copy
+        // before reopening a route that may still be unavailable.
+        if (sink != null && savedPath != null && await _storage.hasFile(cid)) {
+          await stream?.abort();
+          stream = null;
+          if (_disposed || _cancelledDownloads.contains(cid)) break;
+          ok = await _exportStoredContentToSink(cid, sink, savedPath);
+          break;
+        }
         var payloadStarted = false;
         var readBytes = 0;
         var committedPieces = 0;

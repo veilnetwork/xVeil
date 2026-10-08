@@ -9013,3 +9013,43 @@ outage recovery, full-duplex source/shard capacity and source independence; one
 pre-existing manual attribution gate remains ignored. This is a proven lifecycle
 fix, not proof that physical cellular audio meets the quality target. Updated
 stand installation and a new physical run follow.
+
+
+### Follow-up stand 2371 and concurrently completed file cache (2026-10-09)
+
+Stand 2371 packages SDK 07f2776f on Mac and Poco. The Mac native code matches
+its fresh build, media/volume code is unchanged, and its strict seal passes.
+The installed APK matches the signed artifact; its signer matches the actual
+prior installation and its SDK bytes differ from that installation. Identities
+and data are preserved.
+
+Direct admission stays false at both endpoints through the pre-call wait, so
+the next 100-second camera/microphone call uses relay throughout. Ring is at
+0.417 seconds; both endpoints are active at 1.884 seconds. Native interruptions
+are 0 / 0 ms on Mac and 6 / 1,447 ms on Poco; maximum native receive delay is
+455 / 385 ms, maximum native receive age 911 / 517 ms. Video remains paused with
+zero encoded frames. This cannot validate the fixed QUIC replacement race on
+the phone, because this run has no direct session. It also cannot establish a
+quality improvement over the different prior routes. The 2-MiB plaintext save
+fails after 131.842 seconds. Both owned apps and the ADB forward are closed and
+verified absent after the run.
+
+The preceding 32-KiB plaintext save reports failure after 118.65 seconds. A
+subsequent query finds the complete blob inside Poco's encrypted store; saving
+that same blob again takes 0.596 seconds and its SHA-256 matches the source. Thus
+this case is not loss of file bytes: background receipt succeeds while the
+concurrent explicit save keeps retrying its unavailable stream and reports a
+false failure. A stream retry now checks for the newly completed local blob,
+aborts any still-owned initial stream and exports through the existing verified
+store/sink path before opening another route. Cancellation and disposal are
+checked again after awaiting the store/abort. Partial stored pieces are not a
+complete blob and retain the existing range resume behavior.
+
+The regression gate completes a local blob while the first remote stream emits
+EOF, leaves further remote streams unusable, and requires byte-exact plaintext,
+its saved-path completion event, one sink close, no failure event and no second
+network open. It passes with the fix. Removing the check makes the gate time
+out; fixed bytes are restored afterwards. Six focused stream/export lifecycle
+gates pass, including cancellation, disposal, partial stored-piece resume and
+plaintext range resume. Audio interruptions, native buffering delay, direct
+route establishment and automatic video recovery remain open work.
