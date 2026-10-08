@@ -9107,3 +9107,31 @@ interruptions and one buffer flush. These controlled results establish a
 local audio recovery improvement; they do not yet establish physical cellular
 call quality or successful automatic video recovery. Those require the next
 stand installation and live Mac/Poco measurement.
+
+Stand 2373 installs fresh production media on the owned Mac stand and Poco
+without test exports (97 public media symbols on each platform). Mac media
+code matches the independently built library, SDK code is unchanged, the Dart
+image carries 2373 and the bundle seal verifies. Android media matches its
+independently stripped artifact; SDK/hidden-volume are unchanged. The signer
+matches the actual previous installed package, installed APK bytes match the
+verified signed artifact, and existing app data is preserved. Poco's active
+default transport is cellular with Wi-Fi off. The owned build VM is stopped
+before the live test; the user's default VM is untouched.
+
+The 90-second live video call rings after 0.633 seconds and becomes active on
+both endpoints after 2.503 seconds, using relay throughout. Both microphones
+and camera controls remain on. Mac/Poco native interruption maxima are 6/9,
+lasting 2930/5006 ms. Filtered delay maxima are 499/529 ms; current audio
+buffering reaches 569/531 ms, and receive age reaches 1185/1223 ms. Source
+admission maxima are 0/2 ms; neither worker stalls. Automatic audio protection
+keeps video paused throughout, with zero encoded or received video frames.
+Thus this physical run still fails audio/video quality. It does not justify
+claiming that the controlled recovery improvement resolves the cellular path,
+or that camera enablement proves video delivery. The next investigation must
+separate the current preferred buffering target from its filtered estimate and
+actual packet accumulation under the repeated live arrival gaps.
+
+Both owned apps, their processes, the phone package/UID and the owned ADB
+forward are verified absent afterwards. The Mac seal verifies after removing
+the owned late debug log. Private diagnostic archives and timestamped sample
+data are retained. No release or push is performed.
