@@ -8090,3 +8090,33 @@ Ordered capability negotiation, source selection and duplex pool ownership
 remain to be connected before deployment and another physical call-quality
 test. These protocol tests do not establish that the physical audio pauses
 are fixed or that encoded video can coexist successfully with audio.
+
+SDK 4c87ebcc makes the existing session sender, authenticated VDF receiver and
+neutral duplex return carrier work with either QUIC datagrams or parent-bound
+ordered records. The shared decoder retains canonical peer attribution,
+fragment/replay checks, frame eligibility, dispatcher admission and violation
+tracking. Queue admission accounts for the ordered prefix and tiny-record
+metadata floor. Full/expired queues drop the lossy frame without marking the
+child broken or replaying partial fragments on the reliable stream. Genuine
+QUIC diagnostics remain available; ordered diagnostics explicitly report only
+local queue/flush counters and do not synthesize RTT/CWND/ACK fields.
+
+Three additional deterministic tests exercise the actual common receiver and
+return carrier: damaged/replayed fragments and reliable frames cannot reach
+dispatch; the existing dispatcher budget can refuse eligible frames; violations
+reach the canonical ban tracker; neutral return traffic retains INTERACTIVE
+priority and bandwidth admission; and full/expired ordered queues recover
+without losing parent lifetime. These duplex fixtures isolate codec and
+admission behavior, while the separate real-obfs4 registry tests establish the
+encrypted transport binding and connection budgets.
+
+The final frozen source passes 445 host session tests (six existing ignores),
+ten ordered-record tests and all 28 relevant tests on the actual Poco (10
+records, 6 bindings, 9 shared registry, 3 common receiver). Both production FFI
+builds, unchanged ABI verification and formatting pass. The existing camera
+placeholder fix ee3da8bc was also checked: all four video-frame widget tests
+pass with TMPDIR=/private/tmp/. Mirroring applies only to camera pixels, not
+waiting/stale labels. Phone fixtures/helpers and the Mac stand process are
+verified absent. Installed apps remain 2351; no update, release, data reset or
+physical call-quality cure is claimed in this cycle. Ordered-child capability
+negotiation and live session pool/source selection still need activation.
