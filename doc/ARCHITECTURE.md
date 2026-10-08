@@ -9205,3 +9205,37 @@ NAT signaling timeout at Poco. `hasCert=false` is not itself a direct-connect
 failure: the native public-mode status provider explicitly allows admission
 without a private-network membership certificate. Controlled startup with the
 new event is needed to attribute the actual carrier permissions.
+
+The controlled Mac 2375 / Poco 2374 startup captures four authenticated
+channel-offer records. All have an ordered auxiliary provider available,
+datagram/rekey permissions true, but opaque-flow, parallel ordered/QUIC and
+reliable parallel permissions false. The live Mac snapshot has two
+obfs4/TCP sessions. Thus the provider is present, while these peers have not
+negotiated its codec/child protocol; the runner correctly retains the common
+ordered compatibility carrier. This establishes why independent channels are
+not activated on this observed path, without guessing remote version numbers
+or treating every relay in the network as equivalent. A test route with an
+updated controlled relay or working direct peer is needed for physical
+verification of independent connections. Both owned apps/processes, phone
+package/UID and the ADB forward are verified absent; the Mac seal verifies.
+
+The NAT responder independently selected its socket family from the first
+reflector, ignoring the initiator's public srflx candidates. With a mixed
+reflector list this could answer an IPv4 request with an IPv6-only mapping
+(or vice versa), leaving the initiator's existing socket unable to punch it.
+The responder now validates public srflx candidates before UDP discovery,
+selects the first compatible reflector family and uses that same family for
+both discovery and punching. Token, network-tag and identity verification
+remain intact; no application role or relay scheduling policy is added.
+
+Two regression gates exercise the production socket-owning responder. The
+first puts an incompatible reflector first and requires the compatible real
+loopback UDP socket to receive discovery in both IPv4 and IPv6 cases, with
+no traffic to the incompatible socket. The second requires no discovery for
+empty/private-srflx/host-only offers. Neither test answers discovery, so no
+packet is sent to its synthetic public candidate. Both pass with the fix,
+both fail with the original responder, and both pass again after restoring
+and formatting the fixed source. Runtime instances are stopped before final
+assertions and temporary config files are removed. The observed phone NAT
+failures are not yet attributed to this defect; physical installation and
+verification remain necessary.
