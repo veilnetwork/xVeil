@@ -8942,3 +8942,74 @@ The gate passes with the fix and fails on the old runner with the expected
 extra-close assertion. All four integration gates and eight stream/reply unit
 gates pass. Initial native libraries were built before this finding; they are
 not installed and must be rebuilt from the final committed source.
+
+
+### Installed reliable carrier and physical cellular checks (2026-10-09)
+
+Private stand build 0.13.84+2370 contains SDK 890508d8 on the owned Mac
+stand and Poco. The installed APK matches the signed artifact byte for byte;
+its signer matches the prior installation, preserving application data. The
+packaged SDK matches the fresh stripped native build. Media remains the prior
+Mac 2325 / Android 2326 code, and hidden-volume is unchanged. The owned Mac
+bundle passes strict seal verification. The Applications installation is not
+replaced by this stand cycle.
+
+The initial 90-second relay video call rings at 0.427 seconds and is active on
+both ends at 2.218 seconds. Cameras and microphones are enabled. Automatic audio
+protection keeps encoded video at zero. Native interruptions total 1 / 255 ms
+on Mac and 4 / 1,249 ms on Poco; these are native counters, not acoustic latency.
+A following relay call with a 2-MiB attachment fails its download after about
+184 seconds, recording 10 / 8,607 ms and 21 / 20,322 ms of interruptions. No
+first-child-send marker occurs in that initial session. Repeated App stream-open
+code 6 means source admission failed; it does not alone distinguish absent
+sessions from unavailable routed admission. No physical carrier-isolation or
+quality success is claimed for that run.
+
+After restarting the same installed builds, direct admission initially reports
+false and subsequently becomes true after endpoint exchange settles. Both
+endpoints then report live direct admission. A 32-KiB attachment completes in
+1.59 seconds with a matching SHA-256. Each endpoint logs its first reliable-child
+App send. Thus the new carrier is exercised physically, rather than merely
+advertised. An ensuing video call rings at 0.410 seconds and both ends are active
+at 1.339 seconds. A 2-MiB attachment completes in 149.651 seconds with matching
+SHA-256, including time after the 100-second call ends. This is not a claim that
+all of the file completed during the call.
+
+That call starts on P2P and both ends switch to relay at about 49.65 seconds.
+Video remains automatically paused, with zero encoded transmit/receive frames.
+Native interruptions total 5 / 5,344 ms and 11 / 10,719 ms; maximum native receive
+ages are 2,786 / 2,807 ms. Locally queued audio admission stays at 0 / 2 ms. The
+physical quality goal therefore still fails. QUIC primary recovery starts near
+39 seconds; on Poco its replacement authenticates, then is cancelled about six
+milliseconds later on old-path ACK progress. Mac recovery candidates are also
+cancelled repeatedly. These observations motivate inspecting replacement result
+adoption; they do not establish that one race explains every audio interruption.
+
+Both owned applications are hung up, locked, and stopped after each stand cycle.
+Their processes, Poco package UID processes, and the owned ADB forward are absent;
+the Mac seal verifies after removing its late stand debug log. Poco remains on
+cellular with Wi-Fi off. No relay role/priority metadata or traffic privilege is
+introduced. Audio quality and automatic video recovery remain unresolved.
+
+
+### Verified primary replacement adoption race (2026-10-09)
+
+`ParallelSession::prepare_frame` now polls/adopts a completed authenticated child
+before evaluating ACK progress on the old sender. Previously the reverse order
+could cancel even a candidate whose exporter-bound proof had already finished
+and whose result was waiting in the oneshot. Still-pending candidates can be
+cancelled on old-path recovery; failed candidates cannot displace a usable old
+channel. No congestion state is reset on the old connection, no stale datagram
+is replayed, and neutral transit cannot request primary recovery.
+
+A real TLS/QUIC gate stages a completed exporter-authenticated replacement,
+sends a valid datagram through the old child and waits for its real ACK, then
+runs the production selection. The gate checks the replacement is adopted once,
+its exporter differs, a fresh datagram arrives, and canonical stream bytes still
+round-trip. Restoring the old ordering makes that gate fail with the expected
+zero-versus-one replacement assertion; fixed source is restored byte for byte.
+The final recovery selection passes six gates, including Cubic/BBR four-second
+outage recovery, full-duplex source/shard capacity and source independence; one
+pre-existing manual attribution gate remains ignored. This is a proven lifecycle
+fix, not proof that physical cellular audio meets the quality target. Updated
+stand installation and a new physical run follow.
