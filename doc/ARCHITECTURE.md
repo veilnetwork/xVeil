@@ -7406,3 +7406,53 @@ Owned application, helper, phone UID/package and ping processes have exited;
 ADB forwarding is removed and the Mac bundle seal is verified. The codec
 fixture's capture thread and Dart helper exited, all three SDK stop calls
 returned zero, and no fixture sockets remain. Goal remains unachieved.
+
+
+### Primary RTP counters and bounded video recovery probe (2026-10-08)
+
+Native media now reports `audio_tx_rtp_drops`, a counter of completed rejected
+primary Opus RTP admissions, including padding/retransmissions on that RTP
+source. It excludes video RTP and RTCP, and does not infer failure from
+`attempts - queued`, which can include a pending admission. This endpoint-only
+JSON field adds no network metadata or relay priority. The portable native
+smoke covers pending admission, accepted audio and rejected audio separately.
+
+Simply replacing the adapter's aggregate drop counter with this counter was
+rejected after the real codec gate: video grew to 473/273 sent frames, decoded
+PCM maxima reached 223.1/383.3 ms and one 150-ms audio interruption occurred.
+That experimental policy is removed and was never installed on a phone.
+
+The retained policy continues to use all local packet drops to reduce video
+and prevent bitrate growth. Independently, twelve consecutive fresh healthy
+audio samples with no new primary RTP failure may release the audio pause
+only to the bottom video rung. Receiver age, actual playout, interruption,
+RTCP freshness, loss and RTT guards remain required. Missing/invalid native
+counters preserve previous conservative behavior, including group engines
+which do not provide this per-source field. Unit regressions cover the sparse
+probe, missing audio measurements restarting recovery, aggregate drops still
+reducing video, independent primary failures, and older-library fallback.
+All 69 adapter/playout tests pass; native counter smoke and Dart analysis pass.
+
+The retained 100-second real codec control (`primaryprobe2312`) sent 92/87 VP8
+frames, decoded 86/92, delivered all 80 tone transitions per direction, and
+had zero native interruptions and zero quiet PCM ticks during the video
+phase. Native receive-delay maxima are 197/128 ms, whereas decoded PCM p95 is
+171.4/141.9 ms and maxima 211.9/152.3 ms. The strict 200-ms gate still FAILS;
+this is not a completed quality fix or proof of a statistical improvement.
+Driver/callback/authentication errors are absent. Audio thread and policy
+helper exited; all SDK nodes stopped successfully and no fixture sockets
+remain. Test libraries stay outside application bundles. Installed Poco and
+Mac stand remain build 2309 with production media 2279; the new native counter
+and bounded-probe policy are not installed there yet.
+
+A remaining architectural task is to propagate trusted endpoint observations
+of the final audio receiver into the node's shared local producer budget.
+`LocalReliableAdmission.observe_primary_path` currently publishes pressure
+from the first-hop QUIC handle, while native/Dart receiver playout observations
+only drive the video adapter. A healthy fast relay admission does not prove a
+healthy last mile, and those observations currently cannot restrain the
+same endpoint's other reliable producers. Any extension must remain private
+to authenticated local IPC, preserve separate queues and source ownership,
+expire naturally after the local producer ends, and never classify audio or
+prioritise ordinary transit on a relay. Real audio/video plus reliable-file
+contention, followed by physical verification, remains required.

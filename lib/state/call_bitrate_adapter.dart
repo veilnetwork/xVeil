@@ -117,12 +117,14 @@ class CallBitrateAdapter {
   int _floorBadStreak = 0;
   CallVideoAdvice _advice = CallVideoAdvice.keep;
   int _goodStreak = 0;
+  int _audioRecoveryStreak = 0;
   int _severeStreak = 0;
   bool _audioReserve = false;
   bool _unprovenAudioHold = false;
   bool _supportsNativeReceiveAge = false;
   int _mutedRecoveryStreak = 0;
   int? _lastTxDrops;
+  int? _lastAudioTxDrops;
   int? _curWindowMin;
   int? _prevWindowMin;
   int _windowFill = 0;
@@ -243,6 +245,7 @@ class CallBitrateAdapter {
       _audioReserve = true;
       _unprovenAudioHold = true;
       _goodStreak = 0;
+      _audioRecoveryStreak = 0;
     }
   }
 
@@ -345,6 +348,7 @@ class CallBitrateAdapter {
       _unprovenAudioHold = false;
       _audioReserve = false;
       _goodStreak = 0;
+      _audioRecoveryStreak = 0;
       return target;
     }
     // With the local mic muted, no outbound audio report can establish
@@ -400,6 +404,12 @@ class CallBitrateAdapter {
                 0
           : 0,
       txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
+      audioTxDrops:
+          sendAudioExpected &&
+              stats['audio_tx_rtp_drops'] is int &&
+              (stats['audio_tx_rtp_drops'] as int) >= 0
+          ? stats['audio_tx_rtp_drops'] as int
+          : null,
       feedbackAvailable: feedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
       requirePeerAudioPlayout: requirePeerAudioPlayout && sendAudioExpected,
@@ -425,6 +435,7 @@ class CallBitrateAdapter {
     required int txJitterMs,
     required int txLossPct,
     required int txDrops,
+    int? audioTxDrops,
     bool feedbackAvailable = true,
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
@@ -434,6 +445,11 @@ class CallBitrateAdapter {
   }) {
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
+    final newAudioDrops =
+        audioTxDrops != null &&
+        _lastAudioTxDrops != null &&
+        audioTxDrops > _lastAudioTxDrops!;
+    _lastAudioTxDrops = audioTxDrops;
     final receiveOutage =
         (requireAudioReceive &&
             audioReceiveAgeMs != null &&
@@ -463,6 +479,7 @@ class CallBitrateAdapter {
       _audioReserve = true;
       _unprovenAudioHold = audioUnproven;
       _goodStreak = 0;
+      _audioRecoveryStreak = 0;
       return target;
     }
     // Missing/stale reports are not healthy samples. Actual new local audio
@@ -475,11 +492,13 @@ class CallBitrateAdapter {
         (peerAudioDelayMs != null && peerAudioDelayMs < playoutRecoverMs);
     if (!feedbackAvailable &&
         !newDrops &&
+        !newAudioDrops &&
         !playoutBad &&
         !missingAudioReceiverFeedback) {
       _badStreak = 0;
       _floorBadStreak = 0;
       _goodStreak = 0;
+      _audioRecoveryStreak = 0;
       _severeStreak = 0;
       return null;
     }
@@ -498,26 +517,44 @@ class CallBitrateAdapter {
         (rttMs < 250 &&
             (baseline == null || rttMs <= baseline + bloatRecoverMs));
 
-    final networkBad = txLossPct >= 5 || txJitterMs >= 80 || rttBad || newDrops;
+    final networkBad =
+        txLossPct >= 5 ||
+        txJitterMs >= 80 ||
+        rttBad ||
+        newDrops ||
+        newAudioDrops;
     final bad =
         networkBad ||
         playoutBad ||
         missingAudioReceiverFeedback ||
         receiveOutage ||
         audioInterrupted;
-    final good =
+    final audioGood =
         feedbackAvailable &&
         rttMs > 0 &&
         txLossPct <= 1 &&
         txJitterMs < 40 &&
         rttGood &&
-        !newDrops &&
+        !newAudioDrops &&
         playoutGood &&
         !audioInterrupted &&
         receiveGood &&
         (!requireAudioReceivePlayout ||
             (audioReceiveDelayMs != null &&
                 audioReceiveDelayMs < playoutRecoverMs));
+    final good = audioGood && !newDrops;
+    // Healthy audio may earn a sparse video probe despite a discarded
+    // secondary packet/report. Aggregate losses still forbid climbing the
+    // video ladder: ignoring them entirely regressed decoded PCM latency.
+    if (_audioReserve && audioTxDrops != null && audioGood) {
+      _audioRecoveryStreak++;
+      if (_audioRecoveryStreak >= recoverAfter) {
+        _releaseAudioHold();
+        return target;
+      }
+    } else {
+      _audioRecoveryStreak = 0;
+    }
 
     final severe =
         rttMs >= severeRttMs ||
@@ -533,6 +570,7 @@ class CallBitrateAdapter {
         _severeStreak >= degradeAfter) {
       _audioReserve = true;
       _goodStreak = 0;
+      _audioRecoveryStreak = 0;
       return target;
     }
 
@@ -593,6 +631,7 @@ class CallBitrateAdapter {
     _audioReserve = false;
     _unprovenAudioHold = false;
     _goodStreak = 0;
+    _audioRecoveryStreak = 0;
     _severeStreak = 0;
     _mutedRecoveryStreak = 0;
   }
