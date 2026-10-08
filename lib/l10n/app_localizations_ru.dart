@@ -7684,6 +7684,13 @@ class AppL10nRu extends AppL10n {
       'Не удалось отозвать ссылку — возможно, она ещё работает. Попробуйте снова.';
 
   @override
+  String get callVideoPausedForAudioTitle => 'Видео приостановлено ради звука';
+
+  @override
+  String get callVideoPausedForAudioBody =>
+      'Передача видео возобновится автоматически, когда звук будет стабильным. Камера или демонстрация экрана остаётся включённой.';
+
+  @override
   String get callWeakLinkTitle => 'Слабая связь';
 
   @override

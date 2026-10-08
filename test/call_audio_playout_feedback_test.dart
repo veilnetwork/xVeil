@@ -244,7 +244,7 @@ void main() {
         for (var i = 0; i < 12; i++) {
           adapter.onNativeStats(
             healthyNetwork,
-            peerAudioDelayMs: 240,
+            peerAudioDelayMs: 140,
             requirePeerAudioPlayout: true,
           );
         }
@@ -256,7 +256,7 @@ void main() {
         for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
           adapter.onNativeStats(
             healthyNetwork,
-            peerAudioDelayMs: 140,
+            peerAudioDelayMs: 80,
             requirePeerAudioPlayout: true,
           );
         }
@@ -265,7 +265,7 @@ void main() {
         for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
           adapter.onNativeStats(
             healthyNetwork,
-            peerAudioDelayMs: 140,
+            peerAudioDelayMs: 80,
             requirePeerAudioPlayout: true,
           );
         }
@@ -282,13 +282,13 @@ void main() {
     );
     final peer = CallPeerAudioPlayout();
     peer.observe(
-      const CallAudioPlayoutFeedback(sequence: 1, delayMs: 140),
+      const CallAudioPlayoutFeedback(sequence: 1, delayMs: 80),
       start,
     );
     for (var i = 0; i < 30; i++) {
       final now = start.add(Duration(seconds: 13 + i));
       peer.observe(
-        const CallAudioPlayoutFeedback(sequence: 1, delayMs: 140),
+        const CallAudioPlayoutFeedback(sequence: 1, delayMs: 80),
         now,
       );
       adapter.onNativeStats(
@@ -306,45 +306,57 @@ void main() {
     for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
       adapter.onNativeStats(
         healthyNetwork,
-        peerAudioDelayMs: 140,
+        peerAudioDelayMs: 80,
         requirePeerAudioPlayout: true,
       );
     }
     adapter.onNativeStats(healthyNetwork, requirePeerAudioPlayout: true);
     adapter.onNativeStats(
       healthyNetwork,
-      peerAudioDelayMs: 140,
+      peerAudioDelayMs: 80,
       requirePeerAudioPlayout: true,
     );
     expect(adapter.atFloor, isTrue, reason: 'unknown breaks recovery streak');
   });
 
-  test('bad playout cuts video even when RTCP feedback is unavailable', () {
+  test('bad playout pauses video immediately even without RTCP', () {
     final adapter = CallBitrateAdapter(
       baseBitrateKbps: 900,
       baseFps: 60,
       initialLevel: 0,
     );
-    for (var i = 0; i < CallBitrateAdapter.degradeAfter; i++) {
-      adapter.onNativeStats(
-        {'audio_feedback_reports': 0},
-        peerAudioDelayMs: 540,
-        requirePeerAudioPlayout: true,
-      );
-    }
-    expect(adapter.level, 1);
+    adapter.onNativeStats(
+      {'audio_feedback_reports': 0},
+      peerAudioDelayMs: 540,
+      requirePeerAudioPlayout: true,
+    );
+    bool? nativePause;
+    adapter.applyPendingPause((paused) {
+      nativePause = paused;
+      return true;
+    });
+    expect(nativePause, isTrue);
+    expect(adapter.target.maxBitrateKbps, 1);
     for (var i = 0; i < 30; i++) {
       adapter.onNativeStats(
         {'audio_feedback_reports': 0},
-        peerAudioDelayMs: 140,
+        peerAudioDelayMs: 80,
         requirePeerAudioPlayout: true,
       );
     }
     expect(
-      adapter.level,
-      1,
+      adapter.audioReserve,
+      isTrue,
       reason: 'playout alone cannot prove healthy network',
     );
+    expect(
+      adapter.applyPendingPause((paused) {
+        nativePause = paused;
+        return true;
+      }),
+      isNull,
+    );
+    expect(nativePause, isTrue);
   });
 
   test('legacy peers and a deliberately muted sender retain RTCP behavior', () {

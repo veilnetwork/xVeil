@@ -7618,6 +7618,13 @@ class AppL10nEn extends AppL10n {
       'Could not revoke the link — it may still work. Try again.';
 
   @override
+  String get callVideoPausedForAudioTitle => 'Video paused for audio';
+
+  @override
+  String get callVideoPausedForAudioBody =>
+      'Video transmission will resume automatically when audio is stable. Your camera or screen sharing stays on.';
+
+  @override
   String get callWeakLinkTitle => 'Weak connection';
 
   @override

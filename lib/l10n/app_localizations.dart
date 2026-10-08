@@ -13236,6 +13236,18 @@ abstract class AppL10n {
   /// **'Could not revoke the link — it may still work. Try again.'**
   String get cloudFolderShareRevokeFailed;
 
+  /// No description provided for @callVideoPausedForAudioTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Video paused for audio'**
+  String get callVideoPausedForAudioTitle;
+
+  /// No description provided for @callVideoPausedForAudioBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Video transmission will resume automatically when audio is stable. Your camera or screen sharing stays on.'**
+  String get callVideoPausedForAudioBody;
+
   /// Heading of the in-call banner offering to drop video on a failing link
   ///
   /// In en, this message translates to:

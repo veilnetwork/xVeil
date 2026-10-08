@@ -7714,6 +7714,14 @@ class AppL10nEs extends AppL10n {
       'No se pudo revocar el enlace: puede seguir funcionando. Inténtalo de nuevo.';
 
   @override
+  String get callVideoPausedForAudioTitle =>
+      'Vídeo pausado para proteger el audio';
+
+  @override
+  String get callVideoPausedForAudioBody =>
+      'La transmisión de vídeo se reanudará automáticamente cuando el audio sea estable. La cámara o la pantalla compartida sigue activa.';
+
+  @override
   String get callWeakLinkTitle => 'Conexión débil';
 
   @override

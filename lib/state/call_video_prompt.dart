@@ -30,3 +30,7 @@ enum CallVideoPromptCause {
 /// when the user acts on it, and when the link climbs back off the floor.
 final ValueNotifier<CallVideoPromptCause?> callVideoPrompt =
     ValueNotifier<CallVideoPromptCause?>(null);
+
+/// Confirmed local encoder pause while audio quality is unknown or unhealthy.
+/// Capture stays enabled; this is independent of the dismissible suggestion.
+final ValueNotifier<bool> callVideoSendPausedForAudio = ValueNotifier(false);

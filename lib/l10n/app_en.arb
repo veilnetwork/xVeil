@@ -3572,6 +3572,8 @@
   "settingsTransferHint": "Move everything to another device through a file",
   "transferTooLarge": "The archive describes a record far larger than xVeil ever writes, so it was not read.",
   "cloudFolderShareRevokeFailed": "Could not revoke the link — it may still work. Try again.",
+  "callVideoPausedForAudioTitle": "Video paused for audio",
+  "callVideoPausedForAudioBody": "Video transmission will resume automatically when audio is stable. Your camera or screen sharing stays on.",
   "callWeakLinkTitle": "Weak connection",
   "@callWeakLinkTitle": {
     "description": "Heading of the in-call banner offering to drop video on a failing link"
