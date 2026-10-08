@@ -7885,3 +7885,43 @@ processes and ADB forwards are zero, and the owned Mac bundle's strict seal
 verifies. Captures, addresses, credentials and cryptographic material remain
 private. Physical audio/video/screen validation is still pending, with
 signaling and cold network admission requiring further investigation.
+
+Further physical controls isolate network entry from media quality. An
+owner-only temporary native helper on Poco loads the exact packaged 2336
+SDK and uses a new canonical test identity plus authenticated loopback TCP
+admin/IPC. It establishes a peer session by 20 seconds, still live at 60,
+with advancing health ticks and a successful PoW-walk response. The installed
+profile remains closed and untouched during this control. Early Unix-socket
+fixture/config failures are not SDK connectivity results. Every temporary
+native process stops successfully and its remote directory is removed.
+
+The installed app then receives three temporarily registered bootstrap
+invites from peers authenticated by the Mac stand. Poco sessions become
+1/6/6 at uptime 15/45/75 seconds, versus 0/0/0 in the earlier discovery-only
+run. Its earlier discovered rows did not match the Mac's working addresses.
+This isolates a discovery/entry-path problem; manual registration is a
+diagnostic workaround, not an autonomous bootstrap fix. The subsequent
+Poco→Mac call rings in 0.406 seconds and both endpoints are active in 1.162.
+Thus the expired Mac signing delegation warning alone does not prevent this
+cached-profile call from connecting.
+
+Physical audio still FAILS quality. In 90 seconds with automatic routing,
+Mac/Poco interruption counts are 24/16, accumulated interruption duration
+14.455/12.125 seconds and filtered-delay maxima 754/719 ms. There is one
+P2P→relay handover around 50 seconds. Forcing the already permitted relay
+route immediately after connection does not cure it: another 90-second
+audio call records 24/26 interruptions, 19.782/22.989 seconds and maxima
+564/470 ms. A requested video call connects but reports zero transmitted
+and delivered video frames, so it is not proof of audio/video coexistence.
+
+Source RTP queue admission takes at most 1 ms in the relay audio control
+(3 ms in the requested-video run). The legacy audio_tx_rtp_queue_age_ms
+field measures time since the last admission, not packet queue residence.
+Generic opt-in session traces nevertheless locate a downstream wait:
+Poco ordered primary-source writes of only 406/409 bytes take 1432/382 ms,
+with writer waits 1277/224 ms and queue depths 67/17. Other body reads take
+up to 2992 ms. These are local transport observations, not proof of relay
+prioritization or its cause; socket/TCP versus wrapper waits must be isolated.
+Relay fairness, wire privacy and device network policies were not changed.
+All owned stand apps/helpers exit, temporary directories are removed and
+the Mac strict bundle seal verifies. The full media objective remains active.
