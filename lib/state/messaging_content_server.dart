@@ -598,12 +598,18 @@ extension _MessagingContentServer on MessagingService {
       );
       if (_disposed) throw StateError('messaging service disposed');
       final mf = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
-      await stream
-          .write(MessagingService._u32be(mf.length))
-          .timeout(MessagingService._streamPayloadWriteTimeout);
-      await stream
-          .write(mf)
-          .timeout(MessagingService._streamPayloadWriteTimeout);
+      await writeStreamWithIdleTimeout(
+        stream,
+        MessagingService._u32be(mf.length),
+        idle: MessagingService._streamPayloadWriteTimeout,
+        timeoutLabel: 'manifest length write idle',
+      );
+      await writeStreamWithIdleTimeout(
+        stream,
+        mf,
+        idle: MessagingService._streamPayloadWriteTimeout,
+        timeoutLabel: 'manifest write idle',
+      );
       _bulkStreamLog(
         () =>
             'xVeil[content]: stream-serve manifest sent '
@@ -654,15 +660,12 @@ extension _MessagingContentServer on MessagingService {
           throw StateError('source truncated at $off/$size');
         }
         if (_disposed) throw StateError('messaging service disposed');
-        await stream
-            .write(data)
-            .timeout(
-              MessagingService._streamPayloadWriteTimeout,
-              onTimeout: () => throw TimeoutException(
-                'payload write idle at $off/$size',
-                MessagingService._streamPayloadWriteTimeout,
-              ),
-            ); // flow-controlled (back-pressures)
+        await writeStreamWithIdleTimeout(
+          stream,
+          data,
+          idle: MessagingService._streamPayloadWriteTimeout,
+          timeoutLabel: 'payload write idle at $off/$size',
+        );
         off += data.length;
         final elapsedMs = serveSw.elapsedMilliseconds;
         if (off == data.length ||

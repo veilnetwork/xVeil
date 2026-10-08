@@ -13,6 +13,7 @@ import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
 import '../data/storage/storage.dart';
 import '../data/transport/veil_mailbox.dart' show MailboxPeerUnresolved;
 import '../data/transport/veil_transport.dart';
+import '../data/transport/stream_write_idle.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/device_history_ask.dart' show kHeavyHistoryMediaUntilKey;
 import '../domain/call_signal.dart';
