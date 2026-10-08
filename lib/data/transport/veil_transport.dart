@@ -295,6 +295,15 @@ abstract interface class ReliableStream {
   Future<void> abort();
 }
 
+/// Optional local admission progress. Counts belong to this write and do not
+/// imply peer receipt. Transport adapters keep the write's bytes contiguous.
+abstract interface class ProgressiveReliableStream implements ReliableStream {
+  Future<void> writeWithProgress(
+    Uint8List data, {
+    required void Function(int admittedBytes) onProgress,
+  });
+}
+
 /// A [VeilTransport] that can also open/accept [ReliableStream]s — the bulk
 /// file-transfer channel (any-size, flow-controlled). The production transport
 /// implements it; simple datagram-only fakes need not, and the messaging layer

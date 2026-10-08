@@ -1483,12 +1483,18 @@ class VeilCapabilityEndpoint {
 /// Adapts veil_flutter's [VeilStream] to the transport-agnostic [ReliableStream]
 /// port, so the messaging layer drives bulk transfers without depending on
 /// veil_flutter directly (and a fake pipe can stand in for tests).
-class _VeilReliableStream implements ReliableStream {
+class _VeilReliableStream implements ProgressiveReliableStream {
   _VeilReliableStream(this._s);
   final VeilStream _s;
 
   @override
   Future<void> write(Uint8List data) => _s.write(data);
+
+  @override
+  Future<void> writeWithProgress(
+    Uint8List data, {
+    required void Function(int) onProgress,
+  }) => _s.write(data, onProgress: onProgress);
 
   @override
   Future<Uint8List> read({int maxBytes = 65536}) => _s.read(maxBytes: maxBytes);
@@ -1500,11 +1506,16 @@ class _VeilReliableStream implements ReliableStream {
   Future<void> abort() => _s.close();
 }
 
-class _VeilAnonReliableStream implements ReliableStream {
+class _VeilAnonReliableStream implements ProgressiveReliableStream {
   _VeilAnonReliableStream(this._s);
   final VeilAnonStream _s;
   @override
   Future<void> write(Uint8List data) => _s.write(data);
+  @override
+  Future<void> writeWithProgress(
+    Uint8List data, {
+    required void Function(int) onProgress,
+  }) => _s.write(data, onProgress: onProgress);
   @override
   Future<Uint8List> read({int maxBytes = 65536}) => _s.read(maxBytes: maxBytes);
   @override
