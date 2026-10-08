@@ -8289,3 +8289,37 @@ in the restricted private scratch directory. This cycle changes only this
 evidence record, not relay scheduling, production media tuning or user network
 policy. Audio pauses, persistent video suppression, encoded screen coexistence
 and the incomplete mixed-file transfer remain unresolved; the goal is active.
+
+### Healthy DTX control and Apple UDP receive boundary — 2026-10-08
+
+SDK 00d4cce7 extends the real Opus silence regression to inspect both native
+playout delay and current packet buffer through ten seconds of DTX, then time
+the first decoded resumed tone. A fresh test-only Mac media library from the
+unchanged production engine passes: 57 silence RTP packets, maximum receive
+age 391 ms, filtered delay 40 ms, current buffer 46 ms and resumed PCM at 100 ms.
+There is no added concealment or interruption. The gate requires both gauges
+below 120 ms and actual resumed PCM below 160 ms, in addition to the existing
+DTX/activity checks. This excludes normal silence on a healthy controlled path
+as the explanation for the persistent physical video pause; it does not prove
+that cellular audio/video quality is fixed. No native media tuning changes.
+
+Mac previously reported unknown kernel receipt time, preventing separation of
+reverse network delay from receive polling. The SDK now opts Apple UDP sockets
+into SO_TIMESTAMP only while the existing local trace is enabled, decodes
+SCM_TIMESTAMP's Unix timeval safely into nanoseconds with microsecond precision,
+and disables the option when tracing stops. Missing or unsupported metadata
+stays unknown; no role/priority is added to wire traffic or relay scheduling.
+Real IPv4/IPv6 socket tests deliberately delay the reader by 40 ms and verify
+that the timestamp precedes that delay, payload stays intact, and off/on/off
+tracing produces absent/present/absent metadata. Both standard and fast Apple
+UDP backends pass eight tests, with one existing ignored test each.
+
+A bounded, PID-filtered interface capture script is prepared in the private
+scratch directory. Opening BPF needs administrator access unavailable to the
+agent, so an optional manual capture request is pending. The conditional stand
+warms normally but skips its call because no capture is ready; cleanup verifies
+owned app/helper and Poco package processes absent and forwarding removed.
+No privileged capture occurred. The new SDK diagnostics are committed and the
+source pin updated here; installed phone/stand still use frozen build 2354 until
+new native production artifacts are compiled and packaged. The goal remains
+active: physical audio pauses and mixed media/file quality remain unverified.
