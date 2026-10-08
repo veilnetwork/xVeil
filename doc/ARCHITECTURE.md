@@ -8413,7 +8413,7 @@ pauses and zero encoded video in the camera probes also remain unresolved.
 The production transport adapters now optionally expose local reliable write
 admission progress. The SDK's direct and anonymous Dart stream wrappers send a
 large write through one worker isolate and one allocation, invoking existing
-native writes in bounded 7800-byte slices only when progress is requested.
+native writes in bounded 2048-byte slices only when progress is requested.
 Counts return to the caller isolate; no callback or Finalizable wrapper crosses
 into the worker. The stream write gate covers the whole original write, and
 anonymous FIN shares that gate, preventing another write or FIN from interleaving
