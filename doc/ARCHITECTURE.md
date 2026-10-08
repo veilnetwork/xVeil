@@ -8407,3 +8407,40 @@ write-idle bound and the actual whole-write deadline. A progress-aware deadline
 still needs implementation and verification; the queue change alone is not
 claimed to fix the earlier incomplete physical download. Persistent audio
 pauses and zero encoded video in the camera probes also remain unresolved.
+
+### Progress-aware bulk write idle (2026-10-08, probe 2361)
+
+The production transport adapters now optionally expose local reliable write
+admission progress. The SDK's direct and anonymous Dart stream wrappers send a
+large write through one worker isolate and one allocation, invoking existing
+native writes in bounded 7800-byte slices only when progress is requested.
+Counts return to the caller isolate; no callback or Finalizable wrapper crosses
+into the worker. The stream write gate covers the whole original write, and
+anonymous FIN shares that gate, preventing another write or FIN from interleaving
+the slices. The default write path retains its single native call. Errors stop
+at the accepted prefix. This changes neither the native ABI nor wire priorities,
+and these counts do not acknowledge peer receipt.
+
+Content serving uses a 30-second deadline since the last newly admitted bytes
+instead of a 30-second deadline for the entire 256 KiB block. Repeated, stale
+or out-of-range counts cannot renew the deadline. The existing failure path
+still aborts the stream; late results cannot restart the timer, complete twice
+or escape as an unhandled write error. A transport without progress support
+keeps the prior bounded whole-write fallback.
+
+Four fake-clock gates cover a progressing 75-second write, a stalled write with
+invalid/repeated counts, late worker failure, legacy fallback, and preservation
+of the actual write error. Together with the existing content stream transfer
+tests, 53 tests pass. A test-only C FFI boundary separately holds native writes
+until the Dart event loop permits them: both direct and anonymous progress
+writes preserve the exact rolling byte checksum and total, leave the event
+loop responsive, emit intermediate monotonic counts, and keep FIN after data.
+Injected native failure after a prefix neither sends nor reports the suffix.
+The original blocked-worker/FIFO probe also passes. Targeted analysis is clean.
+
+Poco is absent from ADB at this point, so the new large-write behavior has not
+yet been verified during a physical cellular call. No app instances were
+launched for these gates. SDK and application changes are committed locally;
+no signing, push or release is requested for this cycle. Physical audio pauses,
+encoded video/screen coexistence, and full connection separation of ordinary
+reliable traffic remain outstanding; the goal remains active.
