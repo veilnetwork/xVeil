@@ -9179,3 +9179,29 @@ persistent 280/300-ms target. No additional underrun-memory change is made on
 that hypothesis. Further attribution must examine repeated live arrival gaps
 and actual route/transport behavior; successful single-burst recovery is not
 proof of acceptable buffering on the physical relay path.
+
+### Physical carrier and peer permission attribution — 2026-10-09
+
+The 2374 native ingress-spacing trace includes a 711.7-ms interarrival gap
+at the Mac receiver. Source admission stays below 2 ms and neither media
+worker stalls, so the next investigation follows the actual route/carrier,
+rather than another unproved NetEq capacity or memory reduction. Captured
+logs contain no session channel-enable marker, but absence alone cannot
+identify a missing provider versus missing authenticated peer permission.
+
+A new `session.channels_offered` local event records those independently,
+after all identity/admission gates pass: available QUIC/ordered providers and
+authenticated peer datagram/flow/rekey/parallel/reliable permissions. Its local
+link number correlates with the existing session snapshot; it contains no
+application role, priority, peer address or new wire metadata. The production
+Mac FFI build passes with embedded-node/production-seed/packet-tunnel features
+and the fresh library contains the event. No scheduling or negotiation policy
+is changed by this diagnostic addition.
+
+The previous endpoint exchange knows two/three peer endpoints at Mac/Poco;
+neither is admitted. This supersedes the zero-candidate state of earlier runs.
+Address-free punch results report mainly no usable NAT mapping at Mac and
+NAT signaling timeout at Poco. `hasCert=false` is not itself a direct-connect
+failure: the native public-mode status provider explicitly allows admission
+without a private-network membership certificate. Controlled startup with the
+new event is needed to attribute the actual carrier permissions.
