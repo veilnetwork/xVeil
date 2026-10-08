@@ -14,6 +14,113 @@ void main() {
   ({int maxBitrateKbps, double maxFps})? lossy(CallBitrateAdapter a) =>
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
 
+  Map<String, Object> healthyDrops(int aggregate, {int? audio}) => {
+    'worker_stalled': 0,
+    'audio_feedback_reports': 1,
+    'video_feedback_reports': 1,
+    'video_feedback_rtt_ms': 80,
+    'video_feedback_jitter_ms': 10,
+    'rtt_ms': 80,
+    'tx_jitter_ms': 10,
+    'tx_loss_pct': 0,
+    'audio_rx_pkts': 100,
+    'audio_rx_native_age_ms': 10,
+    'audio_delay_ms': 60,
+    'tx_drops': aggregate,
+    if (audio != null) 'audio_tx_rtp_drops': audio,
+  };
+
+  test('secondary drops allow only a sparse probe after audio recovery', () {
+    final a = direct();
+    a.prepareVideoSend(
+      const {},
+      requireAudioReceivePlayout: true,
+      receiveAudioExpected: true,
+      requirePeerAudioPlayout: true,
+    );
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter * 2; i++) {
+      a.onNativeStats(
+        healthyDrops(i * 20, audio: 0),
+        receiveAudioExpected: true,
+        requireAudioReceivePlayout: true,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: 60,
+      );
+    }
+    expect(a.audioReserve, isFalse);
+    expect(a.atFloor, isTrue, reason: 'aggregate losses still forbid growth');
+  });
+
+  test('audio recovery probe requires consecutive fresh measurements', () {
+    final a = direct();
+    a.prepareVideoSend(const {}, requirePeerAudioPlayout: true);
+    void sample(Map<String, Object> stats) => a.onNativeStats(
+      stats,
+      requirePeerAudioPlayout: true,
+      peerAudioDelayMs: 60,
+    );
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      sample(healthyDrops(i * 20, audio: 0));
+    }
+    sample({...healthyDrops(300, audio: 0), 'audio_feedback_reports': 0});
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      sample(healthyDrops(400 + i * 20, audio: 0));
+    }
+    expect(a.audioReserve, isTrue);
+    sample(healthyDrops(800, audio: 0));
+    expect(a.audioReserve, isFalse);
+    expect(a.atFloor, isTrue);
+  });
+
+  test('secondary losses still reduce video with a clean primary counter', () {
+    final a = direct();
+    a.onNativeStats(healthyDrops(0, audio: 0));
+    for (var i = 1; i <= CallBitrateAdapter.degradeAfter; i++) {
+      a.onNativeStats(healthyDrops(i, audio: 0));
+    }
+    expect(a.level, 1);
+  });
+
+  test('actual primary RTP failures still reduce video', () {
+    final a = direct();
+    a.onNativeStats(healthyDrops(100, audio: 0));
+    for (var i = 1; i <= CallBitrateAdapter.degradeAfter; i++) {
+      a.onNativeStats(healthyDrops(100, audio: i));
+    }
+    expect(a.level, 1);
+  });
+
+  test('missing or invalid primary counter retains conservative fallback', () {
+    for (final audio in [null, -1]) {
+      final a = direct();
+      a.onNativeStats(healthyDrops(0, audio: audio));
+      for (var i = 1; i <= CallBitrateAdapter.degradeAfter; i++) {
+        a.onNativeStats(healthyDrops(i, audio: audio));
+      }
+      expect(a.level, 1);
+    }
+  });
+
+  test('switching counter domains does not treat old losses as new', () {
+    final a = direct();
+    a.onNativeStats(healthyDrops(100, audio: 0));
+    a.onNativeStats(healthyDrops(100, audio: 0), sendAudioExpected: false);
+    a.onNativeStats(healthyDrops(100, audio: 0), sendAudioExpected: false);
+    expect(a.level, 0);
+    for (var i = 1; i <= CallBitrateAdapter.degradeAfter; i++) {
+      a.onNativeStats(
+        healthyDrops(100 + i, audio: 0),
+        sendAudioExpected: false,
+      );
+    }
+    expect(
+      a.level,
+      1,
+      reason: 'video-only sending still uses aggregate losses',
+    );
+  });
+
   test('intentional silence releases an already measured audio hold', () {
     final a = direct();
     a.onSample(
