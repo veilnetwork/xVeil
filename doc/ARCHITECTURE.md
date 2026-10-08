@@ -6919,5 +6919,72 @@ two ordinary RecursiveQuery frames to mesh peers, suppresses duplicate in-flight
 queries, accepts a newly learned live relay and retains the direct route.
 The negative-cache test also checks discovery-kind isolation. Locked veil-ipc
 tests pass: 139, with five pre-existing ignored and one pre-existing ignored
-doctest. Rebuilding both embedded SDK targets and physical verification of this
-new routing change remain required before calling it deployed.
+doctest.
+
+Both embedded SDK targets are rebuilt from 9fe4aa50 and packaged in host build
+0.13.84+2289. The complete production-signed APK installed on Poco matches its
+local hash; SDK native bytes change while production media remains byte-for-byte
+2279. Mac SDK code sections and strict bundle seal verify. No release is tagged.
+
+A 75-second route2289 voice call rings at 2.524 s/both active at 3.261 s. It
+starts through relay (8 Mac/7 Poco active samples), then upgrades to P2P for
+192 samples each. There is no subsequent direct-to-relay fallback in this run.
+Each endpoint keeps one engine epoch. Native interruptions remain Mac 8/4044 ms
+and Poco 18/12801 ms; maximum audio receive ages are 2085/1778 ms. Packet-matched
+Mac-to-Poco UDP has 363 matches, median 5.32 ms/max 1139.32 ms with a 24.6-ms
+clock bound; precise kernel stamps show handoff-to-kernel max 920.84 ms and
+kernel-to-read max 2.98 ms. Reverse UDP has 266 matches, median 50.18 ms/max
+1194.68 ms. These are generic UDP samples, not a complete audio-loss measurement.
+The three sampled sealed relay cells at the initial phase all arrive, after
+31.8/48.8 ms forward and 77.2 ms reverse. This is not a failed-path recovery test.
+
+A separate 30-second forced2289 Mac-to-Poco voice call verifies the new SDK's
+explicit handover with healthy audio on both direct endpoints. It rings at
+0.210 s/both active at 0.669 s; recovery is requested at t=11.016 s. Both show
+relay 0.356 s later, retain one engine epoch and add no native interruptions
+after that request. Maximum post-request audio receive ages are 516/198 ms.
+Each endpoint already recorded one short interruption before handover; these
+must not be attributed to the switch. Healthy-path handover does not prove that
+an unavailable replacement route recovers equally quickly.
+
+Both stands verify owned applications and phone UID/package processes exited,
+forwarding removed and Mac strict seal valid. Cellular connectivity, identities,
+history, P2P policy and /Applications are retained. Private route2289 UDP/stage/
+playout audits, forced2289 handover audit and both cleanup reports retain the
+evidence. Physical audio pauses and actual encoded mixed-video coverage remain
+unresolved; this routing fix does not complete the audio-priority goal.
+
+### Cycle 2290 — prolonged established relay delivery, still using build 2289
+
+Poco is available over ADB, remains on cellular with Wi-Fi off, and initiates
+a 120-second audio-only call against the Mac stand. Installed SDK/host remain
+2289 and production media 2279; 2290 identifies this observation, not a new app
+version. The call rings at 1.254 s/both active at 1.621 s. Healthy direct receipt
+is verified before requesting the ordinary relay recovery at t=11.743 s;
+both show relay 0.358 s later and retain one engine epoch throughout.
+
+Each endpoint has 28 direct and 290 relay active samples. Subsequent established
+relay audio still pauses: after the recovery request Mac adds 5 interruptions/
+7565 ms and Poco 10/11240 ms. The first newly completed interruptions are
+observed at t=39.499/35.360 s, well after handover. Audio receive ages peak at
+3046/2765 ms. Neither video nor file transfer runs, and native receive-queue
+drops remain zero. These are receive-stream metrics, not acoustic measurements.
+
+All sparse sealed-cell samples match authenticated receipt: forward 117 relay
+samples have queue-to-receive median 29.6 ms/max 2470.6 ms; reverse 60 have
+median 82.4 ms/max 1703.4 ms. Each sampled local socket/daemon/handler/queue
+stage peaks at 1 ms on relay sends. Several delayed cells are accepted at two
+first hops, so origin fan-out does not eliminate this captured delay. First-hop
+readiness reports neutral-Forward datagram transport false for all captured
+source relay admissions; reliable compatibility fallback remains in use.
+Generic connection admission samples cannot prove the timing of a particular
+forwarded cell, and endpoint evidence does not separate intermediate relay
+queues from final-hop network or receiver dispatch delays.
+
+Cleanup verifies both owned applications, phone UID/package processes and
+helpers exited; forwarding removed and the Mac strict seal valid. No identities,
+history, network policy, /Applications or native binaries change in this cycle.
+Private forced2290 call/playout/handover/stage audits and cleanup retain evidence.
+The remaining boundary is delivery between first-hop admission and authenticated
+endpoint receipt; do not attribute these multi-second gaps to the instantaneous
+healthy handover or declare the full audio-priority goal complete.
