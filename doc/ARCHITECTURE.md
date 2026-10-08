@@ -7779,3 +7779,18 @@ jitter_buffer_ms instead reports currentBufferSize. The current adapter
 and peer feedback consume only the filtered estimate. This is evidence
 for examining delayed endpoint congestion response, not proof that all
 remaining physical network pauses have the same cause.
+
+
+The endpoint guard now takes the maximum of the validated filtered delay
+and current jitter-buffer occupancy, both for local video adaptation and
+for authenticated peer playout/source-pressure feedback. A stalled worker
+or missing/invalid delay estimate cannot become a healthy sample merely
+because a buffer value exists. Older media libraries without a valid buffer
+field retain their validated delay estimate. Neither the 200-ms measurement
+gate nor the 160/120-ms degradation/recovery margins changed. Regression
+tests reproduce a 53-ms filtered estimate with a 163-ms buffer, immediate
+video reservation and recovery only after the buffer drains. All 79 focused
+Dart tests pass; static analysis of the four changed files reports no issues.
+A fresh real mixed codec fixture is pending; this unit result is not proof
+of acoustic or physical cellular quality. Production Mac and Android SDK
+binaries were rebuilt from ab705e8c, without changing the exported ABI.
