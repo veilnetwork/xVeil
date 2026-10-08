@@ -8556,3 +8556,38 @@ package/UID processes and removal of its ADB forwarding. Fresh final checks
 confirm the installed phone package is versionCode 2363, the owned stand is
 stopped, its strict bundle seal is valid, and no live stand resource record
 remains. User applications and the default VM are untouched.
+
+### Retiring stale partial ordered records (2026-10-08, SDK 37c76eb3)
+
+The independent TCP record plane previously allowed a partial write/flush to
+hold its child for 30 seconds. Its explicit local deadline skipped a record
+only before the first byte, and records without a deadline had no queue-age
+bound. Consequently stale data could retain a source slot despite the existing
+200 ms receive residence limit.
+
+Every outgoing loss-tolerant record now has the same 200 ms maximum lifetime
+from admission, including its queue time. A caller's tighter deadline remains
+effective. Before any byte is accepted, expiry skips that record and keeps the
+connection usable. After progress, expiry cancels the complete child, wakes its
+reader and releases queued credits; subsequent framing never follows a partial
+record. Buffered plaintext acceptance also retains the deadline through flush.
+The normal source pool observes the closed child and replaces its authenticated
+connection. Producer roles and deadlines are absent from proofs and framing;
+relay admission remains neutral. Ordinary reliable application bytes continue
+through their reliable transport.
+
+Two new gates fail against the previous source. The final transport suite passes
+144 tests, including 13 record tests; its five obfs4 integration tests and two
+doc-tests also pass. The session suite passes 446 tests with six existing
+ignores and one existing ignored doc-test. A new real-obfs4 regression verifies
+the expiry of a partially admitted record, remote I/O closure, lease reclamation,
+fresh exporter-bound replacement and surviving sibling/canonical traffic.
+Existing normal-runner key rotation and exact reliable-file tests pass.
+
+On the actual Poco, 32 ARM checks pass: 13 records, six bindings, ten shared
+registry tests and three normal receiver tests. Temporary executables and their
+private directory are removed; no test helper or app process remains. Production
+embedded FFI builds succeed for macOS (with tls-boring) and Android (its usual
+pure Rust TLS). The ABI and wire framing remain unchanged. Physical cellular
+audio pauses and the full requested interaction separation remain outstanding;
+these gates establish bounded child lifetime and isolation, not acoustic quality.
