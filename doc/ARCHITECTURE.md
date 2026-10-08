@@ -7963,3 +7963,27 @@ Four host TCP/obfs4 tests and two diagnostic tests pass, both native builds
 succeed, and the temporary phone control is removed. These changes introduce
 no media classification, relay priority or new routing policy. Physical
 call quality must be measured again before declaring this a complete cure.
+
+The actual Rust transport test binary also runs on Poco: all 12 TCP-related
+tests pass, including the new pre-connect negotiation regression; its owned
+temporary directory is removed. Build 0.13.84+2350 packages SDK 2c363127 on
+both platforms with the unchanged ABI and production media exports. The
+same-signer APK is installed without wiping data, pulled back and hash-checked;
+Mac native code and strict seal verify. Package source state is clean.
+
+Two further Poco→Mac controls each remain active for the requested 90 seconds.
+Audio rings/connects in 0.425/1.033 seconds; camera mode in 0.412/1.376.
+Real TCP snapshots consistently show send MSS 1188, proving the negotiation
+fix is deployed. It is NOT a full quality fix: waits still reach 3326 ms,
+TCP RTT reaches 1.396 seconds and retransmissions continue, even in samples
+with zero not-yet-sent bytes (in-flight data can still occupy the send buffer).
+Audio interruption counts are 26/26, durations 23.790/27.687 seconds and
+filtered-delay maxima 774/414 ms. Camera mode has 2682/2634 captured frames,
+21/19 interruptions, 14.438/13.953 seconds and maxima 510/485 ms; native
+video_send_paused remains 1 on both endpoints and encoded/delivered frames
+remain zero. Audio protection must not be disabled to manufacture a video
+pass. Local RTP admission is at most 1 ms in audio and 3 ms in camera mode;
+remaining waits are downstream. No successful physical coexistence result
+is claimed, and discovery, loss/ACK waits and transport separation still need
+work. Every owned app/helper process and forward is verified absent and the
+Mac bundle's strict seal verifies after cleanup. No commits are signed/pushed.
