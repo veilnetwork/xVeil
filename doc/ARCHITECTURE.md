@@ -7331,3 +7331,78 @@ audio protection under overload. The failing result is retained, rather than
 loosening the gate. All fixture nodes and the blind proxy worker stop, with no
 remaining fixture sockets. The next required comparison must include actual
 codec/playout and adaptive feedback; physical Poco pauses remain unresolved.
+
+
+### Real codec relay control and cellular build 2309 (2026-10-08)
+
+`scripts/relay-codec-control.py` extends the neutral loopback relay control to
+real duplex Opus/NetEq PCM and VP8. It requires a media library compiled with
+`VEIL_MEDIA_TEST_HOOKS=1`, Python `cryptography`, and Dart. The test-only duplex
+constructor configures independent transport feedback and the 1000-byte RTP
+ceiling before audio freezes engine configuration. No microphone, speaker,
+application profile or production test-hook library is installed.
+
+Example, using absolute paths to independently built stand libraries:
+
+```sh
+TMPDIR=/private/tmp/ python3 scripts/relay-codec-control.py   --sdk /private/tmp/stand-sdk/libveilclient_ffi.dylib   --media /private/tmp/stand-media/libveil_media.dylib   --rate-kbps 1024 --duration 100
+```
+
+Three distinct SDK nodes carry encrypted media through one neutral QUIC relay.
+The shared directional UDP FIFO caps all encrypted packets equally; it has no
+media classification. The endpoints use separate IPC writers for video and
+reuse the real application adapter and receive/peer playout trackers from
+`scripts/relay_codec_policy.dart`. Five-second authenticated health samples
+travel through SDK relay delivery, never an out-of-band peer-stat shortcut.
+A normal encrypted bootstrap delivery primes the fixture certificate caches:
+the cached-only control API does not discover fresh recipient keys itself.
+Capture/playout ticks run independently of stats and policy polling. Native
+control acknowledgements are applied only after a successful native call.
+Video starts at the actual adapter target, including fractional cadence.
+Starting at the base 900 kbps instead produced an artificial first-frame burst
+and is excluded from the application comparison.
+
+The final repository-tool run (`codec2310`) has 15 seconds of measured audio
+baseline followed by 80 seconds offering VP8. It delivered 20/17 encoded video
+frames in opposite directions and all 80 tone transitions each way, with no
+silent PCM ticks or native audio interruptions. Native receive-delay maxima
+are 142/156 ms. Crucially, actual PCM frequency-edge latency has p95
+131.6/178.3 ms and maxima 190.0/209.9 ms: the strict 200-ms gate FAILS despite
+healthy native buffer estimates. No threshold is weakened. This verifies a
+sparse codec/control path, not usable video cadence, physical cellular
+quality, file contention or completion of audio priority. The shaper dropped
+no packets. Its queue maxima are 109.1/91.3 ms. The audio driver interval
+stayed below 14.9 ms, authenticated health counts are 21/21 including the
+bootstrap, and all native/policy/thread error counters are zero.
+
+Physical Poco remains on cellular with Wi-Fi disabled. Build 0.13.84+2309
+contains SDK `ca9e2722`, including fresh QUIC loss/congestion feedback for
+local primary pressure. Native packaging, APK signer/dependency checks and
+installed APK hash verification passed. Production media remains build 2279;
+the test-only duplex constructor is not packaged. `/Applications` is unchanged.
+
+Before updating, build 2298's 90-second audio-only P2P call registered one
+255-ms Poco startup interruption and none on Mac. Receive-delay p95 was
+332/345 ms (Mac/Poco). With build 2309, the first two setup attempts did not
+establish within the harness's 45-second limit; that limit is shorter than the
+application's 75-second ring timeout. Logs include initially unauthenticated
+claimed offers being refused and a first offer arriving about 59 seconds
+late. This remains a signaling/authentication investigation, not proof of an
+application timeout or justification to weaken source authentication.
+
+The subsequent 120-second requested-video call rang in 0.422 s and became
+active on both endpoints in 1.419 s. It switched from P2P to relay around the
+first 30 seconds and remained in the same engine epoch. It registered
+5 interruptions / 4.953 s on Mac and 12 / 12.402 s on Poco. Native receive-age
+maxima are 2680/2696 ms; receive-delay maxima 1523/476 ms. Both video transmit
+and receive counters remain zero, so these pauses are not evidence of encoded
+video interference. All 233 sampled Poco relay admissions report no
+independent datagram-capable hop; the compatibility ordered route remains a
+material unisolated factor. A short concurrent ICMP probe near the call's end
+has maxima 12.4/465 ms (Mac/Poco), not a matching route measurement or proof
+that the carrier alone caused the media gaps.
+
+Owned application, helper, phone UID/package and ping processes have exited;
+ADB forwarding is removed and the Mac bundle seal is verified. The codec
+fixture's capture thread and Dart helper exited, all three SDK stop calls
+returned zero, and no fixture sockets remain. Goal remains unachieved.

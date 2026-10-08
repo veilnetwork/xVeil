@@ -1,0 +1,391 @@
+#!/usr/bin/env python3
+"""Exercise real Opus/VP8 and the application's adapter over a neutral QUIC relay.
+
+Requires Python 3.11+, cryptography, Dart, a node-embedded SDK and a WebRTC
+media library built with VEIL_MEDIA_TEST_HOOKS=1. Uses no microphone, speaker
+or application profile. Tone capture and decoded PCM run independently of
+stats/control polling. The real Dart policy receives peer playout feedback
+only after authenticated encrypted delivery through the same limited relay.
+A blind FIFO limiter never reads or prioritises media. This loopback control
+is not proof of physical cellular quality. All raw evidence stays private.
+"""
+import argparse, hashlib, re, tempfile
+import subprocess, threading, collections, math
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from udp_fifo_shaper import UdpShaper
+import ctypes as C
+import json, os, socket, time, tomllib, traceback
+from pathlib import Path
+os.umask(0o077)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--sdk', type=Path, required=True)
+parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per UDP direction; 0 leaves transport unrestricted')
+parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
+parser.add_argument('--media', type=Path, required=True)
+parser.add_argument('--duration', type=int, default=100)
+args = parser.parse_args()
+if args.rate_kbps < 0 or args.duration < 22:
+    parser.error('Rate must be nonnegative and duration at least 22 seconds')
+sdk_path = args.sdk.resolve(strict=True)
+media_path = args.media.resolve(strict=True)
+policy_path = Path(__file__).resolve().with_name('relay_codec_policy.dart')
+if args.directory is None:
+    ROOT = Path(tempfile.mkdtemp(prefix='xveil-relay-control-', dir='/private/tmp'))
+else:
+    ROOT = args.directory.absolute()
+    if ROOT.exists():
+        if ROOT.is_symlink() or not (ROOT / 'fixture.json').is_file():
+            parser.error('Existing directory is not an owned relay-control fixture')
+        if json.loads((ROOT / 'fixture.json').read_text()).get('format') != 'xveil-relay-control-v1':
+            parser.error('Unrecognised fixture marker')
+    else:
+        ROOT.mkdir(mode=0o700)
+if ROOT.stat().st_uid != os.getuid() or ROOT.stat().st_mode & 0o077:
+    parser.error('Fixture directory must be owner-only')
+for index in range(3):
+    if (ROOT / str(index)).is_symlink():
+        parser.error('Fixture node directories must not be symbolic links')
+(ROOT / 'fixture.json').write_text(json.dumps({'format': 'xveil-relay-control-v1', 'sdk_sha256': hashlib.sha256(sdk_path.read_bytes()).hexdigest()}))
+os.chdir(ROOT)
+log_path = ROOT / 'runtime.log'
+log_file = log_path.open('w')
+os.dup2(log_file.fileno(), 2)
+SDK = C.CDLL(str(sdk_path), mode=C.RTLD_GLOBAL)
+P = C.c_void_p
+E = C.POINTER(P)
+
+def fn(name, args, result):
+    f = getattr(SDK, name)
+    f.argtypes = args
+    f.restype = result
+    return f
+init = fn('veil_config_init', [C.c_uint32, E], P)
+free = fn('veil_free_string', [P], None)
+start = fn('veil_node_start', [C.c_char_p, C.c_size_t, E], P)
+stop = fn('veil_node_stop_timeout', [P, C.c_uint64], C.c_int)
+connect = fn('veil_connect', [C.c_char_p, C.c_size_t, E], P)
+close = fn('veil_close', [P], None)
+bind = fn('veil_bind_named', [P, C.c_char_p, C.c_size_t, C.c_char_p, C.c_size_t, C.c_uint32, E], P)
+appclose = fn('veil_app_close', [P], None)
+nodeid = fn('veil_get_node_id', [P, P, E], C.c_int)
+appid = fn('veil_app_get_app_id', [P, P], C.c_int)
+recv = fn('veil_media_start_direct_receiver', [P, C.c_char_p, C.c_size_t, C.c_char_p, C.c_size_t, E], C.c_int)
+openmedia = fn('veil_media_open_relay_channel', [P, P, P, C.c_uint32, P, P, E], C.c_uint64)
+mediaclose = fn('veil_media_close_channel', [C.c_uint64], None)
+trace = fn('veil_debug_set_rt_trace', [C.c_int], None)
+secondary_sender = fn('veil_media_channel_set_secondary_sender', [C.c_uint64, P, E], C.c_int)
+shaper = None
+
+def checked(f, *args):
+    err = P()
+    v = f(*args, C.byref(err))
+    if err.value:
+        detail = C.string_at(err).decode(errors='replace')
+        free(err)
+        raise RuntimeError(f.__name__ + ': ' + detail)
+    return v
+
+def admin(index, command):
+    with socket.socket(socket.AF_UNIX) as s:
+        s.settimeout(4)
+        s.connect(str(ROOT / str(index) / 'admin.sock'))
+        request = {'version': 1, 'command': {'command': command}}
+        s.sendall((json.dumps(request) + '\n').encode())
+        s.shutdown(socket.SHUT_WR)
+        with s.makefile('rb') as reader:
+            return json.loads(reader.readline())
+identities = []
+extra_handles = []
+extra_apps = []
+secondary_apps = []
+nodes = []
+handles = []
+apps = []
+channels = []
+callbacks = []
+engines=[]
+policy=None
+media=None
+audio_thread=None
+audio_stop=threading.Event()
+audio_failure=[]
+result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False}
+try:
+    for index in range(3):
+        directory = ROOT / str(index)
+        directory.mkdir(mode=0o700, exist_ok=True)
+        existing = directory / 'node.toml'
+        if existing.exists():
+            config = existing.read_text()
+        else:
+            text = checked(init, 0)
+            config = C.string_at(text).decode()
+            free(text)
+        identities.append(tomllib.loads(config)['Identity'])
+    ports = []
+    for _ in identities:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.bind(('127.0.0.1', 0))
+        ports.append(s.getsockname()[1])
+        s.close()
+    if args.rate_kbps:
+        shaper = UdpShaper([('127.0.0.1', port) for port in ports])
+    for index, identity in enumerate(identities):
+        directory = ROOT / str(index)
+        lines = ['persist_enabled = false', '[global]', 'meeting_points = "off"', 'builtin_seed_policy = "never"', 'admin_socket = ' + json.dumps('unix://' + str(directory / 'admin.sock')), '[Identity]']
+        for key in ['algo', 'public_key', 'private_key', 'nonce', 'node_id']:
+            lines.append(key + ' = ' + json.dumps(identity[key]))
+        lines += ['[anonymity]', 'relay_capable = true', '[ipc]', 'enabled = true', 'socket_uri = ' + json.dumps('unix://' + str(directory / 'ipc.sock')), '[[listen]]', 'id = "0x00000001"', 'transport = ' + json.dumps('quic://127.0.0.1:' + str(ports[index]))]
+        if shaper is not None:
+            lines.append('advertise = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[index])))
+        peers = [1, 2] if index == 0 else [0]
+        for peer in peers:
+            other = identities[peer]
+            lines += ['[[peers]]', 'peer_id = ' + json.dumps('0x' + format(peer + 1, '08x')), 'public_key = ' + json.dumps(other['public_key']), 'nonce = ' + json.dumps(other['nonce']), 'algo = ' + json.dumps(other['algo']), 'transport = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[peer] if shaper is not None else ports[peer]))]
+        path = directory / 'node.toml'
+        path.write_text('\n'.join(lines) + '\n')
+        raw = str(path).encode()
+        value = checked(start, raw, len(raw))
+        assert value
+        nodes.append(value)
+    trace(1)
+    for index in range(3):
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            try:
+                value = admin(index, 'sessions')
+                (ROOT / ('sessions-' + str(index) + '.json')).write_text(json.dumps(value))
+                rows = value.get('result', {}).get('sessions', [])
+                expected = 2 if index == 0 else 1
+                if len(rows) >= expected and all((row.get('state') == 'active' for row in rows)):
+                    break
+            except Exception:
+                pass
+            time.sleep(0.25)
+        else:
+            raise RuntimeError('No session on node ' + str(index))
+    for index in (1, 2):
+        uri = str(ROOT / str(index) / 'ipc.sock').encode()
+        handle = checked(connect, uri, len(uri))
+        assert handle
+        handles.append(handle)
+        app = checked(bind, handle, b'xveil-control', 13, b'media', 5, 0)
+        assert app
+        apps.append(app)
+        secondary_handle = checked(connect, uri, len(uri))
+        assert secondary_handle
+        extra_handles.append(secondary_handle)
+        secondary_app = checked(bind, secondary_handle, b'xveil-control', 13, b'media', 5, 1)
+        assert secondary_app
+        extra_apps.append(secondary_app)
+        secondary_apps.append(secondary_app)
+    ids = []
+    appids = []
+    for handle, app in zip(handles, apps):
+        nid = C.create_string_buffer(32)
+        aid = C.create_string_buffer(32)
+        assert checked(nodeid, handle, nid) == 0
+        assert appid(app, aid) == 0
+        ids.append(nid)
+        appids.append(aid)
+        assert checked(recv, app, b'xveil-control', 13, b'media', 5) == 0
+    media=C.CDLL(str(media_path),mode=C.RTLD_GLOBAL)
+    def mf(name,types,ret):
+        f=getattr(media,name);f.argtypes=types;f.restype=ret;return f
+    create=mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
+    destroy=mf('veil_media_engine_destroy',[P],None)
+    capture=mf('veil_media_test_audio_capture_tone',[P,C.c_int],C.c_int)
+    playout=mf('veil_media_test_audio_playout_pcm',[P,P,C.c_size_t],C.c_int)
+    getstats=mf('veil_media_engine_get_stats',[P],P)
+    mfree=mf('veil_media_free_string',[P],None)
+    startvideo=mf('veil_media_engine_start_video',[P,C.c_int,C.c_int,C.c_int,C.c_int],C.c_int)
+    pause=mf('veil_media_engine_set_video_send_paused',[P,C.c_int],C.c_int)
+    budget=mf('veil_media_engine_set_video_budget',[P,C.c_int,C.c_double],C.c_int)
+    batching=fn('veil_media_channel_set_batching',[C.c_uint64,C.c_int],C.c_int)
+    keys=[os.urandom(32),os.urandom(32)]
+    healthkeys=[AESGCM(os.urandom(32)),AESGCM(os.urandom(32))]
+    controlapps=[];controlids=[];inbox=[collections.deque(),collections.deque()]
+    noncecounter=[0,0];healthsent=[0,0];healthrecv=[0,0];healthbad=[0,0]
+    handler_type=C.CFUNCTYPE(None,P,P,P,C.c_uint8,C.c_uint64,P,C.c_size_t)
+    handler=fn('veil_app_set_recv_handler',[P,handler_type,P,E],C.c_int)
+    freebuf=fn('veil_free_buf',[P,C.c_size_t],None)
+    normalsend=fn('veil_send',[P,P,P,C.c_uint32,P,C.c_size_t,E],C.c_int)
+    controlsend=fn('veil_send_relay_realtime',[P,P,P,C.c_uint32,P,C.c_size_t,E],C.c_int)
+    service=os.urandom(16).hex().encode()
+    for index in range(2):
+        control=checked(bind,handles[index],service,len(service),b'opaque',6,2)
+        extra_apps.append(control);controlapps.append(control)
+        aid=C.create_string_buffer(32);assert appid(control,aid)==0;controlids.append(aid)
+    for index in range(2):
+        def receive_health(user,node,app,provenance,reply,data,size,index=index):
+            try:
+                assert C.string_at(node,32)==ids[1-index].raw[:32]
+                assert C.string_at(app,32)==controlids[1-index].raw[:32]
+                raw=C.string_at(data,size)
+                value=json.loads(healthkeys[1-index].decrypt(raw[:12],raw[12:],b'codec-control-v1'))
+                inbox[index].append({'at':int(time.time()*1000),'value':value})
+                healthrecv[index]+=1
+            except Exception:healthbad[index]+=1
+            finally:freebuf(node,64+size)
+        cb=handler_type(receive_health);callbacks.append(cb)
+        assert checked(handler,controlapps[index],cb,None)==0
+        ch=checked(openmedia,apps[index],ids[1-index],appids[1-index],0,keys[index],keys[1-index])
+        assert ch;channels.append(ch)
+        assert checked(secondary_sender,ch,secondary_apps[index])==0
+        assert batching(ch,1)==0
+    os.environ['VEIL_MEDIA_TEST_VIDEO']='1'
+    for i,ch in enumerate(channels):
+        e=create(ch,ids[i],ids[1-i]);assert e;engines.append(e)
+    policylog=(ROOT/'policy.err').open('w')
+    policy=subprocess.Popen(['dart',str(policy_path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=policylog,text=True,bufsize=1,env=dict(os.environ,TMPDIR='/private/tmp/'))
+    def command(v):
+        policy.stdin.write(json.dumps(v)+'\n');policy.stdin.flush()
+        response=policy.stdout.readline()
+        if not response:raise RuntimeError('Policy helper stopped')
+        return json.loads(response)
+    pcm=(C.c_int16*480)();pcmrows=[];samples=[];nativefail=[0,0];pollfail=[0,0]
+    # Prime the endpoint certificate cache through ordinary encrypted delivery;
+    # control's cached-only path deliberately never initiates DHT discovery.
+    for i in range(2):
+        nonce=noncecounter[i].to_bytes(12,'big');noncecounter[i]+=1
+        payload=nonce+healthkeys[i].encrypt(nonce,json.dumps({'n':0}).encode(),b'codec-control-v1')
+        checked(normalsend,controlapps[i],ids[1-i],controlids[1-i],2,payload,len(payload))
+    command({'index':0,'op':'ack','pauseOk':False,'budgetOk':False})
+    time.sleep(4)
+    if shaper:shaper.rate_bps=args.rate_kbps*1000
+    startat=time.monotonic();lasttick=startat;maxscheduler=0;videostarted=False;latestfeedback=[None,None];targets=[None,None]
+    def audio_loop():
+        global maxscheduler
+        try:
+            lasttick=time.monotonic();deadline=lasttick
+            while not audio_stop.is_set():
+                audio_stop.wait(max(0,deadline-time.monotonic()))
+                if audio_stop.is_set():break
+                now=time.monotonic();maxscheduler=max(maxscheduler,(now-lasttick)*1000);lasttick=now
+                freq=500 if int(now-startat)%2==0 else 1000
+                for i,e in enumerate(engines):
+                    if capture(e,freq)!=0:nativefail[i]+=1
+                    n=playout(e,pcm,480)
+                    if n>0:
+                        rms=math.sqrt(sum(int(pcm[k])**2 for k in range(n))/n)
+                        crossings=sum((pcm[k]>=0)!=(pcm[k-1]>=0) for k in range(1,n))
+                        pcmrows.append({'t':round(time.monotonic()-startat,4),'side':i,'rms':round(rms,1),'freq':crossings*48000/(2*n),'source_freq':freq})
+                    else:nativefail[i]+=1
+                deadline+=.01
+                if deadline<time.monotonic()-.01:deadline=time.monotonic()+.01
+        except Exception:
+            audio_failure.append(traceback.format_exc())
+            audio_stop.set()
+    audio_thread=threading.Thread(target=audio_loop,name='stand-pcm');audio_thread.start()
+    for tick in range(args.duration*100):
+        target=startat+tick*.01;time.sleep(max(0,target-time.monotonic()))
+        if tick%100==0:
+            prepare=tick>=2000 and not videostarted
+            for i,e in enumerate(engines):
+                ptr=getstats(e)
+                if not ptr:pollfail[i]+=1;continue
+                try:stats=json.loads(C.string_at(ptr))
+                finally:mfree(ptr)
+                feedback=[]
+                while inbox[i]:feedback.append(inbox[i].popleft())
+                r=command({'index':i,'op':'stats','now':int(time.time()*1000),'stats':stats,'feedback':feedback,'prepare':prepare})
+                latestfeedback[i]=r['feedback'];targets[i]=r['target']
+                pauseok=True;budgetok=True
+                if r['pause'] is not None:pauseok=pause(e,int(r['pause']))==0
+                if r['budget'] is not None:budgetok=budget(e,r['budget']['kbps'],r['budget']['fps'])==0
+                command({'index':i,'op':'ack','pauseOk':pauseok,'budgetOk':budgetok})
+                samples.append({'t':time.monotonic()-startat,'side':i,'stats':stats,'policy':r,'pause_ok':pauseok,'budget_ok':budgetok})
+            if prepare:
+                for i,e in enumerate(engines):
+                    t=targets[i]
+                    assert startvideo(e,1,1,t['kbps'],max(1,math.ceil(t['fps'])))==0
+                    budget(e,t['kbps'],t['fps'])
+                videostarted=True
+            if tick%500==0:
+                for i in range(2):
+                    nonce=noncecounter[i].to_bytes(12,'big');noncecounter[i]+=1
+                    payload=nonce+healthkeys[i].encrypt(nonce,json.dumps(latestfeedback[i]).encode(),b'codec-control-v1')
+                    rc=checked(controlsend,controlapps[i],ids[1-i],controlids[1-i],2,payload,len(payload))
+                    if rc==0:healthsent[i]+=1
+    audio_stop.set();audio_thread.join(timeout=5)
+    assert not audio_thread.is_alive()
+    if audio_failure:(ROOT/'audio-thread-failure.txt').write_text(''.join(audio_failure))
+    (ROOT/'pcm-samples.json').write_text(json.dumps(pcmrows))
+    (ROOT/'codec-samples.json').write_text(json.dumps(samples))
+    result.update(real_opus=True,real_vp8=True,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
+    phases=[]
+    for lo,hi,name in [(5,20,'audio-only'),(20,args.duration,'audio-video')]:
+        directions=[]
+        for i in range(2):
+            rows=[x for x in samples if x['side']==i and lo<=x['t']<hi]
+            dec=[x for x in pcmrows if x['side']==i and lo<=x['t']<hi]
+            quiet=[x for x in dec if x['rms']<500]
+            stats=[x['stats'] for x in rows]
+            metrics={k:max((s.get(k,0) or 0 for s in stats),default=0) for k in ['audio_delay_ms','audio_jb_ms','audio_interruption_count','audio_interruption_duration_ms','audio_rx_native_age_ms','video_tx_frames','video_rx_deliver_frames']}
+            directions.append({'maxima':metrics,'pcm_frames':len(dec),'quiet_pcm_frames':len(quiet),'video_pause_samples':sum(x['policy']['audioReserve'] for x in rows)})
+        phases.append({'name':name,'directions':directions})
+    # PCM frequency edges expose actual source-to-playout delay, including
+    # codec/pacer latency absent from the receive-buffer estimate. No peer
+    # quality is fed to the adapter via these local measurement observations.
+    result['decoded_pcm_edges'] = []
+    for side in range(2):
+        source = [x for x in pcmrows if x['side'] == 1-side]
+        rendered = [x for x in pcmrows if x['side'] == side]
+        edges=[]; last=None
+        for x in source:
+            if x['source_freq'] != last:
+                edges.append((x['t'], x['source_freq'])); last=x['source_freq']
+        decoded=[]; last=None
+        for x in rendered:
+            f = 500 if abs(x['freq']-500)<150 else 1000 if abs(x['freq']-1000)<150 else None
+            if f is not None and x['rms']>=500 and f!=last:
+                decoded.append((x['t'],f)); last=f
+        summaries=[]
+        for lo,hi,name in [(5,20,'audio-only'),(20,args.duration,'audio-video')]:
+            delays=[]; missing=0
+            for i,(at,f) in enumerate(edges):
+                if not lo<=at<hi: continue
+                end=edges[i+1][0] if i+1<len(edges) else hi
+                match=next((t for t,value in decoded if at<=t<end and value==f),None)
+                if match is None: missing+=1
+                else: delays.append((match-at)*1000)
+            delays.sort()
+            summaries.append({'name':name,'matched':len(delays),'missing':missing,
+                              'p95_ms':delays[int(.95*(len(delays)-1))] if delays else None,
+                              'max_ms':max(delays,default=None)})
+        result['decoded_pcm_edges'].append({'side':side,'phases':summaries})
+    result['phases']=phases
+    captured=log_path.read_text();hops=re.findall('ipc.rt_trace.relay_admission[^\n]*hop=([a-f0-9]+)[^\n]*datagram_transport=(true|false)',captured)
+    result['neutral_datagram_route_verified']=bool(hops) and all(h==identities[0]['node_id'][:8] and ready=='true' for h,ready in hops)
+    mixed=phases[-1]['directions']
+    pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
+    result['ok']=pcm_ok and not audio_failure and maxscheduler<40 and result['neutral_datagram_route_verified'] and not any(nativefail+pollfail+healthbad) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 and d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed)
+except Exception:
+    (ROOT/'failure.txt').write_text(traceback.format_exc())
+    result['ok']=False;result['failure_saved_privately']=True
+finally:
+    audio_stop.set()
+    if audio_thread is not None:
+        audio_thread.join(timeout=5)
+        result['audio_thread_exited']=not audio_thread.is_alive()
+    if policy is not None:
+        policy.stdin.close()
+        try:policy.wait(timeout=5)
+        except subprocess.TimeoutExpired:policy.kill();policy.wait()
+        result['policy_exited']=policy.poll() is not None
+    for e in reversed(engines):destroy(e)
+    if shaper is not None:
+        result['neutral_shaper_final']=shaper.stats
+        shaper.stop();result['shaper_failed']=shaper.failure
+        result['ok']=result['ok'] and shaper.failure is None
+    for ch in reversed(channels):mediaclose(ch)
+    for app in reversed(extra_apps):appclose(app)
+    for h in reversed(extra_handles):close(h)
+    for app in reversed(apps):appclose(app)
+    for h in reversed(handles):close(h)
+    result['node_stop_results']=[stop(n,5000) for n in reversed(nodes)]
+    result['remaining_fixture_sockets']=len(list(ROOT.glob('*/*.sock')))
+    result['ok']=result['ok'] and all(c==0 for c in result['node_stop_results']) and not result['remaining_fixture_sockets']
+    (ROOT/'summary.json').write_text(json.dumps(result,indent=2))
+    print(json.dumps(result),flush=True)
+    raise SystemExit(0 if result['ok'] else 1)
