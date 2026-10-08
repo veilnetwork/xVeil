@@ -8704,3 +8704,52 @@ handling and source scheduling still need integration before ordinary files or
 requests may use these channels. No reliable traffic is moved onto the expiring
 record plane. Physical call pauses, healthy audio/video coexistence and complete
 interaction separation remain unresolved; the original goal stays active.
+
+### Lossless shared-listener admission and frame ownership (2026-10-09, SDK 683f4254)
+
+The existing shared-listener dispatcher now recognizes VPAUX002 on QUIC and
+ordered transports. Its canonical-parent registration has an optional reliable
+inbox: without an explicit owner opt-in, the child receives no ACK and closes.
+The old loss-tolerant inbox never receives reliable children. Opt-in shares the
+same parent, registration token, per-peer transport quota and retirement;
+it creates no identity row. The verified child waits for its canonical owner to
+finish ACK/flush. The resulting owner retains both reliable I/O and the actual
+QUIC connection or TCP accounting lease. Queue rejection, cancellation and
+retirement close/reclaim children while canonical traffic survives.
+
+`ReliableFrameChannel` owns a dedicated TX cipher and a bounded plaintext FIFO
+(64 KiB, at most 64 queued frames). Producers admit complete `FrameEnvelope`s;
+one writer encrypts only after admission has committed. Dropping a completion
+receipt never retracts sealed bytes or burns a nonce without delivery. A full
+queue returns the original envelope, including its endpoint source credit.
+Both byte and source credits survive buffered transport acceptance until the
+complete write/flush. Receivers serialize their RX cipher across cancellation-safe
+record consumption and synchronous authentication. Malformed or altered frames
+fail the child; transport EOF preserves completed authenticated receive records,
+whereas explicit owner retirement discards them. New admissions check canonical
+authority synchronously before any retirement watcher has to run. All scheduling
+metadata remains local; no audio/video role, priority request or deadline is added
+to proofs, records or OVL1 headers.
+
+Fifteen shared-listener tests cover both transport types, including an actual
+obfs4/TCP AppOpen, 64 exact AppData chunks (256 KiB, sequence zero), and AppClose
+after a 500-ms consumer pause. Nine frame-owner tests cover cancelled receipts,
+32 concurrent producers, bounded admission without nonce gaps, cancelled receive,
+malformed plaintext, authenticated header alteration, retained-handle retirement,
+EOF-tail delivery and source-credit retention through a controlled flush stall.
+The final host session suite passes 465 tests with six existing ignores; the
+unchanged transport suite passes 153 tests, five obfs4 integration tests and two
+doc-tests. Final ARM executables postdate all modified sources and contain the new
+test markers. On Poco, nine frame-owner, fifteen registry and eleven binding tests
+pass (35 total). The owned helper exited and its private directory was removed;
+the phone app remained closed, and no Mac stand was launched in this cycle.
+
+The installed 2365 applications/native libraries remain unchanged. Capability
+advertisement and normal-runner stream selection are not enabled yet. Before
+activation, integration must pin each complete App stream to one carrier, carry
+responses on that same child, preserve source admission, and explicitly abort
+affected streams on child failure/rekey. A full canonical writer must not prevent
+independent child admission. The existing six generic children plus a reliable
+child must also preserve replacement capacity. Physical call pauses and healthy
+simultaneous audio/video remain unresolved; these gates do not establish an
+improvement in real cellular calls. The original goal remains active.
