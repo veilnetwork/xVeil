@@ -7303,3 +7303,31 @@ This proves the current neutral datagram path works on loopback; it does not
 prove audio playout quality, cellular delivery or priority under congestion.
 A mobile comparison through a reachable current relay is still needed; the
 physical pauses remain unresolved and the goal remains active.
+
+The transport control now has `--compete-video --rate-kbps 1024`: 12 seconds
+of audio-only traffic followed by 24 seconds of synthetic video overload.
+Primary and video use separate IPC clients bound to the same named app, as in
+the application. Three loopback UDP proxies share blind FIFO budgets; encrypted
+datagrams are never parsed or classified, and no relay gets an audio priority.
+Packet samples remain private; the printed summary reports counters only.
+This fixture exercises transport scheduling without Opus/VP8 decoding or the
+application's adaptive media feedback. It cannot prove audible call quality.
+
+With SDK 18219f4e the audio-only baseline receives 600/600 packets both ways;
+under overload it receives 1165/1200 and 1166/1200, with 95th-percentile delivery
+delays 228.8/222.9 ms. Authenticated primary-path samples show QUIC losses while
+RTT is below the 150-ms pressure threshold. `LocalReliableAdmission` previously
+ignored new loss/congestion counters. It now treats their increases as local
+primary pressure, alongside RTT/expiry/PTO feedback. Stable historical counters
+do not renew pressure, and a fresh child's reset counters are retained. Neither
+the wire format, relay scheduling nor the RTT/quality thresholds change.
+
+Two regression tests cover low-RTT loss/congestion, counter reset and recovery
+from historical loss; the full canonical session suite passes 425 tests with
+6 pre-existing ignored. The rebuilt Mac SDK also passes the default real-QUIC
+control with 500/500 packets both ways. The constrained comparison still fails
+its lossless/sub-200-ms gate; acknowledging loss feedback alone does not finish
+audio protection under overload. The failing result is retained, rather than
+loosening the gate. All fixture nodes and the blind proxy worker stop, with no
+remaining fixture sockets. The next required comparison must include actual
+codec/playout and adaptive feedback; physical Poco pauses remain unresolved.
