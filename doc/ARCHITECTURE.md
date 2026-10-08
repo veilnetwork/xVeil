@@ -8323,3 +8323,46 @@ No privileged capture occurred. The new SDK diagnostics are committed and the
 source pin updated here; installed phone/stand still use frozen build 2354 until
 new native production artifacts are compiled and packaged. The goal remains
 active: physical audio pauses and mixed media/file quality remain unverified.
+
+The Mac production SDK then builds successfully with the standard embedded,
+production-seeds, packet-tunnel and tls-boring feature set. The owned ad-hoc
+Mac stand is packaged as 0.13.84+2359 from the committed source; Dart image
+version and strict seal verify. Poco remains frozen 2354/SDK 9e247eec, whose
+Android timestamp diagnostic already exists. No phone installation or network
+policy change is needed for this Mac-only addition.
+
+A new 90-second cellular Poco-to-Mac audio call (`kernel2359`) keeps normal
+selection, actually remains P2P, rings after 2.605 s and becomes active after
+3.752 s. It stays active for the full requested duration. Native telemetry
+still fails audio quality: final Mac 23 interruptions/12294 ms, Poco
+14/6604 ms, delay estimates 372/460 ms and RTP admission maximum 0/1 ms.
+No video/screen/file is sent in this latency-boundary control; it is not a
+mixed-media quality gate.
+
+The new Apple receipt metadata works in the real embedded runtime. All 999
+sampled UDP receive observations on each endpoint have nonzero kernel stamps.
+During the interior primary-source windows, 397 unique encrypted-byte pairs
+Mac-to-Poco have maximum arrival excess above the fastest pair 2121 ms
+(p95 262 ms); kernel-to-logged-read maximum is 9.276 ms. The reverse has
+492 unique pairs with maximum arrival excess 1118 ms (p95 528 ms) and
+kernel-to-logged-read maximum 1.289 ms. No nonunique pairs or unknown receipt
+stamps occur in these matched samples. Read timestamps are logged in whole
+milliseconds, so small negative submillisecond differences are quantization,
+not negative queue latency. Generic UDP pairs include controls and cannot all
+be labelled audio packets. Observed excess is after successful sender socket
+handoff and before receiver kernel receipt, on both legs, rather than in the
+measured receive polling. It still includes sender kernel/driver queues and
+both physical network paths; it does not prove an individual carrier/modem or
+all possible application queues are the cause.
+
+Phone wall-clock calibration now brackets the call both before and after:
+Poco-minus-Mac intervals -101.75..-67.66 and -103.40..-63.89 ms respectively.
+They overlap; they do not rule out a clock step between observations. Reported
+arrival excess assumes approximately constant offset, and raw one-way wall
+values are not treated as exact latency. Captures/correlation tags remain
+private. The final controller and fresh follow-up checks verify apps/helpers,
+Poco package processes and ADB forwards absent; strict Mac seal still passes.
+The optional privileged interface capture remains unexecuted. These new
+boundaries refine the next investigation; source priority/segregation still
+needs successful physical encoded video/screen/file coexistence evidence,
+and no elimination of the physical audio pauses is claimed.
