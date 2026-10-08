@@ -8157,3 +8157,31 @@ Poco is absent from both ADB and the macOS USB list despite the reconnect report
 No new phone test, app installation or physical call-quality improvement is
 claimed here. Existing installed apps remain 2351; deployments on both endpoints
 and relays are needed to exercise the new capability on a physical call.
+
+SDK 217bcd2d extends the existing four-node A–R1–R2–C integration
+fixture to real obfs4/TCP as well as QUIC. Two new tests use normal
+SessionRunner, shared ordered-child listener proofs, encrypted circuit cells,
+forward dispatch and duplex neutral return carriers. The blocked-canonical
+writer scenario delivers both endpoint source classes through two neutral
+relay shards in both directions. The rekey scenario waits for every canonical
+link to rotate and every ordered pool to bind again, then verifies source
+and transit use in the new generation. Relay diagnostics must remain zero
+for all four local source classes; payload order/content and duplicates are
+checked, and every child must disappear after canonical teardown. Fixture
+tasks now abort on failed assertions too, and the process-wide rotation
+override is isolated with the same lock as the other session tests.
+
+All four QUIC/TCP chain variants pass; the full host runner suite passes
+108 tests with one existing ignore. The final Android runner executable
+builds and is verified as fresh ARM64 ELF containing both new ordered chain
+scenarios; execution on Android is pending because Poco remains absent from
+ADB. No production runtime code changed in this test-only SDK commit.
+
+The preceding frozen production source was packaged as stand/APK build 2354
+with SDK 9e247eec. Packaging checks verify the committed source pin, unchanged
+ABI, SDK native hashes, same Android signer, production media exports/imports
+and strict macOS seal. These artifacts are prepared, not installed on Poco;
+installed phone data and identities remain untouched. The controlled chain
+checks prove routing and neutral relay behavior, not physical audio quality.
+A physical mixed audio/video/screen/file call still needs an available phone,
+and new ordered capability must be deployed on the participating hops.
