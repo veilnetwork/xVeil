@@ -7837,3 +7837,21 @@ and removed from the owned stand bundle after process exit; its strict seal
 verifies again. Raw logs, probes, identifiers, credentials and device config
 remain private. The objective remains active: physical signaling recovery,
 cellular audio/video quality and screen-share coexistence remain unverified.
+
+Follow-up physical probes compare complete saved contact addresses with
+the actual device, sovereign identity and receive addresses. Both saved
+contacts match the actual sovereign identities; every probed physical and
+identity address reports no admitted session. Public-mode hasCert=false is
+normal and is not an admission failure by itself. No routing policy changed.
+
+SDK 9c38f39f fixes an independently reproduced false hole-punch success:
+the old shortcut treated an open TX sender reservation as a completed peer
+session. It now consults the same committed live-session snapshot as the
+PNet status provider, including verified sovereign aliases. The baseline
+regression returned Connected for a reserved unknown peer; the fix returns
+UnknownPeer. Five hole-punch tests, four provider tests and the committed
+running-session lifecycle test pass; formatting passes. The latter verifies
+that a genuine live connection remains an idempotent success without a new
+punch attempt. This correction is not yet proof of the physical invitation
+failure's sole cause. Fresh production SDK builds and physical retesting
+follow; audio/video/screen quality remains unverified on these devices.
