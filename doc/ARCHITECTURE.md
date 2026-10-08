@@ -8927,3 +8927,18 @@ runtime behavioral claim. App builds/installation and actual audio/video/file
 behavior remain the next verification step. The quality/isolation goal remains
 active; cellular audio interruptions and automatic video recovery are not fixed
 by declaring support.
+
+
+The slow-IPC-reader integration found an additional lifecycle defect before app
+installation: a dispatcher-generated AppClose was queued correctly, but its
+stream pin did not record that it was closing. The returned acceptance therefore
+left the pin active, and later session retirement generated a duplicate endpoint
+close. Recording the response's carrier admission before queuing fixes this
+without treating an unflushed close as complete. A fourth actual-TCP gate
+receives duplex return data into a one-entry IPC channel, overflows it, verifies
+the resulting child Close/receipt, preserves the already-completed reader tail,
+then retires the runner and checks only its still-active stream emits a close.
+The gate passes with the fix and fails on the old runner with the expected
+extra-close assertion. All four integration gates and eight stream/reply unit
+gates pass. Initial native libraries were built before this finding; they are
+not installed and must be rebuilt from the final committed source.
