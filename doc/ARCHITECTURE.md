@@ -7855,3 +7855,33 @@ that a genuine live connection remains an idempotent success without a new
 punch attempt. This correction is not yet proof of the physical invitation
 failure's sole cause. Fresh production SDK builds and physical retesting
 follow; audio/video/screen quality remains unverified on these devices.
+
+Production debug build 0.13.84+2336 now packages SDK 9c38f39f on both
+platforms and is installed on Poco without wiping data; Mac stand is updated.
+The APK signer and complete installed artifact match, fresh native code and
+production media exports verify, and the ABI stays unchanged. The physical
+exchange now reports admitted=false consistently with raw session status on
+both devices. Poco→Mac audio still fails setup at 45.043 seconds, with no
+incoming realtime signal. Thus correcting the false success did not itself
+restore signaling. Owned-process vmmap confirms the bundled SDK image is
+loaded; Rust runtime logs are in the Mac stdout/logcat captures, distinct
+from the native media diagnostic file.
+
+Read-only admin snapshots after a longer warm-up show Mac sessions 1→3→3
+at uptime 13/44/74 seconds and Poco sessions 0→0→0 at 17/47/77 seconds.
+Bare TCP probes from the phone to three active Mac relay addresses complete
+in 0.203/0.148/0.152 seconds; the HTTPS control also connects. Staged obfs4
+keys match in memory. Android reports cellular enabled, Wi-Fi disabled,
+awake/active idle state and no effective standard network-policy block for
+the app UID. These observations exclude several simple explanations, but
+do not prove why the app's transport/peer handshakes time out; bare TCP from
+ADB is not an authenticated SDK handshake in the application process.
+Separately, Mac logs show expired sovereign signing delegation preventing
+fresh ML-KEM and relay-key certificates. Existing credential-based renewal
+is required; no validity checks or identities were bypassed/reset.
+
+All owned app/helper processes are stopped after the probes, Poco package
+processes and ADB forwards are zero, and the owned Mac bundle's strict seal
+verifies. Captures, addresses, credentials and cryptographic material remain
+private. Physical audio/video/screen validation is still pending, with
+signaling and cold network admission requiring further investigation.
