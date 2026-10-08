@@ -8453,3 +8453,43 @@ verify. Fresh process checks find no owned stand or SDK write-probe processes.
 ADB still lists no devices; no physical call or phone installation is performed
 in this cycle. The 2 KiB progress cadence matches a single SDK STREAM_DATA chunk
 and its native byte/FIFO/failure gates pass after the final cadence adjustment.
+
+### Cancellation of direct native stream I/O (2026-10-08, probe 2363)
+
+Closing a direct FFI stream previously removed only its generational handle.
+Calls that had already cloned the stream retained its Arc and could remain
+parked in a read, write, or either half's mutex indefinitely. Consequently a
+timed-out background transfer could keep its native worker and stream resources
+after the application's abort path. When the last Arc did finally leave on a
+foreign FFI thread, SdkStream::Drop also skipped STREAM_CLOSE because that thread
+had no Tokio context, leaving the peer-side stream until later cleanup.
+
+Each direct FFI stream now retains a local close signal. Closing the handle
+wakes both halves, including mutex waiters, and a call entering its runtime
+after close observes the retained signal before admitting even ready I/O. These
+in-flight calls return the existing closed error. The final stream destructor
+drops both SDK halves under their own runtime, allowing the existing close
+frame to be sent. No new FFI function, wire field, relay priority or dependency
+is introduced. Anonymous streams already have their explicit abort handle and
+are unchanged by this native fix.
+
+The regression uses the real C entry points, SDK and Unix IPC server. One writer
+exhausts its negotiated source credit, another waits for its mutex, and two
+readers wait for data/mutex. The old code fails: close leaves those calls waiting
+for network activity. With the fix all four calls and their last Arc stop within
+the 250 ms gate before any source permits or peer data are released. Another
+stream of the same client stays alive and successfully receives its data. After
+the controlled source is released, the peer sees the neutral background close
+and removes that stream's bridge entry. Both success and the negative control
+join their workers and shut down the temporary server.
+
+A separate race gate closes before any cancellation subscription exists and
+verifies that a ready operation cannot admit bytes afterwards. The default FFI
+suite passes 127 tests before that additional gate; the final complete suite
+with node-embedded, production-seeds, packet-tunnel and tls-boring passes 246
+tests with two existing ignored tests and five existing ignored doc-tests.
+Header regeneration leaves the C header and both ABI contracts byte-identical
+(56397b1da476491a…). No regression process remains. Changes are committed
+locally and the source pin is updated here. Poco remains absent from ADB;
+cellular audio/video and full mixed-media coexistence are still unverified, and
+the goal remains active.
