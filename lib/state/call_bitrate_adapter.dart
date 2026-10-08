@@ -86,10 +86,12 @@ class CallBitrateAdapter {
   static const int audioReceivePauseMs = 1000;
   static const int audioReceiveRecoverMs = 500;
 
-  /// Conservative receive-pipeline budget. These are native buffer estimates,
-  /// not a measurement of acoustic latency; RTT still guards network queues.
-  static const int playoutDegradeMs = 300;
-  static const int playoutRecoverMs = 200;
+  /// Leave 40 ms of the 200-ms quality budget for codec/source/render work
+  /// absent from the native receive estimate. The measured native value is
+  /// not acoustic latency; the stricter recovery margin avoids spending more
+  /// secondary bandwidth while the receiver is still draining its buffer.
+  static const int playoutDegradeMs = 160;
+  static const int playoutRecoverMs = 120;
 
   /// Bufferbloat guard, relative to the call's own RTT baseline. The relay
   /// leg is TCP-like: congestion NEVER shows as loss (the transport hides
@@ -462,6 +464,10 @@ class CallBitrateAdapter {
         (audioReceiveAgeMs != null &&
             audioReceiveAgeMs >= 0 &&
             audioReceiveAgeMs < audioReceiveRecoverMs);
+    final peerPlayoutOutage =
+        requirePeerAudioPlayout &&
+        peerAudioDelayMs != null &&
+        peerAudioDelayMs >= playoutDegradeMs;
     // Losing a measurement during a live call cannot justify continuing a
     // previously earned video budget. This also covers a newly expected room
     // receiver; clean RTCP from another receiver cannot establish its health.
@@ -475,7 +481,10 @@ class CallBitrateAdapter {
     // descending the ladder or waiting for a new RTCP report is too late.
     if (supportsLowRateVideo &&
         !_audioReserve &&
-        (receiveOutage || audioUnproven || audioInterrupted)) {
+        (receiveOutage ||
+            peerPlayoutOutage ||
+            audioUnproven ||
+            audioInterrupted)) {
       _audioReserve = true;
       _unprovenAudioHold = audioUnproven;
       _goodStreak = 0;

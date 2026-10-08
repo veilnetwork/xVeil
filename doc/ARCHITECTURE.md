@@ -7603,3 +7603,116 @@ active; laboratory improvement will still require cellular verification.
 Veil implementation for this cycle: 0a636984. Commits are unsigned and
 unpushed. Physical Mac/Poco remain on 2309; no app was opened or installed
 during these isolated SDK runs. The audio quality goal remains active.
+
+
+Pressure feedback and delayed ciphertext retention (2324–2328)
+-------------------------------------------------------------
+
+Blind FIFO tracing records only fixture link aliases, datagram sizes, queue
+and release times in a bounded private ring; it neither parses nor prioritizes
+payloads. The 160-second audio/file isolation (2324) still failed: decoded PCM
+maxima 201.5/220.8 ms, with both 512-KiB files hash-complete in 83.4 seconds,
+no quiet ticks or native interruptions. File-phase wire averages were about
+81 KiB/s per direction, but transient packet bursts created a 100.9-ms queue.
+Release lateness p95 was about 0.56 ms; the observation implicates bursts rather
+than sustained average saturation, without establishing a physical radio cause.
+
+Endpoint policy now protects audio at a native receive estimate of 160 ms,
+recovering below 120 ms, leaving margin for source/codec/render work absent
+from that estimate. Fresh poor peer playout immediately suspends video instead
+of keeping an already earned video budget while stepping down the ladder.
+Reliable local DATA charges 1024 bytes/200 ms during measured source pressure,
+4096 otherwise, preserving existing debt and independent route recovery.
+Relays and the network wire receive no media class or priority hint.
+The targeted Flutter suite passes all 70 tests; final analysis is clean.
+
+The 300-second mixed run (2325) improved actual audio: decoded PCM maxima
+189.2/141.5 ms, all 280 mixed-phase tone edges per direction, no quiet PCM
+or native interruptions. The overall gate still FAILED: files remained at
+102400/313344 bytes with 206/103 missing chunks. No blind UDP drops, file-layer
+authentication errors, duplicates or asynchronous send failure callbacks
+occurred, but SDK logs showed repeated ratchet decrypt failures and signed
+unopenable resets. IPC send waits reached 13.8/16.7 seconds. Video was sparse
+(TX 53/221 and RX 204/48), not proof of sustained video quality.
+
+A deterministic regression (2328) reproduces PqDowngrade when queued DATA is
+opened after five priority health/reply epoch turns and a state round trip.
+The former two-epoch receive-key pruning deleted still-deliverable message
+keys. Regular RatchetStore import also deleted old gaps on every restart.
+Both operations now preserve bounded unconsumed gaps: linear keys retain
+MAX_SKIP_TOTAL=2000, tree nodes retain the per-chain 2048 and explicitly
+checked conversation-wide 4096 ceilings. Old trees are cut at authenticated
+pn; empty closed trees are removed, consumed keys remain unavailable, and
+forged tags do not consume retained gaps or mutate the session. No old root,
+DH secret or already consumed message key is retained for recovery.
+
+Persisted primitive state is version 3 with the same field layout and exact
+allocation accounting; it permits more than two receive tree chains within
+the existing node budget. Versions 1 and 2 still import. An older SDK refuses
+version 3, so downgrade after writing this state is not supported. On-wire
+ratchet frames, PQ requirements, AEAD checks and negotiated network formats
+are unchanged. Untrusted never-answered conversations remain subject to
+store quotas, including on import; established correspondents are not swept.
+The changed components pass 96 ratchet, 135 E2E, 145 IPC and 429 session tests
+(805 total, with 11 previous unit-test ignores). Tests cover late DATA after
+priority turns and restart, forgery/replay, v2 migration, empty-chain cleanup
+and the total tree-key ceiling with rollback on refusal.
+
+
+The first post-fix mixed run (2328) used a stricter blind 768-kbps directional
+cap, rather than the previous 1024-kbps fixture cap. No SDK decrypt failures
+or signed-unopenable resets occurred; all 61 feedback deliveries per endpoint
+(including bootstrap) arrived. At 300 seconds files reached 516096/518144
+bytes with 4/3 chunks missing, zero file authentication errors, duplicates or
+asynchronous send failures. This establishes recovery of the earlier crypto
+failure class, not complete file delivery. Decoded PCM maxima 299.9/470.0 ms
+(p95 210.0/339.9) failed the audio gate; three quiet ticks occurred, no native
+interruptions. Blind queue maxima reached 156.9/200.6 ms with zero UDP drops;
+driver interval peaked at 33.86 ms. Only 26 video frames per sender were
+produced. The bounded 100000-row trace truncated 15876 earlier rows, so its
+remaining peak is not claimed to be the run's global peak. Every worker
+exited, all three nodes stopped with result zero, and fixture sockets are zero.
+
+The source implementation is Veil 51f0da3d, committed unsigned and unpushed.
+Fresh production Android SDK and production Mac/Android media have been
+built; test-only codec hooks are absent from those production media binaries.
+Physical endpoints remain on 2309 pending a complete coexistence check.
+No physical app was opened during these codec fixtures. The owned media VM
+is stopped; the user's default VM remains running. Raw captures are private.
+
+
+With the prior 1024-kbps cap restored, the 360-second mixed run (2329) still
+FAILS the overall gate. One 512-KiB file hash-completed in 107.4 seconds;
+the other remained at 507904 bytes with eight missing chunks. There were no
+SDK decrypt failures, signed-unopenable resets, file authentication errors,
+duplicates, asynchronous send failures or blind UDP drops. All 340 mixed-phase
+PCM transitions arrived in each direction, with no quiet ticks or native
+interruptions. PCM maxima were 218.9/240.4 ms (p95 159.4/180.1); native maxima
+197/195 ms, receive age 81/63 ms. Actual VP8 TX 488/446 and RX 302/278 occurred.
+Blind FIFO queues peaked at 116.8/109.8 ms; driver interval remained below
+20.12 ms. A short Flutter test run overlapped this measurement, without
+violating its driver interval gate; no network cause is inferred from that
+host workload. All workers exited, three nodes stopped successfully, and
+fixture sockets are zero. Crypto retention is fixed, but remaining delivery
+and latency defects prevent claiming completion or installing this build.
+
+
+An additional opt-in generic Forward-expiry diagnostic samples powers of two
+only, recording count/age/TTL without addresses, identities, payloads or
+application roles. It does not change relay scheduling or expiration. The
+90-second diagnostic (2330) observed no Forward expiry, SDK decrypt failure,
+file authentication failure, async send failure or blind UDP drop. File
+receipt was 284672/260096 bytes at teardown; most missing indices were tails,
+but the latter also lacked index 120 below its latest received index 130.
+The short run cannot prove full delivery or rule out expiry in longer runs.
+The benchmark now preserves missing indices explicitly for this distinction.
+Both earlier long runs had only local secondary-source drop observations;
+they do not establish whether an intermediate relay silently rejected a file
+piece. The file API's final flag is anonymity, not an end-to-end ACK request;
+its ordinary local DATA admission is not proof of terminal receipt. Follow-up
+must examine relay admission/reassembly and the actual application's file
+recovery path before claiming all missing data is a source-pacing defect.
+All diagnostic workers exited, all nodes stopped with zero status, and all
+fixture sockets were removed. No physical apps were started or updated.
+The audio objective remains active. This cycle's changes are committed
+unsigned and unpushed; production packaging/cellular validation remain pending.
