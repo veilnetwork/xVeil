@@ -9053,3 +9053,22 @@ out; fixed bytes are restored afterwards. Six focused stream/export lifecycle
 gates pass, including cancellation, disposal, partial stored-piece resume and
 plaintext range resume. Audio interruptions, native buffering delay, direct
 route establishment and automatic video recovery remain open work.
+
+
+Stand 2372 installs the concurrent-cache retry fix on Poco and the owned Mac
+stand with SDK 07f2776f. Signed APK bytes match the actual installed package,
+the signing identity is preserved, the native SDK matches its verified artifact,
+and media/hidden-volume are unchanged. Mac native code matches the same SDK,
+its Dart image carries 2372 and its seal verifies. No further native rebuild or
+official release is performed for this Dart change.
+
+A fresh 32-KiB physical attachment save fails after 99.34 seconds. Direct
+admission is false and endpoint candidates are zero at both early snapshots;
+Poco has one active session at the initial native snapshot. This run does not
+prove that a usable local blob arrived during the save, so it cannot confirm the
+cache-race fix physically, or classify this failure as that race. The successful
+matching-hash cache export on 2371 and the deterministic failing-old/passing-new
+host gate remain the evidence for the specific change. Network file delivery,
+route discovery and audio quality remain unresolved. Both owned apps, their
+processes and the owned ADB forward are verified absent after the final run;
+Mac strict seal verification passes. Commits are unsigned and unpushed.
