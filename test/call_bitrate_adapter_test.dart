@@ -27,7 +27,7 @@ void main() {
     'audio_rx_native_age_ms': 10,
     'audio_delay_ms': 60,
     'tx_drops': aggregate,
-    if (audio != null) 'audio_tx_rtp_drops': audio,
+    'audio_tx_rtp_drops': ?audio,
   };
 
   test('secondary drops allow only a sparse probe after audio recovery', () {
@@ -321,6 +321,63 @@ void main() {
     },
   );
 
+  test(
+    'standing receive delay holds video before exhausting the PCM budget',
+    () {
+      final a = CallBitrateAdapter(
+        baseBitrateKbps: 900,
+        baseFps: 15,
+        initialLevel: 0,
+      );
+      a.onSample(
+        rttMs: 80,
+        txJitterMs: 0,
+        txLossPct: 0,
+        txDrops: 0,
+        requireAudioReceive: true,
+        audioReceiveAgeMs: 20,
+        requireAudioReceivePlayout: true,
+        audioReceiveDelayMs: 180,
+      );
+      expect(a.audioReserve, isTrue);
+      for (var i = 0; i < 20; i++) {
+        a.onSample(
+          rttMs: 80,
+          txJitterMs: 0,
+          txLossPct: 0,
+          txDrops: 0,
+          requireAudioReceive: true,
+          audioReceiveAgeMs: 20,
+          requireAudioReceivePlayout: true,
+          audioReceiveDelayMs: 140,
+        );
+      }
+      expect(
+        a.audioReserve,
+        isTrue,
+        reason: 'a draining buffer has not earned video recovery',
+      );
+    },
+  );
+
+  test('fresh peer playout pressure stops an already earned video budget', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 15,
+      initialLevel: 0,
+    );
+    a.onSample(
+      rttMs: 80,
+      txJitterMs: 0,
+      txLossPct: 0,
+      txDrops: 0,
+      requirePeerAudioPlayout: true,
+      peerAudioDelayMs: 180,
+    );
+    expect(a.audioReserve, isTrue);
+    expect(a.target, (maxBitrateKbps: 1, maxFps: 0.02));
+  });
+
   test('video mount respects poor or unknown remote audio playout', () {
     for (final delay in <int?>[null, 450]) {
       final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
@@ -341,7 +398,7 @@ void main() {
           },
           receiveAudioExpected: true,
           requirePeerAudioPlayout: true,
-          peerAudioDelayMs: 140,
+          peerAudioDelayMs: 100,
         );
       }
       expect(a.audioReserve, isFalse);
@@ -354,7 +411,7 @@ void main() {
       {'audio_rx_pkts': 100, 'audio_rx_native_age_ms': 400},
       receiveAudioExpected: true,
       requirePeerAudioPlayout: true,
-      peerAudioDelayMs: 140,
+      peerAudioDelayMs: 100,
     );
     expect(a.audioReserve, isFalse);
     a.prepareVideoSend({'audio_rx_pkts': 0, 'audio_rx_native_age_ms': -1});

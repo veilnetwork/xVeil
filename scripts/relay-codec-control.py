@@ -20,6 +20,7 @@ os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
 parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per UDP direction; 0 leaves transport unrestricted')
+parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
 parser.add_argument('--duration', type=int, default=100)
@@ -79,6 +80,7 @@ trace = fn('veil_debug_set_rt_trace', [C.c_int], None)
 secondary_sender = fn('veil_media_channel_set_secondary_sender', [C.c_uint64, P, E], C.c_int)
 source_report = fn('veil_app_report_local_source_pressure', [P, C.c_uint8, C.c_uint64, E], C.c_int) if args.local_source_feedback else None
 shaper = None
+startat = None
 
 def checked(f, *args):
     err = P()
@@ -144,7 +146,7 @@ try:
         ports.append(s.getsockname()[1])
         s.close()
     if args.rate_kbps:
-        shaper = UdpShaper([('127.0.0.1', port) for port in ports])
+        shaper = UdpShaper([('127.0.0.1', port) for port in ports], trace=args.shaper_trace)
     for index, identity in enumerate(identities):
         directory = ROOT / str(index)
         lines = ['persist_enabled = false', '[global]', 'meeting_points = "off"', 'builtin_seed_policy = "never"', 'admin_socket = ' + json.dumps('unix://' + str(directory / 'admin.sock')), '[Identity]']
@@ -449,6 +451,9 @@ try:
     result.update(local_source_feedback=args.local_source_feedback,source_feedback_queued=source_feedback_queued,source_feedback_skipped=source_feedback_skipped,reliable_file_contention=args.compete_file,file_results=file_results if args.compete_file else [])
     if args.local_source_feedback:result['ok']=result['ok'] and all(source_feedback_queued) and not any(source_feedback_skipped)
     if args.compete_file:
+        with file_lock:
+            for i in range(2):
+                file_results[i]['missing_indices'] = sorted(set(range(file_bytes//2048)) - chunks[i].keys())
         result.update(file_auth_errors=file_auth_errors,file_duplicates=file_duplicates,file_async_send_failures=[dict(x) for x in file_send_failures])
         result['ok']=result['ok'] and all(x.get('hash_matches') and x.get('queued')==file_bytes for x in file_results) and not any(file_auth_errors+file_duplicates) and not any(file_send_failures)
 except Exception:
@@ -472,7 +477,10 @@ finally:
     for e in reversed(engines):destroy(e)
     if shaper is not None:
         result['neutral_shaper_final']=shaper.stats
-        shaper.stop();result['shaper_failed']=shaper.failure
+        shaper.stop()
+        if shaper.trace_rows is not None:
+            (ROOT/'shaper-queues.json').write_text(json.dumps({'startat':startat,'events':shaper.trace_events,'rows':list(shaper.trace_rows)}))
+        result['shaper_failed']=shaper.failure
         result['ok']=result['ok'] and shaper.failure is None
     for ch in reversed(channels):mediaclose(ch)
     for app in reversed(extra_apps):appclose(app)
