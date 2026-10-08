@@ -8647,3 +8647,60 @@ Owned app/helper processes and ADB forwarding are absent after teardown, and the
 Mac strict bundle seal verifies. This validates the UI fix and installation;
 physical audio pauses and healthy simultaneous encoded video remain unresolved.
 Separation of ordinary reliable traffic also remains outstanding.
+
+
+### Lossless auxiliary record foundation (2026-10-08, SDK c67915f6)
+
+Ordinary reliable application traffic still shares its canonical ordered
+connection; the 200-ms loss-tolerant child codec cannot safely replace it.
+A separate `reliable_records` primitive now supplies lossless FIFO framing for
+an independently authenticated byte stream. Each direction has 64 KiB of byte
+credits and a 128-record queue bound. Reads reserve credits before allocation;
+a slow consumer backpressures only this connection. Records have no expiry or
+eviction. Sender completion follows the complete write and flush, with credits
+retained throughout buffered plaintext acceptance. Cancelling an admitted send
+does not insert a new prefix into its partial record. Completed incoming records
+remain readable after transport EOF/error; owner retirement discards them and
+wakes pending admissions/reads/writes.
+
+The reliable binding uses a distinct generic encrypted preface (`VPAUX002`) and
+separate hello/ACK/key/session-id domains. Proofs retain fresh transport exporter
+binding and canonical-parent lifetime. A lossy proof cannot be reinterpreted as
+reliable or vice versa, including preface tampering; record constructors reject
+credentials of the other mode. New wrappers reject admission and queued delivery
+once the parent retires. Producer roles, priority requests and slot numbers are
+absent from both proof and record framing. Existing VPAUX001 domains and the
+current capabilities advertisement remain unchanged.
+
+A first actual QUIC test demonstrated that dropping a child byte stream alone
+leaves its real connection and quota watcher alive when raw clones are retained.
+The reliable QUIC constructor now verifies the actual child's exporter and owns
+its complete transport. Owner drop, parent retirement or I/O failure closes that
+child. The regression now passes with retained raw clones, reclaimed quota and
+surviving canonical datagrams; an unrelated parent handle is rejected without
+closing that parent.
+
+Nine transport gates cover exact 256-KiB FIFO recovery after a three-second
+consumer stall, bounded credits, cancelled partial writes, completion only after
+flush, EOF-tail delivery, malformed/truncated records, owner retirement and
+independent sibling I/O. Five new binding gates cover mode/authentication
+separation, immediate retirement, 128 exact encrypted AppData frames on actual
+obfs4/TCP after a 500-ms receive pause, and actual QUIC cleanup. AppData sequence
+is zero as in the current IPC stream path; ciphertext and byte order remain exact.
+The host suites before the final QUIC ownership refinement pass 450 session tests
+(with six existing ignores), 153 transport tests, five obfs4 integration tests and
+two transport doc-tests. All 11 binding tests (six existing, five new) pass after
+the final refinement. The new QUIC ownership gate failed before the refinement.
+
+The final ARM executables pass 20 checks on Poco: nine records and 11 bindings.
+Compilation postdates all relevant source changes, and executables contain the
+new gate names. Helpers have exited, their private phone directory is removed,
+and the phone app remains closed. No stand app is started in this cycle. The
+installed 2365 application and its native libraries are not replaced.
+
+This is a prerequisite, not live application routing: the shared-listener
+registry, negotiated capability, normal-runner stream ownership/FIFO/rekey/error
+handling and source scheduling still need integration before ordinary files or
+requests may use these channels. No reliable traffic is moved onto the expiring
+record plane. Physical call pauses, healthy audio/video coexistence and complete
+interaction separation remain unresolved; the original goal stays active.
