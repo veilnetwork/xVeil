@@ -3,18 +3,26 @@
 
 Requires Python 3.11+ and a Veil SDK built with node-embedded. This is a
 transport control, not an acoustic test or a mobile-network quality gate.
-Every identity is a new stand identity; no application profile is opened.
-Raw logs and keys remain in an owner-only directory. Only counters are printed.
+Every identity is a distinct stand identity; no application profile is opened.
+Raw logs, packet observations and keys remain in an owner-only directory.
+Only counters are printed. --compete-video --rate-kbps 1024 adds a constrained
+transport comparison. RTP payloads are synthetic; no codec or adaptive
+media-engine feedback is present.
 """
 import argparse, hashlib, re, tempfile
+from udp_fifo_shaper import UdpShaper
 import ctypes as C
 import json, os, socket, time, tomllib, traceback
 from pathlib import Path
 os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
+parser.add_argument('--compete-video', action='store_true', help='Offer synthetic video RTP after 12 seconds of audio-only baseline; not a codec/playout test')
+parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per UDP direction; 0 leaves transport unrestricted')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 args = parser.parse_args()
+if args.rate_kbps < 0:
+    parser.error('--rate-kbps must be nonnegative')
 sdk_path = args.sdk.resolve(strict=True)
 if args.directory is None:
     ROOT = Path(tempfile.mkdtemp(prefix='xveil-relay-control-', dir='/private/tmp'))
@@ -63,6 +71,8 @@ mediaclose = fn('veil_media_close_channel', [C.c_uint64], None)
 CALLBACK = C.CFUNCTYPE(None, P, P, C.c_size_t)
 callback = fn('veil_media_set_recv_callback', [C.c_uint64, CALLBACK, P], C.c_int)
 trace = fn('veil_debug_set_rt_trace', [C.c_int], None)
+secondary_sender = fn('veil_media_channel_set_secondary_sender', [C.c_uint64, P, E], C.c_int)
+shaper = None
 
 def checked(f, *args):
     err = P()
@@ -83,6 +93,9 @@ def admin(index, command):
         with s.makefile('rb') as reader:
             return json.loads(reader.readline())
 identities = []
+extra_handles = []
+extra_apps = []
+secondary_apps = []
 nodes = []
 handles = []
 apps = []
@@ -107,16 +120,20 @@ try:
         s.bind(('127.0.0.1', 0))
         ports.append(s.getsockname()[1])
         s.close()
+    if args.rate_kbps:
+        shaper = UdpShaper([('127.0.0.1', port) for port in ports])
     for index, identity in enumerate(identities):
         directory = ROOT / str(index)
         lines = ['persist_enabled = false', '[global]', 'meeting_points = "off"', 'builtin_seed_policy = "never"', 'admin_socket = ' + json.dumps('unix://' + str(directory / 'admin.sock')), '[Identity]']
         for key in ['algo', 'public_key', 'private_key', 'nonce', 'node_id']:
             lines.append(key + ' = ' + json.dumps(identity[key]))
         lines += ['[anonymity]', 'relay_capable = true', '[ipc]', 'enabled = true', 'socket_uri = ' + json.dumps('unix://' + str(directory / 'ipc.sock')), '[[listen]]', 'id = "0x00000001"', 'transport = ' + json.dumps('quic://127.0.0.1:' + str(ports[index]))]
+        if shaper is not None:
+            lines.append('advertise = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[index])))
         peers = [1, 2] if index == 0 else [0]
         for peer in peers:
             other = identities[peer]
-            lines += ['[[peers]]', 'peer_id = ' + json.dumps('0x' + format(peer + 1, '08x')), 'public_key = ' + json.dumps(other['public_key']), 'nonce = ' + json.dumps(other['nonce']), 'algo = ' + json.dumps(other['algo']), 'transport = ' + json.dumps('quic://127.0.0.1:' + str(ports[peer]))]
+            lines += ['[[peers]]', 'peer_id = ' + json.dumps('0x' + format(peer + 1, '08x')), 'public_key = ' + json.dumps(other['public_key']), 'nonce = ' + json.dumps(other['nonce']), 'algo = ' + json.dumps(other['algo']), 'transport = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[peer] if shaper is not None else ports[peer]))]
         path = directory / 'node.toml'
         path.write_text('\n'.join(lines) + '\n')
         raw = str(path).encode()
@@ -147,6 +164,13 @@ try:
         app = checked(bind, handle, b'xveil-control', 13, b'media', 5, 0)
         assert app
         apps.append(app)
+        secondary_handle = checked(connect, uri, len(uri))
+        assert secondary_handle
+        extra_handles.append(secondary_handle)
+        secondary_app = checked(bind, secondary_handle, b'xveil-control', 13, b'media', 5, 1)
+        assert secondary_app
+        extra_apps.append(secondary_app)
+        secondary_apps.append(secondary_app)
     ids = []
     appids = []
     for handle, app in zip(handles, apps):
@@ -159,20 +183,29 @@ try:
         assert checked(recv, app, b'xveil-control', 13, b'media', 5) == 0
     keys = [os.urandom(32), os.urandom(32)]
     received = [[], []]
+    video_received = [0, 0]
+    video_sent = [0, 0]
     sent = [{}, {}]
     for index in range(2):
         ch = checked(openmedia, apps[index], ids[1 - index], appids[1 - index], 0, keys[index], keys[1 - index])
         assert ch
         channels.append(ch)
+        assert checked(secondary_sender, ch, secondary_apps[index]) == 0
 
         def receive(context, payload, size, index=index):
             raw = C.string_at(payload, size)
-            received[index].append((time.monotonic(), int.from_bytes(raw[12:16], 'big')))
+            if raw[1] & 127 == 111:
+                received[index].append((time.monotonic(), int.from_bytes(raw[12:16], 'big')))
+            else:
+                video_received[index] += 1
         cb = CALLBACK(receive)
         callbacks.append(cb)
         assert callback(ch, cb, None) == 0
     time.sleep(4)
-    total = 500
+    total = 1800 if args.compete_video else 500
+    if shaper is not None:
+        shaper.rate_bps = args.rate_kbps * 1000
+    phase_at = []
     startat = time.monotonic()
     for seq in range(total):
         target = startat + seq * 0.02
@@ -181,8 +214,32 @@ try:
         for index, ch in enumerate(channels):
             sent[index][seq] = time.monotonic()
             assert send(ch, raw, len(raw)) == 0
+            if args.compete_video and seq >= 600:
+                for packet in range(2):
+                    video = bytes([128, 224]) + (seq * 2 + packet).to_bytes(2, 'big') + ((seq * 2 + packet) * 3000).to_bytes(4, 'big') + b'VIDE' + (seq * 2 + packet).to_bytes(4, 'big') + bytes(944)
+                    rc = send(ch, video, len(video))
+                    if rc == 0:
+                        video_sent[index] += 1
+        if seq in [0, min(599, total - 1), total - 1]:
+            phase_at.append({'seq': seq, 't': time.monotonic() - startat, 'shaper': [dict(x) for x in shaper.stats] if shaper else []})
     time.sleep(2)
     result['directions'] = []
+    result['video_sent'] = video_sent
+    result['video_received'] = video_received
+    result['neutral_shaper'] = shaper.stats if shaper else []
+    result['rate_kbps'] = args.rate_kbps
+    result['synthetic_video_offered'] = args.compete_video
+    result['phase_observations'] = phase_at
+    result['phases'] = []
+    result['audio_samples'] = [{'received_at': at - startat, 'sequence': seq, 'delay_ms': (at - sent[1 - index][seq]) * 1000, 'direction': index} for index in range(2) for at, seq in received[index] if seq in sent[1 - index]]
+    phases = [(0, 600, 'audio-only'), (600, total, 'audio-video')] if args.compete_video else [(0, total, 'audio-only')]
+    for lo, hi, name in phases:
+        directions = []
+        for index in range(2):
+            times = [(at - sent[1 - index][seq]) * 1000 for at, seq in received[index] if lo <= seq < hi]
+            times.sort()
+            directions.append({'received': len(times), 'sent': hi - lo, 'max_ms': max(times, default=None), 'p95_ms': times[int(0.95 * (len(times) - 1))] if times else None})
+        result['phases'].append({'name': name, 'directions': directions})
     for index in range(2):
         latencies = [(at - sent[1 - index][seq]) * 1000 for at, seq in received[index] if seq in sent[1 - index]]
         gaps = [(b[0] - a[0]) * 1000 for a, b in zip(received[index], received[index][1:])]
@@ -199,8 +256,17 @@ except Exception:
     result['ok'] = False
     result['failure_saved_privately'] = True
 finally:
+    if shaper is not None:
+        result['neutral_shaper_final'] = shaper.stats
+        shaper.stop()
+        result['shaper_failed'] = shaper.failure
+        result['ok'] = result['ok'] and shaper.failure is None
     for ch in reversed(channels):
         mediaclose(ch)
+    for app in reversed(extra_apps):
+        appclose(app)
+    for handle in reversed(extra_handles):
+        close(handle)
     for app in reversed(apps):
         appclose(app)
     for handle in reversed(handles):
@@ -209,6 +275,8 @@ finally:
     result['ok'] = result['ok'] and all((code == 0 for code in result['node_stop_results']))
     result['remaining_fixture_sockets'] = len(list(ROOT.glob('*/*.sock')))
     result['ok'] = result['ok'] and result['remaining_fixture_sockets'] == 0
+    samples = result.pop('audio_samples', [])
+    (ROOT / 'audio-samples.json').write_text(json.dumps(samples))
     (ROOT / 'summary.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result), flush=True)
     raise SystemExit(0 if result['ok'] else 1)
