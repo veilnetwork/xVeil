@@ -822,6 +822,14 @@ class VeilCallMediaController implements CallMediaController {
                 activeTransport == CallTransportKind.p2p)) {
           return _switchRoutePreservingEngine(call, transport, engine);
         }
+        if (engine != null &&
+            (activeTransport == CallTransportKind.p2p ||
+                activeTransport == CallTransportKind.relay)) {
+          // An older engine cannot preserve its sender while a candidate is
+          // verified. Keep the live session instead of tearing it down for a
+          // replacement whose delivery has not been observed.
+          return false;
+        }
         await _stopSession(clearActiveCall: false);
         if (_activeCall?.callId != call.callId) return false;
         final ok = await start(_activeCall!.copyWith(transport: transport));
@@ -868,6 +876,14 @@ class VeilCallMediaController implements CallMediaController {
       );
       if (opened == null) return false;
       candidate = opened.channel;
+      // Keep the old sender/receiver alive until the candidate has carried a
+      // sealed peer echo in both directions. Local open/admission is not a
+      // delivery observation. The echo's route stays inside the call AEAD.
+      if (!await _configureRouteProbes(candidate, next, opened.transport) ||
+          !await _transport.qualifyMediaRoute(candidate)) {
+        devLog(() => 'xVeil[call-media]: candidate delivery unconfirmed');
+        return false;
+      }
       final current = _activeCall;
       if (_engine != engine ||
           epoch != _mediaEpoch ||
@@ -940,6 +956,23 @@ class VeilCallMediaController implements CallMediaController {
         _transport.closeMediaChannel(candidate);
       }
     }
+  }
+
+  Future<bool> _configureRouteProbes(
+    int channel,
+    Call call,
+    CallTransportKind transport,
+  ) {
+    if (transport == CallTransportKind.onion ||
+        call.localPosture != CallPosture.direct ||
+        call.peerPosture != CallPosture.direct) {
+      return Future.value(false);
+    }
+    return _transport.configureMediaRouteProbes(
+      channel,
+      directPeer: call.mediaIdentity,
+      relayPeer: call.peerDevice ?? call.peer,
+    );
   }
 
   void _retireReceiveChannel(VeilMediaEngine engine, int channel) {
@@ -1122,6 +1155,15 @@ class VeilCallMediaController implements CallMediaController {
       // A failed direct open can fall back to a physical relay peer. Keep
       // channel reuse, receive counters and repairs on that actual address.
       call = call.copyWith(mediaRoutePeer: opened.peer);
+    }
+    if (epoch != _mediaEpoch || _activeCall?.callId != call.callId) {
+      _transport.closeMediaChannel(chan);
+      return false;
+    }
+    if (transport != CallTransportKind.onion &&
+        !await _configureRouteProbes(chan, call, transport)) {
+      _transport.closeMediaChannel(chan);
+      return false;
     }
     if (epoch != _mediaEpoch || _activeCall?.callId != call.callId) {
       _transport.closeMediaChannel(chan);
