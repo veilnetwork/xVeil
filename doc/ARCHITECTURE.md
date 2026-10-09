@@ -10603,3 +10603,42 @@ units report MainPID=0/inactive with their directory removed, and strict Mac
 sealing passes. The next same-build run reverses the caller and observes setup
 for the app's actual ring window to separate the measured delivery delay from
 the previous stand's shorter cutoff.
+
+
+#### Verified device contact rows: stand 2438 and repair
+
+With the same build 2436, Mac-originated calling rings at 0.395 s, both ends
+are active at 2.342 s and relay routes stabilize at 17.639 s. There are 422
+both-active relay samples spanning 159.776 s, with no media-epoch reset and
+no local outgoing audio RTP drops. Audio receive-age maxima are 6754/7588 ms
+(Mac/Poco); actual playout queue medians/maxima are 391/571 and 49/531 ms.
+Interruption increments are 21/17 with 30799/34261 ms duration. These counters
+include silence; they are not a measure of missing spoken words. Cameras stay
+on, but transmitted/remote video frames remain zero under audio protection.
+The concurrent 2-MiB file offer arrives, yet download fails after 190.763 s.
+All exact owned apps/helpers, phone UID/forward and three remote units are
+audited stopped; the remote directory and failed fixture are removed and the
+Mac seal passes. This still does not verify simultaneous healthy media/file
+traffic, or establish a causal comparison with earlier stands.
+
+The bounded final dev-log ring lacked the early device proof. The complete
+owned app log does contain it: Poco's actual transport device is correctly
+bound to its accepted logical contact before serving. Nineteen stream denials
+name that same device. The read-only contact probe also contains a legacy
+`pendingIncoming` row under the device address. The serving gate's direct-row
+`??` precedence lets that pending row mask the accepted identity; the P2P
+policy helper has the same precedence. No missing native proof is established
+by this run: the earlier partial-log interpretation was incorrect.
+
+The common contact selector now lives in a pure domain helper used by stream
+serving, ordinary P2P policy and all-online identity sessions. A verified owner
+selects the identity's contact settings/consent even when the device has a
+pending row. An explicit device block still wins; an accepted device cannot
+bypass a blocked/pending/unknown verified owner. Unproven devices use only
+their own contact row; source claims and unverified DHT aliases grant nothing.
+
+The realtime-only stream regression gains the physical stand's pending device
+row and fails on the old precedence, then passes with the repair and compares
+all downloaded bytes. Owner/device status combinations and unknown-owner
+gates pass alongside existing content authorization, transfer and realtime
+control tests: 106 tests total. Physical confirmation remains pending.

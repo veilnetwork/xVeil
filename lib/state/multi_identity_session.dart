@@ -20,7 +20,7 @@ import '../domain/chat.dart';
 import '../domain/p2p_policy.dart';
 import '../domain/roster.dart';
 import 'messaging.dart';
-import 'p2p_policy_controller.dart' show policyContactFor;
+import '../domain/verified_device_contact.dart' show policyContactFor;
 import 'ratchet_persistence.dart' show ratchetPersistenceFor;
 import 'package:xveil/core/log.dart';
 

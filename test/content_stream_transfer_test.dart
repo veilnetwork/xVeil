@@ -1058,6 +1058,11 @@ void main() {
       )..start();
       final bDevice = _id(0x2D);
       tB.anonStreamSrc = bDevice;
+      // A legacy request under the transport address must not hide consent
+      // granted to the identity once the device has proven that relationship.
+      await sA.upsertContact(
+        Contact(nodeId: bDevice, status: ContactStatus.pendingIncoming),
+      );
       // No ordinary B frame names this device. The sole evidence arrives on
       // the separate call-control lane, as when a fresh app receives a call
       // and then offers a file to that contact's second device.
