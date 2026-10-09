@@ -10434,3 +10434,46 @@ is introduced. A regression fails on preceding code (zero local repairs without
 a peer heartbeat) and passes after the change; it also covers pending rebuilds
 and replacement-session grace. A healthy flowing relay call remains unrepaired.
 Physical verification of this recovery change is still required.
+
+### Physical relay receive rebuilding and subjective speech — 2026-10-09
+
+The recovery change passes 149 call-service/route-operation tests and is
+committed as cc5b3823. Build 0.13.84+2429 packages it on both clients with the
+unchanged 5c207cd3 SDK and 2420/2374 media libraries. Fresh library/seal checks
+and same-signer in-place phone installation pass. Stand 2430 rings at 1.884 s,
+both endpoints are active at 3.282 s and authenticated relay recovery finishes
+at 5.275 s; 159.807 s of subsequent samples remain explicitly on relay.
+
+Both endpoints complete one native relay-session rebuild without ending the
+call: Mac's new epoch appears at 42.348 s and Poco's rebuild spans sampled
+45.298–45.781 s. There are no local-worker-starvation or rebuild-failure logs.
+These rebuilds occur during natural stalls, before fault injection. The user
+reports that sound is better in this run. This is subjective improvement,
+not a controlled proof of uninterrupted speech or an attribution of every
+rebuild to the local heartbeat rather than a possible peer request. An explicit
+local-heartbeat diagnostic is added for subsequent attribution.
+
+Only the owned relay process is then paused by SIGSTOP for 15.000 s at call
+124.024–139.024 s, with a guarded finally restoring SIGCONT. Both calls remain
+active and receive audio afterwards. Some audio arrives during that interval;
+the stand does not isolate all alternate routes, so this is not proof of
+recovery from a complete network blackout. No new media-session rebuild is
+observed during this injected pause.
+
+Before injection, maximum sampled receive ages still reach 13081 ms on Mac
+and 10025 ms on Poco. Interruption counters reset once with each rebuild;
+summing positive changes gives 31 / 51 interruptions and 29556 / 60730 ms
+of interruption duration over that phase. These counters include silence and
+do not measure missing spoken words. After relay resume, maximum receive ages
+are 680 / 664 ms, with 2 / 4 interruption increments (615 / 1136 ms). Cameras
+remain enabled but video transmission stays zero under audio protection.
+
+Three Mac samples immediately after the remote rebuild report an implausible
+native delay estimate of 174765–174787 ms while jitter-buffer values are
+164–504 ms and the call is only about 48 s old. This is a further timing-metric
+anomaly to investigate, not evidence of 174-second speech latency.
+
+Owned apps/helpers exit, the phone UID/ADB forward are clear, the exact three
+remote units have MainPID=0/inactive and their directory is removed; the owned
+Mac seal verifies. Long natural stalls, video and timing-estimate correctness
+remain unresolved. No release or push is made.
