@@ -10477,3 +10477,31 @@ Owned apps/helpers exit, the phone UID/ADB forward are clear, the exact three
 remote units have MainPID=0/inactive and their directory is removed; the owned
 Mac seal verifies. Long natural stalls, video and timing-estimate correctness
 remain unresolved. No release or push is made.
+
+
+### Audio playout measurement after a sender rebuild (2026-10-09)
+
+A real Opus/NetEq regression keeps the receiver and authenticated channel
+alive while recreating the sender twice, retaining queued old RTP. The
+identity-derived SSRC stays the same but the RTP timestamp origin changes.
+The old exported delay reaches 174787 ms while the actual buffer peaks at
+63 ms and six decoded tone markers arrive within 80–144 ms; the new
+regression rejects this inconsistent adaptation input.
+
+Veil now exports `audio_delay_ms` from the actual number of queued audio
+samples plus the ADM's reported playout delay. The original timestamp-span
+filter remains visible as `audio_filtered_delay_ms`; NetEq itself and its RTP
+timeline are unchanged. Both individual and group playout feedback use the
+new measurement. This is local queue telemetry, not a one-way network delay
+measurement. Existing receive freshness, worker-stall, losses and interruption
+checks still apply, and relay scheduling/metadata are unchanged.
+
+The fixed sender-rebuild case peaks at 56 ms with six PCM marker latencies
+79–99 ms. Five additional real PCM cases pass: silence after jitter, delayed
+packet batches, dropped packets, synchronous and asynchronous channel
+handover. A further backlog gate measures 402 ms in both actual buffered
+samples and the exported signal, then recovers six tone markers within
+100–182 ms: genuine accumulated audio is not hidden by a delay ceiling.
+All 62 app bitrate-adaptation tests pass. These native tests use a synthetic
+ADM, not physical microphones or a cellular path; long physical-network
+stalls and simultaneous media/other-traffic verification remain outstanding.
