@@ -10888,3 +10888,62 @@ to grant screen recording for the test build; the earlier Poco reconnection
 request remains pending. Audio-under-file-load verification, usable simultaneous
 video/screen and the full original goal remain incomplete. Raw evidence stays
 private; no push or release occurs.
+
+#### Physical audio/file verification: stand 2453
+
+Poco returns and receives signed build 0.13.84+2449 through an in-place install
+with the existing signer. The pulled installed APK matches the verified artifact;
+all sixteen packaged native libraries remain unchanged from build 2441. Identity,
+history and ratchet state are preserved. The actual default network's transport
+field reports CELLULAR, without WIFI or VPN; the NOT_VPN capability is not treated
+as a VPN transport. Mac uses the verified owned build 2449. No production app,
+relay policy, OS permission or network setting is changed.
+
+This stand observes natural routing without closing neighbor sessions, adding
+bans or requesting relay recovery. Both canonical relay connections are verified,
+but the network is not claimed to be isolated to that relay. Ringing takes 4.941 s,
+both endpoints become active at 6.775 s and report P2P at 9.514 s. A fresh 64-KiB
+Mac-to-Poco attachment starts at 81.939 s. Both endpoints change to relay at
+184.414 s; the requested 210-second active call finishes without an endpoint
+timeout. Both microphones remain enabled in the sampled call state. The user
+speaks intermittently and reports no apparent interruptions. This is useful
+listening feedback, not a complete speech-quality or latency measurement.
+
+Before the file starts, receive-queue medians/maxima are 380/525 ms on Mac and
+376/602 ms on Poco. During the direct-route file phase they are 301/525 and
+312/524 ms; accepted-audio receive-age maxima reach 3964/3752 ms. After handover,
+receive-age maxima reach 2327/6806 ms. The media epoch stays 1, and outgoing audio
+admission maxima remain 0/3 ms. Cameras capture roughly 30 fps, but encoded and
+remote video frame counters stay zero: the audio-protection policy remains paused.
+This does not verify working video or sufficient simultaneous audio/video quality.
+Screen capture is intentionally not requested because the read-only permission
+probe for the exact current Mac build still reports no access.
+
+The attachment eventually passes exact destination SHA-256 verification, but
+takes 265.048 s from the offer, finishing about 130 s after hangup. Early stream
+manifest probes time out; the first payload attempt stalls after 4096/65536 bytes,
+and retries follow. Sender `stream-serve complete` logs only queued writes and are
+not interpreted as delivery. This run does not reproduce the active-fetch join
+regression: the explicit save starts after a stream-materialized offer, with no
+logged active encrypted fetch to join. Inline manifests arrive much later and the
+pending plaintext save suppresses automatic download. Thus installing the join
+repair is physically verified, while this run neither establishes that it fixes
+these stream stalls nor proves its no-second-stream case on the phones.
+
+Exact sampled encrypted UDP matches in a bounded direct-route interval provide
+648 phone-to-Mac and 722 Mac-to-phone observations. Within-direction wall-clock
+delay spans are 830/813 ms, not absolute one-way latency because device clocks
+differ. Kernel-arrival-to-endpoint-trace maxima are 6.2/5.9 ms; small negative
+values reflect millisecond rounding. These samples cover generic connections,
+not exclusively audio. Reflector addresses are kept separate from peer endpoints.
+The measurements do not identify the cause of the reliable stream stalls.
+
+Cleanup verifies the phone app's UID/package absent while USB is still connected,
+removes its own forward and deletes the verified plaintext fixture. Exact owned
+Mac/logcat PIDs exit, the three exact remote units are inactive with MainPID=0,
+the owned remote directory is removed, and strict Mac sealing passes. A later
+phone audit is unavailable after USB disconnects; the earlier live cleanup proof
+is retained instead of reporting an absent device as a running app. Reconnection
+is requested for the next measurement. Evidence remains private. The original
+goal stays active: reliable file latency, healthy audio under load and usable
+simultaneous video/screen remain unresolved. No push or release occurs.
