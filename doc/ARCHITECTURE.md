@@ -10269,3 +10269,41 @@ Stand 2420's apps/helpers have exited, the phone UID and ADB forward are clear,
 the three exact remote units have MainPID=0/inactive, their directory is removed
 and the Mac seal remains valid. No acoustic speech, simultaneous file/screen
 load or successful video transmission is claimed for this run.
+
+### Physical TCP relay control after negotiated signaling — 2026-10-09
+
+Build 0.13.84+2422 packages SDK 1d1d6c0c on both clients and the owned relay;
+Mac media stays 2420 and Android media stays 2374. Fresh library/code-section,
+export/seal and installed same-signer APK verification pass. Four real
+two-relay Forward/rekey integration gates also pass after the IPC change.
+The first stand (2422) fails before apps launch with AddressInUse and is
+cleaned up. Retry 2423 checks separate TCP/reflector ports before launching;
+it changes no persistent network policy and closes no other process.
+
+The 2423 call rings at 0.419 s, both endpoints become active at 2.420 s, and
+authenticated relay recovery is confirmed at 3.207 s. Every sampled active
+endpoint stays explicitly on relay for the subsequent 60.226 s. Both owned
+canonical connections use TCP; the topology controller is stopped before
+calling. Unlike 2420, the answer reaches Poco and both media engines run.
+This single physical success does not prove the earlier missing-answer cause
+or all reconnect cases fixed. Both cameras/microphones are requested on.
+
+| Pure TCP relay 2423 measurement | Mac | Poco |
+| --- | --- | --- |
+| Median / maximum native audio delay | 378 / 440 ms | 330 / 522 ms |
+| Median / maximum sampled receive age | 15 / 659 ms | 155 / 2437 ms |
+| Interruption counter increments | 3 | 11 |
+| Interruption duration increments | 1376 ms | 7550 ms |
+| Maximum outgoing / incoming audio packet count | 1584 / 3001 | 3022 / 1404 |
+| Video transmitted | 0 | 0 |
+
+Counters do not reset during the measured phase. This is bidirectional network
+audio progress without call timeout, not proof of continuous intelligible
+speech. Residual interruptions and high playout buffering remain. Both ends
+report video held by audio protection; video has not been verified working.
+No file/screen load or buffer/codec changes are introduced for this comparison.
+
+All captures collect completely. Owned apps/helpers are absent, the phone UID
+and ADB forward are clear, all three exact remote units are inactive with
+MainPID=0 and their directory is removed; Mac sealing passes. The overall
+audio/video quality goal remains active.
