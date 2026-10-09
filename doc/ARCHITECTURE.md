@@ -11542,3 +11542,52 @@ Mac sealing valid and output still muted at zero, owned relay inactive with
 zero MainPID, its directory absent, terminal resource state confirmed and
 owned SSH control absent. Both projects are committed unsigned and unpushed;
 no installed /Applications copy or release is replaced by this stand build.
+
+#### Mature ordered-burst audio history: stand 2475, 2026-10-10
+
+The specific Veil battery/coalescing mode remains excluded by the DURING-call
+2474 runtime snapshots above. No background-tier, battery, OS power, network
+or relay-priority setting is changed in this cycle.
+
+The existing bounded Mac ingress trace contains 4096 audio packets over its
+first 83.596 seconds, with only three reordered arrivals. An approximate
+relative-transit analysis subtracts unwrapped 48-kHz RTP time from monotonic
+ingress time and the minimum over the last two seconds of RTP timestamps.
+This is not NetEq's internal tick-clock estimator. The 20–30-second window
+has a 754-ms maximum relative delay; even 60–75 seconds has seven half-second
+windows exceeding 160 ms and three exceeding 300 ms. The maximum measured
+shim ingress-to-drain delay is 0.101 ms. Therefore ongoing pre-engine delivery
+variation exists; a low sampled receive age does not establish a healthy
+relative-transit history, and these observations do not locate its cause
+within the carrier, SDK, modem or another preceding layer.
+
+The prior repeated-jitter PCM fixture lets new packets overtake delayed ones.
+It exercises reorder recovery and misses the predominantly ordered physical
+pattern. A new regression warms the real Opus/NetEq receiver for 70 seconds,
+injects ten seconds of 40/300-ms delivery with following packets held in order,
+then observes 30 healthy seconds. Production capacity stays at 30 packets.
+The preceding 0.983 underrun-history factor leaves genuine decoded PCM about
+310 ms late through the final marker, failing the new recovery gate. Its
+unordered counterpart recovers normally, so reorder tuning alone is insufficient.
+
+Veil 8064b045 changes only the receiver's underrun-history forgetting factor
+to 0.90. Quantile 0.95, 500-ms resampling, reorder factor 0.95, packet capacity,
+codec and transport/relay framing remain unchanged. In the matched PCM fixture,
+15/17/19 seconds after healthy delivery resumes, marker delay is 220/107/100 ms
+instead of 312/312/311 ms. Concealed samples are 11988 versus 11336, a 13.6-ms
+increase, with one interruption and one buffer flush in both runs. Maximum
+current buffer rises from 341 to 352 ms: this is history recovery, not a fixed
+delay cap or a hidden buffer gauge. Both runs have less than 6 ms of host tick
+lateness. The committed regression bounds PCM recovery, concealment, flushing
+and interruptions; its final added numeric gates are also checked against the
+captured production-policy run, without another unchanged 110-second replay.
+
+Repeated jitter, short jitter, DTX silence, speech resumption after jitter,
+queued delivery stalls and delivery loss pass their existing PCM gates. An
+initial silence run is rejected solely for 58-ms host tick lateness while a
+native build is concurrent; its isolated repeat passes with 5-ms lateness.
+The fresh production Mac library compiles with the same 97 public exports and
+no test hooks. All PCM tests use synthetic audio devices; no speaker, microphone,
+app profile or relay is opened. Installed endpoints remain build 2474/media
+2432. This change is not yet physically validated or installed on Poco, and
+does not establish that the ongoing access-path pauses or zero video are fixed.
