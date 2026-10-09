@@ -1348,12 +1348,7 @@ class VeilFlutterTransport
   Stream<InboundMessage> realtimeMessages() =>
       _realtimeApp.messages().map((message) {
         _debugRealtimeRxCount += 1;
-        return InboundMessage(
-          src: NodeId(message.srcNodeId),
-          payload: message.data,
-          replyId: message.replyId,
-          provenance: _provenanceOf(message),
-        );
+        return _toInbound(message);
       });
 
   @override
