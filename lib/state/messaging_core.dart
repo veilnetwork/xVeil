@@ -33,6 +33,7 @@ import '../domain/file_download_policy.dart';
 import '../domain/file_transfer.dart';
 import '../domain/media_file_name.dart';
 import '../domain/p2p_policy.dart';
+import '../domain/verified_device_contact.dart' show policyContactFor;
 import '../domain/space_recommendation.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_public_feed_transport.dart';

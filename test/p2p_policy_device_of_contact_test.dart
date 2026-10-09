@@ -35,7 +35,8 @@ void main() {
         identityOfDevice: (d) => d == device ? identity : null,
       ),
       contact,
-      reason: 'acks and device-scoped sends name the device; refusing it '
+      reason:
+          'acks and device-scoped sends name the device; refusing it '
           'kept that device of the contact on the relay for good',
     );
   });
@@ -50,4 +51,52 @@ void main() {
       isNull,
     );
   });
+
+  for (final status in ContactStatus.values) {
+    test(
+      'a $status device row cannot override its verified owner consent',
+      () async {
+        final deviceContact = Contact(nodeId: device, status: status);
+        final found = await policyContactFor(
+          device,
+          getContact: (id) async => id == device ? deviceContact : contact,
+          identityOfDevice: (_) => identity,
+        );
+        expect(
+          found,
+          status == ContactStatus.blocked ? deviceContact : contact,
+        );
+      },
+    );
+    test(
+      'a $status owner keeps authority over an accepted device row',
+      () async {
+        final ownerContact = Contact(nodeId: identity, status: status);
+        final found = await policyContactFor(
+          device,
+          getContact: (id) async => id == identity
+              ? ownerContact
+              : Contact(nodeId: device, status: ContactStatus.accepted),
+          identityOfDevice: (_) => identity,
+        );
+        expect(found, ownerContact);
+      },
+    );
+  }
+
+  test(
+    'a mapped device row cannot create consent for an unknown owner',
+    () async {
+      expect(
+        await policyContactFor(
+          device,
+          getContact: (id) async => id == device
+              ? Contact(nodeId: device, status: ContactStatus.accepted)
+              : null,
+          identityOfDevice: (_) => identity,
+        ),
+        isNull,
+      );
+    },
+  );
 }
