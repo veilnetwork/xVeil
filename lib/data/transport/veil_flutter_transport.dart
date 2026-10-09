@@ -744,6 +744,22 @@ class VeilFlutterTransport
   /// actual anonymous route.
   int repairMediaChannel(int chan) => _client.repairMediaChannel(chan);
 
+  Future<bool> configureMediaRouteProbes(
+    int chan, {
+    required NodeId directPeer,
+    required NodeId relayPeer,
+  }) => _mediaApp.configureMediaPathProbes(
+    chan,
+    relaySender: _mediaDeviceApp ?? _mediaApp,
+    directPeer: directPeer.bytes,
+    directPeerApp: mediaAppIdFor(directPeer),
+    relayPeer: relayPeer.bytes,
+    relayPeerApp: mediaAppIdFor(relayPeer),
+    peerEndpoint: veilMediaEndpointId,
+  );
+
+  Future<bool> qualifyMediaRoute(int chan) => _mediaApp.qualifyMediaPath(chan);
+
   /// Inbound media datagrams from [peerNode] (32 bytes) that OPENED against the
   /// channel key, since process start. A stranger who writes into the receive
   /// point can no longer advance it, so this is a liveness signal about the
