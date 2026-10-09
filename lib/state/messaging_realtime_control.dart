@@ -96,9 +96,20 @@ class _MessagingRealtimeControl {
   /// Serialize APP_RT frames independently from the durable inbox. A transient
   /// failure drops only one datagram and cannot poison later answer/end frames.
   Future<void> deliverInbound(InboundMessage message) {
+    // Start at Dart admission, before the serialized consent/dispatch lane.
+    // This distinguishes local queue/handler waits from the age of a remote
+    // signal. It cannot measure daemon/FFI waits or correct remote clock skew.
+    final receivedAtMs = _owner._now().millisecondsSinceEpoch;
+    final elapsed = Stopwatch()..start();
     final next = _inboundChain.then((_) async {
+      final queueMs = elapsed.elapsedMilliseconds;
       try {
-        await _handleInbound(message);
+        await _handleInbound(
+          message,
+          receivedAtMs: receivedAtMs,
+          elapsed: elapsed,
+          queueMs: queueMs,
+        );
       } catch (error, stackTrace) {
         devLog(
           () =>
@@ -111,7 +122,12 @@ class _MessagingRealtimeControl {
     return next;
   }
 
-  Future<void> _handleInbound(InboundMessage message) async {
+  Future<void> _handleInbound(
+    InboundMessage message, {
+    required int receivedAtMs,
+    required Stopwatch elapsed,
+    required int queueMs,
+  }) async {
     // Same rule as the durable lane: a frame chained before dispose() must not
     // run against a store that is being closed (audit XV-05).
     if (_owner._disposed) return;
@@ -162,7 +178,8 @@ class _MessagingRealtimeControl {
       devLog(
         () =>
             'xVeil[p2p]: realtime in endpoints from=${message.src.short} '
-            '(${envelope.body.length} B)',
+            '(${envelope.body.length} B) queue=${queueMs}ms '
+            'handler=${elapsed.elapsedMilliseconds - queueMs}ms',
       );
       final endpointsHandler = onP2PEndpoints;
       if (endpointsHandler == null) {
@@ -215,8 +232,11 @@ class _MessagingRealtimeControl {
       final age = sentAt == null
           ? 'n/a'
           : '${_owner._now().millisecondsSinceEpoch - sentAt}ms';
+      final receiptAge = sentAt == null ? 'n/a' : '${receivedAtMs - sentAt}ms';
       return 'xVeil[call-sig]: realtime in type=${signal.type.name} '
-          'call=${signal.callId} from=${message.src.short} age=$age';
+          'call=${signal.callId} from=${message.src.short} age=$age '
+          'receipt_age=$receiptAge queue=${queueMs}ms '
+          'handler=${elapsed.elapsedMilliseconds - queueMs}ms';
     });
     onCallSignal?.call(message.src, signal);
   }
