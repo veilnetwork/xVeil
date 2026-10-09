@@ -9684,3 +9684,57 @@ Owned apps, phone UID processes, helpers and ADB forward are verified absent,
 the Mac seal verifies, and collector/relay processes, owned ports, remote
 directory and SSH helper are verified cleaned up. The diagnostic APK stays
 installed and closed on Poco; its existing identity and history are preserved.
+
+Opaque ingress connection continuity at relay hops (2026-10-09)
+-------------------------------------------------------------
+
+SDK 5d37d26e fixes a remaining connection-selection collapse. Previously,
+neutral Forward selection hashed only sender and recipient: two independent
+authenticated incoming connections for that same route used the same outgoing
+connection. Source separation therefore did not survive that relay hop.
+
+The authenticated child carrier now supplies a process-local allocation
+identity and a weak lifetime witness. Immediate Forward dispatch preserves
+that witness through sovereign/direct, scored, multipath and gateway forwarding
+in the existing ordinary INTERACTIVE queue. Session selection assigns distinct
+live ingress connections distinct generic outgoing connections. No role,
+priority, endpoint or application label is added to a frame or handshake.
+Allocation tokens are never serialized and their debug representation is
+redacted. Retired parents invalidate witnesses; expired owners are reaped
+before comparing identities, including allocation-address reuse.
+
+This uses the existing six outgoing datagram connections, shared with local
+source allocations. Ownership is first come and bounded: neither an incoming
+connection nor a local audio producer can evict another live owner. Source
+readiness and recovery follow the physical assignment; diagnostics keep source
+logical counters separate from neutral transit counters even when their
+physical connection indices overlap. Legacy connections retain role-blind
+routing buckets, with idle bucket ownership expiring after 30 seconds.
+Relay admission, FIFO service, bandwidth accounting and connection quotas are
+unchanged. The pool leaves the existing separate reliable child and one
+authenticated primary replacement within the transport's directional quota.
+
+A regression uses the production ordered-pool selector, exporter-bound child
+key derivation and authenticated record I/O. One 32-byte duplex pipe is left
+unread until an actual record write blocks. A second incoming connection with
+the same Forward sender/recipient delivers and decrypts its complete frame
+within 250 ms on its independently selected pipe. Restoring routing-only
+selection by ignoring the ingress witness makes this test fail with the
+intended merged-connection assertion; the current selector passes. This
+control restores the old selection semantics, rather than testing an entire
+previous release. All 487 session tests pass (6 existing tests ignored), as
+do all 270 dispatcher tests. Changed files pass rustfmt and diff whitespace
+checks; workspace-wide fmt still reports pre-existing ordering differences in
+the unchanged session and transport lib.rs files.
+The clean SDK commit also builds the Linux x86_64 musl relay CLI successfully;
+that artifact is ready for the next owned-relay call check.
+
+Limits remain explicit. At pool saturation, or before generic connections are
+authenticated, compatibility fallback does not guarantee separation. The DHT
+RecursiveRelay fallback is outside this datagram selection path. This gate
+proves blocked-connection independence, not acoustic quality, mobile network
+latency or simultaneous video/file/screen operation. Video in the preceding
+physical runs was automatically paused by endpoint audio protection, with both
+cameras enabled and zero transmitted video frames. It was not disabled to
+demonstrate successful video delivery. No new physical call result is claimed
+while Poco is absent from ADB.
