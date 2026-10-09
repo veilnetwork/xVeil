@@ -10573,3 +10573,11 @@ realtime call signaling, inbound conversion and content streams pass. These
 are local tests; the next physical stand checks whether the native delivery
 actually supplies the proof. Probe apps/logcat have exited, the phone package
 UID and owned forward are absent, and the Mac seal verifies after log removal.
+
+The root fix is committed as e4356d0c (unsigned, unpushed). Owned Mac build
+2436 completes and passes strict seal/code-section verification, reusing
+production native media build 2432 and unchanged FFI 5c207cd3. It has not
+been launched. Poco remains on build 2432; no Android packaging/install or
+new physical call is performed after the goal reports paused. The planned
+physical validation therefore remains pending. All probe-owned processes
+and forwards are already audited absent.
