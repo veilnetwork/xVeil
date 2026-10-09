@@ -10505,3 +10505,44 @@ samples and the exported signal, then recovers six tone markers within
 All 62 app bitrate-adaptation tests pass. These native tests use a synthetic
 ADM, not physical microphones or a cellular path; long physical-network
 stalls and simultaneous media/other-traffic verification remain outstanding.
+
+
+#### Physical build 2432 / stand 2434
+
+Both owned clients use production media built from veil 71da840d, with no
+native test exports. The unchanged Rust FFI/temporary relay binaries remain
+from 5c207cd3; the cached-binary gate verifies that intervening SDK changes
+are confined to `flutter/veil_media/`. The signed phone APK is replaced in
+place and its installed bytes are verified; the owned Mac code sections and
+strict app seal match the fresh production build. Identities are preserved.
+The private media-build VM is stopped and Docker's `colima` context/default
+VM are preserved. A first setup attempt loses its SSH status channel before
+apps launch; its exact relay directory/unit are removed, then a fresh stand
+uses a bounded retry for the read-only startup check.
+
+The phone-originated call rings after 0.413 s, both endpoints are active at
+2.648 s, and relay routes remain stable at 17.963 s. There are 428 subsequent
+samples spanning 159.824 s with both active on relay. The initial owned TCP
+canonical path is verified; public alternate connections can reappear and
+this is not an exclusive-route isolation test. No media rebuild or local
+silent-relay repair occurs. Current playout queue medians/maxima are 374/513
+ms on Mac and 144.5/593 ms on Poco; raw filtered medians/maxima are 359/702
+and 487/1601 ms. Maximum accepted-audio receive ages in this relay phase are
+641/2798 ms. Interruption increments are 11/33 (4020/18457 ms), with no
+counter reset; these include silence and do not measure lost spoken words.
+
+Cameras stay enabled on both endpoints, but video transmission and remote
+frames remain zero under audio protection. A 2-MiB attachment offer arrives
+on the phone; its concurrent plaintext download fails after 170.111 s and
+is cancelled. The phone logs 24 stream attempts and missing manifests; Mac
+logs six authorization denials from one stream origin that differs from the
+phone's logical identity, plus three stream resets. Both clients report
+secondary identities. Device-origin authentication/mapping needs a separate
+check before attributing this failure to bandwidth or stream scheduling.
+No authorization gate is relaxed. Simultaneous video/screen/file transfer
+has therefore not passed, and physical audio buffering remains unresolved.
+
+Owned Mac/logcat/topology processes are audited absent, the phone package
+UID and owned ADB forward are clear, and all three exact remote units report
+MainPID=0/inactive with their directory removed. The Mac seal verifies after
+stand-log removal. No push or release is made.
