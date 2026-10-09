@@ -11495,3 +11495,50 @@ pass. The IPC test captures the final session sink; it does not measure a
 physical network, PCM quality, video or screen sharing. Existing installed
 2468 endpoints have not received these new ABIs at this checkpoint. A fresh
 Mac/Android build and quiet physical qualification test are the next step.
+
+
+#### Physical candidate qualification and live economy check: stand 2474
+
+Both endpoints receive a fresh 0.13.84+2474 debug build of SDK 4fadc275 and
+root implementation 696a2f40. Native probe exports and Mac ABI match the Dart
+bindings; Mac bundled code matches the fresh native libraries. Android keeps
+the installed signer and is updated in place. Its complete pulled APK matches
+the verified signed artifact; only veilclient-ffi changes among the 16 native
+libraries compared with installed 2468. Production native media remains 2432.
+A build-helper metadata step initially used an incorrect Android cache path;
+actual compilation succeeded and independent symbol/hash/ABI verification
+uses the existing private 2457 cache containing the newly compiled output.
+No library from the stale external-volume cache is substituted.
+
+The 90-second video call uses Poco cellular, the owned Mac profile and a fresh
+owned neutral relay. All other sessions are preserved; there is no topology
+controller, independent traffic-probe load, attachment or screen capture.
+Ringing takes 0.740 s and both endpoints become active on P2P at 2.071 s.
+At 32.168 s the diagnostic API deliberately requests delivery-qualified relay
+recovery from Poco. Its response is true; Poco is observed on relay at
+32.538 s and Mac at 32.911 s. This is a requested handover, not evidence of a
+natural fallback cause. Both keep media epoch 1 with exactly one handover and
+continue receiving audio. Thus the new Dart/native configuration, encrypted
+peer echo, alias handling and live rebind work on these physical endpoints.
+
+Authenticated read-only node snapshots taken DURING the call show
+background_mode=false on both endpoints, with no outbound batch window or
+batch-always setting. This directly checks the user's particular veil economy
+hypothesis under the active call. No economy or system power setting changes.
+
+After call second 10, sampled native audio receive age peaks at 529/705 ms
+(Mac/Poco), with medians 12/13 ms; no multi-second outage is sampled here.
+However the last current jitter buffers are 386/354 ms, with targets
+340/300 ms. Native counters report 4/7 audio interruptions totalling
+1221/1996 ms. Local cameras supply 2716/2670 frames, but both transmit zero
+video frames and receive zero remote frames. This quiet no-attachment test
+contains no controlled speech and does not prove audio quality, establish
+why the earlier access-path stalls occurred, or resolve video suppression.
+Those parts of the goal remain active.
+
+Independent final audit passes all 11 assertions: exact owned Mac/logcat
+processes exited, Poco available with its entire UID absent, forward removed,
+Mac sealing valid and output still muted at zero, owned relay inactive with
+zero MainPID, its directory absent, terminal resource state confirmed and
+owned SSH control absent. Both projects are committed unsigned and unpushed;
+no installed /Applications copy or release is replaced by this stand build.
