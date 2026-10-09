@@ -9583,3 +9583,104 @@ closed. The cleanup assertion initially also matched an unrelated existing
 TCP 443 listener; it was corrected to distinguish the owned UDP port, then the
 cleanup verification and directory removal completed. The existing TCP service
 is preserved. Addresses, identities, descriptors and raw time series stay private.
+
+### Native mobile UDP latency controls — 2026-10-09
+
+A native C helper runs under Poco's application UID with xVeil closed, sending
+64-byte connected UDP token probes every 100 ms for 60 seconds plus a
+three-second receive grace period. RTT uses the phone's monotonic clock,
+excluding ADB transport and netcat linger. Source sends have no failures or
+duplicates and a maximum gap of 110.811 ms. Of 573 sent probes, 553 return:
+RTT median 88.435 ms, p95 2347.288 ms and maximum 5142.887 ms. The server records
+554 probes, leaving 19 unobserved before its receive loop and one observed
+there without a matching phone response during the measurement. This establishes
+latency tails outside the media/SDK pipeline, without locating the loss or
+proving that bare UDP explains a particular call's delay.
+
+Two simultaneous native probes then use separate test servers S1/S2 and Linux
+receive timestamps enabled only on their temporary echo sockets. S1 receives
+567 of 571 probes; S2 receives 568 of 572. Each server-observed probe returns
+to the phone. RTT medians are 49.267/81.576 ms, p95 896.227/974.981 ms and maxima
+1470.460/1510.227 ms. Source gaps stay below 112 ms. All server observations
+have kernel receive timestamps: kernel-to-reader maxima are 3.762/0.449 ms,
+and echo processing after read takes at most 1.714/0.449 ms. These controls
+exclude a multi-second userspace echo stall in this run. Relative upload-phase
+variation exceeds 1.4 seconds on both paths before server kernel arrival;
+this is not calibrated absolute one-way latency or proof of which mobile/kernel/
+network component caused the variation. Apps are closed during these probes;
+their flow and load differ from a live QUIC call.
+
+A further pair of sequential controls alternates packet lengths
+64/1200/1280/1400/1452 bytes on each server with IPv4 don't-fragment enabled.
+All lengths pass. S1 returns 551/573 probes and S2 552/573, without source send
+failures or duplicates. Per-size losses and p95 RTTs are similar within each
+sample, with maxima up to 2913.500/3037.517 ms. Kernel-to-reader maxima are
+2.810/1.078 ms. This does not reproduce a size-specific UDP black hole in these
+controls; it does not certify the QUIC path's MTU, fragmentation policy or call
+quality. No transport MTU settings are changed on this evidence.
+
+All helper binaries run from newly created private app directories and are
+removed afterward, along with their staging files. Their processes are verified
+absent. Temporary server units/processes and owned UDP sockets are stopped,
+their private directories removed and SSH helpers closed. Existing server
+services, phone data and saved network settings are preserved. A read-only
+phone snapshot has mobile data on, Wi-Fi off, device awake and idle mode off;
+it is not continuous power or network-state evidence. Raw addresses, tokens,
+timestamps and packet correlation stay private.
+
+### Local call-control receipt boundaries — 2026-10-09
+
+The mixed call's full endpoint logs show the Mac live answer leg returning in
+148 ms; Poco's first handled answer has age 35726 ms. Ordinary independent
+QUIC forwarding is already ready near the start of the call, so a 35-second
+wait to authenticate that child is not established. These logs do not reveal
+when the phone daemon/FFI handed the signal to Dart and cannot locate the wait.
+
+Existing accepted call/endpoint debug log entries now include monotonic Dart
+queue and handler durations, plus the call's wall-clock age at Dart admission.
+This distinguishes the serialized consent/dispatch lane from delays before
+Dart admission. It measures neither native receive waits nor remote clock
+offset. Consent, dedup, ACK, queue limits and scheduling remain unchanged;
+there are no new relay-visible fields, media roles or priorities. All 45
+realtime-control and inbound-backpressure tests pass.
+
+A 60-second mixed-path call on unchanged native endpoints rings in 0.425 s
+and becomes active in 2.258 s, so it does not reproduce the delayed answer.
+Mac/Poco receive-age maxima still reach 4469/4019 ms, with 5/8 interruptions
+lasting 6737/10439 ms. Cameras remain on, automatic audio protection pauses
+video throughout and frame counters remain zero. A temporary Flutter attach
+reports four reloaded libraries, but the phone's signal logs retain their
+previous format without the new receipt/queue fields. That reload is not
+accepted as timing-boundary evidence. The attached tool and all owned app,
+UID, forward, collector and relay processes are verified closed; the Mac seal
+verifies. The persistent phone APK remains the baseline after that run.
+
+An APK rebuild packages the receipt diagnostics explicitly: its Dart kernel
+contains the new marker and the old APK does not. The diagnostic package is
+installed over Poco with the same signer and without removing data. Its native
+SDK and media libraries match the 2377 baseline byte for byte; its SDK version
+define names that actual e48ecd61 source, rather than the newer relay checkout.
+Mac remains on 2377 and the owned relay on c85ad257. The installed APK bytes
+are verified against the signed output. This is a receiver-observation change,
+not a native transport upgrade or a release.
+
+This 60-second call rings on Mac in 33.588 s and reaches both-active in 35.110 s.
+Poco's 15 accepted signal records include the new boundaries: maximum Dart
+queue wait is 1 ms and handler time 10 ms. Its received answer has 0 ms queue
+wait and 10 ms handler time, with negative wall-clock age demonstrating why
+remote age must not be treated as calibrated one-way latency. That answer is
+quick in this run; the long delay is the incoming offer on Mac, whose old Dart
+build does not have the new boundaries. The earlier 35-second answer wait
+is therefore not reproduced or located by this measurement.
+
+Quality remains below the criterion. Mac/Poco native receive-age maxima are
+1949/293 ms, interruption maxima 17/2 lasting 10323/441 ms, and audio delay
+876/476 ms. Source admissions remain 0/2 ms with no stalled workers or source
+RTP drops. Both cameras are enabled; video stays automatically paused and
+frame counters remain zero. Quiet microphone captures and cumulative counters
+are not an acoustic speech test, and this different network sample cannot
+establish a causal improvement. No file/screen coexistence is claimed.
+Owned apps, phone UID processes, helpers and ADB forward are verified absent,
+the Mac seal verifies, and collector/relay processes, owned ports, remote
+directory and SSH helper are verified cleaned up. The diagnostic APK stays
+installed and closed on Poco; its existing identity and history are preserved.
