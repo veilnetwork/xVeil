@@ -2138,6 +2138,25 @@ class MessagingService {
   /// guessed from a frame that did not prove its device.
   NodeId? identityOfDevice(NodeId device) => _identityOfDevice[device.hex];
 
+  /// Preserve the node's verified device/identity relation on either inbound
+  /// lane. A claimed source/device pair supplies no proof. Realtime callers
+  /// invoke this after control-kind and consent checks, before event dedup:
+  /// a later authenticated copy may add device evidence to an earlier copy.
+  void _noteAuthenticatedDevice(InboundMessage message) {
+    if (!message.provenance.isAuthenticated) return;
+    final device = message.srcDevice;
+    if (device == null || device == message.src) return;
+    unawaited(notePeerSeen(device));
+    if (_identityOfDevice[device.hex] != message.src) {
+      devLog(
+        () =>
+            'xVeil[identity]: authenticated device proof '
+            '${device.short} -> ${message.src.short}',
+      );
+    }
+    _identityOfDevice[device.hex] = message.src;
+  }
+
   /// How long [peer] has been silent, as the durable queue times it: from
   /// when it was last heard, or — never heard — from when the queue first had
   /// something for it. Null when neither is known. What the devices screen

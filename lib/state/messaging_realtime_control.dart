@@ -168,6 +168,7 @@ class _MessagingRealtimeControl {
           markAccepted(message.src);
         }
       }
+      _owner._noteAuthenticatedDevice(message);
       final frameId = envelope.frameId;
       if (frameId != null) {
         final fresh = _owner._outbox.remember(message.src.hex, frameId);
@@ -218,6 +219,7 @@ class _MessagingRealtimeControl {
         }
       }
     }
+    _owner._noteAuthenticatedDevice(message);
     final frameId = envelope.frameId;
     if (frameId != null) {
       final fresh = _owner._outbox.remember(message.src.hex, frameId);
