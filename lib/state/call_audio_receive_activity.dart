@@ -3,6 +3,27 @@ import '../domain/call_signal.dart';
 /// Audio activity measured at the receive stream, separately from video and
 /// RTCP ingress. Default counters from a timed-out native worker are not data.
 class CallAudioReceiveActivity {
+  /// A current native snapshot, independent of the periodic activity cache.
+  /// Reading it must not consume interruption feedback or rebase counters.
+  static DateTime? nativeLastRxAt(
+    Map<String, Object?> stats,
+    DateTime sampledAt,
+  ) {
+    final packets = stats['audio_rx_pkts'];
+    final age = stats['audio_rx_native_age_ms'];
+    if (stats['worker_stalled'] != 0 ||
+        packets is! num ||
+        !packets.isFinite ||
+        packets <= 0 ||
+        age is! num ||
+        !age.isFinite ||
+        age < 0 ||
+        age > 60000) {
+      return null;
+    }
+    return sampledAt.subtract(Duration(milliseconds: age.toInt()));
+  }
+
   /// WebRTC's delay estimate filters recent buffer growth. Protect audio
   /// using the larger current buffer too, before that filter catches up.
   /// Missing buffer stats on older libraries retain the validated estimate.

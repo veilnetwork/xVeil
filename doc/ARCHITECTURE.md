@@ -11175,3 +11175,59 @@ are launched, no system permission or network setting is changed, and no native
 stand library is rebuilt in this cycle. Build 2457 still contains c8b0026b, not
 this new repair. The full audio-first goal remains unverified. Evidence stays
 private; commits are unsigned and unpushed and no release occurs.
+
+#### Fresh native receive proof before leaving P2P: stand 2462 / repair 2464
+
+Build 0.13.84+2459 packages freshly rebuilt SDK f341c235 on both endpoints,
+with native media still at build 2432. Public FFI exports, bundled native code,
+kernel versions and strict/deep Mac sealing pass. The sixteen APK native
+libraries match the pulled 2457 baseline except for the intended FFI update.
+Same-signer in-place installation is verified by pulling the exact signed APK
+back from Poco. A read-only preflight in this exact owned Mac build reports no
+screen-capture permission; it requests none and exits. Screen sharing remains
+unverified.
+
+The user subsequently permits calls while keeping the computer's speakers off.
+Stand 2461 stops before placing a call because a copied helper refers to the
+old resource filename; its owned applications and all three remote units are
+independently audited closed. The repaired stand 2462 verifies Poco's cellular
+default route and muted, zero-volume Mac output without changing settings.
+Both clients attach to a fresh owned neutral relay; other sessions are retained.
+No topology controller or diagnostic relay-recovery request runs.
+
+Poco calls Mac: ringing is observed at 0.684 s and both endpoints are active
+on P2P at 2.676 s. Poco changes to relay at 69.945 s, followed by Mac at
+70.451 s. The 64-KiB attachment starts only at 77.815 s and completes with
+an exact SHA-256 match in 68.614 s. These differing directions and network
+conditions are not a controlled comparison with stand 2456. Cameras capture
+on both endpoints but encoded and received video frames remain zero. Actual
+audio receive gaps reach 6.655/6.329 s and current buffers 577/535 ms; healthy
+audio and simultaneous video are still not established. No speech assessment
+is made. Cleanup independently verifies both owned local processes, Poco's
+entire UID, the forward and all three remote units absent, the owned remote
+directory removed, Mac sealing valid, and output still muted at volume zero.
+
+The logs identify a concrete false P2P failure decision. At call time 69.207 s,
+Poco's current native snapshot already has a new accepted audio RTP packet and
+native receive age 2 ms, while the route remains P2P. At 69.392 s it nevertheless
+logs established direct audio stalled and begins relay recovery. The FSM uses
+the previous one-second activity sample, which still predates this recovery.
+QUIC retransmission/expiry evidence explains an intermittent delivery pause,
+but does not establish permanent path loss or the cause of that pause.
+
+Repair 2464 rechecks the engine's accepted-audio arrival time immediately before
+an early route change. A fresh receive timestamp cancels the cached outage;
+only a confirmed current gap keeps the early recovery. Missing, failed or
+bounded-out reads do not certify an outage, and async continuations revalidate
+the current call/device and recovery state. The read leaves interruption and
+playout-feedback counters untouched. Genuine outages, legacy admission probes,
+ordinary repair grace, relay neutrality and privacy posture stay intact.
+
+The regression supplies stale periodic state and a resumed native receiver:
+removing only the new recheck reproduces the actual unwanted relay transition
+by assertion after successful compilation. With the repair the call/activity
+suites pass 159 tests, including confirmed stoppage, unavailable/error/timeout
+snapshots and a late read after disposal. Source is restored exactly after the
+negative control. This is a route-decision repair, not a claim that cellular
+pauses, video adaptation or overall call quality are fixed. Evidence remains
+private; commits are unsigned and unpushed.
