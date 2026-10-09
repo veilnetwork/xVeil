@@ -11454,3 +11454,44 @@ the owned remote directory absent. Mac sealing is valid and output stays
 muted at zero. Raw addresses, identities, capture files and diagnostic tokens
 remain private. Delivery-validated route replacement and usable concurrent
 audio/video/screen remain open; no new production settings are deployed.
+
+
+#### Candidate delivery qualification: cycle 2473
+
+The specific veil economy mode is still not implicated: the installed phone
+reported background_mode=false and no outbound batch window/threshold in
+preflight 2470. The configured ordered coalescer bypasses REALTIME and
+INTERACTIVE; source QUIC datagrams use their independent drain. No system
+power policy, network configuration or relay scheduling is changed.
+
+SDK 4fadc275 adds a 24-byte request/reply inside the existing directional VME1
+seal. A random per-attempt nonce, requested path and kind remain encrypted;
+they add no outer media role, timestamp or relay priority. The host pins the
+identity app/destination for direct replies and the physical device app and
+destination for ordinary relay replies. The receiver forces the requested
+path, rather than echoing on the current call route. Claimed envelope sources
+cannot choose a reply destination. Anonymous channels reject configuration.
+Contexts, concurrent echoes, attempts and reply age are bounded. A candidate
+reply under another identity/device alias is accepted only after its call
+AEAD opens, and never enters WebRTC or its receive/activity counters.
+
+xVeil enables this control before starting an ordinary call's engine. A live
+engine-preserving handover waits for a matching echo within 600 ms before
+rebind and rechecks engine, epoch, call and peer ownership after the await.
+An unproven candidate closes while the old sender/receiver remains owned;
+the call service retains an active direct session and backs off five seconds.
+A failed replacement with no surviving old session still ends the call.
+Older engines without safe rebind keep their existing live route. Initial
+startup and destructive local engine recovery are not delivery-qualified
+handovers; those existing flows are not claimed fixed by this change.
+
+Verification: seven new/targeted codec and real Unix IPC dispatcher/echo tests
+pass, as do all 52 media-filtered SDK tests and 175 root call/seal/operation
+tests. Tampering, old/late/replayed replies, candidate aliasing, pending-attempt
+ownership, pinned reply destinations, neutral relay framing and unchanged
+old RTP reception are exercised. Portable client-only compilation, package
+Clippy without dependency lints, ABI regeneration and targeted Dart analysis
+pass. The IPC test captures the final session sink; it does not measure a
+physical network, PCM quality, video or screen sharing. Existing installed
+2468 endpoints have not received these new ABIs at this checkpoint. A fresh
+Mac/Android build and quiet physical qualification test are the next step.
