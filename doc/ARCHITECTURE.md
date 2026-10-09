@@ -11089,3 +11089,39 @@ selection changes; relay scheduling, encrypted payloads and wire priorities do
 not. This new revision has not yet been rebuilt into or installed on either
 stand endpoint; build 2455 still contains SDK 450218d0. The physical results
 above measure that earlier revision, not c8b0026b. No new audible test runs.
+
+#### Quiet packaging and Poco update: build 2457
+
+The continuation revalidates both worktrees clean at xVeil 46b66421 and SDK
+c8b0026b. The previous cycle is progress: it changes origin route selection,
+reproduces the old defect by assertion and passes the IPC suite. The household
+is asleep, so no new calls or speech requests are made. This cycle prepares the
+physical comparison rather than claiming a new audio-quality result.
+
+Fresh production-feature FFI builds succeed for Mac and arm64 Android. Mac uses
+the existing private native cache. The shared build volume has less than 1 GiB
+free, so Android's existing host/cross release cache is copied to a private
+directory on the main disk and built there; shared caches are not deleted or
+replaced. Both raw FFI artifacts differ from the preserved SDK 450218d0 copies.
+The Mac FFI retains the same 183 public veil/UniFFI exports. Source-commit and
+clean-worktree guards cover both platform builds.
+
+Owned test build 0.13.84+2457 is packaged sequentially for Mac and Android to
+avoid the earlier Flutter package-refresh collision. Mac kernel version,
+embedded SDK version, strict/deep sealing and bundled code-section comparisons
+pass. Native media remains build 2432. The signed APK has the same signer as
+installed build 2455, the exact expected stripped FFI/media bytes, version code
+2457 and the correct embedded SDK version. Its sixteen native-library names
+match the pulled baseline APK; only libveilclient_ffi.so changes.
+
+Poco is available and its app is already stopped before installation. A
+same-signer in-place update preserves application data, without uninstalling.
+The installed APK is pulled back and matches the signed artifact byte for byte.
+After installation the owned package is force-stopped and its entire UID is
+verified absent. The owned Mac stand process is also absent and sealing still
+passes. No apps or calls are launched in this cycle, no relay policy or network
+setting is changed, and /Applications remains untouched. The phone now contains
+the route-selection repair; the Mac stand bundle is ready for the next test.
+Mixed-path delivery, healthy audio under load and usable simultaneous video
+and screen still need runtime evidence. Commits remain unsigned and unpushed;
+there is no release. Raw logs, snapshots and signed stand artifacts stay private.
