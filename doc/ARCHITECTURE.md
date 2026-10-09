@@ -9464,3 +9464,122 @@ is stopped; its process and fresh ports are absent, its directory removed and
 its SSH helper closed. Existing server services, configuration and firewall,
 the user's default Mac application and saved endpoint network policy are unchanged.
 Raw source-to-receiver counters, carrier records and binary metadata stay private.
+
+### Physical TCP backlog and inbound MSS negotiation — 2026-10-09
+
+A further controlled own-relay call uses unchanged 2377 endpoints and SDK
+6fd000ca on the relay. A temporary generic server collector samples TCP_INFO
+via `ss` every 200 ms, with ordinary session snapshots every ten samples. It
+collects no media roles or payloads and changes no scheduling or priorities.
+974 snapshots span 215.795 seconds, with no `ss` failures. Server epoch and
+Mac driver epoch provide approximate alignment, not a measured clock offset.
+The call rings in 33.207 seconds and is active on both ends in 34.555 seconds;
+the requested active window lasts 90 seconds. Neutral independent Forward
+sends remain present. All active microphones and cameras are enabled; video
+stays automatically paused, with zero encoded or received frames.
+
+Quality fails again. Mac/Poco interruption maxima are 43/24, lasting
+29495/24448 ms; receive-age maxima are 3699/4668 ms. Source RTP admissions
+remain 0/2 ms, with no stalled media workers or source RTP drops. A server-to-Mac
+TCP connection has up to 100877 bytes in its send queue, 97293 not yet sent,
+826 additional retransmitted segments and 372776 additional retransmitted
+bytes during the active window. Its RTO reaches 3872 ms and its send MSS falls
+from 1248 to 1024, 512 and 256 bytes. Server-to-phone connections also show
+backlog, retransmissions and RTOs exceeding four seconds. These are actual
+kernel transport waits; the snapshots do not locate packet loss or prove the
+cause of every playout interruption. Low smoothed RTT alone does not establish
+a healthy transport. Raw connection/address mapping and time series stay private.
+
+The listener has a separate concrete gap in its existing MSS safety policy.
+Linux `TCP_MAXSEG` applied after accept cannot change the already negotiated
+send MSS. A real isolated Linux loopback control gives client/server MSS
+21845/22528 bytes for that late setting, versus 1188/1188 when the same 1200-byte
+limit is set before listen, for both IPv4 and IPv6. SDK c85ad257 applies this
+existing limit before listen on Linux/Android in the shared TCP binder and
+uses that binder for obfs4. Established-socket fallback on other platforms
+remains. No new transport class, wire field, relay priority or firewall rule
+is introduced. The two real TCP/obfs4 listener regressions fail against the
+original code (negotiated MSS 21845), then pass with the fix. Seven Linux TCP
+and obfs4 tests pass, including exact round trips and wrong-PSK rejection.
+This is a negotiation fix, not yet proof of acceptable physical call quality.
+
+Owned Mac and phone stands, package/UID processes, topology helpers and ADB
+forward are verified absent after the measurement; the Mac bundle seal verifies.
+The generic TCP collector is inactive with MainPID zero and no remaining
+collector process. The isolated relay process and ports are absent, its private
+directory is removed and its SSH helper is closed. Linux control/test sockets
+and their private executable directories are also cleaned up.
+
+The four existing TCP/obfs4 unit gates also pass on macOS. The clean c85ad257
+Linux CLI cross-build then runs a second isolated relay process with the same
+normally mined owned test identity and unchanged 2377 clients. Its new TCP
+connections start at MSS 1188, including the Mac leg, proving the listener fix
+is deployed. The 90-second camera-enabled call rings in 0.414 s and is active
+in 1.676 s. Audio still fails quality: Mac/Poco interruption maxima are 10/10,
+lasting 14956/9949 ms; receive-age maxima are 7051/4085 ms. Source payload gaps
+are at most 26/423 ms and RTP admission remains 0/2 ms, so these multi-second
+receive gaps cannot be explained by those source sampling gaps alone. Neither
+media worker stalls; source RTP drops stay zero. Audio delay reaches 640/533 ms.
+Both cameras remain enabled in active samples, but video is automatically
+paused throughout with zero encoded/received frames. No file/screen or acoustic
+validation is claimed.
+
+829 generic TCP snapshots have no sampling-command failures. Transport queues
+and retransmissions remain: one server-to-Mac connection reaches 123142 queued
+bytes and falls from MSS 1188 to 1024 before disappearing; a later connection
+remains at 1188. Server-to-phone backlog reaches 143066 bytes, with RTO up to
+5168 ms across the sampled connections. This verifies a specific negotiation
+correction, without establishing the cause of each network wait or a causal
+quality improvement between the different live network samples. Apps, UID
+processes, helpers, forwards, collector, relay, ports and owned directory are
+again verified cleaned up, with a valid Mac bundle seal.
+
+A separate temporary UDP echo control binds only otherwise-free UDP ports 443
+and 39181. Its equal-size 64-byte token echo changes no existing service or
+firewall and carries no media role. Mac receives zero matching replies in six
+probes; app-UID Poco receives four matching replies in four probes. Netcat's
+elapsed times include its two-second linger and are not RTTs. The previous
+scoped reflector capture also has matching request-destination/reply-source
+IPs, so a changed response source does not explain that Mac probe failure.
+These results establish neither a universal UDP block nor its location or cause.
+The temporary echo process is stopped, its directory removed and SSH helper
+closed afterward.
+
+### Physical mixed QUIC/TCP relay path — 2026-10-09
+
+The same clean c85ad257 relay binary and normally mined owned identity run with
+an additional otherwise-free QUIC listener on UDP 443. Ordinary bootstrap
+invites select QUIC for Poco and obfs4/TCP for Mac, without overriding peer
+permissions or endpoint network policy. Endpoint session observations confirm
+those schemes. In the 90-second window after both ends become active, all 41
+server session snapshots for each peer retain that same transport. The phone
+does not silently revert to TCP in these observations. Relay QoS and wire
+privacy remain unchanged.
+
+The incoming signal appears in 1.557 seconds, but both endpoints become active
+only at 38.809 seconds. Quality still fails: over the aligned active window,
+Mac/Poco audio delay reaches 884/524 ms, receive age 2563/2606 ms and interruption
+counts 7/11, lasting 5210/8611 ms. Source payload gaps are at most 31/430 ms,
+RTP admission 0/2 ms, with zero source RTP drops and no stalled media workers.
+Cameras are enabled in all active samples; automatic audio protection keeps
+video paused with zero encoded/received frames. Mac starts its local media
+before the caller receives acceptance, so unaligned cumulative packet counts
+cannot be used to infer packet loss.
+
+The 985 generic TCP snapshots have no sampling-command errors. Both active
+server-to-Mac TCP connections show zero additional retransmissions; maximum
+send queues are 9692/8706 bytes, RTT 43.014/44.691 ms and RTO 244/245 ms.
+Thus the previous large TCP backlog/retransmission symptom is absent on the
+sampled Mac leg of this mixed run while media delays remain. These observations
+do not measure QUIC one-way loss/jitter or endpoint processing delay and do not
+prove which causes the remaining pauses. UDP success alone is not a latency
+measurement. No file/screen coexistence or acoustic speech validation is claimed.
+
+Owned apps, package/UID processes, topology helper and ADB forward are absent
+afterward, and the Mac bundle seal verifies. Collector MainPID is zero, with
+no collector process. The relay executable and owned TCP/high UDP/UDP 443
+listeners are absent, its private directory is removed and its SSH helper is
+closed. The cleanup assertion initially also matched an unrelated existing
+TCP 443 listener; it was corrected to distinguish the owned UDP port, then the
+cleanup verification and directory removal completed. The existing TCP service
+is preserved. Addresses, identities, descriptors and raw time series stay private.
