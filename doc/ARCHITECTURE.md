@@ -9435,3 +9435,32 @@ obfs4/TCP, each with and without canonical rekey), with bounded neutral shards,
 exact payloads, no duplicate cells and retired children after teardown. These
 gates check preservation of the shared selectors; they do not replace the
 pending physical Forward/audio/video measurement.
+
+### Physical neutral Forward fix verification — 2026-10-09
+
+The clean SDK 6fd000ca Linux CLI cross-build completes successfully. A fresh
+isolated relay runs this exact hashed binary; installed Mac/Poco clients remain
+2377, avoiding an unnecessary client rebuild for the relay-side selector check.
+The controlled single-own-relay topology makes a new 90-second camera-enabled
+call. It rings in 0.425 s and is active on both ends in 2.299 s. Relay logs now
+prove two outgoing `relay_forward` sends with neutral local slot 1 and
+`independent=true`, in addition to the endpoint-independent carrier records.
+This verifies use of the corrected forward hop on the physical cellular path.
+
+This call still fails the quality criterion. All active microphones and cameras
+are enabled, while video stays automatically paused and no video frames are
+encoded or received. Mac/Poco maxima are audio delay 526/582 ms, current jitter
+buffer 588/613 ms, preferred target 450 ms on both ends and receive age
+2250/513 ms. Interruption maxima are 2/7, lasting 2477/2193 ms. Source admission
+maxima remain 0/2 ms and neither media worker stalls. NetEq records discarded
+packets, requiring further arrival/transport analysis; the new measurements do
+not prove their cause. They do not establish a causal quality improvement over
+the previous different topology/network samples or acceptable audio/video.
+No file/screen concurrency or acoustic speech validation is claimed.
+
+Owned Mac and phone app/package/UID processes, topology helpers and ADB forward
+are verified absent after the run, and the Mac seal verifies. The isolated relay
+is stopped; its process and fresh ports are absent, its directory removed and
+its SSH helper closed. Existing server services, configuration and firewall,
+the user's default Mac application and saved endpoint network policy are unchanged.
+Raw source-to-receiver counters, carrier records and binary metadata stay private.
