@@ -9324,3 +9324,37 @@ Owned Mac app processes, phone package/UID processes and the test ADB forward
 are absent; the Mac seal verifies after installation. No further physical
 quality claim is made for 2377: the deadline gate proves bounded attempts,
 while the last actual camera-enabled call remains the failing 2376 relay run.
+
+### Physical path controls and isolated Linux relay preparation — 2026-10-09
+
+The unchanged 2377 stands produce eighteen authenticated channel offers across
+Mac and Poco. Every offer permits datagrams and rekeying but denies opaque
+flows and all parallel/reliable channels; the actual path therefore remains
+the compatibility carrier. This network-only run makes no new call-quality
+claim. Both owned apps, phone package/UID and ADB forward are absent afterward,
+and the Mac seal verifies after archiving its late diagnostic log.
+
+Seven announced public UDP reflectors do not answer on Mac or on Poco, including
+probes under the actual foreground application's UID. Generic UDP DNS probes
+and authenticated-peer TCP connection controls succeed on Mac; reflector routes
+use the physical IPv4 interface. Neither endpoint has a global IPv6 address.
+These observations do not distinguish reflector unavailability from selective
+network filtering, and do not establish a global UDP or VPN failure.
+
+The project's private operational inventory identifies two SSH-accessible owned
+servers. An isolated directory on the second server holds the current CLI and
+an existing loopback regression executable; existing services, containers,
+configuration and firewall are unchanged. Fresh ports are checked free. No
+inventory addresses, identities, credentials or bootstrap descriptors are
+committed. A compatible temporary relay remains to be launched and measured.
+
+Building the CLI for x86_64 Linux musl exposes a portability defect in the UDP
+receive-time diagnostic: libc does not export SO_TIMESTAMPNS_NEW there. The
+vendored socket backend now uses the kernel time64 option number (64, with
+SPARC's separate 0x42 numbering) and guarded ancillary decoding, preserving
+the legacy fallback and opt-in behavior. The release CLI cross-build succeeds.
+On the actual Linux server, the existing IPv4/IPv6 loopback test passes all
+false/true/false toggles and verifies that timestamps precede a reader delayed
+40 ms; one test passes in 0.24 seconds. No SPARC execution, physical call quality
+or independent-carrier success is inferred from this portability gate. No
+relay media role, priority or QoS metadata is introduced.
