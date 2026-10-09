@@ -10759,8 +10759,8 @@ expect an actual hold under pressure, and verify resume before climbing. No
 production audio threshold is relaxed. Analysis of all five changed Dart files
 passes. Owned Mac build 2444 packages the committed rollback repair;
 its kernel version and transaction symbol, strict seal and original production
-native code sections verify. It is not launched after packaging. Poco remains
-on build 2441. Physical verification of rollback is still pending.
+native code sections verify. Poco remains on build 2441. Subsequent stand 2445
+physically verifies rollback, as recorded below.
 
 Both stands' exact owned apps/logcat/helpers have exited; phone UID and forward
 are clear; all three remote units per stand report MainPID=0/inactive and each
@@ -10768,3 +10768,88 @@ owned remote directory is removed. The failed plaintext fixture is removed and
 strict Mac sealing passes. Raw captures stay private. SDK/network policy is
 unchanged; no push/release occurs. Audio stalls, stable P2P and simultaneous
 video/screen/file quality remain unresolved; the original goal stays active.
+
+
+#### Isolated audio and camera rollback: stands 2445 and 2447
+
+Mac build 2444 and Poco build 2441 retain media build 2432 and native FFI
+5c207cd3. Neither stand closes neighbor sessions, runs the topology controller,
+or requests relay recovery. Both microphones start on; subsequent user changes
+are respected. The earlier Poco mute in stand 2443 is user-confirmed and remains
+excluded from defect attribution.
+
+Stand 2445 rings at 0.400 s, becomes active/P2P at 2.117 s and automatically
+moves both media routes to relay at 29.651 s. The file phase does not begin until
+77.149 s, so file opening is not necessary for this direct-audio failure. A fresh
+64-KiB file completes before hangup, with the destination SHA-256 matching the
+source. Its explicit plaintext save takes 115.002 s. The receiver also starts
+an automatic encrypted download: that copy finishes earlier while the explicit
+stream save continues. These observations must not be treated as the throughput
+of one isolated transfer. Later redundant piece replies are dropped after the
+automatic fetch has already completed.
+
+Only the owned Mac app window is selected for screen capture. Start still
+returns screenOn=false; the request-handled debug status is not a successful
+capture. However, local camera frames now continue after failure: 3891 near
+132 s, 4002 at 136 s, 4265 at 145 s and 4869 at 165 s. The previous build froze
+at 3466 after the same failed transition. This physically verifies camera
+rollback; it does not establish why capture itself fails or successful screen
+transmission. Stable simultaneous audio/video/screen remains unverified.
+
+Stand 2447 adds a private Mac syscall tracer to the owned process only. It
+records UDP send/receive time, size, socket and addresses, never contents. A
+local loopback smoke verifies unchanged bytes through sendto/recvfrom and
+sendmsg/recvmsg, four UDP records, exclusion of TCP and mode 0600. The loaded
+tracer PID matches the owned stand PID. No production bundle, global loader
+setting, VPN, routing or relay policy is changed. The existing opt-in native
+trace independently correlates sampled encrypted datagrams by fingerprint
+across both clients and records their kernel receive timestamps.
+
+This call is AUDIO ONLY, with no file or screen phase. Ringing is at 0.390 s,
+both endpoints become active/P2P at 2.069 s and automatically change to relay
+at 67.754 s. Both microphone intents stay on. Primary outgoing channels report
+independent=true; each QUIC connection has its own flow/congestion state but
+shares its parent's UDP endpoint. Actual audio queue medians/maxima during
+P2P are 226.5/529 ms (Mac) and 89.5/551 ms (Poco); accepted-audio receive-age
+maxima are 2827/2568 ms. After handover, queue medians/maxima are 463/595 and
+437/507 ms, receive-age maxima 3894/5173 ms. Media epoch remains 1 and outgoing
+audio admission maxima are 0/2 ms. Silence and background sound prevent these
+counters from establishing speech intelligibility.
+
+The Mac syscall peer port matches its baseline authenticated phone QUIC
+session. Its incoming UDP has a 2.683-second gap immediately before handover,
+while outgoing socket writes continue. Matching encrypted datagrams gives
+158 phone-to-Mac and 298 Mac-to-phone observations while both routes still
+report P2P. Send-to-receive wall-clock deltas vary by 2472/2404 ms respectively.
+Device clocks differ, so these are within-direction delay spans, not absolute
+one-way latency. For these matched samples the interval from kernel arrival
+to endpoint trace is below 5 ms on Mac and below 3 ms on Poco; sub-millisecond
+negative values reflect trace millisecond rounding. The long delay is already
+present before arrival in the receiving OS. It includes sender kernel/driver,
+network/NAT and receiver interface scheduling; this does not isolate the mobile
+carrier or exclude other unsampled/local defects. In particular it is not
+proof that a decoder, video transfer or file opening caused this path delay.
+
+A separate file defect is reproduced with real messaging controllers: when an
+automatic encrypted piece fetch is active, both one-holder and multi-holder
+plaintext saves open an additional reliable stream for the same content.
+Both regressions fail against the original controller with one extra network
+open. The save paths now join the active encrypted fetch using the existing
+parked-export path before trying a new stream; after verification the stored
+copy is exported. An existing plaintext sink is not treated as an encrypted
+fetch. Both new regressions pass and verify exact bytes, one sink close and no
+second network open. The full stream-transfer, stale-fetch eviction, content
+transfer and auto-resume modules pass: 81 tests. Analysis reports no errors or
+warnings, with one pre-existing underscore-style information message in the
+stream test fixture. Physical installation/verification of this repair is
+still pending; no claim is made that it removes the file-independent pauses.
+
+Both stands close their exact owned Mac/logcat processes and the phone app;
+the normal cleanup checks the phone UID and forward absent while connected.
+All three exact remote units per stand are inactive/MainPID=0 and each owned
+remote directory is removed; strict Mac sealing passes. Stand 2445 also passes
+a subsequent live phone audit. Poco disconnects from ADB after stand 2447;
+the later phone audit is unavailable, while its earlier cleanup verification
+is retained. Reconnection is requested for the next physical check. Raw
+captures and correlation details remain in the private stand directory. No
+SDK or relay policy change, push or release occurs; the original goal is active.

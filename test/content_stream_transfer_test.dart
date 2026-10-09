@@ -310,6 +310,7 @@ class _StreamLink
   final routes = <String, _StreamLink>{};
   final sentPayloads = <Uint8List>[];
   final sentTo = <String>[];
+  Future<void> Function(Uint8List payload)? beforeSend;
   final _accepts =
       <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   final _p2pAccepts =
@@ -358,6 +359,8 @@ class _StreamLink
   }) async {
     sentPayloads.add(Uint8List.fromList(payload));
     sentTo.add(dst.hex);
+    final gate = beforeSend;
+    if (gate != null) await gate(payload);
     (routes[dst.hex] ?? peer)?._in.add(
       InboundMessage(
         src: _me,
@@ -562,6 +565,83 @@ void main() {
     );
     await Future<void>.delayed(const Duration(milliseconds: 80));
     return cid;
+  }
+
+  for (final fromAny in [false, true]) {
+    test(
+      'plain save joins active auto-download (${fromAny ? 'any holder' : 'one holder'})',
+      () async {
+        final data = _rnd(64 * 1024, 2445);
+        final manifest = ContentManifest.fromBytes('active-auto.bin', data);
+        final blocked = Completer<void>();
+        final release = Completer<void>();
+        tA.beforeSend = (payload) async {
+          if (WireEnvelope.decode(payload).kind != WireKind.pieceChunk) return;
+          if (!blocked.isCompleted) blocked.complete();
+          await release.future;
+        };
+        await mA.sendFileStreaming(
+          b,
+          manifest.name,
+          data.length,
+          (offset, length) async =>
+              Uint8List.sublistView(data, offset, offset + length),
+          close: () async {},
+        );
+        await blocked.future.timeout(const Duration(seconds: 3));
+        expect(mB.fetchingCount, 1);
+        expect(await sB.hasFile(manifest.contentId), isFalse);
+
+        final bytes = Uint8List(data.length);
+        var closes = 0;
+        const path = '/virtual/active-auto.bin';
+        final saved = Completer<void>();
+        final sub = mB.contentReceived.listen((event) {
+          if (event.contentId == manifest.contentId &&
+              event.savedToPath == path &&
+              !saved.isCompleted) {
+            saved.complete();
+          }
+        });
+        addTearDown(sub.cancel);
+        Future<void> write(int offset, Uint8List chunk) async =>
+            bytes.setRange(offset, offset + chunk.length, chunk);
+        Future<void> close() async => closes++;
+        try {
+          final result =
+              await (fromAny
+                      ? mB.downloadContentToFileFromAny(
+                          [a],
+                          manifest.contentId,
+                          path,
+                          write: write,
+                          close: close,
+                        )
+                      : mB.downloadContentToFile(
+                          a,
+                          manifest.contentId,
+                          path,
+                          write: write,
+                          close: close,
+                        ))
+                  .timeout(const Duration(seconds: 3));
+          expect(result, ContentDownloadResult.started);
+          expect(
+            tB.openStreamAttemptCount + tB.p2pOpenStreamAttemptCount,
+            0,
+            reason:
+                'saving an active download must not start a second network transfer',
+          );
+        } finally {
+          release.complete();
+        }
+        await saved.future.timeout(const Duration(seconds: 3));
+        expect(bytes, data);
+        expect(closes, 1);
+        expect(await sB.hasFile(manifest.contentId), isTrue);
+        expect(mB.fetchingCount, 0);
+      },
+    );
   }
 
   test('plain save uses a blob completed while its stream failed', () async {
