@@ -10166,3 +10166,66 @@ verified absent, Poco's UID and ADB forward are empty, the three exact relay/
 collector/capture units have MainPID=0 and are inactive, and the remote folder
 is removed. The quality goal remains active; an explicit authenticated relay
 control is next, with no stored policy change.
+
+### Relay controls and closed-child ownership — 2026-10-09
+
+Stand 2415 starts on relay but upgrades to P2P after 5.256 s; it is not a
+60-second relay control. Stand 2416 waits for direct readiness, requests the
+existing authenticated relay recovery, then verifies relay at both ends for
+60.32 s. Its owned canonical connections are QUIC, and actual Forward sends
+confirm the owned relay carries the call. Both cameras and microphones are
+requested on; video still transmits no frames. Ring takes 18.897 s and both
+ends are active at 20.202 s, so call setup delay also remains unresolved.
+
+| Pure relay 2416 measurement | Mac | Poco |
+| --- | --- | --- |
+| Median / maximum native audio delay | 303 / 1362 ms | 331 / 520 ms |
+| Maximum sampled receive age | 13548 ms | 10008 ms |
+| Interruption counter increments | 23 | 25 |
+| Interruption duration increments | 43255 ms | 25091 ms |
+
+Poco's counters reset once during that phase. The table sums positive changes
+and values after a reset rather than subtracting the final and initial values.
+These remain native counters, not an acoustic intelligibility measurement.
+Some final relay/packet captures hit SSH read deadlines and are partial.
+
+Stands 2417/2418 instead expose only an owned obfs4/TCP listener. Their active
+call samples stay on relay, but the calls end early. The private driver wrongly
+described a null call state as a direct upgrade; its guard now requires an
+active call explicitly reporting P2P. In 2418 both endpoints report a liveness
+timeout after 23/24 s of silence. Mac receives 220 audio packets before the
+stall, and Poco receives none. Importantly, Mac attempts **zero outgoing audio
+RTP packets** in both 2417 and 2418, whereas it sends audio in 2414–2416.
+Therefore Poco's missing audio does not establish a TCP delivery defect.
+The opposite-direction stall still needs investigation: Poco queues 1084
+audio RTP packets in 2418, but its owned relay session is eventually reaped
+after an unacknowledged keepalive and stale genuine receive activity.
+
+The fresh Mac audio-device log identifies a capture failure after a hardware
+configuration notification: both the sink connection and fallback tap reject
+the retained graph format. Playback restarts, while recording remains requested
+and produces no RTP. SDK cb562e73 reconnects using `inputFormatForBus`, the
+hardware format, rather than the retained output format. Apple documents both
+[preserved connection formats after configuration changes](https://developer.apple.com/documentation/avfaudio/avaudioengineconfigurationchangenotification)
+and the [input node's inability to convert hardware formats](https://developer.apple.com/documentation/avfaudio/avaudioinputnode).
+The real Apple playback configuration/queued-teardown smoke passes; it does
+not exercise microphone capture. Physical verification of this fix is next.
+
+Separately, a strengthened real QUIC replacement/old-ACK race test reproduces
+retained closed-child ownership on the preceding SDK: a strong in-flight
+carrier reference continues returning a live ingress key after its child is
+closed, pinning a downstream slot while the canonical parent remains active.
+SDK 68518bc1 checks the actual transport's terminal state before exposing that
+key or spending send admission. A real encrypted ordered-record test covers
+the same retained-reference case, fallback admission and slot reuse without
+canonical rekey. This is a confirmed lifecycle defect; it has not been shown
+to cause these physical call stalls. Production carrier witnesses are weak.
+
+Verification passes 491 session tests (six existing ignored), 145 transport
+tests and four production two-relay Forward/rekey gates over QUIC and TCP.
+Changed Rust files pass rustfmt and whitespace checks. The Mac media rebuild
+exports no test hooks. No relay traffic roles, admission priorities, wire
+fields, connection quotas or persistent network preferences change.
+Owned apps/helpers from 2415–2418 are closed, their UID/ADB forward cleared,
+and all exact relay/capture/collector units are inactive with MainPID=0;
+their remote directories are removed. Physical quality remains unresolved.
