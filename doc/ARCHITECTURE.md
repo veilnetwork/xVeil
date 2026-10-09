@@ -10581,3 +10581,25 @@ been launched. Poco remains on build 2432; no Android packaging/install or
 new physical call is performed after the goal reports paused. The planned
 physical validation therefore remains pending. All probe-owned processes
 and forwards are already audited absent.
+
+
+#### Resumed physical validation: build 2436 / stand 2437
+
+The goal resumes. Android build 2436 installs in place with the same signer;
+installed native-library bytes match the expected production build. Mac stays
+on owned build 2436; both reuse media 2432/FFI 5c207cd3. The phone-originated
+call rings at 0.403 s, Mac accepts, but Poco remains dialing until the stand's
+45.138-second setup observation gate ends. The ordinary answer is logged on
+Poco with an age of 43996 ms just before that cutoff. This is a stand cutoff,
+not the app's 75-second ring timeout. Mac's fast answer retries occur promptly
+at about 0.27, 0.66, 1.55 and 3.19 s after the first answer; a stalled retry
+timer therefore does not explain this failure. Healthy-call/audio/file/video
+validation has not run in this attempt.
+
+Mac records one authenticated realtime device binding, confirming native
+delivery supplies the evidence needed by the new helper. Stand 2437's exact
+owned apps/helpers are absent, phone UID/forward are clear, all three remote
+units report MainPID=0/inactive with their directory removed, and strict Mac
+sealing passes. The next same-build run reverses the caller and observes setup
+for the app's actual ring window to separate the measured delivery delay from
+the previous stand's shorter cutoff.
