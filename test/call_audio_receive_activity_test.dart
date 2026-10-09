@@ -4,6 +4,50 @@ import 'package:xveil/state/call_audio_receive_activity.dart';
 void main() {
   final start = DateTime.utc(2026, 10, 5);
 
+  test('fresh native arrival read preserves pending interruption feedback', () {
+    final activity = CallAudioReceiveActivity();
+    final stats = <String, Object?>{
+      'audio_rx_pkts': 30,
+      'audio_rx_native_age_ms': 10,
+      'worker_stalled': 0,
+      'audio_delay_ms': 60,
+      'audio_interruption_count': 4,
+    };
+    activity.observe(stats, start);
+    activity.observe({...stats, 'audio_interruption_count': 5}, start);
+    final cached = activity.lastRxAt;
+    final sampledAt = start.add(const Duration(seconds: 3));
+    expect(
+      CallAudioReceiveActivity.nativeLastRxAt({
+        ...stats,
+        'audio_rx_pkts': 31,
+        'audio_rx_native_age_ms': 2,
+      }, sampledAt),
+      sampledAt.subtract(const Duration(milliseconds: 2)),
+    );
+    expect(activity.lastRxAt, cached);
+    expect(activity.interrupted, isTrue);
+    expect(activity.playoutFeedback(start).interruptionCount, 1);
+    for (final invalid in <Map<String, Object?>>[
+      {'worker_stalled': 1},
+      {'worker_stalled': null},
+      {'audio_rx_pkts': 0},
+      {'audio_rx_pkts': double.nan},
+      {'audio_rx_native_age_ms': -1},
+      {'audio_rx_native_age_ms': null},
+      {'audio_rx_native_age_ms': double.infinity},
+      {'audio_rx_native_age_ms': 60001},
+    ]) {
+      expect(
+        CallAudioReceiveActivity.nativeLastRxAt({
+          ...stats,
+          ...invalid,
+        }, sampledAt),
+        isNull,
+      );
+    }
+  });
+
   test('current buffer growth reaches feedback before filtered delay', () {
     final activity = CallAudioReceiveActivity();
     final stats = <String, Object?>{
