@@ -9942,3 +9942,71 @@ capture succeeds. All owned apps, UID processes, helpers and ADB forwards are
 verified absent after each stand; relay units are stopped, directories removed,
 and the owned Mac bundle seal verifies. The 330-ms receiver buffering, reliable
 video recovery, file/screen coexistence and speech quality remain unfinished.
+
+### Direct signaling isolation and audio arrival measurement — 2026-10-09
+
+SDK c94c8be3 also corrects the direct FFI signaling path: `veil_send_realtime`
+used BACKGROUND (the screen producer), whereas compatibility relay control now
+uses INTERACTIVE. Direct signaling now uses the same local control queue. This
+does not allocate a fifth named media datagram child or promise physical
+isolation during cold-channel fallback. Four producers remain audio REALTIME,
+camera BULK, screen BACKGROUND and recoverable data lane 4. The existing wire
+neutrality regression passes for all four public local priorities: their
+encoded inter-node frames are identical. Relay scheduling and wire metadata
+remain unchanged.
+
+An explicitly enabled media diagnostic collects at most 4096 incoming audio
+RTP metadata samples per shim in memory (sequence, RTP timestamp, payload length,
+monotonic ingress and drain times). It records no payload, addresses, identities
+or keys and performs no per-packet file I/O. Stop fences delivery before writing
+the samples to `VEIL_MEDIA_DIAG_PATH`; without that environment setting there
+is no collection or output. A real native Call smoke run with diagnostics on
+passes stalled audio/video queues, callback teardown and restart, producing six
+bounded trace batches. Both FFI targets compile and the production Mac media
+library exports no test hooks.
+
+Both clients are rebuilt as 2405 with SDK c94c8be3. Mac media additionally carries
+the new diagnostic; Android retains production media 2374 and its existing audio
+configuration. The Mac SDK/media code sections match the fresh native outputs,
+its app seal verifies, and Poco's in-place install uses the same signer with the
+pulled installed APK exactly matching the verified package. Identities/history
+are retained. The isolated relay remains the verified 1bd916e9 binary.
+
+Stand 2406 verifies Mac TCP / Poco QUIC, then stops topology closures before a
+60-second video call with both microphones and cameras requested on. Ring takes
+1.168 s; both endpoints are active at 2.635 s. Median native audio delay is
+374 / 348 ms (Mac / Poco), with maxima 442 / 443 ms. Native interruptions are
+7 / 1, totaling 1994 / 186 ms. Video remains automatically held (zero transmitted
+and received frames); no concurrent file transfer or acoustic speech proof is
+performed.
+
+Mac collects 2845 audio RTP arrivals over 60.086 s. Every observed sequence step
+is one: no receiver-side sequence gaps, duplicates or reordering appear in that
+trace. Nevertheless, consecutive packets with a 20-ms RTP timestamp step have
+arrival gaps up to 744.741 ms; 508 adjacent arrivals are less than 1 ms apart.
+The relative arrival-versus-RTP phase spans 744.316 ms. Legitimate DTX timestamp
+gaps are accounted for separately. Drain wait is median 0.013 ms, p99 0.022 ms,
+maximum 0.044 ms. The delivery queue therefore cannot explain these pauses;
+source pacing and the path before authenticated receiver ingress remain to be
+separated. The sparse telemetry reports Poco's maximum source RTP gap at 400 ms
+(which includes DTX) and maximum admission time at 1 ms.
+
+Relay TCP sampling also finds one established connection with 478 cumulative
+retransmissions, 268710 retransmitted bytes and an RTO maximum of 1936 ms during
+the captured stand lifecycle. These are connection-level counters, not a proven
+mapping to the audio producer or to each pause. Other child connections have
+no observed retransmissions; those facts cannot be generalized to every flow.
+
+Attempts 2407 and 2408 compare both endpoints on QUIC without codec/buffer
+changes. The latter uses a different previously normally mined owned relay
+identity, checking the stale-address hypothesis. In both attempts Poco has an
+owned QUIC session and Mac has none; actual transport preflight fails before a
+call is started. Thus no audio comparison is obtained, and the precise cause
+of Mac's QUIC connection failure remains open. The configured/repeated join
+response alone is not treated as proof of lost connectivity.
+
+All three stands verify owned Mac/phone/helper processes absent, the phone UID
+empty, forwards removed, relay units stopped and private remote folders removed.
+The Mac bundle seal remains valid. The queue isolation correction and these
+measurements are committed unsigned and unpushed. Physical pause elimination,
+video recovery, file/screen coexistence and acoustic speech quality remain open.
