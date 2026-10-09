@@ -11125,3 +11125,53 @@ the route-selection repair; the Mac stand bundle is ready for the next test.
 Mixed-path delivery, healthy audio under load and usable simultaneous video
 and screen still need runtime evidence. Commits remain unsigned and unpushed;
 there is no release. Raw logs, snapshots and signed stand artifacts stay private.
+
+#### Negotiated source channels retain separation during outages: quiet test 2458
+
+The next cycle revalidates xVeil ebd0b9c9 and SDK c8b0026b clean. Build 2457 is
+still the installed phone artifact and owned Mac stand bundle. That preceding
+cycle is progress: fresh platform builds, verified packaging and an exact
+same-signer installation make the earlier repair testable. No live call or
+speech request is made while the household is asleep.
+
+Source inspection finds a further separation defect in the session runner.
+When a negotiated independent source child is not ready, QUIC selection can
+return the canonical parent's DATAGRAM sender. Ordered selection returns no
+sender and restores the lossy frame into the queue, where the reliable parent
+writer can consume it. Encoding errors and permanent send failures can also
+restore such frames to that writer. Thus negotiating children does not by itself
+prevent a fresh source packet from sharing ordinary traffic's carrier.
+
+SDK 60907142 now retains separation for trusted local lossy sources after
+independent-child negotiation. An unavailable child, encoding error or permanent
+send error drops that packet before any canonical encryption, instead of using
+the parent. A failed selected sender is retired through the existing recovery
+path. The next fresh packet can use a prepared replacement; old packets are not
+replayed into another carrier. This can produce a gap while a child warms and
+does not prove the radio/network can meet a particular latency target. Legacy
+sessions without negotiated children keep compatibility, and neutral forwarded
+INTERACTIVE traffic retains its existing selection and service. Wire roles,
+relay priority and ordinary reliable frame handling are unchanged.
+
+The negative regression runs the real scheduler, FrameOutbox and QUIC sockets
+with the recipient's child registration initially absent. Before the repair a
+source packet arrives on the actual canonical DATAGRAM connection and fails the
+parent-isolation assertion. A separate real obfs4/TCP test disables only the new
+predicate to reproduce ordered fallback; its parent stream receives source
+bytes and fails by assertion. These negative controls compile successfully.
+With the repair, the QUIC case observes actual delivery on all three independent
+source planes while finding neither canonical UDP data nor ordered parent data.
+The obfs4/TCP case finds no media bytes on the parent and then successfully
+decrypts an ordinary parent frame, checking that discarded media did not burn
+its implicit cipher nonce.
+
+The full veil-session library suite passes 496 tests, with 6 existing ignored
+tests. A subsequent test-only extension, committed as f341c235, also passes:
+after closing and recreating the recipient's child service, all three sources
+deliver again without parent spill. It requires no further production change.
+These are quiet transport tests with synthetic packets, not microphone,
+speech-quality or simultaneous real video/screen measurements. No apps or calls
+are launched, no system permission or network setting is changed, and no native
+stand library is rebuilt in this cycle. Build 2457 still contains c8b0026b, not
+this new repair. The full audio-first goal remains unverified. Evidence stays
+private; commits are unsigned and unpushed and no release occurs.
