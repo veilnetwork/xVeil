@@ -11355,3 +11355,42 @@ preflight places no call and independently verifies its entire UID and forward
 absent after stopping. All raw addresses, digests, radio logs and identities
 remain private. Audio recovery/adaptation and usable concurrent video/screen
 remain unresolved; commits are unsigned and unpushed.
+
+#### Further phone power checks and recurring audio jitter: cycle 2471
+
+Read-only Android checks find xVeil on the user's power allowlist, inactive=false,
+with background execution and wake locks allowed. The recorded wake-lock duration
+is approximately 213 seconds, covering stand 2469's 210-second call. The later
+netpolicy snapshot reports no effective UID network block; this is a post-call
+observation, not a complete history of vendor rules during the call. The MIUI
+powerkeeper service is unavailable through this dumpsys interface. No power,
+network, permission or routing settings are changed.
+
+The retained radio log contains 70 distinct modem activity reports within the
+call window. All report sleep time zero, including reports bracketing both
+large packet pauses. Reports use UNKNOWN RAT/frequency; their transmit/receive
+values are not treated as cumulative counters. These reports do not identify
+a cell handover or prove that every modem/firmware power mechanism is inactive.
+Together with the existing awake state and application wake lock, they provide
+no evidence for disabling a currently active economy mode to repair this call.
+
+A new Opus/NetEq PCM scenario alternates 40/300-ms packet delivery delay every
+200 ms for ten seconds, then restores the 40-ms path for eighteen seconds.
+It checks actual decoded tone markers, not only buffer gauges: production
+playout must recover below 400/300/180 ms at the 13/15/17-second markers and
+remain below 180 ms thereafter. It also retains the unchanged 30-packet control,
+concealment/flush comparison and strict 30-ms host timer-lateness gate. The
+extended smoke runner includes this scenario. One final-source attempt is
+excluded because the host timer gate rejects it; the unchanged retry passes.
+Production marker latency falls from approximately 340 ms during the bursts
+to 239/150/99 ms at those recovery markers, with no additional flush and fewer
+concealed samples than the control. This synthetic healthy recovery does not
+prove cellular speech quality or usable simultaneous video/screen.
+The original short-burst PCM scenario also passes; other smoke modes and the
+full SDK suite are not rerun for this test-only extension.
+
+The fresh test-only native library uses the existing production media settings.
+Physical apps are not launched or installed in this cycle; the Poco UID and
+owned Mac app are independently absent, and Mac output remains muted at zero.
+The shared phone/access-path pauses remain unresolved. Raw radio data and
+diagnostics stay private; no relay classification or prioritization is added.
