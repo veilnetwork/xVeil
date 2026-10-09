@@ -9274,3 +9274,39 @@ protocols must not be forced. No media classification or priority is added
 to relay traffic. Both owned applications/processes, phone package/UID and
 ADB forward are verified absent after the call, and the Mac seal verifies.
 Private diagnostic archives retain the actual samples and installation proof.
+
+
+### Bound NAT coordinator waits within the direct-path deadline — 2026-10-09
+
+A separate address-free mapping probe sends the protocol's fixed 64-byte
+requests to seven public UDP reflectors actually announced in the 2376 run.
+None returns a valid token-matching response within 2.5 seconds. This is
+consistent with the Mac's unusable-mapping result but does not distinguish
+network filtering, unavailable reflector services or another delivery failure.
+It does not establish that changing the NetEq target would restore quality.
+
+The initiator's coordinator ladder also ignored its shared punch deadline:
+each of four coordinators could independently consume 1.5 seconds even when
+the staged dial had only four seconds before its handshake reserve. A real
+runtime regression enters discovery through an actual loopback UDP socket,
+returns a valid non-hairpin mapping, then leaves four registered coordinator
+sessions silent. No coordinator answers, so no packet is punched toward the
+synthetic public mapping. The original code fails the latency gate with a
+6.0099-second call-path attempt despite the declared five-second overall budget.
+
+The staged initiator now supplies its absolute deadline to the ladder, which
+limits each coordinator wait to the smaller of its normal timeout and remaining
+time, and stops when exhausted. Existing public per-coordinator APIs retain
+their normal independent timeout semantics. Each wait expires normally so its
+registered oneshot waiter is removed; an outer future cancellation would not
+provide that cleanup. The final production-runtime gate records 4.0024 seconds,
+three actual NAT request frames, zero remaining waiters and zero single-flight
+slots. The fixture counts NAT frames specifically, excluding unrelated control
+traffic in the registered send queues. The previous fixture's generic queue
+count could not establish how many NAT requests were sent and was corrected.
+
+All three focused gates pass, including immediate coordinator refusal and
+skipping a tokenless stale response to use the next coordinator. Runtime
+instances stop and temporary configuration files are removed. This fixes a
+bounded-attempt defect; it does not make the observed public relay path
+negotiate independent channels or prove the physical audio/video goal complete.
