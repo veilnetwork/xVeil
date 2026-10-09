@@ -24,6 +24,7 @@ import 'call_audio_receive_activity.dart';
 import 'call_audio_source_pressure.dart';
 import 'call_microphone_state.dart';
 import 'call_camera_state.dart';
+import 'desktop_screen_capture_start.dart';
 import 'call_peer_audio_playout.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
@@ -2352,13 +2353,33 @@ class VeilCallMediaController implements CallMediaController {
     if (!Platform.isMacOS) return false;
     try {
       if (enabled) {
-        if (_transport.setMediaScreenSharing(chan, true) != 0) return false;
-        final started = engine.startScreen(
-          width: _highQualityRoute ? 960 : 640,
-          fps: _highQualityRoute ? 15 : 10,
-          sourceId: _selectedScreenId,
+        final callId = _activeCall?.callId;
+        final started = startDesktopScreenCapture(
+          selectSource: (screen) =>
+              _transport.setMediaScreenSharing(chan, screen) == 0,
+          startCapture: () => engine.startScreen(
+            width: _highQualityRoute ? 960 : 640,
+            fps: _highQualityRoute ? 15 : 10,
+            sourceId: _selectedScreenId,
+          ),
+          mayRestoreCamera: () =>
+              callId != null &&
+              _activeCall?.callId == callId &&
+              _engine == engine &&
+              _chan == chan &&
+              _cameraState.enabledForCall(callId),
+          restoreCamera: () {
+            final profile = _highQualityRoute
+                ? _directVideoProfile
+                : _anonymousVideoProfile;
+            engine.startCamera(
+              width: profile.cameraWidth,
+              height: profile.cameraHeight,
+              fps: profile.maxFps,
+              deviceId: _selectedCameraId,
+            );
+          },
         );
-        if (!started) _transport.setMediaScreenSharing(chan, false);
         _screenSharing = started;
         if (started) _rememberScreenSharing(true);
         return started;
