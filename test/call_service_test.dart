@@ -1202,6 +1202,91 @@ void main() {
       });
     });
 
+    for (final outcome in [
+      'resumed',
+      'unavailable',
+      'failed',
+      'timeout',
+      'stopped',
+    ]) {
+      test('cached direct outage rechecks native audio: $outcome', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()
+            ..liveDirectAdmission = true
+            ..audioTelemetry = true;
+          final pending = Completer<DateTime?>();
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'cached-audio-outage',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true, video: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          media.audioRxAt = clock.now(); // Last periodic poll before the gap.
+          media.latestAudioRead = () async => switch (outcome) {
+            'resumed' => clock.now().subtract(const Duration(milliseconds: 2)),
+            'unavailable' => null,
+            'failed' => throw StateError('native snapshot unavailable'),
+            'timeout' => await pending.future,
+            _ => media.audioRxAt,
+          };
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'cached-audio-outage',
+              type: CallSignalType.health,
+              capture: const CallMedia(audio: true, video: true),
+              sentAtMs: clock.now().millisecondsSinceEpoch,
+            ),
+          );
+          fake.sent.clear();
+          for (var i = 0; i < 8; i++) {
+            media.rxAt = clock.now(); // Other ingress and the parent stay live.
+            async.elapse(const Duration(milliseconds: 500));
+            async.flushMicrotasks();
+          }
+          expect(
+            media.switches,
+            outcome == 'stopped' ? [CallTransportKind.relay] : isEmpty,
+            reason: 'only a confirmed current audio outage abandons P2P',
+          );
+          expect(
+            svc.current?.transport,
+            outcome == 'stopped'
+                ? CallTransportKind.relay
+                : CallTransportKind.p2p,
+          );
+          expect(media.latestAudioReads, greaterThan(0));
+          if (outcome != 'stopped') {
+            expect(
+              fake.sent.where((s) => s.type == CallSignalType.transportInfo),
+              isEmpty,
+            );
+          }
+          svc.dispose();
+          if (outcome == 'timeout') {
+            pending.complete(media.audioRxAt);
+            async.flushMicrotasks();
+            expect(media.switches, isEmpty, reason: 'late read after disposal');
+          }
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     for (final mode in [
       'audio stopped',
       'audio flowing',
@@ -4238,6 +4323,15 @@ class _FakeMedia extends CallMediaController {
   DateTime? rxAt;
   bool audioTelemetry = false;
   DateTime? audioRxAt;
+  Future<DateTime?> Function()? latestAudioRead;
+  int latestAudioReads = 0;
+
+  @override
+  Future<DateTime?> readLatestAudioRxAt() async {
+    latestAudioReads++;
+    return latestAudioRead == null ? audioRxAt : await latestAudioRead!();
+  }
+
   DateTime? receiveStartedAt;
   bool receiveRepairing = false;
   CallAudioPlayoutFeedback? playout;
