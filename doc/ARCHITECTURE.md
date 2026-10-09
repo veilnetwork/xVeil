@@ -9310,3 +9310,17 @@ skipping a tokenless stale response to use the next coordinator. Runtime
 instances stop and temporary configuration files are removed. This fixes a
 bounded-attempt defect; it does not make the observed public relay path
 negotiate independent channels or prove the physical audio/video goal complete.
+
+
+Production embedded FFI builds with the deadline fix pass on both macOS and
+Android. Stand 2377 is built sequentially for both platforms. Mac SDK/media
+code sections, production-only media exports, version marker and strict seal
+verify; media retains the unchanged 2374 configuration. The signed Android
+package verifies the fresh independently stripped SDK and unchanged media,
+previous signing identity, hidden-volume bytes and native dependencies. Its
+SDK differs from 2376. Replacement installation preserves application data,
+and the actual installed package matches the verified APK byte for byte.
+Owned Mac app processes, phone package/UID processes and the test ADB forward
+are absent; the Mac seal verifies after installation. No further physical
+quality claim is made for 2377: the deadline gate proves bounded attempts,
+while the last actual camera-enabled call remains the failing 2376 relay run.
