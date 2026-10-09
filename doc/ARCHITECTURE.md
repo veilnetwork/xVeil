@@ -11394,3 +11394,63 @@ Physical apps are not launched or installed in this cycle; the Poco UID and
 owned Mac app are independently absent, and Mac output remains muted at zero.
 The shared phone/access-path pauses remain unresolved. Raw radio data and
 diagnostics stay private; no relay classification or prioritization is added.
+
+#### Independent access-path probes and a real relay transition: stand 2472
+
+The same installed 2468/media-2432 endpoints run a natural 210-second video
+call, preceded by approximately a minute of independent traffic measurement.
+Separate small native programs on Poco and Mac exchange five synthetic UDP
+and TCP probes per second with a fresh owned observer. They bypass xVeil and
+carry no voice/video data. The observer applies no role classification or
+priority. Poco's default network is verified cellular; Mac's default and
+observer route use en0. Mac speaker output stays muted at zero. Existing
+sessions and network/power settings are preserved; there is no route controller.
+
+In the baseline window, both phone protocols receive all 290 probe replies;
+median RTT is 85/91 ms for UDP/TCP. During the measured call window, UDP
+receives 959 of 999 replies and TCP eventually receives all 999. Phone UDP/TCP
+reply gaps reach 9756/9951 ms around call seconds 123--133. Sends continue with
+at most 14-ms probe timer lateness; UDP kernel-to-read delay peaks at 5.8 ms.
+In that interval the observer receives all 55 Mac requests on each protocol,
+while 25 of 55 phone UDP requests never arrive. Phone TCP requests sent near
+124 seconds only reach the observer near 133 seconds. This distinguishes a
+real delivery problem before observer reception from an xVeil audio-worker
+pause. It does not identify the carrier, modem or other shared path component,
+or prove that sending the attachment caused the pause.
+
+Independent Mac probes also show trouble: only 614 of 999 call-window UDP
+replies arrive before teardown; TCP returns 669 within the capture, with a
+maximum measured RTT of 56.4 seconds. The incomplete TCP reply count is not
+treated as packet loss. Requests reach the observer promptly while replies
+accumulate delay after observer reception; its logged reply timestamp precedes
+the nonblocking output queue and is not proof of exact kernel handoff time.
+The observer continues processing other probes. A later read-only qdisc check
+finds no netem. One-way estimates remain approximate: clock midpoint bounds
+are 22.1/19.3 ms for phone and 48.2/95.8 ms for observer before/after the test.
+Measured offset changes remain within those combined bounds. RTT and reply-gap
+measurements use one endpoint's clock and do not require clock synchronization.
+
+Ringing takes 0.689 seconds; both ends become active on P2P at 1.552 seconds.
+The 64-KiB attachment starts at 121.573 seconds and arrives with an exact hash
+match in 44.275 seconds. Both ends move to relay at 127.077 seconds. Earlier,
+the fresh native check cancels another cached direct outage; at this transition
+it instead measures genuine 3232/3478-ms receive ages. Thus this transition
+is supported by actual audio silence and the independent delivery pause,
+rather than the stale-snapshot defect repaired in f2e31e08. Source inspection
+finds that the current relay handover seals/opens a candidate and commits its
+native binding without first proving timely delivery on that candidate.
+Opening a local handle remains weaker than evidence of a usable replacement.
+
+Video remains unencoded despite enabled cameras. Native receive age reaches
+9949/13088 ms on Mac/Poco; current audio buffers reach 562/541 ms. The result
+does not establish healthy audio/video or screen sharing. The complete relay
+SDK log is unavailable after a timed-out SSH capture; conclusions use retained
+endpoint logs, probe logs and observer probe receipt records, not that log.
+
+Independent cleanup verifies both app/logcat processes and the whole Poco UID
+exited, both native probe processes exited, the phone probe binary and ADB
+forward removed, all four owned remote units inactive with zero MainPID, and
+the owned remote directory absent. Mac sealing is valid and output stays
+muted at zero. Raw addresses, identities, capture files and diagnostic tokens
+remain private. Delivery-validated route replacement and usable concurrent
+audio/video/screen remain open; no new production settings are deployed.
