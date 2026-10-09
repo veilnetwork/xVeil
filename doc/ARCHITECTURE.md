@@ -11268,3 +11268,90 @@ owned remote units inactive with zero MainPID, the owned directory removed,
 Mac strict/deep sealing valid, and speaker output still muted at volume zero.
 Stand 2466's raw evidence and artifact metadata remain private. Both worktrees
 are clean before this journal update; there is no push, signed commit or release.
+
+#### Correlating the P2P pause with socket delivery: repair 2467 / stand 2469
+
+SDK b3cb3c67 assigns each QUIC connection a process-local diagnostic ordinal.
+The same ordinal appears in the existing opt-in path counters and sampled
+encrypted UDP send log. It is not a pointer, socket address, wire connection
+ID, media role or authorization token. Clones retain it; new connections get
+a different ordinal. Receive correlation continues to use the exact encrypted
+datagram digest. Scheduling, admission, wire bytes and relay policy are unchanged.
+Two tests of the production correlation module and the real-socket transit
+expiry test pass, including disabled tracing, GSO segmentation, matching
+digests and stable/distinct connection ordinals. The standalone Cargo test
+attempts hit excluded-package/dependency-resolution issues; the module tests
+run with rustc against the workspace's compiled log dependency. No full-suite
+claim is made for this diagnostic change.
+
+Fresh FFI builds for both endpoints are packaged in 0.13.84+2468, with media
+still at 2432. Mac code sections and sealing match the fresh artifacts. The
+APK has the same signer as installed 2465 and changes only the intended FFI
+among its sixteen native libraries. In-place installation is verified by
+pulling back the exact signed APK. Stand 2469 retains other neighbors, uses a
+fresh owned neutral relay, verifies cellular default transport and muted,
+zero-volume Mac output, and makes no forced route or topology change.
+
+Poco-to-Mac ringing takes 0.758 s; both endpoints are active on P2P at 1.731 s.
+P2P remains for approximately 210 seconds. The 64-KiB file starts at 121.908 s
+and completes with an exact SHA-256 match in 17.747 s. The fresh native-audio
+recheck cancels a cached direct outage on each endpoint; neither makes an
+early relay transition. Both cameras capture, but encoded/delivered video
+remains zero. Median current audio buffers are 291/310.5 ms on Mac/Poco,
+reaching 580/587 ms. Native receive age reaches 3118/2899 ms. This is not a
+healthy audio/video result, and no human speech assessment is made.
+
+Connection ordinals now identify the actual primary source datagrams on both
+ends. Of the sampled sends in the measured active window, 698/698 Mac-to-Poco
+datagrams match at Poco and 491/499 Poco-to-Mac datagrams match at Mac. These
+are sampled observations, not a whole-stream loss estimate. Socket handoff to
+peer read reaches 3127 ms toward Poco and 1485 ms toward Mac; the corresponding
+p95 values are 849/738 ms. Phone-clock measurements bracket the test: estimated
+phone-minus-Mac time changes by 1.1 ms, with midpoint uncertainty bounds of
+24.1/20.9 ms. Millisecond log rounding limits interpretation of near-zero
+one-way delays. Nongrouped receive samples show kernel-to-read delay at Poco
+at most 19.9 ms, p95 1.7 ms; Mac's maximum is 1.3 ms at this resolution.
+
+Matching exact send samples to Mac syscall time and size yields 695 unique
+matches, all on one tuple; reverse-direction samples yield 469 unique matches,
+all on that same peer's receive tuple. Ambiguous matches are excluded. The
+whole tuple continues sending during the pause (largest observed send gap
+275 ms), while receive stops for 3184 ms near call time 74 seconds. An exact
+primary datagram handed to the socket at 74.201 s is timestamped at the phone
+kernel at 77.323 s and read at 77.328 s. Other datagrams accumulate and arrive
+in a burst. The observed primary drivers report no event-queue, timer or UDP
+send stalls at their 100-ms diagnostic threshold.
+
+Independent relay TCP flows matching the phone's public source address also
+stop receiving ACKs in this interval. A four-segment flight starts around
+75.944 s, retries three times, and clears at 77.514 s; a separate active flow
+accumulates unacknowledged data and clears then too. Relay-clock midpoint
+uncertainty is approximately 71 ms. Thus the pause spans different transports
+and destinations sharing the phone's access path. It is consistent with a
+phone/access-network stall before socket delivery; the modem, vendor power
+policy, carrier and other shared path components are not yet distinguished.
+This does not establish a carrier defect or exclude every possible phone
+power mechanism.
+
+The user's specific hypothesis about veil's own economy/batching mode is
+checked separately. xVeil does not attach VeilLifecycleBinding or call the
+background-tier setter. withOutboundCoalescing is an unused helper; it is not
+in the composition chain. An authenticated read of the running installed Poco
+node in preflight 2470 confirms background_mode=false, effective keepalive and
+route-probe factors 1, no low-battery threshold, and no outbound batch window
+or batch-always setting in the actual runtime config. SDK default coalescing
+is consequently off. When configured, that coalescer also bypasses REALTIME
+and INTERACTIVE; independent source QUIC datagrams bypass its ordered drain.
+This specific mechanism does not explain the measured pause. No economy or
+system power setting is changed. Android's recorded battery-saver state is
+off and its last sleep predates the test; these observations alone do not
+certify vendor-specific or modem power policy.
+
+Independent stand cleanup verifies both owned Mac/logcat processes exited,
+Poco's entire UID absent, forwarding removed, all three owned remote units
+inactive with zero MainPID, the owned remote directory removed, Mac sealing
+valid and speaker output still muted at zero. The additional phone-only
+preflight places no call and independently verifies its entire UID and forward
+absent after stopping. All raw addresses, digests, radio logs and identities
+remain private. Audio recovery/adaptation and usable concurrent video/screen
+remain unresolved; commits are unsigned and unpushed.
