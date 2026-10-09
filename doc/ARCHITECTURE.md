@@ -10690,3 +10690,78 @@ All exact owned Mac/logcat/topology processes are absent, the phone package UID
 and ADB forward are clear, all three remote units have MainPID=0/inactive with
 their directory removed, the successful fixture is removed, and the Mac seal
 passes. No SDK edit, push or release occurs in this cycle.
+
+
+#### Natural route validation: build 2441 / stands 2442 and 2443
+
+Both clients reuse production media build 2432 and FFI 5c207cd3. Build 2441
+adds only the existing bulk-stream diagnostic define; same-signer Android
+installation/package bytes and strict Mac seal/code sections verify.
+
+Stand 2442 cannot establish P2P during its 65-second observation. Full native
+logs, however, contain successful peer-to-peer punches during warmup and a
+subsequent rejection of the actual phone device as banned. The stand topology
+controller closes that direct session: `kill_session` also installs a 30-second
+auto-ban. This contaminates the natural-route experiment. Its later NAT failures
+are not clean evidence of an application traversal defect. No file or screen
+phase runs. The next stand removes the topology controller entirely and never
+requests relay recovery; other neighbor sessions are preserved.
+
+In corrected stand 2443, Mac-originated ringing occurs at 0.385 s and both
+ends become active/P2P at 1.733 s. The automatic media policy changes both
+routes to relay at 25.786 s after established direct audio stops arriving.
+No stand session closure occurs. There are 479 both-active samples spanning
+180.342 s; media epoch remains 1. The direct phase's actual queue median/max
+is 226/551 ms on Mac and 376/580 ms on Poco, with accepted-audio receive-age
+maxima 2783/2971 ms. During the relay phase with BOTH microphones still on,
+queue median/max is 317/589 and 90/583 ms, receive-age maxima 3542/3930 ms.
+Outgoing audio admission maxima are 0/6 ms, with one Mac RTP drop near startup
+and none on Poco. These are queue/ingress measurements, not acoustic latency
+or proof of intelligibility; interruption counters also include silence.
+
+At 95.847 s Poco's microphone intent becomes false and native recording stops.
+The user confirms switching it off. Subsequent missing Poco-to-Mac audio is
+therefore excluded from defect attribution and the both-microphones-on phase.
+Cameras stay requested on; encoded/remote video remains zero under audio
+protection. The test does not establish healthy simultaneous video and sound.
+
+The concurrent 2-MiB file uses an initial direct-session manifest probe. The
+payload's first attempt opens an anonymous stream, reads 10240 bytes and ends
+on the existing 20-second payload-idle timeout. The second anonymous attempt
+gets no manifest. A third direct-session attempt resumes; its final resume
+point is piece 4/offset 1048576. The 240-second download observation expires,
+257.139 s after the offer sequence starts and 92.216 s after hangup. No complete
+destination digest is obtained. Server-side `queued`/`complete` trace messages
+mean bytes accepted by the native writer, not bytes received by the peer.
+This rules out treating the rapid serve trace as successful delivery. The
+capture does not establish whether file opening causes the direct audio stall.
+
+Only the exact owned Mac app window is selected for screen capture; there is
+no fallback to whole-display capture. The debug API reports the request handled,
+but its returned call and all subsequent samples have screenOn=false. No screen
+frames or successful capture are claimed, and the specific start failure remains
+unattributed. Native source inspection reveals a separate rollback defect:
+desktop screen start stops the camera before opening its replacement, while
+both one-to-one and group controllers leave that camera stopped on failure.
+
+A shared desktop start transaction now rolls back the endpoint source queue
+and restores camera capture only when current camera intent and the original
+call/engine ownership still permit it. Capture rejection or exception returns
+false; a disabled camera is not reopened. Successful screen capture keeps the
+camera stopped. Group camera intent is retained while a share owns the source.
+The group-controller regression fails for camera-on rejection/exception before
+the repair and passes afterward. Six transaction tests, existing camera-state
+tests and the full group-media module pass: 41 tests. Two pre-existing group
+policy tests also fail against the unmodified controller: their healthy 140-ms
+fixture exceeds the current 120-ms recovery threshold, and their delayed-audio
+expectation predates the pause policy. Fixtures now use 100-ms healthy feedback,
+expect an actual hold under pressure, and verify resume before climbing. No
+production audio threshold is relaxed. Analysis of all five changed Dart files
+passes. The rollback repair is not yet packaged or physically verified.
+
+Both stands' exact owned apps/logcat/helpers have exited; phone UID and forward
+are clear; all three remote units per stand report MainPID=0/inactive and each
+owned remote directory is removed. The failed plaintext fixture is removed and
+strict Mac sealing passes. Raw captures stay private. SDK/network policy is
+unchanged; no push/release occurs. Audio stalls, stable P2P and simultaneous
+video/screen/file quality remain unresolved; the original goal stays active.
