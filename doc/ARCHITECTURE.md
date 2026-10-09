@@ -10010,3 +10010,73 @@ empty, forwards removed, relay units stopped and private remote folders removed.
 The Mac bundle seal remains valid. The queue isolation correction and these
 measurements are committed unsigned and unpushed. Physical pause elimination,
 video recovery, file/screen coexistence and acoustic speech quality remain open.
+
+### UDP controls and a completed both-QUIC call — 2026-10-09
+
+The previous turn is progress: SDK c94c8be3/root a2fb791d correct direct
+signaling isolation and record an authenticated audio arrival boundary. The
+current source trees are clean at the start of this continuation and Poco is
+available over ADB with build 2405. No client code, codec or jitter-buffer
+configuration is changed in the measurements below.
+
+Matching the owned relay's registered peer to Mac's reconnect diagnostics in
+2407/2408 finds a 10-second transport connection timeout. Repeated joins log
+`redialed=true`; stale registration alone does not explain the missing session.
+Control 2410 runs a temporary echo listener on the otherwise free UDP port 443
+of the same host. All 20 Mac 1200-byte probes return intact; median RTT is
+41.81 ms. That excludes a blanket UDP-443 failure during this control, not
+every QUIC-specific or intermittent failure.
+
+Private transport-only probe 2411 uses the current veil-transport and patched
+Quinn sources with self-signed test material, not an app identity/session. It
+connects to the isolated relay's QUIC transport in 471 ms and closes without
+exchanging application data. Its Rustls, AWS-LC and Quinn versions match the
+client workspace; its separately resolved Tokio is 1.53.2 versus the installed
+client's 1.52.3. Thus this is a transport/path control, not an identical embedded
+runtime. The final wire-log SSH read fails with exit 255 and zero retained
+bytes; no packet-capture conclusion is drawn from that missing artifact.
+Relay cleanup succeeds independently, and a subsequent exact-unit audit verifies
+both owned capture processes absent.
+
+Stand 2412 starts both existing app builds on the same isolated relay and
+performs three standalone QUIC probes while the apps are running. All succeed
+(73, 175, 67 ms). Both app canonical sessions are then verified to be QUIC;
+the topology controller stops before calling. The earlier Mac failures are
+therefore not a persistent inability to use QUIC. Their precise transient cause
+is not established. Ring takes 0.409 s; both endpoints become active at 2.784 s.
+Microphones/cameras are requested on for a common 60-second active period.
+
+| Both-QUIC 2412 measurement | Mac | Poco |
+| --- | --- | --- |
+| Median / maximum native audio delay | 231 / 518 ms | 324 / 716 ms |
+| Maximum sampled native receive age | 10785 ms | 12209 ms |
+| Cumulative native interruption count | 13 | 11 |
+| Cumulative native interruption duration | 21959 ms | 21523 ms |
+| Video transmitted / received | 0 / 0 | 0 / 0 |
+
+The native diagnostic file appends across app launches. The initial private
+analysis accidentally concatenates 2406's 2845 samples with 2412's new batch;
+those combined timing/sequence figures are invalid. Re-analysis selects the
+last `audio.rtp.ingress.begin` batch only: 2336 arrivals over 61.447 s. It shows
+sequence gaps/reordering and a maximum actual arrival gap of 10362.823 ms.
+Audio drain wait is median 0.014 ms, p99 0.029 ms, maximum 0.072 ms. Relative
+arrival-versus-RTP phase spans 2129.256 ms; this includes sender pacing and path
+variation, not a calibrated one-way network delay. Video remains held by audio
+protection, with no concurrent file/screen load or acoustic speech proof.
+
+The owned Poco-to-relay session records no-ACK recovery attempts, outgoing
+datagram expirations, two 3-second replacement binding timeouts and a keepalive
+teardown with probe age 10942 ms and genuine-data receive age 5000 ms. The
+existing authenticated child activity feeds parent liveness; it is not simply
+ignored by the timer. Relay snapshots reach PTO count 4 and 317 outgoing
+expirations; Poco snapshots reach PTO count 5 and 300 expirations. Local dispatch
+maxima are about 1.3 ms, relay timer lateness is below 3.3 ms and event handling
+below 4.9 ms. These observations locate a transport-progress failure/reconnect
+episode, but do not distinguish carrier loss, endpoint scheduling/pacing or
+every upstream cause. The completed QUIC call disproves a TCP-only explanation.
+
+All owned echo, capture, relay, app/helper processes and forwards are verified
+closed; private remote directories are removed and Poco's package has no process.
+No production relay or host routing setting is changed. Audio/source separation
+is retained, but pause elimination, recovery quality, simultaneous file/screen
+operation and acoustic speech quality remain unverified. The goal stays active.
