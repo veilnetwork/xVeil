@@ -9738,3 +9738,45 @@ physical runs was automatically paused by endpoint audio protection, with both
 cameras enabled and zero transmitted video frames. It was not disabled to
 demonstrate successful video delivery. No new physical call result is claimed
 while Poco is absent from ADB.
+
+Forward isolation through the production relay pipeline (2026-10-09)
+------------------------------------------------------------------
+
+SDK e971b9ab adds four integration gates to the existing A <-> R1 <-> R2 <-> C
+fixture: QUIC and obfs4/TCP, each with and without actual canonical rekey.
+All four source-local datagram producers send in both directions with the
+same logical sender, recipient, application and endpoint. They traverse the
+production SessionRunner, FrameDispatcher admission and forwarding, ordinary
+outboxes, child selection and terminal app delivery over real local sockets.
+The fixture supplies canonical session keys; actual exporter-bound child
+handshakes and encrypted record/datagram I/O run normally. It does not perform
+production identity mining or replace a physical microphone/camera test.
+
+Observation wraps the dispatcher without changing its methods or accounting.
+Every Forward header must remain INTERACTIVE. At every neighbor connection,
+including both bridge directions and both terminal endpoints, four distinct
+live authenticated ingress witnesses must be observed. Expired witnesses are
+removed, so neither early canonical fallback nor connections from the preceding
+credential generation can satisfy this requirement. This is stronger than
+counting total neutral physical slots, which can include an early legacy
+bucket. All received payloads are checked in sequence, duplicate queues must
+be empty and every relay's source-role counters remain zero. The same checks
+pass again after all canonical sessions rekey.
+
+A control on the initial three-producer fixture changes actual Delivery
+dispatch to discard ingress ownership, while leaving its queues and outgoing
+selector intact. That control fails with the intended same-route connection
+collapse assertion. Production dispatcher bytes are then restored exactly.
+The strengthened four-producer gates pass, and the final complete runner suite
+passes 118 tests with one existing test ignored. The existing ordered-source
+fixture now requests all source channels before observing readiness, rather
+than assuming that construction of physical connections reserves every local
+source. Each poll requests all producers, avoiding serial warmup across its
+deliberately short one-second credential generations.
+
+The tests retire their runners and verify zero owned child connections and
+Unsupported readiness for all four local producers. Cargo and runner-test
+processes are verified absent afterwards. No GUI apps, production relay
+services, VPN policies or phone data are changed in this cycle. Poco remains
+absent from ADB. Physical audio latency, video resumption and simultaneous
+file/screen operation remain unverified; the active quality task is not complete.
