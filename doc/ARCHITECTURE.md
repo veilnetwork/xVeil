@@ -10947,3 +10947,62 @@ is retained instead of reporting an absent device as a running app. Reconnection
 is requested for the next measurement. Evidence remains private. The original
 goal stays active: reliable file latency, healthy audio under load and usable
 simultaneous video/screen remain unresolved. No push or release occurs.
+
+#### Endpoint reliable admission fairness: stand 2454 and build 2455
+
+The next continuation checks both worktrees clean and initially finds no phone
+in ADB. Stand 2453's native pressure traces show a deep reliable queue before
+the test file starts: Poco reports depth 286 near 76 seconds and 288 near
+78 seconds; Mac also has a queue above 100. Existing successful-admission traces
+lack a peer field, so those captures cannot identify which runner consumed the
+shared budget. These depths are an investigation lead, not proof that they
+explain the attachment's full 265-second delay, especially its late completion
+after audio stopped.
+
+Source inspection and a deterministic negative test establish a separate
+endpoint defect: a busy session runner can win each shared reliable byte-budget
+deadline while another runner has eligible authored data waiting. Returning
+both runners to the previous admission policy makes the new regression fail on
+the first competing turn. This is an endpoint scheduling defect, without any
+need for application roles, remote hints or relay priority.
+
+Each runner now owns a local admission guard and joins a FIFO of waiting runners
+before waiting for byte debt. A successful admission consumes its turn; the
+runner can rejoin at the tail for its next frame. A drain pass without an
+eligible waiting local write cancels its turn, and dropping the guard on session
+exit does the same. Cancellation retains already charged byte debt. The existing
+node-wide rates, whole-frame charges, primary audio reservation, separate recovery
+allowance, reliable ordering and neutral transit handling remain in place. Source
+admission diagnostics now include the existing peer identifier for correlation.
+No queue position, media role or new scheduling field is put on the wire.
+
+The regression deliberately wakes the busy runner first at every deadline across
+16 competing turns and checks alternating progress without multiplying the
+global allowance. Further cases cover cancellation, session exit, retained debt,
+independent recovery allowance and primary-idle expiry. All 11 local-source tests
+pass. The full veil-session suite passes 494 tests, with 6 existing ignored tests
+and one ignored doctest, including real QUIC backlog, primary isolation and
+neutral transit coverage. The later diagnostic peer-field addition changes no
+scheduling behavior and compiles in both platform builds. SDK commit 450218d0
+contains the repair; both production-feature FFI builds succeed. The Mac FFI's
+183 public veil/UniFFI exports match the previous bundled library.
+
+Owned test build 0.13.84+2455 is prepared for Mac and Android. Mac strict sealing,
+kernel version and native code-section comparisons pass. The signed Android APK
+has the same signer as build 2449, the expected kernel/version code and sixteen
+native libraries; only libveilclient_ffi changes, while the media library remains
+the verified build 2432. APK construction initially fails during overlapping
+Flutter package refreshes; after the Mac build exits, Android builds sequentially
+with --no-pub. No application source or dependency is changed for that retry.
+
+Poco reappears and receives build 2455 through a same-signer in-place replacement;
+pulling the installed APK verifies its exact signed bytes. Before launching the
+next stand, the actual default network reports WIFI. The test is held before
+starting any app/call and the user is asked to restore the intended cellular
+connection. Network settings are not changed. The owned Mac build is not launched,
+and the phone test app is not started by this cycle. Stand 2456 helpers are prepared
+with natural routing and an unchanged older relay for wire compatibility, but the
+physical comparison has not run. Thus no claim is made that this repair fixes the
+observed file stalls, restores usable video, or completes the audio-first goal.
+Commits remain unsigned and unpushed; no release or production-app replacement
+occurs. Evidence and signed stand artifacts remain private.
