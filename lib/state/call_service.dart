@@ -446,6 +446,7 @@ class CallService {
   bool _directSessionUnavailable = false;
   int _mediaOperationEpoch = 0;
   ({NodeId peer, String callId, Future<void> future})? _relayFallbackFlight;
+  ({String callId, DateTime until})? _relayCandidateRetry;
 
   // Consent is captured from BOTH original offer/answer proposals, before a
   // temporary route failure changes the active transport. A direct posture
@@ -458,6 +459,7 @@ class CallService {
   int _lateP2PGeneration = 0;
 
   void _resetLateP2P() {
+    _relayCandidateRetry = null;
     _lateP2PGeneration++;
     _lateP2PConsent = false;
     _lateP2PLocalReady = false;
@@ -1418,6 +1420,10 @@ class CallService {
     if (pending != null && pending.peer == peer && pending.callId == callId) {
       return pending.future;
     }
+    if (_relayCandidateRetry?.callId == callId &&
+        _now().isBefore(_relayCandidateRetry!.until)) {
+      return Future.value();
+    }
     late final Future<void> future;
     future = _applyRelayFallback(peer, callId).whenComplete(() {
       if (identical(_relayFallbackFlight?.future, future)) {
@@ -1459,6 +1465,7 @@ class CallService {
       return;
     }
     if (ok && media.activeTransport == CallTransportKind.relay) {
+      _relayCandidateRetry = null;
       _set(
         cur.copyWith(
           transport: CallTransportKind.relay,
@@ -1467,6 +1474,20 @@ class CallService {
               : cur.status,
         ),
       );
+      return;
+    }
+    if (!ok &&
+        cur.status == CallStatus.active &&
+        cur.transport == CallTransportKind.p2p &&
+        media.activeTransport == CallTransportKind.p2p) {
+      // A candidate can be locally admitted while its peer echo is late or
+      // absent. The old engine still owns its route. Keep it alive and bound
+      // retries instead of ending a call on an unproven replacement path.
+      _relayCandidateRetry = (
+        callId: callId,
+        until: _now().add(const Duration(seconds: 5)),
+      );
+      devLog(() => 'xVeil[call-media]: relay candidate deferred; kept direct');
       return;
     }
     unawaited(
@@ -1503,6 +1524,8 @@ class CallService {
   /// relay and announce it on the durable live lanes.
   Future<void> _recoverSilentDirect(Call call) async {
     if (_relayFallbackFlight != null ||
+        (_relayCandidateRetry?.callId == call.callId &&
+            _now().isBefore(_relayCandidateRetry!.until)) ||
         call.transport != CallTransportKind.p2p ||
         call.localPosture != CallPosture.direct ||
         call.peerPosture != CallPosture.direct) {

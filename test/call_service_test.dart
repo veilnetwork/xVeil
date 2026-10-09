@@ -2075,6 +2075,113 @@ void main() {
       expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
     });
 
+    test(
+      'an unproven relay candidate keeps direct alive and bounds retries',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _UnprovenRelayMedia()
+            ..openedTransport = CallTransportKind.p2p;
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'unproven-relay',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          fake.sent.clear();
+          svc.requestRelayRecoveryForDiagnostics();
+          async.flushMicrotasks();
+          expect(media.switches, [CallTransportKind.relay]);
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          expect(media.stops, 0);
+          expect(
+            fake.sent.where(
+              (s) =>
+                  s.type == CallSignalType.end ||
+                  s.type == CallSignalType.transportInfo,
+            ),
+            isEmpty,
+          );
+          for (var i = 0; i < 4; i++) {
+            svc.requestRelayRecoveryForDiagnostics();
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'unproven-relay',
+                type: CallSignalType.transportInfo,
+                transport: const CallTransportProposal(CallTransportKind.relay),
+                sentAtMs: i + 1,
+              ),
+            );
+            async.flushMicrotasks();
+          }
+          expect(media.switches, hasLength(1));
+          async.elapse(const Duration(seconds: 5));
+          svc.requestRelayRecoveryForDiagnostics();
+          async.flushMicrotasks();
+          expect(media.switches, hasLength(2));
+          expect(svc.current?.status, CallStatus.active);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      },
+    );
+
+    test(
+      'a failed candidate with no surviving old route still ends the call',
+      () async {
+        final fake = _FakeMessaging();
+        final media = _UnprovenRelayMedia()..retainDirect = false;
+        Call? terminal;
+        final svc = CallService(
+          fake,
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        final subscription = svc.changes.listen((call) {
+          if (call?.status == CallStatus.ended) terminal = call;
+        });
+        addTearDown(subscription.cancel);
+        addTearDown(svc.dispose);
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'no-surviving-route',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        await svc.accept();
+        await pumpEventQueue();
+        fake.sent.clear();
+        expect(await svc.requestRelayRecoveryForDiagnostics(), isFalse);
+        await pumpEventQueue();
+        expect(svc.current, isNull);
+        expect(terminal?.endReason, CallEndReason.error);
+        expect(
+          fake.sent.where((s) => s.type == CallSignalType.end),
+          hasLength(1),
+        );
+      },
+    );
+
     test('failed P2P repair falls back to relay and tells the peer', () async {
       final fake = _FakeMessaging();
       final media = _FakeMedia()
@@ -4525,6 +4632,22 @@ class _GatedRelaySwitchMedia extends _FakeMedia {
     final ok = await relayGate.future;
     if (ok) openedTransport = transport;
     return ok;
+  }
+}
+
+class _UnprovenRelayMedia extends _FakeMedia {
+  int stops = 0;
+  bool retainDirect = true;
+  @override
+  Future<void> stop() async {
+    stops++;
+  }
+
+  @override
+  Future<bool> switchRoute(CallTransportKind transport) async {
+    switches.add(transport);
+    if (!retainDirect) openedTransport = null;
+    return false;
   }
 }
 
