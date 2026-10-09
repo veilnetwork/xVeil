@@ -9780,3 +9780,92 @@ processes are verified absent afterwards. No GUI apps, production relay
 services, VPN policies or phone data are changed in this cycle. Poco remains
 absent from ADB. Physical audio latency, video resumption and simultaneous
 file/screen operation remain unverified; the active quality task is not complete.
+
+
+Neutral datagram lifetime and resumed Poco checks (2026-10-09)
+-------------------------------------------------------------
+
+SDK 1bd916e9 bounds every session loss-tolerant QUIC datagram's unsent
+residence to 200 ms, matching the existing ordered-record policy. This also
+caps a caller's longer local deadline; a shorter source deadline is retained.
+The policy includes opaque transit datagrams. It neither classifies their
+payload nor changes relay FIFO admission, priority, quotas or bandwidth
+accounting. Deadlines remain local monotonic state, with no new wire field.
+Reliable messages and stream bytes continue on their existing delivery path.
+Already transmitted packets cannot be recalled by this bound.
+
+The regression admits 21 datagrams on a real encrypted QUIC connection and
+holds its single runtime thread for 300 ms before any of them can transmit.
+After resuming, only the fresh datagram arrives on that same connection, the
+expiry counter advances by at least 21 and no stale payload follows. Restoring
+the former raw QUIC send path fails the intended stale-delivery assertion.
+The production file is restored byte for byte, and the test passes again.
+All 488 session tests pass (6 existing tests ignored); the four production
+Forward tests through two relays also pass, covering QUIC, obfs4/TCP and actual
+canonical rekey. Changed files pass rustfmt and whitespace checks. The clean
+SDK commit builds the Linux x86_64 musl relay successfully.
+
+Physical clients remain Mac stand 2377 and Poco 2391, both with native SDK
+e48ecd61 and the earlier media implementation. Thus these measurements test
+a change to the owned relay, rather than deployment of the new SDK to either
+client. Poco uses mobile data with Wi-Fi off. Both cameras and microphones
+are requested on; no manual video disable or concurrent file load is used.
+
+Attempt 2393 did not establish a valid owned-relay baseline on the Mac: its
+initial connection closed, subsequent handshakes timed out, and none of the
+controller's Mac observations saw an active owned-relay session. No incoming
+call appeared within 45 seconds. The later stands use a fresh TCP port, omit
+the extra Mac join request and require an authenticated owned canonical
+session on both clients before placing the call. Relay logs are captured with
+a bounded streaming copy that preserves partial bytes on timeout; the TCP
+collector is captured independently. Attempt 2393's lost relay capture is
+not presented as evidence.
+
+Two subsequent 60-second calls complete over the owned relay, with the Mac
+using obfs4/TCP and Poco using QUIC. Values below are native/API measurements
+from those individual runs, including startup; they are not acoustic speech
+latency measurements or a statistical estimate of reliability.
+
+| Measurement | 2395, relay 5d37d26e | 2397, relay 1bd916e9 |
+| --- | --- | --- |
+| Incoming ring / both active | 0.418 s / 5.216 s | 33.810 s / 35.193 s |
+| Median native audio delay, Mac / Poco | 181 / 132.5 ms | 306.5 / 269.5 ms |
+| Maximum audio receive age, Mac / Poco | 2240 / 2259 ms | 401 / 473 ms |
+| Interruption count, Mac / Poco | 17 / 18 | 2 / 1 |
+| Total interruption duration, Mac / Poco | 14859 / 15153 ms | 339 / 167 ms |
+| Transmitted / received video frames | 0 / 0 on both clients | 0 / 0 on both clients |
+| Maximum relay QUIC queued bytes | 27157 | 0 |
+| Relay QUIC expired outgoing datagrams | 0 | 0 |
+
+The expiry regression demonstrates the fixed stale-queue behavior, but the
+physical second run did not exercise expiry: its queue stayed empty. Its
+shorter receive gaps therefore cannot be attributed to this fix. Conversely,
+the long offer delay remains a separate unresolved result even though both
+owned canonical sessions were active before the call. Camera capture is
+approximately 30 fps on both clients, while endpoint audio protection keeps
+video transmission paused. In 2397 native playout targets remain around
+260-320 ms and exceed the adapter's recovery threshold; a clean local worker
+or low RTT alone is insufficient to release that hold. Weakening that audio
+protection is not a demonstrated quality fix.
+
+The 2395 relay's datagram dispatch peaks at 1.192 ms. QUIC event processing
+peaks at 0.806 ms on the relay and 3.095 ms on Poco, with timer lateness up to
+6.412 ms. Neither endpoint reports a stalled media worker. The Mac's accepted
+TCP connections negotiate MSS/advmss 1188 and have sampled RTT around 42 ms.
+These observations help exclude seconds of local handler blockage in that
+run; they do not establish where every network stall originates.
+
+The topology controller also closes newly discovered neighbors repeatedly
+(23 Mac and 21 Poco sessions in 2397). Their reconnect work is a possible
+stand load and must not be mistaken for normal steady network operation.
+Attempt 2398 prepares a phone TCP comparison that stops these closures before
+the call and checks the actual canonical transport. Poco disappears from ADB
+before the helper can even create its forward, so no client apps or call are
+started in that attempt. Its owned relay and collector are stopped, their
+processes/listeners verified absent, and their private remote directory removed.
+Both completed stands verify the phone package UID empty, the owned Mac and
+helper processes absent, the ADB forward removed and the Mac bundle seal valid.
+
+Offer-delay diagnosis, physical video recovery, simultaneous file/screen
+operation and acoustic speech quality remain unfinished. No release or
+production relay deployment is implied by these stand results.
