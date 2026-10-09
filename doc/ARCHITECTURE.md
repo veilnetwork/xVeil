@@ -9239,3 +9239,38 @@ and formatting the fixed source. Runtime instances are stopped before final
 assertions and temporary config files are removed. The observed phone NAT
 failures are not yet attributed to this defect; physical installation and
 verification remain necessary.
+
+
+Stand 2376 subsequently installs Veil 09aece09 on both owned endpoints,
+including the responder-family fix and local channel-offer diagnostic. Mac
+SDK code matches its independently built library, media code remains the
+verified 2374 configuration, version and strict seal verify. The signed
+Android APK matches independently stripped native libraries, retains the
+previous installed signer and hidden-volume, passes dependency checks, and
+the pulled installed APK matches the verified package byte for byte. Install
+uses replacement without clearing application data. Poco remains on the
+active cellular default network with Wi-Fi disabled.
+
+After normal endpoint exchange and a further thirty-second admission wait,
+neither endpoint has a direct session. A phone-originated ninety-second video
+call rings in 0.469 seconds and both endpoints become active in 2.506 seconds.
+All active samples retain enabled microphones and cameras. The selected route
+remains relay throughout, and video protection pauses transmission throughout:
+zero encoded and received video frames on both endpoints. Mac/Poco filtered
+audio-delay maxima are 525/524 ms, current jitter-buffer maxima 488/604 ms,
+and preferred targets both reach 450 ms. Native receive-age maxima are
+716/953 ms. Interruption maxima are 1/2, lasting 310/1185 ms. Source RTP
+admission maxima remain 0/2 ms and neither media worker stalls. This does not
+prove improvement over other live calls or acceptable audio/video quality.
+
+Twelve authenticated Mac channel-offer records again show an ordered child
+provider available but no peer opaque-flow or parallel/reliable permission;
+all observed sessions therefore retain the compatibility carrier. Endpoint
+logs continue to report mostly unusable mapping on Mac and signaling timeout
+on Poco. The responder fix is not demonstrated as the cause of, or a cure
+for, these remaining physical failures. Independent channels still require
+an admitted direct peer or a compatible relay path; unsupported remote
+protocols must not be forced. No media classification or priority is added
+to relay traffic. Both owned applications/processes, phone package/UID and
+ADB forward are verified absent after the call, and the Mac seal verifies.
+Private diagnostic archives retain the actual samples and installation proof.
