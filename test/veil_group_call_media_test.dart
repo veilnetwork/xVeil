@@ -651,7 +651,7 @@ void main() {
         'rtt_ms': 80,
         'audio_playout_peers': 2,
         'audio_playout_reports': 2,
-        'audio_playout_ms': 140,
+        'audio_playout_ms': 100,
       };
       clock.elapse(const Duration(seconds: 48));
       expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
@@ -663,15 +663,18 @@ void main() {
         reason: 'clean loss/RTT cannot hide a receiver playout queue',
       );
       clock.elapse(const Duration(seconds: 6));
-      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
+      expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
+      expect(engine.pauses.last, isTrue);
       engine.stats = {...engine.stats, 'audio_playout_ms': 250};
       clock.elapse(const Duration(seconds: 30));
       expect(
         engine.targets.last,
-        (maxBitrateKbps: 8, maxFps: 0.3),
+        (maxBitrateKbps: 1, maxFps: 0.02),
         reason: 'a borderline audio delay has not earned video recovery',
       );
-      engine.stats = {...engine.stats, 'audio_playout_ms': 140};
+      engine.stats = {...engine.stats, 'audio_playout_ms': 100};
+      clock.elapse(const Duration(seconds: 12));
+      expect(engine.pauses.last, isFalse);
       clock.elapse(const Duration(seconds: 48));
       expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
       controller.stop();
@@ -848,7 +851,7 @@ void main() {
         'rtt_ms': 80,
         'audio_playout_peers': 2,
         'audio_playout_reports': 1,
-        'audio_playout_ms': 140,
+        'audio_playout_ms': 100,
       };
       clock.elapse(const Duration(seconds: 60));
       expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
@@ -864,7 +867,7 @@ void main() {
       engine.stats = {
         ...engine.stats,
         'audio_playout_reports': 2,
-        'audio_playout_ms': 140,
+        'audio_playout_ms': 100,
       };
       clock.elapse(const Duration(seconds: 12));
       expect(engine.pauses.last, isFalse);
@@ -1328,6 +1331,36 @@ void main() {
     },
   );
 
+  for (final throws in [false, true]) {
+    for (final cameraOn in [false, true]) {
+      test('failed desktop screen restores camera intent '
+          '(camera=$cameraOn, throws=$throws)', () async {
+        final self = _id(1);
+        final transport = _FakeTransport(self);
+        final engine = _FakeEngine()
+          ..screenStarts = false
+          ..throwOnScreenStart = throws;
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        addTearDown(controller.stop);
+        expect(
+          await controller.start(_call(self, [_id(2)], video: true)),
+          isTrue,
+        );
+        await controller.setCameraEnabled(cameraOn);
+        final previousCameraStarts = engine.cameraStarted;
+        expect(await controller.setScreenShareEnabled(true), isFalse);
+        expect(transport.screenModes, {1: false});
+        expect(engine.cameraStarted, previousCameraStarts + (cameraOn ? 1 : 0));
+      });
+    }
+  }
+
   group('room media is sealed per participant pair', () {
     test('the two ends of a pair derive the same directional keys', () {
       final alice = _id(1);
@@ -1623,8 +1656,14 @@ class _FakeEngine implements GroupAudioEngine {
   @override
   bool stopCamera() => true;
 
+  bool screenStarts = true;
+  bool throwOnScreenStart = false;
+
   @override
-  bool startScreen({String? sourceId}) => true;
+  bool startScreen({String? sourceId}) {
+    if (throwOnScreenStart) throw StateError('capture unavailable');
+    return screenStarts;
+  }
 
   @override
   List<MediaDevice> listScreens() => const [];
