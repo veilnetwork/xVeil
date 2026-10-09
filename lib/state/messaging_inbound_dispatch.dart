@@ -186,15 +186,7 @@ extension _MessagingInboundDispatch on MessagingService {
       // are listed — and judged for unlinking — by device id, while their
       // frames arrive under our shared identity: recorded under the identity
       // alone, a sibling that talks every day read as never seen.
-      final device = m.srcDevice;
-      if (device != null && device != m.src) {
-        unawaited(notePeerSeen(device));
-        // Which identity this device belongs to, on the same evidence: the
-        // session or opened-key certificate proved the device, independently
-        // of any outer relay hint, and the frame is authenticated as
-        // `m.src`. See [identityOfDevice].
-        _identityOfDevice[device.hex] = m.src;
-      }
+      _noteAuthenticatedDevice(m);
     }
 
     // ── X/V-01: the name is not the sender ────────────────────────────────

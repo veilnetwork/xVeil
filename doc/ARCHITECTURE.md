@@ -10546,3 +10546,30 @@ Owned Mac/logcat/topology processes are audited absent, the phone package
 UID and owned ADB forward are clear, and all three exact remote units report
 MainPID=0/inactive with their directory removed. The Mac seal verifies after
 stand-log removal. No push or release is made.
+
+
+#### Verified device binding on realtime control (2026-10-09)
+
+A read-only stand probe confirms the rejected stream origin is Poco's actual
+transport device address; both contact rows are accepted. Mac's transport,
+invite and receive addresses coincide, while Poco's transport differs from
+its identity. The earlier application `isMaster` flag alone did not establish
+the transport-address relationship.
+
+The realtime adapter omitted `srcDevice`, and the separate control dispatcher
+did not retain the authenticated device/identity relation learned on that
+lane. It now uses the ordinary inbound conversion and shares the verified
+binding helper. Offers and endpoint announcements still pass their existing
+provenance/consent gates; claimed follow-ups cannot bind a device. Binding
+happens before event dedup so a later authenticated copy can add evidence
+without delivering the event twice. File-stream authorization is unchanged:
+unverified DHT owner claims cannot authorize content.
+
+A new offer regression fails against the previous code, then passes with the
+fix. Additional gates cover claimed answers and duplicate endpoint evidence;
+an end-to-end stream test downloads and compares file bytes after learning
+the device solely from authenticated realtime control. All 95 tests across
+realtime call signaling, inbound conversion and content streams pass. These
+are local tests; the next physical stand checks whether the native delivery
+actually supplies the proof. Probe apps/logcat have exited, the phone package
+UID and owned forward are absent, and the Mac seal verifies after log removal.

@@ -767,6 +767,100 @@ void main() {
     },
   );
 
+  test(
+    'authenticated realtime offer binds its device to the contact',
+    () async {
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      final device = _id(3);
+      final received = Completer<void>();
+      messaging.onCallSignal = (_, __) => received.complete();
+      transport.realtimeInbound.add(
+        InboundMessage(
+          src: peer,
+          srcDevice: device,
+          provenance: SenderProvenance.sessionPeer,
+          payload: WireEnvelope.callSignal(
+            const CallSignal(
+              callId: 'device-proof',
+              type: CallSignalType.offer,
+            ).encode(),
+          ).encode(),
+        ),
+      );
+      await received.future.timeout(const Duration(milliseconds: 500));
+      expect(
+        messaging.identityOfDevice(device),
+        peer,
+        reason: 'later file streams arrive under the proved device address',
+      );
+    },
+  );
+
+  test('a claimed realtime answer cannot bind a device', () async {
+    final messaging = MessagingService(transport, storage)..start();
+    addTearDown(messaging.dispose);
+    final device = _id(3);
+    final received = Completer<void>();
+    messaging.onCallSignal = (_, __) => received.complete();
+    transport.realtimeInbound.add(
+      InboundMessage(
+        src: peer,
+        srcDevice: device,
+        payload: WireEnvelope.callSignal(
+          const CallSignal(
+            callId: 'claimed-device',
+            type: CallSignalType.answer,
+          ).encode(),
+        ).encode(),
+      ),
+    );
+    await received.future.timeout(const Duration(milliseconds: 500));
+    expect(messaging.identityOfDevice(device), isNull);
+  });
+
+  test(
+    'dedup keeps device proof from an authenticated endpoint copy',
+    () async {
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      final device = _id(3);
+      final received = Completer<void>();
+      var calls = 0;
+      messaging.onP2PEndpoints = (_, __) {
+        calls++;
+        if (!received.isCompleted) received.complete();
+      };
+      final wire = WireEnvelope.p2pEndpoints(
+        '{"v":1,"ts":456,"e":[]}',
+      ).withFrameId('p2p:ep:device-proof').encode();
+      transport.realtimeInbound.add(
+        InboundMessage(
+          src: peer,
+          payload: wire,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await received.future.timeout(const Duration(milliseconds: 500));
+      expect(messaging.identityOfDevice(device), isNull);
+      transport.realtimeInbound.add(
+        InboundMessage(
+          src: peer,
+          srcDevice: device,
+          payload: wire,
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(messaging.identityOfDevice(device), peer);
+      expect(
+        calls,
+        1,
+        reason: 'proof must survive without replaying the control event',
+      );
+    },
+  );
+
   test('dedicated realtime inbound stream reaches call signaling', () async {
     final messaging = MessagingService(transport, storage)..start();
     addTearDown(messaging.dispose);

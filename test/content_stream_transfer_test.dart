@@ -14,6 +14,7 @@ import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/p2p_policy.dart';
@@ -478,6 +479,19 @@ class _StreamLink
       }
     }
     return _p2pAccepts.isEmpty ? null : _p2pAccepts.removeAt(0);
+  }
+}
+
+class _RealtimeStreamLink extends _StreamLink
+    implements RealtimeInboundTransport {
+  _RealtimeStreamLink(super.me);
+  final realtimeInbound = StreamController<InboundMessage>.broadcast();
+  @override
+  Stream<InboundMessage> realtimeMessages() => realtimeInbound.stream;
+  @override
+  Future<void> dispose() async {
+    await realtimeInbound.close();
+    await super.dispose();
   }
 }
 
@@ -1028,6 +1042,51 @@ void main() {
   // nothing — whoever opened this stream is holding the other end of it.
   // Whoever we serve here is whoever gets the file, so the direct lane, which
   // is the one where veil actually knows the answer, must consult it.
+  test(
+    'a realtime-only device proof permits the contact file stream',
+    () async {
+      await mA.dispose();
+      final realtimeA = _RealtimeStreamLink(a);
+      tA = realtimeA;
+      tA.peer = tB;
+      tB.peer = tA;
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      final bDevice = _id(0x2D);
+      tB.anonStreamSrc = bDevice;
+      // No ordinary B frame names this device. The sole evidence arrives on
+      // the separate call-control lane, as when a fresh app receives a call
+      // and then offers a file to that contact's second device.
+      expect(tB.srcDevice, isNull);
+      final call = Completer<void>();
+      mA.onCallSignal = (_, __) => call.complete();
+      realtimeA.realtimeInbound.add(
+        InboundMessage(
+          src: b,
+          srcDevice: bDevice,
+          provenance: SenderProvenance.sessionPeer,
+          payload: WireEnvelope.callSignal(
+            const CallSignal(
+              callId: 'before-file',
+              type: CallSignalType.offer,
+            ).encode(),
+          ).encode(),
+        ),
+      );
+      await call.future.timeout(const Duration(milliseconds: 500));
+      final bytes = _rnd(90000, 97);
+      final cid = await advertiseFromA(bytes, name: 'after-call.bin');
+      final received = mB.contentReceived.first;
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await received.timeout(const Duration(seconds: 3));
+      expect(await sB.loadFile(cid), bytes);
+    },
+  );
+
   test('a contact\'s DEVICE is served the file its identity was offered', () async {
     // Veil answers every anonymous stream at the opener's device address, so
     // the serving side sees B's device, not B. Measured on the stand as
