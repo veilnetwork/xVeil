@@ -9358,3 +9358,80 @@ false/true/false toggles and verifies that timestamps precede a reader delayed
 40 ms; one test passes in 0.24 seconds. No SPARC execution, physical call quality
 or independent-carrier success is inferred from this portability gate. No
 relay media role, priority or QoS metadata is introduced.
+
+### Compatible own-relay calls and the neutral Forward selection gap — 2026-10-09
+
+An isolated current Linux CLI relay runs under a fresh normally mined identity,
+production deployment PSK, empty builtin seeds, private admin socket and fresh
+TCP/UDP ports. Its timed transient unit leaves existing services, containers,
+firewall and configurations unchanged. Both installed 2377 clients authenticate
+its opaque-flow and parallel ordered/reliable permissions. Runtime registration
+uses the CLI's canonical bootstrap URI encoding, not generic URL encoding.
+An already registered peer refreshes natively even when the app API reports
+`alreadyRegistered`; that report alone cannot establish an absent connection.
+
+Three camera-enabled 90-second calls remain unsuccessful quality checks. In the
+first two, ordinary legacy routes are still available. The final controlled
+topology closes legacy *stand* sessions only while the owned relay is active,
+without bans, saved configuration changes or wire negotiation overrides. Both
+ends then have one active authenticated session to the owned relay. The final
+call rings in 9.495 s and is active on both ends in 11.837 s; it remains relayed.
+All active samples have microphones and cameras enabled. Video transmission is
+automatically paused throughout: no encoded or received frames. Mac/Poco maxima
+are audio delay 806/403 ms, current jitter buffer 544/590 ms, preferred target
+450/420 ms and native receive age 2803/2869 ms. Interruption maxima are 9/22,
+lasting 7531/19891 ms. Source RTP admissions remain 0/5 ms and media workers do
+not stall. Different network conditions and topology control prevent a causal
+performance comparison with previous calls. No concurrent file or screen load
+is claimed for these runs.
+
+Endpoint logs prove ordered independent `relay_forward` sends to the owned
+relay. Its log proves independent receives but no outgoing datagram send. The
+production ordered sender's neutral branch accepts only CircuitDatagram; an
+ordinary neutral Delivery::Forward therefore returns to the canonical stream.
+The QUIC sibling selector has the same omission, although its primary datagram
+fallback can conceal it. Offering channel capabilities alone does not prove
+that the forward hop uses the channels.
+
+Neutral Forward now selects one of the *existing two* bounded neutral shards.
+Selection uses only the already visible recipient routing value and original
+sender, salted per canonical session; app IDs, endpoints, content, timestamps,
+TTL and traffic-class hints have no effect. Circuit selection is preserved.
+Ordinary transit FIFO, admission, quotas and budgets remain in place. No relay
+media classification, priority privilege, new wire field or larger pool is
+introduced. Unsupported peer negotiation keeps the canonical compatibility
+path. Separate source channels still do not imply separate audio/video streams
+at each neutral transit hop; this change separates neutral Forward from the
+canonical transport without exposing a source's media roles.
+
+A real obfs4/TCP regression waits for all six authenticated child connections,
+then submits Forward through the ordinary neutral queue in both directions with
+the canonical writer blocked. The original production selectors fail this gate
+in 2.01 s. Corrected selectors deliver exact payloads through neutral children,
+with zero local-primary/bulk diagnostics. Three focused integration gates pass,
+including forbidden unnegotiated child delivery and legacy canonical delivery;
+the routing-shard role/content independence unit gate also passes. An earlier
+fixture sent before child authentication, then incorrectly expected seven rather
+than six children; those failures do not prove the production selection defect.
+The final original/fixed comparison uses the same six-child readiness barrier.
+Physical call quality after this change remains to be measured.
+
+The owned UDP reflector also answers locally. During scoped server capture,
+six 64-byte requests arrive and six replies leave its network interface; the
+Mac socket still receives no valid response. Correctly quoted app-UID probes on
+Poco receive three valid token-matching 64-byte replies. Their elapsed helper
+time includes netcat's two-second linger and is not a network RTT measurement.
+The server INPUT policy is ACCEPT. This narrows the Mac return-path problem
+but does not identify its cause; no system VPN or network policy is changed.
+
+All three owned app stands, phone package/UID processes, ADB forwards and topology
+helpers are verified absent afterward; the Mac seal verifies. The temporary
+relay is stopped, its executable process and fresh listening ports are absent,
+its private directory is removed and its SSH control helper is closed. Raw
+addresses, identities, bootstrap descriptors and packet captures stay private.
+
+The four existing real two-relay circuit-chain gates also pass (QUIC and
+obfs4/TCP, each with and without canonical rekey), with bounded neutral shards,
+exact payloads, no duplicate cells and retired children after teardown. These
+gates check preservation of the shared selectors; they do not replace the
+pending physical Forward/audio/video measurement.
