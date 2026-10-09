@@ -10642,3 +10642,51 @@ row and fails on the old precedence, then passes with the repair and compares
 all downloaded bytes. Owner/device status combinations and unknown-owner
 gates pass alongside existing content authorization, transfer and realtime
 control tests: 106 tests total. Physical confirmation remains pending.
+
+
+#### Physical contact-precedence verification: build 2439 / stand 2440
+
+The committed fix 677e68a6 is packaged on both owned clients as build 2439.
+Production media stays build 2432/SDK 71da840d; unchanged FFI/relay binaries
+stay 5c207cd3. Strict Mac seal/code-section and installed same-signer Android
+package/library verification pass. Before calling, Mac's contact snapshot
+confirms the actual Poco device row is still `pendingIncoming` while its
+identity row is accepted; the repro data is preserved.
+
+Mac-originated calling rings at 0.766 s, both ends become active at 2.660 s,
+and direct readiness is seen before explicit authenticated relay recovery
+at 5.168 s. Both routes report relay at 5.530 s. There are 423 subsequent
+both-active relay samples spanning 159.876 s. Initial owned TCP canonical
+connections are verified, but public alternate paths may reappear: this is
+not exclusive owned-path isolation. Cameras/mics remain on; transmitted and
+remote video frames stay zero under audio protection.
+
+The concurrent 2-MiB plain-file download now succeeds with exact destination
+SHA-256 and no stream authorization denial. Total transfer time is 177.054 s,
+and the download finishes 31.965 s AFTER hangup. This proves end-to-end file
+recovery with the old pending row, not full-speed concurrent file/media flow.
+Normal bulk stream trace is disabled, so the capture cannot name the successful
+carrier or attribute all waiting time to stream admission alone.
+
+Audio receive-age maxima remain 2933/3585 ms (Mac/Poco). Actual playout queue
+medians/maxima are 218/615 and 42/596 ms; interruption increments are 34/21
+with 28498/20377 ms duration. No media epoch/counter reset or local audio RTP
+drop occurs. These include silence and do not prove speech intelligibility.
+The different initial direct path/setup and changing cellular conditions also
+prevent attributing lower maxima to the contact-precedence fix.
+
+Current endpoint source admission deliberately limits competing reliable data
+to 1024 wire bytes per 200 ms under pressure (5 KiB/s shared across neighbors),
+or 4096/200 ms during healthy primary activity (20 KiB/s); oversized frames
+spend proportional future time. This is local policy, not relay priority. A
+2-MiB file cannot be assumed to finish within a 160-second pressured call.
+The next useful verification retains a healthy permitted P2P route instead of
+forcing relay, observes actual file progress/idle behavior with bulk tracing,
+and then verifies concurrent video/screen and audio. The source budget is not
+relaxed merely to pass a file timer. Physical pauses and healthy simultaneous
+video/screen/file operation still remain unresolved; the original goal is active.
+
+All exact owned Mac/logcat/topology processes are absent, the phone package UID
+and ADB forward are clear, all three remote units have MainPID=0/inactive with
+their directory removed, the successful fixture is removed, and the Mac seal
+passes. No SDK edit, push or release occurs in this cycle.
