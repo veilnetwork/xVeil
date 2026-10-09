@@ -10757,7 +10757,10 @@ fixture exceeds the current 120-ms recovery threshold, and their delayed-audio
 expectation predates the pause policy. Fixtures now use 100-ms healthy feedback,
 expect an actual hold under pressure, and verify resume before climbing. No
 production audio threshold is relaxed. Analysis of all five changed Dart files
-passes. The rollback repair is not yet packaged or physically verified.
+passes. Owned Mac build 2444 packages the committed rollback repair;
+its kernel version and transaction symbol, strict seal and original production
+native code sections verify. It is not launched after packaging. Poco remains
+on build 2441. Physical verification of rollback is still pending.
 
 Both stands' exact owned apps/logcat/helpers have exited; phone UID and forward
 are clear; all three remote units per stand report MainPID=0/inactive and each
