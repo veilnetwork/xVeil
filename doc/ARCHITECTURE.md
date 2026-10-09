@@ -11006,3 +11006,86 @@ physical comparison has not run. Thus no claim is made that this repair fixes th
 observed file stalls, restores usable video, or completes the audio-first goal.
 Commits remain unsigned and unpushed; no release or production-app replacement
 occurs. Evidence and signed stand artifacts remain private.
+
+#### Cellular comparison and mixed relay paths: stand 2456
+
+After the user disables Wi-Fi, the actual default network reports CELLULAR,
+without WIFI or VPN. Verified build 0.13.84+2455 runs on both endpoints with SDK
+450218d0 and unchanged native media build 2432. The owned neutral relay remains
+at compatible SDK 5c207cd3. Natural routing is observed; other neighbors remain
+connected and the test is not claimed to be isolated to that relay.
+
+Ringing takes 1.174 s; both endpoints become active and report P2P at 2.252 s.
+Both naturally switch to relay at 65.457 s, before the file offer at 77.311 s.
+The fresh 64-KiB Mac-to-Poco file passes exact destination SHA-256 verification
+63.380 s after its offer, before hangup. This improves on stand 2453's 265.048 s,
+but changing network conditions and routes prevent attributing the improvement
+solely to reliable admission fairness. The transfer remains slow.
+
+This run exercises the active-fetch export repair: the inline manifest starts
+an encrypted automatic fetch before the explicit download-to-file request.
+The save logs that it is parked for export after the active fetch; exact saved
+bytes subsequently pass verification. Early plaintext stream opens probe the
+manifest and precede the explicit save; they are not a second stream opened by
+that parked save. The verified destination fixture is deleted after the test.
+
+Both microphones remain on in the sampled state. The user confirms audibility
+but cannot speak because the household is asleep. This supplies no new speech
+intelligibility, interruption or acoustic-latency verdict; no further audible
+tests are started. Cameras capture about 30 fps, but encoded and remote video
+frame counters stay zero and every sample reports video paused for audio.
+Screen capture is not requested: permission has not been verified for this new
+ad-hoc Mac build. The earlier build's permission result is not reused as proof.
+
+Before handover, receive-queue median/max values are 347/527 ms on Mac and
+230/530 ms on Poco. During the relay file phase they are 254/541 and
+155.5/544 ms; accepted-audio receive-age maxima reach 5955/6074 ms. After the
+file, queue medians/maxima are 143/619 and 42/612 ms. Media epoch remains 1 and
+outgoing audio admission maxima remain 0/3 ms. These are packet/queue observations,
+not measured acoustic latency. Usable simultaneous audio/video is not verified.
+
+Bounded direct-route encrypted UDP matching yields 213 phone-to-Mac and 231
+Mac-to-phone observations. Within-direction wall-clock delay spans are
+1123/1223 ms, not absolute one-way delays; kernel-arrival-to-endpoint-trace
+maxima are 2.3/2.1 ms. Generic connections and sampled delivered packets cannot
+establish the timing of all audio or missing packets. Remote TCP capture is
+incomplete after collection timeouts, so it cannot establish complete relay
+write/arrival timing.
+
+Origin traces reveal one primary source/destination pair using a negotiated
+neutral datagram hop throughout the relay phase while also queueing a duplicate
+through five other hops without that transport. Their 29 slow canonical
+primary writes reach 5625 ms, including delays before the file offer. The
+negotiated hop itself also has three slow canonical primary writes, up to
+2316 ms: negotiated capability alone is not proof that every frame used a
+separate child. Source inspection confirms that bounded origin diversity adds
+the second copy after a successful datagram admission and can select an ordered
+hop for it. These traces establish mixed origin carriers, not that every slow
+copy reached the receiver or caused a particular audible interruption.
+
+Final cleanup verifies the exact Mac and logcat PIDs exited, Poco's app UID is
+absent while ADB is connected, and the owned forward is removed. All three owned
+remote units are inactive with MainPID=0, the owned remote directory is removed,
+and strict Mac sealing passes. Raw evidence remains private. The audio-first
+goal remains incomplete; no release, push or production-app replacement occurs.
+
+SDK commit c8b0026b repairs origin diversity for these small primary cells.
+After a negotiated neutral datagram hop accepts a copy, additional copies stay
+within that transport group. A second negotiated hop still receives identical
+ciphertext and replay ID; one usable hop now receives one copy rather than
+adding an ordered duplicate. If all negotiated-hop admissions fail, the existing
+ordered compatibility fallback remains. Queue admission is still not receipt:
+this intentionally reduces mixed-transport path diversity and needs a physical
+comparison for delivery and audio quality. It neither fixes every canonical
+fallback nor proves that the retained datagram route is healthy end to end.
+
+A regression runs through the real IPC handler with zero, one and two negotiated
+hops, plus first-hop and all-negotiated-hop refusal. The previous policy fails
+the first case by admitting an extra ordered copy; this is an assertion failure,
+not a compilation failure. With the repair, all 151 veil-ipc library tests pass,
+with 5 existing ignored tests. Existing diversity, signaling, wire neutrality,
+legacy fallback and request-isolation tests remain green. Only local origin
+selection changes; relay scheduling, encrypted payloads and wire priorities do
+not. This new revision has not yet been rebuilt into or installed on either
+stand endpoint; build 2455 still contains SDK 450218d0. The physical results
+above measure that earlier revision, not c8b0026b. No new audible test runs.
