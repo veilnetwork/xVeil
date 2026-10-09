@@ -17,6 +17,7 @@ import 'android_screen_capture.dart';
 import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
 import 'call_audio_route.dart';
 import 'call_microphone_state.dart';
+import 'desktop_screen_capture_start.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
 import 'group_call_service.dart';
@@ -325,6 +326,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   bool _androidScreenPushLogged = false;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   bool _videoRunning = false;
+  bool _cameraEnabled = false;
   bool _audioEnabled = false;
   final _microphoneState = CallMicrophoneState();
   CallBitrateAdapter? _bitrateAdapter;
@@ -506,6 +508,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final ready = engine.startVideo();
     if (!ready) return false;
     _videoRunning = true;
+    _cameraEnabled = startCamera;
     adapter.applyPendingTarget(
       (target) => engine.setVideoBitrate(
         maxBitrateKbps: target.maxBitrateKbps,
@@ -937,6 +940,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> setCameraEnabled(bool enabled) async {
     final engine = _engine;
     if (engine == null || !_videoRunning) return;
+    _cameraEnabled = enabled;
     if (enabled && (_screenSharing || _screenStarting != null)) return;
     if (enabled && !_selectScreenSource(false)) return;
     if (Platform.isAndroid) {
@@ -992,9 +996,15 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (!Platform.isMacOS) return false;
     try {
       if (enabled) {
-        if (!_selectScreenSource(true)) return false;
-        final started = engine.startScreen(sourceId: _selectedScreenId);
-        if (!started) _selectScreenSource(false);
+        final started = startDesktopScreenCapture(
+          selectSource: _selectScreenSource,
+          startCapture: () => engine.startScreen(sourceId: _selectedScreenId),
+          mayRestoreCamera: () =>
+              _engine == engine && _videoRunning && _cameraEnabled,
+          restoreCamera: () {
+            engine.startCamera();
+          },
+        );
         _screenSharing = started;
         return started;
       }
@@ -1155,6 +1165,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         } catch (_) {}
       }
       _videoRunning = false;
+      _cameraEnabled = false;
       try {
         engine.stopAudio();
       } catch (_) {}
@@ -1177,6 +1188,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       }
     }
     _videoRunning = false;
+    _cameraEnabled = false;
     _peers.clear();
     _lastRxPackets.clear();
     _lastRxAt.clear();
