@@ -10307,3 +10307,113 @@ All captures collect completely. Owned apps/helpers are absent, the phone UID
 and ADB forward are clear, all three exact remote units are inactive with
 MainPID=0 and their directory is removed; Mac sealing passes. The overall
 audio/video quality goal remains active.
+
+### Speech observation and TCP unsent backlog — 2026-10-09
+
+Stand 2425 uses the unchanged 2422 client/relay SDK and media libraries.
+Ringing takes 0.417 s, both endpoints become active at 1.933 s and authenticated
+relay recovery completes at 4.613 s. The subsequent 119.757 s of sampled active
+calls stay on relay. The user confirms speaking intermittently, with nearby
+phone/laptop causing audible echo; speech slightly breaks up on the computer.
+The user did not assess playback on the phone. Speech intervals were not marked,
+so interruption counters cannot be equated to seconds of lost spoken words.
+
+| TCP relay 2425 measurement | Mac | Poco |
+| --- | --- | --- |
+| Median / maximum native audio delay | 208 / 577 ms | 208.5 / 900 ms |
+| Maximum sampled receive age | 2696 ms | 4900 ms |
+| Interruption counter increments | 36 | 29 |
+| Interruption duration increments | 32114 ms | 27550 ms |
+| Maximum outgoing / incoming audio packets | 4002 / 6028 | 6112 / 3893 |
+| Video transmitted | 0 | 0 |
+
+Counters do not reset. Cameras and microphones are enabled, but audio protection
+holds video throughout; no working video is claimed. Repeat stand 2426 stops
+before calling: the Mac has the temporary relay identity already registered but
+does not establish the new owned canonical path. This is a stand setup failure,
+not an observed call timeout. Both stands' owned apps/helpers have exited, the
+phone UID/ADB forward are clear, all six exact remote units are inactive with
+MainPID=0, their directories are removed and the owned Mac seal verifies.
+
+Further analysis of the preceding 2423 run finds stable Mac capture timing:
+sampled wall time minus captured PCM duration spans only 2 ms. Matched unique
+authenticated endpoint cell samples have relative timing spans of 6042 ms for
+Mac-to-Poco and 591 ms in reverse. These are relative spans with an unknown
+clock offset, not calibrated one-way latency; generic cell samples include
+control/RTCP and do not identify every cell as a spoken audio packet. Source
+IPC stages for two late primary-slot samples are within the same logged
+millisecond; sampled receiver SDK processing stays below 2.4 ms.
+
+The owned relay's 0.2-second TCP snapshots expose an outgoing socket that grows
+to 126942 bytes queued, including 116374 bytes not yet sent, while acknowledgments
+stall and retransmissions occur. Its receive window remains nonzero. This
+coincides with late endpoint samples; exact socket-to-channel correspondence
+and the original network loss cause have not been established. The existing
+64 KiB SO_SNDBUF request can become 128 KiB on Linux; a completed userspace
+write/flush therefore does not mean bytes have left that kernel queue.
+
+A separate real Linux socket probe with a stalled small-window reader measures
+86800 unsent bytes under the preceding policy, 5208 with a 4096-byte
+TCP_NOTSENT_LOWAT threshold, and 17360 with a 16384-byte threshold. All accepted
+bytes arrive unchanged after reading resumes. This supports applying an equal
+unsent readiness threshold to all Linux/Android TCP sockets, without any
+payload classification, scheduling priority or wire-format change. The kernel
+may overshoot the threshold by a segment/current write; it is not a strict
+byte cap and does not bound already-transmitted unacknowledged data.
+See the [Linux kernel socket policy documentation](https://www.kernel.org/doc/html/latest/networking/ip-sysctl.html).
+
+SDK 5c207cd3 applies a best-effort 4096-byte TCP_NOTSENT_LOWAT to all
+outgoing and accepted Linux/Android TCP sockets through their shared send-buffer
+setup, including obfs4. Unsupported kernels retain the preceding SO_SNDBUF
+clamp. macOS and other platforms retain their current policy. No application
+role, per-user exception or new negotiation is introduced.
+
+The new Linux regression fails on preceding code at the absent socket threshold
+and passes after repair. It exercises a real stalled receiver, checks both
+outgoing/accepted sockets, measures the actual unsent queue with SIOCOUTQNSD,
+then verifies all accepted bytes unchanged after reads resume. Eight Linux
+TCP/obfs4 regressions, 145 native Mac transport tests and four real two-relay
+Forward/rekey gates pass. Physical sound/video and bulk throughput improvements
+from this kernel change are not established by those gates.
+
+### Physical TCP speech with unsent threshold — 2026-10-09
+
+Both clients package 0.13.84+2427 / SDK 5c207cd3; the owned relay uses the same
+SDK. Mac/Android media libraries remain 2420/2374. Fresh code-section/export/seal
+checks and same-signer in-place phone installation pass; identity/history stay
+intact. Stand 2428 allows an extra bounded canonical warmup after 2426's setup
+failure and stops its topology controller before calling.
+
+Ringing takes 0.780 s and both endpoints become active at 2.345 s. They remain
+on relay without a direct upgrade; the stable relay measurement starts at
+17.382 s and spans 119.914 s. The user is instructed to speak first into Poco
+and then the computer, with private instruction timestamps preserved. The user
+describes the resulting connection as feeling poor; direction-specific audible
+quality is not supplied. These are instruction windows, not a recording or
+transcription of exact speech intervals.
+
+| TCP relay 2428 measurement | Mac | Poco |
+| --- | --- | --- |
+| Median / maximum native audio delay | 299 / 623 ms | 188 / 633 ms |
+| Maximum sampled receive age | 13155 ms | 15980 ms |
+| Interruption counter increments | 24 | 28 |
+| Interruption duration increments | 19136 ms | 27507 ms |
+| Maximum outgoing / incoming audio packets | 6018 / 5903 | 7127 / 4670 |
+| Video transmitted | 0 | 0 |
+
+Counters do not reset; audio protection still holds both enabled cameras.
+Receive ages grow at the end while the app reports an active call. At 129.814 s
+Poco's owned canonical session is reaped after an unacknowledged probe and
+13317 ms of stale authenticated data. Its late generic receiver trace shows no
+decode rejections, but little complete dispatched traffic. The relay still
+observes byte/ACK progress on some other connections during this interval;
+this does not establish a total radio outage or a single kernel-queue cause.
+
+TCP_NOTSENT_LOWAT does not provide the hoped-for small hard queue bound in this
+physical run: the owned relay reaches 65024 unsent bytes on one socket. The
+small-window Linux regression demonstrates its own scenario, not an 8 KiB bound
+for all congestion/window patterns. Further transport/recovery work is required;
+no sound/video quality fix or improvement over 2425 is claimed. No file/screen
+load is introduced. Owned apps/helpers exit, the phone UID/ADB forward are clear,
+the three exact remote units stop and their directory is removed; Mac sealing
+passes. The overall goal remains active.
