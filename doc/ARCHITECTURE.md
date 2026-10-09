@@ -10229,3 +10229,43 @@ fields, connection quotas or persistent network preferences change.
 Owned apps/helpers from 2415–2418 are closed, their UID/ADB forward cleared,
 and all exact relay/capture/collector units are inactive with MainPID=0;
 their remote directories are removed. Physical quality remains unresolved.
+
+### Physical capture verification and relay control separation — 2026-10-09
+
+Build 0.13.84+2420 packages SDK 68518bc1 on both clients and the owned Linux
+relay, production Mac media 2420 and unchanged Android media 2374. Code-section
+comparison, production exports, bundle sealing, same-signer in-place Android
+installation and installed-package verification pass. Stand 2420 again uses
+only the owned TCP listener and stops topology closures before the call.
+
+The previous capture failure does not recur: Mac attempts/sends 1877 audio
+RTP packets, including 1869 payload packets, with no capture-format exception.
+Poco's SDK receives 1895 records on the corresponding independent connection,
+and the relay receives/forwards the same record count. This verifies restored
+capture and network record progress, **not** remote audio playout: Poco never
+receives the call answer and therefore never starts its media engine. The
+callee rings at 0.814 s and becomes active; the caller stays dialing until the
+stand's 45-second setup gate ends the run. Later health/transport signals
+arrive, but neither live nor durable answer retries appear in its call log.
+
+The relay's complete compressed captures now survive collection. Mac reports
+133 reliable-writer pressure observations on its owned relay connection.
+Control's compatibility relay encoding omits the generic datagram suffix even
+when the first hop explicitly negotiated support; that leaves control sharing
+the reliable writer, unlike the progressing media connection. This establishes
+a separation gap, without yet proving it accounts for the missing answer.
+
+The repair uses existing neutral INTERACTIVE datagrams for agreed first-hop
+connections, including cached per-device/identity fan-out. First hops without
+that negotiation retain the suffix-free encoding. No new role, scheduling
+priority, key authority or plaintext is exposed. A mixed-capability source test
+fails on preceding code at the datagram eligibility assertion, then passes
+after repair; it exercises both ordinary and cached-device branches, preserves
+the same authenticated ciphertext across copies and verifies the older wire
+shape. IPC passes 150 tests, with five existing ignored and one doctest ignored.
+Physical verification of the control change remains outstanding.
+
+Stand 2420's apps/helpers have exited, the phone UID and ADB forward are clear,
+the three exact remote units have MainPID=0/inactive, their directory is removed
+and the Mac seal remains valid. No acoustic speech, simultaneous file/screen
+load or successful video transmission is claimed for this run.
