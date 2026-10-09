@@ -208,6 +208,11 @@ abstract class CallMediaController {
   /// and RTCP. Legacy engines keep the aggregate liveness behavior.
   bool get hasAudioReceiveTelemetry => false;
   DateTime? get lastAudioRxAt => null;
+
+  /// Recheck accepted audio RTP at the engine before abandoning a direct path.
+  /// A periodic cached hint cannot confirm an outage after packets resume.
+  /// Unavailable/older engines return null and retain the ordinary grace.
+  Future<DateTime?> readLatestAudioRxAt() async => null;
   DateTime? get receiveSessionStartedAt => null;
   bool get isRepairingReceiveSession => false;
 
@@ -1529,9 +1534,9 @@ class CallService {
       _relayFallbackFlight == null &&
       _mediaReceiveNeedsRepair(call, after: kCallDirectSessionSilence);
 
-  bool _establishedAudioReceiveStalled(Call call) {
+  bool _establishedAudioReceiveStalled(Call call, {DateTime? latestRxAt}) {
     final media = _media;
-    final audioRx = media?.lastAudioRxAt;
+    final audioRx = latestRxAt ?? media?.lastAudioRxAt;
     final expectedSince = _peerAudioExpectedSince;
     if (media == null ||
         !media.hasAudioReceiveTelemetry ||
@@ -1559,15 +1564,46 @@ class CallService {
       return;
     }
     if (_establishedAudioReceiveStalled(call)) {
+      if (_directAdmissionCheckBusy) return;
+      _directAdmissionCheckBusy = true;
+      DateTime? latestRxAt;
+      try {
+        latestRxAt = await media.readLatestAudioRxAt().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => null,
+        );
+      } catch (_) {
+        // An unavailable snapshot cannot confirm the cached outage.
+      } finally {
+        _directAdmissionCheckBusy = false;
+      }
+      final current = _current;
+      if (latestRxAt == null ||
+          current == null ||
+          current.callId != call.callId ||
+          current.peer != call.peer ||
+          current.peerDevice != call.peerDevice ||
+          !_canCheckLostDirectSession(current)) {
+        return;
+      }
+      if (!_establishedAudioReceiveStalled(current, latestRxAt: latestRxAt)) {
+        devLog(
+          () =>
+              'xVeil[call-media]: fresh audio cancels cached direct outage '
+              'call=${call.callId}',
+        );
+        return;
+      }
       // Primary QUIC can stop delivering while parent admission, RTCP or video
       // still works. Recover on permitted live relay lanes; do not wait for a
       // negative parent query or a peer repair message on the stalled path.
       devLog(
         () =>
             'xVeil[call-media]: established direct audio stalled — '
-            'early relay recovery call=${call.callId}',
+            'early relay recovery call=${call.callId} '
+            'native_age=${_now().difference(latestRxAt!).inMilliseconds}ms',
       );
-      await _recoverSilentDirect(call);
+      await _recoverSilentDirect(current);
       return;
     }
     if (_directAdmissionCheckBusy) return;

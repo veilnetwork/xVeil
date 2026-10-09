@@ -591,6 +591,14 @@ class VeilCallMediaController implements CallMediaController {
   DateTime? get lastAudioRxAt => _audioReceiveActivity.lastRxAt;
 
   @override
+  Future<DateTime?> readLatestAudioRxAt() async {
+    final engine = _engine;
+    if (engine == null || _routeRepairing) return null;
+    final stats = engine.getStats();
+    return CallAudioReceiveActivity.nativeLastRxAt(stats, DateTime.now());
+  }
+
+  @override
   DateTime? get receiveSessionStartedAt => _receiveSessionStartedAt;
 
   @override
