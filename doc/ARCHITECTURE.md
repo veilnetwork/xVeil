@@ -10080,3 +10080,37 @@ closed; private remote directories are removed and Poco's package has no process
 No production relay or host routing setting is changed. Audio/source separation
 is retained, but pause elimination, recovery quality, simultaneous file/screen
 operation and acoustic speech quality remain unverified. The goal stays active.
+
+### Generic outgoing datagram recovery — 2026-10-09
+
+SDK 4a754fa6 extends authenticated replacement from the primary local source
+to every recently selected outgoing datagram child in the bounded session
+pool. Opaque forwarded traffic previously never entered the replacement
+policy. Each physical channel now observes its own ACK progress, PTO,
+in-flight bytes and expired unsent datagrams. Idle ACK silence alone does not
+start a replacement. A session-wide round-robin schedule permits one pending
+replacement and spaces attempts by two seconds, without inspecting source
+roles, payloads or queue hints. The existing connection quota and shared
+reliable channel are unchanged; no priority or recovery field is sent on wire.
+
+The old sender remains usable until the candidate's exporter-bound proof is
+verified. A failed candidate does not displace it. Genuine old-channel ACK
+progress cancels a still-pending candidate; an already verified candidate wins
+the existing ACK race. Cold-channel retry delay does not additionally delay
+replacement of a usable old sender. The first generalized implementation did
+add that extra 500 ms and failed two existing source recovery gates. An exact
+old-code/old-fixture control passed; removing the extra wait restores those
+gates without relaxing their 600 ms threshold.
+
+The new real TLS/QUIC fixture carries neutral Delivery::Forward cells in both
+directions with all six ordinary child slots occupied, then cuts its uniformly
+treated link for four seconds. A replacement-disabled control must reproduce
+delayed recovery. With recovery enabled, both directions authenticate a new
+channel, deliver fresh cells within 600 ms after link restoration, avoid
+duplicates, and resume faster than the control. This fixture exercises actual
+selection, binding and encrypted datagram I/O, not the full relay dispatcher.
+The four existing production two-relay Forward gates separately pass for QUIC
+and obfs4/TCP, including actual canonical rekey. The complete session suite
+passes 490 tests, with six existing tests and one doctest ignored. Changed
+files pass rustfmt and whitespace checks. No new physical call result is
+claimed at this point; clients and the owned relay are being rebuilt together.
