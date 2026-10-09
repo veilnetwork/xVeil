@@ -10841,8 +10841,13 @@ fetch. Both new regressions pass and verify exact bytes, one sink close and no
 second network open. The full stream-transfer, stale-fetch eviction, content
 transfer and auto-resume modules pass: 81 tests. Analysis reports no errors or
 warnings, with one pre-existing underscore-style information message in the
-stream test fixture. Physical installation/verification of this repair is
-still pending; no claim is made that it removes the file-independent pauses.
+stream test fixture. Test build 0.13.84+2449 packages the committed repair
+for Mac and Android. Mac strict sealing, source hashes and original native
+code sections verify; Android signing, kernel version and all sixteen packaged
+native libraries match the verified installed build 2441. The new Mac app is
+not launched and the signed Android APK is not installed while Poco is absent.
+Physical installation/verification of this repair is still pending; no claim
+is made that it removes the file-independent pauses.
 
 Both stands close their exact owned Mac/logcat processes and the phone app;
 the normal cleanup checks the phone UID and forward absent while connected.
