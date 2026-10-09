@@ -2056,7 +2056,17 @@ class CallService {
       }
       final receiveNeedsRepair =
           c.status == CallStatus.active && _mediaReceiveNeedsRepair(c);
-      if (receiveNeedsRepair) unawaited(_recoverSilentDirect(c));
+      if (receiveNeedsRepair) {
+        if (c.transport == CallTransportKind.relay) {
+          // The peer repair request uses the same live network as media. If
+          // both disappear, waiting for its reply cannot initiate recovery.
+          // Reuse the existing guarded repair on our agreed relay route; the
+          // receive grace and native rebuild state prevent repair churn.
+          unawaited(_repairMediaRoute(c.peer, c.callId));
+        } else {
+          unawaited(_recoverSilentDirect(c));
+        }
+      }
       unawaited(_checkLateP2P());
       unawaited(
         _sendCallSignal(

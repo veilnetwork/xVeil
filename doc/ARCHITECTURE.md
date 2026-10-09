@@ -10417,3 +10417,20 @@ no sound/video quality fix or improvement over 2425 is claimed. No file/screen
 load is introduced. Owned apps/helpers exit, the phone UID/ADB forward are clear,
 the three exact remote units stop and their directory is removed; Mac sealing
 passes. The overall goal remains active.
+
+### Local relay recovery without inbound signaling — 2026-10-09
+
+The call heartbeat already detects a silent receive stream after its ten-second
+grace and asks the peer to repair. Its local fallback previously handles only
+P2P; on relay, loss of the peer's health/request signal leaves local recovery
+unstarted. The media controller's separate self-heal covers a stalled local
+worker with continuing ingress, which does not cover absent network ingress.
+
+The heartbeat now also invokes the existing guarded local repair for an active
+silent relay call. It keeps the agreed route, existing ten-second grace,
+rebuild suppression and fresh receive-session grace. Peer repair requests still
+use the existing live signaling paths. No mailbox delivery or network priority
+is introduced. A regression fails on preceding code (zero local repairs without
+a peer heartbeat) and passes after the change; it also covers pending rebuilds
+and replacement-session grace. A healthy flowing relay call remains unrepaired.
+Physical verification of this recovery change is still required.
