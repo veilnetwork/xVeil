@@ -875,6 +875,51 @@ void main() {
       posture: CallPosture.direct,
     );
 
+    test('silent relay repairs locally without a peer heartbeat', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, offer('silent-relay'));
+        svc.accept();
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.relay);
+        media.rxAt = clock.now();
+
+        async.elapse(kCallMediaRepairAfter - const Duration(milliseconds: 1));
+        async.flushMicrotasks();
+        expect(media.repairs, 0, reason: 'honor the receive grace');
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(media.repairs, 1, reason: 'do not wait for a lost peer request');
+        expect(svc.current?.status, CallStatus.active);
+        expect(
+          media.switches,
+          isEmpty,
+          reason: 'retain the agreed relay route',
+        );
+
+        // A native rebuild can take several heartbeat ticks. Neither that
+        // silence nor old receive counters should initiate another rebuild.
+        media.receiveRepairing = true;
+        media.rxAt = clock.now();
+        async.elapse(kCallMediaRepairAfter);
+        async.flushMicrotasks();
+        expect(media.repairs, 1);
+        media.receiveRepairing = false;
+        media.receiveStartedAt = clock.now();
+        async.elapse(kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(
+          media.repairs,
+          1,
+          reason: 'new receive session gets fresh grace',
+        );
+        svc.dispose();
+      });
+    });
+
     test(
       'answer racing a slow durable offer never arms a timer on the active call',
       () {
@@ -918,6 +963,11 @@ void main() {
           }
 
           expect(svc.current?.status, CallStatus.active);
+          expect(
+            media.repairs,
+            0,
+            reason: 'flowing relay media needs no repair',
+          );
           expect(
             fake.sent.where((s) => s.type == CallSignalType.cancel),
             isEmpty,
