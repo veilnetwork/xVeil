@@ -11231,3 +11231,40 @@ snapshots and a late read after disposal. Source is restored exactly after the
 negative control. This is a route-decision repair, not a claim that cellular
 pauses, video adaptation or overall call quality are fixed. Evidence remains
 private; commits are unsigned and unpushed.
+
+#### Installed recheck and natural-route validation: build 2465 / stand 2466
+
+Repair f2e31e08 passes the final 159-test call/activity suites and targeted Dart
+analysis. Packaging build 0.13.84+2465 keeps SDK f341c235 and native media 2432;
+all sixteen APK native libraries are byte-identical to installed build 2459.
+Kernel versions, native bytes and Mac strict/deep sealing pass. Poco receives
+a same-signer in-place update, verified by pulling back the exact signed APK.
+The owned Mac stand bundle contains the same repair. /Applications, identities,
+history, system permissions and network settings are not modified.
+
+Stand 2466 independently rechecks cellular default transport and zero-volume,
+muted Mac output. The owned neutral relay and other neighbors are available;
+no forced route switch or topology controller runs. Both cameras stay on.
+Poco-to-Mac ringing is observed at 0.695 s, both endpoints become active on P2P
+at 3.555 s, and P2P remains in use for the approximately 210-second active call.
+The 64-KiB file starts at 123.809 s, completes with an exact SHA-256 match in
+73.188 s, and finishes before hangup. There is no early fallback or cancelled
+cached-outage log in this run: it does not reproduce the earlier recovery race,
+and differing radio conditions prevent attributing its stability to the patch
+alone. The negative regression and stand 2462's resumed-RTP-before-fallback
+timestamps supply the specific route-decision evidence.
+
+Audio still needs work. Before the file, median current receive buffers are
+249 ms on Mac and 379 ms on Poco, reaching 493/590 ms; during the file their
+medians are 273/341 ms. Native receive ages peak at 748/522 ms before the file
+and 651/446 ms during it. Neither camera produces encoded or delivered video
+frames: the audio safeguard remains engaged in every measured active sample.
+No human speech assessment or screen test is made. The cause of the earlier
+transport pause and usable simultaneous audio/video/screen remain unresolved.
+
+Independent final cleanup verifies both exact owned local processes exited,
+Poco's entire UID absent while ADB is available, the forward removed, all three
+owned remote units inactive with zero MainPID, the owned directory removed,
+Mac strict/deep sealing valid, and speaker output still muted at volume zero.
+Stand 2466's raw evidence and artifact metadata remain private. Both worktrees
+are clean before this journal update; there is no push, signed commit or release.
