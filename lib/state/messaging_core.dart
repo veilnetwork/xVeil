@@ -3178,6 +3178,13 @@ class MessagingService {
       preferred: peer,
       contentId: contentId,
     );
+    // A save during auto-download can export that verified copy when ready.
+    // Join before opening a plaintext stream, which would download it twice.
+    final activeFetch = _contentFetching.active(contentId);
+    if (activeFetch != null && activeFetch.sink == null) {
+      await _beginFetch(activeFetch.peer, activeFetch.manifest, sink: sink);
+      return ContentDownloadResult.started;
+    }
     final offered = _offered[contentId];
     if (offered != null) {
       if (_plainFileStream &&
@@ -3281,6 +3288,11 @@ class MessagingService {
       savedPath: savedPath,
       peers: sources,
     );
+    final activeFetch = _contentFetching.active(contentId);
+    if (activeFetch != null && activeFetch.sink == null) {
+      await _beginFetch(activeFetch.peer, activeFetch.manifest, sink: sink);
+      return ContentDownloadResult.started;
+    }
     if (offered != null) {
       if (sources.isEmpty && offered.peers.isEmpty) {
         return _requestReofferFromAny(sources, contentId, sink);
