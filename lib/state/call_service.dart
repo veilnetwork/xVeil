@@ -2062,6 +2062,11 @@ class CallService {
           // both disappear, waiting for its reply cannot initiate recovery.
           // Reuse the existing guarded repair on our agreed relay route; the
           // receive grace and native rebuild state prevent repair churn.
+          devLog(
+            () =>
+                'xVeil[call-media]: silent relay receive — local repair '
+                'call=${c.callId}',
+          );
           unawaited(_repairMediaRoute(c.peer, c.callId));
         } else {
           unawaited(_recoverSilentDirect(c));
