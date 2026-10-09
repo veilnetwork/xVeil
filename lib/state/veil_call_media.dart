@@ -1286,6 +1286,7 @@ class VeilCallMediaController implements CallMediaController {
                 'jit=${stats['jitter_ms']}/${stats['tx_jitter_ms']} '
                 'loss=${stats['loss_pct']}/${stats['tx_loss_pct']} '
                 'aud=${stats['audio_delay_ms']}/${stats['audio_jb_ms']} '
+                'aud_filtered=${stats['audio_filtered_delay_ms']} '
                 'vid=${stats['video_delay_ms']}/${stats['video_jb_ms']} '
                 'pacer=${stats['pacer_delay_ms']} '
                 'sdelay=${stats['video_send_delay_ms']} '
