@@ -10114,3 +10114,55 @@ and obfs4/TCP, including actual canonical rekey. The complete session suite
 passes 490 tests, with six existing tests and one doctest ignored. Changed
 files pass rustfmt and whitespace checks. No new physical call result is
 claimed at this point; clients and the owned relay are being rebuilt together.
+
+### Physical P2P control after generic recovery — 2026-10-09
+
+SDK 4a754fa6/root 6dae70ce builds the Mac and Android native clients and the
+owned Linux musl relay. Both apps identify as 0.13.84+2414. Mac retains
+production media build 2405 (opt-in RTP metadata); Poco retains media 2374.
+Mac code sections match the freshly built libraries and its bundle seal is
+valid. Poco installs in place with the same signer; the pulled installed APK
+matches the verified package exactly. Identities and history are preserved.
+
+Stand 2414 verifies both bootstrap canonical connections to the owned relay
+as QUIC and stops topology closures before calling. Unlike 2399/2401/2404/
+2406/2412, whose active-call samples all report `relay`, every active 2414
+sample reports `p2p` at both ends. Direct AppRtData channel logs corroborate
+that route. Therefore this physical call does not verify the new relay-side
+recovery or provide a comparison on the same route as those earlier calls.
+Ring takes 0.419 s; both ends are active at 1.777 s. Microphones/cameras remain
+requested on throughout the common 60-second period, with no file/screen load.
+
+| P2P 2414 measurement | Mac | Poco |
+| --- | --- | --- |
+| Median / maximum native audio delay | 172 / 569 ms | 456 / 895 ms |
+| Maximum sampled native receive age | 2235 ms | 2369 ms |
+| Cumulative native interruptions / duration | 14 / 13862 ms | 14 / 9484 ms |
+| Video transmitted / received | 0 / 0 | 0 / 0 |
+
+The fresh Mac RTP batch contains 3026 packets over 60.969 s, sequence gaps and
+891 adjacent arrivals less than 1 ms apart. Its largest adjacent-sequence,
+20-ms-RTP arrival interval is 1265.666 ms. Drain wait is median 0.013 ms,
+p99 0.023 ms and maximum 0.064 ms. Sparse authenticated cell samples match
+66 Poco-to-Mac and 44 Mac-to-Poco cells, with relative send-to-receive delay
+spans of 1335/1043 ms. The sampled local source path from native direct send
+through socket write, daemon read and session admission takes at most 1/4 ms
+on Mac/Poco; sampled receiver SDK delivery takes at most 0.617/5.805 ms.
+
+Existing encrypted UDP fingerprints independently match 351 Poco-to-Mac and
+268 Mac-to-Poco datagrams, all with receiver kernel timestamps. Relative
+send-to-kernel phase spans are 1388.836/2396.702 ms. Kernel-to-socket-read
+maxima are 1.627 ms on Mac and 3.728 ms on Poco. Millisecond log quantization
+can produce sub-millisecond negative differences; 30 Poco observations share
+a GRO timestamp. These are software kernel receipt stamps, not radio/hardware
+arrival times. They establish latency variation before the userspace receiver,
+without locating its precise lower-stack, modem or carrier cause, calibrating
+absolute one-way latency, or identifying encrypted UDP samples as audio.
+
+Mac starts eight outgoing child replacements: seven cancel after old-channel
+ACK progress and one verifies/switches. Poco starts none. No change to that
+policy is justified solely by this observation. All owned apps/helpers are
+verified absent, Poco's UID and ADB forward are empty, the three exact relay/
+collector/capture units have MainPID=0 and are inactive, and the remote folder
+is removed. The quality goal remains active; an explicit authenticated relay
+control is next, with no stored policy change.
