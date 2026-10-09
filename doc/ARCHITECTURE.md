@@ -10858,3 +10858,33 @@ the later phone audit is unavailable, while its earlier cleanup verification
 is retained. Reconnection is requested for the next physical check. Raw
 captures and correlation details remain in the private stand directory. No
 SDK or relay policy change, push or release occurs; the original goal is active.
+
+
+#### Desktop screen permission prerequisite: local stand 2451
+
+A fresh continuation finds the worktree clean at 6c4c0246 and no Android devices
+in the current ADB list. The preceding cycle made progress: it repaired active
+file-fetch joining, passed 81 tests and produced verified build 2449. No old
+stand/build process is assumed live or restarted from a state file.
+
+With Poco unavailable, a read-only permission probe runs inside the exact owned
+Mac build 2449 process. A test-only inserted library dispatches to that process's
+main queue and calls CGPreflightScreenCaptureAccess; the probe PID matches the
+launched app. Its result is false. It never calls CGRequestScreenCaptureAccess,
+starts capture, records audio/video or changes TCC/system settings. Native source
+inspection confirms both desktop backends require existing access or successful
+user permission before starting. Thus screen transmission on the current test
+build needs a user-granted OS permission. This is a current prerequisite check,
+not a retrospective attribution of stand 2445's failure: the ad-hoc binary has
+changed since that earlier capture attempt.
+
+The app remains locked; unauthenticated health/devices requests return HTTP
+errors and are not interpreted as media failures. The permission probe itself
+does not depend on those API requests. The owned app is terminated, its exact
+PID is absent, its runtime log is archived/removed from the bundle, and strict
+sealing passes. The installed application, native libraries, network/relay
+policy, VPN, routing and system permissions are unchanged. The user is asked
+to grant screen recording for the test build; the earlier Poco reconnection
+request remains pending. Audio-under-file-load verification, usable simultaneous
+video/screen and the full original goal remain incomplete. Raw evidence stays
+private; no push or release occurs.
