@@ -9869,3 +9869,76 @@ helper processes absent, the ADB forward removed and the Mac bundle seal valid.
 Offer-delay diagnosis, physical video recovery, simultaneous file/screen
 operation and acoustic speech quality remain unfinished. No release or
 production relay deployment is implied by these stand results.
+
+### Endpoint signaling queue correction and resumed Poco checks — 2026-10-09
+
+Poco returns on mobile data with Wi-Fi off. Stand 2399 checks actual canonical
+obfs4/TCP on both endpoints before calling and stops the topology controller
+before the measured call, removing continuous forced neighbor closures. The
+ring takes 1.537 seconds, but both endpoints become active only at 34.374
+seconds. Poco records the answer with receipt age 31124 ms, queue wait 0 ms and
+handler time 7 ms. Remote clock offsets affect absolute ages, but cannot explain
+the approximately 32-second setup wait seen by the stand controller.
+
+Matching 2397's rejected offer to its durable frame id and Poco's native source
+and media-device binding confirms that it belongs to the test call. Its early
+copies arrive under Poco's physical address with claimed provenance; only the
+later ratchet-authenticated identity copy rings. The consent check is retained.
+An expired Mac signing delegation warning remains, but earlier successful calls
+already establish that this warning alone does not explain every setup delay.
+
+Both clients are then rebuilt as 2400 with SDK 1bd916e9, instead of changing
+only the relay. Packaging verifies the new native code, the unchanged production
+media 2374, identical Android signing identity and an in-place installation.
+The first Android build exhausts the external build-cache disk; removing only
+obsolete local SDK compilation outputs allows a successful rebuild. Stand 2401
+uses Mac TCP and Poco QUIC with the controller stopped before measurement.
+Long signaling and audio receive gaps still reproduce with the updated clients.
+
+Source inspection finds a separate concrete producer-isolation defect: both
+cached per-device compatibility-control fan-out and its ordinary relay fallback
+override the endpoint's local signaling lane with REALTIME, the primary media
+lane. SDK 685705b6 preserves the local lane instead. Legacy media's default
+primary mapping is retained; encrypted payloads, neutral Forward headers,
+recipient proofs, replay checks and relay scheduling are unchanged. Compatibility
+control still has no optional traffic-class suffix.
+
+The regression fills the real SessionTxRegistry primary queue, leaves it
+undrained, and drives the production IPC handler through both cached addressing
+branches. Before the correction no control frame survives; afterwards control
+uses INTERACTIVE while primary payloads remain intact. The received ciphertext
+still opens with authenticated provenance, and the inter-node wire stays neutral.
+All 149 IPC tests pass (5 existing tests ignored), including the actual IPC
+server test updated to require the corrected local signaling lane. Rustfmt and
+whitespace checks pass. The SDK correction is committed without signing/pushing.
+
+Both clients are rebuilt and verified as 2403 with SDK 685705b6, then Poco is
+updated in place with the same signer. Stand 2404 repeats the Mac TCP / Poco
+QUIC path through the unchanged, verified 1bd916e9 relay. The initial join
+request reports alreadyRegistered; the subsequent actual canonical-session and
+transport checks pass on both endpoints. This is not a missing relay connection.
+
+| Measurement | 2399, clients e48ecd61, both TCP | 2401, clients 1bd916e9 | 2404, clients 685705b6 |
+| --- | --- | --- | --- |
+| Ring / both active | 1.537 / 34.374 s | 34.034 / 35.417 s | 1.536 / 2.737 s |
+| Median native audio delay, Mac / Poco | 296.5 / 331.5 ms | 375 / 426 ms | 331 / 334.5 ms |
+| Maximum audio receive age, Mac / Poco | 311 / 722 ms | 2242 / 2454 ms | 339 / 446 ms |
+| Native interruption count, Mac / Poco | 4 / 0 | 12 / 13 | 0 / 0 |
+| Native interruption duration, Mac / Poco | 1000 / 0 ms | 7586 / 6591 ms | 0 / 0 ms |
+| Video transmitted / received | 0 / 0 on both | 0 / 0 on both | 0 / 0 on both |
+
+Each measured period lasts 60 seconds after both endpoints become active;
+delay medians use that common active period. Cameras/microphones are requested
+on, with no manual video disable, concurrent file load or acoustic speech proof.
+Video remains held by audio protection. These individual runs do not prove a
+reliability rate or assign all physical improvement to the queue correction.
+In 2404 sampled daemon-to-media receipt ages peak at 190 us on Mac / 5540 us on
+Poco. Sparse cross-device cell timestamps vary by roughly 309–314 ms, but use
+uncalibrated wall clocks and do not locate the exact network/capture boundary.
+
+2404's final relay-log SSH copy exits 255 after retaining 65536 bytes; that
+partial capture must not be treated as a complete relay log. Independent TCP
+capture succeeds. All owned apps, UID processes, helpers and ADB forwards are
+verified absent after each stand; relay units are stopped, directories removed,
+and the owned Mac bundle seal verifies. The 330-ms receiver buffering, reliable
+video recovery, file/screen coexistence and speech quality remain unfinished.
