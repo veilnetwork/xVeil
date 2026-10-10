@@ -12031,5 +12031,53 @@ the same call/peer. Older readiness and undated legacy fallback still preserve
 the fallback. Three regressions, the full call-service tests and observer/route
 operation tests pass (167 total), as does targeted analysis. This proves the
 logic correction, not that this race caused stand 2499's route behavior.
-Installation and physical checking of this last correction remain pending;
-quality requirements remain open. Commits remain unsigned and unpushed.
+Installation and physical checking follow below; quality requirements remain
+open. Commits remain unsigned and unpushed.
+
+#### Installed fallback correction and live batch-mode check: cycles 2501–2502
+
+Build 0.13.84+2501 installs root ca4272c9 on both owned stand endpoints. Mac
+media text and its 97 exports match the preceding production native artifacts,
+without test hooks; FFI text and the app seal are verified. All 16 Android
+native libraries match the pulled installed 2497 APK byte for byte. The APK
+uses the same signer, installs in place, and matches the APK pulled from Poco.
+Identity data, user network/power settings and relay policy are preserved.
+
+Two authenticated, read-only observations of both running nodes during the
+quiet call reconfirm background_mode=false, background_keepalive_factor=1
+and battery_route_probe_factor=1. Actual running configs specify neither
+outbound_batch_window_ms, outbound_batch_always nor low_battery_threshold_pct.
+Runtime startup and config reload map an absent window to zero, independently
+of the background tier. The SDK's delayed outbound battery coalescer is thus
+disabled in this installed test. The optional VeilLifecycleBinding is not
+attached by xVeil, and withOutboundCoalescing has no caller. This excludes this
+veil batch mechanism as the cause of the observed pauses, without identifying
+or excluding a vendor/modem power policy. Ready-packet packing without an
+accumulation timer is a separate mechanism.
+
+Call 2502 rings at 0.795 s and becomes active on both endpoints at 2.847 s.
+Both upgrade to P2P by 27.665 s. The same-call observer qualifies 25/30 direct
+observations and 30/30 temporary relay observations; median elapsed times of
+successful observations are 301/147 ms, maximum 406/499 ms. An unsuccessful
+qualification is not a packet-loss measurement. After the observation, an
+explicit diagnostic relay recovery succeeds: Mac changes at 67.145 s and
+Poco at 67.524 s. Both keep engine epoch one; handovers increase from one to
+two. This verifies an installed, delivery-qualified handover, not a causal
+demonstration that the queued-fallback race caused earlier physical behavior.
+
+The call reserves 210 active seconds. Samples from seconds 37–65 on P2P have
+Mac/Poco median audio delays 193/374 ms, maximum payload ages 783/401 ms and
+interruption counters 3→16 / 0→2. After a ten-second settling interval, relay
+samples from second 77 onward have median delays 174/190 ms, maximum payload
+ages 4707/4560 ms and interruption counters 17→52 / 2→39. These intervals
+have different durations and the direct interval includes diagnostic probe
+traffic; they do not establish that switching routes improves speech. Quiet
+testing does not evaluate acoustic intelligibility. Pauses remain unresolved
+on both transports, and no automatic quality preference is added.
+
+Camera capture produces 6327/6297 frames, while transmitted and remote video
+frames remain zero; audio protection still suppresses video. Audio RTP drop
+counters finish at one on each endpoint. The quality goal remains open.
+Independent cleanup verifies exact Mac/logcat PIDs exited, the entire phone
+app UID absent, forwarding removed, Mac output still muted at zero, and the
+owned Mac app's seal valid. No signed commit, push, tag or release is performed.
