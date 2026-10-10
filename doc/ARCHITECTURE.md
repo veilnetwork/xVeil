@@ -12230,3 +12230,69 @@ and usable video remain unresolved. Cleanup independently verifies exact
 Mac/logcat processes exited, the whole Poco app UID absent, forwarding removed,
 Mac output muted at zero and the app seal valid. No release, push, signed commit
 or relay scheduling change is made.
+
+
+#### Writer progress diagnosis and primary expiry: cycles 2509–2511
+
+SDK 958be19a adds local writer-timeout metadata: write versus flush phase,
+accepted byte cursor, remaining bytes, elapsed time, queued blobs and existing
+trusted local control/primary flags. Accepted bytes are transport progress,
+not proof of peer delivery. The original partial-progress renewal, flush
+completion bound and teardown remain unchanged. Generic encrypted QUIC path
+snapshots also include stream-frame and flow-credit frame counters; no wire
+priority, relay scheduler, codec or payload format changes. Ten writer tests
+pass, including undrained partial-write and buffered-flush distinction and
+preserved pressure/idle semantics. Two datagram-recovery tests pass; the
+existing manual blackout characterization stays ignored. The new diagnostic
+fields are initialized only as zeros in that recovery test's synthetic fixture.
+
+Both production FFI builds finish successfully. Build 0.13.84+2510 uses the
+new SDK on the owned Mac stand and installs in place on Poco. Native media
+is unchanged from 2504, with its 98 production exports and no test hooks.
+Mac FFI code matches the fresh artifact, differs from the preceding FFI, keeps
+the export set and diagnostic marker, and the bundle seal verifies. Android
+has exactly one changed native library, FFI, out of 16; exact stripped artifacts,
+unchanged FFI exports, same signer and pulled installed APK bytes all verify.
+No FakeADM or native test-hook artifact is installed. A read-only clock sample
+puts Poco approximately 532 ms behind the host, with a best 38-ms round trip;
+new cross-endpoint trace summaries account for that offset. Cycle 2508's phone
+log times were not independently calibrated, so their quoted host-relative
+positions are approximate; the same-phone closure/refusal ordering is exact.
+
+Quiet stand 2511 runs a 60-second audio warm call, then a 180-second video
+call, without a mirror, observer, forced recovery or network/power changes.
+The warm call becomes active on both P2P endpoints at 1.200 seconds; the second
+call at 5.409 seconds. Neither has an outgoing route handover. No writer
+stall, seal-open failure or source-app mismatch appears. This cannot demonstrate
+repair of 2508's writer failure: the installed change is diagnostic only and
+that failure simply does not recur in this run.
+
+The second call nevertheless loses audio badly. After 30 seconds, Mac/Poco
+native median delay gauges are 102/267 ms, maximum payload ages 2995/2813 ms,
+and interruption counters increase 1→129 / 1→32. Mac's smaller median reflects
+repeated receive outages and does not show improved playout. Final incoming
+loss estimates are 39%/9%; accepted audio counts are 4463/8546 against peer
+source payload counts 7708/9029. RTP admission drops at the native boundary
+stay zero; this does not establish transport delivery. Camera capture stays
+active but video transmission remains zero because audio never earns recovery.
+
+The independent primary admission traces localize an additional transport
+problem while the parent session stays live. On Poco, unsent datagram expiry
+increases 12→2751, QUIC lost packets 4→564, and congestion window declines
+19683→2400 bytes across the second call. 36 of 178 sampled admissions are at
+2400 bytes; final smoothed RTT is 353 ms. Mac's independent primary has
+expiry 4→442 and retains a 17635-byte window. These are separate local queue
+expiry and QUIC packet-loss counters, not counts of logical audio messages.
+The sender keeps admitting roughly 50 payload packets per second but frequently
+cannot transmit them before the 200-ms local deadline. Stream-frame counters
+on each primary child stay at one; the ongoing call traffic uses its independent
+datagram transport. Battery accumulation remains disabled. This run establishes
+that ordered-session closure is not required for the poor audio; the next
+investigation must cover congestion control and source adaptation as well as
+parent/control lifetime. Discarding more speech or relaxing video protection
+would not satisfy the goal.
+
+Independent cleanup again confirms exact Mac/logcat PIDs exited, the entire
+phone app UID absent, forwarding removed, Mac output muted at zero and bundle
+seal valid. SDK and root edits are committed unsigned and unpushed. Usable
+voice/video and separation under contention remain unproven; the goal stays open.
