@@ -11887,3 +11887,44 @@ the owned app's seal valid. The temporary Android builder image/container
 are removed, its cached container remains stopped, and the builder VM is
 stopped with an unchanged configuration. No signed commit, push, tag or release
 is performed.
+
+#### Decoder window experiment rejected: cycles 2493–2494
+
+The battery-batching hypothesis remains excluded for these installed tests:
+the observed outbound batch window is zero, background mode is false and
+the battery threshold/always-batch opt-in is absent. The SDK's outbound
+coalescer also bypasses local interactive/realtime queue heads. Media-cell
+packing combines packets already ready in the producer queue without an
+accumulation timer. This does not exclude modem/vendor policies. It does not
+add a media label or preferential service at any relay.
+
+WebRTC ChannelReceive::OnReceivedPayloadData returns on an empty payload
+before NetEq::InsertPacket. Thus padding caused the previously corrected
+liveness error, but does not directly add decoded audio to the jitter buffer.
+The underrun optimizer samples the maximum relative delay per 500-ms window,
+then takes the configured quantile of those maxima. A private candidate uses
+100-ms windows and forget_factor 0.98 instead of the production 500-ms/0.90;
+reorder_forget_factor remains 0.95. No installed library is changed.
+
+An extended synthetic PCM classifier uses 28 distinct tone phases, changing
+every 500 ms, to measure the delay between source phase creation and actual
+decoded PCM. It feeds real Opus/NetEq with the same nonempty-packet timing
+envelope previously captured on Mac. Original audio, DTX and packet loss are
+not replayed. The first comparison schedules delivery relative to the encoder
+callback. Median latency improves 649.58 to 612.47 ms, but p95 worsens 728.14
+to 793.29 ms and maximum latency grows 1628.96 to 1929.95 ms.
+
+The repeat instead fixes release times to RTP media time plus the captured
+relative envelope and 40-ms floor, avoiding encoder callback scheduling as a
+source of delivery-time variation. Baseline and candidate execute serially.
+Median PCM latency improves 639.97 to 599.37 ms, while p95 is 709.98/707.33 ms.
+However concealed samples increase 430140 to 441711, an additional 241.06 ms
+at 48 kHz, and recovery starts near 491 ms versus 97 ms on the baseline.
+Both have six interruptions and 13 buffer flushes; heard phase counts are
+158/157. Host tick lateness remains below 8 ms. These runs demonstrate mixed
+decoder behavior, not a physical-call improvement; the candidate is rejected.
+
+Independent process inspection confirms both native benchmarks and their
+wrapper have exited. No hardware app was started during these experiments;
+installed build 2489 remains unchanged. Audio pauses and untransmitted video
+remain unresolved. Changes are committed unsigned and unpushed.
