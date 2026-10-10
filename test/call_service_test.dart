@@ -2812,8 +2812,84 @@ void main() {
       });
     });
 
+    for (final throws in [false, true]) {
+      test('unconfirmed direct candidate retries without replacing relay '
+          '(throws=$throws)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FailOnceDirectSwitchMedia(throws: throws)
+            ..openedTransport = CallTransportKind.relay;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          media.onCandidateFailure = () => fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'candidate-retry',
+              type: CallSignalType.transportInfo,
+              transport: CallTransportProposal(CallTransportKind.relay),
+              protocolVersion: 6,
+            ),
+          );
+          offer(fake, 'candidate-retry');
+          svc.accept();
+          async.flushMicrotasks();
+          fake.onCallSignal!(peer, ready('candidate-retry'));
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          expect(media.switches, [CallTransportKind.p2p]);
+          expect(media.openedTransport, CallTransportKind.relay);
+          for (var i = 0; i < 10; i++) {
+            fake.onCallSignal!(peer, ready('candidate-retry'));
+            async.flushMicrotasks();
+          }
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+          expect(media.switches.length, 1, reason: 'failure must back off');
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+          expect(media.switches, [CallTransportKind.p2p, CallTransportKind.p2p]);
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    test('revoking local P2P consent during candidate backoff prevents retry', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _RejectDirectSwitchMedia()
+          ..openedTransport = CallTransportKind.relay;
+        var allowed = true;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => allowed,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'retry-revoked');
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(peer, ready('retry-revoked'));
+        async.flushMicrotasks();
+        allowed = false;
+        async.elapse(kCallP2PCandidateRetry);
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
     test(
-      'native admission loss announces relay and does not keep retrying',
+      'native admission loss announces relay and bounds candidate retries',
       () {
         fakeAsync((async) {
           final fake = _FakeMessaging();
@@ -4721,5 +4797,25 @@ class _RejectDirectSwitchMedia extends _FakeMedia {
   Future<bool> switchRoute(CallTransportKind transport) async {
     switches.add(transport);
     return false;
+  }
+}
+
+class _FailOnceDirectSwitchMedia extends _FakeMedia {
+  _FailOnceDirectSwitchMedia({required this.throws});
+  final bool throws;
+  bool failed = false;
+  void Function()? onCandidateFailure;
+
+  @override
+  Future<bool> switchRoute(CallTransportKind transport) async {
+    switches.add(transport);
+    if (transport == CallTransportKind.p2p && !failed) {
+      failed = true;
+      onCandidateFailure?.call();
+      if (throws) throw StateError('candidate delivery unconfirmed');
+      return false;
+    }
+    openedTransport = transport;
+    return true;
   }
 }
