@@ -12960,3 +12960,59 @@ Thus the native acceptance of a 1-fps encoder target does not establish that
 a complete frame reached the wire. This is a concrete interaction to address
 before attributing the zero decoded video solely to the external network.
 No change to that SDK admission policy is made or claimed verified here.
+
+### Cycle 2563: account secondary pressure in bytes
+
+The SDK's endpoint-local secondary admission now charges the encrypted work
+item's byte estimate instead of spending its entire allowance on each packet.
+All local secondary producers and neighbors share 8192 bytes per 200-ms window.
+The estimate includes the session record framing; it is not a measurement of
+QUIC/IP bytes. Primary and neutral transit retain their existing paths. Small
+video-control packets can share an allowance with several packets of a small
+encoded frame. This does not grant atomic delivery of an arbitrary large
+camera frame or exempt video from congestion/freshness bounds.
+
+Oversized compatibility items are admitted alone and charged across future
+windows. Repeated pressure observations do not refund that debt. The same
+allowance is used by DATAGRAM and ordered compatibility paths. Reliable files
+and recovery RPCs retain their separate budgets. No wire role, relay priority
+or application-specific preference is added.
+
+A private counterfactual compiles the previous admission implementation with
+only its signature adapted to accept the byte argument. The new regression
+(96-byte control followed by four 1200-byte work items) fails on that old
+implementation and passes on the new one. Additional checks cover concurrent
+neighbors, budget exhaustion, renewed pressure, oversized debt, arithmetic
+overflow and idle expiry. The focused production scheduler/QUIC suite passes
+66 tests, with six existing ignored cases. Three ordered-stream assertions
+are changed from a packet-count limit to the new byte ceiling; they also
+require multiple small items to progress while neutral traffic and complete
+reliable file bytes still arrive. The first run's three failures are retained
+privately; they are not relabelled as passing results.
+
+Veil commit `2149e976` is unsigned and unpushed. Fresh production Mac/Android
+FFI libraries are built from that clean commit. Build 0.13.84+2563 uses the
+unchanged production audio/video codec libraries (99 exports, no test hooks).
+Mac bundled instruction sections and its pre-launch seal are verified.
+The signed Android artifact keeps the same signer and native-library set as
+2561; only the FFI library changes. Poco disconnects before the first package
+lookup, so installation fails before replacement. Build 2563 is not installed
+and no physical call or owned GUI application is started in this cycle.
+
+The 360-second real-codec compact relay run under the neutral 1024-kbit/s FIFO
+fails the unchanged audio gate. Mixed decoded-PCM maxima are 269.9/301.2 ms
+(p95 210.0/211.6 ms), versus 200.9/200.6 ms in 2561. Native receiver-delay
+maxima are 234/282 ms. There are 2/6 quiet PCM frames, with all 340 tone edges
+matched in both directions and zero missing edges. Video delivers 188/230
+frames; both 512-KiB files arrive with exact hashes after approximately
+327.74 s. No native/poll/authentication failures are reported; maximum fixture
+driver interval is 25.34 ms. This is a quality regression, and build 2563 is
+explicitly withheld from installation. Passing scheduler tests do not establish
+passing audio quality.
+
+All three fixture nodes stop with success. The owned Python/Dart processes
+exit and no fixture sockets remain. The user asks to stop; no further code or
+test work is started. The proposed next step is to retain a bounded packet
+burst while reducing its average byte rate, then repeat the unchanged codec
+gate before installation. That adjustment is not implemented. The overall
+goal is paused with the failed experiment preserved for the next work cycle.
