@@ -12554,3 +12554,59 @@ applications are launched this cycle; independent inspection confirms no
 owned Mac/native-fixture process or phone API forward remains. The last
 verified phone installation is still 2519. The user has authorized audible
 playback for the next physical comparison; preserve their chosen volume.
+
+### Cycles 2532–2540: native adaptive packet duration and reproducible PCM gate
+
+Poco remains absent from ADB, so no application or physical audio device is
+started. A separate WebRTC build enables protobuf in a private output directory
+without changing the clean checkout or its existing build arguments. Its
+bundled linker cannot read this host's macOS 27 SDK TAPI files when linking
+protoc. Regenerating the isolated build with `use_lld=false` successfully
+builds the archive with the system linker. The native test wrapper supplies
+the protobuf include path only for protobuf-enabled test-hook builds.
+
+The standard Opus ANA frame-length controller is tested with a 16-kbit/s
+payload floor, supported durations 20–60 ms and its bitrate controller. The
+fast policy selects durations from the current target. It retains codec and
+stream state while the client bandwidth budget changes; there is no frame
+reconfiguration or observer-weight toggle at the phase boundaries. The slow
+policy is worse in the preliminary duplex comparison: three modeled RTP
+drops and signal-transition delay up to 347 ms after recovery, versus no drops
+and about 233 ms with the fast policy. These are fixture results, not phone
+measurements or proof that all network pauses have this cause.
+
+The committed `--adaptive-encapsulation` fixture uses the earlier
+160→64→160-kbit/s link model independently in both directions, charges every
+RTP/RTCP datagram its size plus 209 bytes, and changes the client budget
+160→48→160 kbit/s. The lower client budget leaves room for control traffic.
+It excludes IP/UDP/QUIC overhead and packing amortization. Each phase lasts
+four seconds; PCM checks sample the final three seconds. Both directions
+produce all 300 voiced ticks per phase, with zero RTP/RTCP drops and zero
+interruptions. Forward/reverse signal-transition delays peak at 229/229 ms;
+receive-delay gauges peak at 151/148 ms. Timestamp steps identify 40-ms packets
+in the normal phases and 60-ms packets in the constrained phase. The existing
+96-kbit/s audio transport ceiling is relevant to that normal-phase duration;
+a final transport ceiling still needs measured full connection cost.
+
+`--adaptive-encapsulation-silence` adds a 1.2-second source pause in the
+constrained phase. The source yields 181 voiced ticks in that phase, then
+returns to 300 in recovery; the reverse direction keeps all 300 ticks.
+Rendered source audio resumes in 183 ms. Neither direction reports an
+interruption and the modeled link drops no RTP/RTCP. The ordinary
+protobuf-disabled `--adaptive-bitrate` gate also passes: 300/300/300 voiced
+ticks, maximum receive delay 47 ms. Test libraries contain synthetic ADM and
+test hooks and must never be packaged onto devices.
+
+To repeat the new gates, use a separate WebRTC output built with
+`rtc_enable_protobuf=true` and pass its path via `WEBRTC_OUT` to
+`flutter/veil_media/test/run_audio_playout_smoke.sh --adaptive-encapsulation`
+(or `--adaptive-encapsulation-silence`), with `TMPDIR=/private/tmp/` and
+`WEBRTC_SRC` pointing to the checkout. These opt-in gates initialize ANA
+before synthetic capture; they do not enable it in the production engine.
+
+Required next work is production wiring of adaptation and accurate transport
+cost/budget accounting, followed by physical cellular speech/video and
+concurrent file/screen tests. The prepared 2531 APK still carries diagnostics
+only and has not been installed; the last verified phone build is 2519.
+Independent inspection must still close each future owned stand session.
+The complete audio-priority and transport-isolation goal remains open.
