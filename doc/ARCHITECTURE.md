@@ -12358,3 +12358,72 @@ Independent cleanup confirms exact Mac/logcat PIDs exited, the entire phone
 UID absent, forwarding removed, output still muted at zero and a valid app seal.
 The goal remains active, including transport delivery, quiet speech verification
 when available, usable video and isolation under concurrent screen/file traffic.
+
+### Cycles 2515–2519: bound primary write-ahead before irreversible encryption
+
+Further inspection of stand 2514 finds no neutral Forward datagram transport
+on any sampled first relay hop. Mac uses five sampled relay hops; Poco six.
+Poco's eight keepalive timeout closures match those relay peers. This alone
+does not establish old relay software: the readiness predicate also requires
+a live negotiated transport. Sparse authenticated cell matching, accounting
+for the measured phone clock offset, confirms a primary cell admitted through
+Poco's socket/daemon/relay queue in approximately 1 ms reaches Mac after
+10.757 seconds. Other matched primary cells take 2–3.7 seconds. These are
+cell observations, including audio feedback, not a count of delayed speech
+frames or proof of which relay/link stalled.
+
+An initial compatibility-classifier hypothesis was wrong for the current
+producer. `send.rs` adds the neutral class suffix whenever its trusted local
+realtime flag is set, even when the next hop reports no neutral datagram
+transport. A suffix-free fixture therefore did not model this producer.
+Candidate SDK `8478a10c` was reverted by `20011d8b` before phone installation
+or a stand launch. Its unused 2516 packaging was replaced by the final build.
+There is no production classifier change from that experiment.
+
+The actual ordered fallback has a different boundary: age is enforced while
+frames remain in the scheduler, but already encrypted frames enter an
+immutable FIFO. Cipher counters prevent dropping those bytes later. The prior
+source byte budget restricted bulk write-ahead, while primary could continue
+filling this FIFO. A real SessionRunner/stream/cipher regression feeding the
+existing marked Forward format at 50 packets/second captures nine committed
+primary frames while the reader is stopped. A four-packet burst also escapes
+as a multi-frame immutable batch. Both regressions fail before the final fix.
+
+SDK `7ea26089` now holds local primary in its original age-limited scheduler
+while one blob waits for the canonical writer and ends encryption batches
+after one local primary envelope. One frame can be writing and one waiting;
+newer queued frames retain their existing ability to expire before encryption.
+The existing writer-ready wake resumes admission without new input. Trusted
+control, neutral transit, independently transported data and the wire format
+retain their existing admission rules; no relay priority or content hint is
+added. This bounds source replay after a stall; it cannot retract bytes already
+writing or guarantee delivery through a stalled external relay.
+
+Both paced and burst regressions now pass, including real decrypted peer
+output, unique increasing sequences, fresh source recovery without new input
+and unchanged neutral class suffix. All 13 production scheduler pressure
+fixtures pass, covering peer compatibility, other-link files, neutral traffic,
+independent source budgets and reconnect ownership. The earlier prefix fixture
+now expects one committed old primary behind a neutral blob instead of two:
+the second remains age-limited and expires before encryption. This is the
+intended stricter replay bound, not evidence of improved physical speech.
+
+Fresh production FFI builds complete for Mac/Android. Packaging 0.13.84+2519
+preserves the production Opus media library from 2513. APK verification confirms
+the same signer, all 16 expected native libraries, unchanged FFI exports and
+exact production FFI/media bytes; only the FFI library differs from 2513.
+The Mac bundle's production native text, kernel version and seal also verify.
+Poco disconnects from ADB before installation; no new stand applications are launched. Physical
+voice/video quality and behavior under concurrent screen/file traffic remain
+unverified. The next required action is installation and a quiet cellular
+comparison when the phone is available. SDK/root edits remain unsigned and
+unpushed, and the original goal remains open.
+
+The follow-up battery-mode check confirms that `withOutboundCoalescing` is
+still an unused helper in xVeil, not part of configuration composition. Veil's
+optional delayed coalescer bypasses local INTERACTIVE/REALTIME queue heads.
+This is distinct from the native media sender's ready-packet batching: it uses
+`try_recv` to pack packets already available and adds no accumulation timer.
+Earlier authenticated runtime observations above found a zero delayed batch
+window on both endpoints during the failing calls. No new physical observation
+is claimed while Poco is unavailable, and no power or network setting changes.
