@@ -12694,3 +12694,71 @@ The last verified phone installation remains 2519.
 
 SDK implementation is committed locally as `db3766e2`; no commits are signed
 or pushed, and no release/tag is published this cycle.
+
+### Cycles 2551–2555: cellular impairment and bounded sender queue
+
+Poco is upgraded from diagnostic 2519 to 2531 with a same-signer in-place
+install. The installed APK matches the verified signed artifact; identity and
+data are retained. Both endpoints now have the UDP byte counters, but their
+media libraries still use production 2513, with fixed 20-ms audio packets.
+The new production ANA library is not deployed to either endpoint yet.
+
+A 60-second Wi-Fi audio baseline rings in 0.572 seconds and becomes active on
+both endpoints in 1.362 seconds. It remains P2P, with no RTP loss, interruptions
+or source RTP drops; maximum audio delay is 60/67 ms (Mac/Poco). Much of the
+Mac source is DTX, so this does not certify continuous speech quality.
+
+After the user disables Poco Wi-Fi, Android confirms cellular default
+transport. A 120-second audio stand rings in 0.409 seconds and becomes active
+in 0.930 seconds. It remains P2P throughout, but reproduces impairment:
+
+- Maximum transmit/receive RTP loss reports reach 38/32 percent; these are
+  reporting windows, not whole-call UDP loss percentages.
+- Maximum receive audio delay is 514/527 ms and interruption counts are
+  35/10 (Mac/Poco). Native source RTP drop counters stay zero.
+- Primary outgoing QUIC on Mac sends 3,448 UDP packets, reports 69 additional
+  lost packets and 27 expired outgoing datagrams, with maximum RTT 569 ms.
+  Poco sends 3,645, reports 358 additional lost packets and 680 expired
+  datagrams, with maximum RTT 794 ms. QUIC loss and expiry counters have
+  different denominators from RTP loss reports.
+- Prepared UDP byte deltas equal successful socket-send byte deltas on both
+  primary connections. The longest observed local driver timer delay is
+  40 ms on Poco, versus 2.3 ms on Mac; no multi-second driver pause is observed.
+  Successful socket sends do not prove subsequent network delivery.
+
+The user's ICMP/MTR evidence is a plausible lead for periodic network
+impairment. Two 30-probe Mac ping samples to the reported destinations show
+zero loss and cannot exclude periodic faults. Concurrent TCP/UDP MTR processes
+are already present, so no additional MTR is launched. Neither those ICMP
+destinations nor this cellular stand establish where the media path loses
+packets. In particular, this stand does not reproduce P2P-to-relay handover.
+The application checks an established direct audio receive outage after
+three seconds, re-reads native telemetry before acting, and verifies the relay
+candidate; a percent-loss gauge alone does not trigger that recovery.
+
+The native characterization fixture now records actual maximum modeled sender
+queue, admitted RTCP cost and per-phase concealed samples. A 36-second paired
+capacity-only run (160→64→160 kbit/s, charging 209 bytes per packet) compares
+200-ms and 100-ms sender bounds. With 200 ms, both directions have all 1,100
+voiced ticks per phase, 20 modeled drops, and signal latency up to 370.05 ms.
+With 100 ms, both have all 1,100 ticks, 24 drops, no interruption-counter
+increments, and signal latency up to 253.18 ms. Weak-phase concealed samples
+fall from 27,973/29,403 to 22,812/26,549. The new queue100 mode is diagnostic;
+it changes neither the production 200-ms source deadline nor receiver buffering.
+Unknown or multiple smoke arguments now fail with exit code 2 instead of
+silently exercising the default scenario; both rejection cases are verified.
+
+A fresh protobuf-enabled Android WebRTC archive is compiling from pinned source
+`4ef980bc2c70834276c791e71e7834b8809f24ad` in isolated output
+`out/android-arm64-ana2555`. The owned `xveil-media` Colima profile and build
+container remain running only for this build. Completion, production export
+checks, fresh app packaging and physical adaptation/concurrency verification
+are still pending. Private build handle/log metadata is under
+`/private/tmp/xveil-call-2220`; do not restart a live build after an observation
+timeout or deploy a synthetic ADM/test-hook library.
+
+Both completed stands hang up, close the owned Mac and Android app processes,
+verify Android UID exit and remove API forwarding. Poco subsequently disappears
+from ADB; the attempted next stand fails before launching any app. No system
+volume, network policy, relay classification or relay priority is changed.
+The overall media isolation and quality goal remains open.
