@@ -11837,3 +11837,53 @@ no test hooks. Android rebuilding, app packaging, installation and physical
 call verification of this correction remain pending. No hardware apps are
 started in these experiments; an independent audit confirms every owned native
 test process has exited. Commits remain unsigned and unpushed.
+
+#### Installed payload-clock validation and relay comparison: cycles 2489–2492
+
+Build 2489 packages production media from SDK a3018281 on both platforms.
+Mac has the same 97 public media exports; Android's dynamic export set has
+the same 101 symbols, including JNI entry points. Neither contains test hooks.
+The initial Android symbol inspection used the ordinary symbol table, which
+is stripped; the meaningful comparison uses dynamic symbols and requires
+nonempty sets. The unchanged Rust FFI remains compiled from 37b62d48.
+Among Android's 16 packaged native libraries, only libveil_media.so changes
+relative to installed 2484. Expected stripped native bytes, app build metadata,
+same signer and the exact pulled installed APK hash all match. Poco is updated
+in place without removing identity data; only the owned Mac stand app is rebuilt.
+
+Natural quiet video call 2490 rings at 0.772 s and becomes active at 1.970 s.
+Both endpoints use P2P from media startup, with one engine epoch and zero
+handovers for the requested 150 active seconds. Source admission drops and
+worker stalls remain zero. Camera enablement still produces no transmitted
+or remote video. Audio receive ages peak at 2699/2498 ms on Mac/Poco; after
+30 s, native delay medians are 238/362 ms. Interruption counters grow from
+9 to 42 and from 1 to 14; duration increments are 14768/8174 ms. This installs
+and exercises the new payload-age path, not proof that interruptions or
+concurrent video have been repaired. No audible speech-quality claim is made.
+
+At 5, 65 and 125 active seconds, Poco reports Wakefulness=Awake, powered,
+deep/light device idle disabled and SettingBatterySaverEnabled=false.
+This excludes standard Android Doze/battery saver at those observations,
+not every vendor, modem or access-network policy. No power setting changes.
+Unique primary UDP fingerprint/length matches after 30 s correlate 403/224
+packets in the two directions. Maximum excess over each clock-biased minimum
+is 2163/770 ms; kernel-to-read maxima are 3.577/2.403 ms. Sampling remains
+incomplete and does not identify the responsible network component.
+
+Comparison 2492 explicitly plans a qualified relay recovery at 30 active
+seconds, but the call's startup already falls back to relay. The diagnostic
+request returns false because it is already on that route; it does not prove
+a successful mid-call switch. Both active engines remain on relay, epoch 1,
+with zero handovers, for 180 requested active seconds. After 30 s, delay
+medians are 325/362 ms and interruption counters grow 1 to 10 / 0 to 26.
+Maximum receive ages are 1579/4276 ms and video remains untransmitted. This
+separate call is not a controlled same-call path A/B experiment and provides
+no evidence for automatically preferring relay as a quality fix. Pauses occur
+on both available transports; they remain unresolved.
+
+Independent audits after both calls verify exact Mac/logcat processes exited,
+the phone app UID absent, forwarding removed, output still muted at zero and
+the owned app's seal valid. The temporary Android builder image/container
+are removed, its cached container remains stopped, and the builder VM is
+stopped with an unchanged configuration. No signed commit, push, tag or release
+is performed.
