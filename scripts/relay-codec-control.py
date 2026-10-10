@@ -24,6 +24,8 @@ parser.add_argument('--shaper-trace', action='store_true', help='Privately recor
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
+parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a protobuf-enabled test-hook media library')
+parser.add_argument('--compact-media', action='store_true', help='Use compact relay audio batching, as the current application does, instead of the legacy audio/video batch format')
 parser.add_argument('--duration', type=int, default=100)
 parser.add_argument('--local-source-feedback', action='store_true', help='Feed actual endpoint quality to the shared local producer budget over negotiated IPC')
 parser.add_argument('--compete-file', action='store_true', help='Transfer 512 KiB of encrypted file chunks through the reliable local DATA lane in each direction during real audio/video')
@@ -215,7 +217,7 @@ try:
     media=C.CDLL(str(media_path),mode=C.RTLD_GLOBAL)
     def mf(name,types,ret):
         f=getattr(media,name);f.argtypes=types;f.restype=ret;return f
-    create=mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
+    create=mf('veil_media_test_adaptive_codec_create',[C.c_uint64,P,P,C.c_int],P) if args.adaptive_audio else mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
     destroy=mf('veil_media_engine_destroy',[P],None)
     capture=mf('veil_media_test_audio_capture_tone',[P,C.c_int],C.c_int)
     playout=mf('veil_media_test_audio_playout_pcm',[P,P,C.c_size_t],C.c_int)
@@ -314,10 +316,11 @@ try:
         ch=checked(openmedia,apps[index],ids[1-index],appids[1-index],0,keys[index],keys[1-index])
         assert ch;channels.append(ch)
         assert checked(secondary_sender,ch,secondary_apps[index])==0
-        assert batching(ch,1)==0
+        assert batching(ch,2 if args.compact_media else 1)==0
     os.environ['VEIL_MEDIA_TEST_VIDEO']='1'
     for i,ch in enumerate(channels):
-        e=create(ch,ids[i],ids[1-i]);assert e;engines.append(e)
+        e=create(ch,ids[i],ids[1-i],209) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
+        assert e;engines.append(e)
     policylog=(ROOT/'policy.err').open('w')
     policy=subprocess.Popen(['dart',str(policy_path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=policylog,text=True,bufsize=1,env=dict(os.environ,TMPDIR='/private/tmp/'))
     def command(v):
@@ -419,6 +422,25 @@ try:
     (ROOT/'pcm-samples.json').write_text(json.dumps(pcmrows))
     (ROOT/'codec-samples.json').write_text(json.dumps(samples))
     result.update(real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
+    result['adaptive_audio'] = args.adaptive_audio
+    result['compact_media'] = args.compact_media
+    if args.adaptive_audio:
+        result['adaptive_audio_verified'] = all(
+            any(x['side'] == side and x['stats'].get('audio_packet_adaptation') == 1
+                and x['stats'].get('audio_packet_overhead_bytes') == 209 for x in samples)
+            for side in range(2)) and all(
+            x['stats'].get('audio_packet_adaptation') == 1
+            and x['stats'].get('audio_packet_overhead_bytes') == 209
+            for x in samples)
+        result['codec_target_bounds_verified'] = all(
+            any(x['side'] == side and x['stats'].get('audio_tx_payload_pkts', 0) > 0 for x in samples)
+            for side in range(2)) and all(
+            # WebRTC reports -1 until the first payload is encoded. This is
+            # unknown startup telemetry, not an out-of-range codec target.
+            (x['stats'].get('audio_tx_payload_pkts') == 0
+             and x['stats'].get('audio_encoder_target_bps') == -1)
+            or 16000 <= x['stats'].get('audio_encoder_target_bps', -1) <= 32000
+            for x in samples)
     phases=[]
     for lo,hi,name in [(5,20,'audio-only'),(20,args.duration,'audio-file' if args.no_video and args.compete_file else 'audio-only-continuation' if args.no_video else 'audio-video')]:
         directions=[]
@@ -467,6 +489,8 @@ try:
     pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
     result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and result['neutral_datagram_route_verified'] and not any(nativefail+pollfail+healthbad) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
+    if args.adaptive_audio:
+        result['ok'] = result['ok'] and result['adaptive_audio_verified'] and result['codec_target_bounds_verified']
     result.update(local_source_feedback=args.local_source_feedback,source_feedback_queued=source_feedback_queued,source_feedback_skipped=source_feedback_skipped,reliable_file_contention=args.compete_file,file_results=file_results if args.compete_file else [])
     if args.local_source_feedback:result['ok']=result['ok'] and all(source_feedback_queued) and not any(source_feedback_skipped)
     if args.compete_file:
