@@ -12762,3 +12762,36 @@ verify Android UID exit and remove API forwarding. Poco subsequently disappears
 from ADB; the attempted next stand fails before launching any app. No system
 volume, network policy, relay classification or relay priority is changed.
 The overall media isolation and quality goal remains open.
+
+### Cycle 2556: package Mac ANA and verify media isolation with it enabled
+
+The owned debug Mac stand bundle is rebuilt as 0.13.84+2556 with the normal
+production ANA library from cycle 2548. Its instruction section matches that
+library, it exports the optional packet-overhead API among 99 media symbols,
+and contains no native test hooks. The bundled FFI instruction section matches
+the previously verified UDP-counter build; Rust inputs are unchanged since
+that build. Kernel version, bundle version, absence of extensions and the
+deep/strict bundle seal are verified. This bundle is not launched yet and the
+user's installed application is not replaced. A leftover diagnostic log in
+the owned bundle's executable directory initially prevents signing; that log
+is archived privately before rebuilding.
+
+The call-plane fixture adds `--adaptive-audio`. In its independent-feedback
+unicast case it enables the production overhead API before startup; it also
+verifies rejection when independent feedback is disabled. The bidirectional
+audio-report case starts with adaptation enabled. With the protobuf-enabled
+native fixture, the complete worker isolation suite passes: accepted Opus
+continues with both video queues held, audio/video feedback stays separate,
+statistics calls remain bounded, low-rate video still encodes and recovers,
+and group fanout lets audio through a held video send. Group codecs retain
+their existing configuration. These checks exercise queues and feedback, not
+physical cellular speech quality or full application transfer concurrency.
+
+The bitrate adapter, audio source-pressure and transport-feedback Flutter
+files pass all 72 tests with `TMPDIR=/private/tmp/`. Native fixture processes
+exit; no owned application is opened during this cycle. Poco remains absent
+from ADB. The isolated Android archive build from cycle 2555 is confirmed
+live and continues; it is not restarted. An APK packaging script is prepared
+with a required production-artifact/hash verification gate, but it has not
+run and no new phone build is installed. Physical adaptation, video/screen/file
+concurrency and the direct-QUIC outage/handover diagnosis remain required.
