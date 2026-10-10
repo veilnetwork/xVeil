@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Every veil_media_* symbol the Dart layer looks up must be exported by the
-# engine it will dlopen.
+# Required veil_media_* lookups must be exported by the engine it will dlopen.
+# Explicitly optional capabilities may be absent when Dart has a fallback.
 #
 #   scripts/check-media-symbols.sh <libveil_media.so>
 #
@@ -115,7 +115,14 @@ grep -rhoE "'veil_media_[a-z0-9_]+'" \
 
 printf 'veil_media_send_datagram\nveil_media_set_recv_callback\n' > "$tmp/sibling"
 
-comm -13 "$tmp/exported" "$tmp/wanted" | comm -23 - "$tmp/sibling" > "$tmp/missing"
+# The packet-overhead lookup is nullable and setAudioPacketOverhead returns
+# false when absent. Rejecting a previously supported engine here prevents
+# bundling all call media, instead of letting that explicit fallback run.
+# Keep this exception narrow: required audio/video APIs still fail the gate.
+printf 'veil_media_engine_set_audio_packet_overhead\n' > "$tmp/optional"
+comm -13 "$tmp/exported" "$tmp/wanted" > "$tmp/unavailable"
+comm -23 "$tmp/unavailable" "$tmp/sibling" | comm -23 - "$tmp/optional" > "$tmp/missing"
+comm -12 "$tmp/unavailable" "$tmp/optional" > "$tmp/optional_missing"
 
 echo "$fmt: exported $(wc -l < "$tmp/exported" | tr -d ' ')   looked up by Dart: $(wc -l < "$tmp/wanted" | tr -d ' ')"
 if [ -s "$tmp/missing" ]; then
@@ -123,4 +130,8 @@ if [ -s "$tmp/missing" ]; then
   sed 's/^/  /' "$tmp/missing"
   exit 1
 fi
-echo "OK: nothing the app calls is missing from the engine"
+if [ -s "$tmp/optional_missing" ]; then
+  echo "Optional capabilities unavailable (the app retains its fallback):"
+  sed 's/^/  /' "$tmp/optional_missing"
+fi
+echo "OK: all required media symbols are available"
