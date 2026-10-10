@@ -12123,3 +12123,48 @@ These prove the primitive and cancellation behavior, not improved physical
 speech or video. Build 2501 remains installed pending the production-native
 experimental build and measurement. No hardware app is started in this cycle;
 test-hook libraries are used only by the temporary native smoke process.
+
+
+#### Production experiment and physical-device readiness: cycles 2504–2506
+
+Build 0.13.84+2504 installs root 70341470 and SDK c4068bae on the two
+owned endpoints. Initial Mac packaging retained an older native library;
+verification caught it before launch, and a fresh production build replaced
+it. The final bundle has exactly the preceding 97 exports plus the optional
+mirror control, unchanged FFI text, no test hooks, and a valid app seal.
+Android has 16 native libraries; only production media changes from build
+2501. The exact stripped production artifacts, same signer and pulled
+installed APK are verified. The in-place install retains identity data.
+The temporary native builder image is removed, its cached container remains
+stopped, and the builder VM is stopped with its configuration unchanged.
+
+Quiet video test 2505 plans a direct baseline followed by a bounded mirror
+phase. Both endpoints become active on relay at 19.261 seconds, but never
+simultaneously reach active P2P within the 90-second prerequisite window.
+The diagnostic explicitly hangs up instead of enabling redundancy. No mirror
+channel is opened, no copied audio is admitted, and no receive duplicate is
+filtered. This is an unmet experiment prerequisite, not a negative or positive
+quality result for redundancy. Mac/Poco maximum payload ages after 30 seconds
+reach 4630/4301 ms; interruption counters increase 4→19 / 2→20. Native video
+transmission remains zero. Audio and usable video requirements remain open.
+
+Source investigation finds a separate readiness defect: an authenticated
+contact identity can route to an admitted physical device, while its identity
+address itself is not admitted. ensureReady queried only the identity and
+could launch another dial/punch ladder despite the existing device session.
+The regression fails on the preceding code with one unexpected punch. The
+first two readiness rungs now check the validated, selected physical route
+before retaining the canonical/legacy fallback. Exact-device route validation
+and the P2P policy gate remain in force. Tests cover live physical admission,
+stale cached-device/canonical admission fallback, and disabled P2P policy;
+75 focused endpoint/lease/observer/route-operation tests pass. Targeted
+analysis is clean after avoiding concurrent Flutter dependency regeneration.
+This proves the readiness correction; it does not establish the cause of
+2505's unavailable direct call. Build 2504 remains installed pending the
+readiness update and a new physical check.
+
+Independent cleanup verifies exact Mac/logcat PIDs exited, the entire Poco app
+UID absent, debug forwarding removed, Mac output muted at zero and the owned
+Mac app seal valid. No native smoke process remains. No relay scheduling,
+packet classification, system network or power policy changes are made.
+Commits remain unsigned and unpushed.

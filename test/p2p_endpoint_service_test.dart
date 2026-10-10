@@ -461,6 +461,50 @@ void main() {
     expect(await h.svc.ensureReady(_peer(4)), isTrue);
   });
 
+  test(
+    'call readiness reuses a live physical device without another punch',
+    () async {
+      final h = _Harness(injectPunch: true)..messagingAllows = true;
+      final identity = _peer(0x71);
+      final device = _peer(0x72);
+      h.admittedDevices.add(device.hex);
+      h.messaging.onP2PEndpoints!(
+        identity,
+        jsonEncode({
+          'v': 1,
+          'ts': 7,
+          'd': device.hex,
+          'e': [_inviteUri(0x71, host: '192.168.1.72')],
+        }),
+      );
+      await pumpEventQueue();
+      await h.svc.warmForMessaging(identity);
+      expect(h.svc.routeFor(identity), device);
+      h.punchCalls.clear();
+      expect(
+        await h.svc.ensureReady(
+          identity,
+          budget: const Duration(milliseconds: 1),
+        ),
+        true,
+      );
+      expect(
+        h.punchCalls,
+        isEmpty,
+        reason:
+            'the admitted session is keyed by the physical device, not the contact identity',
+      );
+      // A stale cached physical route must not hide a live canonical session.
+      h.admittedDevices.remove(device.hex);
+      h.admittedDevices.add(identity.hex);
+      expect(await h.svc.ensureReady(identity), true);
+      expect(h.punchCalls, isEmpty);
+      h.allows = false;
+      expect(await h.svc.ensureReady(identity), false);
+      h.svc.dispose();
+    },
+  );
+
   test('ensureReady dials known endpoints and reports within budget', () async {
     final h = _Harness();
     final peer = _peer(5);

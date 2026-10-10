@@ -607,7 +607,7 @@ class P2PEndpointService {
 
     // Rung 1 — existing admitted session short-circuits (idempotent). Still
     // force a mutual reshare so the peer's own renewal has fresh endpoints.
-    if (await _admitted(peer)) {
+    if (await _contactAdmitted(peer)) {
       _fallbackReason.remove(peer.hex);
       unawaited(maybeShare(peer, force: true, requestReshare: true));
       return true;
@@ -633,7 +633,7 @@ class P2PEndpointService {
     while (hostSw.elapsed < hostWindow) {
       await Future<void>.delayed(const Duration(milliseconds: 300));
       if (_disposed) return false;
-      if (await _admitted(peer)) {
+      if (await _contactAdmitted(peer)) {
         _fallbackReason.remove(peer.hex);
         return true;
       }
@@ -685,6 +685,19 @@ class P2PEndpointService {
     // Rung 4 — relay fallback (the caller downgrades to relay). Reason stays
     // for the transport badge / log.
     return false;
+  }
+
+  Future<bool> _contactAdmitted(NodeId peer) async {
+    // An authenticated endpoint exchange may route this contact identity to
+    // a different physical node. Reuse that live session before launching
+    // another host-dial/punch ladder. Preserve the canonical/legacy fallback
+    // when a cached device route has gone away. Device validation/selection
+    // in _refreshRoute still asks about each exact physical node.
+    final device = routeFor(peer);
+    if (device != null && device != peer && await _admitted(device)) {
+      return true;
+    }
+    return _admitted(peer);
   }
 
   Future<bool> _admitted(NodeId peer) async {
