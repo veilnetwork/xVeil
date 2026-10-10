@@ -12427,3 +12427,69 @@ This is distinct from the native media sender's ready-packet batching: it uses
 Earlier authenticated runtime observations above found a zero delayed batch
 window on both endpoints during the failing calls. No new physical observation
 is claimed while Poco is unavailable, and no power or network setting changes.
+
+### Cycles 2520–2522: physical direct-route baseline and missing overhead accounting
+
+Poco returns to ADB. Production build 0.13.84+2519 is installed in place after
+checking the existing APK's signer; the APK pulled back from the phone exactly
+matches the verified candidate. Identity data is retained. A read-only Android
+connectivity snapshot identifies CELLULAR as the default network. No policy,
+topology, mirror or diagnostic route recovery is requested.
+
+The 60-second Mac-to-Poco audio call rings after 0.316 s and both endpoints
+become active on P2P after 1.043 s. P2P persists throughout the recorded call.
+After the first eight seconds, Mac/Poco native audio receive ages peak at
+2057/2235 ms; interruption counts grow from 1 to 12/14. Native RTP source-drop
+counters remain zero. Receive-delay medians are 224/443 ms; low end-of-call
+gauges do not establish good speech through the earlier interruptions. This is
+not a controlled improvement measurement for the ordered-writer fix: this
+call uses independent QUIC source connections instead of the ordered fallback.
+
+The measured phone clock offset is -577.539 ms, with best probe RTT 33.934 ms.
+Sparse authenticated direct-cell matching finds local socket/daemon/handler
+stages taking 0–1 ms. Mac-to-Poco matched cells take a median 12 ms and maximum
+777.5 ms; Poco-to-Mac median 219.5 ms and maximum 1204.5 ms. Six sampled sends
+in each direction lack a matched receive. These cells include feedback as well
+as RTP; sparse unmatched cells are not a count of lost speech frames.
+
+Each endpoint has 59 primary independent-QUIC admission samples in that call.
+Mac/Poco congestion windows reach minima of 7170/3106 bytes. Their connection
+expiry counters grow 0→59/78 and lost-packet counters 0→262/83. No UDP send
+stall is reported; maximum observed timer lateness is 1906/2064 microseconds,
+and event queue delay 226/1918 microseconds. These observations locate the
+remaining problem beyond fast local admission, without identifying every
+network loss or proving the congestion controller is its cause.
+
+The following Poco-to-Mac camera call becomes active on P2P after 1.529 s.
+Both cameras capture locally, but the last sample around ten seconds still
+shows zero transmitted/remote frames and audio protection holding video.
+The quiet-test guard then sees Mac output change from muted/zero to
+unmuted/38 and aborts. Cleanup completes; independent inspection verifies
+both owned Mac/logcat processes exited, the entire phone UID absent and the
+forwarding removed. The muted-output audit correctly fails, while the app
+seal verifies. The user subsequently confirms changing the volume and
+explicitly authorizes audible playback. Their chosen volume is preserved.
+The adapted 2521 retry fails at its initial ADB forward because Poco has
+disconnected; it never reaches an app launch. The long camera comparison
+therefore remains unperformed, and this short observation does not prove
+that a three-minute direct call is stable.
+
+Source inspection identifies another unresolved accounting gap: the native
+shim reports successful RTP admission to WebRTC, but never supplies network
+route packet overhead. WebRTC's feedback adapter and Opus allocator can
+account for that value, yet the custom transport leaves it at zero. An
+unbatched direct packet has 36 bytes of media sealing, 89 bytes of AppRtData
+header/authenticated source tail, a 24-byte OVL header and 40 bytes of datagram
+AEAD/header; negotiated opaque flows add another 20 bytes. Thus this framing
+alone costs 209 bytes per unbatched packet with opaque flows, or 83.6 kbit/s
+at 50 packets/s, before IP/QUIC and feedback. This calculation describes that
+encoding, not measured full wire traffic or proven causation of every pause.
+Ready-packet packing and QUIC packet grouping can amortize parts of the cost.
+
+The next independent experiment must charge the actual encapsulation in a
+bounded link and verify decoded speech before selecting overhead accounting
+or adaptive packet duration. A blindly configured WebRTC ANA string cannot
+solve this build: its checked-out Mac WebRTC arguments disable protobuf.
+No encoder duration, codec, congestion default or relay scheduling change is
+made from this hypothesis. Audio quality, usable video and isolation under
+concurrent screen/file traffic remain required and unverified.
