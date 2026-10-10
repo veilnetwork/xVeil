@@ -30,6 +30,7 @@ import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
 import 'call_media_route_operations.dart';
 import 'call_route_delivery_observer.dart';
+import 'call_audio_mirror_lease.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
 import 'media_ffi.dart';
@@ -83,6 +84,16 @@ Future<Map<String, Object?>> observeActiveCallRoutesForDiagnostics({
   int samples = 20,
 }) async =>
     await _diagnosticMediaController?._observeRoutesForDiagnostics(samples) ??
+    {'ok': false, 'reason': 'no_media'};
+
+Future<Map<String, Object?>> mirrorActiveCallAudioForDiagnostics({
+  required bool enabled,
+  int seconds = 30,
+}) async =>
+    await _diagnosticMediaController?._mirrorAudioForDiagnostics(
+      enabled,
+      seconds,
+    ) ??
     {'ok': false, 'reason': 'no_media'};
 
 /// Latest local camera frame for the active video call (RGBA), or null. Used by
@@ -450,6 +461,7 @@ class VeilCallMediaController implements CallMediaController {
   // the call ends, even when our outgoing route has already changed.
   final Map<String, int> _receiveOnlyChannels = {};
   final _routeDeliveryObserver = CallRouteDeliveryObserver();
+  final _audioMirrorLease = CallAudioMirrorLease();
   final Set<int> _diagnosticRouteChannels = {};
   int _routeHandovers = 0;
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
@@ -910,6 +922,7 @@ class VeilCallMediaController implements CallMediaController {
         return false;
       }
       final keepReceiver = engine.supportsReceiveChannelOverlap;
+      _audioMirrorLease.stop();
       if (!engine.rebindChannel(
         candidate,
         retainPreviousReceiver: keepReceiver,
@@ -982,6 +995,77 @@ class VeilCallMediaController implements CallMediaController {
       channel,
       directPeer: call.mediaIdentity,
       relayPeer: call.peerDevice ?? call.peer,
+    );
+  }
+
+  Future<Map<String, Object?>> _mirrorAudioForDiagnostics(
+    bool enabled,
+    int seconds,
+  ) async {
+    if (!enabled) {
+      _audioMirrorLease.stop();
+      return {'ok': true, 'enabled': false};
+    }
+    final call = _activeCall;
+    final channel = _chan;
+    final engine = _engine;
+    final epoch = _mediaEpoch;
+    if (call == null ||
+        channel == null ||
+        engine == null ||
+        !engine.supportsAudioMirror ||
+        !call.media.audio ||
+        _chanTransport != CallTransportKind.p2p ||
+        call.localPosture != CallPosture.direct ||
+        call.peerPosture != CallPosture.direct) {
+      return {'ok': false, 'reason': 'requires_supported_direct_audio_call'};
+    }
+    bool owned() =>
+        _activeCall?.callId == call.callId &&
+        _engine == engine &&
+        _mediaEpoch == epoch &&
+        _chan == channel &&
+        _chanTransport == CallTransportKind.p2p;
+    void close(int candidate) {
+      if (_diagnosticRouteChannels.remove(candidate)) {
+        try {
+          _transport.closeMediaChannel(candidate);
+        } catch (_) {}
+      }
+    }
+
+    return _audioMirrorLease.start(
+      duration: Duration(seconds: seconds),
+      stillOwned: owned,
+      qualify: _transport.qualifyMediaRoute,
+      bind: engine.setAudioMirrorChannel,
+      close: close,
+      openAlternate: () async {
+        final next = call.copyWith(transport: CallTransportKind.relay);
+        final opened = await openSealedCallMediaChannel(
+          call: next,
+          opener: _transport,
+          localNodeId: (await _transport.peerFacingNodeId()).bytes,
+        );
+        if (opened == null) return null;
+        final candidate = opened.channel;
+        _diagnosticRouteChannels.add(candidate);
+        try {
+          if (owned() &&
+              opened.transport == CallTransportKind.relay &&
+              _transport.setRelayMediaBatching(candidate, true, compact: true) ==
+                  0 &&
+              await _configureRouteProbes(candidate, next, opened.transport) &&
+              owned()) {
+            return candidate;
+          }
+        } catch (_) {
+          close(candidate);
+          rethrow;
+        }
+        close(candidate);
+        return null;
+      },
     );
   }
 
@@ -1838,6 +1922,7 @@ class VeilCallMediaController implements CallMediaController {
     bool clearMicrophoneState = true,
   }) async {
     _mediaEpoch++;
+    _audioMirrorLease.stop();
     for (final channel in _diagnosticRouteChannels) {
       try {
         _transport.closeMediaChannel(channel);
