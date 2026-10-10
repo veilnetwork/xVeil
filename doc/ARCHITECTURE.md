@@ -11700,3 +11700,40 @@ Both failure and exception regressions fail on previous code. Tests cover
 concurrent peer fallback, bounded attempts, eventual successful retry and
 revoked local consent during backoff. All 215 P2P/call-service tests and
 targeted analysis pass. Physical validation of this correction is pending.
+
+#### Receive independently of the local sending route: cycles 2482–2483
+
+Natural quiet call 2482 uses build 2481 with unchanged production native media.
+It rings at 9.486 s and is active at 11.024 s. Failed direct candidates are
+retried: Mac switches to direct at 34.919 s, returns to relay at 37.502 s,
+and Poco switches to direct at 50.776 s. The endpoints then remain on different
+outgoing routes. Neither transmits video despite working camera capture;
+observed media epochs reach 13 with repeated receive repairs. This verifies
+retry execution, not usable audio/video or successful route convergence.
+Independent cleanup checks all seven app/process/forward/mute/seal assertions.
+
+The native receiver was registered only for the local channel's peer address.
+A peer switching to identity-addressed direct media before our outgoing
+candidate qualifies could therefore have valid RTP discarded by our
+device-addressed relay receiver. A subsequent engine repair reinstated only
+that one address. A real sealed-dispatch regression reproduces this loss on
+preceding code (zero callback deliveries instead of one).
+
+SDK 37b62d48 registers the callback under both identity and device addresses
+already pinned by trusted host call state in configureMediaPathProbes. Both
+aliases use the same cipher, replay window and callback owner. This permits
+independent sending routes without waiting for our own outgoing handover;
+candidate qualification still precedes any outgoing sender/engine rebind.
+It does not search arbitrary channel keys for ordinary RTP. Unknown addresses,
+invalid seals and duplicate ciphertext remain rejected. Callback unregister
+and channel close clear every alias owned by that channel, fence outstanding
+delivery and preserve a newer callback owner's registrations. Channels without
+pinned non-anonymous paths retain their single-address behavior. Configuration
+must precede callback registration, as it already does in this controller.
+
+All 83 native media tests pass, including alternate-route receive, replay and
+pin/AEAD gates, closing an uncommitted candidate, receiver replacement and
+complete alias cleanup. Crate-local production clippy passes with warnings
+denied. The first broader clippy invocation encounters a pre-existing
+redundant-closure warning in veil-ipc route_trace.rs; it is not a green full
+workspace lint run. Physical validation of the new native receiver is pending.
