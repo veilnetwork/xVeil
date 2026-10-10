@@ -99,7 +99,8 @@ import '../state/veil_call_media.dart'
         setActiveMediaBatchingForDiagnostics,
         setActiveVideoTargetForDiagnostics,
         repairActiveCallMediaForDiagnostics,
-        observeActiveCallRoutesForDiagnostics;
+        observeActiveCallRoutesForDiagnostics,
+        mirrorActiveCallAudioForDiagnostics;
 import '../state/veil_group_call_media.dart';
 import '../state/folder_sync_controller.dart';
 import '../state/providers.dart';
@@ -1294,6 +1295,22 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
                 .read(callServiceProvider)
                 .requestRelayRecoveryForDiagnostics(),
           });
+          return;
+        case '/call_audio_mirror':
+          if (!_requireReady(req)) return;
+          final on = req.uri.queryParameters['on'];
+          final seconds = int.tryParse(req.uri.queryParameters['seconds'] ?? '30');
+          if ((on != '0' && on != '1') ||
+              seconds == null || seconds < 1 || seconds > 60) {
+            await _json(req, {
+              'ok': false,
+              'error': 'on must be 0/1; seconds must be 1..60',
+            }, status: 400);
+            return;
+          }
+          await _json(req, await mirrorActiveCallAudioForDiagnostics(
+            enabled: on == '1', seconds: seconds,
+          ));
           return;
         case '/call_route_delivery':
           if (!_requireReady(req)) return;
