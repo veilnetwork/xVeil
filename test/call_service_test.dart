@@ -2963,6 +2963,77 @@ void main() {
       });
     });
 
+    for (final scenario in [
+      'newer readiness',
+      'older readiness',
+      'undated fallback',
+    ]) {
+      test('pending fallback during qualification respects $scenario', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _GatedSwitchMedia()
+            ..openedTransport = CallTransportKind.relay;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          offer(fake, 'queued-fallback');
+          svc.accept();
+          async.flushMicrotasks();
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'queued-fallback',
+              type: CallSignalType.transportInfo,
+              protocolVersion: 6,
+              sentAtMs: 1000,
+              transport: const CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          async.flushMicrotasks();
+          expect(media.switches, [CallTransportKind.p2p]);
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'queued-fallback',
+              type: CallSignalType.transportInfo,
+              protocolVersion: 6,
+              sentAtMs: scenario == 'undated fallback' ? null : 2000,
+              transport: const CallTransportProposal(CallTransportKind.relay),
+            ),
+          );
+          async.flushMicrotasks();
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'queued-fallback',
+              type: CallSignalType.transportInfo,
+              protocolVersion: 6,
+              sentAtMs: scenario == 'older readiness' ? 1500 : 3000,
+              transport: const CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          async.flushMicrotasks();
+          media.switchGate.complete(true);
+          async.flushMicrotasks();
+          final superseded = scenario == 'newer readiness';
+          expect(media.switches, [
+            CallTransportKind.p2p,
+            if (!superseded) CallTransportKind.relay,
+          ]);
+          expect(
+            svc.current?.transport,
+            superseded ? CallTransportKind.p2p : CallTransportKind.relay,
+          );
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
     test('late switch cannot resurrect a hung-up call', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();

@@ -447,6 +447,7 @@ class CallService {
   /// two media engines would open different routes.
   String? _pendingRelayCallId;
   NodeId? _pendingRelayPeer;
+  int? _pendingRelayAtMs;
   CallTransportKind? _outgoingProposal;
   bool _directSessionUnavailable = false;
   int _mediaOperationEpoch = 0;
@@ -484,6 +485,7 @@ class CallService {
     if (_pendingRelayCallId == call.callId && _pendingRelayPeer == call.peer) {
       _pendingRelayCallId = null;
       _pendingRelayPeer = null;
+      _pendingRelayAtMs = null;
     }
   }
 
@@ -586,6 +588,7 @@ class CallService {
           _pendingRelayPeer == c.peer) {
         _pendingRelayCallId = null;
         _pendingRelayPeer = null;
+        _pendingRelayAtMs = null;
         await _followRelayFallback(c.peer, c.callId);
       }
     } catch (error) {
@@ -1248,6 +1251,21 @@ class CallService {
             _canUpgradeP2P(upgrade) &&
             sig.protocolVersion >= kCallLateP2PUpgradeMinVersion &&
             sig.transport?.kind == CallTransportKind.p2p) {
+          // A relay announcement can be queued while the native direct
+          // candidate is being qualified. Newer authenticated readiness from
+          // the SAME peer supersedes that announcement before commit; keeping
+          // the queued fallback would immediately undo the proven candidate.
+          // Undated legacy fallback retains its conservative behavior.
+          final pendingAt = _pendingRelayAtMs;
+          if (_pendingRelayCallId == sig.callId &&
+              _pendingRelayPeer == peer &&
+              pendingAt != null &&
+              sig.sentAtMs != null &&
+              sig.sentAtMs! > pendingAt) {
+            _pendingRelayCallId = null;
+            _pendingRelayPeer = null;
+            _pendingRelayAtMs = null;
+          }
           final firstReadiness = !_lateP2PPeerReady;
           _lateP2PPeerReady = true;
           // Each announcement used to provoke another announcement from its
@@ -1267,6 +1285,7 @@ class CallService {
             requested == CallTransportKind.relay) {
           _pendingRelayCallId = sig.callId;
           _pendingRelayPeer = peer;
+          _pendingRelayAtMs = sig.sentAtMs;
         } else if (c != null &&
             c.callId == sig.callId &&
             c.peer == peer &&
@@ -1283,6 +1302,7 @@ class CallService {
             // cancel both the initial route and its replacement.
             _pendingRelayCallId = sig.callId;
             _pendingRelayPeer = peer;
+            _pendingRelayAtMs = sig.sentAtMs;
           } else {
             unawaited(_followRelayFallback(peer, sig.callId));
           }
@@ -1973,6 +1993,7 @@ class CallService {
         _pendingRelayCallId == sig.callId && _pendingRelayPeer == peer;
     _pendingRelayCallId = null;
     _pendingRelayPeer = null;
+    _pendingRelayAtMs = null;
     if (pendingRelay &&
         transport == CallTransportKind.p2p &&
         c.localPosture == CallPosture.direct &&
@@ -2226,6 +2247,7 @@ class CallService {
       _lastTransportInfoAtMs = 0;
       _pendingRelayCallId = null;
       _pendingRelayPeer = null;
+      _pendingRelayAtMs = null;
       _outgoingProposal = null;
       _directSessionUnavailable = false;
     }
@@ -2305,6 +2327,7 @@ class CallService {
         _pendingRelayPeer == cur.peer) {
       _pendingRelayCallId = null;
       _pendingRelayPeer = null;
+      _pendingRelayAtMs = null;
       if (!ok || media.activeTransport != CallTransportKind.relay) {
         await _followRelayFallback(cur.peer, callId);
         return;
@@ -2373,6 +2396,7 @@ class CallService {
     }
     _pendingRelayCallId = null;
     _pendingRelayPeer = null;
+    _pendingRelayAtMs = null;
     _outgoingProposal = null;
     _directSessionUnavailable = false;
     _mediaOperationEpoch++;
