@@ -70,6 +70,11 @@ const Duration kCallRingTimeout = Duration(seconds: 75);
 /// heartbeat this often.
 const Duration kCallHeartbeatInterval = Duration(seconds: 5);
 
+/// A failed delivery probe must not replace the working relay or permanently
+/// strand a call there. Retry after two heartbeats, checking consent/admission
+/// again. A completed direct handover still cannot oscillate back and forth.
+const Duration kCallP2PCandidateRetry = Duration(seconds: 10);
+
 /// …and if NOTHING is heard from the peer for this long, the call is torn down
 /// with [CallEndReason.timeout] — the peer vanished (crash, kill, network drop)
 /// without a graceful `end`, so the UI must not hang on "in call" forever.
@@ -456,6 +461,7 @@ class CallService {
   bool _lateP2PPeerReady = false;
   bool _lateP2PAttempted = false;
   bool _lateP2PBusy = false;
+  DateTime? _lateP2PRetryAt;
   int _lateP2PGeneration = 0;
 
   void _resetLateP2P() {
@@ -466,6 +472,19 @@ class CallService {
     _lateP2PPeerReady = false;
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
+    _lateP2PRetryAt = null;
+  }
+
+  void _deferLateP2PCandidate(Call call) {
+    _lateP2PAttempted = false;
+    _lateP2PLocalReady = false;
+    _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
+    // A concurrent peer fallback agrees with our surviving relay. There is
+    // no committed direct route to undo and no reason to revoke mutual consent.
+    if (_pendingRelayCallId == call.callId && _pendingRelayPeer == call.peer) {
+      _pendingRelayCallId = null;
+      _pendingRelayPeer = null;
+    }
   }
 
   bool _canUpgradeP2P(Call c) =>
@@ -487,6 +506,7 @@ class CallService {
         media == null ||
         !_canUpgradeP2P(c) ||
         _lateP2PBusy ||
+        (_lateP2PRetryAt != null && _now().isBefore(_lateP2PRetryAt!)) ||
         media.isRepairingReceiveSession ||
         (c.transport != CallTransportKind.relay && !_lateP2PLocalReady)) {
       return;
@@ -535,19 +555,21 @@ class CallService {
       if (!stillCurrent() || epoch != _mediaOperationEpoch) return;
       final cur = _current!;
       if (ok && media.activeTransport == CallTransportKind.p2p) {
+        _lateP2PRetryAt = null;
         _directSessionUnavailable = false;
         _set(cur.copyWith(transport: CallTransportKind.p2p));
         devLog(
           () => 'xVeil[call-media]: late direct route active call=${c.callId}',
         );
       } else {
-        // Native can reject or lose admission during the rebuild. Announce the
-        // actual relay fallback and never oscillate between routes in this call.
-        _lateP2PConsent = false;
-        _lateP2PLocalReady = false;
         if (media.activeTransport == CallTransportKind.relay) {
+          // An unconfirmed candidate leaves the old engine/channel untouched.
+          // A transient loss or newly admitted route can recover later.
+          _deferLateP2PCandidate(cur);
           await _announceRelayFallback(cur);
         } else {
+          _lateP2PConsent = false;
+          _lateP2PLocalReady = false;
           unawaited(
             _sendControl(
               c.peer,
@@ -569,11 +591,16 @@ class CallService {
     } catch (error) {
       devLog(() => 'xVeil[call-media]: late direct route failed: $error');
       if (stillCurrent() && _lateP2PAttempted) {
-        _lateP2PConsent = false;
-        _lateP2PLocalReady = false;
-        // Recover through the same explicitly permitted relay route.
-        await _followRelayFallback(c.peer, c.callId);
-        if (stillCurrent()) await _announceRelayFallback(_current!);
+        if (media.activeTransport == CallTransportKind.relay) {
+          _deferLateP2PCandidate(_current!);
+          await _announceRelayFallback(_current!);
+        } else {
+          _lateP2PConsent = false;
+          _lateP2PLocalReady = false;
+          // A lost old channel still needs the guarded recovery path.
+          await _followRelayFallback(c.peer, c.callId);
+          if (stillCurrent()) await _announceRelayFallback(_current!);
+        }
       }
     } finally {
       if (generation == _lateP2PGeneration) _lateP2PBusy = false;
