@@ -29,6 +29,7 @@ import 'call_peer_audio_playout.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
 import 'call_media_route_operations.dart';
+import 'call_route_delivery_observer.dart';
 import 'call_service.dart';
 import 'mac_media_permissions.dart';
 import 'media_ffi.dart';
@@ -76,6 +77,13 @@ bool? setActiveVideoTargetForDiagnostics({int? bitrateKbps, int? fps}) =>
 /// Exercise the existing route rebuild on a physical debug stand.
 Future<bool> repairActiveCallMediaForDiagnostics() async =>
     await _diagnosticMediaController?.repairRoute() ?? false;
+
+/// Compare pinned direct/relay delivery while retaining the live audio engine.
+Future<Map<String, Object?>> observeActiveCallRoutesForDiagnostics({
+  int samples = 20,
+}) async =>
+    await _diagnosticMediaController?._observeRoutesForDiagnostics(samples) ??
+    {'ok': false, 'reason': 'no_media'};
 
 /// Latest local camera frame for the active video call (RGBA), or null. Used by
 /// the draggable self-preview tile.
@@ -441,6 +449,8 @@ class VeilCallMediaController implements CallMediaController {
   // receive binding per older physical peer until that peer is replaced or
   // the call ends, even when our outgoing route has already changed.
   final Map<String, int> _receiveOnlyChannels = {};
+  final _routeDeliveryObserver = CallRouteDeliveryObserver();
+  final Set<int> _diagnosticRouteChannels = {};
   int _routeHandovers = 0;
   Timer? _frameTimer; // pulls decoded remote frames at the display rate
   AndroidNativeCallCamera? _androidNativeCam; // zero-copy call camera path
@@ -973,6 +983,71 @@ class VeilCallMediaController implements CallMediaController {
       directPeer: call.mediaIdentity,
       relayPeer: call.peerDevice ?? call.peer,
     );
+  }
+
+  Future<Map<String, Object?>> _observeRoutesForDiagnostics(int samples) async {
+    final call = _activeCall;
+    final channel = _chan;
+    final engine = _engine;
+    final epoch = _mediaEpoch;
+    // Only observe relay as an alternative to an already consented direct
+    // call. Never use this hook to open a new P2P route or expose onion calls.
+    if (call == null ||
+        channel == null ||
+        engine == null ||
+        !call.media.audio ||
+        _chanTransport != CallTransportKind.p2p ||
+        call.localPosture != CallPosture.direct ||
+        call.peerPosture != CallPosture.direct) {
+      return {'ok': false, 'reason': 'requires_direct_audio_call'};
+    }
+    bool owned() =>
+        _activeCall?.callId == call.callId &&
+        _engine == engine &&
+        _mediaEpoch == epoch &&
+        _chan == channel &&
+        _chanTransport == CallTransportKind.p2p;
+    void close(int candidate) {
+      if (!_diagnosticRouteChannels.remove(candidate)) return;
+      try {
+        _transport.closeMediaChannel(candidate);
+      } catch (_) {}
+    }
+
+    final result = await _routeDeliveryObserver.observe(
+      currentChannel: channel,
+      stillOwned: owned,
+      samples: samples,
+      qualify: _transport.qualifyMediaRoute,
+      closeAlternate: close,
+      openAlternate: () async {
+        int? candidate;
+        var accepted = false;
+        try {
+          final next = call.copyWith(transport: CallTransportKind.relay);
+          final opened = await openSealedCallMediaChannel(
+            call: next,
+            opener: _transport,
+            localNodeId: (await _transport.peerFacingNodeId()).bytes,
+          );
+          if (opened == null) return null;
+          candidate = opened.channel;
+          _diagnosticRouteChannels.add(candidate);
+          if (!owned() || opened.transport != CallTransportKind.relay) {
+            return null;
+          }
+          if (!await _configureRouteProbes(candidate, next, opened.transport) ||
+              !owned()) {
+            return null;
+          }
+          accepted = true;
+          return candidate;
+        } finally {
+          if (!accepted && candidate != null) close(candidate);
+        }
+      },
+    );
+    return {...result, 'current_route': 'p2p', 'alternate_route': 'relay'};
   }
 
   void _retireReceiveChannel(VeilMediaEngine engine, int channel) {
@@ -1763,6 +1838,12 @@ class VeilCallMediaController implements CallMediaController {
     bool clearMicrophoneState = true,
   }) async {
     _mediaEpoch++;
+    for (final channel in _diagnosticRouteChannels) {
+      try {
+        _transport.closeMediaChannel(channel);
+      } catch (_) {}
+    }
+    _diagnosticRouteChannels.clear();
     callVideoSendPausedForAudio.value = false;
     _handoverPacketSizeReady = false;
     for (final entry in _retiringChannels.entries) {
