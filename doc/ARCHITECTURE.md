@@ -11647,3 +11647,31 @@ Independent cleanup verifies all 12 assertions: exact app/logcat processes,
 phone UID and forward absent; Mac still muted at zero and sealing valid;
 builder stopped with unchanged configuration; temporary remote unit/directory
 and SSH control absent. No signed commit, push, tag or release is performed.
+
+#### Physical follow-up and economy-mode check: cycles 2479–2480
+
+The device-target correction above is installed in production-native stand
+build 0.13.84+2478 on both endpoints. Natural call 2479 rings after 1.490 s
+and both endpoints become active after 2.823 s. Both remain on relay during
+the requested 150-second call; enabled cameras still produce no transmitted
+video. This does not establish that the correction restores usable P2P or
+concurrent video. Those defects and the remaining audio pauses stay open.
+
+The user's specific hypothesis is veil's battery-saving batch mode. A fresh,
+read-only preflight 2480 queries authenticated MobileStatus and reads the
+actual running configuration on both Poco and Mac, without placing a call.
+Both report background_mode=false, background_keepalive_factor=1 and
+battery_route_probe_factor=1. Neither config specifies a low-battery threshold,
+outbound_batch_window_ms or outbound_batch_always. The SDK's default batch
+window is zero, so delayed outbound coalescing is disabled in this installed
+build. xVeil neither calls setBackgroundMode nor applies its unused
+withOutboundCoalescing helper. No economy setting needs temporarily changing
+for these calls. This excludes this particular veil mechanism, not every
+Android/vendor/modem power policy. The reported battery value 100 is a runtime
+sentinel and does not prove the phone's physical charge level.
+
+Independent audits for both cycles verify exact Mac/logcat processes exited,
+the phone's entire app UID absent, forwarding removed, Mac output still muted
+at zero, and the owned Mac app's seal valid. No user power/network setting or
+relay priority is changed; private runtime addresses and identities stay in
+the private stand directory.
