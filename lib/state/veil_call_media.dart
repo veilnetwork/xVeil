@@ -1374,6 +1374,14 @@ class VeilCallMediaController implements CallMediaController {
       _chanPeer = null;
       return false;
     }
+    if (feedback && highQuality) {
+      // Unbatched AppRtData framing: media seal 36 + authenticated app header
+      // 89 + OVL 24 + session seal 40 + opaque flow 20. RTP is separate. This
+      // hint excludes QUIC/IP; endpoint control headroom is reserved natively.
+      // Both non-onion routes use this framing, so a handover keeps the codec.
+      final adaptive = engine.setAudioPacketOverhead(209);
+      devLog(() => 'xVeil[call-media]: adaptive audio packets=$adaptive');
+    }
     // Batching is now purely a wire format: the batch header rides inside the
     // channel seal, which every route already carries, so the compact envelope
     // is always available and there is no older envelope to fall back to. The

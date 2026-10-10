@@ -12610,3 +12610,87 @@ concurrent file/screen tests. The prepared 2531 APK still carries diagnostics
 only and has not been installed; the last verified phone build is 2519.
 Independent inspection must still close each future owned stand session.
 The complete audio-priority and transport-isolation goal remains open.
+
+
+### Cycles 2541–2550: optional production ANA and a real codec ceiling
+
+Poco is absent from ADB throughout this cycle. The user has explicitly
+permitted audible calls; no application or physical audio device is started,
+and no system volume, network, battery or relay policy is changed.
+
+The native engine now exposes the optional pre-start
+`veil_media_engine_set_audio_packet_overhead` API. A positive hint requires
+independent TWCC and a protobuf-enabled WebRTC archive. Unsupported archives
+return ERR_STATE and the Dart host keeps its existing path. Disabling TWCC
+clears the hint. Configuration freezes at the first media start, and live
+P2P/relay handovers retain the same codec. The unicast host requests 209 bytes
+for non-onion framing; WebRTC adds RTP separately. The hint excludes QUIC/IP
+and packet-packing amortization and is not a measurement of wire capacity.
+Native stats report the configured adaptation and overhead explicitly.
+
+ANA uses the ordinary Opus encoder with its frame-length and bitrate
+controllers, mono/FEC/DTX, supported 20–60-ms durations and a 16-kbit payload
+floor. The production path is used by the synthetic fixture from creation;
+the old test-only post-start Reconfigure helper is removed. Initial transport
+budget is 48 kbit/s and its ceiling is 160 kbit/s. The stream allocation ceiling
+is gross, so it is distinct from the codec's 32-kbit/s payload ceiling.
+
+Automatic feedback exposed a concrete error: the standard allocator's maximum
+uses the shortest supported duration. When ANA chose longer packets, its
+bitrate controller spent the freed framing budget on payload and the actual
+encoder target reached 42,666 bit/s. A factory decorator forwards the normal
+Opus implementation and bounds its allocation for the duration the fast ANA
+controller will select. It retains codec/timestamps/state, enforces the
+16–32-kbit/s target range and reserves 25 percent of the endpoint allocation
+for control and framing not represented by audio alone. This reservation is
+a provisional endpoint policy, not an exact QUIC cost calculation. No traffic
+role or priority is sent to relays.
+
+The native wrappers add the protobuf source include directory when the
+archive's compile flags require it. Android/iOS source builders offer
+`VEIL_MEDIA_AUDIO_ADAPTATION=1`; their default arguments still match the
+published non-protobuf bundles. Opt-in iOS also uses the system linker for
+host protoc with recent Xcode SDKs. Android/iOS adaptation builds have not
+been compiled this cycle, and release engine pins remain unchanged.
+
+Verification with the production configuration on the synthetic duplex link:
+
+- `--adaptive-encapsulation`: client budget 160→48→160 against capacity
+  160→64→160 kbit/s; both directions have 300/300/300 voiced ticks, no RTP/RTCP
+  drops or interruptions; signal transitions stay below 252 ms. Maximum
+  receive-delay gauges are 169/161 ms.
+- `--adaptive-encapsulation-silence`: 1.2-second source pause; source voiced
+  ticks 300/180/300, reverse 300/300/300, no drops or interruptions. Resume is
+  192 ms; signal transitions stay below 244 ms.
+- Existing protobuf-disabled `--adaptive-bitrate`: 300/300/300 voiced ticks,
+  maximum receive delay 74 ms. Scoped Dart analysis reports no issues; the
+  Android build-argument and independent-feedback Flutter tests pass (3).
+- A normal production Mac media library links with 99 defined exports,
+  including the new API and no test exports. Synthetic libraries are not
+  installed. No application bundle or phone installation changes this cycle.
+
+Automatic congestion control is deliberately characterized separately from
+the strict client-budget gates. `--characterize-adaptive-encapsulation-auto`
+changes physical capacity only and keeps the initial ceiling. Its 12-second
+run has 14 RTP and 3 RTCP modeled drops, all 300 voiced ticks in both directions,
+and signal delay up to 364 ms. Accepting all valid RTP payload types rather
+than silently filtering them finds only PT111; that filter is not the cause.
+The new `--characterize-adaptive-encapsulation-recovery` uses 12-second phases
+(36 seconds total): forward voiced ticks 1100/1100/1100, reverse
+1100/1099/1100, 25 RTP and 7 RTCP drops during the weak phase, forward signal
+delay up to 434 ms. After recovery the final forward/reverse transitions are
+189/172 ms and the codec returns to 32 kbit/s. Codec target bounds pass in
+both automatic runs; their successful exits do not certify the stricter
+latency/drop quality gates. Native timing lateness remains below 5 ms. Protobuf-enabled engine type checking
+also succeeds, including the required unused-result gate.
+
+Remaining work is automatic adaptation during abrupt and sustained capacity
+loss, accurate full UDP connection-cost measurements, fresh Android production
+builds and physical cellular speech/video/file/screen checks. These results do
+not resolve the real direct QUIC stall or prove video quality. The overall
+audio-priority and independent-transport goal remains open. All native fixture
+processes exit; no owned Mac app or API forwarding remains after this cycle.
+The last verified phone installation remains 2519.
+
+SDK implementation is committed locally as `db3766e2`; no commits are signed
+or pushed, and no release/tag is published this cycle.
