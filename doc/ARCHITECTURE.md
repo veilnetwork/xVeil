@@ -12894,3 +12894,56 @@ Both owned apps are closed after the physical stand. Exact owned process IDs,
 the Android package UID and API forwarding are verified absent. Private
 artifacts remain under `/private/tmp/xveil-call-2220`; the overall goal remains
 open.
+
+### Cycles 2561–2562: give video a measured one-frame trial
+
+At the user's request, poor audio lowers video by two ladder levels and a
+sustained healthy interval restores one level. The unpaused floor is 1 fps;
+unknown or stale feedback cannot earn growth and no longer pauses video by
+itself. Startup with unproven audio begins at that floor. Full pause requires
+two measured bad samples after the native worker has accepted the floor target.
+Busy worker updates do not count as an applied trial. Partial room feedback
+can prove an audio failure but cannot establish that every receiver is healthy.
+
+Video's native receiver-buffer thresholds change from 160/120 to 200/160 ms
+for degradation/recovery. This estimate is not acoustic latency; the fixture's
+decoded-PCM limit remains 200 ms. Background reliable transfers retain their
+separate 160/120-ms pressure thresholds. No relay classifier or client priority
+is introduced. The focused adapter, receive-activity, playout-feedback and
+source-pressure tests pass (74 tests); analysis of the four changed Dart files
+reports no issues.
+
+The 360-second compact-format native fixture uses adaptive audio, the 209-byte
+framing hint, the same neutral 1024-kbit/s FIFO in each direction and simultaneous
+512-KiB reliable files. It delivers 260/268 decoded synthetic VP8 frames, versus
+2/1 in cycle 2560. Both files arrive with exact hashes, after 219.43/268.46 s.
+All 340 mixed tone edges match in each direction, with no missing edges or
+quiet PCM frames. Mixed decoded-PCM maxima are 200.9/200.6 ms: the unchanged
+strict gate fails. Mixed native receiver-delay maxima are 175/176 ms and
+interruption counts are zero. This improves the controlled result but does not
+establish acceptable physical camera or speech quality. Fixture nodes, owned
+Python/Dart workers and sockets are verified stopped.
+
+Production debug build 0.13.84+2561 is built for Mac and Android. The APK's
+signer matches the installed version, production native input bytes match,
+the media library exports 99 APIs with no test hooks, and the installed APK
+pull matches the prepared signed artifact. Poco is updated in place without
+removing identities. The owned Mac stand uses the same policy and normal
+production native libraries; `/Applications` is not changed.
+
+The 180-second Mac-to-Poco camera call rings after 0.415 s and is active on
+both endpoints after 1.707 s. Poco Wi-Fi is off. The route stays P2P without
+forced recovery or relay selection. Both microphones and cameras are enabled.
+Before pausing, Mac/Poco send 7/5 video frames at approximately the 1-fps floor,
+but neither receiver delivers or decodes any video frame. After discarding the
+first 15 active seconds, native receiver-delay maxima are 1343/1186 ms;
+interruption deltas are 19/23, totalling 7050/10355 ms. No stalled media worker
+is reported. Observed primary QUIC driver delays are in milliseconds, with
+packet loss/expiry and small congestion windows; this does not establish the
+cause of the missing video or the audio delay. The user cannot listen during
+this run, so no human speech assessment is recorded.
+
+Both owned applications and the logcat helper are closed. Exact owned process
+IDs, Android package UID and API forwarding are verified absent. Physical
+video delivery, audio latency and secure identity/device endpoint binding
+remain unresolved; the overall goal stays open.
