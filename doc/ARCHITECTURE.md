@@ -12296,3 +12296,65 @@ Independent cleanup again confirms exact Mac/logcat PIDs exited, the entire
 phone app UID absent, forwarding removed, Mac output muted at zero and bundle
 seal valid. SDK and root edits are committed unsigned and unpushed. Usable
 voice/video and separation under contention remain unproven; the goal stays open.
+
+### Cycles 2512–2514: connect negotiated audio feedback to Opus
+
+The checked-out WebRTC `AudioSendStream::Config` defaults to bitrate limits
+of -1 and no congestion-control allocation. The engine supplied neither,
+so its audio Call estimate did not reach the encoder. A regression against
+the real Call/ChannelSend/Opus path fails on the previous production wiring:
+even after constraining the transport estimate, codec bitrate stays at
+32000→32000→32000 bps. With negotiated independent transport feedback, the
+sender now joins the allocator with a 12000–32000-bps codec range; allocation
+and Opus account for RTP overhead separately. Packet duration remains 20 ms.
+This change applies to negotiated unicast audio; legacy/no-feedback streams
+retain their prior behavior. It introduces no relay traffic label or priority.
+
+The same regression now observes 32000→12000→32000 bps. The full native Call
+plane fixture passes, including independent audio/video queues, bounded
+telemetry, muted capture, feedback routing and teardown. A new 12-second PCM
+fixture carries real Opus and bidirectional RTCP over the synthetic 40-ms path,
+limits the transport, then restores it. It requires codec reduction and recovery,
+all 300 inspected voiced ticks per phase, no new concealment/interruptions,
+and playout delay below 120 ms. It passes with 300/300/300 ticks and a 56-ms
+maximum delay. The older PCM fixture dropped RTCP, so it could not establish
+recovery with a live feedback loop; its new duplex mode supplies that loop.
+These are decoded-tone tests, not a human speech-quality assessment.
+
+SDK `60b529bb` is committed unsigned and unpushed. Fresh production media
+libraries are built for Mac/Android with 98/102 exports and no test hooks.
+Build 0.13.84+2513 is verified against those native artifacts; Android's media
+library is the only changed native library relative to installed 2510. FFI
+bytes and ABI remain unchanged. Same-signer replacement preserves the phone
+profile and the pulled installed APK matches the signed candidate exactly.
+The temporary Android builder is removed, its cached container stays stopped,
+and the Colima configuration is unchanged with the VM stopped afterwards.
+
+Quiet stand 2514 runs a 60-second audio call and a 180-second camera call on
+Poco's cellular connection. Both explicit P2P exchanges report not admitted;
+both active calls consequently use relay from the start, at 1.677/3.789 seconds.
+There is no outgoing transport handover. This is not a matched comparison to
+2511's established P2P connection or a reproduction of its QUIC window collapse.
+The new native codec/estimate counters confirm actual encoder adaptation
+between 12000 and 32000 bps on both physical endpoints.
+
+Audio remains poor. During the video call, payload ages reach 9982/10025 ms
+on Mac/Poco before automatic silent-relay repair at approximately 78 seconds.
+Each endpoint logs one such repair, and media epoch changes 3→5. Counters must
+be interpreted separately for each epoch. After rebuilding, maximum payload
+ages still reach 2488/2133 ms and interruption counts grow 0→12 / 0→14.
+Video transmission/decoded frames remain zero under audio protection. No local
+writer stall, writer closure, seal-open failure or source-app mismatch is seen;
+Poco logs eight keepalive timeout closures, whose association with the media
+route has not yet been established. The codec defect is fixed, but neither
+usable video nor satisfactory physical audio is demonstrated.
+
+Veil's optional battery accumulation window was disabled in the earlier runtime
+checks; this change does not alter power policy. The media `batching` flag is a
+different mechanism: `drain_media_packets_on_plane` combines already available
+packets with `try_recv`, adding no intentional accumulation wait. Its presence
+in the call statistics is not evidence that battery batching is enabled.
+Independent cleanup confirms exact Mac/logcat PIDs exited, the entire phone
+UID absent, forwarding removed, output still muted at zero and a valid app seal.
+The goal remains active, including transport delivery, quiet speech verification
+when available, usable video and isolation under concurrent screen/file traffic.
