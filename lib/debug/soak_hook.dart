@@ -98,7 +98,8 @@ import '../state/veil_call_media.dart'
         pullRemoteVideoFrameForDiagnostics,
         setActiveMediaBatchingForDiagnostics,
         setActiveVideoTargetForDiagnostics,
-        repairActiveCallMediaForDiagnostics;
+        repairActiveCallMediaForDiagnostics,
+        observeActiveCallRoutesForDiagnostics;
 import '../state/veil_group_call_media.dart';
 import '../state/folder_sync_controller.dart';
 import '../state/providers.dart';
@@ -1293,6 +1294,23 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
                 .read(callServiceProvider)
                 .requestRelayRecoveryForDiagnostics(),
           });
+          return;
+        case '/call_route_delivery':
+          if (!_requireReady(req)) return;
+          final samples = int.tryParse(
+            req.uri.queryParameters['samples'] ?? '20',
+          );
+          if (samples == null || samples < 1 || samples > 30) {
+            await _json(req, {
+              'ok': false,
+              'error': 'samples must be 1..30',
+            }, status: 400);
+            return;
+          }
+          await _json(
+            req,
+            await observeActiveCallRoutesForDiagnostics(samples: samples),
+          );
           return;
         case '/media_engine_selftest':
           await _mediaEngineSelftest(req);
