@@ -11928,3 +11928,51 @@ Independent process inspection confirms both native benchmarks and their
 wrapper have exited. No hardware app was started during these experiments;
 installed build 2489 remains unchanged. Audio pauses and untransmitted video
 remain unresolved. Changes are committed unsigned and unpushed.
+
+#### Decoder target decomposition and packetwise estimator: cycles 2495–2496
+
+Source inspection confirms separate primary, camera and screen producer pumps,
+with distinct sender slots, AEAD epochs and generic transport allocations.
+The existing blocked-writer and route-network regressions exercise separation;
+they are not rerun in this cycle. This architecture does not establish usable
+physical media quality. In call 2490, after 30 seconds, median native target
+buffers are 420/360 ms on Mac/Poco, while actual buffered audio medians are
+238/362 ms. Video remains untransmitted, so it cannot explain all these pauses.
+
+A private diagnostic library links an instrumented copy of WebRTC's
+DelayManager object ahead of the unchanged WebRTC archive. It records the
+underrun and reorder contributions with one packed atomic store per update.
+The shared checkout/archive and both installed apps remain unchanged; this
+test-only library is never installed. On the captured-envelope PCM harness,
+one-second samples from seconds 5–88 have median underrun target 400 ms and
+median reorder target 20 ms. Reorder exceeds underrun in only six of 84
+samples. Thus further reducing reorder history would address the smaller
+contribution in this experiment.
+
+A second private variant disables the 500-ms maximum resampling and instead
+updates the histogram for each eligible packet, retaining forget_factor 0.90,
+reorder_forget_factor 0.95, the 95th percentile and existing packet capacity.
+The instrumented constructor aborts unless the actual parsed resampling
+optional is empty and forget_factor is 0.90; this checks the empty field-trial
+value at runtime, rather than assuming it parses. Its median underrun target
+falls to 40 ms. Actual PCM median latency only improves 639.16 to 559.56 ms,
+while p95 is 710.25/712.03 ms. Concealed samples increase 441519 to 477768,
+an additional 755.19 ms at 48 kHz; interruptions stay six and flushes grow
+12 to 13. It passes the independent silence-after-jitter test (57 DTX packets,
+391-ms maximum payload age, no additional concealment/interruptions, resumed
+tone at 140 ms), but fails the captured-envelope quality comparison. This
+variant is also rejected and is not transferred to production.
+
+The earlier archived stands already contain actual ordered primary transport
+observations, alongside QUIC during their direct-call portions. In particular
+2472's independent TCP and UDP probes experience delivery pauses outside
+xVeil; merely changing a call label to relay does not isolate the transport or
+resolve that evidence. Those older trials use earlier installed code and are
+not fresh measurements of build 2489. No new TCP/relay hardware experiment is
+claimed here. The next work must improve or qualify packet delivery without
+treating discarded speech or a lowered delay gauge as recovery.
+
+Both diagnostic builds and all native runs terminate; independent inspection
+finds no owned benchmark/wrapper process. Mac output remains muted at zero.
+No hardware app is started, no power/network policy changes, and build 2489
+remains installed. Audio/video quality requirements remain open.
