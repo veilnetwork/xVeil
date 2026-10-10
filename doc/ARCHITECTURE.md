@@ -12947,3 +12947,16 @@ Both owned applications and the logcat helper are closed. Exact owned process
 IDs, Android package UID and API forwarding are verified absent. Physical
 video delivery, audio latency and secure identity/device endpoint binding
 remain unresolved; the overall goal stays open.
+
+Follow-up inspection finds a second endpoint protection layer that the video
+adapter's floor trial does not account for. `LocalSourceActivity` grants only
+one lossy secondary packet per 200 ms while a local primary is active and
+pressured; `RealtimeDatagramLane::allow_secondary` applies this to BULK camera
+RTP and its separate video RTCP before selecting the independent sender. It
+does not admit a whole encoded frame as a unit. The owned Mac/Poco runtime logs
+sum 201/93 discarded local-slot-2 packets during this stand (these counts
+include video control and are not counts of encoded or lost camera frames).
+Thus the native acceptance of a 1-fps encoder target does not establish that
+a complete frame reached the wire. This is a concrete interaction to address
+before attributing the zero decoded video solely to the external network.
+No change to that SDK admission policy is made or claimed verified here.
