@@ -11976,3 +11976,60 @@ Both diagnostic builds and all native runs terminate; independent inspection
 finds no owned benchmark/wrapper process. Mac output remains muted at zero.
 No hardware app is started, no power/network policy changes, and build 2489
 remains installed. Audio/video quality requirements remain open.
+
+#### Paired delivery observations and queued fallback race: cycles 2497–2500
+
+The debug-only `/call_route_delivery?samples=1..30` observes the existing
+consented P2P primary channel and a temporary pinned relay candidate in the
+same direct audio call. It never rebinds the engine, registers an RTP receive
+callback on the candidate, opens P2P for a relay call, or operates on onion
+calls. Both observations use the existing encrypted peer-echo protocol. A
+250-ms gap respects its 200-ms peer echo limit; simultaneous requests would
+misrepresent rate limiting as path failure. Results report qualification and
+host elapsed time including admission/status polling, not pure RTT or packet
+loss. Repair/hangup can invalidate ownership at every await and closes the
+temporary candidate. Nine observer/route-operation tests and targeted
+analysis pass. Observer implementation is root 55eec16f.
+
+Both platforms receive build 2497. Mac production media/FFI text and the 97
+media exports match the preceding native artifacts without test hooks; all
+16 Android native libraries are byte-identical to the pulled installed 2489
+APK. Same signer and exact pulled installed 2497 APK bytes match. No native
+library or relay policy is changed.
+
+Quiet video call 2498 runs for 150 requested active seconds. After initial
+relay startup, both endpoints use P2P; the paired observation qualifies all
+30 requests on each path. Direct median/maximum elapsed time is 223/394 ms,
+relay 117.5/250 ms. Engine epoch remains one and the handover count is unchanged
+across observation, proving that the diagnostic did not commit a route.
+This is a contemporaneous delivery comparison, not proof that relay improves
+speech. After 30 seconds, median native audio delay is 272.5/378 ms and audio
+interruption counters increase 4→20 / 5→25. Camera capture is active, but
+native transmitted and remote video frames remain zero. A later manual
+recovery attempt finds the already-closed API and does not place a request.
+
+Follow-up 2499 reserves 210 active seconds and plans recovery after paired
+observations. It never observes both active endpoints on P2P within its
+90-second prerequisite window, so it opens no diagnostic candidate and
+requests no deliberate fallback. Mac briefly upgrades then returns to relay;
+Poco later upgrades alone. Different outgoing routes are supported by the
+receive aliases and do not by themselves prove a defect. Audio quality still
+fails: maximum payload receive ages reach 8873/4499 ms after 30 seconds and
+interruptions increase 3→155 / 4→36. Video remains absent. Relay frame-queue
+counts also include RTCP control work items and must not be interpreted as
+encoded video frame counts. Both stands receive independent process/UID,
+forwarding, output-mute and seal cleanup audits; no owned instance remains.
+
+Source review finds a separate reproducible route race. A peer relay fallback
+received during direct-candidate qualification is deferred. A newer authenticated
+P2P readiness announcement updates the ordinary transport timestamp but used
+to leave that deferred fallback intact. After successful qualification it then
+immediately undid P2P and revoked late-upgrade consent. The gated regression
+fails on preceding code with an extra relay switch. The pending fallback now
+retains its peer timestamp and is superseded by strictly newer readiness for
+the same call/peer. Older readiness and undated legacy fallback still preserve
+the fallback. Three regressions, the full call-service tests and observer/route
+operation tests pass (167 total), as does targeted analysis. This proves the
+logic correction, not that this race caused stand 2499's route behavior.
+Installation and physical checking of this last correction remain pending;
+quality requirements remain open. Commits remain unsigned and unpushed.
