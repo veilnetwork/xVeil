@@ -11675,3 +11675,28 @@ the phone's entire app UID absent, forwarding removed, Mac output still muted
 at zero, and the owned Mac app's seal valid. No user power/network setting or
 relay priority is changed; private runtime addresses and identities stay in
 the private stand directory.
+
+#### Retry unconfirmed direct candidates without replacing audio: cycle 2481
+
+The 2479 logs show exactly one failed candidate delivery check on each
+endpoint, followed by no further direct candidate attempts for the rest of
+the call. The later session snapshot contains an active QUIC session on both
+endpoints. CallService previously revoked its captured mutual P2P consent
+after any unsuccessful switch, including the safe case where the native
+candidate failed qualification and the original relay engine remained live.
+That made one transient probe failure permanent for the call; admission alone
+still does not prove that the direct media path can deliver.
+
+An unsuccessful or throwing direct candidate now retains original consent
+only while the original relay remains active. It backs off for ten seconds,
+then rechecks current local consent, reachability and media admission before
+another end-to-end qualified attempt. A concurrent relay announcement agrees
+with that surviving route and does not rebuild it. Successful direct handover
+followed by a real peer fallback retains the existing suppression of route
+oscillation. Missing old channels retain the guarded recovery/failure path.
+No media engine, callback or sender is replaced on unconfirmed delivery.
+
+Both failure and exception regressions fail on previous code. Tests cover
+concurrent peer fallback, bounded attempts, eventual successful retry and
+revoked local consent during backoff. All 215 P2P/call-service tests and
+targeted analysis pass. Physical validation of this correction is pending.
