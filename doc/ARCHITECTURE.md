@@ -12795,3 +12795,40 @@ live and continues; it is not restarted. An APK packaging script is prepared
 with a required production-artifact/hash verification gate, but it has not
 run and no new phone build is installed. Physical adaptation, video/screen/file
 concurrency and the direct-QUIC outage/handover diagnosis remain required.
+
+### Cycle 2557: finish Android ANA and preserve optional-capability packaging
+
+The pinned isolated Android archive and normal production wrapper finish
+successfully. Observed GN and compile-command flags confirm protobuf and
+Android; the ARM64 ELF exports 99 media functions, including packet overhead,
+with no test hooks. Production source hashes match the build-start snapshot.
+The output library SHA-256 is
+`76e072c7bc143b26846b46134babc913b616ee25991d4b958514e7a9e7df1a57`.
+The owned `xveil-media` VM is stopped after the terminal-success result;
+the user's default VM remains running.
+
+Debug APK 0.13.84+2556 builds and is signed with the existing phone signer.
+The signed APK retains the same set of 16 native libraries as 2531, with only
+`lib/arm64-v8a/libveil_media.so` changed. Its stripped media and FFI bytes match
+the prepared inputs, the new API is exported, no test hooks are present, and
+the kernel/package versions agree. The signed APK SHA-256 is
+`fca169e99333584c1d1a03c99409ea0c98ed47bd0378783b71460f09521cde17`.
+Artifact and same-signer install-verifier paths are recorded privately under
+`/private/tmp/xveil-call-2220`. Poco remains absent from ADB, so this APK is
+not installed and no physical call is attempted.
+
+An actual packaging regression is fixed in `scripts/check-media-symbols.sh`:
+the previous gate requires the new nullable packet-overhead lookup and rejects
+the otherwise supported 98-export production library. Mac bundling can then
+omit all call media instead of using the application's explicit fallback.
+The gate now allows that single optional capability to be absent and continues
+to require the remaining APIs. The old production Mac/Android libraries and
+the fresh Mac library pass; a private negative Mach-O fixture omitting
+`veil_media_engine_start_audio` is rejected with exit code 1. The fresh Android
+production library passes the gate as well, using NDK llvm-nm on this host.
+This exception does not enable adaptation on an older library.
+
+The installer and next stand drivers are prepared but not executed. No owned
+application or API forwarding remains. Cellular audio, camera/screen/file
+concurrency, physical speech quality and the prolonged direct-route outage
+still require testing; the overall goal remains open.
