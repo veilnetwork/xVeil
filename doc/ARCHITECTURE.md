@@ -12493,3 +12493,64 @@ solve this build: its checked-out Mac WebRTC arguments disable protobuf.
 No encoder duration, codec, congestion default or relay scheduling change is
 made from this hypothesis. Audio quality, usable video and isolation under
 concurrent screen/file traffic remain required and unverified.
+
+### Cycles 2523–2531: duplex encapsulation experiment and UDP byte counters
+
+The private native fixture now exercises real Opus encoding, NetEq and PCM
+playout through a bounded serialized link. Each direction changes from
+160 to 64 to 160 kbit/s over three four-second phases. Each RTP/RTCP datagram
+is charged its plaintext size plus the 209-byte direct-flow framing described
+above, with a 200-ms admission queue bound and 40-ms propagation delay.
+This is an encapsulation model, not a real QUIC/network measurement: it omits
+IP/UDP/QUIC overhead and does not amortize framing through ready-packet packing.
+Packet durations and bandwidth budgets are set explicitly at phase boundaries;
+the experiment does not establish a working automatic adaptation policy.
+
+With a single voiced direction, 40-ms packets and a 16-kbit/s codec floor
+produce 300/300/300 voiced PCM ticks in the sampled phase windows and no RTP
+or RTCP drops. Signal-transition delays reach about 201 ms. The corresponding
+duplex test fails to reproduce that result: voiced ticks fall to 286 and 287
+in the constrained phase, with 17 RTP and three RTCP drops across directions;
+signal-transition delays reach 463 ms. A duplex 60-ms variant avoids modeled
+packet drops but reaches about 268 ms signal-transition delay and only 292
+voiced ticks in one constrained direction. No candidate is accepted as a
+complete quality fix. The fixture uses synthetic audio and private hooks;
+none of these libraries or packet-duration changes is installed on devices.
+
+Changing frame range in this WebRTC checkout also requires refreshing the
+bitrate observer: its reconfiguration shortcut does not compare codec format
+or encoder frame range. The fixture explicitly refreshes that observer and
+applies the frame-range change before the bandwidth budget. Its private
+observer-weight toggle is not a production implementation. Protobuf remains
+disabled, so configuring an ANA string alone is still unsuitable here.
+
+Production local QUIC diagnostics now include `udp_sent_bytes`,
+`udp_received_bytes` and `udp_socket_sent_bytes`. The first is prepared UDP
+payload counted by the QUIC protocol; the second is observed received UDP
+payload. The third increases only after a successful socket handoff, so a
+prepared packet waiting for writability is not counted as handed off. These
+cumulative counters include QUIC encryption, framing, padding and control
+traffic, exclude IP/UDP headers, and do not establish remote delivery. Rate
+comparisons must use interval deltas on the same `connection_trace_id` and
+account for handshake traffic. Ordered fallback does not fabricate UDP
+counters. No application content or role is added to the wire or relay policy.
+
+The live punched-QUIC roundtrip verifies byte-counter increases beyond the
+512-byte application payload. The gated real-UDP driver test verifies no
+socket-byte increase while blocked and an increase after release/delivery.
+Both pass, as do the two channel-recovery unit tests. One manual blackout
+characterization remains ignored. Poco is absent from ADB during this cycle;
+these counters have not yet been measured in a physical cellular call.
+The full audio/video and concurrent-traffic goal remains open.
+
+Build 0.13.84+2531 contains the new counters with fresh production Mac/Android
+FFI builds. The owned Mac stand bundle verifies its kernel version, native
+code, unchanged FFI exports, production media and seal. The signed Android
+candidate has the same signer as installed 2519 and the same 16 native
+libraries; only the FFI differs. Its expected stripped native bytes and kernel
+version verify. The Opus media library remains the production 2513 version.
+The APK is prepared but not installed while Poco is unavailable. No stand
+applications are launched this cycle; independent inspection confirms no
+owned Mac/native-fixture process or phone API forward remains. The last
+verified phone installation is still 2519. The user has authorized audible
+playback for the next physical comparison; preserve their chosen volume.
