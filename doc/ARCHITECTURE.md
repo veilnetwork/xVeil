@@ -11591,3 +11591,59 @@ no test hooks. All PCM tests use synthetic audio devices; no speaker, microphone
 app profile or relay is opened. Installed endpoints remain build 2474/media
 2432. This change is not yet physically validated or installed on Poco, and
 does not establish that the ongoing access-path pauses or zero video are fixed.
+
+#### Physical history deployment and NAT target correction: 2026-10-10
+
+Build 2476 deploys the 8064b045 receiver-history change to both endpoints.
+The separate existing Android builder is temporarily started with its unchanged
+configuration; a temporary image/container uses its existing checkout/cache.
+They are removed after linking and the builder returns to stopped state.
+Android public exports and FFI dependency match the preceding production
+library. A pulled installed APK matches the signed artifact and the signer;
+only libveil_media.so changes among its 16 native libraries. Mac bundled code
+matches fresh production media and FFI, with no test hooks or VPN extension.
+Identities/history remain in place; /Applications is not replaced.
+
+The first physical preflight (2476) never places a call: Mac has six other
+canonical sessions but does not connect to the newly staged owned relay;
+Poco does. This is an unfulfilled comparison gate, not proof of a connection
+limit or a media defect. Both apps close. Its SSH control subsequently returns
+broken-pipe errors; direct SSH cleanup verifies the unit inactive/MainPID=0,
+the owned directory removed and the control absent.
+
+The subsequent 2477 stand keeps available ordinary routes and requests no
+recovery, topology changes, attachment or screen load. Ringing takes 0.714 s,
+both endpoints become active at 4.280 s and stay active for 180 seconds.
+During setup, sampled proposed P2P routes become relay: native direct opens
+report no active direct session. This is not the earlier case of a flowing
+direct QUIC media connection stalling. Native receive-age maxima are
+11073/14694 ms (Mac/Poco); median current buffers are 264/321 ms. Known media
+epochs reach 3; summing positive counters within each known epoch yields
+21/31 interruptions, 23264/27340 ms and 19/53 buffer flushes. Both local cameras
+produce thousands of frames but video transmission and remote frames stay zero.
+Native workers do not stall and audio RTP admission drops stay zero. The
+different available relay paths prevent attributing these results to the new
+history factor; physical pauses and video suppression remain unresolved.
+
+Read-only DURING-call Android power snapshots show Awake, screen on, charging,
+ACTIVE light/deep idle states, and the app's acquired veil:daemon partial wake
+lock. These observations exclude idle sleep at that instant, not every modem
+or vendor power mechanism.
+
+The call's media target matches the physical device declared in authenticated
+endpoint shares, while ensureReady passes the logical identity to native NAT
+punching. Runtime nat_punch.rs searches registered peers by exact physical
+node_id; the observed logical-key attempt reports peer not yet exchanged.
+ensureReady now tries known contact devices using the same invite pin as dial,
+retains the legacy identity target without a valid device share, and refreshes
+the logical route after success. It rechecks consent/disposal around attempts.
+A device-specific regression fails on preceding code (false instead of true).
+All 212 P2P/call-service tests pass after the fix, including second-device
+fallback, foreign-invite rejection and consent withdrawn during an attempt;
+targeted analysis passes. Physical validation of this Dart correction remains
+pending at this commit.
+
+Independent cleanup verifies all 12 assertions: exact app/logcat processes,
+phone UID and forward absent; Mac still muted at zero and sealing valid;
+builder stopped with unchanged configuration; temporary remote unit/directory
+and SSH control absent. No signed commit, push, tag or release is performed.

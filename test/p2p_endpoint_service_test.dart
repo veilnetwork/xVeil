@@ -78,6 +78,8 @@ class _Harness {
 
   /// Canned outcome the injected punch adapter returns.
   P2PPunchResult punchResult;
+  Future<P2PPunchResult> Function(Uint8List peer)? punchHandler;
+  final Set<String> admittedDevices = {};
 
   /// When set, a successful `joinEndpoint` flips [admitted] — models the
   /// cheap host/LAN dial landing so the ladder never reaches the punch.
@@ -130,9 +132,12 @@ class _Harness {
       joined.add(uri);
       if (admitOnJoin) admitted = true;
     },
-    pnetStatus: (_) async {
+    pnetStatus: (peer) async {
       admissionReads++;
-      return (admitted: admitted, hasCert: false);
+      return (
+        admitted: admitted || admittedDevices.contains(NodeId(peer).hex),
+        hasCert: false,
+      );
     },
     myIdentity: _identity,
     listenPort: () => 9000,
@@ -160,7 +165,7 @@ class _Harness {
     attemptHolePunch: injectPunch
         ? (peer) async {
             punchCalls.add(peer);
-            return punchResult;
+            return punchHandler == null ? punchResult : await punchHandler!(peer);
           }
         : null,
     now: () => now,
@@ -559,6 +564,97 @@ void main() {
     expect(ok, isTrue);
     expect(h.punchCalls, hasLength(1));
     expect(h.svc.lastFallbackReason(peer), isNull);
+  });
+
+  test(
+    'NAT punch uses the contact device registered by endpoint exchange',
+    () async {
+      final h = _Harness(injectPunch: true);
+      addTearDown(h.svc.dispose);
+      final identity = _peer(0x71);
+      final device = _peer(0x72);
+      h.punchHandler = (target) async {
+        if (NodeId(target) != device) {
+          return (connected: false, reason: 'peer not yet exchanged');
+        }
+        h.admittedDevices.add(device.hex);
+        return (connected: true, reason: 'direct session up');
+      };
+      h.messaging.onP2PEndpoints!(
+        identity,
+        jsonEncode({
+          'v': 1,
+          'ts': 7,
+          'd': device.hex,
+          // Devices present the identity's key, as on the physical phone.
+          'e': [_inviteUri(0x71)],
+        }),
+      );
+      await pumpEventQueue();
+
+      expect(
+        await h.svc.ensureReady(
+          identity,
+          budget: const Duration(milliseconds: 1),
+        ),
+        isTrue,
+      );
+      expect(h.punchCalls.map((p) => NodeId(p)), [device]);
+      expect(h.svc.routeFor(identity), device);
+      expect(h.svc.lastFallbackReason(identity), isNull);
+    },
+  );
+
+  test('NAT punch tries the next contact device after one fails', () async {
+    final h = _Harness(injectPunch: true);
+    addTearDown(h.svc.dispose);
+    final identity = _peer(0x71);
+    final first = _peer(0x72), second = _peer(0x73);
+    h.punchHandler = (target) async {
+      if (NodeId(target) != second) {
+        return (connected: false, reason: 'direct QUIC failed');
+      }
+      h.admittedDevices.add(second.hex);
+      return (connected: true, reason: 'direct session up');
+    };
+    for (final entry in [(first, 7), (second, 8)]) {
+      h.messaging.onP2PEndpoints!(identity, jsonEncode({
+        'v': 1, 'ts': entry.$2, 'd': entry.$1.hex,
+        'e': [_inviteUri(0x71)],
+      }));
+      await pumpEventQueue();
+    }
+    expect(await h.svc.ensureReady(identity,
+      budget: const Duration(milliseconds: 1)), isTrue);
+    expect(h.punchCalls.map((p) => NodeId(p)), [first, second]);
+    expect(h.svc.routeFor(identity), second);
+  });
+
+  test('NAT punch cannot target a foreign device through an unpinned invite', () async {
+    final h = _Harness(injectPunch: true);
+    addTearDown(h.svc.dispose);
+    final identity = _peer(0x71), claimedDevice = _peer(0x72);
+    h.messaging.onP2PEndpoints!(identity, jsonEncode({
+      'v': 1, 'ts': 7, 'd': claimedDevice.hex,
+      'e': [_inviteUri(0x79)],
+    }));
+    await pumpEventQueue();
+    expect(await h.svc.ensureReady(identity,
+      budget: const Duration(milliseconds: 1)), isFalse);
+    expect(h.punchCalls.map((p) => NodeId(p)), [identity]);
+    expect(h.svc.routeFor(identity), isNull);
+  });
+
+  test('NAT punch does not accept success after consent is withdrawn', () async {
+    final h = _Harness(injectPunch: true);
+    addTearDown(h.svc.dispose);
+    h.punchHandler = (_) async {
+      h.allows = false;
+      return (connected: true, reason: 'direct session up');
+    };
+    expect(await h.svc.ensureReady(_peer(0x71),
+      budget: const Duration(milliseconds: 1)), isFalse);
+    expect(h.punchCalls, hasLength(1));
   });
 
   test(

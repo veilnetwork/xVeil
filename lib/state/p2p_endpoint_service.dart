@@ -644,21 +644,39 @@ class P2PEndpointService {
     // flight daemon-side; on success `admitted` flips the standard way.
     final punch = _attemptHolePunch;
     if (punch != null) {
-      try {
-        final result = await punch(peer.bytes);
-        if (result.connected || await _admitted(peer)) {
-          _fallbackReason.remove(peer.hex);
-          return true;
+      // NAT admission is keyed by the physical node registered by bootstrap
+      // exchange. A contact's identity can name several such nodes and is not
+      // itself necessarily registered. Use its authenticated device shares,
+      // retaining the same invite pin as the ordinary dial path.
+      final devices = _contactDevices[peer.hex]?.values ?? const <NodeId>[];
+      final targets = [
+        for (final device in devices)
+          if ((_peerEndpoints[device.hex] ?? const <String>[]).any(
+            (uri) => _invitePresents(uri, device, alsoAccepts: peer),
+          ))
+            device,
+      ];
+      if (targets.isEmpty) targets.add(peer); // legacy/no-device exchange
+      for (final target in targets) {
+        if (_disposed || !await _localAllowsP2P(peer)) return false;
+        try {
+          final result = await punch(target.bytes);
+          if (_disposed || !await _localAllowsP2P(peer)) return false;
+          if (result.connected || await _admitted(target)) {
+            await _refreshRoute(peer);
+            _fallbackReason.remove(peer.hex);
+            return true;
+          }
+          _fallbackReason[peer.hex] = result.reason;
+          devLog(
+            () =>
+                'xVeil[p2p]: hole punch for ${peer.short} '
+                'device=${target.short} did not connect (${result.reason})',
+          );
+        } catch (e) {
+          _fallbackReason[peer.hex] = 'direct punch failed';
+          devLog(() => 'xVeil[p2p]: hole punch failed for ${peer.short}: $e');
         }
-        _fallbackReason[peer.hex] = result.reason;
-        devLog(
-          () =>
-              'xVeil[p2p]: hole punch for ${peer.short} did not connect '
-              '(${result.reason})',
-        );
-      } catch (e) {
-        _fallbackReason[peer.hex] = 'direct punch failed';
-        devLog(() => 'xVeil[p2p]: hole punch failed for ${peer.short}: $e');
       }
     } else {
       _fallbackReason[peer.hex] = 'direct session unavailable';
