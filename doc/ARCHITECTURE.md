@@ -12168,3 +12168,65 @@ UID absent, debug forwarding removed, Mac output muted at zero and the owned
 Mac app seal valid. No native smoke process remains. No relay scheduling,
 packet classification, system network or power policy changes are made.
 Commits remain unsigned and unpushed.
+
+
+#### Installed readiness fix and ordered-writer failure: cycles 2507–2508
+
+Build 0.13.84+2507 installs root 5782c627 on Poco and the owned Mac stand.
+All 16 Android native libraries are byte-identical to installed build 2504;
+FFI/media bytes, same signer, version and the pulled installed APK match.
+Mac code sections match the preceding production native artifacts, with 98
+media exports, no test hooks, unchanged FFI and a valid app seal. This changes
+Dart readiness only; it does not enable the battery coalescer or redundancy.
+
+Two quiet calls run without changing network, power or output-volume settings.
+The first, audio-only warm call becomes active at 3.903 seconds on relay;
+Poco briefly uses P2P at 38.077 seconds and returns to relay at 38.837 seconds.
+A second video call becomes active on both endpoints on P2P at 4.994 seconds.
+This demonstrates that a warmed direct route can be used by the installed
+build, not a controlled before/after proof of the readiness fix's timing effect.
+
+The second call qualifies the Mac relay alternate, but Poco's alternate fails
+delivery qualification. Mac briefly admits 384 copied packets (38,784 plaintext
+bytes) from approximately seconds 36.8–44.6; the native mirror clears when the
+route hands over. Poco never enables its mirror, and duplicate counts remain
+zero. Admission bytes do not prove delivery of the copies. The intended
+bidirectional, 60-second redundancy comparison therefore does not occur.
+No speech intelligibility or redundancy quality benefit is claimed.
+
+The ordered control failure is now localized in this particular physical trace:
+Poco logs session.writer.stalled at second 34.264 for the computer's identity,
+then session.writer_closed and session.close at 34.264/34.266. The first sparse
+sample of daemon direct_refused follows at 34.303 seconds. Both the native
+source payload counter and direct-send sealing continue, but daemon admission
+samples disappear and direct_refused continues. Mac's accepted audio count
+stays at 822 through the outage and payload age reaches approximately 9.5 s.
+There are no authenticated media-cell receive samples on Mac in seconds
+35–45. Mac logs keepalive.timeout_close for Poco's physical device at 40.022
+seconds, then session.close at 45.024. Both outgoing routes change to relay
+at 44.583 seconds, preserving the second call's engine epoch three. These
+are automatic changes; the stand requests no route recovery. The refusal
+and writer closure precede mirror enabling, so the mirror cannot explain
+the start of this outage.
+
+The SDK's direct_refused means the session broadcaster declined admission;
+it does not distinguish missing/closed/full queues. The matching writer
+closure provides evidence for session teardown in this run. This does not
+explain why that ordered write stopped progressing. Before closure, Poco's
+independent primary trace shows accumulated QUIC loss and expired outgoing
+datagrams with a small congestion window. The battery accumulation window
+remains disabled. Available authenticated receive samples show SDK dispatch
+ages under a millisecond, rather than a seconds-long receive batch. A sparse
+sample or a missing sample alone is not a packet-loss measurement. Investigation
+must now cover the ordered writer and the lifetime of its otherwise independent
+media children when the parent session closes; retaining stale authenticated
+session state indefinitely would not be a repair.
+
+On relay after the handover, median native audio-delay gauges are about
+340/341.5 ms and interruption counters rise 17→25 / 9→21. A small gauge
+during the preceding receive outage is not healthy audio. Native video
+transmission remains zero despite active camera capture. Both audio quality
+and usable video remain unresolved. Cleanup independently verifies exact
+Mac/logcat processes exited, the whole Poco app UID absent, forwarding removed,
+Mac output muted at zero and the app seal valid. No release, push, signed commit
+or relay scheduling change is made.
