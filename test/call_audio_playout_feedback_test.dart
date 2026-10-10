@@ -244,7 +244,7 @@ void main() {
         for (var i = 0; i < 12; i++) {
           adapter.onNativeStats(
             healthyNetwork,
-            peerAudioDelayMs: 140,
+            peerAudioDelayMs: 170,
             requirePeerAudioPlayout: true,
           );
         }
@@ -319,17 +319,24 @@ void main() {
     expect(adapter.atFloor, isTrue, reason: 'unknown breaks recovery streak');
   });
 
-  test('bad playout pauses video immediately even without RTCP', () {
+  test('bad playout trials the one-fps floor before pausing without RTCP', () {
     final adapter = CallBitrateAdapter(
       baseBitrateKbps: 900,
       baseFps: 60,
       initialLevel: 0,
     );
-    adapter.onNativeStats(
-      {'audio_feedback_reports': 0},
-      peerAudioDelayMs: 540,
-      requirePeerAudioPlayout: true,
-    );
+    for (var i = 0; i < 6; i++) {
+      adapter.applyPendingTarget((_) => true);
+      adapter.onNativeStats(
+        {'audio_feedback_reports': 0},
+        peerAudioDelayMs: 540,
+        requirePeerAudioPlayout: true,
+      );
+      if (i == 3) {
+        expect(adapter.target.maxFps, 1);
+        expect(adapter.audioReserve, isFalse);
+      }
+    }
     bool? nativePause;
     adapter.applyPendingPause((paused) {
       nativePause = paused;

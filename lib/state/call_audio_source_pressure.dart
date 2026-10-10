@@ -3,6 +3,10 @@ import 'call_bitrate_adapter.dart';
 /// Endpoint measurements for the shared source budget, including audio-only
 /// calls. The node receives only a generic, expiring pressure observation.
 class CallAudioSourcePressure {
+  // Reliable background transfers retain their earlier conservative budget;
+  // the video ladder's one-frame trial is a separate endpoint policy.
+  static const int playoutDegradeMs = 160;
+  static const int playoutRecoverMs = 120;
   bool _pressured = true;
   int _healthy = 0;
   int? _lastAudioDrops;
@@ -41,15 +45,15 @@ class CallAudioSourcePressure {
         unknown ||
         interrupted ||
         newDrop ||
-        (peerNeeded && peerDelayMs! >= CallBitrateAdapter.playoutDegradeMs) ||
+        (peerNeeded && peerDelayMs! >= playoutDegradeMs) ||
         (receiveExpected &&
-            (receiveDelayMs! >= CallBitrateAdapter.playoutDegradeMs ||
+            (receiveDelayMs! >= playoutDegradeMs ||
                 receiveAgeMs! >= CallBitrateAdapter.audioReceivePauseMs));
     final good =
         !bad &&
-        (!peerNeeded || peerDelayMs! < CallBitrateAdapter.playoutRecoverMs) &&
+        (!peerNeeded || peerDelayMs! < playoutRecoverMs) &&
         (!receiveExpected ||
-            (receiveDelayMs! < CallBitrateAdapter.playoutRecoverMs &&
+            (receiveDelayMs! < playoutRecoverMs &&
                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
     if (bad) {
       _pressured = true;

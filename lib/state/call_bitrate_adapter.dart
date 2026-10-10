@@ -88,12 +88,11 @@ class CallBitrateAdapter {
   static const int audioReceivePauseMs = 1000;
   static const int audioReceiveRecoverMs = 500;
 
-  /// Leave 40 ms of the 200-ms quality budget for codec/source/render work
-  /// absent from the native receive estimate. The measured native value is
-  /// not acoustic latency; the stricter recovery margin avoids spending more
-  /// secondary bandwidth while the receiver is still draining its buffer.
-  static const int playoutDegradeMs = 160;
-  static const int playoutRecoverMs = 120;
+  /// Native buffer delay is not acoustic latency. Reduce video above 200 ms,
+  /// then wait for the buffer to drain below 160 ms before spending more.
+  /// End-to-end quality is verified separately with decoded PCM measurements.
+  static const int playoutDegradeMs = 200;
+  static const int playoutRecoverMs = 160;
 
   /// Bufferbloat guard, relative to the call's own RTT baseline. The relay
   /// leg is TCP-like: congestion NEVER shows as loss (the transport hides
@@ -124,7 +123,6 @@ class CallBitrateAdapter {
   int _audioRecoveryStreak = 0;
   int _severeStreak = 0;
   bool _audioReserve = false;
-  bool _unprovenAudioHold = false;
   bool _supportsNativeReceiveAge = false;
   int _mutedRecoveryStreak = 0;
   int? _lastTxDrops;
@@ -204,9 +202,8 @@ class CallBitrateAdapter {
 
   bool get audioReserve => _audioReserve;
 
-  /// Mounting video must not spend even its sparse startup budget before
-  /// expected audio has a current healthy measurement. The native pause is
-  /// applied before the send stream/capturer starts, retaining receive/preview.
+  /// Begin with a one-frame/second trial when expected audio is not yet known
+  /// to be healthy. Unknown feedback cannot earn a larger video budget.
   void prepareVideoSend(
     Map<String, dynamic> stats, {
     bool sendAudioExpected = true,
@@ -246,8 +243,7 @@ class CallBitrateAdapter {
         playoutUnproven ||
         receivePlayoutUnproven ||
         audioInterrupted) {
-      _audioReserve = true;
-      _unprovenAudioHold = true;
+      _level = ladder.length - 1;
       _goodStreak = 0;
       _audioRecoveryStreak = 0;
     }
@@ -283,10 +279,10 @@ class CallBitrateAdapter {
             baseBitrateKbps,
           ),
           maxFps: supportsLowRateVideo
-              ? (baseFps * cadenceLadder[_level]).clamp(
-                  0.02,
-                  baseFps.toDouble(),
-                )
+              ? (_level == ladder.length - 1
+                        ? 1.0
+                        : baseFps * cadenceLadder[_level])
+                    .clamp(1.0, baseFps.toDouble())
               : (baseFps * cadenceLadder[_level])
                     .round()
                     .clamp(1, 60)
@@ -339,22 +335,6 @@ class CallBitrateAdapter {
     final receiveRequested =
         receiveAudioExpected || (audioReceiveQuality?.expected ?? false);
     final receiveDelay = audioReceiveDelayMs ?? _nativeReceiveDelay(stats);
-    if (sendAudioExpected &&
-        _unprovenAudioHold &&
-        !receive.expected &&
-        !requirePeerAudioPlayout &&
-        !requireAudioReceivePlayout &&
-        (expectedReports == null ||
-            expectedReports <= 0 ||
-            feedbackAvailable)) {
-      // Retain legacy behavior when the peer explicitly withdraws an optional
-      // measurement requirement. A measured interruption is a different hold.
-      _unprovenAudioHold = false;
-      _audioReserve = false;
-      _goodStreak = 0;
-      _audioRecoveryStreak = 0;
-      return target;
-    }
     // With the local mic muted, no outbound audio report can establish
     // recovery. Healthy incoming audio can earn a sparse video probe; growing
     // beyond that floor still needs fresh video reports from every receiver.
@@ -415,6 +395,7 @@ class CallBitrateAdapter {
           ? stats['audio_tx_rtp_drops'] as int
           : null,
       feedbackAvailable: feedbackAvailable,
+      anyAudioFeedbackAvailable: anyFeedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
       requirePeerAudioPlayout: requirePeerAudioPlayout && sendAudioExpected,
       requireAudioReceive: receive.expected,
@@ -422,9 +403,9 @@ class CallBitrateAdapter {
       requireAudioReceivePlayout:
           requireAudioReceivePlayout && receiveRequested,
       audioReceiveDelayMs: receiveDelay,
-      missingAudioReceiverFeedback:
-          expectedReports != null && expectedReports > 0 && !feedbackAvailable,
+      missingAudioReceiverFeedback: !feedbackAvailable,
       audioInterrupted: audioInterrupted,
+      videoFloorApplied: _appliedTarget == target && _appliedPause != true,
     );
   }
 
@@ -441,11 +422,13 @@ class CallBitrateAdapter {
     required int txDrops,
     int? audioTxDrops,
     bool feedbackAvailable = true,
+    bool? anyAudioFeedbackAvailable,
     int? peerAudioDelayMs,
     bool requirePeerAudioPlayout = false,
     bool missingAudioReceiverFeedback = false,
     bool requireAudioReceive = false,
     int? audioReceiveAgeMs,
+    bool videoFloorApplied = true,
   }) {
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
@@ -470,29 +453,13 @@ class CallBitrateAdapter {
         requirePeerAudioPlayout &&
         peerAudioDelayMs != null &&
         peerAudioDelayMs >= playoutDegradeMs;
-    // Losing a measurement during a live call cannot justify continuing a
-    // previously earned video budget. This also covers a newly expected room
-    // receiver; clean RTCP from another receiver cannot establish its health.
+    // Losing a measurement gives video less bandwidth but does not prove an
+    // audio failure. A receiver that has not reported cannot earn recovery.
     final audioUnproven =
         (requireAudioReceivePlayout && audioReceiveDelayMs == null) ||
         (requireAudioReceive &&
             (audioReceiveAgeMs == null || audioReceiveAgeMs < 0)) ||
         (requirePeerAudioPlayout && peerAudioDelayMs == null);
-    // The captured cellular outage still transmitted screen frames while
-    // audio was absent for 4.4 s. Stop competing local video immediately;
-    // descending the ladder or waiting for a new RTCP report is too late.
-    if (supportsLowRateVideo &&
-        !_audioReserve &&
-        (receiveOutage ||
-            peerPlayoutOutage ||
-            audioUnproven ||
-            audioInterrupted)) {
-      _audioReserve = true;
-      _unprovenAudioHold = audioUnproven;
-      _goodStreak = 0;
-      _audioRecoveryStreak = 0;
-      return target;
-    }
     // Missing/stale reports are not healthy samples. Actual new local audio
     // drops still justify reducing video while waiting for remote feedback.
     final playoutBad =
@@ -505,7 +472,10 @@ class CallBitrateAdapter {
         !newDrops &&
         !newAudioDrops &&
         !playoutBad &&
-        !missingAudioReceiverFeedback) {
+        !missingAudioReceiverFeedback &&
+        !receiveOutage &&
+        !audioInterrupted &&
+        !audioUnproven) {
       _badStreak = 0;
       _floorBadStreak = 0;
       _goodStreak = 0;
@@ -539,7 +509,8 @@ class CallBitrateAdapter {
         playoutBad ||
         missingAudioReceiverFeedback ||
         receiveOutage ||
-        audioInterrupted;
+        audioInterrupted ||
+        audioUnproven;
     final audioGood =
         feedbackAvailable &&
         rttMs > 0 &&
@@ -567,12 +538,17 @@ class CallBitrateAdapter {
       _audioRecoveryStreak = 0;
     }
 
-    final severe =
-        rttMs >= severeRttMs ||
-        (requirePeerAudioPlayout &&
-            peerAudioDelayMs != null &&
-            peerAudioDelayMs >= playoutDegradeMs);
-    _severeStreak = atFloor && severe ? _severeStreak + 1 : 0;
+    final measuredAudioFailure =
+        receiveOutage ||
+        peerPlayoutOutage ||
+        audioInterrupted ||
+        newAudioDrops ||
+        (sendAudioExpected &&
+            (anyAudioFeedbackAvailable ?? feedbackAvailable) &&
+            (txLossPct >= 5 || txJitterMs >= 80 || rttMs >= severeRttMs));
+    _severeStreak = atFloor && videoFloorApplied && measuredAudioFailure
+        ? _severeStreak + 1
+        : 0;
     if (supportsLowRateVideo &&
         (sendAudioExpected ||
             requireAudioReceive ||
@@ -590,7 +566,7 @@ class CallBitrateAdapter {
       _badStreak++;
       if (_badStreak >= degradeAfter && _level < ladder.length - 1) {
         _badStreak = 0;
-        _level++;
+        _level = (_level + 2).clamp(0, ladder.length - 1);
         // A rung was still available, so the floor streak restarts: the new
         // rung has not been given its chance yet.
         _floorBadStreak = 0;
@@ -621,7 +597,6 @@ class CallBitrateAdapter {
     _goodStreak++;
     if (_audioReserve && _goodStreak >= recoverAfter) {
       _audioReserve = false;
-      _unprovenAudioHold = false;
       _severeStreak = 0;
       _goodStreak = 0;
       return target;
@@ -640,7 +615,6 @@ class CallBitrateAdapter {
   void _releaseAudioHold() {
     if (_audioReserve) _level = ladder.length - 1;
     _audioReserve = false;
-    _unprovenAudioHold = false;
     _goodStreak = 0;
     _audioRecoveryStreak = 0;
     _severeStreak = 0;
