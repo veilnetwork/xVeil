@@ -12832,3 +12832,65 @@ The installer and next stand drivers are prepared but not executed. No owned
 application or API forwarding remains. Cellular audio, camera/screen/file
 concurrency, physical speech quality and the prolonged direct-route outage
 still require testing; the overall goal remains open.
+
+### Cycles 2558–2560: exercise ANA through the real SDK and cellular app
+
+The real-codec relay fixture adds explicit `--adaptive-audio` and
+`--compact-media` switches. It checks the enabled 209-byte framing hint in
+both directions, actual encoded payloads and the 16–32-kbit/s encoder bounds.
+An encoder target of -1 is accepted only before any payload is encoded:
+WebRTC has not initialized that statistic yet. The original 2558 failure
+record is retained; its startup telemetry check is not rewritten retroactively.
+The 200-ms decoded-PCM and receiver-delay gates remain unchanged.
+
+Three 360-second mixed runs use a neutral shared UDP FIFO capped at
+1024 kbit/s per direction, real Opus/NetEq, synthetic VP8, endpoint producer
+feedback and reliable 512-KiB file transfers in both directions. Legacy-format
+2558 fails (maximum mixed PCM delay 202.2/192.1 ms); legacy-format 2559 passes
+(190.2/193.8 ms). Compact-format 2560 fails: mixed PCM maxima are
+191.3/201.7 ms, the audio-only phase reaches 220.9 ms in one direction,
+and one mixed PCM frame is quiet. All 340 mixed tone edges are matched in
+each direction in every run, with no missing edges. All files arrive with
+matching hashes. Compact 2560 delivers only two/one VP8 frames to the two
+receivers during its mixed phase. These results do not establish acceptable
+video quality or consistent sub-200-ms audio. All fixture nodes stop
+successfully; 2560's owned Python/Dart processes exit and no fixture sockets
+remain. Test-hook libraries are not installed on physical devices.
+
+Poco returns to ADB. The verified production APK 0.13.84+2556 is installed
+in place after comparing signing certificates; a pull of the installed APK
+matches the prepared signed APK exactly. Wi-Fi is off and cellular connectivity
+is validated. The owned Mac stand also runs production build 2556.
+Both physical calls keep audio adaptation enabled with the 209-byte hint.
+No relay priority, system volume or network policy is changed.
+
+The 120-second Poco-to-Mac audio call rings after 1.156 s and is active on
+both endpoints after 2.091 s. The 180-second Mac-to-Poco video call rings
+after 0.393 s and is active after 2.308 s. Both negotiate P2P while connecting
+but fall back before activation with `no direct session to peer`; the active
+calls remain on relay. This is not a measured outage of an established P2P
+media session. Maximum native receiver delays are 1434/1637 ms for audio
+and 1788/1557 ms for video; these are buffer estimates, not acoustic latency.
+There are interruptions despite zero native audio RTP source drops and no
+reported stalled media worker. During video, both cameras capture over 5300
+local frames but send/deliver zero video frames: the audio protection remains
+paused. A generated 64-KiB attachment sent during that call arrives in
+95.737 s with an exact SHA-256 match. No human speech assessment is recorded.
+
+The direct-path investigation identifies an address-key mismatch. The Mac's
+current runtime log records 248 endpoint registrations under the remote
+contact identity, while its recent NAT attempts target a distinct declared
+device; none of those registrations names that target. Those attempts return
+`peer not yet exchanged`. Poco's attempts toward the Mac mostly return
+`NAT signaling timed out`. Source inspection explains the first mismatch:
+`_mintLocalUris` reuses `RealVeilStack.myInvite`, which can name the document
+master rather than the transport device; bootstrap join registers the hash
+of the invite public key, whereas the punch ladder selects the declared
+device ID. A correction must preserve authenticated identity/device binding
+and exact answering-device selection. No production routing fix is claimed
+in this cycle; NAT signaling and relay audio quality remain unresolved.
+
+Both owned apps are closed after the physical stand. Exact owned process IDs,
+the Android package UID and API forwarding are verified absent. Private
+artifacts remain under `/private/tmp/xveil-call-2220`; the overall goal remains
+open.
