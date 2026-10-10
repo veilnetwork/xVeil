@@ -12081,3 +12081,45 @@ counters finish at one on each endpoint. The quality goal remains open.
 Independent cleanup verifies exact Mac/logcat PIDs exited, the entire phone
 app UID absent, forwarding removed, Mac output still muted at zero, and the
 owned Mac app's seal valid. No signed commit, push, tag or release is performed.
+
+#### Bounded audio path redundancy experiment: cycle 2503
+
+The previous paired-path observations justify measuring an alternate delivery
+path, but neither a lower probe time nor switching to relay proves speech
+recovery. SDK c4068bae adds an optional, default-off unicast audio mirror at
+the native send boundary. It borrows a caller-owned, already qualified channel
+and copies only nonempty PT111 RTP from the pinned local SSRC. Video, RTCP,
+foreign RTP and padding are not copied. Each channel has its existing bounded
+native producer pump, deadline and independent transport allocation; no packet
+bytes enter Dart. Each copy is sealed by its own channel. Relay envelopes,
+priorities and scheduling policy are unchanged. Additional local admissions and
+plaintext bytes are reported separately; one logical sent-packet notification
+is emitted if either route admits it. Primary RTP drop metrics still expose
+failure of the primary admission even when the alternate succeeds.
+
+The audio network queue filters repeated sequence/timestamp pairs in the pinned
+receive SSRC before NetEq/TWCC delivery and before updating payload freshness.
+The fixed history stores the last 4096 distinct packets without allocation;
+duplicates cannot evict history. Its bound is explicit, not an unlimited replay
+claim. Encrypted replay checks and NetEq remain separate constraints. Native
+rebind, audio stop and teardown clear the borrowed mirror. An optional control
+symbol preserves compatibility with older loaded native engines.
+
+The authenticated debug-only `/call_audio_mirror?on=1&seconds=1..60` opens and
+delivery-qualifies a relay alternate only for an existing direct-posture P2P
+audio call on an engine supporting the new control. It does not switch the
+primary route or open P2P for a relay/onion call. A lease disables native
+duplication before closing the borrowed handle, automatically expires, and is
+cancelled by handover, repair or hangup. Every pending await validates captured
+call/engine/epoch/channel ownership; late opening/qualification cannot install
+into a replaced call. There is no automatic production enabling policy.
+
+The standalone classifier/history smoke and the real WebRTC call-plane suite
+pass. Native checks cover exclusion of padding/video/control/foreign audio,
+primary-only and alternate-only admission failures, both failing, delayed
+duplicate freshness, and handover/audio-stop clearing. Five lease tests plus
+the observer/route-operation tests pass (14 total); targeted analysis is clean.
+These prove the primitive and cancellation behavior, not improved physical
+speech or video. Build 2501 remains installed pending the production-native
+experimental build and measurement. No hardware app is started in this cycle;
+test-hook libraries are used only by the temporary native smoke process.
