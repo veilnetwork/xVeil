@@ -11781,3 +11781,59 @@ Independent cleanup verifies both owned Mac/logcat processes exited, the
 phone's entire app UID absent and forwarding removed. Mac output remains
 muted at zero and the owned app seal is valid. All changes remain unsigned
 and unpushed; identities and user network/power settings are preserved.
+
+#### Packet timing and padding-only audio liveness: cycles 2486–2488
+
+Unique ciphertext fingerprint/length matches from primary source connections
+in call 2485 correlate 410 Mac-to-Poco and 364 Poco-to-Mac UDP observations
+after the stable direct handover. Source traces are recorded only after a
+successful socket send; destination traces precede QUIC demultiplexing and
+include kernel receipt timestamps. Subtracting each direction's minimum
+clock-biased delay gives maximum additional delays of 4550/1503 ms, with
+medians 9/13 ms. Kernel-to-read time is at most 5.657/1.969 ms. These are
+sampled packets and relative variation, not absolute one-way latency or proof
+that a particular carrier causes the problem. They locate these long delays
+after socket submission and before receipt, outside the receiver's SDK queue.
+
+The Mac's 4096-entry audio ingress recording contains 230 empty payloads,
+including 227 consecutive repeated RTP timestamps attributable to padding.
+Encoded-payload ingress-to-drain time is also small (maximum recorded drain
+time across all entries is 0.072 ms). A private synthetic-ADM experiment feeds
+real Opus/NetEq the captured delay envelope, interpolating between nonempty
+RTP observations and adding a 40-ms floor, then returning to a healthy path.
+It does not replay the original audio, loss or DTX. The unchanged decoder
+still exhibits seven interruptions and 12 buffer flushes during this envelope;
+after healthy delivery returns, successive PCM marker delays fall from about
+517 ms to 157 ms and eventually about 100 ms. Maximum host tick lateness is
+5.03 ms. This demonstrates recovery and continuing sensitivity to delivery
+variation, not a physical call quality improvement or a reason to relax the
+audio protection threshold.
+
+WebRTC's receive packet counter and last-packet time include RTP padding.
+Consequently padding alone could make the existing audio liveness watchdog
+and video guard treat missing encoded audio as fresh. A real receive-stream
+regression on the preceding library receives 74 padding packets over 1.5 s
+and reports audio age zero; its assertion requiring ageing fails.
+
+The shim now records the original monotonic arrival time only for nonempty
+Opus/DTX packets with the call's pinned remote audio SSRC. Foreign SSRCs,
+video, RTCP and padding cannot renew this clock. The existing RTP counters
+remain intact; unicast audio_rx_native_age_ms and each group receiver's age
+use the payload clock on successful worker snapshots. Unknown/blocked workers
+retain their existing unknown-state handling. No role, priority or timestamp
+is added to relay envelopes, and queued speech is not discarded by this fix.
+
+The corrected synthetic test measures roughly 1460 ms after padding, then a
+fresh arrival after audio resumes. It also covers padding before the first
+audio payload and foreign-SSRC payloads during an outage. A separate group
+padding regression fails on the preceding library and passes on the new one.
+The complete native call-plane smoke passes, including stalled video queues,
+group feedback, muted capture, sparse encoding and teardown. Targeted silence,
+asymmetric handover and delivery-stall PCM tests pass. This is not a new full
+Flutter or workspace test run.
+
+The production Mac media library builds with the same 97 public exports and
+no test hooks. Android rebuilding, app packaging, installation and physical
+call verification of this correction remain pending. No hardware apps are
+started in these experiments; an independent audit confirms every owned native
+test process has exited. Commits remain unsigned and unpushed.
