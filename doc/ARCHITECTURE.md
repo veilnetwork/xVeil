@@ -11737,3 +11737,47 @@ complete alias cleanup. Crate-local production clippy passes with warnings
 denied. The first broader clippy invocation encounters a pre-existing
 redundant-closure warning in veil-ipc route_trace.rs; it is not a green full
 workspace lint run. Physical validation of the new native receiver is pending.
+
+#### Installed receive-alias validation: cycles 2484–2485
+
+Both production FFI libraries are rebuilt from committed SDK 37b62d48.
+Their 186 public FFI exports match the preceding builds. Build 2484 packages
+the new FFI and the unchanged Mac 2475 / Android 2476 media engine; only the
+FFI differs among Android's 16 native libraries. Installed Poco is replaced
+in place with the same signer and its pulled APK matches the verified signed
+APK exactly. No user installation on /Applications is replaced.
+
+Natural quiet video call 2485 rings after 0.991 s and both endpoints are active
+after 2.625 s. Poco changes its outgoing route to P2P at 16.734 s; Mac follows
+at 21.468 s. Both stay on P2P until the end of the requested 150-second active
+call. The single native engine epoch remains 1 on both devices throughout,
+including the interval when the outgoing routes differ. This contrasts with
+the repeated repairs through epoch 13 in 2482 and verifies the corrected
+receive behavior in this stand, not universal absence of route failures.
+
+Audio/video quality remains unresolved. Maximum observed audio receive ages
+are 4422 ms on Mac and 4576 ms on Poco; median native audio delay estimates
+are 310/411 ms. After 30 s, interruption counters still grow from 1 to 11/9,
+with interruption duration increments of 10975/9480 ms. Native workers do not
+report stalls, audio RTP admission drops remain zero, source RTP maximum gaps
+are 21/401 ms, and maximum native admission time is 0/2 ms respectively.
+The phone's 401-ms source gap is consistent with ordinary Opus DTX cadence;
+these observations do not explain the multi-second receive gaps. Camera
+capture reaches 4521/4468 frames, but transmitted and remote video frames
+remain zero under the audio quality guard. No speech or audible-quality claim
+is made from this quiet test.
+
+Poco trace observations confirm independent primary and secondary datagram
+channels (local slots 0 and 2); ordinary slot 1 remains on its compatibility
+path. Local primary admission reports no buffer/bandwidth drops or queued
+wire bytes in the late samples. Mac socket observations for the authenticated
+Poco session endpoint after 30 s show aggregate UDP payload traffic of about
+222/177 kbit/s outbound/inbound, with mean datagram payload sizes 284/257 B.
+These aggregates include ACK/control and other channels: they do not measure
+audio bitrate or establish an access-network capacity defect. Remaining
+pre-decoder timing and delivery loss require further investigation.
+
+Independent cleanup verifies both owned Mac/logcat processes exited, the
+phone's entire app UID absent and forwarding removed. Mac output remains
+muted at zero and the owned app seal is valid. All changes remain unsigned
+and unpushed; identities and user network/power settings are preserved.
