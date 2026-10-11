@@ -35,6 +35,8 @@ parser.add_argument('--local-source-feedback', action='store_true', help='Feed a
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
 parser.add_argument('--no-video', action='store_true', help='Isolate real audio/file coexistence without starting a video encoder; not a full media-priority gate')
+parser.add_argument('--reannounce-interval-seconds', type=int,
+                    help='Diagnostic routing refresh interval, below the unchanged 120-second route TTL; omitted retains production defaults')
 args = parser.parse_args()
 if args.chunk_trace:
     os.environ['VEIL_DIAG_CHUNKS'] = '1'
@@ -42,6 +44,8 @@ if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
 if args.feedback_interval_seconds < 1:
     parser.error('Feedback interval must be at least one second')
+if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_interval_seconds < 120:
+    parser.error('Diagnostic routing refresh interval must be between 1 and 119 seconds')
 if args.file_bytes < 2048 or args.file_bytes % 2048:
     parser.error('File size must be a positive multiple of 2048 bytes')
 sdk_path = args.sdk.resolve(strict=True)
@@ -145,6 +149,7 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'feedback_interval_seconds': args.feedback_interval_seconds,
           'independent_control_ipc': not args.shared_control_ipc,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
+result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
 try:
     for index in range(3):
         directory = ROOT / str(index)
@@ -173,6 +178,8 @@ try:
         # Local-only runtime counters cover drops before the UDP shaper and
         # after transport receipt. No externally reachable metrics listener.
         lines += ['[metrics]', 'listen = "tcp://127.0.0.1:0"']
+        if args.reannounce_interval_seconds is not None:
+            lines += ['[routing]', 'reannounce_interval_secs = ' + str(args.reannounce_interval_seconds)]
         lines += ['[anonymity]', 'relay_capable = true', '[ipc]', 'enabled = true', 'socket_uri = ' + json.dumps('unix://' + str(directory / 'ipc.sock')), '[[listen]]', 'id = "0x00000001"', 'transport = ' + json.dumps('quic://127.0.0.1:' + str(ports[index]))]
         if shaper is not None:
             lines.append('advertise = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[index])))
