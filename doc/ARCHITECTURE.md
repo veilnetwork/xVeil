@@ -13597,3 +13597,54 @@ The regular local Mac app is also replaced with build 0.13.84+2572, compiled
 without the diagnostic API. Its signature and bundled production SDK code
 are verified; the previous bundle is retained only as a private rollback
 backup outside Applications. No regular app is launched after installation.
+
+### Relay candidate receipt boundaries (2026-10-11)
+
+The preceding physical recovery failure was a failed end-to-end candidate
+qualification, not a failed media-channel open or packet-ceiling setter.
+Repeated deliberate recovery requests retain the live P2P call. Three-sample
+route observers qualify direct delivery at approximately 11–13 ms, while each
+relay alternative exhausts its approximately 600-ms observation budget.
+No observed recovery commits a relay route.
+
+Opt-in endpoint tracing now samples sealed sequence one, the first valid
+sequence allocated by `MediaCipherTx`, as well as every fiftieth sequence.
+Sequence zero remains excluded from IPC sampling. A temporary zero-sequence
+experiment was corrected before committing; it cannot establish candidate
+absence. Silent local receipt observations still hash the entire ciphertext,
+retain their bounded cache/TTL, and are consumed only after authentication.
+The alternate-alias control dispatcher now also records its authenticated
+receipt boundary before an RTP receive lease is attached. No probe plaintext,
+token, key, relay scheduling hint, new wire field or priority is introduced.
+
+The ordered source path adds one opt-in first admission and successful write
+observation per runner/writer. A completed socket write is transport progress,
+not remote receipt. Both first-hop candidates report no negotiated neutral
+Forward DATAGRAM support, so absence of a DATAGRAM send trace is expected.
+In the first measured ordered run, the 60-byte sealed probes become 324-byte
+Forward frames: admission takes 42/136 microseconds and each 340-byte ordered
+write completes in 55 microseconds with no queued blob behind it. The final
+repeat records 168/201 microseconds for admission and 8/84 microseconds for
+the writes. This excludes a local scheduler/writer stall for these attempts;
+it does not establish the remote carriers, relay receipt or downstream route.
+
+The final 90-second Wi-Fi Mac/Blackview run uses the diagnostic SDK at both
+ends. Its relay destination matches Blackview's current transport address.
+Neither of the two first relay probe ciphertexts appears in Blackview's
+authenticated receive trace, while ordinary P2P receive samples are present.
+This does not distinguish a missing packet from an ingress/authentication
+failure; relay receipt and destination ingress still need investigation.
+All samples retain P2P. From 60 seconds onward, Blackview receives 29.99 fps
+and decodes/displays 29.95 fps, while Mac receives 29.61 fps. Native audio
+delay peaks are 94/82 ms, with zero protection-pause samples. This is Wi-Fi
+counter evidence, not a listening test or a pass for the failing mixed FIFO
+audio gate. No cellular device is available.
+
+Four IPC trace tests, ten writer progress/feedback tests and four sealed route
+probe tests pass. Production-seed FFI builds succeed for macOS and Android.
+The diagnostic Android SDK is packaged into the existing 0.13.84+2572 stand
+APK and installed in-place; its signer matches the preceding APK and its
+packaged SDK bytes match the new build. User/profile data is preserved. The
+regular installed Mac app is unchanged; only the private signed Mac stand is
+updated. Both owned apps exit and each stand removes its own ADB forward.
+The general audio priority/latency goal remains open.
