@@ -13180,3 +13180,83 @@ mailbox policy, relay behavior or published release is changed in this cycle.
 The SDK fixes and xVeil pointer are unsigned and unpushed. The wider audio
 separation and quality goal remains active, including the earlier failing
 controlled PCM/file/video gates and cross-network P2P qualification.
+
+### Follow-up: mixed-load PCM and feedback sampling (2026-10-11)
+
+The registry fix does not close the mixed-load quality gate. With SDK
+`6aedf1be`, the current 20–60-ms adaptive Opus codec, real VP8 and simultaneous
+512-KiB reliable files over the blind aggregate 1024-kbit/s FIFO, a 360-second
+run matches all 340 mixed PCM markers per direction but peaks at
+232.4/232.7 ms (p95 209.2/211.1 ms). Native receiver delay peaks at 193/195 ms.
+There are no ingress refusals, runtime drops, audio interruptions or quiet
+PCM frames. Both file hashes match, with receipt taking approximately
+302 seconds. The driver interval stays below 16 ms. This still fails the
+unchanged 200-ms decoded-PCM gate.
+
+A private fixed-20-ms codec counterfactual also fails the full file/video
+gate: mixed PCM peaks at 232.2/239.8 ms, with two quiet PCM frames per side
+and fewer received video frames. Both files complete in approximately
+328 seconds. Consequently the earlier short video-only improvement is not
+a reason to ship a global fixed packet duration.
+
+`relay-codec-control.py --file-bytes` permits smaller complete files for
+bounded diagnosis; it validates positive multiples of the fixture's 2048-byte
+chunks before loading the SDK. The default remains 512 KiB and all content,
+PCM and cleanup gates remain unchanged. A 120-second 128-KiB comparison
+peaks at 210.4/205.5 ms. Its native RTP trace records less than 4.3 ms from
+ingress to worker drain, but nonempty packet arrival variation reaches
+105/111 ms. Fast processing after native ingress does not explain away the
+earlier delivery variation or receiver buffering.
+
+Two further private comparisons are rejected. NetEq's resampling interval
+changed from 500 to 100 ms reaches 241.1/241.4-ms mixed PCM peaks and also
+exceeds the 40-ms driver rail, so it supplies no valid quality improvement.
+Lowering only the video delay thresholds from 200/160 to 160/120 ms reaches
+281.5/263.7 ms and spends 42/90 samples with video paused. Production NetEq
+and video thresholds remain unchanged. Without video, a complete 128-KiB
+file comparison still reaches 220.8 ms in one audio direction, despite a
+sub-15-ms driver interval; reducing video alone cannot solve the file case.
+
+That audio/file trace exposes a separate endpoint feedback defect. Native
+stats are sampled each second, while encrypted health reports are sent every
+five seconds. Reporting only the latest sample hides an intervening 196-ms
+buffer peak behind the next 137-ms sample; the outgoing source does not see
+the observation that should tighten its 160-ms reliable-transfer budget.
+Startup peaks are likewise omitted from two early reports.
+
+`CallAudioReceiveActivity.outgoingPlayoutFeedback` now retains the maximum
+over the preceding five seconds. Descending candidates preserve smaller peaks
+as older higher peaks expire, including two samples within the same second.
+Normal one-second polling retains at most six entries; the validated integer
+delay range also bounds faster debug sampling. A fresh
+current worker/arrival measurement is still required. Peak reads do not consume
+the measurement, so failed sends and capture announcements cannot erase it;
+expiry, repairs and backwards clock movement discard stale history. Local
+adaptation continues to use the current sample, while the media service and
+codec stand use the windowed maximum only for outgoing health feedback.
+Existing encrypted fields, heartbeat cadence, replay checks, relay behavior
+and local source admission rates are unchanged. The 68 receive-activity,
+source-pressure and bitrate tests plus 10 feedback/wire tests pass; targeted
+analysis reports no issues. Physical installation and mixed-load quality
+verification are separate from those unit checks.
+
+The subsequent 360-second full 512-KiB mixed run with windowed feedback
+still fails: mixed PCM maxima are 231.0/204.5 ms, p95 212.2/199.5 ms, and
+native receiver maxima are 201/175 ms. All 340 markers per direction match;
+there are no quiet frames or counted audio interruptions. Both files complete
+with matching hashes in approximately 328 seconds, and video continues in
+both directions (1548/4673 received frames). A 48.54-ms driver interval also
+exceeds the fixture's 40-ms rail, so these numbers cannot establish a quality
+improvement over the earlier valid baseline. The endpoint feedback omission
+is fixed, but neither a passing mixed-load gate nor physical speech quality
+is claimed. This Dart change is not installed on the physical devices in this
+cycle.
+
+Every controlled comparison stops all three embedded nodes successfully;
+the PCM, file and policy workers exit, and the final fixture socket count is
+zero. No application instance is launched during these comparisons. The SDK
+pointer stays at `6aedf1be`; all rejected codec/buffer/video variants remain
+private fixtures. Remaining work is delivery variation and receiver buffering
+under competing reliable traffic, followed by a valid complete mixed gate
+and physical/cross-network confirmation. Relay classification/priority,
+mailbox policy and published releases are unchanged.
