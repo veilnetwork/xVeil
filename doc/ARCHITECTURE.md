@@ -13769,3 +13769,50 @@ Both file/audio workers and the policy process exit; all three nodes stop
 successfully and no fixture sockets remain. The public/legacy relay path,
 mixed-load audio latency and physical cellular validation remain open. The
 full media priority goal is not complete.
+
+### Reject smoother secondary pacing after measuring worse audio (2026-10-11)
+
+The preceding mixed run's PCM peaks occur at approximately 22--29 seconds
+and 267--271 seconds, whereas its largest driver stall occurs at 37.76 seconds.
+The host stall does not explain those peak windows on its own. In the later
+window, the audio receiver target reaches 220 ms and actual queued audio
+reaches 266 ms while packet-duration adaptation changes the sender between
+roughly 17, 25 and 50 payload packets per second. These are correlated
+observations, not proof that duration adaptation is the sole cause. The blind
+FIFO trace is bounded and has already evicted the beginning of this run;
+missing early trace rows must not be interpreted as a zero queue.
+
+A local experiment replaces the pressured video's 8192-byte/200-ms burst
+allowance with exact byte debt at the same nominal rate. Fresh work waits in
+the bounded source queue with its original deadline instead of being dropped
+at admission; primary and authenticated carrier-origin entries bypass that
+wait. There is no relay classification, privilege or wire change. A new debt
+test fails on the preceding implementation; 511 session tests then pass with
+six existing ignores, and a separate queue test confirms FIFO, original age,
+expiry and primary/carrier progress. This is experiment coverage, not a claim
+that the proposed audio policy works.
+
+In the unchanged 360-second 1024-kbit/s mixed gate, driver jitter is a valid
+17.10 ms, both full 512-KiB files arrive with matching hashes, all encrypted
+periodic reports arrive, and native/poll/auth errors are zero. Video delivery
+is fuller (565/408 transmitted frames, 407/563 received), but PCM peaks worsen
+to 261.9/352.2 ms with p95 219.9/239.7; native audio peaks are 247/289 ms.
+Protection pauses occur in 66/115 samples, and one direction has two quiet
+PCM frames. All 340 mixed tone edges per side are matched. Consequently all
+four experimental source files are restored to the committed video-repair
+SDK and its production Mac cache is rebuilt. No pacing experiment is put in
+the installed apps. Green unit tests do not override the adverse audio result.
+
+A fresh 100-second diagnostic with restored SDK, the same 1024-kbit/s limit,
+real adaptive Opus and two queued full 512-KiB files omits video deliberately.
+Its first 20 seconds are audio-only; during the following 80 seconds, PCM
+peaks are 191.7/160.5 ms (p95 181.3/150.3), native audio peaks are 168/129 ms,
+and interruptions, quiet PCM, native/poll/auth errors and feedback skips are
+zero. All 80 tone edges per side match and driver jitter is 14.88 ms. Only
+299008/290816 file bytes arrive before this short diagnostic ends, so this
+does not pass the full file gate or establish later-call quality. It narrows
+the early-window investigation to combined video/load behavior; sustained
+audio/file-only isolation and packet-duration/queue attribution still need
+verification before changing the production policy. Both experiments stop
+all three nodes and their file/audio/policy workers, with no fixture sockets
+remaining. The full media-priority objective remains open.
