@@ -13092,3 +13092,22 @@ Mac does not exit after TERM; its owned process group is killed and exit is
 verified. No owned codec/policy/application processes remain. SDK commits
 and the superproject pointer are unsigned and unpushed. The overall audio/
 video separation and physical cellular-quality goal remains active.
+
+The next 85-second P2P comparison keeps the audio path unchanged and pins
+only Mac's diagnostic video target to 90 kbit/s / 5 fps after 30 seconds.
+Android's observed receive cadence rises from approximately 1 fps to 3.5 fps.
+During the pinned segment, native audio delay stays within 28–58 ms on Mac
+and 24–74 ms on Android, with zero counted interruptions and no route
+handovers. This establishes limited headroom on this Wi-Fi path, not a safe
+production policy or speech-quality proof. Mac's total local send failures
+still rise from 6 to 23; the first run's packet loss is not explained away.
+The diagnostic override is cleared and is not persisted or deployed as an
+adaptation change. The ingress failure stage needs separate evidence before
+loosening the recovery condition: the direct path currently queues individual
+video RTP packets, whereas the relay ingress can assemble complete frames.
+That code distinction is a hypothesis to test, not an established cause.
+
+The first probe setup exceeds its 10-second HTTP timeout during unlocking;
+both apps subsequently report ready. A retry runs the comparison successfully.
+Afterwards both apps are closed, process absence and ADB-forward removal are
+verified. Mac again requires killing its owned process group after TERM.
