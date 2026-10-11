@@ -13352,3 +13352,30 @@ with the current Dart and SDK and a production media library (no test hooks).
 Hangup finishes, both started apps exit, and independent checks verify their
 owned processes and ADB forward are absent. No data is cleared and no commit
 is signed or pushed.
+
+
+A second full 360-second corrected mixed run disables optional shaper event
+tracing. Its driver interval is 34.06 ms, below the unchanged 40-ms rail, but
+the quality failure remains: decoded PCM peaks at 261.8/220.1 ms, p95
+238.5/180.2 ms, with 340 matched markers per direction and none missing.
+Native delay peaks at 230/192 ms. There are zero quiet PCM frames, counted
+interruptions, native send failures or poll failures. Both complete 512-KiB
+files hash-match after approximately 327.7 seconds. Received video totals
+1772/2684 frames, with 0/73 pause samples. Therefore eliminating the earlier
+host-driver stall does not eliminate the mixed-load defect; delivery variation
+and buffering under concurrent reliable transfer remain unresolved. All three
+nodes stop successfully, all workers exit, and no fixture sockets remain.
+
+
+The regular `/Users/vart/Applications/xVeil.app` is then replaced with local
+build 0.13.84+2570, built without the Dart debug API and without native media
+test exports. Its FFI and media `__text` sections match those used in the
+physical call. The Rust plugin's later rebuild had refreshed the SDK cache,
+so the initially staged Mac FFI fails the code comparison and is refreshed
+from that tested cache before installation. Codesign verifies the final bundle.
+The prior regular bundle is retained in the private work directory; no profile
+or user data is changed. The new regular app is not launched. Final independent
+checks find no xVeil executable, no phone app process, no owned ADB forward,
+and zero sockets in all three new controlled fixtures. The broader audio
+priority/separation goal remains active; the valid mixed-load failure is still
+open despite the successful physical Wi-Fi video check.
