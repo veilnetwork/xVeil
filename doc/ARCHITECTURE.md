@@ -13016,3 +13016,79 @@ test work is started. The proposed next step is to retain a bounded packet
 burst while reducing its average byte rate, then repeat the unchanged codec
 gate before installation. That adjustment is not implemented. The overall
 goal is paused with the failed experiment preserved for the next work cycle.
+
+### Cycle 2566: ACK pressure, negotiated audio duration, and Wi-Fi video defect
+
+Work resumes after the pause. A proposed 8192-byte secondary allowance per
+second fails the real QUIC delivery gate: 420/500 primary messages arrive,
+versus 472/500 with the previous 200-ms policy. Trials that additionally
+shrink the independent parent window also fail. Those scheduling changes
+are reverted; build 2565 is explicitly withheld. Neither test thresholds nor
+neutral relay scheduling are changed.
+
+Veil `5abc47cf` fixes a separate admission defect: blocked primary ACKs now
+set the parent's pressure grace even before RTT grows. The existing pressured
+file window therefore applies to the parent as well as secondary producers.
+The trusted local control-write lease remains available. A real QUIC blackout
+regression fails on the old source and passes with the fix; 66 focused
+scheduler/QUIC tests pass, with six existing ignored cases.
+
+Veil `4a944be1` fixes audio allocation accounting for the encoder's actual
+permitted packet-duration range. Assuming a 40/60-ms packet when a receiver
+permits only 20 ms undercounts overhead and can reduce real Opus speech to
+6 kbit/s. The new real Opus/ANA regression fails on the old header and passes
+for maxptime 20, 40 and 60 ms, checking 16–32-kbit payload bounds after ANA
+receives its periodic bandwidth estimate and settles. Production retains
+adaptive 20–60-ms packets; it does not globally force 20 ms.
+
+The codec quality investigation remains open. With the restored scheduler
+and ACK fix, a 100-second adaptive audio/video fixture exceeds the unchanged
+200-ms decoded-PCM gate (222.1/202.2 ms before the range fix, 280.0/260.6 ms
+after it). A private fixed-20-ms diagnostic reduces PCM maxima to
+172.5/166.0 ms but initially violates the payload floor. With corrected range
+accounting it retains payload bounds and yields 163.2/172.0 ms, yet its
+124-ms driver interval exceeds the 40-ms fixture gate. It is not a passing
+quality run and neither fixed-duration diagnostic library is deployed.
+All fixture nodes stop successfully, worker/policy threads exit and no
+fixture sockets remain.
+
+The replacement Blackview BV6600Pro is available on Wi-Fi. It is updated in
+place from debug build 2219 to 2566 with the same signer, preserving app data.
+The packaged Android FFI instruction section matches the restored scheduler
+and ACK fix. Android keeps the production codec library used by 2561; its
+audio-range header fix is not rebuilt into that Android library yet. Mac
+2566 uses newly built production media (no test hooks) in a private stand
+bundle and an isolated test identity. No system application is installed.
+
+A 120-second bidirectional physical video call remains P2P throughout, with
+zero route handovers. The stand explicitly imports the phone's authenticated
+physical bootstrap invite with its current LAN address before the contact
+exchange succeeds: this is not proof of automatic cross-network discovery.
+After the first ten seconds, sampled native audio-delay maxima are 61 ms on
+Mac and 103 ms on Android; interruption counters stay zero. Android records
+four local audio-RTP enqueue failures. These are microphone/background-sound
+measurements, without a speech-intelligibility assessment.
+
+The user reports glitching Mac-to-Android video and the measurements confirm
+an unresolved asymmetry. Mac sends 148 frames; Android decodes 116, with a
+2037-ms maximum inter-frame gap. Mac remains at 45 kbit/s and approximately
+1 fps, with 42 total local send failures and video feedback reporting up to
+50% loss. In the opposite direction Mac decodes 1749 frames and Android's
+adapter recovers through +1 steps to 675 kbit/s / 30-fps target (observed
+12–17 fps). No P2P-to-relay switch explains this run. Aggregate send failures
+and receiver feedback prevent the Mac adapter from recovering; the origin
+of those failures still needs packet-stage evidence. Do not bypass that
+guard or claim the video defect fixed from these counters alone.
+
+Next comparison: keep the authenticated P2P route and audio unchanged, record
+sender frame admission and receiver packet loss, and compare the Mac floor
+with a bounded diagnostic video target. The questions are whether complete
+encoded frames survive admission and whether the adaptation feedback remains
+fresh. The relay must retain blind, neutral treatment throughout.
+
+The test call ends on both sides. The stand API is disabled, the owned ADB
+forward is removed, Android is force-stopped and its process absence checked.
+Mac does not exit after TERM; its owned process group is killed and exit is
+verified. No owned codec/policy/application processes remain. SDK commits
+and the superproject pointer are unsigned and unpushed. The overall audio/
+video separation and physical cellular-quality goal remains active.
