@@ -13648,3 +13648,66 @@ packaged SDK bytes match the new build. User/profile data is preserved. The
 regular installed Mac app is unchanged; only the private signed Mac stand is
 updated. Both owned apps exit and each stand removes its own ADB forward.
 The general audio priority/latency goal remains open.
+
+### Retry the first independent-channel delivery probe (2026-10-11)
+
+A managed production-seed SDK relay on the Mac connects to the Mac stand and
+Blackview over QUIC. It initiates the sessions using a previously provisioned
+private fixture identity with canonical dial ownership; endpoint profiles
+receive no new bootstrap configuration. An initial setup with the opposite
+ownership waited for inbound sessions and never started a call. The managed
+fixture is LAN evidence, not an Internet relay or cellular qualification.
+
+Before the fix, the first relay observation exhausts 604 ms, whereas the next
+two qualify in 23/11 ms. The source logs one local primary discard while its
+independent sender is unavailable. The runner deliberately discards fresh
+source cells until the dedicated connection is ready, rather than putting
+them on the shared writer. A single lossy challenge could therefore reject a
+working candidate. The immediate recovery retry also returns false because
+the existing five-second retry cooldown has not elapsed, not because that
+second request measured failed delivery. A deliberately delayed recovery at
+45.89 seconds succeeds and both devices stay on the relay for the remaining
+approximately 92 seconds. That run's native audio peaks are 53/63 ms, but
+Blackview's steady decode/display rate is 24.11 fps despite 29.69-fps arrival.
+
+The candidate now admits at most two additional challenges, spaced by at
+least 250 ms, through its existing nonblocking primary ingress. The request
+token and requested route remain the same; each admitted packet is freshly
+sealed by the normal producer. The original qualification budget is unchanged
+(600 ms in the app). Both initial and retried queue deadlines are capped by
+that observation deadline as well as the normal 200-ms source freshness bound.
+A full ingress consumes a retry opportunity. Qualified, expired, cancelled
+and closed candidates cannot retry; delayed polling cannot create a new
+qualification window. The old audio receiver remains active throughout.
+Nothing is added to relay wire metadata, queue classes or scheduling policy,
+and no mailbox path is used.
+
+Fourteen targeted native probe tests pass. The new tests model losing the
+first challenge and qualifying its retry through the actual sealed dispatcher
+while the old audio callback continues to receive RTP; control never counts
+as audio activity. They also cover retry spacing/count, immutable expiry,
+cancellation and the actual queued deadline of a short observation.
+Production-seed macOS and Android FFI builds succeed. The matching private
+Mac stand passes signature validation, and the Android SDK is installed
+in-place in the existing 0.13.84+2572 stand APK with its preceding signer;
+packaged SDK bytes match the build. No user/profile data is cleared.
+
+The final 140-second managed-relay call succeeds on its first recovery request
+at approximately 25.28 seconds, and both endpoints retain the relay route.
+Source trace IDs confirm distinct QUIC connections for local primary and
+video. In the relay phase, native audio delay peaks are 59/111 ms and counted
+audio interruptions and protection-pause samples are zero. From 60 seconds,
+Mac receives 29.58 fps; Blackview receives 29.86 fps and decodes/displays
+27.65 fps. Its decoded maximum gap grows from 3064 to 3074 ms and its decoded
+hold count grows by two, while the arrival maximum gap does not grow and
+texture coalescing remains zero. Android video freezing is still observed;
+this is not an established video-quality improvement over the preceding run.
+These counters do not substitute for listening or decoded speech validation.
+Every managed relay and owned app is stopped and its process absence verified;
+the stand removes its own ADB forward. The regular Mac app is unchanged.
+
+The public/legacy first-hop path remains unqualified and has not been repaired
+by this managed-relay test. The prior 1024-kbit/s mixed FIFO sub-200-ms PCM gate
+still fails and is unchanged by the probe fix. Android relay-video freezes and
+physical cellular verification also remain open. The full media priority goal
+is not complete.
