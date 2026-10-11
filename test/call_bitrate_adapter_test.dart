@@ -170,18 +170,48 @@ void main() {
     },
   );
 
+  test('decreasing cadence cannot enlarge the mean frame byte budget', () {
+    for (final fps in [15, 30, 60]) {
+      for (var level = 0; level < CallBitrateAdapter.ladder.length; level++) {
+        final a = CallBitrateAdapter(
+          baseBitrateKbps: 900,
+          baseFps: fps,
+          initialLevel: level,
+        );
+        final t = a.target;
+        expect(t.maxBitrateKbps / t.maxFps, lessThanOrEqualTo(900 / fps));
+        expect(t.maxFps, greaterThanOrEqualTo(1));
+      }
+    }
+  });
+
+  test('sparse relay cadence does not retain a 270-kbit burst budget', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 15,
+      initialLevel: 3,
+    );
+    expect(a.target, (maxBitrateKbps: 90, maxFps: 1.5));
+    final full = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 15,
+      initialLevel: 0,
+    );
+    expect(full.target, (maxBitrateKbps: 900, maxFps: 15.0));
+  });
+
   test('audio-only measurements cannot earn a larger video source', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
     for (var i = 0; i < 120; i++) {
       native(a, video: false);
     }
-    expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+    expect(a.target, (maxBitrateKbps: 30, maxFps: 1.0));
     for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
       native(a);
     }
-    expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+    expect(a.target, (maxBitrateKbps: 30, maxFps: 1.0));
     native(a);
-    expect(a.target, (maxBitrateKbps: 270, maxFps: 3.0));
+    expect(a.target, (maxBitrateKbps: 90, maxFps: 3.0));
   });
 
   test('turning capture off breaks an unfinished recovery streak', () {
@@ -196,13 +226,13 @@ void main() {
     for (var i = 0; i < 30; i++) {
       native(a, video: false);
     }
-    expect(a.target.maxBitrateKbps, 270);
+    expect(a.target.maxBitrateKbps, 90);
     for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
       native(a);
     }
-    expect(a.target.maxBitrateKbps, 270);
+    expect(a.target.maxBitrateKbps, 90);
     native(a);
-    expect(a.target.maxBitrateKbps, 450);
+    expect(a.target.maxBitrateKbps, 225);
   });
 
   test('capture intent and historical frames cannot prove video headroom', () {
@@ -211,14 +241,14 @@ void main() {
       for (var i = 0; i < 30; i++) {
         native(a, stats: {...healthy(), 'video_tx_frames': frames});
       }
-      expect(a.target.maxBitrateKbps, 45);
+      expect(a.target.maxBitrateKbps, 30);
     }
     for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
       native(a, stats: {...healthy(), 'video_tx_frames': 11 + i});
     }
-    expect(a.target.maxBitrateKbps, 45);
+    expect(a.target.maxBitrateKbps, 30);
     native(a, stats: {...healthy(), 'video_tx_frames': 30});
-    expect(a.target.maxBitrateKbps, 270);
+    expect(a.target.maxBitrateKbps, 90);
   });
 
   test('one-fps polling jitter still earns sustained video recovery', () {
@@ -226,7 +256,7 @@ void main() {
     for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
       native(a, stats: {...healthy(), 'video_tx_frames': 1 + i ~/ 2});
     }
-    expect(a.target.maxBitrateKbps, 270);
+    expect(a.target.maxBitrateKbps, 90);
   });
 
   test('healthy audio releases a protection pause while capture is off', () {
@@ -242,11 +272,11 @@ void main() {
         );
       }
       expect(a.audioReserve, isFalse);
-      expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+      expect(a.target, (maxBitrateKbps: 15, maxFps: 1.0));
       for (var i = 0; i < 30; i++) {
         native(a, video: false);
       }
-      expect(a.target.maxBitrateKbps, 45);
+      expect(a.target.maxBitrateKbps, 15);
     }
   });
 
@@ -255,10 +285,10 @@ void main() {
     poor(a);
     expect(a.target, (maxBitrateKbps: 900, maxFps: 60.0));
     poor(a);
-    expect(a.target, (maxBitrateKbps: 450, maxFps: 15.0));
+    expect(a.target, (maxBitrateKbps: 225, maxFps: 15.0));
     expect(a.audioReserve, isFalse);
     poor(a, 2);
-    expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+    expect(a.target, (maxBitrateKbps: 15, maxFps: 1.0));
     expect(a.audioReserve, isFalse, reason: 'the minimum must be tried first');
     poor(a);
     expect(a.audioReserve, isFalse);
@@ -273,14 +303,14 @@ void main() {
     good(a, CallBitrateAdapter.recoverAfter - 1);
     expect(a.audioReserve, isTrue);
     good(a);
-    expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+    expect(a.target, (maxBitrateKbps: 15, maxFps: 1.0));
     expect(a.audioReserve, isFalse);
     good(a, CallBitrateAdapter.recoverAfter);
-    expect(a.target, (maxBitrateKbps: 270, maxFps: 6.0));
+    expect(a.target, (maxBitrateKbps: 90, maxFps: 6.0));
     good(a, CallBitrateAdapter.recoverAfter);
-    expect(a.target, (maxBitrateKbps: 450, maxFps: 15.0));
+    expect(a.target, (maxBitrateKbps: 225, maxFps: 15.0));
     good(a, CallBitrateAdapter.recoverAfter);
-    expect(a.target, (maxBitrateKbps: 675, maxFps: 30.0));
+    expect(a.target, (maxBitrateKbps: 450, maxFps: 30.0));
     good(a, CallBitrateAdapter.recoverAfter);
     expect(a.target, (maxBitrateKbps: 900, maxFps: 60.0));
   });
@@ -697,7 +727,7 @@ void main() {
       }),
       isTrue,
     );
-    expect(actual, (maxBitrateKbps: 45, maxFps: 1.0));
+    expect(actual, (maxBitrateKbps: 15, maxFps: 1.0));
     expect(a.applyPendingTarget((_) => throw StateError('duplicate')), isNull);
     a.invalidateAppliedTarget();
     expect(a.applyPendingTarget((_) => true), isTrue);
@@ -747,7 +777,7 @@ void main() {
   test('older native retains integer budgets and never pretends to pause', () {
     final a = direct(lowRate: false);
     poor(a, 30);
-    expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+    expect(a.target, (maxBitrateKbps: 30, maxFps: 1.0));
     expect(a.audioReserve, isFalse);
     final b = CallBitrateAdapter(
       baseBitrateKbps: 30,
