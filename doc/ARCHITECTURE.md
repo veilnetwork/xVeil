@@ -13111,3 +13111,72 @@ The first probe setup exceeds its 10-second HTTP timeout during unlocking;
 both apps subsequently report ready. A retry runs the comparison successfully.
 Afterwards both apps are closed, process absence and ADB-forward removal are
 verified. Mac again requires killing its owned process group after TERM.
+
+
+### Cycle 2569: media registry readers were dropping encoded RTP
+
+A debug-only, opt-in ingress counter distinguishes registry contention,
+full/closed packet and frame queues, incomplete frame assembly, and retired
+channels. The RTP callback only increments atomics; a separate thread writes
+aggregate counters once per second when changed. The diagnostic records no
+packet contents, peer/channel identifiers, addresses or keys and is compiled
+out of release FFI builds. It does not add a C ABI, a wire label or relay
+priority. Enable it before opening a channel with
+`VEIL_MEDIA_INGRESS_DIAG_PATH` pointing into a private stand directory.
+
+An 85-second Mac-to-Blackview P2P comparison attributes all 30 native send
+failures to the exclusive media registry mutex: 7 primary refusals (including
+3 audio RTP packets) and 23 secondary refusals. Every queue-full/closed and
+assembler-contention counter stays zero. Thus packet-versus-frame queue depth
+is not the cause of these failures. A read-only registry operation could
+collide with a WebRTC callback, discard RTP/RTCP, and keep the adaptation
+ladder from recovering despite available network headroom.
+
+SDK `d4477f7b` uses a reader/writer registry: statistics, route polling and
+RTP admission can read together; channel insertion, removal and path-probe
+configuration take the write lock. Callback admission retains `try_read` and
+never waits for a writer. Independent audio/video/screen queues, deadlines,
+adaptation policy and neutral relay behavior are unchanged.
+
+The regression holds a registry reader while native audio RTP, video RTP and
+video RTCP callbacks run on another thread. With the old mutex all three
+return drop code 1; with shared readers all return 0. Writer-contention and
+channel-close tests retain their refusal/retirement behavior. All 39 media
+FFI and path-probe tests pass serially. The initial parallel run exposes a
+test-only collision with other tests' deliberately held writer; `6aedf1be`
+isolates this read-only regression in a child running that exact test.
+The 39-test suite then also passes with the normal parallel test runner.
+
+A 120-second physical P2P video call with only Mac updated has zero ingress
+refusals, zero Mac native send failures and zero counted audio interruptions.
+After the first ten seconds native audio delay peaks at 64 ms on Mac and
+70 ms on Android. In the final thirty seconds Android decodes approximately
+30 frames/s, versus approximately 1 frame/s in the old-mutex baseline.
+No video-target override is used and no transport handover occurs. Android,
+still on its older FFI in that comparison, records 7 native send failures.
+
+Blackview is updated in place to debug build 0.13.84+2569 with the same signer;
+APK `.text` matches the fresh Android release FFI. Data is preserved. The
+Android codec library is unchanged; it is not a synthetic/test-hook build.
+Mac comparisons use private ad-hoc stand bundles with production media and
+the new debug FFI; the already installed regular Mac app is not replaced.
+A fresh call with both FFIs updated is recorded separately below.
+
+The second 120-second call, with both FFIs fixed, records 59 samples and keeps
+P2P throughout. Both devices have zero native send refusals, zero audio RTP
+drops and zero counted audio interruptions; all Mac ingress refusal counters
+remain zero. Native audio delay after the first ten seconds peaks at 57 ms on
+Mac and 98 ms on Blackview. During the final thirty seconds Blackview decodes
+30.0 frames/s from Mac and Mac delivers 29.6 frames/s from Blackview. The
+ordinary adaptation ladder recovers without a forced target. This verifies
+the registry-contention fix on this Wi-Fi pair; it does not establish speech
+intelligibility, cellular/NAT behavior, or simultaneous file/screen quality.
+
+The hangup completes on both sides. Both owned app processes are stopped and
+process absence is independently verified; Mac again needs killing its owned
+process group after TERM. The owned ADB forward is removed. Android remains
+installed at versionCode 2569. No regular Mac installation, user data,
+mailbox policy, relay behavior or published release is changed in this cycle.
+The SDK fixes and xVeil pointer are unsigned and unpushed. The wider audio
+separation and quality goal remains active, including the earlier failing
+controlled PCM/file/video gates and cross-network P2P qualification.
