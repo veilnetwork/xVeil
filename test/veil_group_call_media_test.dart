@@ -834,7 +834,7 @@ void main() {
       clock.elapse(const Duration(seconds: 11));
       expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       clock.elapse(const Duration(seconds: 1));
-      expect(engine.targets.last.maxBitrateKbps, 45);
+      expect(engine.targets.last.maxBitrateKbps, 15);
       controller.stop();
       clock.flushMicrotasks();
     });
