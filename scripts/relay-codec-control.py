@@ -27,6 +27,10 @@ parser.add_argument('--media', type=Path, required=True)
 parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a protobuf-enabled test-hook media library')
 parser.add_argument('--compact-media', action='store_true', help='Use compact relay audio batching, as the current application does, instead of the legacy audio/video batch format')
 parser.add_argument('--duration', type=int, default=100)
+parser.add_argument('--feedback-interval-seconds', type=int, default=5,
+                    help='Diagnostic feedback cadence; default retains the production five-second cadence')
+parser.add_argument('--shared-control-ipc', action='store_true',
+                    help='Diagnostic compatibility mode: share control and audio IPC; the application uses separate connections')
 parser.add_argument('--local-source-feedback', action='store_true', help='Feed actual endpoint quality to the shared local producer budget over negotiated IPC')
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
@@ -36,6 +40,8 @@ if args.chunk_trace:
     os.environ['VEIL_DIAG_CHUNKS'] = '1'
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
+if args.feedback_interval_seconds < 1:
+    parser.error('Feedback interval must be at least one second')
 if args.file_bytes < 2048 or args.file_bytes % 2048:
     parser.error('File size must be a positive multiple of 2048 bytes')
 sdk_path = args.sdk.resolve(strict=True)
@@ -135,6 +141,9 @@ file_apps=[]
 file_bytes=args.file_bytes
 file_payloads=[os.urandom(file_bytes),os.urandom(file_bytes)] if args.compete_file else []
 result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
+          'duration_seconds': args.duration,
+          'feedback_interval_seconds': args.feedback_interval_seconds,
+          'independent_control_ipc': not args.shared_control_ipc,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 try:
     for index in range(3):
@@ -242,7 +251,15 @@ try:
     controlsend=fn('veil_send_relay_realtime',[P,P,P,C.c_uint32,P,C.c_size_t,E],C.c_int)
     service=os.urandom(16).hex().encode()
     for index in range(2):
-        control=checked(bind,handles[index],service,len(service),b'opaque',6,2)
+        # The application has independent media and signaling IPC clients.
+        # An inline control seal/route request on the audio socket would delay
+        # subsequent media requests before their network child can admit them.
+        control_handle=handles[index]
+        if not args.shared_control_ipc:
+            uri=str(ROOT / str(index+1) / 'ipc.sock').encode()
+            control_handle=checked(connect,uri,len(uri))
+            extra_handles.append(control_handle)
+        control=checked(bind,control_handle,service,len(service),b'opaque',6,2)
         extra_apps.append(control);controlapps.append(control)
         aid=C.create_string_buffer(32);assert appid(control,aid)==0;controlids.append(aid)
     if args.compete_file:
@@ -411,7 +428,7 @@ try:
                     for i in range(2):
                         thread=threading.Thread(target=write_file,args=(i,),name='stand-file')
                         file_threads.append(thread);thread.start()
-            if tick%500==0:
+            if tick%(100*args.feedback_interval_seconds)==0:
                 for i in range(2):
                     nonce=noncecounter[i].to_bytes(12,'big');noncecounter[i]+=1
                     payload=nonce+healthkeys[i].encrypt(nonce,json.dumps(latestfeedback[i]).encode(),b'codec-control-v1')
@@ -432,7 +449,7 @@ try:
                                       for before,after in zip(metrics_before,metrics_after)]
     (ROOT/'pcm-samples.json').write_text(json.dumps(pcmrows))
     (ROOT/'codec-samples.json').write_text(json.dumps(samples))
-    result.update(real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
+    result.update(stand_start_monotonic_us=round(startat*1_000_000),real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
     result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
     result['adaptive_audio'] = args.adaptive_audio
     result['compact_media'] = args.compact_media
