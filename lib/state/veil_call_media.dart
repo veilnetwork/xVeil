@@ -632,7 +632,7 @@ class VeilCallMediaController implements CallMediaController {
           _routeRepairing ||
           signalProtocolVersion < kCallAudioPlayoutFeedbackMinVersion
       ? null
-      : _audioReceiveActivity.playoutFeedback(DateTime.now());
+      : _audioReceiveActivity.outgoingPlayoutFeedback(DateTime.now());
 
   @override
   void observePeerAudioPlayout(CallAudioPlayoutFeedback feedback) {
