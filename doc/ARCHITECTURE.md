@@ -13440,3 +13440,77 @@ Its native `__text` sections match the physical stand and codesign verifies
 the installed bundle. The previous bundle is retained privately for rollback;
 the regular app is not launched. Android's final APK also records the library
 versions; it retains the physical APK's signer and identical native libraries.
+
+
+### 2026-10-11: separate local signaling and bounded source bursts
+
+Locally authored interactive realtime requests and relay-compatible controls
+now select private source lane 6. The daemon derives the selector from local
+IPC; the network header, neutral forwarding class, ciphertext and remote
+scheduling remain unchanged. Audio, video, screen and recoverable DATA retain
+their independent source choices. A QUIC signaling child is optional: it
+retires before consuming reliable/replacement capacity, retaining the existing
+eight generic connections per direction, including with older peers. Warming
+or saturated signaling uses canonical compatibility. Ordered transports keep
+their original child pool; their parent already carries signaling separately
+from media and reliable children. Readiness does not claim an extra ordered
+signaling child.
+
+While a primary producer is active, authored signaling pays a shared,
+proportional 4096-byte/200-ms source budget across neighbors. The first frame
+is immediate, idle time does not accrue burst credit, and fresh activity does
+not refund debt. Network recovery and reliable DATA use independent budgets.
+Deferred controls retain FIFO and other local producers/neutral transit can
+progress. The source tail is bounded to five seconds, independently of video's
+500-ms freshness, so paced multi-device copies are not treated as old video.
+The relay TTL/queue/deadline remains unchanged. Lifecycle controls also bypass
+the mobile background coalescer on ordered compatibility paths.
+
+All 662 session/IPC tests pass (509 session, 153 IPC; eleven existing tests
+remain ignored). Tests exercise distinct authenticated QUIC bindings, screen
+retirement, saturation/replacement allowance, old wire encoding, FIFO during
+source waits, node-wide debt and idle recovery, bounded signaling freshness,
+and battery coalescing. The final native Mac FFI builds successfully.
+
+The first full isolation-only measurement delivered both 512-KiB files and
+all reports, but its driver stalled for 157.45 ms; it cannot qualify quality.
+The full paced measurement likewise fails qualification: PCM peaks
+232.0/268.3 ms, native peaks 210/240 ms, one quiet ten-ms sample, and a
+49.12-ms driver interval. Files hash-match after 292.8/327.7 seconds; all
+72 reports per direction arrive. Its bounded trace covers only the first
+135.1/131.8 seconds. In the audio-only phase SDK/network peaks fall from
+96.4/111.3 to 69.6/79.8 ms; this is stage-specific evidence, not a successful
+full mixed-load gate. Competing-phase delivery still reaches 179.8/124.6 ms,
+with large non-report spikes at 57.39 and 119.38 seconds. SDK admission stays
+below 0.2 ms and native drain below 2.5 ms in that covered phase.
+
+Video was already running at those spikes; a restart is not established as
+their cause. The application did request 270 kbit/s at 1.5 fps from a
+900-kbit/s, 15-fps profile: three times its nominal bytes per frame at full
+cadence. The target now caps bitrate in proportion to the effective frame
+rate as well as the quality rung. Full-rate budgets are unchanged; older
+native engines retain their applied 30-kbit minimum. This limits the nominal
+mean frame budget, not each individual encoded keyframe. All 125 targeted
+adapter/source-pressure/receive/playout/group tests and targeted analysis pass.
+The final combined 360-second, blind 1024-kbit/s-per-direction measurement has
+an acceptable 26.81-ms maximum driver interval. Both 512-KiB files hash-match
+without missing chunks or duplicates after 327.6/289.8 seconds. Every periodic
+report arrives (72 sent, 73 received including bootstrap per direction), with
+zero authentication, native or polling errors. Unlike the preceding sparse
+runs, neither direction pauses video: 3539/4017 frames are transmitted and
+4006/3525 delivered. There are no quiet PCM samples, missing measured tone
+transitions or counted audio interruptions.
+
+This run still fails the existing audio-quality gate; do not relax that gate
+or report the broader goal complete. Mixed-load decoded PCM peaks are
+231.5/250.8 ms (p95 190.1/192.1 ms); native peaks are 197/211 ms, exceeding
+the required sub-200-ms limit in one direction. The bounded matched trace
+covers only the first 142.2/133.3 seconds: mixed-load SDK/network peaks are
+137.5/120.9 ms, admission below 0.22 ms, native drain below 2.1 ms. The blind
+shaper's full-run queue peaks are 139.3/139.0 ms with zero drops. These results
+show video progress without measured audio gaps on this fixture, but not
+sufficient control of worst-case audio delay or proof for cellular paths.
+All fixture workers and three nodes exit; zero fixture sockets remain, and
+independent process inspection finds no owned stand app left running. No
+physical app is launched or updated in this cycle; installed Mac/Blackview
+builds remain 0.13.84+2571.
