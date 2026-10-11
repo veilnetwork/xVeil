@@ -280,25 +280,28 @@ class CallBitrateAdapter {
   }
 
   /// Target for the current rung.
-  ({int maxBitrateKbps, double maxFps}) get target => _audioReserve
-      ? (maxBitrateKbps: 1, maxFps: 0.02)
-      : (
-          maxBitrateKbps: (baseBitrateKbps * ladder[_level]).round().clamp(
-            supportsLowRateVideo
-                ? 1
-                : (baseBitrateKbps < 30 ? baseBitrateKbps : 30),
-            baseBitrateKbps,
-          ),
-          maxFps: supportsLowRateVideo
-              ? (_level == ladder.length - 1
-                        ? 1.0
-                        : baseFps * cadenceLadder[_level])
-                    .clamp(1.0, baseFps.toDouble())
-              : (baseFps * cadenceLadder[_level])
-                    .round()
-                    .clamp(1, 60)
-                    .toDouble(),
-        );
+  ({int maxBitrateKbps, double maxFps}) get target {
+    if (_audioReserve) return (maxBitrateKbps: 1, maxFps: 0.02);
+    final fps = supportsLowRateVideo
+        ? (_level == ladder.length - 1 ? 1.0 : baseFps * cadenceLadder[_level])
+              .clamp(1.0, baseFps.toDouble())
+        : (baseFps * cadenceLadder[_level]).round().clamp(1, 60).toDouble();
+    final rungKbps = (baseBitrateKbps * ladder[_level]).round();
+    // A slower cadence must not grant each encoded frame more bytes. The
+    // previous 30%-bitrate / 10%-cadence rung tripled the bytes per frame,
+    // producing uplink bursts precisely while audio needed less contention.
+    final cadenceKbps = (baseBitrateKbps * fps / baseFps).round();
+    final cappedKbps = rungKbps < cadenceKbps ? rungKbps : cadenceKbps;
+    return (
+      maxBitrateKbps: cappedKbps.clamp(
+        supportsLowRateVideo
+            ? 1
+            : (baseBitrateKbps < 30 ? baseBitrateKbps : 30),
+        baseBitrateKbps,
+      ),
+      maxFps: fps,
+    );
+  }
 
   /// Native zero defaults, expired reports and older libraries without report
   /// freshness are unknown quality. Local drops still justify reducing video.
