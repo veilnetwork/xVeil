@@ -43,7 +43,8 @@ class CallBitrateAdapter {
          initialLevel == null ||
              (initialLevel >= 0 && initialLevel < ladder.length),
        ),
-       _level = initialLevel ?? ladder.length - 1;
+       _level = initialLevel ?? ladder.length - 1,
+       _startupRecovery = initialLevel == null;
 
   /// Route-profile budget this call negotiated; the ladder scales below it.
   final int baseBitrateKbps;
@@ -77,6 +78,11 @@ class CallBitrateAdapter {
   /// deliberately much slower than degradation so a marginal link settles
   /// instead of oscillating.
   static const int recoverAfter = 12;
+
+  /// A new low-latency call can probe one rung after three measured healthy
+  /// video samples. Waiting twelve samples per rung kept healthy P2P video
+  /// sparse for nearly a minute. Any measured failure retires this shortcut.
+  static const int startupRecoverAfter = 3;
 
   /// A multi-second RTT means even the ordinary sparse floor can keep an
   /// ordered route queued. Reserve almost all local video bandwidth until
@@ -120,6 +126,8 @@ class CallBitrateAdapter {
   int _floorBadStreak = 0;
   CallVideoAdvice _advice = CallVideoAdvice.keep;
   int _goodStreak = 0;
+  bool _startupRecovery;
+  int _startupGoodStreak = 0;
   int _audioRecoveryStreak = 0;
   int _severeStreak = 0;
   bool _audioReserve = false;
@@ -247,6 +255,7 @@ class CallBitrateAdapter {
         audioInterrupted) {
       _level = ladder.length - 1;
       _goodStreak = 0;
+      _startupGoodStreak = 0;
       _audioRecoveryStreak = 0;
     }
   }
@@ -366,8 +375,12 @@ class CallBitrateAdapter {
     } else {
       _mutedRecoveryStreak = 0;
     }
+    final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
+    final videoFrames = stats['video_tx_frames'];
     return onSample(
-      videoSendExpected: _videoCanEarnRecovery(stats, videoSendExpected),
+      videoSendExpected: videoProgress,
+      measuredVideoProgress:
+          videoProgress && videoFrames is num && videoFrames > 0,
       sendAudioExpected: sendAudioExpected,
       rttMs: anyFeedbackAvailable
           ? (stats[sendAudioExpected ? 'rtt_ms' : 'video_feedback_rtt_ms']
@@ -437,6 +450,7 @@ class CallBitrateAdapter {
   /// Feed one stats sample; returns the new target when the rung changed and
   /// null otherwise. `rttMs` of 0 means "unknown yet" and is not judged.
   ({int maxBitrateKbps, double maxFps})? onSample({
+    bool measuredVideoProgress = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
@@ -505,6 +519,7 @@ class CallBitrateAdapter {
       _badStreak = 0;
       _floorBadStreak = 0;
       _goodStreak = 0;
+      _startupGoodStreak = 0;
       _audioRecoveryStreak = 0;
       _severeStreak = 0;
       return null;
@@ -554,6 +569,25 @@ class CallBitrateAdapter {
     // Keep the measured rung while capture is off; healthy audio may still
     // release a protection pause, so an enabled sender can try its sparse floor.
     final good = audioGood && !newDrops && videoSendExpected;
+    if (networkBad || receiveOutage || peerPlayoutOutage || audioInterrupted) {
+      _startupRecovery = false;
+      _startupGoodStreak = 0;
+    }
+    final startupGood =
+        _startupRecovery &&
+        good &&
+        measuredVideoProgress &&
+        rttMs > 0 &&
+        rttMs <= 60 &&
+        txLossPct == 0 &&
+        txJitterMs < 20 &&
+        requireAudioReceivePlayout &&
+        audioReceiveDelayMs != null &&
+        audioReceiveDelayMs < 100 &&
+        requirePeerAudioPlayout &&
+        peerAudioDelayMs != null &&
+        peerAudioDelayMs < 100;
+    _startupGoodStreak = startupGood ? _startupGoodStreak + 1 : 0;
     // Healthy audio may earn a sparse video probe despite a discarded
     // secondary packet/report. Aggregate losses still forbid climbing the
     // video ladder: ignoring them entirely regressed decoded PCM latency.
@@ -630,9 +664,13 @@ class CallBitrateAdapter {
       _goodStreak = 0;
       return target;
     }
-    if (_goodStreak >= recoverAfter && _level > 0) {
+    if ((_goodStreak >= recoverAfter ||
+            _startupGoodStreak >= startupRecoverAfter) &&
+        _level > 0) {
       _goodStreak = 0;
+      _startupGoodStreak = 0;
       _level--;
+      if (_level == 0) _startupRecovery = false;
       // Climbing off the floor is the only thing that withdraws the advice:
       // the link has demonstrably carried more than the floor asked of it.
       _advice = CallVideoAdvice.keep;
@@ -642,9 +680,13 @@ class CallBitrateAdapter {
   }
 
   void _releaseAudioHold() {
-    if (_audioReserve) _level = ladder.length - 1;
+    if (_audioReserve) {
+      _level = ladder.length - 1;
+      _startupRecovery = false;
+    }
     _audioReserve = false;
     _goodStreak = 0;
+    _startupGoodStreak = 0;
     _audioRecoveryStreak = 0;
     _severeStreak = 0;
     _mutedRecoveryStreak = 0;

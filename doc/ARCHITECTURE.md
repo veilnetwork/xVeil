@@ -13379,3 +13379,64 @@ checks find no xVeil executable, no phone app process, no owned ADB forward,
 and zero sockets in all three new controlled fixtures. The broader audio
 priority/separation goal remains active; the valid mixed-load failure is still
 open despite the successful physical Wi-Fi video check.
+
+### 2026-10-11: stage timing and cold-start video cadence
+
+Native diagnostics now retain at most 4096 audio send metadata records per
+shim, only when diagnostics are enabled. They are dumped after stop, alongside
+the bounded ingress records. No payload, address, key or SSRC is added. The
+sender lock is separate from receive delivery and is never held over an SDK
+call. The production Mac library builds with 99 exports; the private codec
+fixture alone has test hooks. SDK commit `d4285016` is unsigned and unpushed.
+
+`scripts/analyze-audio-flight.py` matches accepted send/ingress RTP metadata
+and separates SDK admission, SDK/network delivery and native drain. It requires
+explicit same-host clocks, rejects incomplete dumps and incompatible durations,
+and excludes ambiguous matches. Capped unmatched records are not packet loss.
+Seven evidence-validation tests pass. The stand records its monotonic origin
+and duration. Its control client now uses independent IPC, as the application
+already does; the former shared arrangement remains an explicit diagnostic
+option, along with a configurable feedback interval (default five seconds).
+
+The traced 120-second audio/file isolation run completes both 128-KiB files,
+hash-matching, with decoded PCM peaks 161.2/171.6 ms in the competing phase.
+The full 360-second video/file run still fails: PCM peaks 251.1/261.9 ms,
+p95 229.4/220.7 ms, driver interval 33.59 ms, both 512-KiB files complete after
+328.2 seconds. The bounded trace covers approximately the first 134/141 seconds:
+competing-phase SDK/network delivery peaks 151.8/156.0 ms; SDK admission is below
+0.1 ms and native drain below 6.9 ms. Do not extend this trace's coverage to the
+whole run. A seven-second feedback experiment shifts major delivery spikes to
+the new cadence. Independent control IPC alone does not remove them (PCM
+232.8/242.8 ms in its 128-KiB diagnostic run). A blind UDP timing/size trace
+confirms traffic bursts during reports, without inspecting encrypted contents.
+The remaining mixed-load defect is therefore not closed or attributed solely
+to IPC, audio decoding, or battery batching. Every fixture stops all three
+nodes and workers and leaves zero sockets.
+
+The user's video symptom is freezing/jerky frames. A separate physical
+Mac/Blackview Wi-Fi P2P call reproduces a cold-start policy limitation: audio
+is already at 47–64 ms while video spends tens of seconds on sparse rungs.
+Its final render rates are 29.62/29.93 fps. A new call may now probe one rung
+after three consecutive measured video samples only with fresh audio feedback,
+RTT at most 60 ms, zero loss, jitter below 20 ms and both playout delays below
+100 ms. Actual video progress remains required. Missing measurements break the
+streak; any measured congestion retires the startup shortcut, preserving the
+ordinary twelve-sample recovery. Restored policies retain ordinary recovery.
+
+All 123 targeted adapter/source-pressure/receive/playout/group tests and
+targeted static analysis pass. A new 120-second physical call reaches full
+quality at 16.88/18.93 seconds, with final render rates 29.60/30.06 fps. Native
+audio peaks after ten seconds are 82/71 ms, audio drops and counted interruptions
+are zero, and P2P remains unchanged. Android has one >=75-ms render hold in the
+final thirty seconds. These counters do not establish listening quality or
+cellular/relay quality. Blackview is updated in place to debug 0.13.84+2571
+with the same signer and byte-identical native libraries as the tested 2570
+APK; only Dart behavior changes there. Both owned Mac processes, the phone
+process and the owned ADB forward are independently verified absent. No user
+profile is cleared. The broader audio-priority goal remains active.
+
+The regular Mac app is updated to 0.13.84+2571 without the Dart debug API.
+Its native `__text` sections match the physical stand and codesign verifies
+the installed bundle. The previous bundle is retained privately for rollback;
+the regular app is not launched. Android's final APK also records the library
+versions; it retains the physical APK's signer and identical native libraries.

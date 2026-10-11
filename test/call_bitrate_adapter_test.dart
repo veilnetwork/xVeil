@@ -71,6 +71,105 @@ void main() {
     }
   }
 
+  test(
+    'new low latency video probes each rung without a minute of sparse frames',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+      var frames = 0;
+      for (var rung = 3; rung >= 0; rung--) {
+        for (var i = 0; i < CallBitrateAdapter.startupRecoverAfter; i++) {
+          native(
+            a,
+            stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': ++frames},
+          );
+          expect(
+            a.level,
+            i == CallBitrateAdapter.startupRecoverAfter - 1 ? rung : rung + 1,
+          );
+        }
+      }
+      expect(a.target, (maxBitrateKbps: 900, maxFps: 30.0));
+    },
+  );
+
+  test('startup needs consecutive fresh low delay measurements', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+    var frames = 0;
+    void tick({int? peer = 60}) => native(
+      a,
+      peerDelay: peer,
+      stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': ++frames},
+    );
+    tick();
+    tick();
+    tick(peer: null);
+    tick();
+    tick();
+    expect(a.level, 4);
+    tick();
+    expect(a.level, 3);
+  });
+
+  test('measured startup congestion retains slow recovery afterward', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+    native(
+      a,
+      stats: {
+        ...healthy(),
+        'rtt_ms': 40,
+        'tx_loss_pct': 8,
+        'video_tx_frames': 1,
+      },
+    );
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      native(a, stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': i + 2});
+    }
+    expect(a.level, 4);
+    native(a, stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': 20});
+    expect(a.level, 3);
+  });
+
+  test(
+    'higher playout latency cannot accelerate startup on a low RTT link',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+        native(
+          a,
+          peerDelay: 140,
+          stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': i + 1},
+        );
+      }
+      expect(a.level, 4);
+      native(
+        a,
+        peerDelay: 140,
+        stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': 20},
+      );
+      expect(a.level, 3);
+    },
+  );
+
+  test(
+    'restored video policy retains slow recovery even on a healthy link',
+    () {
+      final a = CallBitrateAdapter(
+        baseBitrateKbps: 900,
+        baseFps: 30,
+        initialLevel: 3,
+      );
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+        native(
+          a,
+          stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': i + 1},
+        );
+      }
+      expect(a.level, 3);
+      native(a, stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': 20});
+      expect(a.level, 2);
+    },
+  );
+
   test('audio-only measurements cannot earn a larger video source', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
     for (var i = 0; i < 120; i++) {
