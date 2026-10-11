@@ -28,13 +28,16 @@ parser.add_argument('--adaptive-audio', action='store_true', help='Enable the pr
 parser.add_argument('--compact-media', action='store_true', help='Use compact relay audio batching, as the current application does, instead of the legacy audio/video batch format')
 parser.add_argument('--duration', type=int, default=100)
 parser.add_argument('--local-source-feedback', action='store_true', help='Feed actual endpoint quality to the shared local producer budget over negotiated IPC')
-parser.add_argument('--compete-file', action='store_true', help='Transfer 512 KiB of encrypted file chunks through the reliable local DATA lane in each direction during real audio/video')
+parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
+parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
 parser.add_argument('--no-video', action='store_true', help='Isolate real audio/file coexistence without starting a video encoder; not a full media-priority gate')
 args = parser.parse_args()
 if args.chunk_trace:
     os.environ['VEIL_DIAG_CHUNKS'] = '1'
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
+if args.file_bytes < 2048 or args.file_bytes % 2048:
+    parser.error('File size must be a positive multiple of 2048 bytes')
 sdk_path = args.sdk.resolve(strict=True)
 media_path = args.media.resolve(strict=True)
 policy_path = Path(__file__).resolve().with_name('relay_codec_policy.dart')
@@ -129,9 +132,10 @@ file_results=[{},{}]
 file_started=[None,None]
 file_send_failures=[collections.Counter(),collections.Counter()]
 file_apps=[]
-file_bytes=512*1024
+file_bytes=args.file_bytes
 file_payloads=[os.urandom(file_bytes),os.urandom(file_bytes)] if args.compete_file else []
-result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False}
+result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
+          'competing_file_bytes': file_bytes if args.compete_file else 0}
 try:
     for index in range(3):
         directory = ROOT / str(index)

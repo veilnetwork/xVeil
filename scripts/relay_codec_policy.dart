@@ -90,7 +90,7 @@ Future<void> main() async {
     });
     stdout.writeln(
       jsonEncode({
-        'feedback': activity[i].playoutFeedback(now).toJson(),
+        'feedback': activity[i].outgoingPlayoutFeedback(now).toJson(),
         'pause': pause,
         'budget': budget,
         'target': {'kbps': target.maxBitrateKbps, 'fps': target.maxFps},

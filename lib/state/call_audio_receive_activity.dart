@@ -56,6 +56,37 @@ class CallAudioReceiveActivity {
   int _interruptionCount = 0;
   bool interrupted = false;
   static const sampleLifetime = Duration(seconds: 3);
+  // Health signals are sent every five seconds, while native stats are polled
+  // every second. Preserve intervening peaks for the outgoing report without
+  // making local adaptation wait for old congestion to expire.
+  static const feedbackWindow = Duration(seconds: 5);
+  final List<({DateTime at, int delay})> _feedbackPeaks = [];
+  DateTime? _lastObservedAt;
+
+  void _expireFeedbackPeaks(DateTime now) {
+    _feedbackPeaks.removeWhere((sample) {
+      final age = now.difference(sample.at);
+      return age < Duration.zero || age > feedbackWindow;
+    });
+  }
+
+  /// Report congestion between heartbeats, even if the buffer has recovered
+  /// by the next send. A fresh current measurement is still required.
+  CallAudioPlayoutFeedback outgoingPlayoutFeedback(DateTime now) {
+    final current = playoutFeedback(now);
+    _expireFeedbackPeaks(now);
+    final delay = current.delayMs;
+    if (delay == null) return current;
+    var peak = delay;
+    for (final sample in _feedbackPeaks) {
+      if (sample.delay > peak) peak = sample.delay;
+    }
+    return CallAudioPlayoutFeedback(
+      sequence: current.sequence,
+      delayMs: peak,
+      interruptionCount: current.interruptionCount,
+    );
+  }
 
   CallAudioPlayoutFeedback playoutFeedback(DateTime now) {
     final sample = _sampledAt;
@@ -77,6 +108,11 @@ class CallAudioReceiveActivity {
   }
 
   void observe(Map<String, Object?> stats, DateTime now) {
+    if (_lastObservedAt != null && now.isBefore(_lastObservedAt!)) {
+      _feedbackPeaks.clear();
+    }
+    _lastObservedAt = now;
+    _expireFeedbackPeaks(now);
     interrupted = false;
     _sequence++;
     _playoutDelayMs = null;
@@ -119,6 +155,14 @@ class CallAudioReceiveActivity {
     if (delay != null) {
       _playoutDelayMs = delay;
       _sampledAt = now;
+      // A newer equal/higher sample outlives the older one. Keep descending
+      // candidates so expiry also preserves smaller intervening peaks. Normal
+      // polling retains at most six; valid integer delays bound even a debug
+      // caller sampling faster to at most 60001 candidates.
+      while (_feedbackPeaks.isNotEmpty && _feedbackPeaks.last.delay <= delay) {
+        _feedbackPeaks.removeLast();
+      }
+      _feedbackPeaks.add((at: now, delay: delay));
     }
   }
 
@@ -127,6 +171,8 @@ class CallAudioReceiveActivity {
     _sequence++;
     _playoutDelayMs = null;
     _sampledAt = null;
+    _feedbackPeaks.clear();
+    _lastObservedAt = null;
     _lastPackets = 0;
     _lastInterruptionCount = null;
     interrupted = false;
