@@ -13330,3 +13330,25 @@ a second 87.52-ms interval follows at 53.9298 seconds. No quality improvement
 is claimed. All PCM/file/policy workers exit, node stop results are [0,0,0],
 and no fixture sockets remain. The SDK sampling fix is committed unsigned as
 `e31ef40e`; no rejected codec variant is shipped.
+
+
+A fresh physical 120-second P2P Wi-Fi call uses the new Dart policy and SDK
+on both Mac and Blackview, without a video target override. After the first
+ten seconds native audio delay peaks at 57/106 ms. Both endpoints have zero
+native send failures, audio RTP drops and counted interruptions; all Mac
+ingress refusal counters remain zero. The final thirty-second received video
+rates are 29.61 frames/s on Mac and 29.26 on Android. The route remains P2P.
+These are runtime counters, not a listening test or cellular qualification.
+
+Blackview is updated in place to debug 0.13.84+2570 after verifying the same
+signer and exact `.text` match with the new Android release FFI. Its production
+codec library is byte-identical to build 2569. Several APK candidates are
+rejected before installation: an obsolete host-app JNI copy shadows the new
+plugin FFI. That untracked generated host copy is backed up privately and
+removed; the final packaged code then matches. Initial attribution to Gradle
+cache is corrected by checking each staging layer. The regular Mac app is
+still unchanged; this physical call uses a fresh private Mac debug stand
+with the current Dart and SDK and a production media library (no test hooks).
+Hangup finishes, both started apps exit, and independent checks verify their
+owned processes and ADB forward are absent. No data is cleared and no commit
+is signed or pushed.
