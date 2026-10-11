@@ -13892,3 +13892,58 @@ and the receiver holds about 170 ms of audio. Periodic transport/load bursts
 and the receiver's response are the next attribution target; no particular
 service timer has yet been proven responsible. All diagnostic workers and
 three nodes exit, and no fixture sockets remain.
+
+### Cellular retest and pause during the provider incident (2026-10-11)
+
+The replacement Poco has a validated cellular connection, Wi-Fi disabled,
+battery saver disabled and no system background-data restriction. The first
+debug APK installed during this cycle incorrectly combined the default Dart
+testnet selection with a production native SDK. Its latest runtime obfs4 key
+matches the testnet asset; the node has no active peers and reports handshake
+failures. Contact requests and two 45-second incoming-call checks consequently
+do not arrive. This setup failure is not evidence about media quality.
+
+The phone is updated in place to diagnostic build 0.13.84+2573 with explicit
+`--dart-define=XVEIL_NETWORK=prod`, preserving the release signing certificate
+and user data. The packaged native SDK matches the retained video-repair SDK.
+The existing test contact is confirmed at both endpoints through the debug
+API; contact-request delivery itself is not qualified by this fixture.
+Both endpoints register live rendezvous publishers; the final readiness wait
+takes 3.92 seconds and the incoming video call appears after 4.77 seconds.
+No route or P2P policy is forced. The call starts and remains on relay because
+no direct session is admitted. Endpoint candidates are known on both sides.
+The P-Net membership-certificate flag is not evidence that an identity or
+device certificate is missing: public-mode sessions need no P-Net membership.
+
+Across approximately 139 seconds of samples, observed audio playout peaks at
+1492/1501 ms and receive inactivity at 1164/1361 ms. Interruption counters
+reach 8/11, while video sends only 4/2 frames and is paused in 66/67 samples.
+Observed source RTP queue age peaks at 57/64 ms. These measurements reproduce
+poor relay quality; they do not establish its sole cause or qualify speech
+intelligibility. The user reports an ongoing provider outage and requests a
+pause until it is repaired. Do not attribute all these delays to an application
+defect from this run. The owned Mac/phone processes are absent and the owned
+ADB forward is removed after the call.
+
+The debug `/health` response now includes the resolved Dart `network` so future
+stands can reject a prod/testnet mismatch before measuring delivery. This API
+addition is committed but is not in the installed 2573 APK. Future Android
+production diagnostics must explicitly pass the production Dart define and
+check it alongside the native build flavor.
+
+A separate 200-second audio/file diagnostic adds an optional routing-refresh
+interval override to the codec runner. Omission preserves production defaults;
+values must be 1--119 seconds, below the unchanged 120-second route-cache TTL.
+With a 60-second override, both full 512-KiB files arrive with matching hashes
+in about 110/123 seconds, all 180 competing-phase tone edges per side match,
+and interruption, quiet-PCM, native/poll/auth error counters remain zero.
+Driver jitter is 19.46 ms. PCM peaks still reach 240.9/151.1 ms and native
+playout 229/128 ms, so this is not a quality-gate pass or a production fix.
+Matched RTP coverage ends around 106/111 seconds. Flights above 70 ms still
+occur near 26 seconds in one direction and near 57 seconds in both directions;
+none exceed that threshold near 88 seconds in the covered trace. This does not
+establish routing refresh as the sole source of the previous periodic bursts.
+Audio/file workers, the policy process and all three nodes exit, with no fixture
+sockets remaining. The full media-priority objective is paused, not complete.
+The 25 existing network-flavor and debug-API gate/parameter tests pass with
+`TMPDIR=/private/tmp/`; the Python runner compiles and the diff check is clean.

@@ -29,6 +29,7 @@ import '../data/veil_stack.dart'
         RealVeilStack,
         TombstonedDeviceException;
 import '../data/transport/bootstrap_invite.dart';
+import '../data/node/network_flavor.dart';
 import '../data/node/identity_config_fields.dart';
 import '../data/transport/device_link_invite.dart';
 import '../data/node/sovereign_identity_material.dart'
@@ -657,6 +658,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             'phase': ref.read(appControllerProvider).phase.name,
             'ready': ref.read(appControllerProvider).phase == AppPhase.ready,
             'realStack': ref.read(realStackProvider) != null,
+            // Phones have no process environment: an omitted Dart define can
+            // leave a debug app on testnet while its native SDK targets prod.
+            // Expose the resolved choice before a stand attempts a call.
+            'network': veilNetwork.name,
             if (boot != null) 'nodeBoot': boot.phase.name,
             if (boot?.message != null) 'nodeBootError': boot!.message,
           });
