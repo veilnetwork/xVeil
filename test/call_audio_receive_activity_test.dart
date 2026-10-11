@@ -71,6 +71,124 @@ void main() {
     expect(activity.playoutFeedback(start).delayMs, isNull);
   });
 
+  test(
+    'outgoing heartbeat preserves an intervening peak and then expires it',
+    () {
+      final activity = CallAudioReceiveActivity();
+      void sample(int second, int delay) => activity.observe({
+        'audio_rx_pkts': 100 + second,
+        'audio_rx_native_age_ms': 10,
+        'worker_stalled': 0,
+        'audio_delay_ms': delay,
+        'audio_interruption_count': 0,
+      }, start.add(Duration(seconds: second)));
+      sample(0, 60);
+      sample(1, 196); // The next heartbeat is not sent until second five.
+      for (var second = 2; second <= 5; second++) {
+        sample(second, 60);
+      }
+      final sentAt = start.add(const Duration(seconds: 5));
+      expect(activity.playoutFeedback(sentAt).delayMs, 60);
+      final report = activity.outgoingPlayoutFeedback(sentAt);
+      expect(report.delayMs, 196);
+      expect(report.sequence, activity.playoutFeedback(sentAt).sequence);
+      expect(report.interruptionCount, 0);
+      // Reading for capture announcements or a failed send cannot consume it.
+      expect(activity.outgoingPlayoutFeedback(sentAt).delayMs, 196);
+      sample(7, 60);
+      expect(
+        activity
+            .outgoingPlayoutFeedback(start.add(const Duration(seconds: 7)))
+            .delayMs,
+        60,
+      );
+    },
+  );
+
+  test('expiry preserves a smaller peak sampled within the same second', () {
+    final activity = CallAudioReceiveActivity();
+    void sample(int milliseconds, int delay) => activity.observe({
+      'audio_rx_pkts': 100,
+      'audio_rx_native_age_ms': 10,
+      'worker_stalled': 0,
+      'audio_delay_ms': delay,
+    }, start.add(Duration(milliseconds: milliseconds)));
+    sample(100, 300);
+    sample(800, 196);
+    sample(5500, 60);
+    expect(
+      activity
+          .outgoingPlayoutFeedback(
+            start.add(const Duration(milliseconds: 5500)),
+          )
+          .delayMs,
+      196,
+    );
+    sample(6000, 60);
+    expect(
+      activity
+          .outgoingPlayoutFeedback(start.add(const Duration(seconds: 6)))
+          .delayMs,
+      60,
+    );
+  });
+
+  test('an old feedback peak cannot replace an unknown current sample', () {
+    final activity = CallAudioReceiveActivity();
+    final stats = <String, Object?>{
+      'audio_rx_pkts': 100,
+      'audio_rx_native_age_ms': 10,
+      'worker_stalled': 0,
+      'audio_delay_ms': 196,
+    };
+    activity.observe(stats, start);
+    expect(
+      activity
+          .outgoingPlayoutFeedback(start.add(const Duration(seconds: 4)))
+          .delayMs,
+      isNull,
+    );
+    final now = start.add(const Duration(seconds: 2));
+    for (final unknown in <Map<String, Object?>>[
+      {'worker_stalled': 1},
+      {'audio_delay_ms': null},
+      {'audio_rx_native_age_ms': 4000},
+    ]) {
+      activity.observe({...stats, ...unknown}, now);
+      expect(activity.outgoingPlayoutFeedback(now).delayMs, isNull);
+    }
+  });
+
+  test(
+    'feedback peaks do not survive a repair or a backwards clock change',
+    () {
+      final activity = CallAudioReceiveActivity();
+      void sample(DateTime now, int delay) => activity.observe({
+        'audio_rx_pkts': 100,
+        'audio_rx_native_age_ms': 10,
+        'worker_stalled': 0,
+        'audio_delay_ms': delay,
+      }, now);
+      sample(start, 196);
+      activity.reset();
+      sample(start.add(const Duration(seconds: 1)), 60);
+      expect(
+        activity
+            .outgoingPlayoutFeedback(start.add(const Duration(seconds: 1)))
+            .delayMs,
+        60,
+      );
+      sample(start.add(const Duration(seconds: 2)), 196);
+      sample(start.add(const Duration(seconds: 1)), 60);
+      expect(
+        activity
+            .outgoingPlayoutFeedback(start.add(const Duration(seconds: 1)))
+            .delayMs,
+        60,
+      );
+    },
+  );
+
   test('interruption feedback survives repairs without inventing outages', () {
     final activity = CallAudioReceiveActivity();
     void sample(int count, {int stalled = 0}) => activity.observe({
