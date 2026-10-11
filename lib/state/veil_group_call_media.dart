@@ -568,7 +568,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         _videoRunning &&
         _supportsAudioReceiveAgeStats &&
         nextAudioPeers.any((key) => !_expectedAudioPeers.contains(key))) {
-      // Hold BEFORE opening/adding the fanout, including an existing peer
+      // Reduce BEFORE opening/adding the fanout, including an existing peer
       // that unmutes. The next fresh samples must establish this peer's audio
       // health rather than spending the old roster's earned video budget.
       final adapter = _bitrateAdapter;
@@ -577,7 +577,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           const {},
           audioReceiveQuality: (expected: true, ageMs: null),
         );
-        adapter.applyPendingPause(engine.setVideoSendPaused);
+        _applyVideoPolicy(engine, adapter);
       }
     }
     _expectedAudioPeers
@@ -717,6 +717,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Native aggregates count only fresh AUDIO reports, not video reports.
       adapter.onNativeStats(
         stats,
+        videoSendExpected: _cameraEnabled || _screenSharing,
         sendAudioExpected: _audioEnabled && !_microphoneState.muted,
         receiveAudioExpected: _hasExpectedIncomingAudio,
         requireAudioReceivePlayout:
@@ -733,7 +734,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       );
       // Retry an abandoned video-worker operation on the next poll. Advancing
       // the policy is separate from successfully applying an encoder budget.
-      if (expected.supportsVideoSendPause) {
+      if (expected.supportsVideoSendPause && adapter.audioReserve) {
         adapter.applyPendingPause(expected.setVideoSendPaused);
       }
       final applied = adapter.applyPendingTarget(
@@ -742,6 +743,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           maxFps: target.maxFps,
         ),
       );
+      if (expected.supportsVideoSendPause && !adapter.audioReserve) {
+        // A busy bitrate operation must not resume the previous larger budget.
+        if (applied != false) {
+          adapter.applyPendingPause(expected.setVideoSendPaused);
+        }
+      }
       if (applied == true) {
         final target = adapter.target;
         devLog(
@@ -759,6 +766,23 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   bool get _hasExpectedIncomingAudio =>
       _audioEnabled && _peers.keys.any(_expectedAudioPeers.contains);
+
+  void _applyVideoPolicy(GroupAudioEngine engine, CallBitrateAdapter adapter) {
+    final applied = adapter.applyPendingTarget(
+      (target) => engine.setVideoBitrate(
+        maxBitrateKbps: target.maxBitrateKbps,
+        maxFps: target.maxFps,
+      ),
+    );
+    if (applied == false) {
+      // Keep the old encoder budget off the new fanout while the worker is
+      // busy. The stats poll retries the budget before releasing this pause.
+      engine.setVideoSendPaused(true);
+      adapter.invalidateAppliedState();
+    } else {
+      adapter.applyPendingPause(engine.setVideoSendPaused);
+    }
+  }
 
   int? _groupAudioReceiveDelay(Map<String, dynamic> stats) {
     if (stats['worker_stalled'] != 0) return null;
@@ -930,7 +954,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           engine != null &&
           engine.supportsVideoSendPause) {
         adapter.prepareVideoSend(const {}, requirePeerAudioPlayout: true);
-        adapter.applyPendingPause(engine.setVideoSendPaused);
+        _applyVideoPolicy(engine, adapter);
       }
       _engine?.setMicMuted(muted);
     } catch (_) {}

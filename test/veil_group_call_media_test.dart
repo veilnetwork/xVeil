@@ -82,8 +82,11 @@ void main() {
         clock.flushMicrotasks();
         clock.elapse(const Duration(seconds: 48));
         expect(engine.targets.last.maxBitrateKbps, 150);
-        engine.stats = sample(1);
-        clock.elapse(const Duration(seconds: 1));
+        for (var i = 1; i <= 6; i++) {
+          engine.stats = sample(i);
+          clock.elapse(const Duration(seconds: 1));
+          if (i <= 4) expect(engine.pauses.last, isFalse);
+        }
         expect(engine.pauses.last, isTrue);
         expect(engine.cameraStarted, 1);
         clock.elapse(const Duration(seconds: 11));
@@ -95,72 +98,68 @@ void main() {
       });
     },
   );
-  test(
-    'group video mounts paused before capture until all audio receivers are fresh',
-    () {
-      for (final initialVideo in [false, true]) {
-        fakeAsync((clock) {
-          final self = _id(1), peer = _id(2);
-          final engine = _FakeEngine()
-            ..stats = {
-              'audio_rx_native_age_supported': 1,
-              'worker_stalled': 0,
-              'audio_feedback_reports': 1,
-              'rtt_ms': 80,
-              'audio_receivers': {
-                peer.hex: {
-                  'audio_rx_pkts': 0,
-                  'audio_delay_ms': 100,
-                  'audio_rx_native_age_ms': -1,
-                },
-              },
-            };
-          final controller = VeilGroupCallMediaController(
-            _FakeTransport(self),
-            roomMediaSecret: _room(),
-            engineFactory: (_) => engine,
-            requestMicrophone: () async => true,
-            requestCamera: () async => true,
-          );
-          controller.start(_call(self, [peer], video: initialVideo));
-          clock.flushMicrotasks();
-          if (!initialVideo) {
-            controller.setVideoEnabled(true);
-            clock.flushMicrotasks();
-            controller.setCameraEnabled(true);
-            clock.flushMicrotasks();
-          }
-          expect(engine.videoMountPauses, [
-            true,
-          ], reason: 'pause precedes stream creation');
-          expect(
-            engine.cameraStarted,
-            1,
-            reason: 'preview/capture intent remains live',
-          );
-          clock.elapse(const Duration(seconds: 20));
-          expect(engine.pauses.last, isTrue);
-          engine.stats = {
-            ...engine.stats,
+  test('group video tries one fps until all audio receivers are fresh', () {
+    for (final initialVideo in [false, true]) {
+      fakeAsync((clock) {
+        final self = _id(1), peer = _id(2);
+        final engine = _FakeEngine()
+          ..stats = {
+            'audio_rx_native_age_supported': 1,
+            'worker_stalled': 0,
+            'audio_feedback_reports': 1,
+            'rtt_ms': 80,
             'audio_receivers': {
               peer.hex: {
-                'audio_rx_pkts': 20,
+                'audio_rx_pkts': 0,
                 'audio_delay_ms': 100,
-                'audio_rx_native_age_ms': 100,
+                'audio_rx_native_age_ms': -1,
               },
             },
           };
-          clock.elapse(const Duration(seconds: 11));
-          expect(engine.pauses.last, isTrue);
-          clock.elapse(const Duration(seconds: 1));
-          expect(engine.pauses.last, isFalse);
-          expect(engine.cameraStarted, 1);
-          controller.stop();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        controller.start(_call(self, [peer], video: initialVideo));
+        clock.flushMicrotasks();
+        if (!initialVideo) {
+          controller.setVideoEnabled(true);
           clock.flushMicrotasks();
-        });
-      }
-    },
-  );
+          controller.setCameraEnabled(true);
+          clock.flushMicrotasks();
+        }
+        expect(engine.videoMountPauses, [false]);
+        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+        expect(
+          engine.cameraStarted,
+          1,
+          reason: 'preview/capture intent remains live',
+        );
+        clock.elapse(const Duration(seconds: 20));
+        expect(engine.pauses.last, isFalse);
+        engine.stats = {
+          ...engine.stats,
+          'audio_receivers': {
+            peer.hex: {
+              'audio_rx_pkts': 20,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': 100,
+            },
+          },
+        };
+        clock.elapse(const Duration(seconds: 11));
+        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.pauses.last, isFalse);
+        expect(engine.cameraStarted, 1);
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    }
+  });
 
   test(
     'linked device uses its room identity for peers and media keys',
@@ -256,7 +255,7 @@ void main() {
         expect(started, isTrue);
         engine.stats = {'audio_feedback_reports': 0};
         clock.elapse(const Duration(seconds: 30));
-        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
+        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
         engine.stats = {
           'audio_feedback_reports': 2,
           'tx_loss_pct': 0,
@@ -271,10 +270,10 @@ void main() {
         expect(engine.targets, isEmpty);
         engine.acceptTarget = true;
         clock.elapse(const Duration(seconds: 1));
-        expect(engine.targets.last, (maxBitrateKbps: 45, maxFps: 1.5));
+        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
         engine.stats = {'audio_feedback_reports': 0};
         clock.elapse(const Duration(seconds: 30));
-        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 0.3));
+        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
         engine.stats = {
           'audio_feedback_reports': 2,
           'tx_loss_pct': 0,
@@ -288,7 +287,7 @@ void main() {
         controller.start(_call(self, [peer], video: true));
         clock.flushMicrotasks();
         clock.elapse(const Duration(seconds: 1));
-        expect(engine.targets.first, (maxBitrateKbps: 8, maxFps: 0.3));
+        expect(engine.targets.first, (maxBitrateKbps: 8, maxFps: 1.0));
         controller.stop();
         clock.flushMicrotasks();
       });
@@ -331,8 +330,8 @@ void main() {
       engine.stats = sample(100, 100);
       clock.elapse(const Duration(seconds: 48));
       expect(engine.targets.last.maxBitrateKbps, 150);
-      engine.stats = sample(100, 4456); // measured single-call outage
-      clock.elapse(const Duration(seconds: 1));
+      engine.stats = sample(100, 4456); // sustained outage after floor trial
+      clock.elapse(const Duration(seconds: 6));
       expect(
         engine.pauses.last,
         isTrue,
@@ -425,7 +424,7 @@ void main() {
       );
       controller.update(room);
       clock.flushMicrotasks();
-      clock.elapse(const Duration(seconds: 1));
+      clock.elapse(const Duration(seconds: 6));
       expect(
         engine.pauses.last,
         isTrue,
@@ -441,7 +440,7 @@ void main() {
       );
       controller.update(room);
       clock.flushMicrotasks();
-      clock.elapse(const Duration(seconds: 1));
+      clock.elapse(const Duration(seconds: 6));
       expect(engine.pauses.last, isTrue);
       controller.update(_call(self, [alice], video: true));
       clock.flushMicrotasks();
@@ -492,8 +491,9 @@ void main() {
         clock.elapse(const Duration(seconds: 48));
         expect(
           engine.pauses.last,
-          isTrue,
-          reason: 'unknown expected audio pauses video without claiming outage',
+          isFalse,
+          reason:
+              'unknown audio holds the one-fps trial without claiming outage',
         );
         expect(
           engine.targets.last.maxBitrateKbps,
@@ -515,7 +515,7 @@ void main() {
             },
           },
         };
-        clock.elapse(const Duration(seconds: 1));
+        clock.elapse(const Duration(seconds: 2));
         expect(
           engine.pauses.last,
           isTrue,
@@ -682,7 +682,7 @@ void main() {
     });
   });
 
-  test('a new audio peer pauses live video before joining its fanout', () {
+  test('a new audio peer limits live video before joining its fanout', () {
     fakeAsync((clock) {
       final self = _id(1), alice = _id(2), bob = _id(3);
       final engine = _FakeEngine()
@@ -715,15 +715,18 @@ void main() {
       clock.flushMicrotasks();
       expect(
         engine.peerAddPauses.last,
-        isTrue,
-        reason: 'pause must precede the first frame sent to a new peer',
+        isFalse,
+        reason:
+            'an unknown peer gets a sparse trial instead of an outage verdict',
       );
       expect(engine.cameraStarted, 1);
+      expect(engine.peerAddTargets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       clock.elapse(const Duration(seconds: 20));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       expect(
         engine.pauses.last,
-        isTrue,
-        reason: 'Alice cannot establish incoming audio health for Bob',
+        isFalse,
+        reason: 'Alice cannot earn a larger video budget for unknown Bob',
       );
       engine.stats = {
         ...engine.stats,
@@ -742,22 +745,96 @@ void main() {
         },
       };
       clock.elapse(const Duration(seconds: 11));
-      expect(engine.pauses.last, isTrue);
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
       expect(engine.cameraStarted, 1);
       engine.throwStats = true;
-      clock.elapse(const Duration(seconds: 1));
+      clock.elapse(const Duration(seconds: 2));
       expect(
         engine.pauses.last,
-        isTrue,
-        reason: 'a worker failure cannot preserve the old video budget',
+        isFalse,
+        reason: 'unknown worker health still permits the sparse trial',
       );
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       engine.throwStats = false;
       clock.elapse(const Duration(seconds: 11));
-      expect(engine.pauses.last, isTrue);
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test('a busy floor update pauses new fanout until the budget applies', () {
+    fakeAsync((clock) {
+      final self = _id(1), alice = _id(2), bob = _id(3);
+      final engine = _FakeEngine()
+        ..stats = {
+          'audio_rx_native_age_supported': 1,
+          'worker_stalled': 0,
+          'audio_feedback_reports': 1,
+          'rtt_ms': 80,
+          'audio_receivers': {
+            alice.hex: {
+              'audio_rx_pkts': 100,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': 100,
+            },
+          },
+        };
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      controller.start(_call(self, [alice], video: true));
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 48));
+      expect(engine.targets.last.maxBitrateKbps, 150);
+      engine.acceptTarget = false;
+      controller.update(_call(self, [alice, bob], video: true));
+      clock.flushMicrotasks();
+      expect(engine.peerAddPauses.last, isTrue);
+      clock.elapse(const Duration(seconds: 2));
+      expect(engine.pauses.last, isTrue);
+      expect(engine.targets.last.maxBitrateKbps, 150);
+      engine.acceptTarget = true;
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      expect(engine.pauses.last, isFalse);
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test('camera off cannot grow a group video budget from audio alone', () {
+    fakeAsync((clock) {
+      final self = _id(1), peer = _id(2);
+      final engine = _FakeEngine()
+        ..stats = {'audio_feedback_reports': 1, 'rtt_ms': 80};
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+      );
+      controller.start(_call(self, [peer], video: true));
+      clock.flushMicrotasks();
+      controller.setCameraEnabled(false);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 120));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      controller.setCameraEnabled(true);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 11));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      clock.elapse(const Duration(seconds: 1));
+      expect(engine.targets.last.maxBitrateKbps, 45);
       controller.stop();
       clock.flushMicrotasks();
     });
@@ -794,18 +871,20 @@ void main() {
       );
       controller.start(receivingMuted);
       clock.flushMicrotasks();
-      expect(engine.pauses.last, isTrue);
+      expect(engine.pauses.last, isFalse);
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       engine.throwStats = true;
       clock.elapse(const Duration(seconds: 1));
       expect(
         engine.pauses.last,
-        isTrue,
+        isFalse,
         reason: 'a failed sample is not explicit removal of capable peers',
       );
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       engine.throwStats = false;
       engine.stats = const {};
       clock.elapse(const Duration(seconds: 20));
-      expect(engine.pauses.last, isTrue);
+      expect(engine.pauses.last, isFalse);
       engine.stats = {
         'worker_stalled': 0,
         'audio_feedback_reports': 1,
@@ -815,12 +894,13 @@ void main() {
         'audio_playout_ms': 100,
       };
       clock.elapse(const Duration(seconds: 11));
-      expect(engine.pauses.last, isTrue);
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
       engine.stats = {...engine.stats, 'audio_playout_reports': 0};
-      clock.elapse(const Duration(seconds: 1));
-      expect(engine.pauses.last, isTrue);
+      clock.elapse(const Duration(seconds: 8));
+      expect(engine.pauses.last, isFalse);
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       engine.stats = {...engine.stats, 'audio_playout_peers': 0};
       clock.elapse(const Duration(seconds: 1));
       expect(
@@ -854,7 +934,8 @@ void main() {
         'audio_playout_ms': 100,
       };
       clock.elapse(const Duration(seconds: 60));
-      expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      expect(engine.pauses.last, isFalse);
       engine.stats = {...engine.stats, 'audio_playout_ms': 450};
       clock.elapse(const Duration(seconds: 8));
       expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
@@ -879,7 +960,8 @@ void main() {
         'audio_playout_ms': -1,
       };
       clock.elapse(const Duration(seconds: 8));
-      expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      expect(engine.pauses.last, isFalse);
       controller.setMicMuted(true);
       clock.flushMicrotasks();
       engine.stats = {
@@ -899,7 +981,7 @@ void main() {
         'video_feedback_jitter_ms': 10,
       };
       clock.elapse(const Duration(seconds: 11));
-      expect(engine.pauses.last, isTrue);
+      expect(engine.pauses.last, isFalse);
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
       clock.elapse(const Duration(seconds: 48));
@@ -937,7 +1019,7 @@ void main() {
         clock.elapse(const Duration(seconds: 60));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 0.3),
+          (maxBitrateKbps: 8, maxFps: 1.0),
           reason: 'one healthy receiver cannot speak for the silent one',
         );
         engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
@@ -947,7 +1029,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 0.3),
+          (maxBitrateKbps: 8, maxFps: 1.0),
           reason: 'losing a receiver must release bandwidth for audio',
         );
         engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
@@ -959,7 +1041,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 0.3),
+          (maxBitrateKbps: 8, maxFps: 1.0),
           reason: 'the newly connected receiver has not yet reported audio',
         );
         controller.update(_call(self, [alice, bob], video: true));
@@ -974,7 +1056,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 0.3),
+          (maxBitrateKbps: 8, maxFps: 1.0),
           reason: 'unreadable native stats cannot keep full video',
         );
         engine.stats = healthy;
@@ -984,7 +1066,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 0.3),
+          (maxBitrateKbps: 8, maxFps: 1.0),
           reason: 'a failed query must still apply the reduced video target',
         );
         engine.throwStats = false;
@@ -994,7 +1076,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 0.3),
+          (maxBitrateKbps: 8, maxFps: 1.0),
           reason:
               'cached reports from a stalled audio worker cannot grow video',
         );
@@ -1049,13 +1131,13 @@ void main() {
         clock.flushMicrotasks();
         expect(
           engine.pauses.last,
-          isTrue,
-          reason: 'video pauses before newly enabled audio captures',
+          isFalse,
+          reason: 'new audio gets a one-fps video trial before capture',
         );
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 1, maxFps: 0.02),
+          (maxBitrateKbps: 8, maxFps: 1.0),
           reason:
               'video reports cannot prove that both peers hear the new audio',
         );
@@ -1576,6 +1658,7 @@ class _FakeEngine implements GroupAudioEngine {
 
   final List<NodeId> added = [];
   final List<bool?> peerAddPauses = [];
+  final List<({int maxBitrateKbps, double maxFps})?> peerAddTargets = [];
   final List<NodeId> removed = [];
   final Map<String, int> rx = {};
   int started = 0;
@@ -1608,6 +1691,7 @@ class _FakeEngine implements GroupAudioEngine {
   @override
   bool addPeer({required int channel, required NodeId peer}) {
     peerAddPauses.add(pauses.isEmpty ? null : pauses.last);
+    peerAddTargets.add(targets.isEmpty ? null : targets.last);
     added.add(peer);
     return true;
   }
