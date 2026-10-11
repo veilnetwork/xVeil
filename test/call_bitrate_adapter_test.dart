@@ -39,12 +39,14 @@ void main() {
     bool interrupted = false,
     bool send = true,
     bool receive = true,
+    bool video = true,
     int? audioReceivers,
     int? videoReceivers,
   }) {
     apply(a);
     a.onNativeStats(
       stats ?? healthy(),
+      videoSendExpected: video,
       sendAudioExpected: send,
       receiveAudioExpected: receive,
       requireAudioReceivePlayout: receive,
@@ -68,6 +70,86 @@ void main() {
       a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
     }
   }
+
+  test('audio-only measurements cannot earn a larger video source', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+    for (var i = 0; i < 120; i++) {
+      native(a, video: false);
+    }
+    expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      native(a);
+    }
+    expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+    native(a);
+    expect(a.target, (maxBitrateKbps: 270, maxFps: 3.0));
+  });
+
+  test('turning capture off breaks an unfinished recovery streak', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 30,
+      initialLevel: 3,
+    );
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      native(a);
+    }
+    for (var i = 0; i < 30; i++) {
+      native(a, video: false);
+    }
+    expect(a.target.maxBitrateKbps, 270);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      native(a);
+    }
+    expect(a.target.maxBitrateKbps, 270);
+    native(a);
+    expect(a.target.maxBitrateKbps, 450);
+  });
+
+  test('capture intent and historical frames cannot prove video headroom', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+    for (final frames in [0, 10]) {
+      for (var i = 0; i < 30; i++) {
+        native(a, stats: {...healthy(), 'video_tx_frames': frames});
+      }
+      expect(a.target.maxBitrateKbps, 45);
+    }
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      native(a, stats: {...healthy(), 'video_tx_frames': 11 + i});
+    }
+    expect(a.target.maxBitrateKbps, 45);
+    native(a, stats: {...healthy(), 'video_tx_frames': 30});
+    expect(a.target.maxBitrateKbps, 270);
+  });
+
+  test('one-fps polling jitter still earns sustained video recovery', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      native(a, stats: {...healthy(), 'video_tx_frames': 1 + i ~/ 2});
+    }
+    expect(a.target.maxBitrateKbps, 270);
+  });
+
+  test('healthy audio releases a protection pause while capture is off', () {
+    for (final audioDrops in [null, 0]) {
+      final a = direct();
+      poor(a, 6);
+      expect(a.audioReserve, isTrue);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+        native(
+          a,
+          video: false,
+          stats: {...healthy(), 'audio_tx_rtp_drops': audioDrops},
+        );
+      }
+      expect(a.audioReserve, isFalse);
+      expect(a.target, (maxBitrateKbps: 45, maxFps: 1.0));
+      for (var i = 0; i < 30; i++) {
+        native(a, video: false);
+      }
+      expect(a.target.maxBitrateKbps, 45);
+    }
+  });
 
   test('degrades two levels, trials one fps, then pauses failing audio', () {
     final a = direct();

@@ -70,6 +70,7 @@ Future<void> main() async {
     }
     a.onNativeStats(
       stats,
+      videoSendExpected: req['videoSendExpected'] == true,
       sendAudioExpected: true,
       requireAudioReceivePlayout: true,
       receiveAudioExpected: true,

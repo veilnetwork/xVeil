@@ -1053,7 +1053,11 @@ class VeilCallMediaController implements CallMediaController {
         try {
           if (owned() &&
               opened.transport == CallTransportKind.relay &&
-              _transport.setRelayMediaBatching(candidate, true, compact: true) ==
+              _transport.setRelayMediaBatching(
+                    candidate,
+                    true,
+                    compact: true,
+                  ) ==
                   0 &&
               await _configureRouteProbes(candidate, next, opened.transport) &&
               owned()) {
@@ -1581,6 +1585,11 @@ class VeilCallMediaController implements CallMediaController {
           // route profile stays the ceiling; adaptation only spends less.
           adapter.onNativeStats(
             stats,
+            videoSendExpected:
+                _screenSharing ||
+                ((_activeCall?.media.video == true ||
+                        _activeCall?.media.screen == true) &&
+                    _cameraState.enabledForCall(call.callId)),
             sendAudioExpected: call.media.audio && !_microphoneState.muted,
             requireAudioReceivePlayout:
                 call.media.audio && _peerAudioCaptureEnabled,

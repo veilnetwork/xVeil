@@ -127,6 +127,8 @@ class CallBitrateAdapter {
   int _mutedRecoveryStreak = 0;
   int? _lastTxDrops;
   int? _lastAudioTxDrops;
+  int? _lastVideoTxFrames;
+  int _videoIdleSamples = 0;
   int? _curWindowMin;
   int? _prevWindowMin;
   int _windowFill = 0;
@@ -296,6 +298,7 @@ class CallBitrateAdapter {
   /// substantiate congestion even when other receivers have not reported.
   ({int maxBitrateKbps, double maxFps})? onNativeStats(
     Map<String, dynamic> stats, {
+    bool videoSendExpected = true,
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
     int? audioReceiveDelayMs,
@@ -364,6 +367,7 @@ class CallBitrateAdapter {
       _mutedRecoveryStreak = 0;
     }
     return onSample(
+      videoSendExpected: _videoCanEarnRecovery(stats, videoSendExpected),
       sendAudioExpected: sendAudioExpected,
       rttMs: anyFeedbackAvailable
           ? (stats[sendAudioExpected ? 'rtt_ms' : 'video_feedback_rtt_ms']
@@ -409,9 +413,31 @@ class CallBitrateAdapter {
     );
   }
 
+  bool _videoCanEarnRecovery(Map<String, dynamic> stats, bool expected) {
+    if (!expected) {
+      _lastVideoTxFrames = null;
+      _videoIdleSamples = 0;
+      return false;
+    }
+    if (stats['video_worker_stalled'] == 1) return false;
+    // Older engines without this counter retain intent-based adaptation.
+    if (!stats.containsKey('video_tx_frames')) return true;
+    final frames = stats['video_tx_frames'];
+    if (frames is! num || !frames.isFinite || frames < 0) return false;
+    final count = frames.toInt();
+    _videoIdleSamples = count > (_lastVideoTxFrames ?? 0)
+        ? 0
+        : _videoIdleSamples + 1;
+    _lastVideoTxFrames = count;
+    // A one-fps trial can straddle a stats poll. Two quiet samples tolerate
+    // that jitter; no frames or a stalled capture cannot earn a larger budget.
+    return count > 0 && _videoIdleSamples < 3;
+  }
+
   /// Feed one stats sample; returns the new target when the rung changed and
   /// null otherwise. `rttMs` of 0 means "unknown yet" and is not judged.
   ({int maxBitrateKbps, double maxFps})? onSample({
+    bool videoSendExpected = true,
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
     int? audioReceiveDelayMs,
@@ -524,11 +550,14 @@ class CallBitrateAdapter {
         (!requireAudioReceivePlayout ||
             (audioReceiveDelayMs != null &&
                 audioReceiveDelayMs < playoutRecoverMs));
-    final good = audioGood && !newDrops;
+    // Audio alone cannot prove there is headroom for a larger video source.
+    // Keep the measured rung while capture is off; healthy audio may still
+    // release a protection pause, so an enabled sender can try its sparse floor.
+    final good = audioGood && !newDrops && videoSendExpected;
     // Healthy audio may earn a sparse video probe despite a discarded
     // secondary packet/report. Aggregate losses still forbid climbing the
     // video ladder: ignoring them entirely regressed decoded PCM latency.
-    if (_audioReserve && audioTxDrops != null && audioGood) {
+    if (_audioReserve && audioGood && (audioTxDrops != null || !newDrops)) {
       _audioRecoveryStreak++;
       if (_audioRecoveryStreak >= recoverAfter) {
         _releaseAudioHold();

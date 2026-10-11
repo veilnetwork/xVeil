@@ -13260,3 +13260,73 @@ private fixtures. Remaining work is delivery variation and receiver buffering
 under competing reliable traffic, followed by a valid complete mixed gate
 and physical/cross-network confirmation. Relay classification/priority,
 mailbox policy and published releases are unchanged.
+
+
+### Follow-up: capture evidence and original source sampling (2026-10-11)
+
+The IPC local-source-feedback handler now preserves the observation's sampling
+instant. Previously a delayed or replayed but still fresh IPC report started
+its activity/pressure lease at receipt, extending the restraint on competing
+producers. Its age is subtracted from the receipt's monotonic instant; tolerated
+future wall-clock correction is clamped to receipt. Ownership, negotiated
+capability, 1500-ms freshness and the never-forward rule are unchanged.
+Five targeted IPC tests and fourteen source-activity tests pass. The Mac SDK
+FFI is rebuilt with the fix. No relay gains a media role or priority rule.
+
+A private max-40-ms Opus variant retains the production frame-length and
+bitrate controllers. The RTP trace verifies actual 20/40-ms timestamp deltas,
+not merely an SDP preference. It fails the complete 360-second mixed 512-KiB
+gate: decoded PCM peaks at 301.6/321.1 ms, native delay at 273/293 ms and quiet
+frames at 6/11. Both file hashes match after approximately 328 seconds and
+all 340 markers per side match. A 47.87-ms driver interval at 242 seconds
+also invalidates the timing rail; the largest native delays occur separately
+at 356–359 seconds. This variant is rejected. Production retains 20–60-ms
+Opus and unchanged NetEq settings.
+
+The diagnostic driver now records bounded stall times in the final summary,
+without adding file I/O to its PCM thread. Previous mixed controls also
+credited healthy audio before starting video, unlike the production adapter
+which is first created on video mount. They therefore could start video with
+270 rather than 45 kbit/s, or with a partially earned recovery streak. Their
+failures are real measured fixture failures, but are not an exact reproduction
+of production's first video mount. The fixture now supplies video intent.
+The same false recovery is possible in production after stopping camera
+capture while retaining the video pipeline, and is fixed there as well.
+
+Video growth now requires camera/screen intent and, on current engines,
+progress in the video frame counter. A zero or stalled historical counter
+cannot prove headroom. Two quiet polls tolerate one-fps sampling jitter.
+Healthy audio can still release an audio protection pause to try the sparse
+floor even before video resumes, avoiding circular recovery. Older engines
+without the counter retain intent-based adaptation. Direct-call intent uses
+the current call, including video enabled after an audio-only start; group
+calls use their current camera/screen state.
+
+The group checks exposed a separate ordering bug: adding/unmuting a peer or
+unmuting the local microphone reset the policy to the floor but applied only
+the pause flag before fanout/capture. With the current one-fps trial policy,
+that left the former larger encoder budget running until the next stats poll.
+The floor is now applied first. A busy encoder budget operation pauses the
+fanout and the next poll retries the budget before resuming. Regressions cover
+budget-before-add ordering, a busy worker, capture-off recovery and continuing
+audio protection. Eleven older group expectations were independently verified
+to fail on the original root HEAD: they expected immediate pause on unknown
+quality or a 0.3-fps floor. Those checks now require the user's one-fps trial,
+reserve pause for sustained measured audio failure, and retain all-peer recovery
+requirements. All 118 targeted bitrate/source-pressure/playout/receive/group
+checks pass; targeted static analysis reports no issues.
+
+
+The corrected fixture's subsequent complete 360-second run uses the ordinary
+20–60-ms codec, both full 512-KiB files, windowed feedback and the SDK sampling
+fix. It still fails: mixed decoded PCM maxima are 222.2/231.4 ms, p95
+201.2/210.9 ms, with 340 matched markers and none missing per direction.
+Native delay maxima are 193/213 ms, with zero quiet PCM frames, interruptions,
+native send failures or poll failures. Both files arrive with matching hashes
+in approximately 327.9 seconds. Video is delivered in both directions
+(1126/1983 frames), with 43 pause samples per direction. A 129.29-ms driver
+interval at 53.6912 seconds violates the unchanged 40-ms fixture rail;
+a second 87.52-ms interval follows at 53.9298 seconds. No quality improvement
+is claimed. All PCM/file/policy workers exit, node stop results are [0,0,0],
+and no fixture sockets remain. The SDK sampling fix is committed unsigned as
+`e31ef40e`; no rejected codec variant is shipped.
