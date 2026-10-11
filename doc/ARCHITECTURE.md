@@ -13514,3 +13514,86 @@ All fixture workers and three nodes exit; zero fixture sockets remain, and
 independent process inspection finds no owned stand app left running. No
 physical app is launched or updated in this cycle; installed Mac/Blackview
 builds remain 0.13.84+2571.
+
+### Authored control packetization (2026-10-11)
+
+A trial lowering the video degradation warning to 160 ms passed its policy
+tests but regressed the measured call: decoded PCM peaks were 231.8/281.1 ms,
+with video paused in 48/132 samples. That trial was reverted. The existing
+200-ms guard and measured one-frame-per-second trial remain authoritative.
+
+Large authored controls previously entered a negotiated neutral datagram hop
+as one roughly 3-KiB frame. The node-wide signaling pacer charged that whole
+frame after admitting its multi-packet burst. During local primary activity,
+these controls now use the existing envelope-chunk format with the node's
+768-byte source hint. Each piece pays the existing signaling pacer separately.
+The ciphertext, sender proof and original content ID survive reassembly;
+authentication still follows reassembly. Relays see ordinary neutral Forward
+cells and receive no media role, scheduling privilege or new wire feature.
+Idle, unnegotiated, small and ACK-mode controls keep their former paths.
+
+Trusted origin admission can wait for ingress without holding the registry
+lock or blocking reserved primary ingress. All fan-out copies share a five-
+second deadline, checked before each admission as well as across an awaited
+send. A local admission timeout does not invalidate a working cached route.
+There is no mailbox fallback. Transit forwarding retains ordinary try-send.
+
+All 665 session/IPC tests pass (510/155; eleven existing ignores). New tests
+cover authenticated ratchet reassembly with reverse-order and duplicate
+pieces, generic/device fan-out, legacy hop compatibility, bounded and already
+expired admission, closed receivers and independent primary ingress. Final
+IPC tests pass after the explicit shared-deadline check was added.
+
+The packetized 360-second real Opus/VP8 run uses blind FIFO shaping at
+1024 kbit/s per direction and concurrent duplex 512-KiB files. Its maximum
+driver interval is 39.50 ms. Both files hash-match after 328.2/305.0 seconds,
+all 72 periodic reports arrive in each direction (73 with bootstrap), and
+there are no quiet PCM samples, missing tone transitions, counted audio
+interruptions, authentication errors, polling errors or native errors.
+Video remains active: 443/489 sent frames and 488/442 received frames, with
+zero protection-pause samples. Nevertheless decoded PCM peaks 241.8/215.9 ms
+(p95 182.9/200.0 ms) and native peaks 210/183 ms still fail the unchanged
+sub-200-ms audio gate. Video mostly remains at 1–1.5 fps.
+
+A same-settings repeat using the preceding SDK has a valid 27.45-ms driver,
+PCM peaks 233.5/222.9 ms, and native peaks 197/214 ms. It also produces sparse
+video (239/497 sent frames), including 146 pause samples on one side. Its
+interruption counters already equal one in the preceding audio-only phase;
+they do not increase during the competing phase. Files and all reports
+arrive. Across the full competing phase (from 20 seconds), blind FIFO queue
+peaks are 121.5/80.6 ms on that baseline and 80.2/69.5 ms with packetization.
+This comparison supports reducing control bursts but does not establish an
+audio-quality pass or a statistically stable video improvement. Full-run
+queue peaks include startup and must not be labeled competing-phase peaks.
+
+The packetized matched native trace ends at 151.2/148.0 seconds. Within that
+coverage, competing SDK/network peaks are 118.2/119.3 ms, admission below
+0.13 ms and native drain below 1.2 ms. Truncated traces cannot prove absence
+of later delays. All workers and three nodes exit in both runs, and both
+fixtures leave zero sockets. Physical Wi-Fi and cellular behavior requires
+separate measurement; this fixture is loopback evidence only.
+
+Production-seed FFI libraries build for macOS and Android. Build 0.13.84+2572
+is installed in-place on Blackview using the previous signer; the APK's SDK
+instruction section matches the freshly built production library. A private
+Mac stand carries the matching SDK code and passes deep signature validation.
+The three-minute Wi-Fi Mac-to-Blackview P2P call produces no protection-pause
+samples or counted audio interruptions. From 60 seconds onward, Blackview
+receives 29.76 fps and decodes/displays 29.74 fps; its slowest measured ten-
+second receive window is 26.27 fps. Mac receives 29.60 fps. The accumulated
+arrival, decoder and display maximum-gap counters do not grow in that steady
+phase. Native audio delay peaks are 74/66 ms, with zero local audio or aggregate
+transmit drops. These counters do not measure acoustic latency or establish
+speech intelligibility; no listening feedback was collected for this run.
+
+A deliberately requested relay recovery at approximately two minutes returns
+false; all 88 snapshots retain P2P, with zero handovers. This is not evidence
+that a physical relay call passed. The underlying deferred candidate/recovery
+needs further examination before qualifying that path. Both owned apps exit
+after the call, and the stand removes its own ADB forward. No cellular device
+is available in this cycle. The general priority/latency goal remains open.
+
+The regular local Mac app is also replaced with build 0.13.84+2572, compiled
+without the diagnostic API. Its signature and bundled production SDK code
+are verified; the previous bundle is retained only as a private rollback
+backup outside Applications. No regular app is launched after installation.
