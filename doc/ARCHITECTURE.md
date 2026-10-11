@@ -13816,3 +13816,79 @@ audio/file-only isolation and packet-duration/queue attribution still need
 verification before changing the production policy. Both experiments stop
 all three nodes and their file/audio/policy workers, with no fixture sockets
 remaining. The full media-priority objective remains open.
+
+### Measure actual adaptive packet duration; reject an earlier video cutoff (2026-10-11)
+
+The longer 360-second audio/file-only isolation completes both full 512-KiB
+files with matching hashes (about 161/148 seconds). All 340 competing-phase
+tone edges per direction match; interruption counters and native/poll/auth
+errors remain zero. Nevertheless PCM peaks reach 251.4/169.6 ms, with p95
+200.0/130.3 ms, and native playout reaches 224/131 ms. The 224-ms native peak
+occurs around 127 seconds while files are still transferring. The driver has
+a separate 140.63-ms stall around 342 seconds, so the run fails the unchanged
+driver gate and is not a successful full quality qualification. Its earlier
+playout peak cannot be explained solely by that later stall. One quiet PCM
+frame occurs in the first direction. The short preceding isolation did not
+establish sustained audio/file quality.
+
+The adaptive unicast encoder now exports local JSON telemetry
+`audio_tx_packet_duration_ms`, observing the packet being encoded before Opus
+selects its next duration. It publishes only after nonempty encoding, retains
+the last observation during pending input/DTX suppression, and starts at zero
+(unknown) for each new send stream. A per-engine shared atomic bridges encoder
+and diagnostics without a worker round trip. Legacy/nonadaptive streams and
+group streams without this observer retain zero. No ABI or wire metadata is
+added, and no relay receives traffic classification or priority. A real
+Opus/ANA regression compares the observation with duration parsed from the
+actual Opus payload, including the production DTX setting, for receiver limits
+20/40/60 ms and allocations 6--160 kbit/s. Explicit runtime checks remain
+enabled in the release/NDEBUG toolchain. All three cases pass and preserve
+the 16--32-kbit/s payload bounds. A production Mac library builds with the
+same 99 media exports and zero native test hooks.
+
+An experiment reserves the extra duration above the existing 20-ms baseline
+in the video's peer-playout thresholds. Two new Dart tests fail before this
+change; 80 adapter/source-pressure/playout tests then pass and analysis is
+clean. In the full 360-second 1024-kbit/s mixed run, both full files and all
+encrypted periodic feedback arrive, all 340 tone edges per direction match,
+and native/poll/auth errors and interruptions are zero. However PCM peaks are
+271.9/274.5 ms with p95 242.7/208.9 ms; native playout peaks are 259/246 ms.
+Video transmits only 217/127 frames and protection pauses occur in 123/213
+samples. Driver jitter reaches 45.33 ms, exceeding its unchanged 40-ms gate.
+The run does not demonstrate an audio improvement or justify the reduced
+video output. The experimental Dart thresholds and their tests are restored;
+only the independently verified native observation is retained. Installed
+Mac/Android applications are not replaced by this experiment.
+
+The encoder observation shows that long packets alone do not explain all
+playout peaks: around 248--250 seconds the receiving buffer target is 220 ms
+and actual playout reaches 259 ms while the remote encoder reports 20 ms,
+RTT is about 19--23 ms and reported send loss is zero. Those observations
+precede the driver's largest stalls around 332/341 seconds. They narrow the
+next investigation to packet delivery variation and receiver buffering; they
+do not yet assign a sole cause. Both completed runs stop their audio/file
+workers, policy process and all three nodes, with no fixture sockets left.
+Mixed-load latency, public/legacy relay behavior and physical cellular quality
+remain unqualified. The full media-priority objective remains open.
+
+A subsequent 200-second audio/file-only diagnostic uses the restored Dart
+policy and the new native observation, with explicitly enabled private RTP
+timing. Both full files arrive with matching hashes in about 135 seconds;
+driver jitter is 35.58 ms, all 180 competing-phase tone edges per direction
+match, and interruptions, quiet PCM and native/poll/auth errors are zero.
+PCM peaks nevertheless reach 219.8/161.2 ms (p95 201.3/158.8); native playout
+reaches 181/141 ms. This is useful attribution with a valid driver, not a
+pass of the longer full mixed quality gate.
+
+The capped RTP traces match 4048 nonempty packets per direction and cover
+only about the first 97/100 seconds; they cannot characterize the entire
+200-second run. Within their competing-phase coverage, SDK admission peaks
+at 0.138/0.176 ms and receiver native drain at 1.523/0.822 ms, while combined
+SDK/network flight peaks at 114.698/122.018 ms (p95 27.121/27.051). Flights
+cluster around 26.5, 57.5 and 88.5 seconds, about 31 seconds apart; the blind
+FIFO reaches roughly 63--71 ms in those windows. At the first direction's
+219.8-ms PCM peak near 61 seconds, the remote encoder reports 60-ms packets
+and the receiver holds about 170 ms of audio. Periodic transport/load bursts
+and the receiver's response are the next attribution target; no particular
+service timer has yet been proven responsible. All diagnostic workers and
+three nodes exit, and no fixture sockets remain.
