@@ -13711,3 +13711,61 @@ by this managed-relay test. The prior 1024-kbit/s mixed FIFO sub-200-ms PCM gate
 still fails and is unchanged by the probe fix. Android relay-video freezes and
 physical cellular verification also remain open. The full media priority goal
 is not complete.
+
+### Preserve individual VP8 retransmissions in the relay frame ingress (2026-10-11)
+
+The relay's local video assembler formerly treated every RTP timestamp change
+as a new original frame. A NACK retransmission of one older fragment could
+therefore discard the in-progress newer frame and itself wait for an old
+marker that was never retransmitted. Two regression tests fail on that code:
+an old fragment interleaved with the next frame, and a duplicate fragment after
+completion, including RTP timestamp wrap.
+
+The assembler now retains its newest original timestamp after completion and
+compares timestamps as wrapping RTP serial numbers. Older fragments, and
+fragments of an already completed timestamp, become immediately complete
+single-packet work items without replacing the current frame prefix. They use
+the same bounded video/screen ingress and source freshness deadline; there is
+no audio fallback or relay role/priority label. Oversized repairs still fail
+the existing frame byte ceiling. A repair marker cannot clear contention
+discard, full video capacity reports loss, and a closed ingress rejects it.
+All 39 focused media-priority tests pass, including these boundary cases and
+the real ingress check with reserved audio capacity already occupied.
+
+Production-seed FFI builds succeed on macOS and Android. The private Mac SDK
+copy is checked before signing and its final deep signature validates. The
+same-signer 0.13.84+2572 diagnostic APK is updated in-place with byte-verified
+native SDK content; no profile data is cleared. The regular Mac app remains
+unchanged.
+
+In a repeat of the 140-second managed LAN-relay call, the first recovery at
+26.94 seconds succeeds. From 60 seconds, Blackview receives 30.06 fps and
+decodes/displays 30.03 fps (the preceding run was 29.86/27.65). Its cumulative
+decoded maximum gap remains at its startup value of 1003 ms throughout this
+steady phase, rather than growing beyond three seconds. Five decoded gaps of
+at least 75 ms still occur; there is no claim that every frame is smooth.
+Steady native audio peaks are 53/56 ms, with no counted interruptions or
+protection pauses. Three additional Mac shim send refusals occur in this
+phase. The regression establishes the former ingress defect and this physical
+run is consistent with repaired delivery; it does not identify every lost RTP
+packet or prove Internet/cellular quality. Both apps, the managed relay and
+the owned ADB forward are closed, and process absence is verified.
+
+The unchanged 360-second blind-FIFO gate is also run with this SDK, the cached
+test-hook media library, real Opus/VP8, production Dart adaptation, encrypted
+five-second peer feedback and two full 512-KiB competing files. The limit stays
+1024 kbit/s per aggregate UDP direction. Both files arrive with matching
+hashes and no missing chunks, duplicates or authentication errors. Each side
+receives all 72 periodic reports plus bootstrap; native/poll/auth errors and
+source-feedback skips are zero. All 340 mixed-phase tone edges per direction
+are matched, but PCM peaks are 241.2/292.5 ms (p95 211.6/220.6), native audio
+peaks are 231/266 ms, and protection pauses appear in 133/97 samples. The
+pre-existing audio-only interruption counters stay at one per side; six
+quiet mixed PCM frames occur in one direction. The stand driver itself peaks
+at 56.78 ms, exceeding its unchanged 40-ms gate, so this is a failed quality
+run with a host scheduling confound, not evidence assigning every difference
+to the retransmission fix. The sub-200-ms PCM gate is not declared passed.
+Both file/audio workers and the policy process exit; all three nodes stop
+successfully and no fixture sockets remain. The public/legacy relay path,
+mixed-load audio latency and physical cellular validation remain open. The
+full media priority goal is not complete.
