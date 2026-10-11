@@ -346,14 +346,21 @@ try:
     (ROOT/'metrics-before.json').write_text(json.dumps(metrics_before))
     if shaper:shaper.rate_bps=args.rate_kbps*1000
     startat=time.monotonic();lasttick=startat;maxscheduler=0;videostarted=False;latestfeedback=[None,None];targets=[None,None]
+    # Bound in-memory timing evidence; never do diagnostic I/O on the PCM
+    # thread. Locate host scheduling stalls instead of attributing them to QUIC.
+    driver_late_intervals=[];driver_late_count=0
     def audio_loop():
-        global maxscheduler
+        global maxscheduler,driver_late_count
         try:
             lasttick=time.monotonic();deadline=lasttick
             while not audio_stop.is_set():
                 audio_stop.wait(max(0,deadline-time.monotonic()))
                 if audio_stop.is_set():break
-                now=time.monotonic();maxscheduler=max(maxscheduler,(now-lasttick)*1000);lasttick=now
+                now=time.monotonic();interval_ms=(now-lasttick)*1000;maxscheduler=max(maxscheduler,interval_ms);lasttick=now
+                if interval_ms>=20:
+                    driver_late_count+=1
+                    if len(driver_late_intervals)<128:
+                        driver_late_intervals.append({'t':round(now-startat,4),'interval_ms':round(interval_ms,2)})
                 freq=500 if int(now-startat)%2==0 else 1000
                 for i,e in enumerate(engines):
                     if capture(e,freq)!=0:nativefail[i]+=1
@@ -381,7 +388,7 @@ try:
                 feedback=[]
                 while inbox[i]:feedback.append(inbox[i].popleft())
                 sampled_at=int(time.time()*1000)
-                r=command({'index':i,'op':'stats','now':sampled_at,'stats':stats,'feedback':feedback,'prepare':prepare})
+                r=command({'index':i,'op':'stats','now':sampled_at,'stats':stats,'feedback':feedback,'prepare':prepare,'videoSendExpected':videostarted and not args.no_video})
                 if source_report is not None and r['sourcePressured'] is not None:
                     rc=checked(source_report,apps[i],int(r['sourcePressured']),sampled_at)
                     if rc==0:source_feedback_queued[i]+=1
@@ -426,6 +433,7 @@ try:
     (ROOT/'pcm-samples.json').write_text(json.dumps(pcmrows))
     (ROOT/'codec-samples.json').write_text(json.dumps(samples))
     result.update(real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
+    result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
     result['adaptive_audio'] = args.adaptive_audio
     result['compact_media'] = args.compact_media
     if args.adaptive_audio:
