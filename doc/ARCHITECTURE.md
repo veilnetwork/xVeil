@@ -14686,3 +14686,69 @@ this cycle. The next attribution target is the shared session queue and its
 behavior when one otherwise independent stream is blocked. Relay traffic
 classification, priority and mailbox behavior remain unchanged; physical
 quality and the complete audio-priority objective remain unqualified.
+
+
+### 2026-10-12 FIFO transport boundary and packet-flight attribution
+
+A read-only queue observer checks live authenticated independent ingress
+witnesses behind an ordinary INTERACTIVE FIFO head. It never consumes a WRR
+slot, spends a carrier budget, drops a frame or reorders work; a regression
+also rejects dead witnesses. The observer finds no waits of 25 ms or longer
+in the 90-second diagnostic or the subsequent full comparison. This does not
+rule out shorter FIFO coupling or waiting outside this observed queue.
+
+A separate counter confirms a different scheduler defect: after consuming an
+ordinary frame, the ordered drain can consume a newly exposed, negotiated
+DATAGRAM-capable head into the canonical stream without retrying the datagram
+pass. The initial diagnostic observes at least two such selections in one
+session; cumulative counters are sampled, so these are lower bounds. SDK
+cf337ccb flushes that batch boundary and retries the new head on the next pass.
+No FIFO head is skipped and relay traffic retains its ordinary INTERACTIVE
+class. A head already attempted by the preceding datagram pass retains its
+canonical compatibility fallback. The queue regression covers negotiated,
+unsupported and absent transports and failed-head fallback. All 512 session
+unit tests pass (6 ignored). This is a transport-selection correction, not
+proof that every transit cell has a ready independent egress.
+
+The full 360-second blind 1024-kbit/s obfs4-TCP screen/audio/file comparison
+records no after-ordinary canonical selection, with at least 127 boundary
+retries in one session. No long independent FIFO wait is observed. Both
+512-KiB files arrive with matching hashes and no missing/duplicate chunks,
+after 248.02/311.30 seconds. All 340 competing tone edges match per direction,
+with no quiet PCM frames, interruptions, native failures or authentication
+errors. Driver maximum is 16.22 ms. Nevertheless PCM peaks reach 422.9/293.6 ms,
+native playout 357/240 ms, and video sends 227/210 frames with 128/135 sampled
+pauses. There is no consistent quality improvement over the preceding runs;
+the unchanged full quality gate fails. Source enqueue to authenticated receipt
+still peaks at 294 ms (p95 98 ms in 659 sparse matched cell samples), mostly
+before receiver IPC encoding. The transport correction is retained for its
+confirmed scheduling behavior; complete audio priority remains unqualified.
+
+A following 90-second diagnostic enables existing bounded, same-process
+synthetic RTP timestamps, without microphones or speakers. After SDK admission,
+audio packet flight peaks at 267.914/248.764 ms around seconds 20.532/20.434,
+when competing producers start. Receiver ingress to WebRTC peaks at
+1.901/0.495 ms. Sender admission itself is below 0.2 ms. Decoded PCM still
+reaches 363.1/312.1 ms. These packet timings include SDK queues, transport and
+relay processing; they cannot identify a particular intermediary queue.
+
+The fixture now snapshots the SDK's existing 13-u64 media-channel counters
+after stopping production and before closing handles. It adds no live polling
+or per-packet file writes. A second bounded diagnostic reports sender-lock,
+IPC-cell admission and video-frame IPC maxima as 0 ms (integer rounding, not
+zero elapsed time), with no IPC send failures. All 265/290 enqueued video
+frames start; queue depth peaks at two. These counters do not measure later
+socket writes or the full delivery path. Matched audio payload packet flight
+still peaks at 205.814/154.124 ms, while receiver drain is below 2.498 ms. PCM
+peaks at 232.7/321.4 ms, without missing tone edges or quiet frames. Both short
+runs are attribution experiments; their unfinished files cannot qualify
+full-file delivery. They introduce no audio delay cap or smaller receive
+buffer that could conceal queued speech.
+
+All four fixture workers, their policy/audio/file workers and three-node
+stacks stop; socket absence and worker process exit are checked independently.
+No physical call occurs: ADB continues to list no devices. Owned Mac apps
+remain closed and the regular installation is untouched. The next concrete
+attribution target is the delivery path after SDK admission and before native
+receiver ingress, including the first competing-producer burst. No relay role,
+priority, mailbox or wire-format change is introduced by this cycle.

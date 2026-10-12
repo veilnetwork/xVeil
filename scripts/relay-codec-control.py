@@ -102,6 +102,18 @@ recv = fn('veil_media_start_direct_receiver', [P, C.c_char_p, C.c_size_t, C.c_ch
 openmedia = fn('veil_media_open_relay_channel', [P, P, P, C.c_uint32, P, P, E], C.c_uint64)
 mediaclose = fn('veil_media_close_channel', [C.c_uint64], None)
 trace = fn('veil_debug_set_rt_trace', [C.c_int], None)
+# Mirrors the SDK's stable repr(C) VeilMediaChannelStats (13 plain u64s).
+# These are cumulative local IPC/queue maxima, not network-delay measurements.
+class MediaChannelStats(C.Structure):
+    _fields_ = [(name, C.c_uint64) for name in (
+        'video_frames_enqueued', 'video_frames_started', 'video_queue_depth',
+        'video_queue_max_depth', 'video_queue_age_max_ms', 'video_queue_holds_75ms',
+        'sender_lock_max_ms', 'sender_lock_holds_16ms', 'video_frame_ipc_max_ms',
+        'video_frame_ipc_holds_33ms', 'ipc_cell_max_ms', 'ipc_cell_holds_16ms',
+        'ipc_send_failures')]
+channelstats = fn('veil_media_channel_get_stats',
+                  [C.c_uint64, C.POINTER(MediaChannelStats)], C.c_int)
+
 secondary_sender = fn('veil_media_channel_set_secondary_sender', [C.c_uint64, P, E], C.c_int)
 screen_sender = fn('veil_media_channel_set_screen_sender', [C.c_uint64, P, E], C.c_int) if args.screen_video else None
 screen_select = fn('veil_media_channel_set_screen_sharing', [C.c_uint64, C.c_int], C.c_int) if args.screen_video else None
@@ -602,6 +614,17 @@ finally:
         except subprocess.TimeoutExpired:policy.kill();policy.wait()
         result['policy_exited']=policy.poll() is not None
     for e in reversed(engines):destroy(e)
+    # Sample before closing channel handles, after media production has stopped.
+    # No per-packet logging or extra polling perturbs the live driver.
+    result['local_media_channel_stats'] = []
+    for ch in channels:
+        snapshot = MediaChannelStats()
+        rc = channelstats(ch, C.byref(snapshot))
+        result['local_media_channel_stats'].append(
+            {name: getattr(snapshot, name) for name, _ in snapshot._fields_}
+            if rc == 0 else {'snapshot_error': rc})
+        result['ok'] = result['ok'] and rc == 0
+
     if shaper is not None:
         result['neutral_shaper_final']=shaper.stats
         shaper.stop()
