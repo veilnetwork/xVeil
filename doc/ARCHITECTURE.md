@@ -14323,3 +14323,50 @@ correlating actual RTP delivery timing with receiver delay decisions; it
 does not prove a NetEq defect or justify blindly capping/dropping voice.
 The SDK fix is committed as a55ad22e. All workers, policy and nodes exit;
 no fixture sockets remain. No phone calls, push, or release are made.
+
+### 2026-10-12 same-process RTP flight attribution
+
+The existing opt-in native trace records bounded RTP send/admission and
+arrival/WebRTC-delivery timestamps in memory, then writes them at teardown.
+`scripts/analyze_relay_rtp_timing.py` pairs accepted payloads by RTP sequence
+and timestamp across reversed teardown blocks. It excludes padding and the
+first five seconds and reports aggregate timings without packet identifiers.
+It rejects ambiguous source identities, negative clock ordering and evidence
+not marked as a same-process loopback fixture. Trace block numbers are not
+device labels; capped traces are explicitly reported. Socket tests also cover
+neutral per-connection trace handles and read/write timing. No wire metadata
+or relay classification changes are introduced.
+
+In a 60-second 1024-kbit/s obfs4-TCP screen/audio/file diagnostic, the driver
+stays below 16.95 ms. All 40 competing-phase tone edges match per direction,
+but PCM reaches 360.3/391.4 ms. RTP flight from SDK admission to native ingress
+peaks at 276.617/308.022 ms, whereas ingress-to-WebRTC delivery remains below
+1.854/1.603 ms. This identifies substantial delay before receiver processing;
+the playout buffer alone cannot explain the observed latency. The flight
+measurement includes SDK pumping, IPC, transport, relay and decryption and
+does not by itself locate the particular upstream queue.
+
+The otherwise matching no-file comparison has a 12.71-ms driver maximum,
+complete tone delivery, PCM peaks of 199.9/200.2 ms and no sampled video
+pauses. RTP flight peaks at 132.374/141.465 ms. A no-video audio/file control
+has a 12.45-ms driver maximum, complete tone delivery, PCM peaks of
+170.6/200.6 ms, and flight peaks of 138.041/152.368 ms. These comparisons
+implicate simultaneous producer load rather than establishing a defect in
+NetEq. Neither short run qualifies full 512-KiB file reassembly.
+
+The blind TCP limiter trace now records unread asyncio bytes, write-buffer
+bytes, read time, write time and drain completion per anonymous local
+connection handle. Instrumentation never affects admission or examines
+stream contents. Kernel buffers and bytes not yet presented to the proxy
+remain outside these observations. A repeated screen/audio/file run has
+a valid 16.85-ms driver maximum, complete tone delivery, PCM peaks of
+311.7/270.3 ms and sampled video pauses. Its flight peaks at 270.224/209.014 ms
+and ingress delivery remains below 0.883 ms. During the initial competing
+four seconds, observed proxy queues peak at 57.314 ms, unread asyncio data
+at 4407 bytes, writer buffers at zero and drain waits below 0.046 ms.
+Sparse sealed-cell traces put socket-write to relay-queue handling below
+one millisecond per stage, but relay-queue to endpoint receipt reaches
+234 ms. This narrows the investigation without treating proxy queue counters
+as a complete transport-delay bound or weakening video protection blindly.
+All four diagnostics stop their workers, policy and nodes and leave no
+fixture sockets. The user subsequently permits phone calls again.
