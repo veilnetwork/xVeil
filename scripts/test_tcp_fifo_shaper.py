@@ -75,8 +75,16 @@ class TcpShaperTest(unittest.TestCase):
             for row in shaper.trace_rows:
                 self.assertLessEqual(set(row), {
                     'at', 'direction', 'link', 'bytes', 'pending', 'ready',
-                    'queue_ms', 'sent_at', 'release_lateness_ms'})
+                    'queue_ms', 'sent_at', 'release_lateness_ms', 'connection',
+                    'read_at', 'reader_buffer_bytes', 'write_at',
+                    'writer_buffer_bytes'})
+                self.assertLessEqual(row['read_at'], row['at'])
+                self.assertLessEqual(row['ready'], row['write_at'])
+                self.assertLessEqual(row['write_at'], row['sent_at'])
+                self.assertGreaterEqual(row['reader_buffer_bytes'], 0)
+                self.assertGreaterEqual(row['writer_buffer_bytes'], 0)
                 by_direction[row['direction']].append(row)
+            self.assertEqual(len({row['connection'] for row in shaper.trace_rows}), 2)
             for rows in by_direction.values():
                 reservations = [row['ready'] for row in rows]
                 self.assertEqual(reservations, sorted(reservations))

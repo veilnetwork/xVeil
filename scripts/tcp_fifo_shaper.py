@@ -47,6 +47,7 @@ class TcpShaper:
         self._locks = [asyncio.Lock(), asyncio.Lock()]
         self._next_at = [0., 0.]
         self._pending = [0, 0]
+        self._connection_sequence = 0
         self._handlers = set()
         servers = []
         try:
@@ -81,6 +82,9 @@ class TcpShaper:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8192)
 
     async def _connection(self, reader, writer, target, link):
+        # Local trace handle only; no address, payload or application role.
+        self._connection_sequence += 1
+        connection = self._connection_sequence
         other = None
         pumps = []
         try:
@@ -88,8 +92,8 @@ class TcpShaper:
                 asyncio.open_connection(*target, limit=4096), 5)
             self._bound_writer(writer)
             self._bound_writer(other)
-            pumps = [asyncio.create_task(self._pump(reader, other, 0, link)),
-                     asyncio.create_task(self._pump(upstream, writer, 1, link))]
+            pumps = [asyncio.create_task(self._pump(reader, other, 0, link, connection)),
+                     asyncio.create_task(self._pump(upstream, writer, 1, link, connection))]
             await asyncio.gather(*pumps)
         except (ConnectionError, OSError, asyncio.TimeoutError):
             # A fixture node may not yet be listening or may be shutting down.
@@ -111,8 +115,13 @@ class TcpShaper:
                     except asyncio.TimeoutError:
                         endpoint.transport.abort()
 
-    async def _pump(self, reader, writer, direction, link):
+    async def _pump(self, reader, writer, direction, link, connection):
         while data := await reader.read(1280):
+            read_at = time.monotonic() if self.trace_rows is not None else None
+            # asyncio exposes no public unread-byte count. This is opt-in
+            # fixture instrumentation, never an admission/scheduling input.
+            reader_buffer_bytes = (len(reader._buffer)
+                                   if self.trace_rows is not None else None)
             stat = self.stats[direction]
             stat['received'] += 1
             stat['received_bytes'] += len(data)
@@ -135,6 +144,8 @@ class TcpShaper:
                 row = None
                 if self.trace_rows is not None and rate:
                     row = dict(at=now, direction=direction, link=link,
+                               connection=connection, read_at=read_at,
+                               reader_buffer_bytes=reader_buffer_bytes,
                                bytes=len(data), pending=self._pending[direction],
                                ready=ready, queue_ms=queue_ms)
                     self.trace_rows.append(row)
@@ -143,6 +154,9 @@ class TcpShaper:
             try:
                 await asyncio.sleep(max(0., ready - time.monotonic()))
                 writer.write(data)
+                if row is not None:
+                    row.update(write_at=time.monotonic(),
+                               writer_buffer_bytes=writer.transport.get_write_buffer_size())
                 await writer.drain()
                 stat['sent'] += 1
                 stat['sent_bytes'] += len(data)
