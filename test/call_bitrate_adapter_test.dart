@@ -36,6 +36,8 @@ void main() {
     CallBitrateAdapter a, {
     Map<String, dynamic>? stats,
     int? peerDelay = 60,
+    int? currentPeerDelay,
+    int? peerSequence,
     bool interrupted = false,
     bool send = true,
     bool receive = true,
@@ -52,6 +54,8 @@ void main() {
       requireAudioReceivePlayout: receive,
       requirePeerAudioPlayout: send,
       peerAudioDelayMs: peerDelay,
+      peerCurrentAudioDelayMs: currentPeerDelay,
+      peerAudioSampleSequence: peerSequence,
       audioInterrupted: interrupted,
       expectedAudioFeedbackReports: audioReceivers,
       expectedVideoFeedbackReports: videoReceivers,
@@ -478,6 +482,131 @@ void main() {
     );
     expect(a.audioReserve, isTrue);
   });
+
+  test('an old peak reduces video but cannot fail a healthy floor trial', () {
+    final a = direct();
+    for (var i = 0; i < 20; i++) {
+      native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': i + 1},
+        peerDelay: 209,
+        currentPeerDelay: 100,
+        peerSequence: i + 1,
+      );
+    }
+    expect(a.atFloor, isTrue);
+    expect(a.audioReserve, isFalse);
+    expect(a.videoAdvice, CallVideoAdvice.keep);
+    expect(a.target.maxFps, 1);
+  });
+
+  test('pretrial peer report cannot be reused to claim the floor failed', () {
+    final a = direct();
+    for (var i = 0; i < 10; i++) {
+      native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': i + 1},
+        peerDelay: 300,
+        currentPeerDelay: 300,
+        peerSequence: 10,
+      );
+    }
+    expect(a.atFloor, isTrue);
+    expect(a.audioReserve, isFalse);
+    for (var i = 0; i < 2; i++) {
+      native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': 11 + i},
+        peerDelay: 300,
+        currentPeerDelay: 300,
+        peerSequence: 11,
+      );
+    }
+    expect(
+      a.audioReserve,
+      isTrue,
+      reason: 'fresh failure after the actual trial still pauses',
+    );
+  });
+
+  test(
+    'busy floor application records readiness only when the budget is accepted',
+    () {
+      final a = direct();
+      apply(a);
+      void sample(int frames, int sequence) {
+        a.onNativeStats(
+          {...healthy(), 'video_tx_frames': frames},
+          requirePeerAudioPlayout: true,
+          peerAudioDelayMs: 300,
+          peerCurrentAudioDelayMs: 300,
+          peerAudioSampleSequence: sequence,
+          requireAudioReceivePlayout: true,
+          receiveAudioExpected: true,
+        );
+      }
+
+      for (var i = 1; i <= 5; i++) {
+        sample(i, i == 5 ? 11 : 10);
+        a.applyPendingTarget((_) => false);
+      }
+      expect(a.atFloor, isTrue);
+      expect(a.audioReserve, isFalse);
+      expect(a.applyPendingTarget((_) => true), isTrue);
+      sample(6, 11);
+      sample(7, 11);
+      expect(
+        a.audioReserve,
+        isFalse,
+        reason: 'the report arrived before successful application',
+      );
+      sample(8, 12);
+      sample(9, 12);
+      expect(a.audioReserve, isTrue);
+    },
+  );
+
+  test(
+    'current recovery resumes sparse video while retaining peak growth guard',
+    () {
+      final a = direct(level: 4);
+      for (var i = 0; i < 6; i++) {
+        native(
+          a,
+          stats: {...healthy(), 'video_tx_frames': i + 1},
+          peerDelay: 300,
+          currentPeerDelay: 300,
+          peerSequence: i + 1,
+        );
+      }
+      expect(a.audioReserve, isTrue);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+        native(
+          a,
+          stats: {...healthy(), 'video_tx_frames': 6},
+          peerDelay: 300,
+          currentPeerDelay: 100,
+          peerSequence: 7 + i,
+        );
+      }
+      expect(a.audioReserve, isFalse);
+      expect(a.target.maxFps, 1);
+      for (var i = 0; i < 20; i++) {
+        native(
+          a,
+          stats: {...healthy(), 'video_tx_frames': 7 + i},
+          peerDelay: 300,
+          currentPeerDelay: 100,
+          peerSequence: 20 + i,
+        );
+      }
+      expect(
+        a.target.maxFps,
+        1,
+        reason: 'recent peaks still cannot earn more bandwidth',
+      );
+    },
+  );
 
   test('secondary losses alone never pause known healthy audio', () {
     final a = direct();

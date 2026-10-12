@@ -18,6 +18,62 @@ void main() {
   };
 
   test(
+    'current playout is distinct from peak and shares its replay lifetime',
+    () {
+      final peer = CallPeerAudioPlayout();
+      const report = CallAudioPlayoutFeedback(
+        sequence: 8,
+        delayMs: 209,
+        currentDelayMs: 100,
+        interruptionCount: 3,
+      );
+      final decoded = CallAudioPlayoutFeedback.fromJson(report.toJson())!;
+      expect(decoded.currentDelayMs, 100);
+      peer.observe(decoded, start);
+      expect(peer.delayMs(start), 209);
+      expect(peer.currentDelayMs(start), 100);
+      expect(peer.sampleSequence, 8);
+      peer.observe(
+        const CallAudioPlayoutFeedback(
+          sequence: 7,
+          delayMs: 60,
+          currentDelayMs: 60,
+        ),
+        start.add(const Duration(seconds: 10)),
+      );
+      expect(
+        peer.currentDelayMs(start.add(const Duration(seconds: 13))),
+        isNull,
+      );
+      peer.observe(
+        const CallAudioPlayoutFeedback(sequence: 9, delayMs: 300),
+        start,
+      );
+      expect(
+        peer.currentDelayMs(start),
+        300,
+        reason: 'legacy feedback stays conservative',
+      );
+      peer.invalidateMeasurement();
+      expect(peer.currentDelayMs(start), isNull);
+      for (final invalid in [null, -1, 60001, 1.5, 210]) {
+        if (invalid == null) {
+          expect(CallAudioPlayoutFeedback.fromJson({'n': 1, 'cd': 10}), isNull);
+        } else {
+          expect(
+            CallAudioPlayoutFeedback.fromJson({
+              'n': 1,
+              'd': 209,
+              'cd': invalid,
+            }),
+            isNull,
+          );
+        }
+      }
+    },
+  );
+
+  test(
     'remote interruptions cannot be replayed or erased by older feedback',
     () {
       final peer = CallPeerAudioPlayout();
