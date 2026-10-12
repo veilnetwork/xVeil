@@ -14823,3 +14823,66 @@ Strict Clippy does not pass: existing manual Default in ordered_lanes, the
 existing ParallelChannels enum size imbalance, and two nested conditions in
 reliable_streams are reported. These unrelated implementations are not changed
 by this diagnostic cycle; this is not a clean Clippy result.
+
+
+### 2026-10-12 independent load attribution and rejected primary gathering
+
+Current root 46618d6e / SDK 220816f2 are clean at the start of this cycle; ADB
+still lists no devices. Existing CodeGraph locates source admission and the
+capture hooks. Graphify has no LocalSourceActivity node, so the verified source
+is read directly. The endpoint lossy allowance is pressure-only; reliable own
+DATA is already paced during healthy primary activity. Although oversized
+compatibility items can be admitted whole, the actual sampled file costs are
+about 1108 bytes, so the oversized-file hypothesis is not established.
+
+Two otherwise unchanged 90-second blind 1024-kbit/s obfs4 diagnostics separate
+the loads. Audio plus screen VP8 without files reaches PCM 211.9/230.7 ms,
+native playout 182/160 ms and matched packet flight 157.916/141.532 ms; driver
+maximum is 14.18 ms. Audio plus the full files without video reaches PCM
+231.2/201.0 ms, native playout 214/163 ms and flight 125.813/166.303 ms; driver
+maximum is 14.73 ms. Files are partial at this short observation boundary
+(321536/313344 bytes), not qualified complete. Neither isolated load passes
+the same 200-ms quality limits. These results do not assign all latency to a
+single producer, and the differing runs are not a causal delay subtraction.
+
+Source inspection confirms the relay video queue assembles a whole RTP frame
+and then admits its cells consecutively; its effect on the burst is still a
+hypothesis. A separate candidate folds one adjacent primary RTP packet into
+an existing compact relay batch. It waits at most 20 ms from the ORIGINAL
+local admission, ends upon that next packet, preserves the first deadline,
+and excludes control packets, old work, direct channels and secondary queues.
+41 production-pump tests pass, including exact decrypted payloads, no-neighbor
+flush, unchanged deadlines and control/old-work delivery inside 5 ms.
+
+The 20-ms mixed diagnostic lowers observed audio-only aggregate wire rate
+from 75591/75130 to 49492/49676 bytes/s per direction. Its PCM still reaches
+220.2/230.3 ms, native playout 181/182 ms and packet flight 161.176/153.182 ms.
+A 57.51-ms driver stall at second 65.729 invalidates its quality gate. Bounded
+native traces show many nominal 20-ms packet intervals extending to 21–22 ms;
+the exact 20-ms deadline misses some adjacent pairs. A 25-ms candidate includes
+that measured capture jitter, still flushing immediately on the next packet.
+The same 41 pump tests pass. Its fresh mixed diagnostic has a valid 13.32-ms
+driver maximum but PCM peaks at 240.4/231.6 ms, native playout 194/196 ms and
+packet flight 170.513/150.084 ms. Files remain partial at 159744/151552 bytes.
+All four diagnostics match every tone edge without quiet PCM, interruptions
+or native failures. Savings in wire bytes therefore do not establish the
+required latency improvement. Both gathering candidates and their tests are
+reverted; their source and evidence are retained privately, and the SDK is
+rebuilt from committed 220816f2. No candidate is installed or released.
+
+The next concrete measurement can use existing FrameDispatcher capture hooks
+and the streaming admin DebugCapture command. Capture timestamps precede
+outbound writes and occur on decoded inbound dispatch. Body previews are
+truncated to 256 bytes and emission is capped at 100 events/s/peer. A future
+fixture collector must discard e2e_plaintext events, replace known fixture
+identities with local indices, retain only opaque preview hashes/lengths,
+reject ambiguous matches, and treat missing/capped capture rows as incomplete
+evidence, never message loss. Matching an opaque frame across ONE hop can
+separate its queues/transport from the full endpoint flight; it cannot match
+onion transformations across an entire circuit or prove physical latency.
+This requires no relay role, priority or wire-format change.
+
+All four diagnostics stop their policy/audio/file workers and return three
+successful node-stop codes, with zero remaining sockets. Owned app/worker
+process absence is independently verified. No phone call occurs; ADB remains
+empty. Audio priority and physical quality are still unqualified.
