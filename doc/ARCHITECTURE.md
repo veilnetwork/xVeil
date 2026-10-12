@@ -15447,3 +15447,46 @@ policy workers, stops three nodes with zero status and leaves no sockets.
 Independent process inspection (including case-insensitive Python executable
 names) finds no owned fixture or Mac stand workers. ADB remains empty; no
 physical application or call is launched or installed. The goal remains active.
+
+### 2026-10-13 pending local signaling owns its queue lifetime
+
+Own DATA now also yields while trusted local signaling remains pending at the
+endpoint. A non-cloneable envelope marker survives ingress, scheduler selection
+and restored attempts. Cancellation, failed admission, shedding or expiry drops
+the marker. The shared state holds weak references with the existing five-second
+signaling deadline, so even a stalled neighbor cannot retain the hold forever.
+The hold applies only while a local primary is active; byte debt and fair DATA
+turns remain intact. Network recovery and transit traffic remain independent.
+There is no relay classification, wire change or numeric allowance change.
+
+Five behavioral tests cover the exact expired-byte-deadline race, primary idle
+and deadline release, queue/restore ownership, failed or canceled ingress, and
+shedding/expiry. The full session suite passes 522 tests with six existing
+ignored cases. The embedded production-seed FFI library builds successfully.
+
+The six-minute mixed fixture retains the same private fixed-40-ms codec and
+140-ms reduction/120-ms growth experiment used for the preceding comparison.
+Exact same-log ordering now finds zero file selections between chunks of all
+136 complete competing control transfers, versus 49 affected transfers in the
+preceding byte-debt-only run. This verifies the observed queue-boundary race;
+independently created connections still prevent treating these runs as a
+controlled statistical audio-quality comparison.
+
+Driver timing is valid at 14.90 ms. All 337 competing tone edges match in each
+direction and cover all four capture positions. Both 512-KiB files arrive with
+matching hashes after 286.039/297.564 seconds. All 72 reports plus bootstrap
+arrive per direction. Video receives 348/345 frames, without paused samples,
+quiet PCM or counted interruptions. Control/native/poll/file-authentication,
+duplicate and asynchronous-send failures are zero.
+
+PCM peaks remain 202.586/221.241 ms and native playout peaks 152/185 ms, so the
+full audio quality gate still FAILS. Each receiver uniquely matches 9000
+nonempty RTP packets through second 359.993 without unmatched or ambiguous
+rows; SDK-and-network delivery peaks are 148.603/136.614 ms. These measurements
+do not qualify physical speech or prove the remaining latency is solved.
+
+The retained change is bounded pending-signaling ownership. Temporary Dart
+policy/test files are restored to committed HEAD; fixed-cadence native libraries
+remain private. All workers exit, all three nodes stop with zero status, and
+zero fixture sockets remain. ADB is still empty despite the reported USB
+reconnection; physical testing remains pending. The broader goal remains active.
