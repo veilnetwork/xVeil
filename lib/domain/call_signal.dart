@@ -238,11 +238,16 @@ class CallAudioPlayoutFeedback {
   const CallAudioPlayoutFeedback({
     required this.sequence,
     this.delayMs,
+    this.currentDelayMs,
     this.interruptionCount,
   });
 
   final int sequence;
   final int? delayMs;
+
+  /// Current receiver snapshot, distinguished from the five-second peak in
+  /// [delayMs]. Absent on older peers and fixed-size group feedback.
+  final int? currentDelayMs;
 
   /// Monotonic across receiver repairs. Optional for older peers.
   final int? interruptionCount;
@@ -250,6 +255,7 @@ class CallAudioPlayoutFeedback {
   Map<String, dynamic> toJson() => {
     'n': sequence,
     if (delayMs != null) 'd': delayMs,
+    if (currentDelayMs != null) 'cd': currentDelayMs,
     if (interruptionCount != null) 'i': interruptionCount,
   };
 
@@ -257,11 +263,20 @@ class CallAudioPlayoutFeedback {
     if (raw is! Map) return null;
     final sequence = raw['n'];
     final delay = raw['d'];
+    final current = raw['cd'];
     final interruptions = raw['i'];
     if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
       return null;
     }
     if (delay != null && (delay is! int || delay < 0 || delay > 60000)) {
+      return null;
+    }
+    if (current != null &&
+        (current is! int ||
+            current < 0 ||
+            current > 60000 ||
+            delay == null ||
+            current > delay)) {
       return null;
     }
     if (interruptions != null &&
@@ -273,6 +288,7 @@ class CallAudioPlayoutFeedback {
     return CallAudioPlayoutFeedback(
       sequence: sequence,
       delayMs: delay as int?,
+      currentDelayMs: current as int?,
       interruptionCount: interruptions as int?,
     );
   }

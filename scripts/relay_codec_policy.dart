@@ -75,6 +75,8 @@ Future<void> main() async {
       requireAudioReceivePlayout: true,
       receiveAudioExpected: true,
       peerAudioDelayMs: peer[i].delayMs(now),
+      peerCurrentAudioDelayMs: peer[i].currentDelayMs(now),
+      peerAudioSampleSequence: peer[i].sampleSequence,
       requirePeerAudioPlayout: true,
       audioInterrupted: interrupted,
     );
@@ -97,6 +99,8 @@ Future<void> main() async {
         'target': {'kbps': target.maxBitrateKbps, 'fps': target.maxFps},
         'audioReserve': a.audioReserve,
         'peerDelay': peer[i].delayMs(now),
+        'peerCurrentDelay': peer[i].currentDelayMs(now),
+        'peerSampleSequence': peer[i].sampleSequence,
         'sourcePressured': sourcePressured,
       }),
     );

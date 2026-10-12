@@ -139,6 +139,8 @@ class CallBitrateAdapter {
   int _videoIdleSamples = 0;
   int? _floorTrialLastFrames;
   int _floorTrialFrames = 0;
+  int? _lastPeerSampleSequence;
+  int? _floorPeerSampleSequence;
   int? _curWindowMin;
   int? _prevWindowMin;
   int _windowFill = 0;
@@ -153,6 +155,10 @@ class CallBitrateAdapter {
     final desired = target;
     if (_appliedTarget == desired) return null;
     if (!apply(desired)) return false;
+    if (atFloor && !_audioReserve) {
+      // A report that preceded this trial cannot prove it failed.
+      _floorPeerSampleSequence = _lastPeerSampleSequence;
+    }
     _appliedTarget = desired;
     return true;
   }
@@ -179,6 +185,7 @@ class CallBitrateAdapter {
     _appliedPause = null;
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
+    _floorPeerSampleSequence = null;
   }
 
   /// Current RTT baseline (windowed min), or null before any RTT sample.
@@ -320,6 +327,8 @@ class CallBitrateAdapter {
     int? audioReceiveDelayMs,
     bool audioInterrupted = false,
     int? peerAudioDelayMs,
+    int? peerCurrentAudioDelayMs,
+    int? peerAudioSampleSequence,
     bool requirePeerAudioPlayout = false,
     int? expectedAudioFeedbackReports,
     int? expectedVideoFeedbackReports,
@@ -422,6 +431,8 @@ class CallBitrateAdapter {
       feedbackAvailable: feedbackAvailable,
       anyAudioFeedbackAvailable: anyFeedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
+      peerCurrentAudioDelayMs: peerCurrentAudioDelayMs,
+      peerAudioSampleSequence: peerAudioSampleSequence,
       requirePeerAudioPlayout: requirePeerAudioPlayout && sendAudioExpected,
       requireAudioReceive: receive.expected,
       audioReceiveAgeMs: receive.ageMs,
@@ -502,12 +513,25 @@ class CallBitrateAdapter {
     bool feedbackAvailable = true,
     bool? anyAudioFeedbackAvailable,
     int? peerAudioDelayMs,
+    int? peerCurrentAudioDelayMs,
+    int? peerAudioSampleSequence,
     bool requirePeerAudioPlayout = false,
     bool missingAudioReceiverFeedback = false,
     bool requireAudioReceive = false,
     int? audioReceiveAgeMs,
     bool videoFloorApplied = true,
   }) {
+    if (peerAudioSampleSequence != null && peerAudioSampleSequence >= 0) {
+      _lastPeerSampleSequence = peerAudioSampleSequence;
+      if (atFloor && !_audioReserve && _appliedTarget == target) {
+        _floorPeerSampleSequence ??= peerAudioSampleSequence;
+      }
+    }
+    final currentPeerDelay = peerCurrentAudioDelayMs ?? peerAudioDelayMs;
+    final peerTrialMeasured =
+        peerAudioSampleSequence == null ||
+        _floorPeerSampleSequence == null ||
+        peerAudioSampleSequence > _floorPeerSampleSequence!;
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
     final newAudioDrops =
@@ -529,8 +553,9 @@ class CallBitrateAdapter {
             audioReceiveAgeMs < audioReceiveRecoverMs);
     final peerPlayoutOutage =
         requirePeerAudioPlayout &&
-        peerAudioDelayMs != null &&
-        peerAudioDelayMs >= playoutDegradeMs;
+        currentPeerDelay != null &&
+        currentPeerDelay >= playoutDegradeMs &&
+        (!atFloor || peerTrialMeasured);
     // Losing a measurement gives video less bandwidth but does not prove an
     // audio failure. A receiver that has not reported cannot earn recovery.
     final audioUnproven =
@@ -637,7 +662,9 @@ class CallBitrateAdapter {
         !audioUnproven &&
         !audioInterrupted &&
         !newAudioDrops &&
-        playoutGood &&
+        (!requirePeerAudioPlayout ||
+            (currentPeerDelay != null &&
+                currentPeerDelay < playoutRecoverMs)) &&
         receiveGood &&
         (!requireAudioReceivePlayout ||
             (audioReceiveDelayMs != null &&
@@ -695,7 +722,7 @@ class CallBitrateAdapter {
       if (atFloor) {
         // Unknown playout reserves bandwidth but cannot substantiate a
         // user-facing claim that the link fails to carry video.
-        if (networkBad || (playoutBad && peerAudioDelayMs != null)) {
+        if (networkBad || peerPlayoutOutage) {
           if (++_floorBadStreak >= adviseAfter) {
             _advice = CallVideoAdvice.suggestDisable;
           }

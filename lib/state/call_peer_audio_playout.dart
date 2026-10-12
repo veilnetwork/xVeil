@@ -7,6 +7,8 @@ class CallPeerAudioPlayout {
   int _sequence = -1;
   DateTime? _receivedAt;
   int? _delayMs;
+  int? _currentDelayMs;
+  int get sampleSequence => _sequence;
   int? _interruptionCount;
   bool _interrupted = false;
 
@@ -14,6 +16,7 @@ class CallPeerAudioPlayout {
     if (feedback.sequence <= _sequence) return;
     _sequence = feedback.sequence;
     _delayMs = feedback.delayMs;
+    _currentDelayMs = feedback.currentDelayMs ?? feedback.delayMs;
     _receivedAt = now;
     final count = feedback.interruptionCount;
     if (count != null) {
@@ -41,11 +44,17 @@ class CallPeerAudioPlayout {
     return _delayMs;
   }
 
+  /// Same receipt/replay lifetime as the peak; a current snapshot cannot
+  /// survive after the authenticated report has expired.
+  int? currentDelayMs(DateTime now) =>
+      delayMs(now) == null ? null : _currentDelayMs;
+
   /// A local unmute or rebuild needs new feedback, while old frames must still
   /// be rejected. A new call gets a new tracker instead.
   void invalidateMeasurement() {
     _interrupted = false;
     _delayMs = null;
+    _currentDelayMs = null;
     _receivedAt = null;
   }
 }

@@ -91,6 +91,7 @@ void main() {
       expect(activity.playoutFeedback(sentAt).delayMs, 60);
       final report = activity.outgoingPlayoutFeedback(sentAt);
       expect(report.delayMs, 196);
+      expect(report.currentDelayMs, 60);
       expect(report.sequence, activity.playoutFeedback(sentAt).sequence);
       expect(report.interruptionCount, 0);
       // Reading for capture announcements or a failed send cannot consume it.
