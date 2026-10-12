@@ -15358,3 +15358,92 @@ zero sockets; an independent process check finds no owned workers or Mac stand
 apps. No physical app or call is launched: ADB remains empty and the USB scan
 finds no recognized Android vendor or ADB interface. Physical Poco validation
 and the broader goal remain pending.
+
+### 2026-10-13 control-stage timing and coordinated own DATA admission
+
+The preceding turn made progress by completing full-call timing coverage and
+recording control submission separately from receipt. The next diagnostic
+halves only the private signaling allowance to 2048 bytes/200 ms. Its
+130-second fixed-40-ms/early-video-reduction fixture has valid 14.88-ms driver
+timing and receives all 26 reports plus bootstrap per direction. However PCM
+peaks at 260.72/181.53 ms, native playout at 211/148 ms; received video is
+100/113 frames with 0/17 paused samples. Matched RTP delivery peaks at
+131.133/194.688 ms, both near second 25, with complete trace coverage through
+129.954 and no unmatched or ambiguous payload rows. Reducing the numeric
+signaling allowance is rejected; the production 4096-byte allowance remains.
+
+Existing opt-in chunk metadata now includes host wall-clock microseconds.
+Trusted local signaling records an ingress attempt before its awaited queue
+admission. All session capture paths record transport selection with the local
+node, allowing an owned fixture to distinguish origin selection from relay
+selection. Selection is before encryption/writing, not proof of socket delivery.
+The hooks remain bounded to 100000 rows and disabled unless VEIL_DIAG_CHUNKS=1.
+No payload, new wire field, scheduling privilege or relay classification is
+added. The fixture records two bracketed monotonic/wall-clock observations;
+these are diagnostic calibration, never a cross-device latency claim or a
+replacement for monotonic PCM/native quality measurements.
+
+A 65-second diagnostic records all 104 periodic control-ingress attempts.
+Its 72 competing-phase chunks have origin ingress-to-selection maximum
+169.609 ms (the intended signaling pacer), origin selection-to-first-hop
+maximum 115.574 ms, relay receive-to-selection maximum 0.914 ms and relay
+selection-to-target maximum 80.230 ms. These last two delivery spans include
+writing and transport, not relay processing alone. The bracketed host clock
+offset changes by -75 us with 2/5-us acquisition uncertainty. Every report
+arrives; valid driver timing is 14.85 ms, PCM peaks 179.53/189.47 ms and native
+playout 125/169 ms. Video receives 64/49 frames without protection pauses.
+Files are incomplete within this short observation; it is diagnostic evidence,
+not full qualification. Relay dispatch is not the observed long processing
+stage on these matched chunks.
+
+The trace also exposes source-budget overlap: own file pieces are selected
+between the first and last chunk of 13 out of 18 complete competing control
+transfers (14 file selections). Own DATA previously ignored already-charged
+signaling byte debt, so these independent allowances could compete on the same
+uplink. While a local primary is active, DATA now waits for the later of its
+existing byte deadline and the signaling deadline. It retains its byte debt
+and fair neighbor turn. Signaling does not wait behind DATA, route/certificate
+recovery remains independent, and primary inactivity releases the wait.
+Transit traffic never enters this local-origin gate. Three behavioral checks
+cover DATA yielding with independent recovery and idle release, retaining
+longer DATA debt, and neighbor fairness after signaling. All 21 local-source
+tests and 53 affected frame/queue tests pass.
+
+The full 360-second mixed fixture uses this coordination, the private
+fixed-40-ms native library, temporary 140-ms reduction/120-ms growth policy,
+real Opus/VP8, 1010-ms transitions and a blind 1024-kbit/s aggregate FIFO.
+Both 512-KiB files arrive with matching hashes after 327.341/324.609 seconds.
+All 72 reports plus bootstrap arrive in each direction, with no control,
+file-authentication, duplicate, async-send, native or polling errors. Every
+337 competing tone edges match per direction. Video receives 337/345 frames
+with zero paused samples, quiet PCM or counted interruptions. Driver timing
+is valid at 38.24 ms, with one late interval near second 49.2724.
+
+Native playout peaks at 199/192 ms, but accurately capture-timed PCM peaks at
+224.22/213.68 ms: the full quality gate still FAILS. RTP traces match through
+359.978 with no unmatched/ambiguous payload rows; delivery peaks are
+162.866/169.787 ms. This is not proof of sustained sub-200-ms audio or physical
+speech quality. Host clock-offset drift is 2256 us across the long run; it
+must not be silently treated as sub-millisecond cross-clock calibration.
+The monotonic quality measurements remain separate.
+
+Exact same-log ordering still finds file selections between control chunks:
+49 of 136 complete competing control transfers, 51 file selections. The wait
+for already-spent bytes removes one admission conflict but does not reserve
+the next control turn when its byte deadline expires. A queued file can win
+that boundary before the next control chunk is selected. Tracking pending
+local control work is the next concrete scheduler check; no numeric video or
+decoder change is justified by this result. Counts come from separate fixtures
+with independently created connections and unequal durations, so the observed
+fraction change is not a controlled statistical quality comparison.
+
+The full session suite passes 517 tests with six existing ignored cases. The
+retained SDK changes are byte-debt coordination and opt-in chunk-stage tracing;
+the halved signaling allowance is not retained.
+
+Temporary Dart policy/test files are restored to committed HEAD; fixed-cadence
+native libraries remain private. Every completed fixture joins its audio/file/
+policy workers, stops three nodes with zero status and leaves no sockets.
+Independent process inspection (including case-insensitive Python executable
+names) finds no owned fixture or Mac stand workers. ADB remains empty; no
+physical application or call is launched or installed. The goal remains active.
