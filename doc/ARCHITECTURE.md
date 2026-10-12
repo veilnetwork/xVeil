@@ -15053,3 +15053,76 @@ codes and leave no sockets. Independent process checks find no owned stand
 apps/workers. ADB still lists no devices; no phone install or physical call
 occurs. Application speech quality and sustained sub-200-ms audio remain
 unqualified, and the goal stays active.
+
+### 2026-10-12 current feedback and original video-fragment deadlines
+
+CallAudioSourcePressure now returns a non-pressure observation only when the
+current measurements meet its existing recovery criteria. Previously a released
+hysteresis latch continued to return false throughout intermediate 120–159-ms
+playout or 500–999-ms receive-age measurements. That false value authorizes
+growth of the node's own competing DATA allowance despite no current healthy
+sample. Intermediate samples now withhold growth without relatching the bad
+path: a subsequent good sample can resume immediately, while an actual bad
+sample still requires the existing 12-sample recovery. The video ladder,
+one-frame trial and pause thresholds are unchanged. All 11 pressure tests pass.
+
+SDK 7f3fbb40 relay video assembly preserves the minimum original admission deadline
+of all fragments in a completed frame. Previously completion replaced that
+deadline with a new 200-ms lifetime, allowing an already expired prefix to be
+sealed and sent. Repair packets retain their own deadlines without replacing
+the partial original frame's deadline; interleaved video control also keeps
+its independent lifetime. The existing drain discards expired cells before
+sealing, so expired original fragments consume neither media nonces nor
+transport capacity. There is no new hold timer, expiry threshold, wire field,
+relay classification or service privilege. Three regressions cover repair
+and control interleaving, an older marker admission, and the real drain's
+expired-frame behavior. The latter fails against the original production
+source and passes with this fix; all 42 media-priority tests pass.
+
+A 130-second gray-feedback-only diagnostic has a valid 14.96-ms driver maximum
+and PCM peaks 232.1/261.6 ms, native playout 197/230 ms. A fresh combined
+diagnostic with both fixes has a valid 12.88-ms driver maximum, PCM peaks
+291.3/271.3 ms and native playout 241/232 ms. All 110 competing-phase tone edges
+match per direction, with no quiet PCM, interruptions, native/poll failures or
+file authentication/duplicate/async-send failures. Received video frames are
+65/90; files remain partial at 178176/174080 bytes of 524288 per direction.
+The 200-ms quality gate remains FAILED, and these corrections must not be
+presented as measured overall latency improvement or full-file qualification.
+Separate ordered source media channels are dynamically verified. Pressure is
+already true before the combined run's first >=200-ms native samples at
+seconds 64/103; correcting that boolean alone is insufficient.
+
+A subsequent 130-second audio-plus-file isolation run has PCM peaks
+197.9/192.4 ms and native playout 148/161 ms, but its driver stalls reach
+130.33 ms with three late intervals. This run is not a valid quality
+qualification or causal comparison; files are also partial. A fresh repeat
+passes the existing <40-ms driver bound at 29.94 ms (one late interval at
+second 44.4321). Its PCM peaks are 181.5/171.6 ms, native playout 126/152 ms,
+with every tone edge matched, zero quiet PCM, interruptions, native/poll or
+file errors. Files reach 403456/387072 bytes and remain partial, so the overall
+fixture gate is false even though its audio quality component passes. This
+supports isolating video next; it does not prove that file traffic is harmless
+in every combination or throughout full-file delivery.
+
+A further fresh 130-second audio-plus-video diagnostic removes files entirely.
+Driver timing passes the existing bound at 26.33 ms (two late intervals).
+PCM peaks remain 260.5/251.2 ms and native playout reaches 209/214 ms, so the
+quality gate still fails. Every competing-phase tone edge matches, without
+quiet PCM, interruptions, native/poll failures; 249/283 video frames arrive.
+Both source directions use the negotiated independent ordered media channels.
+File contention is therefore not necessary to reproduce the delay in this
+stand. At second 82 one sender targets 450 kbit/s and 7.5 frames/s while the
+other targets 225 kbit/s and 3.75 frames/s. Source pressure is already true on
+both sides. Native delay rises to 199/194 ms at second 88 and 209/214 ms at
+second 89, followed by video reductions to the floor. These observations guide
+the next video-growth/encoded-capacity investigation; they do not identify a
+single offending encrypted packet or establish a relay classification defect.
+
+All completed fixtures report zero node-stop codes, exited audio/file/policy
+workers and no remaining sockets. No physical phone call or app install has
+occurred: ADB still lists no devices. A USB report is available but reports
+zero buses, so it does not establish a particular physical disconnection.
+IORegistry independently reports five USB device entries and zero recognized
+Android vendor IDs; ADB uses the local platform-tools binary with no server
+address override. No device identifier or private profile data is recorded
+here.
