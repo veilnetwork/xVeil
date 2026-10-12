@@ -15545,3 +15545,84 @@ its final wire cost. Reusing compact authenticated feedback and coordinating
 the rest of unicast health is a concrete next investigation; changing that
 carrier must retain call/device binding, replay protection, liveness, capture
 posture and route-repair semantics. Relay classification is not required.
+
+
+### 2026-10-13 compact authenticated call health and application integration
+
+Unicast ephemeral health can now use a bounded call-key-sealed carrier on
+non-onion relay and direct channels. It has a fourth independent encryption
+epoch and a separate sender task, queue and IPC connection. Each local binding
+uses the existing media app identity; remote app/endpoint metadata comes from
+the channel opener. Relay forwarding remains neutral: the local signaling
+selector never becomes a media role or a preferential transit queue.
+
+The optional C API configures the sender, admits up to 768 opaque bytes and
+polls authenticated peer state without native callbacks into Dart. Send and
+receive queues hold at most eight updates. Original send admission deadlines
+expire after five seconds; expired work is discarded before sealing/waiting
+for the writer. Receive state expires locally after five seconds. This is
+periodically repeated state, not a delivery acknowledgment or a reliable
+command transport. Closing the channel removes the inbox and aborts its task.
+Reserved control is consumed after AEAD/replay validation and cannot enter
+WebRTC, including malformed or unconfigured state. Two overlapping generations
+of the four producers have eight bounded receive replay epochs.
+
+Application protocol v7 negotiates this carrier. The transport lazily binds
+sender-only identity/device IPC connections at local endpoint 18 and keeps
+anonymous channels on existing signaling. The media controller polls its
+current, retiring and receive-only channel bindings every 100 ms. Only health
+for the current negotiated call reaches the existing FSM; setup, terminal,
+sibling forwarding and key-bearing commands are refused on this carrier.
+Active health uses compact admission only with recent media receive activity
+and no route operation in progress. Pre-media health, failed admission,
+receive repair, older peers and anonymous routes use regular live signaling.
+The receiver also advertises actual channel readiness in authenticated health.
+A sender requires a newer affirmative report, valid for two heartbeat periods;
+withdrawal or missing/expired readiness restores ordinary signaling. Delayed
+reports cannot replace a newer withdrawal. Protocol support alone cannot
+blackhole state when binding fails. A regular health backstop is retained at
+least every 30 seconds. Call mailbox
+policy is unchanged: no call signaling enters a mailbox.
+
+Six new native tests cover authenticated polling, short-buffer preservation,
+replay/wrong-key rejection, stale cipher ownership, queue bounds, expiration,
+close and independent producer epochs across two generations. The full FFI
+suite passes 274 tests with two existing ignored tests. The local source
+selector neutrality test also passes. An existing FFI isolation test expected
+BACKGROUND although the committed baseline already selected LOCAL_SIGNALING;
+that exact failure was independently reproduced on the baseline before its
+expectation was corrected. Wire fields and payload checks remain intact.
+Dart ABI tests pass against the actual built library. A real local IPC node
+exercises the application's extra sender, matching identity configuration,
+wrong identity rejection, reconfiguration refusal, payload bounds and close.
+The focused application suite passes 195 tests and targeted analysis is clean.
+FSM regressions cover compact admission failure, regular bootstrap/backstop,
+repair and termination, older peer fallback, incoming call/type/version gates
+and subscription teardown. These checks do not establish phone call quality.
+
+The private 130-second fixed-20-ms comparison has valid 14.85-ms driver timing,
+PCM peaks 193.729/204.300 ms and native playout peaks 162/181 ms. All 109 competing
+sound edges per direction match, both 10-ms source positions occur, all 26
+periodic reports plus bootstrap arrive, and video has no pause samples.
+Competing files are still partial at that short observation boundary. The
+independently created fresh baseline was 232.832/224.312 ms; this comparison
+supports the smaller carrier, not a statistical production quality claim.
+
+A full 360-second fixture uses the working adaptive 20/40/60-ms codec, the real
+Dart video policy, neutral 1-Mbit/s obfs4 TCP shaping, simultaneous video/screen
+and two competing 512-KiB files. Driver timing is valid at 14.93 ms. All 337
+competing sound edges per direction match, with every source position in each
+observed packet duration represented. PCM peaks remain 243.241/241.067 ms,
+native playout peaks 209/199 ms. One producer has 27 video reserve samples at
+305–331 seconds. Both files finish, hashes match and no chunks are missing
+(322.807/324.777 seconds). All 72 periodic reports plus bootstrap arrive per
+direction; authentication, control send, native and poll errors are zero.
+The quality gate remains false: the smaller carrier has not eliminated the
+remaining latency/adaptation problem. RTP traces are capped at 4096 rows and
+cover only the first 145–148 seconds, not the full call. Over that covered
+interval the maximum matched SDK/network flights are 147.705/168.837 ms.
+Both fixtures join their audio/file/policy workers, stop all three nodes and
+leave no fixture sockets. The Python fixture exercises the new native carrier
+and production Dart adapter; it does not execute the application's full call
+controller. No physical mobile call was possible this cycle because ADB and
+USB enumeration remained empty. No production app or user profile was replaced.

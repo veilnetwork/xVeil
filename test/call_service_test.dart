@@ -875,6 +875,218 @@ void main() {
       posture: CallPosture.direct,
     );
 
+    test('compact health retains bootstrap, backstop and repair signaling', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _CompactHealthMedia()
+          ..openedTransport = CallTransportKind.relay;
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, offer('compact-health'));
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear();
+        void tick() {
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'compact-health',
+              type: CallSignalType.health,
+              compactHealthReady: true,
+              sentAtMs: clock.now().millisecondsSinceEpoch,
+            ),
+          );
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+        }
+
+        tick(); // regular bootstrap
+        expect(fake.sent.length, 1);
+        expect(media.compact, isEmpty);
+        tick();
+        expect(fake.sent.length, 1);
+        expect(media.compact.length, 1);
+        expect(media.compact.single.capture, isNotNull);
+        media.admit = false; // bounded queue admission failed
+        tick();
+        expect(fake.sent.length, 2);
+        media.admit = true;
+        for (var i = 0; i < 6; i++) {
+          tick();
+        }
+        expect(
+          fake.sent.length,
+          3,
+          reason: 'regular signaling every 30 seconds',
+        );
+        async.elapse(kCallMediaRepairAfter + kCallHeartbeatInterval);
+        async.flushMicrotasks();
+        expect(
+          fake.sent.last.mediaRepairRequested,
+          isTrue,
+          reason: 'repair cannot depend on the broken media carrier',
+        );
+        final compactCount = media.compact.length;
+        svc.hangup();
+        async.flushMicrotasks();
+        expect(fake.sent.last.type, CallSignalType.end);
+        expect(media.compact.length, compactCount);
+        svc.dispose();
+      });
+    });
+
+    test('compact receiver readiness must be fresh and can be withdrawn', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _CompactHealthMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(peer, offer('compact-ready'));
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear();
+        void tick() {
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+        }
+
+        void readiness(bool ready, {int staleSeconds = 0}) {
+          fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'compact-ready',
+              type: CallSignalType.health,
+              compactHealthReady: ready,
+              sentAtMs: clock
+                  .now()
+                  .subtract(Duration(seconds: staleSeconds))
+                  .millisecondsSinceEpoch,
+            ),
+          );
+        }
+
+        tick();
+        tick();
+        expect(media.compact, isEmpty, reason: 'v7 alone is insufficient');
+        expect(
+          CallSignal.tryDecode(fake.sent.last.encode())!.compactHealthReady,
+          isTrue,
+        );
+        readiness(true);
+        tick();
+        expect(media.compact.length, 1);
+        readiness(false);
+        tick();
+        expect(media.compact.length, 1, reason: 'peer withdrew its receiver');
+        readiness(true, staleSeconds: 10);
+        tick();
+        expect(
+          media.compact.length,
+          1,
+          reason: 'old readiness cannot replace withdrawal',
+        );
+        readiness(true);
+        tick();
+        expect(media.compact.length, 2);
+        tick();
+        expect(
+          media.compact.length,
+          2,
+          reason: 'readiness expired after two beats',
+        );
+        svc.dispose();
+      });
+    });
+
+    test('compact health is not used with an older peer', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _CompactHealthMedia();
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: 'old-compact',
+            type: CallSignalType.offer,
+            media: const CallMedia(audio: true),
+            posture: CallPosture.direct,
+            protocolVersion: 6,
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        fake.sent.clear();
+        for (var i = 0; i < 3; i++) {
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+        }
+        expect(fake.sent.length, 3);
+        expect(media.compact, isEmpty);
+        svc.dispose();
+      });
+    });
+
+    test(
+      'compact inbound accepts only current negotiated health, then detaches',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _CompactHealthMedia();
+          final svc = CallService(fake, now: () => clock.now(), media: media)
+            ..start();
+          fake.onCallSignal!(peer, offer('compact-inbound'));
+          svc.accept();
+          async.flushMicrotasks();
+          final health = CallSignal(
+            callId: 'compact-inbound',
+            type: CallSignalType.health,
+            sentAtMs: clock.now().millisecondsSinceEpoch,
+            capture: const CallMedia(audio: false),
+            audioPlayout: const CallAudioPlayoutFeedback(
+              sequence: 1,
+              delayMs: 100,
+            ),
+          );
+          for (final signal in [
+            health.copyWith(type: CallSignalType.end),
+            CallSignal(
+              callId: 'other-call',
+              type: CallSignalType.health,
+              audioPlayout: health.audioPlayout,
+            ),
+            health.copyWith(onBehalfOf: peer.hex),
+            health.copyWith(mediaKey: 'unexpected'),
+            health.copyWith(reason: CallEndReason.hangup),
+            CallSignal(
+              callId: health.callId,
+              type: CallSignalType.health,
+              protocolVersion: 6,
+              audioPlayout: health.audioPlayout,
+            ),
+          ]) {
+            media.health.add(signal);
+          }
+          async.flushMicrotasks();
+          expect(media.peerPlayout, isEmpty);
+          expect(svc.current?.status, CallStatus.active);
+          media.health.add(health);
+          async.flushMicrotasks();
+          expect(media.peerPlayout.length, 1);
+          expect(svc.current?.peerCapture?.audio, isFalse);
+          svc.dispose();
+          async.flushMicrotasks();
+          media.health.add(health);
+          async.flushMicrotasks();
+          expect(media.peerPlayout.length, 1);
+          expect(media.health.hasListener, isFalse);
+        });
+      },
+    );
+
     test('silent relay repairs locally without a peer heartbeat', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -4832,6 +5044,25 @@ void main() {
 
 /// Records camera/screen toggles; [screenOk] fakes the platform backend
 /// accepting or refusing to start the capture.
+class _CompactHealthMedia extends _FakeMedia {
+  final health = StreamController<CallSignal>.broadcast();
+  final compact = <CallSignal>[];
+  bool admit = true;
+
+  @override
+  Stream<CallSignal> get peerHealth => health.stream;
+
+  @override
+  bool get canReceiveEphemeralHealth => true;
+
+  @override
+  bool sendEphemeralHealth(CallSignal signal) {
+    if (!admit) return false;
+    compact.add(signal);
+    return true;
+  }
+}
+
 class _FakeMedia extends CallMediaController {
   final List<bool> peerAudioCapture = [];
 
