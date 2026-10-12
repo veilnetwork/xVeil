@@ -132,6 +132,13 @@ source_report = fn('veil_app_report_local_source_pressure', [P, C.c_uint8, C.c_u
 shaper = None
 startat = None
 
+def clock_observation():
+    before=time.monotonic_ns()//1000
+    unix=time.time_ns()//1000
+    after=time.monotonic_ns()//1000
+    return {'monotonic_us':(before+after)//2,'unix_us':unix,
+            'uncertainty_us':after-before}
+
 def checked(f, *args):
     err = P()
     v = f(*args, C.byref(err))
@@ -431,6 +438,7 @@ try:
     (ROOT/'metrics-before.json').write_text(json.dumps(metrics_before))
     if shaper:shaper.rate_bps=args.rate_kbps*1000
     startat=time.monotonic();lasttick=startat;maxscheduler=0;videostarted=False;latestfeedback=[None,None];targets=[None,None]
+    clock_observations=[clock_observation()]
     # Bound in-memory timing evidence; never do diagnostic I/O on the PCM
     # thread. Locate host scheduling stalls instead of attributing them to QUIC.
     driver_late_intervals=[];driver_late_count=0
@@ -515,6 +523,7 @@ try:
                         'encrypted_application_bytes':len(payload),'result':rc})
                     if rc==0:healthsent[i]+=1
                     else:control_failures[i]+=1
+    clock_observations.append(clock_observation())
     audio_stop.set();audio_thread.join(timeout=5)
     assert not audio_thread.is_alive()
     if audio_failure:(ROOT/'audio-thread-failure.txt').write_text(''.join(audio_failure))
@@ -535,6 +544,7 @@ try:
                   control_send_failures=control_failures,
                   control_send_samples=list(control_send_samples),
                   control_send_samples_truncated=sum(control_attempts)>control_send_samples.maxlen)
+    result['stand_clock_observations']=clock_observations
     result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
     result['adaptive_audio'] = args.adaptive_audio
     result['audio_overhead_bytes_override'] = args.audio_overhead_bytes if args.adaptive_audio else None
