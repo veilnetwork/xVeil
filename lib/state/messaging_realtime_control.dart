@@ -316,6 +316,21 @@ class _MessagingRealtimeControl {
   Future<void> sendRealtime(NodeId peer, Uint8List wire) {
     final transport = _owner._transport;
     if (transport is RealtimeTransport) {
+      if (!_owner._anonymous && transport is DeviceRealtimeTransport) {
+        final device = _owner.routeFor?.call(peer);
+        final replyDevice = routeCallPayload(peer, wire);
+        // A different online sibling cannot receive the active dialog's
+        // control. The call's pin alone does not establish an admitted route.
+        if (device != null &&
+            device != peer &&
+            replyDevice == device) {
+          return (transport as DeviceRealtimeTransport).sendRealtimeToDevice(
+            peer,
+            device,
+            wire,
+          );
+        }
+      }
       return (transport as RealtimeTransport).sendRealtime(
         peer,
         wire,

@@ -1136,7 +1136,11 @@ void main() {
           final media = _FakeMedia()..startGate = Completer<bool>();
           final svc = CallService(fake, now: () => clock.now(), media: media)
             ..start();
-          fake.onCallSignal!(peer, offer('playout-auth'));
+          final device = NodeId.fromHex('8' * 64);
+          fake.onCallSignal!(peer, offer('playout-auth').copyWith(
+            posture: CallPosture.direct,
+            replyDevice: device.hex,
+          ));
           svc.accept();
           async.flushMicrotasks();
           const health = CallSignal(
@@ -1165,12 +1169,23 @@ void main() {
           expect(media.peerPlayout, isEmpty);
           fake.onCallSignal!(peer, CallSignal.tryDecode(health.encode())!);
           expect(media.peerPlayout.single.delayMs, 540);
+          fake.onCallSignal!(device, CallSignal(
+            callId: 'other-call',
+            type: CallSignalType.health,
+            audioPlayout: const CallAudioPlayoutFeedback(sequence: 2, delayMs: 100),
+          ));
+          expect(media.peerPlayout.length, 1);
+          // A direct session without a sovereign alias names the physical
+          // device pinned by the original offer, while media still belongs
+          // to the contact dialog. It must deliver feedback to that dialog.
+          fake.onCallSignal!(device, health);
+          expect(media.peerPlayout.length, 2);
           svc.hangup();
           async.flushMicrotasks();
           fake.onCallSignal!(peer, health);
           expect(
             media.peerPlayout.length,
-            1,
+            2,
             reason: 'ended call ignores feedback',
           );
           svc.dispose();
@@ -2496,6 +2511,96 @@ void main() {
       });
     });
 
+    test(
+      'active peer heartbeat stops readiness retries until a newer relay beat',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          offer(fake, 'confirmed');
+          svc.accept();
+          async.flushMicrotasks();
+          fake.onCallSignal!(peer, ready('confirmed'));
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          int announcements() => fake.sent
+              .where(
+                (s) =>
+                    s.type == CallSignalType.transportInfo &&
+                    s.transport?.kind == CallTransportKind.p2p,
+              )
+              .length;
+          void beat(NodeId source, String id, CallTransportKind route, int at) {
+            fake.onCallSignal!(
+              source,
+              CallSignal(
+                callId: id,
+                type: CallSignalType.health,
+                transport: CallTransportProposal(route),
+                sentAtMs: at,
+              ),
+            );
+            async.flushMicrotasks();
+          }
+
+          final before = announcements();
+          // A route claim from another identity or another dialog is not an ack.
+          beat(
+            NodeId.fromHex('43' * 32),
+            'confirmed',
+            CallTransportKind.p2p,
+            1000,
+          );
+          beat(peer, 'old-call', CallTransportKind.p2p, 1000);
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+          expect(announcements(), before + 1);
+          expect(
+            fake.sent
+                .lastWhere((s) => s.type == CallSignalType.health)
+                .transport
+                ?.kind,
+            CallTransportKind.p2p,
+          );
+
+          beat(peer, 'confirmed', CallTransportKind.p2p, 2000);
+          final confirmed = announcements();
+          for (var i = 0; i < 3; i++) {
+            media.rxAt = clock.now();
+            async.elapse(kCallHeartbeatInterval);
+            async.flushMicrotasks();
+          }
+          expect(announcements(), confirmed);
+          expect(media.switches, [CallTransportKind.p2p]);
+
+          beat(peer, 'confirmed', CallTransportKind.relay, 3000);
+          beat(peer, 'confirmed', CallTransportKind.p2p, 2500);
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+          expect(announcements(), confirmed + 1);
+          // A lost new acknowledgment keeps retries alive; its eventual arrival
+          // stops them again without another local route switch.
+          beat(peer, 'confirmed', CallTransportKind.p2p, 4000);
+          media.rxAt = clock.now();
+          async.elapse(kCallHeartbeatInterval);
+          async.flushMicrotasks();
+          expect(announcements(), confirmed + 1);
+          expect(media.switches, [CallTransportKind.p2p]);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      },
+    );
+
     test('identity control survives a forked device answer and route change', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -2526,6 +2631,7 @@ void main() {
         async.flushMicrotasks();
         expect(svc.current?.peer, device);
         expect(svc.current?.mediaIdentity, peer);
+        expect(fake.replyPins, contains((id, peer, device)));
         expect(svc.current?.transport, CallTransportKind.relay);
 
         // Knowing a call id does not make another identity a readiness source.
@@ -4820,6 +4926,7 @@ class _FakeMessaging implements MessagingService {
   /// (peer, signal) pairs — the fan-out tests assert WHERE a signal went,
   /// which [sent] alone cannot answer.
   final List<(NodeId, CallSignal)> sentTo = [];
+  final List<(String, NodeId, NodeId)> replyPins = [];
 
   /// When set, [sendCallSignal] records the signal only after the gate
   /// completes — models the slow durable (encrypted-store) enqueue.
@@ -4838,7 +4945,9 @@ class _FakeMessaging implements MessagingService {
   Future<NodeId> localDeviceId() async => NodeId.fromHex('f' * 64);
 
   @override
-  void pinCallReplyDevice(String callId, NodeId identity, NodeId device) {}
+  void pinCallReplyDevice(String callId, NodeId identity, NodeId device) {
+    replyPins.add((callId, identity, device));
+  }
 
   @override
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
