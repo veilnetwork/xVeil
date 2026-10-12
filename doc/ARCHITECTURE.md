@@ -14420,3 +14420,26 @@ device route. Additional regressions reject an unproven transport-key claim
 and a local invite naming another node. All 64 endpoint tests pass. Physical
 validation of this Dart change follows in build 2577; the earlier 2576 call
 does not contain it and is not evidence of improvement.
+
+The corrected Dart build 0.13.84+2577 is installed on Poco with the same
+signer and without data removal, and used in a newly built private Mac app.
+The production C++ code is unchanged from 2576: signed Mac code-directory
+hashes match, with 99 public media exports and no test hooks. APK packaging
+also verifies the native SDK and media library hashes. All 64 endpoint tests
+pass again, and targeted static analysis reports no issues. Root ac6d1baf
+commits the P2P registration fix without signing or pushing.
+
+The repeat physical call rings in 1.68 seconds and yields 69 observations
+over 138.09 seconds, including 68 media-stat samples per endpoint. Actual
+media changes from relay to P2P once; Mac reports P2P at second 4.18 and
+Poco at second 10.25. Both logs report successful direct sessions. This
+confirms that physical registration and direct admission can now succeed;
+it does not qualify call quality. Audio delay still peaks at 1440/1375 ms,
+interruption counters finish at 11/20 (7813/9923 ms), and video remains
+paused after three transmitted and three received frames per endpoint.
+Reported loss peaks at 3/15 percent inbound and 35/46 percent outbound;
+RTT peaks at 1117/1379 ms. These are endpoint WebRTC statistics, not proof
+that every loss occurs outside Veil. Transport delivery, local expiry and
+route transition still require correlation before attributing the remaining
+quality failure to the provider or weakening protection. Both owned app
+processes are absent and the ADB forward is removed, independently verified.
