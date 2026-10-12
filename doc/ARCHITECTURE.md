@@ -15214,3 +15214,82 @@ All completed fixtures, including the rejected engine-creation run, stop
 their three nodes and leave no sockets. Owned fixture workers are independently
 checked after completion; no physical app was launched or installed. The goal
 remains active pending sustained mixed-load and physical-device qualification.
+
+### 2026-10-12 stable cadence with source headroom and capture timing
+
+This cycle combines the private fixed-40-ms native library with endpoint
+video growth below 120-ms measured playout, earlier video reduction, and the
+unchanged measured one-fps failure pause at 200 ms. The first 130-second
+combination reduces at 160 ms and has valid 14.05-ms driver timing, no late
+intervals, PCM peaks 200.9/174.6 ms and native playout 151/154 ms. Video receives
+196/276 frames without pauses; all tone edges match. The gate remains false.
+
+A second candidate reduces a higher rung at 140 ms to reserve packetization
+and output margin. Its floor advice still requires the original 200-ms peer
+failure, so the earlier reduction alone cannot invent a camera-disable prompt
+or pause. Both directions in the 151-ms regression lower the rung while
+keeping the floor running; standing 138 ms cannot earn growth, and a resumed
+150-ms sparse probe cannot earn more video. All 75 adaptation/pressure tests
+pass. The 130-second diagnostic has valid 14.87-ms driver timing with no late
+intervals, PCM peaks 184.0/192.6 ms, native playout 126/170 ms, 114/130 received
+frames and no video pauses, quiet PCM or interruptions. Its fixture gate is
+true. These are still approximate input-marker measurements, not sustained
+or physical speech qualification, for the timing reason below.
+
+Review finds that the fixture previously stamped source frequency edges after
+reading that source's local output. Local playout work can therefore move the
+input marker forward and understate the actual submission-to-output interval.
+The fixture now records the monotonic time before each 10-ms PCM capture
+submission and uses it for input edges. Output observations retain their own
+time; both timestamps preserve full clock precision. Two focused regressions
+verify that delayed local output cannot move an input edge and that reversed
+clock order is rejected. Historical short-run figures above use the previous
+reference and cannot establish the corrected gate.
+
+The optional --tone-period-ms keeps the existing 1000-ms default; 1010-ms
+transitions exercise different 10-ms capture-block positions inside fixed
+40-ms packets. The synthetic ADM submits exactly 480 samples per capture at
+48 kHz, without an independent capture thread. The fixture records source
+capture ticks and the observed transition positions modulo each observed
+packet's block count. Non-default periods additionally require full position
+coverage, alongside the existing strict PCM/native, driver, video, file hash
+and delivery gates. No gate threshold is relaxed.
+
+The first 360-second run is deliberately interrupted to correct the timestamp
+before qualification; it supplies no completed quality result. Its audio,
+file and policy workers exit, all three nodes stop with zero status and no
+sockets remain. A fresh 360-second run uses the corrected input marker,
+1010-ms transitions, two 512-KiB encrypted files, separate screen and control
+sources, and the same blind 1024-kbit/s FIFO cap. Candidate policy/library
+hashes are recorded privately; the fixed-40-ms native library is still only a
+test fixture and has not been installed or committed as a production change.
+
+The corrected 360-second run has valid 16.57-ms driver timing and no late
+intervals. Both 512-KiB files arrive fully with matching SHA-256 in
+311.229/322.803 seconds after file startup; there are no file authentication,
+duplicate or async-send failures. All 337 competing-phase tone edges match
+per direction, and all four capture-block positions inside 40-ms packets
+are observed. Video receives 344/346 frames with zero paused samples, quiet
+PCM, native/poll failures or interruptions. Nevertheless native playout peaks
+at 181/183 ms and accurately input-timed PCM at 204.221/194.559 ms. The
+strict quality gate remains FAILED; complete files and continuous video do
+not establish complete audio-priority qualification.
+
+In the first receiver, 25 of 337 edges reach >=200 ms: 5/8/5/7 across the
+four capture positions. Their maxima are 202.972/204.221/201.521/201.898 ms.
+The other receiver has no >=200-ms edge in any position. Thus the remaining
+delay cannot be attributed solely to an unlucky capture position in a longer
+packet. The largest measured edges occur around seconds 231.291/251.491/
+258.561. The bounded RTP trace only matches through seconds 160.834/159.072;
+its earlier SDK-and-network maxima are 135.175/146.720 ms. It cannot describe
+the largest later PCM events. A bounded late-call trace is the next useful
+measurement before changing packet grouping or decoder policy.
+
+The experimental Dart policy and tests are restored to committed e6a406a9;
+the fixed-duration native libraries remain private diagnostics. The retained
+project changes are accurate capture timing, optional transition-phase
+coverage, two measurement regressions, and this evidence. No numeric policy
+or production codec change is accepted from this cycle. The corrected long
+run stops all nodes with zero status, joins audio/file/policy workers and
+leaves no sockets; owned processes are independently checked. Physical
+speech, sustained sub-200-ms coexistence and the full goal remain unqualified.
