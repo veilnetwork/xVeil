@@ -41,6 +41,8 @@ parser.add_argument('--feedback-interval-seconds', type=int, default=5,
                     help='Diagnostic feedback cadence; default retains the production five-second cadence')
 parser.add_argument('--shared-control-ipc', action='store_true',
                     help='Diagnostic compatibility mode: share control and audio IPC; the application uses separate connections')
+parser.add_argument('--compact-call-health', action='store_true',
+                    help='Diagnostic compact call-state carrier on a separate IPC sender; requires the optional SDK call-control API, not proof of application integration')
 parser.add_argument('--local-source-feedback', action='store_true', help='Feed actual endpoint quality to the shared local producer budget over negotiated IPC')
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
@@ -66,6 +68,8 @@ if args.file_bytes < 2048 or args.file_bytes % 2048:
     parser.error('File size must be a positive multiple of 2048 bytes')
 if args.screen_video and args.no_video:
     parser.error('--screen-video requires video')
+if args.compact_call_health and args.shared_control_ipc:
+    parser.error('--compact-call-health requires separate control IPC')
 sdk_path = args.sdk.resolve(strict=True)
 media_path = args.media.resolve(strict=True)
 policy_path = Path(__file__).resolve().with_name('relay_codec_policy.dart')
@@ -194,6 +198,7 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'independent_control_ipc': not args.shared_control_ipc,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
+result['control_carrier'] = 'compact_call_state_diagnostic' if args.compact_call_health else 'authenticated_application_envelope'
 try:
     if args.transport == 'obfs4-tcp':
         # Private, disposable fixture key shared by its three loopback nodes.
@@ -413,6 +418,25 @@ try:
             assert checked(screen_sender,ch,screen_apps[index])==0
             assert screen_select(ch,1)==0
         assert batching(ch,2 if args.compact_media else 1)==0
+    if args.compact_call_health:
+        compact_configure=fn('veil_media_channel_set_control_sender',[C.c_uint64,P,E],C.c_int)
+        compact_send=fn('veil_media_send_call_control',[C.c_uint64,P,C.c_size_t],C.c_int)
+        compact_poll=fn('veil_media_poll_call_control',[C.c_uint64,P,C.c_size_t],C.c_int)
+        compact_buffers=[C.create_string_buffer(768) for _ in range(2)]
+        rejected_foreign_control_apps=[]
+        for i,ch in enumerate(channels):
+            try:
+                checked(compact_configure,ch,controlapps[i])
+            except RuntimeError:
+                rejected_foreign_control_apps.append(True)
+            else:
+                raise RuntimeError('Compact control accepted a different app identity')
+            uri=str(ROOT / str(i+1) / 'ipc.sock').encode()
+            handle=checked(connect,uri,len(uri));extra_handles.append(handle)
+            app=checked(bind,handle,b'xveil-control',13,b'media',5,4)
+            extra_apps.append(app)
+            assert checked(compact_configure,ch,app)==0
+        result['compact_control_app_identity_verified']=all(rejected_foreign_control_apps)
     os.environ['VEIL_MEDIA_TEST_VIDEO']='1'
     for i,ch in enumerate(channels):
         e=create(ch,ids[i],ids[1-i],args.audio_overhead_bytes) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
@@ -477,6 +501,20 @@ try:
             opaque_capture=OpaqueFrameCapture(ROOT, [identity['node_id'] for identity in identities])
             opaque_capture.start()
         if tick%100==0:
+            if args.compact_call_health:
+                for i,ch in enumerate(channels):
+                    for _ in range(8):
+                        count=compact_poll(ch,compact_buffers[i],768)
+                        if count==0:break
+                        if count<0:
+                            healthbad[i]+=1
+                            break
+                        try:
+                            raw=compact_buffers[i].raw[:count]
+                            value=json.loads(healthkeys[1-i].decrypt(raw[:12],raw[12:],b'codec-control-v1'))
+                            inbox[i].append({'at':int(time.time()*1000),'value':value})
+                            healthrecv[i]+=1
+                        except Exception:healthbad[i]+=1
             prepare=tick>=2000 and not videostarted
             for i,e in enumerate(engines):
                 ptr=getstats(e)
@@ -514,12 +552,12 @@ try:
                     nonce=noncecounter[i].to_bytes(12,'big');noncecounter[i]+=1
                     payload=nonce+healthkeys[i].encrypt(nonce,json.dumps(latestfeedback[i]).encode(),b'codec-control-v1')
                     submitted_at=time.monotonic()
-                    rc=checked(controlsend,controlapps[i],ids[1-i],controlids[1-i],2,payload,len(payload))
+                    rc=compact_send(channels[i],payload,len(payload)) if args.compact_call_health else checked(controlsend,controlapps[i],ids[1-i],controlids[1-i],2,payload,len(payload))
                     returned_at=time.monotonic()
                     control_attempts[i]+=1
                     control_send_samples.append({'side':i,
                         'submitted_at_seconds':submitted_at-startat,
-                        'ipc_admission_ms':(returned_at-submitted_at)*1000,
+                        ('local_queue_admission_ms' if args.compact_call_health else 'ipc_admission_ms'):(returned_at-submitted_at)*1000,
                         'encrypted_application_bytes':len(payload),'result':rc})
                     if rc==0:healthsent[i]+=1
                     else:control_failures[i]+=1
@@ -634,7 +672,7 @@ try:
     mixed=phases[-1]['directions']
     pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
-    result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad+control_failures) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
+    result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad+control_failures) and all(healthrecv[i]==healthsent[1-i]+1 for i in range(2)) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
     result['tone_phase_coverage_verified']=all(phase_coverage)
     if args.tone_period_ms!=1000:result['ok']=result['ok'] and result['tone_phase_coverage_verified']
     if args.transport=='obfs4-tcp':

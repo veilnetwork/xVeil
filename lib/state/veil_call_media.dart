@@ -432,10 +432,82 @@ class VeilCallMediaController implements CallMediaController {
   @override
   int get signalProtocolVersion =>
       VeilMediaEngine.supportsIndependentTransportFeedback
-      ? kCallSignalProtocolVersion
+      ? (_transport.supportsCallControl
+            ? kCallSignalProtocolVersion
+            : kCallCompactHealthMinVersion - 1)
       : kCallIndependentTransportFeedbackMinVersion - 1;
 
   final VeilFlutterTransport _transport;
+  final _peerHealth = StreamController<CallSignal>.broadcast();
+  Timer? _controlPollTimer;
+
+  @override
+  Stream<CallSignal> get peerHealth => _peerHealth.stream;
+
+  @override
+  bool get canReceiveEphemeralHealth =>
+      _engine != null && _chan != null && _transport.hasCallControl(_chan!);
+
+  @override
+  bool sendEphemeralHealth(CallSignal signal) {
+    final call = _activeCall;
+    final channel = _chan;
+    final lastRx = _lastRxAt;
+    if (call == null ||
+        channel == null ||
+        signal.callId != call.callId ||
+        signal.type != CallSignalType.health ||
+        signal.onBehalfOf != null ||
+        signal.mediaRepairRequested ||
+        (call.peerProtocolVersion ?? 1) < kCallCompactHealthMinVersion ||
+        _chanTransport == CallTransportKind.onion ||
+        _routeRepairing ||
+        lastRx == null ||
+        DateTime.now().difference(lastRx) >= kCallMediaRepairAfter) {
+      return false;
+    }
+    return _transport.sendCallControl(
+      channel,
+      Uint8List.fromList(utf8.encode(signal.encode())),
+    );
+  }
+
+  void _startControlPolling() {
+    _controlPollTimer?.cancel();
+    if (!_transport.supportsCallControl) return;
+    _controlPollTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      final call = _activeCall;
+      if (call == null ||
+          (call.peerProtocolVersion ?? 1) < kCallCompactHealthMinVersion) {
+        return;
+      }
+      // Older receive bindings remain valid through a make-before-break
+      // handover. Replay protection is shared by their call-key ciphers.
+      final channels = <int>{
+        ?_chan,
+        ..._retiringChannels.keys,
+        ..._receiveOnlyChannels.values,
+      };
+      for (final channel in channels) {
+        for (final bytes in _transport.pollCallControl(channel)) {
+          CallSignal? signal;
+          try {
+            signal = CallSignal.tryDecode(utf8.decode(bytes));
+          } catch (_) {}
+          if (signal != null &&
+              signal.callId == call.callId &&
+              signal.type == CallSignalType.health &&
+              signal.onBehalfOf == null &&
+              signal.mediaKey == null &&
+              signal.reason == null &&
+              signal.protocolVersion >= kCallCompactHealthMinVersion) {
+            _peerHealth.add(signal);
+          }
+        }
+      }
+    });
+  }
+
   static const MethodChannel _androidCallNetwork = MethodChannel(
     'xveil/call_network',
   );
@@ -1425,6 +1497,7 @@ class VeilCallMediaController implements CallMediaController {
       );
     }
     _engine = engine;
+    _startControlPolling();
     _diagnosticMediaController = this;
     await _restoreMicrophonePreference(engine);
     await _restoreSpeakerPreference(engine);
@@ -1996,6 +2069,8 @@ class VeilCallMediaController implements CallMediaController {
     _frameCadenceClock.stop();
     _statsTimer?.cancel();
     _statsTimer = null;
+    _controlPollTimer?.cancel();
+    _controlPollTimer = null;
     _lastRxAt = null;
     _lastRxPkts = 0;
     _lastNativeRxCount = 0;
