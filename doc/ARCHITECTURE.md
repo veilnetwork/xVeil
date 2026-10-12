@@ -14935,3 +14935,58 @@ stand apps or workers. ADB still lists no devices, so no physical call or
 installation occurs. Audio priority remains unqualified; the next measurement
 must relate endpoint packets to the first-hop residence without relay traffic
 classification or priority.
+
+### 2026-10-12 measured residence before TCP proxy reads
+
+Opt-in shaper traces now count byte segments at asyncio feed_data delivery,
+retaining only arrival times and byte counts. They measure the oldest and
+newest known arrival represented by each subsequent read. Bytes already in
+the reader at instrumentation installation have UNKNOWN arrival; rows with
+any unknown bytes are excluded from complete residence measurements. This
+does not retain payloads, change reads, socket settings, FIFO reservations or
+the rate cap. The existing real TCP byte-integrity/rate/EOF/shutdown tests
+continue to pass, and a partial-read regression checks that known and unknown
+segments stay correctly attributed without inventing initial timestamps.
+
+The next 45-second mixed diagnostic observes an initial-burst upstream peak
+of 201.130 ms from asyncio delivery to read, and 240.575 ms from delivery to
+drain. Read-to-drain alone peaks at 55.758 ms in that window. All 117 upstream
+reads in seconds 20–21 have known arrival, with pre-read p95 177.180 ms. Reverse
+direction delivery-to-drain peaks at 78.645 ms. Uniquely matched opaque
+source-to-relay Forward frames reach 211.894/241.183 ms, while the reverse
+hop reaches 53.167/47.949 ms. Thus substantial residence is measured inside
+the proxy BEFORE reads; the previous read-to-drain trace omitted it. There
+is still no exact encrypted-frame-to-TCP-read or RTP-to-proxy-connection match,
+and these maxima must not be subtracted as if they describe identical packets.
+
+This run has audio-driver stalls at seconds 6.6105 (38.94 ms) and 33.766
+(43.00 ms), so it does not qualify the quality gate. Neither stall overlaps
+the observed seconds 20–21 burst. Before competing traffic, two anonymous
+upstream connections carry 38824/39581 bytes during seconds 18–19. When
+competition starts, other connections consume capacity, while those earlier
+connections accumulate roughly 200 ms of unread residence. This demonstrates
+aggregate congestion inside the stand, not a relay policy or a proven
+application-role collision. Audio, files and screen remain separate source
+allocations in ChannelAssignments; no allocation defect is established.
+
+A source-admission candidate charges canonical TLS-bucket padding before
+own recoverable DATA admission and preserves independent-child costs. Its
+513 session tests pass (6 ignored), but source inspection then confirms
+PADDING_ENABLED defaults to FALSE and no fixture path enables it. The extra
+unit matched the globally disabled writer and therefore did not establish
+enabled-padding coverage. Actual sampled costs remain 975/1108/2780 bytes
+in the candidate diagnostic, confirming that this change does not affect
+the tested path. That run has a valid 16.79-ms driver maximum but PCM peaks
+370.3/331.6 ms and native playout 342/303 ms; it does not improve the gate.
+All candidate source/tests are reverted and retained privately for audit;
+the SDK is rebuilt from committed 220816f2. There is no production policy
+or dependency-pointer change from this hypothesis.
+
+Both runs match every tone edge, with no quiet PCM, interruptions, native
+failures or file authentication/duplicate errors. Files are partial at these
+short boundaries and full delivery is not qualified. All nodes stop with
+zero status, capture readers exit, and no fixture sockets remain. Independent
+process checks verify no owned workers/apps. ADB still lists no devices.
+The next useful experiment must measure the aggregate encoded source cost
+and prevent own competing producers from overfilling a slow path; simply
+reducing a stage that already measures below a few milliseconds is unsupported.
