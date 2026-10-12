@@ -19,6 +19,7 @@ class _RealtimeProbe
     implements
         VeilTransport,
         RealtimeTransport,
+        DeviceRealtimeTransport,
         RelayRealtimeTransport,
         RealtimeInboundTransport {
   _RealtimeProbe(this.me);
@@ -39,6 +40,7 @@ class _RealtimeProbe
   NodeId? lastRealtimeDestination;
   NodeId? lastRelayRealtimeDestination;
   Uint8List? lastRealtimePayload;
+  NodeId? lastRealtimeDevice;
   void Function(NodeId dst, Uint8List payload)? onNormalSend;
   void Function(NodeId dst, Uint8List payload)? onRealtimeSend;
 
@@ -72,6 +74,16 @@ class _RealtimeProbe
     lastRealtimePayload = Uint8List.fromList(payload);
     if (blockRealtime) await realtimeGate.future;
     onRealtimeSend?.call(dst, payload);
+  }
+
+  @override
+  Future<void> sendRealtimeToDevice(
+    NodeId identity,
+    NodeId device,
+    Uint8List payload,
+  ) async {
+    lastRealtimeDevice = device;
+    await sendRealtime(identity, payload);
   }
 
   @override
@@ -486,6 +498,37 @@ void main() {
     );
     expect(transport.lastNormalDestination, peer);
   });
+
+  for (final anonymous in [false, true]) {
+    test('pinned call realtime uses its verified device and identity inbox '
+        '(anonymous=$anonymous)', () async {
+      final device = _id(3);
+      final messaging = MessagingService(transport, storage, anonymous: anonymous);
+      addTearDown(messaging.dispose);
+      messaging.pinCallReplyDevice('pinned-health', peer, device);
+      const health = CallSignal(callId: 'pinned-health', type: CallSignalType.health);
+
+      // A claim without an admitted route cannot redirect the frame.
+      await messaging.sendCallSignal(peer, health);
+      expect(transport.lastRealtimeDevice, isNull);
+      messaging.routeFor = (_) => _id(4);
+      await messaging.sendCallSignal(peer, health);
+      expect(transport.lastRealtimeDevice, isNull);
+
+      messaging.routeFor = (_) => device;
+      await messaging.sendCallSignal(peer, health);
+      expect(transport.lastRealtimeDevice, anonymous ? null : device);
+      expect(transport.lastRealtimeDestination, peer);
+      expect(transport.lastRealtimeAnonymous, anonymous);
+      expect(transport.lastRelayRealtimeDestination, anonymous ? null : peer);
+      expect(transport.normalSends, 0);
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+      final delivered = CallSignal.tryDecode(
+        WireEnvelope.decode(transport.lastRealtimePayload!).body)!;
+      expect(delivered.callId, 'pinned-health');
+      expect(delivered.type, CallSignalType.health);
+    });
+  }
 
   test('cold offer does not seal to a cached physical route', () async {
     final messaging = MessagingService(transport, storage);

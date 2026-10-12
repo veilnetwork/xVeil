@@ -14443,3 +14443,41 @@ that every loss occurs outside Veil. Transport delivery, local expiry and
 route transition still require correlation before attributing the remaining
 quality failure to the provider or weakening protection. Both owned app
 processes are absent and the ADB forward is removed, independently verified.
+
+Follow-up control investigation (2026-10-12): the 2577 call contains 31
+outgoing transportInfo announcements and 28 outgoing health beats per
+endpoint. Readiness continues every heartbeat even after both endpoints
+report P2P. Mac receives 34 health copies, while Poco receives only four;
+Poco's peer-playout measurement is therefore usually expired. Its Rust log
+contains only two direct XVSG receive-routing events. This proves asymmetric
+control delivery, not its complete transport cause. Audio-source QUIC
+telemetry shows an independent connection, RTT up to 634 ms and 28 expired
+outgoing datagrams; event, timer and UDP-write waits remain below 4 ms.
+Media loss cannot yet be assigned entirely to the provider or the SDK.
+
+Health now carries the active route using the existing optional transport
+field. A current peer's dated P2P beat ends repeated readiness after the
+local route is also P2P. Until that acknowledgment arrives, readiness keeps
+retrying, including with older peers. A newer relay beat restores retries;
+stale beats, another peer and another call cannot suppress them. This changes
+endpoint control production, with no relay payload classification or priority.
+
+Direct call control also gains explicit device routing. The source still
+addresses the identity's realtime inbox, but may select the exact physical
+session when the call's saved reply-device pin matches the endpoint service's
+verified admitted route. A claimed pin or another online sibling is
+insufficient. The outgoing answer now saves this pin too. Control arriving
+under the saved physical device's name is normalized only inside that live
+dialog, like its saved identity alias. Anonymous control and cold setup keep
+their previous paths; no native ABI, mailbox policy or relay scheduler changes.
+
+The call-service, realtime-control and endpoint suites pass 268 tests.
+Targeted production and call-service static analysis is clean. Private Mac
+and Android builds 0.13.84+2579 contain these changes and the unchanged
+qualified production native libraries. APK signing matches the installed
+phone. Poco received intermediate 2578 (readiness acknowledgment only), then
+disconnected from ADB before the attempted call's forward could be created.
+That worker launched neither app nor call. Final 2579 installation and
+physical media/control comparison remain pending; no quality improvement is
+claimed from these unit results. The owned Mac process and ADB forward are
+independently absent. The regular installed Mac application is unchanged.
