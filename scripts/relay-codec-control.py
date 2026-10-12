@@ -18,6 +18,7 @@ from opaque_frame_capture import OpaqueFrameCapture
 import ctypes as C
 import json, os, socket, time, tomllib, traceback
 from pathlib import Path
+from pcm_timing import input_edges
 os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
@@ -34,6 +35,8 @@ parser.add_argument('--audio-overhead-bytes', type=int, default=209,
                     help='Diagnostic framing estimate for adaptive Opus; default 209 retains production behavior')
 parser.add_argument('--compact-media', action='store_true', help='Use compact relay audio batching, as the current application does, instead of the legacy audio/video batch format')
 parser.add_argument('--duration', type=int, default=100)
+parser.add_argument('--tone-period-ms', type=int, default=1000,
+                    help='Tone transition interval; 1010 ms exercises different 10-ms input positions within Opus packets')
 parser.add_argument('--feedback-interval-seconds', type=int, default=5,
                     help='Diagnostic feedback cadence; default retains the production five-second cadence')
 parser.add_argument('--shared-control-ipc', action='store_true',
@@ -53,6 +56,8 @@ if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
 if args.feedback_interval_seconds < 1:
     parser.error('Feedback interval must be at least one second')
+if not 500 <= args.tone_period_ms <= 5000:
+    parser.error('Tone period must be 500–5000 milliseconds')
 if not 1 <= args.audio_overhead_bytes <= 4096 or (not args.adaptive_audio and args.audio_overhead_bytes != 209):
     parser.error('Audio overhead must be 1–4096 bytes and an override requires --adaptive-audio')
 if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_interval_seconds < 120:
@@ -428,7 +433,7 @@ try:
     def audio_loop():
         global maxscheduler,driver_late_count
         try:
-            lasttick=time.monotonic();deadline=lasttick
+            lasttick=time.monotonic();deadline=lasttick;source_tick=0
             while not audio_stop.is_set():
                 audio_stop.wait(max(0,deadline-time.monotonic()))
                 if audio_stop.is_set():break
@@ -437,15 +442,17 @@ try:
                     driver_late_count+=1
                     if len(driver_late_intervals)<128:
                         driver_late_intervals.append({'t':round(now-startat,4),'interval_ms':round(interval_ms,2)})
-                freq=500 if int(now-startat)%2==0 else 1000
+                freq=500 if int((now-startat)*1000)//args.tone_period_ms%2==0 else 1000
                 for i,e in enumerate(engines):
+                    source_at=time.monotonic()-startat
                     if capture(e,freq)!=0:nativefail[i]+=1
                     n=playout(e,pcm,480)
                     if n>0:
                         rms=math.sqrt(sum(int(pcm[k])**2 for k in range(n))/n)
                         crossings=sum((pcm[k]>=0)!=(pcm[k-1]>=0) for k in range(1,n))
-                        pcmrows.append({'t':round(time.monotonic()-startat,4),'side':i,'rms':round(rms,1),'freq':crossings*48000/(2*n),'source_freq':freq})
+                        pcmrows.append({'t':time.monotonic()-startat,'side':i,'rms':round(rms,1),'freq':crossings*48000/(2*n),'source_freq':freq,'source_tick':source_tick,'source_at':source_at})
                     else:nativefail[i]+=1
+                source_tick+=1
                 deadline+=.01
                 if deadline<time.monotonic()-.01:deadline=time.monotonic()+.01
         except Exception:
@@ -548,13 +555,14 @@ try:
     # codec/pacer latency absent from the receive-buffer estimate. No peer
     # quality is fed to the adapter via these local measurement observations.
     result['decoded_pcm_edges'] = []
+    result['tone_period_ms'] = args.tone_period_ms
+    phase_coverage=[]
     for side in range(2):
         source = [x for x in pcmrows if x['side'] == 1-side]
         rendered = [x for x in pcmrows if x['side'] == side]
-        edges=[]; last=None
-        for x in source:
-            if x['source_freq'] != last:
-                edges.append((x['t'], x['source_freq'])); last=x['source_freq']
+        measured_edges=input_edges(source)
+        edges=[(at,freq) for at,freq,_ in measured_edges]
+        edge_ticks=[tick for at,_,tick in measured_edges if at>=20]
         decoded=[]; last=None
         for x in rendered:
             f = 500 if abs(x['freq']-500)<150 else 1000 if abs(x['freq']-1000)<150 else None
@@ -573,7 +581,14 @@ try:
             summaries.append({'name':name,'matched':len(delays),'missing':missing,
                               'p95_ms':delays[int(.95*(len(delays)-1))] if delays else None,
                               'max_ms':max(delays,default=None)})
-        result['decoded_pcm_edges'].append({'side':side,'phases':summaries})
+        durations=sorted({x['stats'].get('audio_tx_packet_duration_ms',0) for x in samples
+                          if x['side']==1-side and x['stats'].get('audio_tx_payload_pkts',0)>0})
+        positions={str(d):sorted({tick%(d//10) for tick in edge_ticks})
+                   for d in durations if d>=10 and d%10==0}
+        phase_coverage.append(bool(durations) and all(
+            positions.get(str(d))==list(range(d//10)) for d in durations))
+        result['decoded_pcm_edges'].append({'side':side,'phases':summaries,
+                                           'source_edge_capture_positions':positions})
     result['phases']=phases
     captured=log_path.read_text();hops=re.findall('ipc.rt_trace.relay_admission[^\n]*hop=([a-f0-9]+)[^\n]*datagram_transport=(true|false)',captured)
     result['neutral_datagram_route_verified']=bool(hops) and args.transport=='quic' and all(h==identities[0]['node_id'][:8] and ready=='true' for h,ready in hops)
@@ -594,6 +609,8 @@ try:
     pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
     result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
+    result['tone_phase_coverage_verified']=all(phase_coverage)
+    if args.tone_period_ms!=1000:result['ok']=result['ok'] and result['tone_phase_coverage_verified']
     if args.transport=='obfs4-tcp':
         result['ok']=result['ok'] and result['independent_ordered_channels_offered_verified'] and result['independent_ordered_media_send_verified']
     if args.adaptive_audio:
