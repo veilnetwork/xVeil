@@ -15490,3 +15490,58 @@ policy/test files are restored to committed HEAD; fixed-cadence native libraries
 remain private. All workers exit, all three nodes stop with zero status, and
 zero fixture sockets remain. ADB is still empty despite the reported USB
 reconnection; physical testing remains pending. The broader goal remains active.
+
+### 2026-10-13 fixed short packets with bounded adjacent gathering
+
+The preceding cycle retained bounded pending-signaling ownership after closing
+the source queue race. The next diagnostic compares that committed SDK with a
+private adjacent-audio gather candidate. Both 130-second runs use the committed
+Dart policy, a private fixed-20-ms Opus fixture with the full-call trace cap,
+real VP8 on the separate screen producer, duplex 512-KiB files, 1010-ms tone
+transitions and blind aggregate 1024-kbit/s shaping. Production codec sources
+and adapter thresholds are unchanged.
+
+The candidate waits for at most one adjacent Opus packet, only for a fresh
+single-packet compact relay batch. Its 25-ms bound starts at original queue
+admission, not at the latest attempt. Any intervening control packet ends the
+wait and retains its own deadline. Direct, unbatched, old and non-Opus work do
+not wait. Five new behavior checks exercise decrypted packet contents and
+deadlines through the real pump, direct/unbatched immediacy, timeout flush,
+old/control work and preservation of an intervening control. All 47 pump tests
+pass; both the candidate and restored production FFI libraries build.
+
+The baseline has valid 16.04-ms driver timing, PCM peaks 232.832/224.312 ms,
+native playout peaks 203/203 ms, 62/66 received video frames and 43/48 paused
+samples. The gathered candidate has valid 15.13-ms driver timing, PCM peaks
+212.379/222.762 ms, native peaks 179/190 ms, 146/161 received video frames and
+zero paused samples. Both match all 109 competing tone edges per direction
+and cover both capture positions in 20-ms packets. Neither run passes the
+unchanged PCM quality limit. The files are partial at the short observation
+boundary, not qualified lost or fully delivered.
+
+During seconds 5–15 of the audio-only phase, aggregate shaper writes are
+76805.8/77124.7 bytes/s for the baseline and 56627.5/56870.5 bytes/s for the
+candidate. These totals include control, RTCP and framing, not just codec
+payload. Full native traces reach the end of each run without unmatched or
+ambiguous RTP rows; SDK-and-network peaks are 191.731/183.802 ms versus
+176.062/175.221 ms. Independently created connections prevent interpreting
+these two runs as a controlled statistical quality comparison. Lower byte
+cost and fewer video pauses do not establish a complete audio-priority fix.
+
+The gather implementation and its tests are saved privately and restored to
+committed SDK HEAD. The fixed-duration native libraries remain private. No
+candidate is installed. All reports plus bootstrap arrive, error counters are
+zero, workers exit, three nodes stop with zero status and no sockets remain.
+
+Further source inspection finds an existing alternative feedback mechanism:
+group audio already appends a 28-byte playout RTCP APP report inside the sealed
+media channel, with SSRC binding, sequence checks, unknown samples and local
+freshness. Unicast playout and route/capture health still travel in periodic
+CallSignal.health messages. In the preceding full traced fixture, all 136
+complete competing control transfers carry 2453–2455 encrypted fragment
+payload bytes for application ciphertexts of 36–56 bytes. This is envelope
+overhead evidence, not a measurement of the full production call signal or
+its final wire cost. Reusing compact authenticated feedback and coordinating
+the rest of unicast health is a concrete next investigation; changing that
+carrier must retain call/device binding, replay protection, liveness, capture
+posture and route-repair semantics. Relay classification is not required.
