@@ -14533,3 +14533,44 @@ the accepted contact remains the stable identity. Late P2P policy checks use
 the physical address, log known=false/accepted=false and deny every retry.
 The media route must remain device-bound, but policy and endpoint lookup
 need the stable call identity. This is the next correction to validate.
+
+#### Contact policy retains identity after a device answers: cycle 2581
+
+Late P2P policy and endpoint discovery now use `Call.mediaIdentity`, while
+media admission and native routing still use the answering physical device.
+The structured fallback lookup follows the identity as well. A forked-answer
+regression now allows only the known identity, refuses every other address,
+and checks both policy/discovery arguments separately from native admission.
+Restoring device-addressed lookup makes this test fail with no P2P switch;
+all 271 tests pass with the correction. Targeted production analysis is clean.
+
+Private Mac/Android 0.13.84+2581 use the unchanged qualified native libraries;
+Mac code-directory hashes match and Android installs-r with the same signer.
+A preparation shortcut accepting contacts locally fails before media: its
+offer arrives as claimed and is refused. The subsequent run exchanges the
+contact request first, then explicitly accepts both local fixtures, so contact
+acceptance delivery remains unqualified. It rings in 1.24 seconds and records
+69 observations over 138.35 seconds. No policy-denial logs remain, confirming
+the prior wrong-address gate is gone. Neither native direct initial open
+succeeds, and neither side performs a native route handover. Both stay relay.
+
+Mac/Poco video stops at 5/3 transmitted and 3/5 received frames; audio delay
+peaks at 435/502 ms, interruption totals finish at 3305/2435 ms. Different
+network/run conditions prevent assigning this reduction to the policy fix.
+Peer feedback is present in 65/66 samples. Each endpoint rejects repeated
+realtime address shares as claimed (30/31 copies), and no authenticated
+endpoint exchange/direct admission is observed. This does not justify
+loosening sender authentication or adding mailbox fallback. The Mac fixture
+identity changes across relaunches, so its sovereign provisioning must be
+checked before treating these rejects as a product defect. Both owned apps
+and the forward are independently absent after each attempt. The regular
+Mac installation remains untouched; call quality is still not qualified.
+
+Read-only `/identity_probe` confirms that the qa-call-2220 Mac fixture has
+zero sovereign document bytes and no receive identity; origin is marked mined,
+but transport equals its changing invite. This fixture cannot represent a
+normal provisioned sovereign identity for authenticated endpoint exchange.
+The probe launches only the owned Mac app, closes it, and independently
+verifies process exit. A sovereign fixture is required before further
+physical attribution of endpoint authentication failures. No authentication
+gate is relaxed and no user profile is changed.
