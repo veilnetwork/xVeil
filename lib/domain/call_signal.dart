@@ -335,6 +335,7 @@ class CallSignal {
     this.capture,
     this.mediaRepairRequested = false,
     this.audioPlayout,
+    this.p2pUpgradeAllowed,
     this.onBehalfOf,
     this.replyDevice,
     this.protocolVersion = kCallSignalProtocolVersion,
@@ -353,7 +354,8 @@ class CallSignal {
   /// The sender's anonymity posture. Present on offer/answer.
   final CallPosture? posture;
 
-  /// Proposed/agreed media path. Present on offer/answer/renegotiate/transportInfo.
+  /// Proposed/agreed media path. Present on offer/answer/renegotiate/transportInfo;
+  /// active health also repeats it as endpoint route feedback.
   final CallTransportProposal? transport;
 
   /// Base64url random contribution to directional relay-media keys. The call
@@ -389,6 +391,11 @@ class CallSignal {
   /// its outgoing video. Sent only inside the E2E-authenticated health body.
   /// It measures playout buffering, not acoustic end-to-end latency.
   final CallAudioPlayoutFeedback? audioPlayout;
+
+  /// Whether this endpoint still permits a later P2P upgrade in this call.
+  /// A settled relay fallback withdraws it; a failed candidate does not.
+  /// Optional endpoint control repeated in health, ignored by older builds.
+  final bool? p2pUpgradeAllowed;
 
   /// Device fan-out (multi-device epic): the hex node id of the TRUE remote
   /// peer, present only on a copy relayed between two devices of one
@@ -428,6 +435,7 @@ class CallSignal {
     CallMedia? capture,
     bool? mediaRepairRequested,
     CallAudioPlayoutFeedback? audioPlayout,
+    bool? p2pUpgradeAllowed,
     String? onBehalfOf,
     String? replyDevice,
     int? sentAtMs,
@@ -442,6 +450,7 @@ class CallSignal {
     capture: capture ?? this.capture,
     mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
     audioPlayout: audioPlayout ?? this.audioPlayout,
+    p2pUpgradeAllowed: p2pUpgradeAllowed ?? this.p2pUpgradeAllowed,
     onBehalfOf: onBehalfOf ?? this.onBehalfOf,
     replyDevice: replyDevice ?? this.replyDevice,
     protocolVersion: protocolVersion,
@@ -462,6 +471,7 @@ class CallSignal {
     if (capture != null) 'cm': capture!.toJson(),
     if (mediaRepairRequested) 'mr': true,
     if (audioPlayout != null) 'ap': audioPlayout!.toJson(),
+    if (p2pUpgradeAllowed != null) 'pu': p2pUpgradeAllowed,
     if (onBehalfOf != null) 'ob': onBehalfOf,
     if (replyDevice != null) 'rd': replyDevice,
     'v': protocolVersion,
@@ -508,6 +518,7 @@ class CallSignal {
             : CallMedia.fromJson((j['cm'] as Map).cast<String, dynamic>()),
         mediaRepairRequested: j['mr'] == true,
         audioPlayout: CallAudioPlayoutFeedback.fromJson(j['ap']),
+        p2pUpgradeAllowed: j['pu'] is bool ? j['pu'] as bool : null,
         onBehalfOf: j['ob'] as String?,
         replyDevice: j['rd'] as String?,
         protocolVersion: (j['v'] as num?)?.toInt() ?? 1,
