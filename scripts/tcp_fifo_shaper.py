@@ -11,6 +11,23 @@ import threading
 import time
 
 
+def kernel_unread_bytes(sock):
+    """Opt-in receive backlog, separate from asyncio's already-read buffer.
+
+    Unknown stays None. This does not alter the socket, consume bytes, inspect
+    payloads or affect FIFO service.
+    """
+    try:
+        import array
+        import fcntl
+        import termios
+        value = array.array('i', [0])
+        fcntl.ioctl(sock.fileno(), termios.FIONREAD, value, True)
+        return value[0] if value[0] >= 0 else None
+    except (ImportError, AttributeError, OSError, ValueError):
+        return None
+
+
 class TcpShaper:
     def __init__(self, targets, max_queue_ms=200, trace=False):
         self.targets = targets
@@ -92,8 +109,10 @@ class TcpShaper:
                 asyncio.open_connection(*target, limit=4096), 5)
             self._bound_writer(writer)
             self._bound_writer(other)
-            pumps = [asyncio.create_task(self._pump(reader, other, 0, link, connection)),
-                     asyncio.create_task(self._pump(upstream, writer, 1, link, connection))]
+            pumps = [asyncio.create_task(self._pump(reader, other, 0, link, connection,
+                                                  writer.get_extra_info('socket'))),
+                     asyncio.create_task(self._pump(upstream, writer, 1, link, connection,
+                                                  other.get_extra_info('socket')))]
             await asyncio.gather(*pumps)
         except (ConnectionError, OSError, asyncio.TimeoutError):
             # A fixture node may not yet be listening or may be shutting down.
@@ -115,12 +134,14 @@ class TcpShaper:
                     except asyncio.TimeoutError:
                         endpoint.transport.abort()
 
-    async def _pump(self, reader, writer, direction, link, connection):
+    async def _pump(self, reader, writer, direction, link, connection, source_socket):
         while data := await reader.read(1280):
             read_at = time.monotonic() if self.trace_rows is not None else None
             # asyncio exposes no public unread-byte count. This is opt-in
             # fixture instrumentation, never an admission/scheduling input.
             reader_buffer_bytes = (len(reader._buffer)
+                                   if self.trace_rows is not None else None)
+            kernel_reader_bytes = (kernel_unread_bytes(source_socket)
                                    if self.trace_rows is not None else None)
             stat = self.stats[direction]
             stat['received'] += 1
@@ -146,6 +167,7 @@ class TcpShaper:
                     row = dict(at=now, direction=direction, link=link,
                                connection=connection, read_at=read_at,
                                reader_buffer_bytes=reader_buffer_bytes,
+                               kernel_reader_bytes=kernel_reader_bytes,
                                bytes=len(data), pending=self._pending[direction],
                                ready=ready, queue_ms=queue_ms)
                     self.trace_rows.append(row)
