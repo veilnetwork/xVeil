@@ -184,6 +184,7 @@ class VeilFlutterTransport
         VeilTransport,
         LocalSourceTransport,
         RealtimeTransport,
+        DeviceRealtimeTransport,
         RelayRealtimeTransport,
         RealtimeInboundTransport,
         StreamTransport,
@@ -1164,6 +1165,18 @@ class VeilFlutterTransport
       data: payload,
     );
   }
+
+  @override
+  Future<void> sendRealtimeToDevice(
+    NodeId identity,
+    NodeId device,
+    Uint8List payload,
+  ) => _realtimeApp.sendRealtime(
+    dstNodeId: device.bytes,
+    dstAppId: realtimeAppIdFor(identity),
+    dstEndpointId: veilRealtimeEndpointId,
+    data: payload,
+  );
 
   @override
   Future<void> sendRelayRealtime(NodeId dst, Uint8List payload) {

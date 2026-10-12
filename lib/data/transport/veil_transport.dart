@@ -251,6 +251,18 @@ abstract interface class RealtimeTransport {
   });
 }
 
+/// Address an admitted physical session while keeping the receiving inbox
+/// under the contact identity. These names can differ on sovereign devices.
+/// Callers must supply their verified device route; anonymous sends use the
+/// regular [RealtimeTransport] onion path instead.
+abstract interface class DeviceRealtimeTransport {
+  Future<void> sendRealtimeToDevice(
+    NodeId identity,
+    NodeId device,
+    Uint8List payload,
+  );
+}
+
 /// Optional non-anonymous low-latency egress through an already-connected
 /// overlay relay. Unlike [RealtimeTransport], this does not require a direct
 /// session to the destination and is suitable for cold call setup.

@@ -460,6 +460,8 @@ class CallService {
   bool _lateP2PConsent = false;
   bool _lateP2PLocalReady = false;
   bool _lateP2PPeerReady = false;
+  bool _lateP2PPeerActive = false;
+  int _lastPeerRouteHealthAtMs = 0;
   bool _lateP2PAttempted = false;
   bool _lateP2PBusy = false;
   DateTime? _lateP2PRetryAt;
@@ -471,6 +473,8 @@ class CallService {
     _lateP2PConsent = false;
     _lateP2PLocalReady = false;
     _lateP2PPeerReady = false;
+    _lateP2PPeerActive = false;
+    _lastPeerRouteHealthAtMs = 0;
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
     _lateP2PRetryAt = null;
@@ -500,7 +504,9 @@ class CallService {
 
   /// A readiness signal is encrypted endpoint control. The original relay
   /// keeps carrying media until BOTH endpoints have admitted a direct session.
-  /// Heartbeats repeat readiness so one lost signal cannot strand one side.
+  /// Heartbeats repeat readiness until the peer confirms its active direct
+  /// route, so one lost signal cannot strand one side. Older peers omit that
+  /// confirmation and keep the existing retry behavior.
   Future<void> _checkLateP2P() async {
     final c = _current;
     final media = _media;
@@ -510,6 +516,7 @@ class CallService {
         _lateP2PBusy ||
         (_lateP2PRetryAt != null && _now().isBefore(_lateP2PRetryAt!)) ||
         media.isRepairingReceiveSession ||
+        (c.transport == CallTransportKind.p2p && _lateP2PPeerActive) ||
         (c.transport != CallTransportKind.relay && !_lateP2PLocalReady)) {
       return;
     }
@@ -1184,12 +1191,13 @@ class CallService {
     final live = _current;
     // A forked answer binds the dialog to a physical device, but a direct
     // session can attribute its later encrypted control to the original
-    // contact identity. Normalize only that saved identity for this exact
-    // live call; another device or an unrelated identity is not an alias.
+    // contact identity. A transport-only bootstrap can instead attribute it
+    // to the saved physical device. Normalize those two names for this exact
+    // live call; another device or identity is not an alias.
     if (live != null &&
         live.isLive &&
         live.callId == sig.callId &&
-        live.peerIdentity == peer &&
+        (live.peerIdentity == peer || live.peerDevice == peer) &&
         live.peer != peer) {
       peer = live.peer;
     }
@@ -1227,6 +1235,21 @@ class CallService {
       case CallSignalType.end:
         _onRemoteEnd(peer, sig, sig.reason ?? CallEndReason.hangup);
       case CallSignalType.health:
+        // A local upgrade does not prove the peer received our readiness.
+        // Its authenticated, dated heartbeat does. Reject old route reports
+        // so a delayed direct beat cannot suppress retries after a relay beat.
+        final at = sig.sentAtMs;
+        if (live != null &&
+            live.isLive &&
+            live.callId == sig.callId &&
+            live.peer == peer &&
+            at != null &&
+            at > _lastPeerRouteHealthAtMs &&
+            at >= _lastTransportInfoAtMs &&
+            sig.transport != null) {
+          _lastPeerRouteHealthAtMs = at;
+          _lateP2PPeerActive = sig.transport!.kind == CallTransportKind.p2p;
+        }
         // Liveness already refreshed above. A repair request is end-to-end
         // evidence that OUR outbound media is black-holed after its first hop.
         if (sig.mediaRepairRequested) {
@@ -2003,6 +2026,10 @@ class CallService {
     final peerMediaKey = decodeCallMediaKeyContribution(sig.mediaKey) == null
         ? null
         : sig.mediaKey;
+    final answeringDevice = c.peerDevice;
+    if (answeringDevice != null) {
+      _messaging.pinCallReplyDevice(c.callId, c.mediaIdentity, answeringDevice);
+    }
     _set(
       c.copyWith(
         status: CallStatus.connecting,
@@ -2186,6 +2213,9 @@ class CallService {
           CallSignal(
             callId: c.callId,
             type: CallSignalType.health,
+            transport: c.status == CallStatus.active && c.transport != null
+                ? CallTransportProposal(c.transport!)
+                : null,
             mediaRepairRequested: receiveNeedsRepair,
             capture: _localCapture(c),
             audioPlayout: _media?.audioPlayoutFeedback,
