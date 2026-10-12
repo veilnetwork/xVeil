@@ -13,6 +13,7 @@ import argparse, base64, hashlib, re, tempfile
 import subprocess, threading, collections, math
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from udp_fifo_shaper import UdpShaper
+from tcp_fifo_shaper import TcpShaper
 import ctypes as C
 import json, os, socket, time, tomllib, traceback
 from pathlib import Path
@@ -20,8 +21,8 @@ os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
 parser.add_argument('--transport', choices=['quic', 'tcp', 'obfs4-tcp'], default='quic',
-                    help='Loopback transport; TCP checks ordered fallback, obfs4-tcp checks authenticated independent channels; UDP shaping requires QUIC')
-parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per UDP direction; 0 leaves transport unrestricted')
+                    help='Loopback transport; TCP checks ordered fallback, obfs4-tcp checks authenticated independent channels')
+parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per direction across all connections; 0 leaves transport unrestricted')
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
@@ -37,6 +38,8 @@ parser.add_argument('--local-source-feedback', action='store_true', help='Feed a
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
 parser.add_argument('--no-video', action='store_true', help='Isolate real audio/file coexistence without starting a video encoder; not a full media-priority gate')
+parser.add_argument('--screen-video', action='store_true',
+                    help='Route synthetic VP8 through the separate screen producer and IPC connection; uses no screen capture')
 parser.add_argument('--reannounce-interval-seconds', type=int,
                     help='Diagnostic routing refresh interval, below the unchanged 120-second route TTL; omitted retains production defaults')
 args = parser.parse_args()
@@ -44,14 +47,14 @@ if args.chunk_trace:
     os.environ['VEIL_DIAG_CHUNKS'] = '1'
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
-if args.transport != 'quic' and (args.rate_kbps or args.shaper_trace):
-    parser.error('The blind UDP limiter and its trace require --transport quic')
 if args.feedback_interval_seconds < 1:
     parser.error('Feedback interval must be at least one second')
 if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_interval_seconds < 120:
     parser.error('Diagnostic routing refresh interval must be between 1 and 119 seconds')
 if args.file_bytes < 2048 or args.file_bytes % 2048:
     parser.error('File size must be a positive multiple of 2048 bytes')
+if args.screen_video and args.no_video:
+    parser.error('--screen-video requires video')
 sdk_path = args.sdk.resolve(strict=True)
 media_path = args.media.resolve(strict=True)
 policy_path = Path(__file__).resolve().with_name('relay_codec_policy.dart')
@@ -100,6 +103,8 @@ openmedia = fn('veil_media_open_relay_channel', [P, P, P, C.c_uint32, P, P, E], 
 mediaclose = fn('veil_media_close_channel', [C.c_uint64], None)
 trace = fn('veil_debug_set_rt_trace', [C.c_int], None)
 secondary_sender = fn('veil_media_channel_set_secondary_sender', [C.c_uint64, P, E], C.c_int)
+screen_sender = fn('veil_media_channel_set_screen_sender', [C.c_uint64, P, E], C.c_int) if args.screen_video else None
+screen_select = fn('veil_media_channel_set_screen_sharing', [C.c_uint64, C.c_int], C.c_int) if args.screen_video else None
 source_report = fn('veil_app_report_local_source_pressure', [P, C.c_uint8, C.c_uint64, E], C.c_int) if args.local_source_feedback else None
 shaper = None
 startat = None
@@ -126,6 +131,7 @@ identities = []
 extra_handles = []
 extra_apps = []
 secondary_apps = []
+screen_apps = []
 nodes = []
 handles = []
 apps = []
@@ -150,6 +156,8 @@ file_bytes=args.file_bytes
 file_payloads=[os.urandom(file_bytes),os.urandom(file_bytes)] if args.compete_file else []
 result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'session_transport': args.transport,
+          'synthetic_video_source': 'screen' if args.screen_video else 'camera',
+          'screen_capture_proof': False,
           'duration_seconds': args.duration,
           'feedback_interval_seconds': args.feedback_interval_seconds,
           'independent_control_ipc': not args.shared_control_ipc,
@@ -180,7 +188,8 @@ try:
         ports.append(s.getsockname()[1])
         s.close()
     if args.rate_kbps:
-        shaper = UdpShaper([('127.0.0.1', port) for port in ports], trace=args.shaper_trace)
+        shaper_type = UdpShaper if args.transport=='quic' else TcpShaper
+        shaper = shaper_type([('127.0.0.1', port) for port in ports], trace=args.shaper_trace)
     for index, identity in enumerate(identities):
         directory = ROOT / str(index)
         lines = ['persist_enabled = false', '[global]', 'meeting_points = "off"', 'builtin_seed_policy = "never"', 'admin_socket = ' + json.dumps('unix://' + str(directory / 'admin.sock')), '[Identity]']
@@ -195,7 +204,7 @@ try:
             lines += ['[routing]', 'reannounce_interval_secs = ' + str(args.reannounce_interval_seconds)]
         lines += ['[anonymity]', 'relay_capable = true', '[ipc]', 'enabled = true', 'socket_uri = ' + json.dumps('unix://' + str(directory / 'ipc.sock')), '[[listen]]', 'id = "0x00000001"', 'transport = ' + json.dumps(args.transport + '://127.0.0.1:' + str(ports[index]))]
         if shaper is not None:
-            lines.append('advertise = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[index])))
+            lines.append('advertise = ' + json.dumps(args.transport + '://127.0.0.1:' + str(shaper.ports[index])))
         peers = [1, 2] if index == 0 else [0]
         for peer in peers:
             other = identities[peer]
@@ -237,6 +246,14 @@ try:
         assert secondary_app
         extra_apps.append(secondary_app)
         secondary_apps.append(secondary_app)
+        if args.screen_video:
+            screen_handle = checked(connect, uri, len(uri))
+            assert screen_handle
+            extra_handles.append(screen_handle)
+            screen_app = checked(bind, screen_handle, b'xveil-control', 13, b'media', 5, 2)
+            assert screen_app
+            extra_apps.append(screen_app)
+            screen_apps.append(screen_app)
     ids = []
     appids = []
     for handle, app in zip(handles, apps):
@@ -357,6 +374,9 @@ try:
         ch=checked(openmedia,apps[index],ids[1-index],appids[1-index],0,keys[index],keys[1-index])
         assert ch;channels.append(ch)
         assert checked(secondary_sender,ch,secondary_apps[index])==0
+        if args.screen_video:
+            assert checked(screen_sender,ch,screen_apps[index])==0
+            assert screen_select(ch,1)==0
         assert batching(ch,2 if args.compact_media else 1)==0
     os.environ['VEIL_MEDIA_TEST_VIDEO']='1'
     for i,ch in enumerate(channels):
@@ -543,7 +563,7 @@ try:
             for line in offers)
         independent_slots=collections.Counter(re.findall(
             r'session.realtime_datagram.first_send[^\n]*local_slot=([0-9]+)\s+independent=true', captured))
-        required_slots=['0'] if args.no_video else ['0', '2']
+        required_slots=['0'] if args.no_video else ['0', '3' if args.screen_video else '2']
         result['independent_ordered_media_send_verified']=all(
             independent_slots[slot]>=2 for slot in required_slots)
     route_ok = result['neutral_datagram_route_verified'] if args.transport=='quic' else result['neutral_ordered_route_verified']
