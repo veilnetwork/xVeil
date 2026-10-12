@@ -224,7 +224,9 @@ class CallTransportProposal {
 /// before increasing video. This is endpoint feedback, never relay metadata.
 /// v6: mutually consenting direct endpoints can announce an admitted P2P
 /// session after relay startup. Both announce readiness before either moves.
-const int kCallSignalProtocolVersion = 6;
+// v7: optional call-key-sealed ephemeral health on an independent IPC sender.
+const int kCallCompactHealthMinVersion = 7;
+const int kCallSignalProtocolVersion = 7;
 const int kCallLateP2PUpgradeMinVersion = 6;
 const int kCallIndependentTransportFeedbackMinVersion = 4;
 const int kCallAudioPlayoutFeedbackMinVersion = 5;
@@ -336,6 +338,7 @@ class CallSignal {
     this.mediaRepairRequested = false,
     this.audioPlayout,
     this.p2pUpgradeAllowed,
+    this.compactHealthReady,
     this.onBehalfOf,
     this.replyDevice,
     this.protocolVersion = kCallSignalProtocolVersion,
@@ -397,6 +400,11 @@ class CallSignal {
   /// Optional endpoint control repeated in health, ignored by older builds.
   final bool? p2pUpgradeAllowed;
 
+  /// Current receiver readiness for v7 ephemeral health. Repeated only in
+  /// authenticated health; protocol support alone does not prove a sender
+  /// was successfully bound on this channel.
+  final bool? compactHealthReady;
+
   /// Device fan-out (multi-device epic): the hex node id of the TRUE remote
   /// peer, present only on a copy relayed between two devices of one
   /// identity. A device that receives an offer forwards it to its siblings
@@ -436,6 +444,7 @@ class CallSignal {
     bool? mediaRepairRequested,
     CallAudioPlayoutFeedback? audioPlayout,
     bool? p2pUpgradeAllowed,
+    bool? compactHealthReady,
     String? onBehalfOf,
     String? replyDevice,
     int? sentAtMs,
@@ -451,6 +460,7 @@ class CallSignal {
     mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
     audioPlayout: audioPlayout ?? this.audioPlayout,
     p2pUpgradeAllowed: p2pUpgradeAllowed ?? this.p2pUpgradeAllowed,
+    compactHealthReady: compactHealthReady ?? this.compactHealthReady,
     onBehalfOf: onBehalfOf ?? this.onBehalfOf,
     replyDevice: replyDevice ?? this.replyDevice,
     protocolVersion: protocolVersion,
@@ -472,6 +482,7 @@ class CallSignal {
     if (mediaRepairRequested) 'mr': true,
     if (audioPlayout != null) 'ap': audioPlayout!.toJson(),
     if (p2pUpgradeAllowed != null) 'pu': p2pUpgradeAllowed,
+    if (compactHealthReady != null) 'hc': compactHealthReady,
     if (onBehalfOf != null) 'ob': onBehalfOf,
     if (replyDevice != null) 'rd': replyDevice,
     'v': protocolVersion,
@@ -519,6 +530,7 @@ class CallSignal {
         mediaRepairRequested: j['mr'] == true,
         audioPlayout: CallAudioPlayoutFeedback.fromJson(j['ap']),
         p2pUpgradeAllowed: j['pu'] is bool ? j['pu'] as bool : null,
+        compactHealthReady: j['hc'] is bool ? j['hc'] as bool : null,
         onBehalfOf: j['ob'] as String?,
         replyDevice: j['rd'] as String?,
         protocolVersion: (j['v'] as num?)?.toInt() ?? 1,

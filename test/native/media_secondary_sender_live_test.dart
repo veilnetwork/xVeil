@@ -72,6 +72,13 @@ void main() {
         );
         expect(chan, greaterThan(0));
         expect(transport.mediaChannelStats(chan), isNotNull);
+        expect(transport.supportsCallControl, isTrue);
+        expect(
+          transport.sendCallControl(chan, Uint8List.fromList([1, 2, 3])),
+          isTrue,
+          reason: 'product opener installs its separate matching sender',
+        );
+        expect(transport.pollCallControl(chan), isEmpty);
         expect(transport.setMediaScreenSharing(chan, true), 0);
         expect(transport.setMediaScreenSharing(chan, false), 0);
         transport.closeMediaChannel(chan);
@@ -117,6 +124,7 @@ void main() {
         final primary = await bind('same-app', 21);
         final secondary = await bind('same-app', 22);
         final screen = await bind('same-app', 24);
+        final control = await bind('same-app', 25);
         final wrong = await bind('other-app', 23);
         expect(primary.appId, secondary.appId);
         expect(primary.appId, isNot(wrong.appId));
@@ -130,7 +138,26 @@ void main() {
           screenSender: screen,
         );
         expect(primary.mediaChannelStats(chan), isNotNull);
+        expect(
+          () => wrong.configureCallControl(chan!),
+          throwsA(isA<VeilException>()),
+        );
+        expect(control.configureCallControl(chan), isTrue);
+        expect(
+          () => control.configureCallControl(chan!),
+          throwsA(isA<VeilException>()),
+          reason: 'configuration cannot replace an active sender',
+        );
+        expect(control.sendCallControl(chan, Uint8List(769)), isFalse);
+        expect(control.sendCallControl(chan, Uint8List(0)), isFalse);
+        expect(
+          control.sendCallControl(chan, Uint8List.fromList([4, 5, 6])),
+          isTrue,
+        );
+        expect(control.pollCallControl(chan), isEmpty);
         transport.closeMediaChannel(chan);
+        expect(control.sendCallControl(chan, Uint8List.fromList([4])), isFalse);
+        expect(control.pollCallControl(chan), isEmpty);
         chan = null;
         await expectLater(
           primary.openRelayMediaChannel(

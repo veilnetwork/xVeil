@@ -143,7 +143,7 @@ abstract class CallMediaController {
   /// Highest signaling/media protocol supported by the loaded native engine.
   /// A mobile package can carry an older media ABI than the Dart layer; in
   /// that case advertising v2 keeps both peers on the compatible relay path.
-  int get signalProtocolVersion => kCallSignalProtocolVersion;
+  int get signalProtocolVersion => kCallCompactHealthMinVersion - 1;
 
   /// Bring up the media session for [call] (open the veil media datagram
   /// channel + start the audio engine). Returns true if media is up.
@@ -221,6 +221,12 @@ abstract class CallMediaController {
   DateTime? get receiveSessionStartedAt => null;
   bool get isRepairingReceiveSession => false;
 
+  /// Call-key-authenticated state from this controller's current call only.
+  /// Setup and terminal commands never use this optional, lossy carrier.
+  Stream<CallSignal> get peerHealth => const Stream<CallSignal>.empty();
+  bool sendEphemeralHealth(CallSignal signal) => false;
+  bool get canReceiveEphemeralHealth => false;
+
   CallAudioPlayoutFeedback? get audioPlayoutFeedback => null;
   void observePeerAudioPlayout(CallAudioPlayoutFeedback feedback) {}
 
@@ -275,7 +281,7 @@ class CallService {
        // ignore: prefer_initializing_formals — public `startMuted:` → private field.
        _startMuted = startMuted,
        _signalProtocolVersion =
-           media?.signalProtocolVersion ?? kCallSignalProtocolVersion,
+           media?.signalProtocolVersion ?? kCallCompactHealthMinVersion - 1,
        _localAllowsP2P = localAllowsP2P ?? _neverP2P,
        _peerReachableForP2P = peerReachableForP2P ?? _neverP2P,
        // ignore: prefer_initializing_formals — public `p2pFallbackReason:` → private field.
@@ -435,6 +441,10 @@ class CallService {
   Timer? _directAdmissionTimer;
   bool _directAdmissionCheckBusy = false;
   StreamSubscription<void>? _screenShareStoppedSub;
+  StreamSubscription<CallSignal>? _peerHealthSub;
+  DateTime? _lastRegularHealthAt;
+  DateTime? _peerCompactReadyUntil;
+  int? _lastPeerCompactHealthAtMs;
   DateTime? _lastPeerSignalAt;
   DateTime? _peerAudioExpectedSince;
   bool _peerConfirmedAfterConnect = false;
@@ -666,6 +676,22 @@ class CallService {
     _handler = _onWireSignal;
     _messaging.onCallSignal = _handler;
     _messaging.acceptsCallDeviceSignal = _acceptsCallDeviceSignal;
+    _peerHealthSub = _media?.peerHealth.listen((signal) {
+      final call = _current;
+      if (_disposed ||
+          call == null ||
+          !call.isLive ||
+          call.callId != signal.callId ||
+          signal.type != CallSignalType.health ||
+          signal.onBehalfOf != null ||
+          signal.mediaKey != null ||
+          signal.reason != null ||
+          signal.protocolVersion < kCallCompactHealthMinVersion ||
+          (call.peerProtocolVersion ?? 1) < kCallCompactHealthMinVersion) {
+        return;
+      }
+      _onSignal(call.peer, signal);
+    });
     _screenShareStoppedSub = _media?.screenShareStopped.listen((_) {
       if (_current?.screenOn == true) {
         unawaited(setScreenShareEnabled(false));
@@ -1223,6 +1249,17 @@ class CallService {
       _lastPeerSignalAt = _now();
       if (_heartbeatTimer != null) _peerConfirmedAfterConnect = true;
       _foldPeerCapture(sig);
+      final at = sig.sentAtMs;
+      if (sig.type == CallSignalType.health &&
+          at != null &&
+          sig.protocolVersion >= kCallCompactHealthMinVersion &&
+          (_lastPeerCompactHealthAtMs == null ||
+              at > _lastPeerCompactHealthAtMs!)) {
+        _lastPeerCompactHealthAtMs = at;
+        _peerCompactReadyUntil = sig.compactHealthReady == true
+            ? _now().add(kCallHeartbeatInterval * 2)
+            : null;
+      }
       if (sig.type == CallSignalType.health &&
           live.status == CallStatus.active &&
           sig.audioPlayout != null) {
@@ -2115,6 +2152,39 @@ class CallService {
   /// Sibling fan-out remains device-addressed through onBehalfOf.
   Future<void> _sendCallSignal(NodeId peer, CallSignal signal) {
     final call = _current;
+    if (call != null &&
+        call.callId == signal.callId &&
+        call.peer == peer &&
+        signal.type == CallSignalType.health &&
+        signal.onBehalfOf == null) {
+      signal = signal.copyWith(
+        compactHealthReady: _media?.canReceiveEphemeralHealth ?? false,
+      );
+    }
+    if (call != null &&
+        call.callId == signal.callId &&
+        call.peer == peer &&
+        call.status == CallStatus.active &&
+        signal.type == CallSignalType.health &&
+        signal.onBehalfOf == null &&
+        !signal.mediaRepairRequested &&
+        _signalProtocolVersion >= kCallCompactHealthMinVersion &&
+        (call.peerProtocolVersion ?? 1) >= kCallCompactHealthMinVersion &&
+        !_mediaReceiveNeedsRepair(call) &&
+        _peerCompactReadyUntil != null &&
+        _now().isBefore(_peerCompactReadyUntil!) &&
+        _lastRegularHealthAt != null &&
+        _now().difference(_lastRegularHealthAt!) <
+            const Duration(seconds: 30) &&
+        (_media?.sendEphemeralHealth(signal) ?? false)) {
+      return Future<void>.value();
+    }
+    if (call != null &&
+        call.callId == signal.callId &&
+        signal.type == CallSignalType.health &&
+        signal.onBehalfOf == null) {
+      _lastRegularHealthAt = _now();
+    }
     final destination =
         call != null &&
             call.callId == signal.callId &&
@@ -2279,6 +2349,9 @@ class CallService {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
     _lastPeerSignalAt = null;
+    _lastRegularHealthAt = null;
+    _peerCompactReadyUntil = null;
+    _lastPeerCompactHealthAtMs = null;
     _peerConfirmedAfterConnect = false;
   }
 
@@ -2560,6 +2633,8 @@ class CallService {
     _messaging.backgroundStashPaused = false;
     unawaited(_screenShareStoppedSub?.cancel());
     _screenShareStoppedSub = null;
+    unawaited(_peerHealthSub?.cancel());
+    _peerHealthSub = null;
     if (_media == null) {
       _releaseSlot();
     } else {
