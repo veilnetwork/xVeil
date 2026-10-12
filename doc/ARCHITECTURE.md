@@ -14990,3 +14990,66 @@ process checks verify no owned workers/apps. ADB still lists no devices.
 The next useful experiment must measure the aggregate encoded source cost
 and prevent own competing producers from overfilling a slow path; simply
 reducing a stage that already measures below a few milliseconds is unsupported.
+
+### 2026-10-12 gradual own DATA startup with continuing video
+
+SDK c7e23b5c makes own recoverable DATA start at the existing pressured
+allowance of 1024 bytes per 200 ms once trusted local feedback has been seen.
+With fresh non-pressure reports and continuing DATA admissions, the allowance
+grows by 1024 bytes every two seconds to the existing healthy 4096-byte ceiling.
+Time before the first actual DATA admission does not accrue ramp credit.
+Pressure, stale feedback and DATA inactivity reset growth without refunding
+already admitted bytes. An expired initial pressure report cannot fall back
+to the legacy ceiling. Older callers without negotiated local feedback retain
+their previous policy; no active primary means normal unrestricted DATA.
+The allowance is shared across this endpoint's neighbors. Primary media,
+independent recovery allowances, neutral transit, relay FIFO/service and wire
+formats are unchanged. Existing audio/video/screen source connections stay
+separate; this change controls their competition for aggregate capacity at
+the sender rather than assigning relay privileges.
+
+Three regressions verify startup after long prior healthy observations, all
+four rate levels, retained debt during feedback transitions, pressure resets,
+stale reports, DATA-idle restart and eventual unrestricted admission after
+primary inactivity. All 515 session tests pass (6 ignored); the final formatted
+policy passes its 19 tests as well.
+
+A 45-second mixed comparison with committed SDK 220816f2 has a valid 13.04-ms
+driver maximum, PCM peaks 310.8/320.0 ms, native playout 263/265 ms, only four
+received video frames per direction and 21 paused video samples. The ramp
+comparison has a valid 15.19-ms driver maximum, PCM 220.2/211.1 ms, native
+playout 186/184 ms, 23/25 received frames and zero paused samples. Initial
+upstream proxy arrival-to-drain residence falls from 248.084 to 121.448 ms;
+pre-read residence falls from 207.358 to 90.767 ms. Actual source RTP flight
+peaks at 142.136/157.946 ms. Files are partial at the short boundary, so this
+comparison demonstrates startup improvement, not full delivery or an achieved
+200-ms quality gate. Later opaque generic frames can still wait 227.987 ms;
+this must not be presented as the flight of an identified audio packet.
+
+The full 360-second ramp diagnostic uses the same real Opus/VP8, separate
+screen source, blind 1024-kbit/s cap and 512-KiB file in each direction, with
+no opaque admin capture. Its driver maximum is 15.62 ms with no late intervals.
+Both files arrive fully, with matching SHA-256, no missing/duplicate chunks,
+no authentication or async-send failures, in 296.487/296.307 seconds after
+file startup. All 340 tone edges match per direction, with zero quiet PCM,
+interruptions, native or polling failures. Received video frames are 257/717.
+Nevertheless PCM peaks at 283.2/301.6 ms and native playout at 252/258 ms;
+76/107 samples pause video. The quality gate remains FAILED. This is a retained
+startup improvement, not a completed audio-priority fix or a release.
+
+Timeline inspection finds the first >=200-ms native sample at second 31
+on one side, and second 108 on the other. Before the former, seconds 29/30
+report native delay 126/146 ms while sourcePressured remains false, with video
+still at one frame/s. Opus changes 40 to 60 ms as delay rises. On the other
+side packetization also changes repeatedly around seconds 107–111. These are
+observations, not proof that packetization caused the rise. The current Dart
+pressure hysteresis can report false in its 120–160-ms intermediate range;
+that boolean does not prove current recovery-quality measurements. This limits
+what the new ramp can infer from existing IPC feedback and guides the next
+controller investigation without tightening the video ladder blindly.
+
+All three fixtures stop their workers and three nodes, return zero node-stop
+codes and leave no sockets. Independent process checks find no owned stand
+apps/workers. ADB still lists no devices; no phone install or physical call
+occurs. Application speech quality and sustained sub-200-ms audio remain
+unqualified, and the goal stays active.
