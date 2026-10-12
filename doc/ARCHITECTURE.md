@@ -15126,3 +15126,91 @@ IORegistry independently reports five USB device entries and zero recognized
 Android vendor IDs; ADB uses the local platform-tools binary with no server
 address override. No device identifier or private profile data is recorded
 here.
+
+### 2026-10-12 rejected video-threshold tuning and packet-duration isolation
+
+The previous cycle establishes a valid audio-plus-video failure without files:
+PCM peaks 260.5/251.2 ms, with a 26.33-ms driver maximum. This cycle tests two
+endpoint policy candidates without changing SDK, source channels or relay
+service. A growth-only candidate requires both expected playout measurements
+below 120 ms before climbing video, while sparse resume stays below 160 ms
+and a measured one-fps failure pause stays at 200 ms. A standing-138-ms
+regression fails against the original policy, and all 74 candidate pressure
+and adaptation tests pass. Its first 130-second diagnostic has PCM peaks
+192.3/222.0 ms and no paused video samples, but a 48.35-ms driver maximum
+invalidates timing qualification. A fresh repeat has valid 13.54-ms driver
+timing and no late intervals, yet PCM peaks 241.1/231.7 ms, native playout
+206/215 ms and 40/45 paused-video samples. Only 83/68 video frames arrive.
+This does not establish an acceptable audio/video tradeoff or pass the gate.
+
+A second candidate separates earlier video reduction at 160 ms from the
+existing 200-ms floor-pause threshold, retaining the growth-only condition.
+Its regression demonstrates that the original policy does not lower a higher
+rung at standing 169-ms playout; all 75 candidate tests pass. Unknown feedback
+still cannot be treated as measured congestion that retires startup probing.
+The diagnostic has PCM peaks 215.4/240.2 ms, native playout 163/207 ms,
+118/89 received video frames and 20/0 paused samples, but its 48.09-ms driver
+maximum also invalidates timing qualification. All three diagnostics match
+every competing-phase tone edge with no quiet PCM or native interruptions.
+Neither candidate meets the quality gate. Both production source and candidate
+tests are restored to committed 6ff6dbf4: no numerical video-policy change is
+retained or installed on a physical device from these experiments.
+
+The valid growth-only repeat reaches 206-ms native playout at second 90 while
+video is already at one frame/s; earlier reduction of a higher rung alone
+cannot address that case. Its packet-duration samples alternate between
+40 and 60 ms around that peak, and another direction changes 60 to 20 ms at
+its 215-ms peak. These are correlations, not proof of cause. The next isolated
+diagnostic uses a private copy of the native media sources with the ANA frame
+length controller removed and Opus min/maxptime both 20 ms, retaining ANA
+bitrate control, the 16–32-kbit payload bounds and all existing production
+Dart thresholds. It must verify actual packet duration and timing rather than
+infer fixed cadence from the configuration or the adaptation-enabled flag.
+
+The first private fixed-20-ms build inadvertently uses the ordinary WebRTC
+output with WEBRTC_ENABLE_PROTOBUF disabled. Its adaptive engine creation
+fails before audio starts; it is not a cadence or quality measurement. The
+fixture stops all three nodes and leaves no sockets. The private variant is
+rebuilt against the retained `webrtc-ana` output after verifying that its
+call translation unit defines WEBRTC_ENABLE_PROTOBUF=1. The corrected build
+exports the same 119 C symbols and remains a test-hook library, not an app
+package. A fresh fixture is required for the actual duration experiment.
+
+The corrected fixed-20-ms fixture runs for 130 seconds with the original
+production Dart policy, no files, and the same neutral 1024-kbit/s cap.
+Actual encoded packet durations are exclusively 20 ms after payload starts.
+Driver timing passes the existing bound at 32.10 ms (five late intervals).
+PCM peaks are 201.4/201.8 ms, native playout 176/184 ms, and received video
+frames 107/156, with zero paused-video samples. Every competing-phase tone
+edge matches, with no quiet PCM or native interruption. This is a promising
+isolated observation, but the strict <200-ms gate still fails; it does not
+qualify sustained or physical audio/video performance. A private fixed-40-ms
+variant additionally sets ptime/minptime/maxptime to 40 ms, retains the bitrate
+controller and payload bounds, and must verify actual cadence and quality.
+
+The private fixed-40-ms diagnostic verifies exclusively 40-ms encoded packets,
+and every payload target stays within 16–32 kbit/s. All 110 competing-phase
+tone edges match in both directions. Native playout peaks at 174/179 ms and
+PCM at 221.2/201.6 ms; video receives 1013/923 frames without paused samples,
+quiet PCM, interruptions or native/poll failures. One 44.10-ms driver interval
+at second 17.9347 invalidates the global timing gate. Neither fixed-duration
+variant qualifies the full audio/video goal, and neither is a production edit.
+The much larger frame count is an observation across independent runs, not
+proof of causal improvement under fully controlled scheduling.
+
+Matching native RTP trace rows with the SDK receive traces finds competing
+audio SDK-and-network flight maxima of 156.136/156.904 ms for fixed 20 ms,
+and 143.971/152.762 ms for fixed 40 ms. Admission maxima remain <=0.180 ms and
+native-drain maxima <=2.074 ms. The fixed-20-ms trace caps at 4096 rows per
+sender around seconds 81.75/81.77; it cannot bound later packets or infer loss.
+The fixed-40-ms matches extend through second 129.986. These are identified
+RTP flights on a shared same-host clock, not generic proxy chunk maxima, and
+the separate PCM/native maxima cannot be subtracted as if they describe the
+same packet. Packet duration alone has not removed the remaining transport
+residence. The next useful check combines stable cadence with measured source
+headroom before considering any production policy change.
+
+All completed fixtures, including the rejected engine-creation run, stop
+their three nodes and leave no sockets. Owned fixture workers are independently
+checked after completion; no physical app was launched or installed. The goal
+remains active pending sustained mixed-load and physical-device qualification.
