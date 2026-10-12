@@ -232,6 +232,71 @@ class VeilFlutterTransport
   final VeilClient _p2pStreamClient;
   final AppHandle _p2pStreamApp;
   final AppHandle _mediaApp;
+  static const _callControlEndpointId = 18; // Local sender only.
+  final _callControlSenders =
+      <bool, Future<({VeilClient client, AppHandle app})>>{};
+  bool _disposing = false;
+  final _configuredControlChannels = <int>{};
+  bool hasCallControl(int chan) =>
+      !_disposing && _configuredControlChannels.contains(chan);
+
+  bool get supportsCallControl => AppHandle.supportsCallControl;
+
+  Future<({VeilClient client, AppHandle app})> _bindCallControl(
+    bool identity,
+  ) async {
+    final client = await VeilClient.connect(_socketPath);
+    try {
+      final app = identity
+          ? await client.bindNamed(
+              namespace: veilChatNamespace,
+              name: veilMediaName,
+              endpointId: _callControlEndpointId,
+            )
+          : await client.bindDeviceScoped(
+              namespace: veilChatNamespace,
+              name: veilMediaName,
+              endpointId: _callControlEndpointId,
+            );
+      return (client: client, app: app);
+    } catch (_) {
+      await client.close();
+      rethrow;
+    }
+  }
+
+  Future<int> _attachCallControl(int chan, bool identity) async {
+    if (!supportsCallControl || _disposing) return chan;
+    final future = _callControlSenders.putIfAbsent(
+      identity,
+      () => _bindCallControl(identity),
+    );
+    try {
+      final sender = await future;
+      if (!_disposing && sender.app.configureCallControl(chan)) {
+        _configuredControlChannels.add(chan);
+      }
+    } catch (_) {
+      // Regular signaling remains available if the optional sender fails.
+      // A failed bind can be retried on the next channel.
+      // Retain a successfully bound sender even if this channel was closed.
+      try {
+        await future;
+      } catch (_) {
+        if (identical(_callControlSenders[identity], future)) {
+          _callControlSenders.remove(identity);
+        }
+      }
+      devLog(() => 'xVeil[call-media]: compact state unavailable');
+    }
+    return chan;
+  }
+
+  bool sendCallControl(int chan, Uint8List bytes) =>
+      !_disposing && _mediaApp.sendCallControl(chan, bytes);
+  List<Uint8List> pollCallControl(int chan) =>
+      _disposing ? const [] : _mediaApp.pollCallControl(chan);
+
   final VeilClient? _mediaDeviceClient;
   final AppHandle? _mediaDeviceApp;
   // Sender-only IPC bindings: their app identity is unchanged and inbound
@@ -690,7 +755,7 @@ class VeilFlutterTransport
           '${useIdentity ? "identity" : "device"} dst=${peer.short}',
     );
     if (relay) {
-      return mediaSender.openRelayMediaChannel(
+      final channel = await mediaSender.openRelayMediaChannel(
         secondarySender: secondarySender,
         screenSender: screenSender,
         dstNodeId: dstNode,
@@ -699,8 +764,12 @@ class VeilFlutterTransport
         txKey: txKey,
         rxKey: rxKey,
       );
+      return _attachCallControl(
+        channel,
+        useIdentity || _mediaDeviceApp == null,
+      );
     }
-    return mediaSender.openDirectMediaChannel(
+    final channel = await mediaSender.openDirectMediaChannel(
       secondarySender: secondarySender,
       screenSender: screenSender,
       dstNodeId: dstNode,
@@ -709,6 +778,7 @@ class VeilFlutterTransport
       txKey: txKey,
       rxKey: rxKey,
     );
+    return _attachCallControl(channel, useIdentity || _mediaDeviceApp == null);
   }
 
   /// Enqueue one media datagram on [chan]. 0 queued / 1 dropped / -1 invalid.
@@ -769,7 +839,10 @@ class VeilFlutterTransport
   int mediaRecvCount(Uint8List peerNode) => _client.mediaRecvCount(peerNode);
 
   /// Close a media channel.
-  void closeMediaChannel(int chan) => _client.closeMediaChannel(chan);
+  void closeMediaChannel(int chan) {
+    _configuredControlChannels.remove(chan);
+    _client.closeMediaChannel(chan);
+  }
 
   /// Redeem a peer's invite on the running node (adds the bootstrap peer + dials
   /// it) over IPC — replaces the `veil-cli bootstrap join` shell-out.
@@ -1429,6 +1502,16 @@ class VeilFlutterTransport
 
   @override
   Future<void> dispose() async {
+    _disposing = true;
+    _configuredControlChannels.clear();
+    for (final pending in _callControlSenders.values.toList()) {
+      try {
+        final sender = await pending;
+        await sender.app.close();
+        await sender.client.close();
+      } catch (_) {}
+    }
+    _callControlSenders.clear();
     await _p2pStreamApp.close();
     await _siblingApp?.close();
     await _realtimeApp.close();
