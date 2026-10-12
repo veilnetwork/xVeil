@@ -528,14 +528,16 @@ class CallService {
         _current?.peer == c.peer &&
         _current?.status == CallStatus.active;
     try {
-      if (!await _localAllowsP2P(c.peer) ||
+      // A forked answer binds media to its device, while contact policy and
+      // endpoint discovery still belong to the authenticated identity.
+      if (!await _localAllowsP2P(c.mediaIdentity) ||
           !stillCurrent() ||
           !_lateP2PConsent) {
         return;
       }
       if (!_lateP2PLocalReady) {
         if (_lateP2PAttempted ||
-            !await _peerReachableWithoutBlockingSignal(c.peer) ||
+            !await _peerReachableWithoutBlockingSignal(c.mediaIdentity) ||
             !stillCurrent()) {
           return;
         }
@@ -645,7 +647,8 @@ class CallService {
     if (c != null &&
         c.transport == CallTransportKind.relay &&
         _directSessionUnavailable) {
-      return _p2pFallbackReason?.call(c.peer) ?? 'direct session unavailable';
+      return _p2pFallbackReason?.call(c.mediaIdentity) ??
+          'direct session unavailable';
     }
     return null;
   }
