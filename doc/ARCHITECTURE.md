@@ -15293,3 +15293,68 @@ or production codec change is accepted from this cycle. The corrected long
 run stops all nodes with zero status, joins audio/file/policy workers and
 leaves no sockets; owned processes are independently checked. Physical
 speech, sustained sub-200-ms coexistence and the full goal remain unqualified.
+
+### 2026-10-12 full-call RTP coverage and timed control submission
+
+A private native fixture increases the opt-in send/ingress metadata cap from
+4096 to 16384 rows. Production native sources and transport policy are unchanged.
+The six-minute repeat retains the private fixed-40-ms codec, 140-ms video
+reduction candidate, accurate capture timing, 1010-ms tone transitions, two
+512-KiB files and blind 1024-kbit/s aggregate shaping. It records 9072/9041
+send rows; each receiver uniquely matches 8999 nonempty packets through second
+359.954, with no unmatched or ambiguous payload rows. The trace now covers the
+late-call failures that the earlier cap could not describe.
+
+Driver timing is valid at 14.90 ms, without late intervals. Both files arrive
+fully with matching hashes after 322.789/322.779 seconds. All 337 competing
+tone edges match in each direction, covering all four capture positions. PCM
+peaks are 231.781/222.743 ms; native playout peaks are 196/211 ms. Video receives
+342/325 frames, with 20/0 paused samples. There are no quiet PCM frames,
+counted interruptions or native/poll failures. The full quality gate FAILS.
+The previous shorter successful candidate is therefore not accepted.
+
+For the two RTP trace blocks, SDK-and-network delivery peaks are
+158.984/172.785 ms, SDK admission <=0.229 ms and native ingress-to-drain
+<=1.108 ms. These describe matched packets, not relay-only latency or physical
+mouth-to-ear delay. Trace blocks are not device labels. Of the 127/122
+competing packets with delivery >=100 ms, 125/121 start within the first
+600 ms of a five-second interval. This confirms the report-cadence association
+previously observed on 2026-10-11; it does not newly establish which transport
+or scheduling stage causes it.
+
+A 130-second diagnostic changes only the configured report cadence to eleven
+seconds, retaining the same source/library variant and full file sizes. It has
+valid 13.52-ms driver timing, all 109 competing tone edges matched per direction,
+147/147 received video frames and no pauses. PCM still peaks at
+220.578/211.242 ms; native playout is 172/186 ms. Files cannot qualify complete
+delivery within this shortened observation. Several delivery peaks move to
+seconds 55/66/77/88/99, but startup and other outliers remain. Randomly created
+fixture connections differ between runs; the comparison is supporting causal
+evidence, not a bit-identical topology or a quality fix.
+
+The committed fixture now records bounded monotonic timing for periodic
+control submissions: source index, submission time, IPC-call duration,
+encrypted application size and return code. It stores at most 512 rows and
+explicitly reports truncation, while retaining aggregate attempt/failure
+counts. Bootstrap traffic is excluded. No destination, key or control
+contents are recorded. These observations measure local IPC admission, not
+daemon processing or end-to-end receipt. A nonzero periodic-send return code
+also fails the existing quality gate; no delay or delivery threshold is relaxed.
+
+A 65-second instrumented diagnostic validates 13 attempts per direction,
+all 26 admitted without errors, with maximum IPC-call duration 0.139 ms and
+encrypted application sizes 36/53/54/55 bytes. Driver timing is valid at
+14.90 ms, every tone edge matches, and video receives 49/44 frames without
+pauses. PCM peaks 194.070/213.088 ms, so this is not quality qualification.
+The fast submit call excludes that call's duration as the observed bottleneck;
+it does not exclude later daemon or transport work. Further attribution must
+follow authored control through those stages, preserving neutral relay
+scheduling rather than lowering decoder buffers from unrelated maxima.
+
+The two temporary Dart policy/test files are restored exactly to committed
+HEAD. Nine timing/trace regressions pass. All three completed fixtures join
+their audio/file/policy workers, stop all nodes with zero status, and leave
+zero sockets; an independent process check finds no owned workers or Mac stand
+apps. No physical app or call is launched: ADB remains empty and the USB scan
+finds no recognized Android vendor or ADB interface. Physical Poco validation
+and the broader goal remain pending.

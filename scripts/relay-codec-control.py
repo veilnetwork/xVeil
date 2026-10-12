@@ -305,6 +305,10 @@ try:
     healthkeys=[AESGCM(os.urandom(32)),AESGCM(os.urandom(32))]
     controlapps=[];controlids=[];inbox=[collections.deque(),collections.deque()]
     noncecounter=[0,0];healthsent=[0,0];healthrecv=[0,0];healthbad=[0,0]
+    control_attempts=[0,0];control_failures=[0,0]
+    # Bounded local timing only: no control contents or destination identifiers.
+    # Submission/return measures IPC admission, never end-to-end receipt.
+    control_send_samples=collections.deque(maxlen=512)
     handler_type=C.CFUNCTYPE(None,P,P,P,C.c_uint8,C.c_uint64,P,C.c_size_t)
     handler=fn('veil_app_set_recv_handler',[P,handler_type,P,E],C.c_int)
     freebuf=fn('veil_free_buf',[P,C.c_size_t],None)
@@ -501,8 +505,16 @@ try:
                 for i in range(2):
                     nonce=noncecounter[i].to_bytes(12,'big');noncecounter[i]+=1
                     payload=nonce+healthkeys[i].encrypt(nonce,json.dumps(latestfeedback[i]).encode(),b'codec-control-v1')
+                    submitted_at=time.monotonic()
                     rc=checked(controlsend,controlapps[i],ids[1-i],controlids[1-i],2,payload,len(payload))
+                    returned_at=time.monotonic()
+                    control_attempts[i]+=1
+                    control_send_samples.append({'side':i,
+                        'submitted_at_seconds':submitted_at-startat,
+                        'ipc_admission_ms':(returned_at-submitted_at)*1000,
+                        'encrypted_application_bytes':len(payload),'result':rc})
                     if rc==0:healthsent[i]+=1
+                    else:control_failures[i]+=1
     audio_stop.set();audio_thread.join(timeout=5)
     assert not audio_thread.is_alive()
     if audio_failure:(ROOT/'audio-thread-failure.txt').write_text(''.join(audio_failure))
@@ -519,6 +531,10 @@ try:
     (ROOT/'pcm-samples.json').write_text(json.dumps(pcmrows))
     (ROOT/'codec-samples.json').write_text(json.dumps(samples))
     result.update(stand_start_monotonic_us=round(startat*1_000_000),real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
+    result.update(control_send_attempts=control_attempts,
+                  control_send_failures=control_failures,
+                  control_send_samples=list(control_send_samples),
+                  control_send_samples_truncated=sum(control_attempts)>control_send_samples.maxlen)
     result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
     result['adaptive_audio'] = args.adaptive_audio
     result['audio_overhead_bytes_override'] = args.audio_overhead_bytes if args.adaptive_audio else None
@@ -608,7 +624,7 @@ try:
     mixed=phases[-1]['directions']
     pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
-    result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
+    result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad+control_failures) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
     result['tone_phase_coverage_verified']=all(phase_coverage)
     if args.tone_period_ms!=1000:result['ok']=result['ok'] and result['tone_phase_coverage_verified']
     if args.transport=='obfs4-tcp':
