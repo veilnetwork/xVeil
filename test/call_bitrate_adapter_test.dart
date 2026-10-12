@@ -489,6 +489,113 @@ void main() {
     expect(a.target.maxFps, 1.0);
   });
 
+  test('a floor trial requires newly sent frames, not an applied budget', () {
+    final a = direct(level: 4);
+    void sample(int frames) => native(
+      a,
+      stats: {...healthy(), 'video_tx_frames': frames},
+      peerDelay: 450,
+    );
+    for (var i = 0; i < 20; i++) {
+      sample(100);
+    }
+    expect(a.audioReserve, isFalse, reason: 'old frames are not a trial');
+    sample(101);
+    sample(101);
+    expect(a.audioReserve, isFalse, reason: 'only one new frame was sent');
+    sample(102);
+    expect(a.audioReserve, isFalse);
+    sample(102);
+    expect(a.audioReserve, isTrue);
+
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      native(a, stats: {...healthy(), 'video_tx_frames': 102});
+    }
+    expect(a.audioReserve, isFalse);
+    for (var i = 0; i < 20; i++) {
+      sample(102);
+    }
+    expect(a.audioReserve, isFalse, reason: 'a resumed probe needs new frames');
+    sample(103);
+    sample(104);
+    sample(104);
+    expect(a.audioReserve, isTrue);
+  });
+
+  test('engine replacement invalidates the measured floor trial', () {
+    final a = direct(level: 4);
+    for (final frames in [10, 11, 12]) {
+      native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': frames},
+        peerDelay: 450,
+      );
+    }
+    a.invalidateAppliedState();
+    for (var i = 0; i < 20; i++) {
+      native(a, stats: {...healthy(), 'video_tx_frames': 12}, peerDelay: 450);
+    }
+    expect(a.audioReserve, isFalse);
+  });
+
+  test('recovered playout resumes a probe on a high RTT and jitter route', () {
+    final a = direct(level: 4);
+    native(a, interrupted: true);
+    native(a, interrupted: true);
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      native(
+        a,
+        stats: {
+          ...healthy(),
+          'rtt_ms': 600,
+          'tx_jitter_ms': 100,
+          'tx_loss_pct': 7,
+        },
+      );
+      expect(a.audioReserve, i < CallBitrateAdapter.recoverAfter - 1);
+    }
+    expect(a.target.maxFps, 1.0);
+    for (var i = 0; i < 30; i++) {
+      native(
+        a,
+        stats: {
+          ...healthy(),
+          'rtt_ms': 600,
+          'tx_jitter_ms': 100,
+          'tx_loss_pct': 7,
+        },
+      );
+    }
+    expect(a.atFloor, isTrue, reason: 'a probe does not grant video headroom');
+    expect(a.audioReserve, isFalse);
+  });
+
+  test(
+    'probe recovery still requires both measured playouts and no outages',
+    () {
+      for (final failure in ['peer', 'receive', 'missing', 'severe RTT']) {
+        final a = direct(level: 4);
+        native(a, interrupted: true);
+        native(a, interrupted: true);
+        for (var i = 0; i < 30; i++) {
+          native(
+            a,
+            stats: {
+              ...healthy(),
+              'rtt_ms': failure == 'severe RTT' ? 2000 : 600,
+              if (failure == 'receive') 'audio_delay_ms': 170,
+            },
+            peerDelay: failure == 'peer'
+                ? 170
+                : (failure == 'missing' ? null : 60),
+          );
+        }
+        expect(a.audioReserve, isTrue, reason: failure);
+      }
+    },
+  );
+
   test('healthy audio may resume a trial despite secondary losses', () {
     final a = direct(level: 4);
     native(a, interrupted: true);
