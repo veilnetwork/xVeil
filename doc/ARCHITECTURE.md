@@ -14574,3 +14574,52 @@ The probe launches only the owned Mac app, closes it, and independently
 verifies process exit. A sovereign fixture is required before further
 physical attribution of endpoint authentication failures. No authentication
 gate is relaxed and no user profile is changed.
+
+#### Sovereign fixture and relay sealing identity: cycle 2582
+
+The changing Mac identity in earlier runs came from test packaging: the
+private debug app omitted `libhidden_volume_ffi.dylib` and used MemoryStorage.
+The regular installed app includes the library and is untouched. The corrected
+private app bundles all three required native libraries, uses its own disk
+container, and restores a generated test certificate. A relaunch verifies a
+nonempty sovereign document, invite=receive identity, and unchanged receive
+identity. Earlier claimed-endpoint results from the volatile Mac fixture do
+not qualify failures of an ordinary sovereign installation.
+
+The corrected fixture exposes a separate native defect before media starts:
+its relayed call offer fails ratchet authentication, with the failure source
+matching the current physical Mac device. Ratchet authenticated data names
+the stable sender identity, but IPC relay envelopes named the transport
+device. A warm receiver can recover the identity from its key cache; a cold
+receiver cannot. Veil now carries the exact identity snapshot used for sealing
+into the ordinary relay and compatibility device-fanout envelopes. Unsealed
+and anonymous sender handling remain unchanged. No sender permission is
+inferred from the envelope, and relay scheduling/traffic classes are unchanged.
+
+A regression exercises the actual IPC producer and FrameDispatcher in six
+cases: ordinary relay, call-control fallback and device fanout, each with cold
+and warm receiver caches and distinct identity/device addresses. Reverting
+the fix prevents cold delivery. With the fix both caches decrypt; cold
+provenance remains Claimed and warm provenance is Signed. All 156 IPC tests
+pass (5 ignored); strict Clippy for the changed crate and all targets passes.
+A separate dependency-wide Clippy attempt reports existing veil-session
+style/enum warnings and is not a full workspace lint pass.
+
+The initial sovereign physical attempt (old SDK, build 2581) does not ring,
+so it has no audio/video measurements. Both apps and the ADB forward are
+closed and independently verified absent. SDK 815a21dc is rebuilt for both
+platforms without test transport/key hooks; the existing production C++ media
+engine and hidden-volume library are retained. Call quality still requires a
+physical repeat with both endpoints updated.
+
+Private builds 0.13.84+2582 are packaged for Mac and Android. Mac signature
+verification and all 99 required C++ media exports pass; all three bundled
+library text sections match their qualified sources. Two sequential Mac
+launches verify the real node stack and the same persisted sovereign receive
+identity. Each process is independently absent afterward. The first probe
+uses an overlong private IPC path and aborts before starting the real stack;
+it is closed before repeating with the short runtime path. This is a stand
+configuration failure, not a call-quality measurement. Android APK native
+hashes and the existing installed signer match. ADB reports no devices, so
+build 2582 has not been installed on Poco and no updated physical call has
+been placed. No audio/video improvement is claimed from this cycle.
