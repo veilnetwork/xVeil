@@ -14048,3 +14048,160 @@ again verifies owned Mac and phone processes absent and the owned forward
 removed. The final 94 focused tests and Dart analysis pass, both diagnostic
 builds compile, the compatible Android update preserves data, and the diff
 check is clean. No media-priority completion is claimed.
+
+### 2026-10-12: RTCP allocation isolation and video padding attribution
+
+Authenticated public-peer handshake observations advertise realtime datagrams
+and rekeying, but not independent datagram flows, parallel ordered channels,
+or parallel reliable channels. This is consistent with the latest local SDK
+release tag, v0.11.39: that handshake predates all three capabilities. The
+current SDK already supports independent channels over ordered transports as
+well as QUIC; public peers without the negotiated capabilities cannot use
+them. These observations do not establish the sole cause of call latency or
+authorize changing public relay deployments.
+
+Endpoint-only RTP counters now distinguish video payload from padding probes
+and successful local admission from attempts. They retain no packet contents
+and add no network metadata. A 200-second control with real Opus/VP8, compact
+media, local source feedback, and a neutral 1024-kbit/s limiter excludes
+competing files. Its driver stays below 22.67 ms with no native, polling,
+authentication, or SDK runtime-counter failures. Both directions match all
+180 video-phase tone edges, but PCM peaks at 339.5/340.0 ms and native playout
+at 319/321 ms. Video sends 174/151 frames and protection pauses occur.
+At the first video sample, each source has emitted only one 771-byte encoded
+payload and nine padding packets totalling 2295 bytes. Audio's bandwidth
+estimate nevertheless falls from 160 kbit/s to about 80 kbit/s and actual
+Opus duration moves from 20 to 60 ms. File contention and a driver stall are
+not necessary for this observed startup deterioration.
+
+Source inspection identifies a separate RTCP isolation defect: WebRTC checks
+registered SSRCs for ordinary reports and TWCC, but applies REMB without
+checking its target list. Copying compound RTCP into the independent audio
+and video Calls can therefore apply video's bitrate allocation to audio.
+The shim now removes REMB blocks explicitly targeting other senders from
+each local copy. Mixed receiver reports, unknown application feedback, and
+empty REMB target lists retain their compatibility behaviour. Malformed
+compound framing is rejected atomically. Filtering occurs only at the
+authenticated endpoint, with no relay classification or priority.
+
+The regression uses real WebRTC packet builders/parsers and verifies compound
+reports, shared targets, unspecified targets, unknown feedback, truncation,
+and padding. Both fixture and production native libraries build; production
+exports remain the same 99 public media symbols with no test hooks.
+
+The matching 200-second repeat has a valid 13.64-ms maximum driver interval
+and complete tone delivery, but still peaks at 271.1/291.7 ms PCM and
+226/270 ms native playout. Foreign REMB counters remain zero throughout:
+the proven isolation defect did not cause this particular measured slowdown.
+Audio bandwidth still falls at video startup, and actual packet duration
+still increases. Differences between the two natural transport runs are
+not evidence that REMB filtering improved performance. The quality gate
+remains failed. Both runs stop their audio/file workers, policy, and three
+nodes and leave no fixture sockets.
+
+The subsequent full 360-second mixed run includes both 512-KiB files and
+has a valid 23.24-ms maximum driver interval. All 340 competing-phase tone
+edges match in each direction, with no quiet PCM frames or native/poll/auth
+errors. Video sends 404/425 frames and delivers 424/399, without sampled
+protection pauses. Both files have matching hashes and no missing chunks,
+arriving after approximately 328 seconds. Native playout remains below
+200 ms (187/196 ms), but decoded PCM peaks at 222.2/232.0 ms; the stricter
+quality gate therefore still fails. Foreign REMB counters again remain zero.
+All workers and nodes stop and no fixture sockets remain. The bounded blind
+FIFO trace covers only seconds 78.22 through 360.13, so it cannot attribute
+the initial video-start transient; a separate short trace is necessary for
+that question.
+
+The isolated 60-second startup trace covers the whole run, with a valid
+17.11-ms maximum driver interval. Before video, the blind FIFO observes about
+514 kbit/s per direction with 13.6/5.9-ms queue peaks. The first video second
+reaches approximately 810/814 kbit/s but queue peaks jump to 125.7/81.0 ms:
+average capacity alone does not rule out a substantial encrypted-packet burst.
+Audio bandwidth drops to about 84 kbit/s, actual Opus packets lengthen to
+40 ms, and one endpoint's playout estimate subsequently reaches 232 ms.
+Its video pauses at the 25-second sample. All 40 video-phase tone edges match
+per direction, but PCM peaks at 259.9/231.1 ms. Workers, policy, and three
+nodes stop with no fixture sockets. The trace retains packet sizes and timing
+only and cannot itself distinguish TLS/control traffic from padded media.
+
+Reducing fixed video transport headroom to 25 percent does not eliminate that
+startup spike or the early pause; the candidate is reverted. A private
+synthetic-video comparison then creates the stream before timing, explicitly
+holds it paused during the measured audio-only phase, and resumes at second
+20. Both sources remain at five pre-timing frames throughout the hold.
+The resume-second queue peaks are 49.4/30.5 ms, audio's initial 160-kbit/s
+estimate and 20-ms packet duration survive the immediate resume, and no video
+protection pause occurs. Nevertheless one PCM peak reaches 250.3 ms later:
+this is an attribution experiment, not a quality pass or a proposal to start
+cameras before the user requests them. An earlier comparison failed to hold
+video paused and is excluded from the startup-isolation conclusion.
+
+WebRTC's default initial video probes run at three and six times the selected
+start rate. A candidate gives only video Calls one initial probe at the
+selected rate, retaining ordinary feedback and later probing. The audio Call
+keeps its original initial probes. In the matching cold-start 60-second test,
+video padding at the first sampled second falls from 2295 to 1020 bytes;
+additional probing brings it to 1785 bytes the next second. The driver stays
+within 14.12 ms, both directions match all 40 competing-phase tone edges,
+there are no native interruptions or sampled video pauses, and video sends
+38/39 frames. However the initial FIFO still peaks at 110.4/80.3 ms and PCM
+at 229.6/221.8 ms. The startup burst is reduced, not eliminated; longer mixed
+and physical-route qualification are still necessary. All short comparison
+workers and nodes exit with no fixture sockets.
+
+The candidate's full 360-second mixed run delivers all 340 competing-phase
+tone edges per direction with no quiet PCM frames, native interruptions,
+native/poll/auth errors, or missing file chunks. Both full 512-KiB files have
+matching hashes after approximately 282/284 seconds. Video sends 1122/310
+frames and delivers 305/1078, but sampled protection pauses occur again.
+PCM peaks at 251.9/250.9 ms and native mixed-phase playout at 219/221 ms.
+The driver also stalls for 49.27 ms at second 79.52, invalidating the strict
+40-ms scheduling gate; the first video pauses at seconds 25/28 precede that
+stall. No complete performance improvement or qualification is claimed.
+All fixture workers, policy, and nodes stop and leave no fixture sockets.
+
+The existing real WebRTC call-plane smoke passes on the candidate library,
+including independent/legacy TWCC, direct and group audio while both video
+queues are held, sparse encoding and preview, pause/resume, and teardown.
+The final production build retains the identical 99 public media exports and
+contains no test hooks.
+
+An unrestricted 100-second relay control confirms that the candidate still
+reaches the full requested 900-kbit/s, 15-fps profile on both endpoints. Video
+sends 1049/1048 frames with no sampled protection pauses, and all 80
+video-phase tone edges match per direction with PCM peaks of 51.5/51.7 ms.
+This is a profile-growth regression check, not a complete mixed gate: a
+45.36-ms driver stall exceeds the scheduling limit and each file still lacks
+11 chunks when the finite run ends. Native/poll/auth errors remain zero,
+all workers and nodes stop, and no fixture sockets remain. SDK commit
+c40bba09 retains the video-only initial-probe change, REMB isolation, and
+endpoint-only video RTP counters; no push or release is made.
+
+The Android production rebuild also exposed a build isolation defect: the
+copied WebRTC compile command retained its original dependency-file path,
+attempting to modify the cached build even when compiling a temporary object.
+SDK commit 87cf81ef retargets that dependency file beside the temporary object
+in both native build scripts. The Android build succeeds with its WebRTC
+cache mounted read-only and exports the same 99 public media symbols, no
+test hooks, and four JNI symbols. The dedicated build VM is stopped and the
+previous Docker context is preserved.
+
+The matching production-native diagnostic APK, 0.13.84+2575, is installed
+with the existing signing certificate and without clearing phone data. A
+private macOS stand app receives the matching native library; its Dart code
+and Rust transport remain unchanged. The regular macOS application and its
+profile are not replaced.
+
+The physical call rings in 1.12 seconds, but this is not a 140-second active
+call measurement: the worker polls for 139.96 seconds while usable media
+statistics cover only about eight seconds. The phone's call disappears by
+the 8.66-second sample and the Mac's by 10.67 seconds. Only four Mac and three
+phone samples contain native audio statistics. Actual media uses relay in
+those samples. Mac playout reaches 1166 ms and video protection pauses by
+6.54 seconds; phone playout reaches 225 ms. Video padding is 1020 bytes on
+Mac, and no foreign REMB is observed. This short window does not qualify
+physical quality or establish the reason the call ended. Following the
+user's report that the call occurred at an inconvenient time, further phone
+calls are deferred; log analysis and local fixtures can continue. The owned
+Mac and phone app processes are absent and the owned ADB forward is removed,
+verified independently after resuming work.
