@@ -13947,3 +13947,104 @@ Audio/file workers, the policy process and all three nodes exit, with no fixture
 sockets remaining. The full media-priority objective is paused, not complete.
 The 25 existing network-flavor and debug-API gate/parameter tests pass with
 `TMPDIR=/private/tmp/`; the Python runner compiles and the diff check is clean.
+
+### Video protection retest after resuming (2026-10-12)
+
+The user resumes physical testing, then reports that video initially works,
+becomes intermittent and stops. The first natural-route Poco/Mac QA call
+rings after 2.53 seconds. Over approximately 138 seconds, observed native
+audio playout reaches 1448/1652 ms and interruption counters reach 9/7.
+Video sends only 3/2 frames; the first sampled protection pauses occur at
+6.37/4.11 seconds. Audio buffer growth and interruptions continue with video
+paused. These measurements reproduce the stop but do not establish a sole
+network or application cause. A connecting call's declared P2P transport is
+not evidence that a direct media session was established.
+
+The adapter fixes two policy defects. An applied one-fps target previously
+counted as a completed trial even when no new video frames were sent. Engines
+with frame counters now need at least two newly sent frames under the applied
+floor before repeated audio failures can pause video. Counters from earlier
+rungs, a paused sender or a replaced engine cannot satisfy a new trial. Older
+engines without frame counters retain the settings-based compatibility path.
+Separately, healthy measured playout can resume the one-fps probe despite
+RTT/jitter estimates that forbid increasing video quality. Recovery still
+requires twelve consecutive fresh healthy samples, measured playout below
+160 ms, no new audio drops or interruptions and no multi-second RTT outage;
+unknown measurements cannot earn recovery. The existing network thresholds
+and one-level upward/two-level downward ladder remain in force for growth.
+When fresh measured playout is healthy, network estimates alone also cannot
+immediately pause that minimum probe again; known buffer growth, new audio
+drops/interruptions and severe RTT still trigger protection. Regression
+coverage includes a 600-ms RTT, 100-ms jitter and 7% reported-loss route with
+healthy measured playout: video resumes at one fps, stays there without a
+false pause and cannot grow. Partial or missing receiver feedback retains
+the conservative fallback.
+Relays receive no media classifier or traffic priority.
+
+Both endpoints run diagnostic build 0.13.84+2574 with explicit production
+Dart selection, verified through `/health`. The Android update preserves the
+release signing certificate and user data. The Rust/native media binaries are
+unchanged from the preceding physical test, avoiding a codec/transport change
+in this comparison. The regular installed Mac app remains unchanged; only
+the private QA bundle is rebuilt.
+
+The repeat call rings after 2.27 seconds and samples approximately 139 seconds.
+The minimum trial sends 7/5 video frames; both endpoints are first sampled
+paused at 7.12 seconds. Observed audio playout still reaches 1212/1355 ms and
+interruption counters reach 11/4. This run does not verify recovery on a
+healthy public route: the audio measurements never establish sustained
+recovery at both ends. It also does not prove a quality improvement over the
+previous call, since the natural network path is not controlled.
+
+A third physical call explicitly mutes both microphones to isolate video
+from audio protection, then restores their original enabled states. Across
+approximately 139 seconds, each sender produces 136 frames and the receivers
+deliver 136/135 frames. No protection-pause sample occurs, but adaptation
+remains at about one fps and observed remote-frame gaps reach 2100/2843 ms.
+Video feedback RTT peaks at 1083/979 ms and jitter at 466/462 ms. This rules
+out a permanent local capture/decoder stop in that diagnostic, not a video
+quality pass or proof that the public route can carry full-rate video.
+All three physical workers verify their owned Mac and phone processes absent
+and their ADB forward removed. The 94 adapter, receive-activity, playout-
+feedback and source-pressure tests pass; focused Dart analysis reports no
+issues. The full media-priority objective remains active and unqualified.
+
+The final 2574 diagnostic APK includes the additional minimum-probe guard and
+is installed in place with the same verified release certificate. The final
+private Mac bundle has a newly compiled Dart kernel and a verified ad-hoc
+signature. The preceding physical samples predate that final guard; they do
+not qualify a final-build public-route recovery. An earlier controlled mixed
+run is intentionally interrupted to validate the complete policy instead;
+its audio/file workers, policy and three nodes exit, with no fixture sockets.
+That interrupted run is not a quality-gate result.
+
+The complete final policy then runs for 360 seconds over the neutral limited
+QUIC relay, with real Opus/VP8 and full competing 512-KiB files. All 340
+competing-phase tone edges per direction match, with no quiet PCM frames,
+native/poll/audio-thread/auth errors or duplicate file chunks. Both files
+arrive with matching hashes after approximately 270/316 seconds. Video sends
+319/298 frames and receivers deliver 291/314 frames; protection pauses
+repeatedly resume, rather than permanently latching. Local source feedback
+queues 360 reports per side with no skips.
+
+The strict gate still fails: competing-phase PCM peaks are 230.0/272.1 ms
+(p95 219.9/221.0), native playout peaks at 202/254 ms, and the driver reaches
+43.23 ms at 29.38 seconds, above its 40-ms validity limit. One 162-ms native
+interruption per side is already present before video starts and does not
+increase in the competing phase. The competing native peaks occur at 22/23
+seconds, before the largest driver stall; that stall cannot explain all the
+observed buffer growth. This is not a full audio-priority qualification or
+evidence of cellular improvement. Audio/file workers, policy and all three
+nodes exit, with no fixture sockets remaining.
+
+A final physical call on the completed 2574 policy rings after 2.76 seconds
+and is sampled for approximately 138 seconds. Both live media channels use
+relay. Video sends 4/13 frames; first sampled pauses occur at 18.33/16.31
+seconds. Audio playout still peaks at 1123/1115 ms and interruption counters
+reach 5/4. Both microphones are enabled. The adapter defects are addressed,
+but the reported public-route stop remains reproducible under genuine audio
+pressure; its underlying transport/receiver cause remains open. Cleanup
+again verifies owned Mac and phone processes absent and the owned forward
+removed. The final 94 focused tests and Dart analysis pass, both diagnostic
+builds compile, the compatible Android update preserves data, and the diff
+check is clean. No media-priority completion is claimed.
