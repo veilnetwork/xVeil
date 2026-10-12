@@ -137,6 +137,8 @@ class CallBitrateAdapter {
   int? _lastAudioTxDrops;
   int? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
+  int? _floorTrialLastFrames;
+  int _floorTrialFrames = 0;
   int? _curWindowMin;
   int? _prevWindowMin;
   int _windowFill = 0;
@@ -175,6 +177,8 @@ class CallBitrateAdapter {
   void invalidateAppliedState() {
     _appliedTarget = null;
     _appliedPause = null;
+    _floorTrialLastFrames = null;
+    _floorTrialFrames = 0;
   }
 
   /// Current RTT baseline (windowed min), or null before any RTT sample.
@@ -379,6 +383,7 @@ class CallBitrateAdapter {
       _mutedRecoveryStreak = 0;
     }
     final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
+    final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
     return onSample(
       videoSendExpected: videoProgress,
@@ -425,8 +430,38 @@ class CallBitrateAdapter {
       audioReceiveDelayMs: receiveDelay,
       missingAudioReceiverFeedback: !feedbackAvailable,
       audioInterrupted: audioInterrupted,
-      videoFloorApplied: _appliedTarget == target && _appliedPause != true,
+      videoFloorApplied:
+          _appliedTarget == target &&
+          _appliedPause != true &&
+          floorTrialMeasured,
     );
+  }
+
+  /// Applying a one-fps budget is not evidence that the encoder sent it.
+  /// Count only new frames under that applied budget, never frames from the
+  /// previous rung or engine. Older engines retain the settings-based trial.
+  bool _observeFloorTrial(Map<String, dynamic> stats, bool expected) {
+    if (!stats.containsKey('video_tx_frames')) return expected;
+    final value = stats['video_tx_frames'];
+    final count = value is num && value.isFinite && value >= 0
+        ? value.toInt()
+        : null;
+    final previous = _floorTrialLastFrames;
+    _floorTrialLastFrames = count;
+    if (!expected ||
+        !atFloor ||
+        _audioReserve ||
+        _appliedTarget != target ||
+        _appliedPause == true ||
+        stats['video_worker_stalled'] == 1 ||
+        count == null ||
+        previous == null ||
+        count < previous) {
+      _floorTrialFrames = 0;
+      return false;
+    }
+    _floorTrialFrames += count - previous;
+    return _floorTrialFrames >= 2;
   }
 
   bool _videoCanEarnRecovery(Map<String, dynamic> stats, bool expected) {
@@ -591,10 +626,26 @@ class CallBitrateAdapter {
         peerAudioDelayMs != null &&
         peerAudioDelayMs < 100;
     _startupGoodStreak = startupGood ? _startupGoodStreak + 1 : 0;
-    // Healthy audio may earn a sparse video probe despite a discarded
-    // secondary packet/report. Aggregate losses still forbid climbing the
-    // video ladder: ignoring them entirely regressed decoded PCM latency.
-    if (_audioReserve && audioGood && (audioTxDrops != null || !newDrops)) {
+    // A healthy measured playout can earn the one-fps probe even on a route
+    // whose RTT/jitter does not permit a larger video budget. Those network
+    // estimates still govern growth; they must not latch a video pause after
+    // both receivers recovered. Without actual playout measurements retain
+    // the older network-based recovery, including freshness/report checks.
+    final measuredPlayoutHealthy =
+        (requirePeerAudioPlayout || requireAudioReceivePlayout) &&
+        feedbackAvailable &&
+        !audioUnproven &&
+        !audioInterrupted &&
+        !newAudioDrops &&
+        playoutGood &&
+        receiveGood &&
+        (!requireAudioReceivePlayout ||
+            (audioReceiveDelayMs != null &&
+                audioReceiveDelayMs < playoutRecoverMs)) &&
+        rttMs < severeRttMs;
+    if (_audioReserve &&
+        (measuredPlayoutHealthy || audioGood) &&
+        (audioTxDrops != null || !newDrops)) {
       _audioRecoveryStreak++;
       if (_audioRecoveryStreak >= recoverAfter) {
         _releaseAudioHold();
@@ -609,7 +660,8 @@ class CallBitrateAdapter {
         peerPlayoutOutage ||
         audioInterrupted ||
         newAudioDrops ||
-        (sendAudioExpected &&
+        (!measuredPlayoutHealthy &&
+            sendAudioExpected &&
             (anyAudioFeedbackAvailable ?? feedbackAvailable) &&
             (txLossPct >= 5 || txJitterMs >= 80 || rttMs >= severeRttMs));
     _severeStreak = atFloor && videoFloorApplied && measuredAudioFailure
