@@ -14752,3 +14752,74 @@ remain closed and the regular installation is untouched. The next concrete
 attribution target is the delivery path after SDK admission and before native
 receiver ingress, including the first competing-producer burst. No relay role,
 priority, mailbox or wire-format change is introduced by this cycle.
+
+
+### 2026-10-12 record residence, source queues and TCP progress
+
+The next diagnostic cycle adds cumulative local high-water marks for ordered
+record admission-to-writer residence, write/flush attempts and incoming record
+residence. Expiry and receive eviction remain unchanged. A real bounded duplex
+regression holds two records and an incoming record for 40 ms, verifies exact
+bytes, budget return and continued channel service. The counters include live
+write/incoming ages and survive completion. They do not measure TCP delivery
+or records still queued when the entire connection is closed.
+
+Additional opt-in counters measure native primary admission-to-IPC age and
+session outbox-to-transport age. The native counter is private Rust state;
+the exported 13-u64 media-channel C ABI is unchanged. A canonical-fallback
+counter checks live authenticated independent ingress witnesses and forces a
+log on the first occurrence. Generic TCP diagnostics sample kernel backlog
+and RTT after successful flushes, at most once per 5 ms per connection, and
+log cumulative maxima at most once per second. They use the existing kernel
+snapshot ABI, read no payload or addresses, and change no socket option. A
+real TCP regression checks exact bytes and preserved TCP_NODELAY. No relay
+traffic role, priority, wire metadata or scheduling change is introduced.
+
+Separate 90-second blind 1024-kbit/s screen/audio/full-512-KiB-file diagnostics
+preserve the established strict quality gates. These short runs intentionally
+leave files unfinished and cannot qualify full delivery. Ordered record
+residence maxima remain below 1.3 ms in the first source-queue runs. Native
+primary-to-IPC peaks at 2.047 ms; the later session outbox-to-transport maxima
+are 1.160/1.656/0.528 ms for the observed local slots. No authenticated independent
+ingress is observed falling back to the canonical stream. Synthetic RTP flight
+still peaks around 255–292 ms in those runs, with receiver native drain below
+2 ms. This narrows attribution but does not prove a particular relay or kernel
+queue is responsible. The measurements are on one host, not phone one-way
+latency or a physical call quality result.
+
+The following successful-flush kernel diagnostic reports MSS 1200, cumulative
+RTT maximum 2 ms, queued bytes at most 3029 and zero retransmitted bytes. Its
+valid driver maximum is 16.17 ms. Competing-phase audio packet flight peaks at
+163.413/175.319 ms and decoded PCM at 261.9/242.0 ms, still failing the unchanged
+200-ms quality limits. The blind shaper measures up to 59.630 ms from each read
+to drain and up to 5047 already-buffered unread bytes; this does not measure
+time before a shaper read. Variation between runs prevents assigning all
+latency to a single measured interval.
+
+A tested candidate reduces only outgoing ordered record payloads from 1200
+to 924 bytes, retaining the legacy 1200-byte receive cap. Including the real
+obfs4 cipher, framing and maximum random padding, the smaller record fits
+within 1200 wire bytes. Its interoperability and cipher regression plus all
+149 transport and 512 session tests pass (6 session tests ignored). However,
+the identical 90-second mixed diagnostic has packet-flight peaks of
+272.540/299.218 ms and decoded PCM peaks of 382.1/352.7 ms, with a valid 15.20-ms
+driver maximum. No tone edge is missing and there are no quiet PCM frames or
+interruptions. The candidate provides no demonstrated audio improvement;
+all size changes and candidate-only tests are reverted. Its source and private
+measurements are retained for audit. SDK 220816f2 retains diagnostics only,
+with 147 restored transport and 512 restored session tests passing (6 session
+tests ignored). Full audio priority remains
+unqualified; the next target is residence before blind shaper reads and the
+initial competing-producer burst, without giving relays traffic priorities.
+
+Every diagnostic stops its audio, file and policy workers and all three nodes.
+The last comparison returns three successful node-stop codes, leaves no
+sockets, and independent process checks find no owned fixture workers or Mac
+apps. ADB continues to list no devices despite the reconnect report, so no
+phone call or installation occurs during this cycle. The regular Mac app and
+phone data remain untouched.
+
+Strict Clippy does not pass: existing manual Default in ordered_lanes, the
+existing ParallelChannels enum size imbalance, and two nested conditions in
+reliable_streams are reported. These unrelated implementations are not changed
+by this diagnostic cycle; this is not a clean Clippy result.
