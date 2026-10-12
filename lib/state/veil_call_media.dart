@@ -1669,6 +1669,8 @@ class VeilCallMediaController implements CallMediaController {
             audioInterrupted: audioInterrupted,
             receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
+            peerCurrentAudioDelayMs: _peerAudioPlayout.currentDelayMs(now),
+            peerAudioSampleSequence: _peerAudioPlayout.sampleSequence,
             requirePeerAudioPlayout:
                 call.media.audio &&
                 (call.peerProtocolVersion ?? 1) >=
