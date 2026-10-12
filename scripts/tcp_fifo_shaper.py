@@ -28,6 +28,48 @@ def kernel_unread_bytes(sock):
         return None
 
 
+class ReaderArrivalTrace:
+    """Track byte-count segments at asyncio delivery, without retaining data.
+
+    Existing buffered bytes have an unknown arrival, rather than an invented
+    timestamp. Installation and consumption run on the reader's event loop.
+    This observes the proxy, not a sender timestamp or a TCP packet boundary.
+    """
+    def __init__(self, reader):
+        self.segments = collections.deque()
+        if reader._buffer:
+            self.segments.append([None, len(reader._buffer)])
+        original_feed = reader.feed_data
+
+        def feed_data(data):
+            if data:
+                self.segments.append([time.monotonic(), len(data)])
+            original_feed(data)
+
+        reader.feed_data = feed_data
+
+    def consume(self, size):
+        known = []
+        unknown = 0
+        remaining = size
+        while remaining:
+            if not self.segments:
+                raise ValueError('Reader arrival accounting mismatch')
+            segment = self.segments[0]
+            used = min(remaining, segment[1])
+            if segment[0] is None:
+                unknown += used
+            else:
+                known.append(segment[0])
+            remaining -= used
+            segment[1] -= used
+            if not segment[1]:
+                self.segments.popleft()
+        return dict(oldest_byte_arrived_at=min(known) if known else None,
+                    newest_byte_arrived_at=max(known) if known else None,
+                    reader_arrival_unknown_bytes=unknown)
+
+
 class TcpShaper:
     def __init__(self, targets, max_queue_ms=200, trace=False):
         self.targets = targets
@@ -135,8 +177,10 @@ class TcpShaper:
                         endpoint.transport.abort()
 
     async def _pump(self, reader, writer, direction, link, connection, source_socket):
+        arrivals = ReaderArrivalTrace(reader) if self.trace_rows is not None else None
         while data := await reader.read(1280):
             read_at = time.monotonic() if self.trace_rows is not None else None
+            arrival = arrivals.consume(len(data)) if arrivals is not None else None
             # asyncio exposes no public unread-byte count. This is opt-in
             # fixture instrumentation, never an admission/scheduling input.
             reader_buffer_bytes = (len(reader._buffer)
@@ -170,6 +214,7 @@ class TcpShaper:
                                kernel_reader_bytes=kernel_reader_bytes,
                                bytes=len(data), pending=self._pending[direction],
                                ready=ready, queue_ms=queue_ms)
+                    row.update(arrival)
                     self.trace_rows.append(row)
                     self.trace_events += 1
                 self._pending[direction] += 1

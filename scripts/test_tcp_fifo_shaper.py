@@ -1,4 +1,5 @@
 """Real socket checks for aggregate shaping, byte integrity, EOF and shutdown."""
+import asyncio
 import collections
 import concurrent.futures
 import os
@@ -7,10 +8,29 @@ import threading
 import time
 import unittest
 
-from tcp_fifo_shaper import TcpShaper
+from tcp_fifo_shaper import ReaderArrivalTrace, TcpShaper
 
 
 class TcpShaperTest(unittest.TestCase):
+    def test_existing_buffer_is_unknown_and_partial_reads_preserve_arrival_segments(self):
+        async def exercise():
+            reader = asyncio.StreamReader(limit=4096)
+            reader.feed_data(b'old')
+            trace = ReaderArrivalTrace(reader)
+            reader.feed_data(b'new-data')
+            first = await reader.read(5)
+            observed = trace.consume(len(first))
+            self.assertEqual(first, b'oldne')
+            self.assertEqual(observed['reader_arrival_unknown_bytes'], 3)
+            self.assertIsNotNone(observed['oldest_byte_arrived_at'])
+            second = await reader.read(6)
+            rest = trace.consume(len(second))
+            self.assertEqual(second, b'w-data')
+            self.assertEqual(rest['reader_arrival_unknown_bytes'], 0)
+            self.assertEqual(rest['oldest_byte_arrived_at'], observed['oldest_byte_arrived_at'])
+            self.assertEqual(len(trace.segments), 0)
+        asyncio.run(exercise())
+
     def test_competing_connections_share_rate_and_preserve_bytes(self):
         listener = socket.socket()
         listener.bind(('127.0.0.1', 0))
@@ -77,12 +97,20 @@ class TcpShaperTest(unittest.TestCase):
                     'at', 'direction', 'link', 'bytes', 'pending', 'ready',
                     'queue_ms', 'sent_at', 'release_lateness_ms', 'connection',
                     'read_at', 'reader_buffer_bytes', 'write_at',
-                    'writer_buffer_bytes', 'kernel_reader_bytes'})
+                    'writer_buffer_bytes', 'kernel_reader_bytes',
+                    'oldest_byte_arrived_at', 'newest_byte_arrived_at',
+                    'reader_arrival_unknown_bytes'})
                 self.assertLessEqual(row['read_at'], row['at'])
                 self.assertLessEqual(row['ready'], row['write_at'])
                 self.assertLessEqual(row['write_at'], row['sent_at'])
                 self.assertGreaterEqual(row['reader_buffer_bytes'], 0)
                 self.assertGreaterEqual(row['writer_buffer_bytes'], 0)
+                self.assertGreaterEqual(row['reader_arrival_unknown_bytes'], 0)
+                self.assertLessEqual(row['reader_arrival_unknown_bytes'], row['bytes'])
+                if row['oldest_byte_arrived_at'] is not None:
+                    self.assertLessEqual(row['oldest_byte_arrived_at'],
+                                         row['newest_byte_arrived_at'])
+                    self.assertLessEqual(row['newest_byte_arrived_at'], row['read_at'])
                 by_direction[row['direction']].append(row)
             self.assertEqual(len({row['connection'] for row in shaper.trace_rows}), 2)
             for rows in by_direction.values():
