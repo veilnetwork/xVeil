@@ -528,7 +528,11 @@ class CallService {
         _current?.peer == c.peer &&
         _current?.status == CallStatus.active;
     try {
-      if (!await _localAllowsP2P(c.peer) || !stillCurrent()) return;
+      if (!await _localAllowsP2P(c.peer) ||
+          !stillCurrent() ||
+          !_lateP2PConsent) {
+        return;
+      }
       if (!_lateP2PLocalReady) {
         if (_lateP2PAttempted ||
             !await _peerReachableWithoutBlockingSignal(c.peer) ||
@@ -538,7 +542,9 @@ class CallService {
       }
       // Admission can disappear between heartbeats while we await the peer.
       // Withdraw local readiness before announcing or opening a stale route.
-      if (!await media.isDirectPeerAdmitted(c) || !stillCurrent()) {
+      if (!await media.isDirectPeerAdmitted(c) ||
+          !stillCurrent() ||
+          !_lateP2PConsent) {
         _lateP2PLocalReady = false;
         return;
       }
@@ -981,6 +987,12 @@ class CallService {
       CallSignal(
         callId: cur.callId,
         type: CallSignalType.health,
+        transport: cur.status == CallStatus.active && cur.transport != null
+            ? CallTransportProposal(cur.transport!)
+            : null,
+        p2pUpgradeAllowed: cur.status == CallStatus.active
+            ? _lateP2PConsent
+            : null,
         capture: _localCapture(cur),
         audioPlayout: _media?.audioPlayoutFeedback,
         protocolVersion: _signalProtocolVersion,
@@ -1249,6 +1261,15 @@ class CallService {
             sig.transport != null) {
           _lastPeerRouteHealthAtMs = at;
           _lateP2PPeerActive = sig.transport!.kind == CallTransportKind.p2p;
+          if (_foldPeerRelaySettlement(live, sig)) {
+            if (_lateP2PBusy && _lateP2PAttempted) {
+              _pendingRelayCallId = sig.callId;
+              _pendingRelayPeer = peer;
+              _pendingRelayAtMs = at;
+            } else if (live.transport == CallTransportKind.p2p) {
+              unawaited(_followRelayFallback(peer, sig.callId));
+            }
+          }
         }
         // Liveness already refreshed above. A repair request is end-to-end
         // evidence that OUR outbound media is black-holed after its first hop.
@@ -1266,6 +1287,7 @@ class CallService {
             if (at <= _lastTransportInfoAtMs) break;
             _lastTransportInfoAtMs = at;
           }
+          _foldPeerRelaySettlement(routeCall!, sig);
         }
         final upgrade = _current;
         if (upgrade != null &&
@@ -1338,6 +1360,23 @@ class CallService {
       case CallSignalType.unknown:
         break;
     }
+  }
+
+  bool _foldPeerRelaySettlement(Call call, CallSignal signal) {
+    if (!call.isLive ||
+        call.localPosture != CallPosture.direct ||
+        call.peerPosture != CallPosture.direct ||
+        signal.transport?.kind != CallTransportKind.relay ||
+        signal.p2pUpgradeAllowed != false) {
+      return false;
+    }
+    // The peer has committed to relay, rather than merely rejected a trial.
+    // Its old readiness cannot authorize a later one-sided direct upgrade.
+    _lateP2PConsent = false;
+    _lateP2PPeerReady = false;
+    _lateP2PPeerActive = false;
+    _lateP2PLocalReady = false;
+    return true;
   }
 
   /// The peer's downlink cannot carry our video and is saying so.
@@ -1473,6 +1512,8 @@ class CallService {
         actual == CallTransportKind.relay &&
         cur.localPosture == CallPosture.direct &&
         cur.peerPosture == CallPosture.direct) {
+      _lateP2PConsent = false;
+      _lateP2PLocalReady = false;
       _set(cur.copyWith(transport: CallTransportKind.relay));
       await _announceRelayFallback(cur);
       return;
@@ -1536,14 +1577,20 @@ class CallService {
     }
     if (ok && media.activeTransport == CallTransportKind.relay) {
       _relayCandidateRetry = null;
-      _set(
-        cur.copyWith(
-          transport: CallTransportKind.relay,
-          status: cur.status == CallStatus.connecting
-              ? CallStatus.active
-              : cur.status,
-        ),
+      final settled = cur.copyWith(
+        transport: CallTransportKind.relay,
+        status: cur.status == CallStatus.connecting
+            ? CallStatus.active
+            : cur.status,
       );
+      _set(settled);
+      // The peer may still have a failed candidate queued for retry. Announce
+      // the settled route; periodic health repeats the withdrawal if lost.
+      try {
+        await _announceRelayFallback(settled);
+      } catch (error) {
+        devLog(() => 'xVeil[call-media]: relay settlement send failed: $error');
+      }
       return;
     }
     if (!ok &&
@@ -1607,14 +1654,6 @@ class CallService {
           'call=${call.callId}',
     );
     await _followRelayFallback(call.peer, call.callId);
-    final cur = _current;
-    if (!_disposed &&
-        cur?.callId == call.callId &&
-        cur?.peer == call.peer &&
-        cur?.status == CallStatus.active &&
-        cur?.transport == CallTransportKind.relay) {
-      await _announceRelayFallback(cur!);
-    }
   }
 
   bool _canCheckLostDirectSession(Call call) =>
@@ -1734,6 +1773,7 @@ class CallService {
       callId: call.callId,
       type: CallSignalType.transportInfo,
       transport: const CallTransportProposal(CallTransportKind.relay),
+      p2pUpgradeAllowed: _lateP2PConsent,
       protocolVersion: _signalProtocolVersion,
     ),
   );
@@ -2215,6 +2255,9 @@ class CallService {
             type: CallSignalType.health,
             transport: c.status == CallStatus.active && c.transport != null
                 ? CallTransportProposal(c.transport!)
+                : null,
+            p2pUpgradeAllowed: c.status == CallStatus.active
+                ? _lateP2PConsent
                 : null,
             mediaRepairRequested: receiveNeedsRepair,
             capture: _localCapture(c),
