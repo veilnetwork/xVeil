@@ -14241,3 +14241,85 @@ codec/adapter/ordered-channel path, not physical cellular quality or the
 limited mixed-file gate. Both TCP comparisons and the obfs4 comparison stop
 their workers, policy, and three nodes and leave no fixture sockets. No
 further phone calls are initiated during this cycle.
+
+### 2026-10-12 Opus feedback floor and screen producer qualification
+
+A real Opus/ANA regression reproduces the startup codec-target violation:
+with maxptime 40 ms and a 6000-bps gross allocation, the first feedback
+transition leaves the codec at 6000 bps. The previous regression checked
+only settled allocations. ANA can apply its bitrate before receiving the
+uplink estimate needed to choose a longer packet; loss, RTT, and overhead
+updates also rerun those bitrate decisions. The bounded encoder now clamps
+the actual payload target to 16–32 kbit/s after each such update and after
+reset/adaptor initialization. It does not alter ANA metrics, packet duration,
+timestamps, transport allocation, or relay scheduling.
+
+The regression checks every allocation, RTT, packet-loss and overhead update,
+and every encoding block against the real Opus target, as well as comparing
+the emitted Opus packet duration with the published duration. It fails before
+the fix and passes afterward for maxptime 20, 40 and 60 ms. The production
+macOS library builds with the identical 99 public media exports and no test
+hooks. The installed phone is not updated with this new change during the
+no-call work cycle; no physical quality improvement is claimed.
+
+Before that fix, the unrestricted 360-second obfs4-TCP mixed-file comparison
+matches all 340 video-phase tone edges per direction with PCM peaks of
+70.5/71.0 ms and no interruptions, quiet frames, or video protection pauses.
+Both full 512-KiB files arrive with matching hashes after about 83.34 seconds.
+Independent media sends and codec bounds are verified. Its strict gate still
+fails because the driver reaches 46.03 ms. All workers and nodes exit with no
+fixture sockets; the scheduling threshold is not relaxed.
+
+The fixture now also supports `--screen-video`, selecting the SDK's separate
+screen producer and a separate local IPC sender before synthetic VP8 starts.
+The independent-send gate requires both endpoints' audio slot and screen
+slot instead of the camera slot. This tests screen media routing with no
+desktop capture, microphone, or speaker; summary metadata explicitly
+distinguishes synthetic screen routing from actual screen capture.
+
+With the fixed encoder, a full unrestricted 180-second screen/audio/file
+comparison passes all gates. The driver remains below 14.86 ms, all 160
+competing-phase tone edges match per direction, PCM peaks at 62.2/62.4 ms,
+and native playout remains at 46 ms. Both 512-KiB files have matching hashes
+and no missing chunks after approximately 83.37/83.35 seconds. Independent
+audio and screen sends are observed from both endpoints; video sends
+2250/2249 frames and delivers 2248/2248, with no sampled protection pauses,
+audio interruptions, quiet frames, or codec-target violations. All workers,
+policy and three nodes stop and no fixture sockets remain.
+
+The TCP fixture now has its own blind aggregate FIFO limiter, allowing the
+same capacity to be shared across parent and auxiliary connections. It
+reserves bytes in arrival order per direction, retains stream contents under
+pressure, and propagates backpressure through small reads and bounded write
+buffers. Its optional trace stores timing and sizes only. Real socket tests
+verify a shared rate across competing streams, exact byte delivery, half
+close, and idle-connection shutdown. The first shutdown test exposed an
+asyncio ordering issue: waiting for server closure before cancelling accepted
+clients can wait indefinitely. The cleanup order is corrected and both
+socket tests pass. This supersedes the earlier TCP shaping rejection: TCP
+controls can now use `--rate-kbps` and `--shaper-trace` without pretending to
+use the UDP limiter.
+
+The subsequent 360-second screen/audio/file comparison uses one blind
+1024-kbit/s aggregate TCP budget per direction. Independent audio/screen
+sends, authenticated offers, codec bounds, and the neutral relay route are
+verified. Both full 512-KiB files arrive with matching hashes and no missing
+chunks after approximately 261.32/258.09 seconds. All 340 competing-phase
+tone edges match per direction, without quiet frames, audio interruptions,
+native/poll/auth errors, asynchronous file failures, or shaper failures.
+Nevertheless the quality gate fails: PCM peaks at 400.4/360.6 ms and native
+playout at 372/297 ms, with sampled video protection pauses. The driver also
+has a 44.88-ms interval at second 50.958; the initial pauses around second
+24 precede that interval.
+
+The limiter's admitted queues peak at 58.63/47.59 ms and discard no bytes.
+These counters do not include queues before/after the proxy, TCP kernel
+buffers, or codec/pacer delay and are not an end-to-end latency estimate.
+At video startup, audio bandwidth falls from 160 kbit/s to about 72–74 kbit/s,
+actual packets lengthen from 20 to 40/60 ms, and receiver playout targets
+rise to 320/280 ms. The source later returns to shorter packets while the
+receiver target takes additional seconds to recover. This motivates
+correlating actual RTP delivery timing with receiver delay decisions; it
+does not prove a NetEq defect or justify blindly capping/dropping voice.
+The SDK fix is committed as a55ad22e. All workers, policy and nodes exit;
+no fixture sockets remain. No phone calls, push, or release are made.
