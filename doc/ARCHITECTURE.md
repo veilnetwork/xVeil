@@ -14481,3 +14481,55 @@ That worker launched neither app nor call. Final 2579 installation and
 physical media/control comparison remain pending; no quality improvement is
 claimed from these unit results. The owned Mac process and ADB forward are
 independently absent. The regular installed Mac application is unchanged.
+
+#### Settled relay withdrawal and asymmetric trial: cycle 2580
+
+The physical 2579 call rings in 1.17 seconds and yields 70 observations over
+139.88 seconds. Mac briefly activates P2P, then follows Poco's rejected direct
+candidate back to relay; Poco later retries and activates P2P alone. Mac's
+settled fallback has withdrawn its upgrade consent, but its peer still uses
+old readiness. Incoming phone health increases from four in 2577 to sixteen;
+this improves control delivery, not media qualification. Both endpoints stop
+video after five transmitted frames; native audio delay peaks at 1171/1142 ms
+and interruption durations total 3819/4286 ms. Both owned apps and the ADB
+forward are independently absent after the test.
+
+Encrypted endpoint control now distinguishes a failed candidate from a
+settled relay withdrawal using optional boolean `pu`. A rejected trial keeps
+permission; a settled fallback announces false and repeats it in active
+health. A matching, dated relay beat can therefore recover a dropped final
+announcement. Withdrawal is irreversible within this call: old or newer P2P
+readiness cannot re-authorize the other endpoint's unilateral retry. A
+withdrawal arriving during native qualification waits for that operation
+before restoring relay. Async admission also rechecks local consent. Older
+peers omit/ignore the additive field; convergence requires updated endpoints.
+There is no native ABI, relay priority/classification or mailbox change.
+
+A regression exchanges encoded signals between two CallService instances,
+allows only one native trial to succeed, drops the settled announcement and
+delivers its next heartbeat. Both endpoints stay on relay. Disabling the
+withdrawal handler makes the failed peer retry P2P twice and fails the test.
+Additional coverage checks withdrawal during an in-flight candidate and
+strict boolean/legacy-absence decoding. All 271 call-service, realtime-control
+and endpoint tests pass; targeted production static analysis is clean.
+
+Qualified production native libraries remain unchanged in private Mac and
+Android 0.13.84+2580; code-directory hashes match and Android signer matches
+with install-r. The first physical attempt fails during contact acceptance
+before placing a call. The retry explicitly prepares both local test contacts
+through the authorized API and therefore does not qualify request/acceptance
+delivery. It rings in 5.87 seconds and observes 139.76 seconds. Both native
+initial direct opens fail as not active, then both use relay without native
+handovers. This run does not reproduce the asymmetric trial, so its absence
+of a split is not physical proof of the settlement fix. Both video sources
+pause at 6/5 transmitted frames; audio delay peaks at 1613/1680 ms and
+interruption durations total 7731/11893 ms. Both owned processes and the
+forward are independently absent afterward. Regular Mac installation is
+untouched. Call quality remains unqualified.
+
+The repeat also exposes a distinct Dart policy defect: after the phone's
+physical address answers, the caller rebinds `Call.peer` to that device, while
+the accepted contact remains the stable identity. Late P2P policy checks use
+the physical address, log known=false/accepted=false and deny every retry.
+The media route must remain device-bound, but policy and endpoint lookup
+need the stable call identity. This is the next correction to validate.
