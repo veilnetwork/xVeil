@@ -63,7 +63,12 @@ class CallAudioSourcePressure {
     } else {
       _healthy = 0;
     }
-    return _pressured;
+    // A released hysteresis latch does not prove that the current sample is
+    // healthy. The node uses false to grow other producers' byte allowance;
+    // intermediate measurements must not authorize that growth. Keep the
+    // latch intact so a brief intermediate sample does not require another
+    // full recovery streak once measurements are good again.
+    return _pressured || !good;
   }
 
   void reset() {

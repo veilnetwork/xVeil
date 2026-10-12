@@ -42,6 +42,39 @@ void main() {
     recover(policy);
   });
 
+  test('recovered latch cannot authorize growth with intermediate playout', () {
+    for (final localDirection in [false, true]) {
+      final policy = CallAudioSourcePressure();
+      recover(policy);
+      for (final delay in [120, 126, 146, 159]) {
+        expect(
+          sample(
+            policy,
+            peer: localDirection ? 100 : delay,
+            local: localDirection ? delay : 100,
+          ),
+          isTrue,
+        );
+      }
+      // Intermediate measurements withhold growth without changing the
+      // existing 160-ms degradation latch or its 12-sample bad-path recovery.
+      expect(sample(policy), isFalse);
+      expect(sample(policy, peer: 160), isTrue);
+      recover(policy);
+    }
+  });
+
+  test('intermediate receive age cannot authorize growth after recovery', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy);
+    expect(sample(policy, age: 500), isTrue);
+    expect(sample(policy, age: 999), isTrue);
+    expect(sample(policy, age: 50), isFalse);
+    // Muted/legacy directions still do not require unused measurements.
+    expect(sample(policy, receive: false, local: null, age: null), isFalse);
+    expect(sample(policy, send: false, peer: null), isFalse);
+  });
+
   test(
     'standing delay throttles other bindings before the PCM budget is spent',
     () {
