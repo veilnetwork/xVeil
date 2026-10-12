@@ -14370,3 +14370,53 @@ one millisecond per stage, but relay-queue to endpoint receipt reaches
 as a complete transport-delay bound or weakening video protection blindly.
 All four diagnostics stop their workers, policy and nodes and leave no
 fixture sockets. The user subsequently permits phone calls again.
+
+### 2026-10-12 physical P2P registration mismatch
+
+Production native libraries with the Opus floor fix are now installed on
+Poco in diagnostic APK 0.13.84+2576, with the matching existing certificate
+and without clearing data. The private Mac app uses the matching production
+library; the regular installed Mac app remains untouched. Android exports
+99 media symbols, four JNI symbols and no test hooks. The initial APK
+preparation omitted the opt-in debug hook, so no call was placed during that
+attempt. Rebuilding with the explicit hook define restores the authenticated
+local API. The dedicated builder VM is stopped afterward.
+
+A subsequent physical video call rings in 1.79 seconds and remains active
+for the 138.54-second observation window, with 68 media-stat samples over
+136.47 seconds per endpoint. The phone's default route is cellular. Media
+stays on relay with no route handovers. Both send four video frames; Mac
+receives four and Poco two. Video protection pauses by second 6.2. Native
+audio playout peaks at 794/1021 ms, and interruption counters finish at
+4/6 with durations 1081/2142 ms. Delay continues fluctuating after video is
+paused, so this does not establish a video-adapter-only failure or qualify
+speech quality. Both owned apps exit and the owned ADB forward is removed,
+verified independently.
+
+The endpoint logs expose a separate concrete P2P defect. Both transport node
+IDs differ from their contact identity IDs. Bootstrap dialing registers the
+key carried by the invite, but the application minted direct candidates from
+`stack.myInvite`, the shareable sovereign contact authority (with no matching
+transport PoW nonce). It then tries to punch the declared physical device.
+The SDK checks its peer registry by that exact device ID and returns
+`UnknownPeer`. The physical logs contain authenticated device-to-identity
+evidence for both counterparts, yet repeatedly report this outcome. The
+existing unit punch mock could succeed for the declared ID without checking
+what bootstrap join had actually registered, so it missed the mismatch.
+
+P2P candidates now use the running node's actual bootstrap invite and nonce,
+and minting verifies that it names the local transport node. The contact
+invite continues to supply the contact identity. A candidate naming a contact
+device is dialed only when authenticated inbound evidence already binds
+that device to the contact; an untrusted declared-device field alone cannot
+authorize it. Legacy identity-key candidates retain their existing pin.
+Admission polling uses the actual dialed transport node. Relay payload roles,
+scheduling and protocol metadata are unchanged.
+
+The new exchange regression registers exactly the node ID inside the joined
+invite and refuses a punch for any other ID. Restoring the old identity-key
+minting makes it fail; the corrected path succeeds and selects the physical
+device route. Additional regressions reject an unproven transport-key claim
+and a local invite naming another node. All 64 endpoint tests pass. Physical
+validation of this Dart change follows in build 2577; the earlier 2576 call
+does not contain it and is not evidence of improvement.

@@ -29,6 +29,10 @@ BootstrapInvite _identity() => BootstrapInvite(
 
 class _FakeMessaging implements MessagingService {
   final List<(NodeId, String)> sentEndpoints = [];
+  final Map<String, NodeId> verifiedDevices = {};
+
+  @override
+  NodeId? identityOfDevice(NodeId device) => verifiedDevices[device.hex];
 
   @override
   void Function(NodeId peer, String bodyJson)? onP2PEndpoints;
@@ -56,11 +60,14 @@ class _Harness {
     this.injectPunch = false,
     this.punchResult = (connected: false, reason: 'hole punch timed out'),
     this.admitOnJoin = false,
+    this.transportIdentity,
   }) : addresses = addresses ?? ['192.168.1.70', '10.0.0.5'] {
     svc; // force the late-final service (attaches onP2PEndpoints)
   }
 
   final _FakeMessaging messaging = _FakeMessaging();
+  final BootstrapInvite? transportIdentity;
+  final Set<String> registeredTransportPeers = {};
   bool allows;
 
   /// The per-contact messaging opt-in. Defaults to FALSE, matching the product
@@ -130,6 +137,7 @@ class _Harness {
     messagingAllowsP2P: (_) async => messagingAllows,
     joinEndpoint: (uri) async {
       joined.add(uri);
+      registeredTransportPeers.add(BootstrapInvite.parse(uri).nodeId.hex);
       if (admitOnJoin) admitted = true;
     },
     pnetStatus: (peer) async {
@@ -140,6 +148,9 @@ class _Harness {
       );
     },
     myIdentity: _identity,
+    myTransportIdentity: transportIdentity == null
+        ? null
+        : () async => transportIdentity!,
     listenPort: () => 9000,
     listenScheme: () => listenScheme,
     lanListenEnabled: () => lanListen,
@@ -173,6 +184,79 @@ class _Harness {
 }
 
 void main() {
+  test(
+    'transport-key exchange registers the physical hole-punch target',
+    () async {
+      final identity = _identity().nodeId;
+      final device = _peer(0x41);
+      final sender = _Harness(
+        transportIdentity: BootstrapInvite.parse(_inviteUri(0x41)),
+      )..selfNode = device;
+      final receiver = _Harness(injectPunch: true)..selfNode = _peer(0x51);
+      addTearDown(sender.svc.dispose);
+      addTearDown(receiver.svc.dispose);
+      receiver.messaging.verifiedDevices[device.hex] = identity;
+      receiver.punchHandler = (target) async {
+        final node = NodeId(target);
+        if (!receiver.registeredTransportPeers.contains(node.hex)) {
+          return (connected: false, reason: 'peer not yet exchanged');
+        }
+        receiver.admittedDevices.add(node.hex);
+        return (connected: true, reason: 'direct session up');
+      };
+      await sender.svc.maybeShare(_peer(0x51));
+      final body = sender.messaging.sentEndpoints.single.$2;
+      receiver.messaging.onP2PEndpoints!(identity, body);
+      await pumpEventQueue();
+      expect(
+        await receiver.svc.ensureReady(
+          identity,
+          budget: const Duration(milliseconds: 1),
+        ),
+        isTrue,
+      );
+      expect(receiver.registeredTransportPeers, contains(device.hex));
+      expect(receiver.registeredTransportPeers, isNot(contains(identity.hex)));
+      expect(receiver.svc.routeFor(identity), device);
+      final sent = jsonDecode(body) as Map;
+      for (final uri in sent['e'] as List) {
+        final invite = BootstrapInvite.parse(uri as String);
+        expect(invite.nodeId, device);
+        expect(invite.nonce, BootstrapInvite.parse(_inviteUri(0x41)).nonce);
+      }
+    },
+  );
+
+  test(
+    'declared device alone cannot authorize a transport-key candidate',
+    () async {
+      final h = _Harness(injectPunch: true);
+      addTearDown(h.svc.dispose);
+      h.messaging.onP2PEndpoints!(
+        _peer(0x71),
+        jsonEncode({
+          'v': 1,
+          'ts': 7,
+          'd': _peer(0x72).hex,
+          'e': [_inviteUri(0x72)],
+        }),
+      );
+      await pumpEventQueue();
+      expect(h.joined, isEmpty);
+      expect(h.svc.knownEndpoints(_peer(0x72)), isEmpty);
+    },
+  );
+
+  test('transport invite must name this running node before sharing', () async {
+    final h = _Harness(
+      transportIdentity: BootstrapInvite.parse(_inviteUri(0x41)),
+    )..selfNode = _peer(0x42);
+    addTearDown(h.svc.dispose);
+    await h.svc.maybeShare(_peer(1));
+    expect(h.messaging.sentEndpoints, isEmpty);
+  });
+
+
   // MY OWN MASTER, on the live leg. Measured on the clean two-device stand
   // (2026-09-22): with the master's device already known to the linked side,
   // every acknowledgement still went to the identity — which resolves to one

@@ -74,6 +74,7 @@ class P2PEndpointService {
     required this._joinEndpoint,
     required this._pnetStatus,
     required this._myIdentity,
+    Future<BootstrapInvite> Function()? myTransportIdentity,
     required this._listenPort,
     required this._listenScheme,
     required this._lanListenEnabled,
@@ -86,7 +87,9 @@ class P2PEndpointService {
     this._listenTransports,
     this._attemptHolePunch,
     DateTime Function()? now,
-  }) : _localAddresses = localAddresses ?? _defaultLocalAddresses,
+    // ignore: prefer_initializing_formals -- public parameter, private field.
+  }) : _myTransportIdentity = myTransportIdentity,
+       _localAddresses = localAddresses ?? _defaultLocalAddresses,
        _acceptedPeers = acceptedPeers ?? _noPeers,
        _ownDevices = ownDevices ?? _noPeers,
        _isOwnDevice = isOwnDevice ?? _notOwnDevice,
@@ -127,6 +130,9 @@ class P2PEndpointService {
   final Future<({bool admitted, bool hasCert})> Function(Uint8List peer)
   _pnetStatus;
   final BootstrapInvite Function() _myIdentity;
+  /// The actual network key and PoW nonce. The shareable contact invite may
+  /// instead name a sovereign authority with no transport key or nonce.
+  final Future<BootstrapInvite> Function()? _myTransportIdentity;
   final int Function() _listenPort;
   final String Function() _listenScheme;
   final bool Function() _lanListenEnabled;
@@ -847,7 +853,22 @@ class P2PEndpointService {
             }
           }
           final device = declared;
-          if (device != null && device != peer && device != me) {
+          final verifiedDevice =
+              device != null && _messaging.identityOfDevice(device) == peer;
+          // Old shares name the contact key. A new transport-key share must
+          // bind its declared device through authenticated inbound evidence;
+          // the untrusted `d` field alone cannot authorize a third-party dial.
+          final legacyIdentityCandidates = uris.every((uri) {
+            try {
+              return BootstrapInvite.parse(uri).nodeId == peer;
+            } catch (_) {
+              return false;
+            }
+          });
+          if (device != null &&
+              device != peer &&
+              device != me &&
+              (verifiedDevice || legacyIdentityCandidates)) {
             final prevDeviceTs = _peerEndpointTs[device.hex] ?? 0;
             if (ts > prevDeviceTs) {
               _peerEndpointTs[device.hex] = ts;
@@ -1004,9 +1025,9 @@ class P2PEndpointService {
   /// Single-flight per peer; each URI gets a short admitted-poll window (the
   /// node keeps re-dialing registered peers in the background afterwards).
   ///
-  /// Every candidate is bound to [peer] before it is joined: the invite's
-  /// `node_id` (BLAKE3 of its public key) MUST be the peer whose frame carried
-  /// it. Without that, an ACCEPTED contact — the only sender that reaches this
+  /// Every candidate is bound to [peer] or a device already authenticated as
+  /// belonging to that identity before it is joined. Without that, an ACCEPTED
+  /// contact — the only sender that reaches this
   /// path — could name a third party's identity/address and make us open a
   /// session with, and register, a node we never chose. The daemon's own join
   /// path already pins its issuer (`expected_issuer_pk`); this is the app-side
@@ -1046,7 +1067,17 @@ class P2PEndpointService {
       for (final uri in uris) {
         if (_disposed) return;
         if (await _admitted(peer)) return;
-        if (!_invitePresents(uri, peer, alsoAccepts: alsoAccepts)) continue;
+        NodeId target = peer;
+        try {
+          final presented = BootstrapInvite.parse(uri).nodeId;
+          if (_messaging.identityOfDevice(presented) == peer) {
+            target = presented;
+          }
+        } catch (_) {
+          // The existing invite pin below reports malformed candidates.
+        }
+        if (!_invitePresents(uri, target, alsoAccepts: alsoAccepts)) continue;
+        if (target != peer && await _admitted(target)) return;
         try {
           await _joinEndpoint(uri);
         } catch (e) {
@@ -1057,7 +1088,7 @@ class P2PEndpointService {
         // overwrites the stored transport (repeat joins refresh + re-dial).
         for (var i = 0; i < 4; i++) {
           await Future<void>.delayed(const Duration(milliseconds: 400));
-          if (await _admitted(peer)) {
+          if (await _admitted(target)) {
             devLog(() => 'xVeil[p2p]: direct session up with ${peer.short}');
             return;
           }
@@ -1111,7 +1142,23 @@ class P2PEndpointService {
     if (port <= 0) return const [];
     final scheme = _listenScheme();
     if (scheme != 'tcp' && scheme != 'quic') return const [];
-    final identity = _myIdentity();
+    final BootstrapInvite identity;
+    final transportIdentity = _myTransportIdentity;
+    if (transportIdentity == null) {
+      identity = _myIdentity(); // Legacy/test transport without its own key.
+    } else {
+      try {
+        identity = await transportIdentity();
+        final node = await _selfNode?.call();
+        if (node != null && identity.nodeId != node) {
+          devLog(() => 'xVeil[p2p]: transport invite names another node');
+          return const [];
+        }
+      } catch (_) {
+        devLog(() => 'xVeil[p2p]: transport invite unavailable');
+        return const [];
+      }
+    }
     final addrs = await _localAddresses();
     final srflx = await _srflxAddresses(
       port,
@@ -1235,6 +1282,8 @@ final p2pEndpointServiceProvider = Provider<P2PEndpointService?>((ref) {
     joinEndpoint: transport.joinP2PEndpoint,
     pnetStatus: transport.peerPnetStatus,
     myIdentity: () => stack.myInvite,
+    myTransportIdentity: () async =>
+        BootstrapInvite.parse(await transport.createInvite()),
     listenPort: () => stack.listenPort,
     listenScheme: () => stack.listenScheme,
     lanListenEnabled: () => stack.lanListen,
