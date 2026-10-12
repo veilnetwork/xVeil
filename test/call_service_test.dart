@@ -2778,12 +2778,20 @@ void main() {
       fakeAsync((async) {
         final fake = _FakeMessaging();
         final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+        final policyPeers = <NodeId>[];
+        final discoveryPeers = <NodeId>[];
         final svc = CallService(
           fake,
           media: media,
           now: () => clock.now(),
-          localAllowsP2P: (_) async => true,
-          peerReachableForP2P: (_) async => true,
+          localAllowsP2P: (node) async {
+            policyPeers.add(node);
+            return node == peer;
+          },
+          peerReachableForP2P: (node) async {
+            discoveryPeers.add(node);
+            return node == peer;
+          },
         )..start();
         final device = NodeId.fromHex('b' * 64);
         final stranger = NodeId.fromHex('c' * 64);
@@ -2815,6 +2823,8 @@ void main() {
         async.flushMicrotasks();
         expect(media.switches, [CallTransportKind.p2p]);
         expect(media.admissionChecks, everyElement(device));
+        expect(policyPeers, everyElement(peer));
+        expect(discoveryPeers, everyElement(peer));
         expect(svc.current?.peer, device);
         expect(svc.current?.transport, CallTransportKind.p2p);
         final readiness = fake.sentTo.where(
