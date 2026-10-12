@@ -14364,9 +14364,11 @@ a valid 16.85-ms driver maximum, complete tone delivery, PCM peaks of
 and ingress delivery remains below 0.883 ms. During the initial competing
 four seconds, observed proxy queues peak at 57.314 ms, unread asyncio data
 at 4407 bytes, writer buffers at zero and drain waits below 0.046 ms.
-Sparse sealed-cell traces put socket-write to relay-queue handling below
-one millisecond per stage, but relay-queue to endpoint receipt reaches
-234 ms. This narrows the investigation without treating proxy queue counters
+Sparse sealed-cell traces put local socket-write to daemon read and origin
+IPC enqueue below one millisecond per stage; origin enqueue to endpoint
+receipt reaches 234 ms. The `relay_queued` trace is an origin admission event,
+not a processing observation inside the intermediary relay. This narrows the
+investigation without treating proxy queue counters
 as a complete transport-delay bound or weakening video protection blindly.
 All four diagnostics stop their workers, policy and nodes and leave no
 fixture sockets. The user subsequently permits phone calls again.
@@ -14623,3 +14625,64 @@ configuration failure, not a call-quality measurement. Android APK native
 hashes and the existing installed signer match. ADB reports no devices, so
 build 2582 has not been installed on Poco and no updated physical call has
 been placed. No audio/video improvement is claimed from this cycle.
+
+### 2026-10-12 mixed-load attribution and rejected Darwin readiness experiment
+
+A new full 360-second screen/audio/file comparison uses the committed
+815a21dc SDK, qualified Opus-floor engine and one blind 1024-kbit/s obfs4-TCP
+aggregate budget per direction. Authenticated independent audio/screen
+channels and codec bounds are verified. Both 512-KiB files have matching
+hashes with no missing chunks, after 301.73/325.23 seconds. All 340 competing
+tone edges per direction match, with no quiet frames or audio interruptions.
+Nevertheless decoded PCM peaks reach 339.8/330.3 ms and native playout
+312/270 ms; video sends 311/610 frames with 91/58 sampled pauses. The driver
+reaches 46.31 ms at second 207.999. Native latency first crosses 200 ms at
+21.005/22.004 seconds and peaks at second 23, before that scheduling failure.
+The unchanged full quality gate fails.
+
+`scripts/analyze_relay_cell_timing.py` now attributes sparse endpoint cell
+observations without outputting cell IDs, addresses, keys or payloads. It
+requires same-process fixture metadata, refuses contradictory clocks and
+receiver ages, skips ambiguous fanout/duplicates and conflicting sizes, and
+keeps unavailable stages unknown. Daemon and SDK ages overlap: subtraction
+separates their stages instead of adding both ages. Four regressions cover
+these attribution and privacy boundaries. Sparse samples are explicitly not
+delivery-completeness or quality proof.
+
+The baseline has 706 unique sampled cells and no ambiguous cells. Origin
+pre-write to local socket-write peaks at 14 ms (p95 1 ms); socket-read,
+handler entry and enqueue each have p95 1 ms. Of 702 matched receive samples,
+origin enqueue to authenticated endpoint receipt peaks at 259 ms (p95 91 ms).
+Receiver IPC encode to authenticated receipt is below 0.996 ms, and SDK read
+to authenticated receipt below 0.266 ms. The delay is largely before receiver
+IPC encoding; this does not locate one specific relay or transport queue.
+
+An isolated Darwin socket probe finds that TCP_NOTSENT_LOWAT affects native
+poll readiness rather than rejecting successive send calls. A candidate
+checks native readiness before writes in plain TCP and obfs4, then clears
+Tokio's cached readiness when the kernel says to wait. It treats every
+connection equally, with no payload roles or scheduling privileges. A real
+Tokio stalled-reader regression fails with the check bypassed at 64800 queued
+bytes, then passes with the check and verifies complete byte delivery after
+reads resume. All 146 transport tests pass. A separate strict Clippy attempt
+finds two existing test/re-export style warnings; no complete lint pass is
+claimed for the discarded candidate.
+
+The identical full mixed comparison with the candidate has a valid 16.01-ms
+driver maximum. Both full files arrive with correct hashes and all 340 tones
+match per direction, without quiet frames or interruptions. But PCM peaks
+reach 372.6/340.5 ms, native playout 324/331 ms, and video sends 593/452 frames
+with 93/87 sampled pauses. Origin enqueue to receipt remains slow. The socket
+regression therefore does not establish better audio priority under combined
+load. All candidate transport changes and style cleanups are restored to
+815a21dc; the candidate source and measurements are retained only privately.
+The production Mac SDK is rebuilt from the restored source. No candidate is
+installed in either application.
+
+Both comparisons terminate their audio/file/policy workers and all three
+nodes, return successful stop codes, and leave no fixture sockets, verified
+independently. ADB still reports no Poco, so there is no physical call during
+this cycle. The next attribution target is the shared session queue and its
+behavior when one otherwise independent stream is blocked. Relay traffic
+classification, priority and mailbox behavior remain unchanged; physical
+quality and the complete audio-priority objective remain unqualified.
