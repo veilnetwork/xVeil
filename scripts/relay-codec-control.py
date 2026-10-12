@@ -14,6 +14,7 @@ import subprocess, threading, collections, math
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from udp_fifo_shaper import UdpShaper
 from tcp_fifo_shaper import TcpShaper
+from opaque_frame_capture import OpaqueFrameCapture
 import ctypes as C
 import json, os, socket, time, tomllib, traceback
 from pathlib import Path
@@ -25,9 +26,12 @@ parser.add_argument('--transport', choices=['quic', 'tcp', 'obfs4-tcp'], default
 parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per direction across all connections; 0 leaves transport unrestricted')
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
+parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
 parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a protobuf-enabled test-hook media library')
+parser.add_argument('--audio-overhead-bytes', type=int, default=209,
+                    help='Diagnostic framing estimate for adaptive Opus; default 209 retains production behavior')
 parser.add_argument('--compact-media', action='store_true', help='Use compact relay audio batching, as the current application does, instead of the legacy audio/video batch format')
 parser.add_argument('--duration', type=int, default=100)
 parser.add_argument('--feedback-interval-seconds', type=int, default=5,
@@ -49,6 +53,8 @@ if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
 if args.feedback_interval_seconds < 1:
     parser.error('Feedback interval must be at least one second')
+if not 1 <= args.audio_overhead_bytes <= 4096 or (not args.adaptive_audio and args.audio_overhead_bytes != 209):
+    parser.error('Audio overhead must be 1–4096 bytes and an override requires --adaptive-audio')
 if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_interval_seconds < 120:
     parser.error('Diagnostic routing refresh interval must be between 1 and 119 seconds')
 if args.file_bytes < 2048 or args.file_bytes % 2048:
@@ -157,6 +163,7 @@ audio_stop=threading.Event()
 audio_failure=[]
 source_feedback_queued=[0,0]
 source_feedback_skipped=[0,0]
+opaque_capture=None
 file_threads=[]
 file_stop=threading.Event()
 file_lock=threading.Lock()
@@ -392,7 +399,7 @@ try:
         assert batching(ch,2 if args.compact_media else 1)==0
     os.environ['VEIL_MEDIA_TEST_VIDEO']='1'
     for i,ch in enumerate(channels):
-        e=create(ch,ids[i],ids[1-i],209) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
+        e=create(ch,ids[i],ids[1-i],args.audio_overhead_bytes) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
         assert e;engines.append(e)
     policylog=(ROOT/'policy.err').open('w')
     policy=subprocess.Popen(['dart',str(policy_path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=policylog,text=True,bufsize=1,env=dict(os.environ,TMPDIR='/private/tmp/'))
@@ -447,6 +454,9 @@ try:
     audio_thread=threading.Thread(target=audio_loop,name='stand-pcm');audio_thread.start()
     for tick in range(args.duration*100):
         target=startat+tick*.01;time.sleep(max(0,target-time.monotonic()))
+        if args.opaque_frame_capture and tick==1800:
+            opaque_capture=OpaqueFrameCapture(ROOT, [identity['node_id'] for identity in identities])
+            opaque_capture.start()
         if tick%100==0:
             prepare=tick>=2000 and not videostarted
             for i,e in enumerate(engines):
@@ -504,14 +514,15 @@ try:
     result.update(stand_start_monotonic_us=round(startat*1_000_000),real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
     result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
     result['adaptive_audio'] = args.adaptive_audio
+    result['audio_overhead_bytes_override'] = args.audio_overhead_bytes if args.adaptive_audio else None
     result['compact_media'] = args.compact_media
     if args.adaptive_audio:
         result['adaptive_audio_verified'] = all(
             any(x['side'] == side and x['stats'].get('audio_packet_adaptation') == 1
-                and x['stats'].get('audio_packet_overhead_bytes') == 209 for x in samples)
+                and x['stats'].get('audio_packet_overhead_bytes') == args.audio_overhead_bytes for x in samples)
             for side in range(2)) and all(
             x['stats'].get('audio_packet_adaptation') == 1
-            and x['stats'].get('audio_packet_overhead_bytes') == 209
+            and x['stats'].get('audio_packet_overhead_bytes') == args.audio_overhead_bytes
             for x in samples)
         result['codec_target_bounds_verified'] = all(
             any(x['side'] == side and x['stats'].get('audio_tx_payload_pkts', 0) > 0 for x in samples)
@@ -608,6 +619,12 @@ finally:
     for thread in file_threads:thread.join(timeout=5)
     result['file_threads_exited']=all(not t.is_alive() for t in file_threads)
     result['ok']=result['ok'] and result['file_threads_exited']
+    if opaque_capture is not None:
+        opaque_capture.stop()
+        snapshot=opaque_capture.snapshot()
+        (ROOT/'opaque-frame-capture.json').write_text(json.dumps(snapshot))
+        result['opaque_frame_capture']={key:value for key,value in snapshot.items() if key!='rows'}
+        result['ok']=result['ok'] and snapshot['readers_exited'] and not snapshot['reader_errors'] and len(snapshot['ack_nodes'])==len(identities)
     if policy is not None:
         policy.stdin.close()
         try:policy.wait(timeout=5)
