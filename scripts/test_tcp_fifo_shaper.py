@@ -77,7 +77,7 @@ class TcpShaperTest(unittest.TestCase):
                     'at', 'direction', 'link', 'bytes', 'pending', 'ready',
                     'queue_ms', 'sent_at', 'release_lateness_ms', 'connection',
                     'read_at', 'reader_buffer_bytes', 'write_at',
-                    'writer_buffer_bytes'})
+                    'writer_buffer_bytes', 'kernel_reader_bytes'})
                 self.assertLessEqual(row['read_at'], row['at'])
                 self.assertLessEqual(row['ready'], row['write_at'])
                 self.assertLessEqual(row['write_at'], row['sent_at'])

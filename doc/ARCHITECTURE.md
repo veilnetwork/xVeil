@@ -14886,3 +14886,52 @@ All four diagnostics stop their policy/audio/file workers and return three
 successful node-stop codes, with zero remaining sockets. Owned app/worker
 process absence is independently verified. No phone call occurs; ADB remains
 empty. Audio priority and physical quality are still unqualified.
+
+### 2026-10-12 opaque one-hop observation and rejected framing estimate
+
+The optional stand collector now reads the existing admin capture streams of
+the three owned loopback nodes. It rejects plaintext, unknown identities and
+invalid directions before retaining only opaque preview hashes, lengths,
+timestamps and local node indices. Each stream is bounded to 4096 events;
+readers are stopped and joined before node shutdown. No raw previews,
+addresses or identity strings are saved. The analyzer rejects repeated preview
+matches and negative flight times. A missing capture is incomplete evidence,
+not packet loss. The 256-byte preview cannot prove full-body equality, and a
+one-hop match cannot traverse onion transformations. Capture-before-write to
+capture-at-dispatch includes queues, transport and receiver dispatch, rather
+than isolating relay processing or identifying a specific audio RTP packet.
+
+Two 45-second mixed diagnostics retain the blind 1024-kbit/s cap, real bounded
+Opus, screen VP8 and competing full-sized file producers. Driver maxima are
+14.87 and 13.53 ms. In the first run, uniquely matched opaque Forward frames
+have source-to-relay maxima of 195.014/232.508 ms and reverse-hop maxima of
+56.585/54.470 ms. In the second run these maxima are 156.705/218.302 ms and
+48.155/39.491 ms. All three capture commands acknowledge; both collectors
+exit without reader errors. Ambiguous preview groups are discarded. These
+observations locate substantial residence on the first hop, but do not yet
+prove the mechanism or correlate its largest frame to a particular RTP packet.
+
+Opt-in blind shaper traces additionally sample FIONREAD without consuming
+bytes or changing socket options. During the second run's initial competing
+burst, kernel unread bytes peak at 804, asyncio unread bytes at 4130, and
+read-to-drain residence at 59.361 ms. This does not support a large kernel
+receive backlog as the cause. Residence before a Python read remains possible;
+the trace does not yet map an individual RTP packet to a proxy connection.
+The shaper's admission, aggregate rate and FIFO rules remain unchanged.
+
+A third 45-second diagnostic tests the existing native audio framing estimate
+at 512 bytes instead of the production 209-byte default, using a stand-only
+argument. Opus selects 60-ms packets while the 16–32-kbit/s payload bounds
+remain verified. The driver maximum is 15.10 ms; audio-only PCM maxima are
+133.7/134.0 ms, but competing PCM reaches 232.7/223.5 ms and native playout
+204/186 ms. It fails the unchanged quality limits and is rejected as an app
+change. Production framing stays at 209 bytes; no native, SDK or app policy
+change is installed. Short partial file transfers do not qualify full delivery.
+
+Five capture/privacy/clock/reader-cleanup tests and the two real TCP FIFO
+tests pass. Every diagnostic returns three successful node-stop codes and
+zero remaining fixture sockets. Independent process checks find no owned
+stand apps or workers. ADB still lists no devices, so no physical call or
+installation occurs. Audio priority remains unqualified; the next measurement
+must relate endpoint packets to the first-hop residence without relay traffic
+classification or priority.
