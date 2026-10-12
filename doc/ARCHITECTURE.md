@@ -14205,3 +14205,39 @@ user's report that the call occurred at an inconvenient time, further phone
 calls are deferred; log analysis and local fixtures can continue. The owned
 Mac and phone app processes are absent and the owned ADB forward is removed,
 verified independently after resuming work.
+
+### 2026-10-12 ordered transport controls without phone calls
+
+`scripts/relay-codec-control.py` now accepts `--transport tcp` for the plain
+ordered fallback and `--transport obfs4-tcp` for authenticated independent
+ordered channels. QUIC remains the default. UDP shaping and its trace are
+explicitly rejected for either TCP transport rather than silently running
+an unrestricted comparison. Obfs4 uses a disposable private fixture PSK.
+The new gate requires authenticated channel offers and actual independent
+first sends for both endpoints' audio and video slots, in addition to the
+existing decoded PCM, scheduling, adapter, and cleanup gates. Plain TCP
+does not expose an auxiliary-stream handle and is not an independence proof.
+
+The first unrestricted 120-second plain TCP comparison passes: driver maximum
+15.81 ms, all 100 video-phase tone edges matched per direction, PCM peaks
+52.8/53.1 ms, native playout at most 42 ms, no interruptions, quiet frames,
+or video protection pauses. Both endpoints reach 900 kbit/s and 15 fps and
+deliver 1348 video frames. A second comparison also has complete tone
+delivery, PCM peaks 72.8/53.4 ms and no interruptions or pauses, but fails
+the codec-target gate: one startup sample at 0.016 seconds reports 6000 bps
+with one emitted audio payload, below the required 16000-bps minimum.
+This observation is retained rather than relaxing the gate. It is not
+evidence that this brief startup allocation causes the physical call delay.
+
+The matching 120-second obfs4-TCP comparison passes, with a 14.90-ms maximum
+driver interval. All four parent session offers expose authenticated ordered
+channels. Native first-send traces confirm independent sends on both audio
+and video slots from both endpoints. All 100 video-phase tone edges match
+per direction; decoded PCM peaks at 53.2/53.3 ms, native playout stays at
+42 ms, and there are no interruptions, quiet PCM frames, or sampled video
+protection pauses. Both endpoints reach 900 kbit/s and 15 fps; video sends
+1357/1348 and delivers 1348/1349 frames. This verifies the local unrestricted
+codec/adapter/ordered-channel path, not physical cellular quality or the
+limited mixed-file gate. Both TCP comparisons and the obfs4 comparison stop
+their workers, policy, and three nodes and leave no fixture sockets. No
+further phone calls are initiated during this cycle.

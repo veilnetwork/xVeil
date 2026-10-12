@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise real Opus/VP8 and the application's adapter over a neutral QUIC relay.
+"""Exercise real Opus/VP8 and the application's adapter over a neutral relay.
 
 Requires Python 3.11+, cryptography, Dart, a node-embedded SDK and a WebRTC
 media library built with VEIL_MEDIA_TEST_HOOKS=1. Uses no microphone, speaker
@@ -9,7 +9,7 @@ only after authenticated encrypted delivery through the same limited relay.
 A blind FIFO limiter never reads or prioritises media. This loopback control
 is not proof of physical cellular quality. All raw evidence stays private.
 """
-import argparse, hashlib, re, tempfile
+import argparse, base64, hashlib, re, tempfile
 import subprocess, threading, collections, math
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from udp_fifo_shaper import UdpShaper
@@ -19,6 +19,8 @@ from pathlib import Path
 os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
+parser.add_argument('--transport', choices=['quic', 'tcp', 'obfs4-tcp'], default='quic',
+                    help='Loopback transport; TCP checks ordered fallback, obfs4-tcp checks authenticated independent channels; UDP shaping requires QUIC')
 parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per UDP direction; 0 leaves transport unrestricted')
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
@@ -42,6 +44,8 @@ if args.chunk_trace:
     os.environ['VEIL_DIAG_CHUNKS'] = '1'
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
+if args.transport != 'quic' and (args.rate_kbps or args.shaper_trace):
+    parser.error('The blind UDP limiter and its trace require --transport quic')
 if args.feedback_interval_seconds < 1:
     parser.error('Feedback interval must be at least one second')
 if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_interval_seconds < 120:
@@ -145,12 +149,19 @@ file_apps=[]
 file_bytes=args.file_bytes
 file_payloads=[os.urandom(file_bytes),os.urandom(file_bytes)] if args.compete_file else []
 result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
+          'session_transport': args.transport,
           'duration_seconds': args.duration,
           'feedback_interval_seconds': args.feedback_interval_seconds,
           'independent_control_ipc': not args.shared_control_ipc,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
 try:
+    if args.transport == 'obfs4-tcp':
+        # Private, disposable fixture key shared by its three loopback nodes.
+        # Authenticated obfs4 exposes the auxiliary-stream handle; plain TCP
+        # intentionally retains its single ordered connection.
+        psk_path = ROOT / 'obfs4_psk.b64'
+        psk_path.write_text(base64.b64encode(os.urandom(32)).decode() + '\n')
     for index in range(3):
         directory = ROOT / str(index)
         directory.mkdir(mode=0o700, exist_ok=True)
@@ -164,7 +175,7 @@ try:
         identities.append(tomllib.loads(config)['Identity'])
     ports = []
     for _ in identities:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM if args.transport == 'quic' else socket.SOCK_STREAM)
         s.bind(('127.0.0.1', 0))
         ports.append(s.getsockname()[1])
         s.close()
@@ -175,18 +186,20 @@ try:
         lines = ['persist_enabled = false', '[global]', 'meeting_points = "off"', 'builtin_seed_policy = "never"', 'admin_socket = ' + json.dumps('unix://' + str(directory / 'admin.sock')), '[Identity]']
         for key in ['algo', 'public_key', 'private_key', 'nonce', 'node_id']:
             lines.append(key + ' = ' + json.dumps(identity[key]))
+        if args.transport == 'obfs4-tcp':
+            lines += ['[transport]', 'obfs4_psk_file = ' + json.dumps(str(psk_path))]
         # Local-only runtime counters cover drops before the UDP shaper and
         # after transport receipt. No externally reachable metrics listener.
         lines += ['[metrics]', 'listen = "tcp://127.0.0.1:0"']
         if args.reannounce_interval_seconds is not None:
             lines += ['[routing]', 'reannounce_interval_secs = ' + str(args.reannounce_interval_seconds)]
-        lines += ['[anonymity]', 'relay_capable = true', '[ipc]', 'enabled = true', 'socket_uri = ' + json.dumps('unix://' + str(directory / 'ipc.sock')), '[[listen]]', 'id = "0x00000001"', 'transport = ' + json.dumps('quic://127.0.0.1:' + str(ports[index]))]
+        lines += ['[anonymity]', 'relay_capable = true', '[ipc]', 'enabled = true', 'socket_uri = ' + json.dumps('unix://' + str(directory / 'ipc.sock')), '[[listen]]', 'id = "0x00000001"', 'transport = ' + json.dumps(args.transport + '://127.0.0.1:' + str(ports[index]))]
         if shaper is not None:
             lines.append('advertise = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[index])))
         peers = [1, 2] if index == 0 else [0]
         for peer in peers:
             other = identities[peer]
-            lines += ['[[peers]]', 'peer_id = ' + json.dumps('0x' + format(peer + 1, '08x')), 'public_key = ' + json.dumps(other['public_key']), 'nonce = ' + json.dumps(other['nonce']), 'algo = ' + json.dumps(other['algo']), 'transport = ' + json.dumps('quic://127.0.0.1:' + str(shaper.ports[peer] if shaper is not None else ports[peer]))]
+            lines += ['[[peers]]', 'peer_id = ' + json.dumps('0x' + format(peer + 1, '08x')), 'public_key = ' + json.dumps(other['public_key']), 'nonce = ' + json.dumps(other['nonce']), 'algo = ' + json.dumps(other['algo']), 'transport = ' + json.dumps(args.transport + '://127.0.0.1:' + str(shaper.ports[peer] if shaper is not None else ports[peer]))]
         path = directory / 'node.toml'
         path.write_text('\n'.join(lines) + '\n')
         raw = str(path).encode()
@@ -520,11 +533,26 @@ try:
         result['decoded_pcm_edges'].append({'side':side,'phases':summaries})
     result['phases']=phases
     captured=log_path.read_text();hops=re.findall('ipc.rt_trace.relay_admission[^\n]*hop=([a-f0-9]+)[^\n]*datagram_transport=(true|false)',captured)
-    result['neutral_datagram_route_verified']=bool(hops) and all(h==identities[0]['node_id'][:8] and ready=='true' for h,ready in hops)
+    result['neutral_datagram_route_verified']=bool(hops) and args.transport=='quic' and all(h==identities[0]['node_id'][:8] and ready=='true' for h,ready in hops)
+    expected_ready = 'true' if args.transport=='obfs4-tcp' else 'false'
+    result['neutral_ordered_route_verified']=bool(hops) and args.transport!='quic' and all(h==identities[0]['node_id'][:8] and ready==expected_ready for h,ready in hops)
+    if args.transport=='obfs4-tcp':
+        offers=[line for line in captured.splitlines() if 'session.channels_offered' in line]
+        result['independent_ordered_channels_offered_verified']=len(offers)>=4 and all(
+            all(field+'=true' in line for field in ['ordered_available', 'peer_flows', 'peer_rotates', 'peer_parallel_ordered'])
+            for line in offers)
+        independent_slots=collections.Counter(re.findall(
+            r'session.realtime_datagram.first_send[^\n]*local_slot=([0-9]+)\s+independent=true', captured))
+        required_slots=['0'] if args.no_video else ['0', '2']
+        result['independent_ordered_media_send_verified']=all(
+            independent_slots[slot]>=2 for slot in required_slots)
+    route_ok = result['neutral_datagram_route_verified'] if args.transport=='quic' else result['neutral_ordered_route_verified']
     mixed=phases[-1]['directions']
     pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
-    result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and result['neutral_datagram_route_verified'] and not any(nativefail+pollfail+healthbad) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
+    result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad) and all(healthrecv) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
+    if args.transport=='obfs4-tcp':
+        result['ok']=result['ok'] and result['independent_ordered_channels_offered_verified'] and result['independent_ordered_media_send_verified']
     if args.adaptive_audio:
         result['ok'] = result['ok'] and result['adaptive_audio_verified'] and result['codec_target_bounds_verified']
     result.update(local_source_feedback=args.local_source_feedback,source_feedback_queued=source_feedback_queued,source_feedback_skipped=source_feedback_skipped,reliable_file_contention=args.compete_file,file_results=file_results if args.compete_file else [])
