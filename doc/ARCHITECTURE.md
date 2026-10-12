@@ -15695,3 +15695,51 @@ All codec, file and policy workers exit, all three nodes stop successfully,
 and no fixture sockets remain. This cycle repairs an adaptation evidence error
 and supplies full late-call traces. The overall audio/video coexistence gate
 and physical cellular verification remain open; no user app was replaced.
+
+### 2026-10-13 small ready video batches and late DHT traffic
+
+Compact relay video previously emitted every RTP packet separately, even when
+several small packets of a complete frame fit in the existing 1000-byte cell.
+The camera and screen drains now batch such ready packets; the maximum batch
+cell size stays 1000 bytes. They retain frame boundaries and emit immediately.
+Oversized raw RTP packets retain
+their existing fallback. Original deadlines and independent sender epochs are
+preserved. This reduces framing for small frames; larger frames still span
+multiple cells and general frame admission under pressure remains unresolved.
+An authenticated drain regression covers both producers, all three batching
+modes, the exact size boundary, overflow, packet order and deadlines. All
+275 FFI tests pass (two previously ignored); the real Dart/IPC binding test
+passes. The generated header and both ABI contracts agree with the new SDK.
+
+A 360-second production-codec fixture has valid 14.98-ms driver timing,
+337 matched sound edges in each direction, no missing edges, no protection
+pauses, and 2699/4362 delivered video frames. Both 512-KiB files finish with
+matching hashes and no missing chunks (322.620/324.578 seconds). All 72
+periodic health reports plus bootstrap arrive per direction. PCM peaks remain
+250.800/249.749 ms, native playout 211/198 ms: the quality gate still fails.
+Full matched RTP flight peaks are 171.327/155.443 ms. Fresh connection/codec
+histories differ; this is not a controlled claim of better audio quality.
+
+The diagnostic fixture can now start its existing bounded opaque capture at
+a chosen time; the default remains 18 seconds. A 70-second run capturing from
+50 seconds does not show a large route-announcement burst: six announcements
+have 138-byte bodies. Its PCM peaks are 252.480/261.249 ms. A second full run
+captures 350–360 seconds: around 355.681–356.247, recursive DHT queries and
+responses (Routing types 16/17) appear in a concentrated burst alongside the
+205-ms late audio flight. Announcement bodies remain 138 bytes. The repeated
+query sizes are 392, 227, 1450 and 250 bytes. This identifies generic DHT
+traffic in the late interval, without reading message/media content or
+changing relay service. Identity-record replication constructs these STORE
+queries in `identity_local/publisher_dht.rs`; the exact publication trigger
+and a remedy still need verification. Correlation is not proof that this burst
+accounts for every audio delay.
+
+The capture run also has an earlier startup peak: PCM 311.527/271.238 ms,
+native playout 271/243 ms, and 18/14 protection-pause samples. All 337 sound
+edges per direction match and both files finish with correct hashes at
+320.042/317.124 seconds. Driver timing is valid at 18.60 ms; capture readers
+report no errors or rejected frames. Thus neither the batching optimization
+nor finding the late burst closes the audio/video quality work. All three
+fixtures join workers, stop nodes and leave zero sockets; independent process
+inspection finds no fixture or policy worker left. Poco remains absent from
+ADB and USB enumeration. No installed user application was replaced.

@@ -28,6 +28,8 @@ parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FI
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
+parser.add_argument('--opaque-frame-capture-start-seconds', type=int, default=18,
+                    help='Start the bounded opaque capture later to inspect a known periodic spike; default 18 seconds preserves the initial-phase capture')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
 parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a protobuf-enabled test-hook media library')
@@ -70,6 +72,10 @@ if args.screen_video and args.no_video:
     parser.error('--screen-video requires video')
 if args.compact_call_health and args.shared_control_ipc:
     parser.error('--compact-call-health requires separate control IPC')
+if not 1 <= args.opaque_frame_capture_start_seconds < args.duration:
+    parser.error('Opaque capture start must fall inside the stand duration')
+if not args.opaque_frame_capture and args.opaque_frame_capture_start_seconds != 18:
+    parser.error('A capture start override requires --opaque-frame-capture')
 sdk_path = args.sdk.resolve(strict=True)
 media_path = args.media.resolve(strict=True)
 policy_path = Path(__file__).resolve().with_name('relay_codec_policy.dart')
@@ -198,6 +204,7 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'independent_control_ipc': not args.shared_control_ipc,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
+result['opaque_frame_capture_start_seconds'] = args.opaque_frame_capture_start_seconds if args.opaque_frame_capture else None
 result['control_carrier'] = 'compact_call_state_diagnostic' if args.compact_call_health else 'authenticated_application_envelope'
 try:
     if args.transport == 'obfs4-tcp':
@@ -497,7 +504,7 @@ try:
     audio_thread=threading.Thread(target=audio_loop,name='stand-pcm');audio_thread.start()
     for tick in range(args.duration*100):
         target=startat+tick*.01;time.sleep(max(0,target-time.monotonic()))
-        if args.opaque_frame_capture and tick==1800:
+        if args.opaque_frame_capture and tick==100*args.opaque_frame_capture_start_seconds:
             opaque_capture=OpaqueFrameCapture(ROOT, [identity['node_id'] for identity in identities])
             opaque_capture.start()
         if tick%100==0:
