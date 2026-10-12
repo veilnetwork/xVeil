@@ -15626,3 +15626,72 @@ leave no fixture sockets. The Python fixture exercises the new native carrier
 and production Dart adapter; it does not execute the application's full call
 controller. No physical mobile call was possible this cycle because ADB and
 USB enumeration remained empty. No production app or user profile was replaced.
+
+
+### 2026-10-13 distinguish current audio from retained heartbeat peaks
+
+The previous full adaptive-codec fixture exposes an adaptation error. At
+300 seconds one receiver's native playout reaches 209 ms; by 305 seconds its
+current estimate is 152 ms. Five-second outgoing health intentionally retains
+intervening peaks, and the remote policy still sees the old 209-ms value when
+it evaluates the newly applied one-frame/second trial. It starts a protection
+pause at 305 seconds and retains it through 331 seconds. That pause is a real
+policy action, not proof that the new sparse trial itself failed.
+
+Authenticated JSON playout feedback now carries optional `cd`, the current
+snapshot, alongside the existing `d` peak. Parsing requires bounded integers
+and a current estimate no larger than its peak. Older peers and fixed-size
+group feedback retain conservative peak semantics. The peer tracker gives
+current and peak estimates the same receipt/replay lifetime and invalidation.
+Peaks still lower video and deny larger-budget recovery. A measured current
+estimate governs the peer-audio failure that can pause a completed floor trial,
+and current healthy audio can release a pause at the sparse floor after the
+existing recovery streak. Interruption, local audio loss, receive outage and
+network failure protections retain their prior behavior and thresholds.
+
+The adapter also records the accepted peer feedback sequence when a floor
+budget is applied. A peer playout report already present then cannot be reused
+to substantiate failure of that new trial; a newer report is required. The
+existing proof of newly transmitted floor frames is still required. Busy
+native target application and engine invalidation rebase that report witness.
+No peer wall-clock comparison is introduced. Test/controller callers lacking
+sequence metadata retain the previous conservative behavior.
+
+Regressions cover peak/current serialization and bounds, replay/expiration,
+an intervening retained peak, healthy current audio under an old peak,
+pretrial report reuse followed by a fresh actual failure, and recovery without
+larger-budget growth. The focused audio tests initially pass 89 cases; an additional busy-floor
+regression brings the combined call, audio and group run to 324 passing cases. Targeted analysis is
+clean. The physical phone remains absent; these checks do not establish mobile
+speech quality or complete the separate-producer network objective.
+
+
+The complete 360-second candidate fixture uses the same compact control SDK,
+working adaptive 20/40/60-ms codec and neutral 1-Mbit/s ordered shaping. A
+private copy raises only the native diagnostic row cap from 4096 to 16384;
+the engine source is byte-identical. Driver timing is valid at 14.94 ms. All
+337 competing sound edges per direction match with every observed duration's
+source positions represented. Video has no protection-pause samples, delivers
+3187/1014 frames, and no quiet PCM/interruption is counted. All 72 periodic
+reports plus bootstrap arrive per direction with no authentication, admission,
+native or poll errors. Both 512-KiB files finish with matching hashes and no
+missing chunks at 322.548/308.283 seconds.
+
+The audio quality gate still fails. PCM peaks are 260.337/260.591 ms (p95
+208.632/219.638), with native playout peaks 232/223 ms. Thus avoiding the old
+pause is not evidence of satisfactory audio priority. The fresh connections
+and codec histories differ from the prior run; this is not a controlled claim
+that audio latency improved. Full trace coverage now reaches 359.974 seconds:
+9176/9050 nonempty RTP matches, zero unmatched or ambiguous rows. Worst matched
+SDK/network flights are 197.084/185.141 ms at 355.514–355.634 seconds, after
+both file transfers completed. SDK admission and native drain at those peaks
+are tens of microseconds, so remaining work must address source/network
+queueing as well as codec duration. Neutral FIFO traces in that late interval
+show roughly 60–70-ms reservation queues per hop; stream read/kernel backlog
+must be kept separate from those reservation delays. Do not subtract maxima
+from different packets to attribute the remainder to a stage.
+
+All codec, file and policy workers exit, all three nodes stop successfully,
+and no fixture sockets remain. This cycle repairs an adaptation evidence error
+and supplies full late-call traces. The overall audio/video coexistence gate
+and physical cellular verification remain open; no user app was replaced.

@@ -84,6 +84,7 @@ class CallAudioReceiveActivity {
     return CallAudioPlayoutFeedback(
       sequence: current.sequence,
       delayMs: peak,
+      currentDelayMs: delay,
       interruptionCount: current.interruptionCount,
     );
   }
