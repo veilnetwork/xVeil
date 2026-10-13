@@ -15806,3 +15806,51 @@ application left. Poco is still absent from ADB; no installed user app or
 profile was replaced. Remaining work includes pacing legitimate maintenance
 bursts, investigating the remaining competing-source peaks and qualifying the
 actual Mac/Android call when the phone is visible.
+
+
+### 2026-10-13 publication timestamps separate the remaining source peaks
+
+Publication reason logs now include millisecond UNIX time. The codec fixture
+maps this metadata to its existing same-host clock observations and records
+only reason and relative time in `identity_publications`. Older SDKs without
+markers report `available=false`; an empty list cannot prove absence of
+publication. Timestamp resolution and observed clock-offset change are
+included. No DHT keys, identities, preview hashes or media content are exported.
+No publication timing, media allocation or relay scheduling changes in this
+cycle. The production-feature SDK builds and the fixture passes Python syntax
+compilation; the fixture exercises the added summary path directly.
+
+A 110-second competing-source capture records initial topology publication at
+-4.294/-4.293 seconds and the next three warmup publications at
+85.709/85.710 seconds. Observed clock-offset change is 227 microseconds, with
+one-millisecond publication timestamps. Audio packet flight peaks are
+188.777 ms at 56.253 seconds and 154.697 ms at 25.395 seconds. Thus the largest
+peaks in this run precede the next identity-bundle publication. Captured
+recursive queries occur at 86.318-86.487 seconds, not at the 56-second peak.
+The 55-57-second capture contains 800 rows and only two transmitted 138-byte
+route announcements in Routing family 8. This separates identity publication
+from the earlier peaks; it does not rule out all routing or application work.
+
+At 55-57 seconds the neutral shaper carries 232685/223972 bytes per direction,
+with a 53.705-ms maximum reservation and up to 7046 buffered reader bytes.
+Those ciphertext chunks cannot be mapped to media packet boundaries. These
+are separate measurements, not quantities that can be subtracted from the
+end-to-end flight. Local video counters also show padding during contention:
+on side zero, between 56 and 58 seconds, padding increases by 54 packets and
+13770 bytes, alongside 16602 payload bytes. Whether these probes contribute
+to the worst flight remains unproven. The next investigation is source video
+padding/pacing and competing file traffic, rather than treating DHT pacing as
+a sufficient cure for every remaining delay.
+
+All 89 competing-phase sound edges match in each direction, with all
+20/40/60-ms source positions represented and zero protection-pause samples.
+However, source timing has a 22.54-ms late interval at 8.434 seconds; this run
+is not qualified overall audio quality evidence. Its PCM peaks are
+223.191/250.152 ms and native playout 187/219 ms. The short scope does not
+qualify complete delivery of the still-competing 512-KiB files. Flight traces
+match 3039/3170 packets through 109.951/109.994 seconds, with no unmatched or
+ambiguous rows. All 22 health reports plus bootstrap arrive per direction.
+Capture readers stop cleanly with no errors/rejected frames; their bounded
+trace ends at 97.529 seconds and absence later is not packet loss. All owned
+workers exit, all three nodes stop, and zero fixture sockets remain.
+Independent process inspection finds no fixture or policy worker left.
