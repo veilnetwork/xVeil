@@ -16082,3 +16082,13 @@ verified result, not physical call qualification.
 All workers exit, all three nodes stop and zero sockets remain in both fixtures.
 Independent process inspection finds no fixture, policy or owned stand app.
 Poco remains absent from ADB; no phone or installed Mac app/profile was changed.
+
+The repeat's two largest flight peaks are near the same sovereign-identity
+warmup publication round (about 175.710 seconds). All three small-fixture nodes
+publish together at about 85.710/175.710/265.710/355.712 seconds. The production
+republisher uses a 90-second warmup period while contacts remain below sixteen,
+bounded to twelve repeats, and republishes the identity document, instance
+registry, KEM certificate and relevant relay/nickname records. This is a concrete
+next investigation target, not a demonstrated cause: publication timestamps use
+a wall-to-monotonic mapping whose offset changes by -39.068 ms over this run,
+and simultaneous fixture startup differs from independent physical nodes.
