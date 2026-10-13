@@ -1,6 +1,8 @@
 """Aggregate byte-rate limiter for loopback TCP; never parses stream contents.
 
-All connections share one FIFO reservation clock per direction. TCP retains
+By default all connections share one FIFO reservation clock per direction.
+The optional per-target control shares that clock across all connections to
+each target node instead; it never grants a connection its own rate. TCP retains
 bytes under pressure; bounded reads and socket buffers propagate backpressure.
 No application roles, addresses, or payloads are retained in optional traces.
 """
@@ -71,8 +73,13 @@ class ReaderArrivalTrace:
 
 
 class TcpShaper:
-    def __init__(self, targets, max_queue_ms=200, trace=False):
+    def __init__(self, targets, max_queue_ms=200, trace=False, scope='aggregate'):
+        if scope not in ('aggregate', 'per-target'):
+            raise ValueError('Unknown neutral shaping scope')
+        if scope == 'per-target' and len(set(targets)) != len(targets):
+            raise ValueError('Per-target shaping requires distinct targets')
         self.targets = targets
+        self.scope = scope
         self.max_queue_ms = max_queue_ms
         self.rate_bps = 0
         self.trace_rows = collections.deque(maxlen=100000) if trace else None
@@ -103,9 +110,10 @@ class TcpShaper:
     async def _run(self):
         self._loop = asyncio.get_running_loop()
         self._stop = asyncio.Event()
-        self._locks = [asyncio.Lock(), asyncio.Lock()]
-        self._next_at = [0., 0.]
-        self._pending = [0, 0]
+        groups = 2 * (len(self.targets) if self.scope == 'per-target' else 1)
+        self._locks = [asyncio.Lock() for _ in range(groups)]
+        self._next_at = [0.] * groups
+        self._pending = [0] * groups
         self._connection_sequence = 0
         self._handlers = set()
         servers = []
@@ -177,6 +185,7 @@ class TcpShaper:
                         endpoint.transport.abort()
 
     async def _pump(self, reader, writer, direction, link, connection, source_socket):
+        group = direction + (2 * link if self.scope == 'per-target' else 0)
         arrivals = ReaderArrivalTrace(reader) if self.trace_rows is not None else None
         while data := await reader.read(1280):
             read_at = time.monotonic() if self.trace_rows is not None else None
@@ -190,20 +199,20 @@ class TcpShaper:
             stat = self.stats[direction]
             stat['received'] += 1
             stat['received_bytes'] += len(data)
-            async with self._locks[direction]:
+            async with self._locks[group]:
                 now = time.monotonic()
                 rate = self.rate_bps
                 if rate:
                     # Waiting here keeps reservation order and bounds admitted
                     # backlog. Each waiting connection retains one small read.
-                    wait = self._next_at[direction] - now - self.max_queue_ms / 1000
+                    wait = self._next_at[group] - now - self.max_queue_ms / 1000
                     if wait > 0:
                         await asyncio.sleep(wait)
                     now = time.monotonic()
-                    ready = max(now, self._next_at[direction]) + len(data) * 8 / rate
+                    ready = max(now, self._next_at[group]) + len(data) * 8 / rate
                 else:
                     ready = now
-                self._next_at[direction] = ready
+                self._next_at[group] = ready
                 queue_ms = max(0., (ready - now) * 1000)
                 stat['max_queue_ms'] = max(stat['max_queue_ms'], queue_ms)
                 row = None
@@ -212,12 +221,12 @@ class TcpShaper:
                                connection=connection, read_at=read_at,
                                reader_buffer_bytes=reader_buffer_bytes,
                                kernel_reader_bytes=kernel_reader_bytes,
-                               bytes=len(data), pending=self._pending[direction],
+                               bytes=len(data), pending=self._pending[group],
                                ready=ready, queue_ms=queue_ms)
                     row.update(arrival)
                     self.trace_rows.append(row)
                     self.trace_events += 1
-                self._pending[direction] += 1
+                self._pending[group] += 1
             try:
                 await asyncio.sleep(max(0., ready - time.monotonic()))
                 writer.write(data)
@@ -232,7 +241,7 @@ class TcpShaper:
                     row.update(sent_at=sent_at,
                                release_lateness_ms=(sent_at - ready) * 1000)
             finally:
-                self._pending[direction] -= 1
+                self._pending[group] -= 1
         if writer.can_write_eof():
             writer.write_eof()
             await writer.drain()
