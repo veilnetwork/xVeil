@@ -16092,3 +16092,56 @@ registry, KEM certificate and relevant relay/nickname records. This is a concret
 next investigation target, not a demonstrated cause: publication timestamps use
 a wall-to-monotonic mapping whose offset changes by -39.068 ms over this run,
 and simultaneous fixture startup differs from independent physical nodes.
+
+### 2026-10-13: monotonic publication markers separate other flight spikes
+
+Opt-in RT diagnostics now append a same-host monotonic microsecond marker at
+the start of sovereign publication. Darwin uses CLOCK_UPTIME_RAW: direct checks
+on this Mac show that CLOCK_MONOTONIC and CLOCK_MONOTONIC_RAW have different
+absolute origins from Python's mach_absolute_time clock, whereas UPTIME_RAW
+matches. The SDK test brackets the diagnostic read with mach_absolute_time
+reads. Other Unix stands use CLOCK_MONOTONIC; unsupported platforms report no
+marker. This helper changes no expiry authority, protocol field or scheduling.
+The fixture parser retains explicit, coarser wall mappings for older/mixed logs
+and rejects a clearly foreign monotonic origin rather than claiming precision.
+Both clock tests, four parser tests and the production SDK build pass.
+
+A full 360-second capture has valid 14.90-ms source timing, no late source
+intervals, and fifteen valid monotonic publication markers without fallback or
+foreign-domain markers. The four warmup rounds start near
+85.706/175.708/265.711/355.713 seconds. Largest audio flights are instead
+172.586 ms at 23.494 seconds (SDK admission 7 us, native drain 92 us) and
+161.465 ms at 204.912 seconds (21/55 us). Traces match 8837/9153 nonempty
+packets through 359.972/359.954 seconds without ambiguous/unmatched rows.
+This contradicts treating the publication round as a sufficient explanation
+of all large flight spikes; the earlier proximity remains correlation.
+
+All 337 competing sound edges per direction arrive, with no missing edges and
+all source positions for 20/40/60-ms packetization. Native interruptions and
+video protection-pause samples are zero; video receives 4403/3769 frames. All
+72 health reports plus bootstrap arrive per side without native, poll or
+authentication failures. Both 512-KiB files finish with correct hashes and no
+missing chunks at 326.682/326.582 seconds. All 6719 fully observed source work
+items retain zero partial budget shedding; 114 are wholly shed, with 187 drop
+cells. The quality gate still fails: PCM peaks 212.118/242.581 ms, p95
+200.723/220.521, native playout peaks 178/205 ms. No physical call is qualified.
+
+The one-second counter bracket containing the 23.494-second peak records
+13 video padding packets (3315 raw RTP bytes) and four video payload packets
+(2932 bytes) on its sender. The 204.912-second bracket records eight padding
+packets (2040 bytes) and 22 payload packets (16376 bytes). These are correlations,
+not per-packet attribution of the delay. The native budget setter changes GCC's
+path ceiling to the selected video bitrate plus 128 kbit/s on each profile
+change; the bundled ProbeController separately initiates a probe when this
+ceiling rises above both its previous ceiling and estimate. This mechanism is
+distinct from the previously rejected allocation-only suppression experiment.
+Further work must measure/limit source video probe traffic and account for the
+opaque transport's wire overhead rather than tightening receiver policy blindly.
+
+Static inspection also confirms that DhtBackedPublisher's replication helper
+uses ordinary BACKGROUND sends without owned reliable admission credits.
+That bypass is a separate investigation target; no publication pacing or
+relay policy changes are made here. Merely shrinking the ingress queue would
+risk repeatedly shedding the tail records of a bundle, including certificates.
+All workers exit, all three nodes stop, zero fixture sockets remain, and an
+independent process check finds no owned fixture, policy or stand application.
