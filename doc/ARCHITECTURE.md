@@ -15743,3 +15743,66 @@ nor finding the late burst closes the audio/video quality work. All three
 fixtures join workers, stop nodes and leave zero sockets; independent process
 inspection finds no fixture or policy worker left. Poco remains absent from
 ADB and USB enumeration. No installed user application was replaced.
+
+
+### 2026-10-13 distinguish topology changes from ordinary DHT responses
+
+`route_updated` also wakes IPC waiters after ordinary recursive query
+responses. The identity republisher previously interpreted any such wake-up,
+once its 60-second debounce elapsed, as a reason to enqueue the whole bundle
+again. It now compares a process-local DHT topology revision and a sorted
+snapshot of live session registrations against the last complete publication.
+LRU refreshes, identical announcements and queue traffic leave the witnesses
+unchanged. Accepted contact membership, transport or eligibility changes and
+same-peer sender replacements change them. Closed outboxes are excluded;
+rejected duplicate admission and stale owner teardown do not consume a new
+registration witness. These counters are neither wire fields nor persisted
+identity/security versions.
+
+The first live seed can still receive the complete bundle before the DHT
+learns its contact. Changed topology within the debounce gets an owned timer
+for its expiry, rather than depending on another notification. A witness is
+recorded when the complete publication begins, not when a wake-up is merely
+debounced. Periodic startup warmup, scheduled renewal, document/revoke change
+and ML-KEM rotation retain their publication paths. Publication reason logging
+makes topology, warmup, scheduled renewal and key rotation distinguishable.
+No relay traffic classification, wire priority or mailbox policy changes.
+
+Tests pass: 194 DHT tests, 524 session tests (six previously ignored), and ten
+identity republish tests. Regressions cover actual routing changes versus LRU,
+diversity rejection and eviction, accepted versus rejected sender replacement,
+stale teardown, closed outboxes, first-seed publication and the topology gate.
+The production-feature SDK builds; its external ABI is unchanged.
+
+A 360-second capture run records three initial topology publications and twelve
+bounded warmup publications, with no additional response-driven publications.
+It still captures a legitimate late DHT query burst at 355.748-355.749 seconds
+from the two endpoints. Thus filtering redundant notifications does not
+eliminate periodic maintenance bursts, and the exact cause of the older
+capture cannot be established from its missing reason logging. Its PCM peaks
+are 209.893/213.822 ms, with 337 matched sound edges per direction, none missing,
+zero protection-pause samples and correct file hashes. However, the source
+driver has 36.10/43.83-ms late intervals around 290.777/292.274 seconds; that
+run is not qualified evidence of audio quality. Capture readers all exit,
+report no errors or rejected frames, and the stand leaves zero sockets.
+
+A repeat without opaque capture has valid 15.26-ms source timing and no late
+intervals. It matches all 337 sound edges per direction and every source
+position for 20/40/60-ms packets. PCM peaks are 210.511/219.875 ms (p95
+192.655/192.709), native playout 172/190 ms. Video delivers 2878/3724 frames,
+with zero protection-pause samples, quiet PCM frames or interruption counts.
+All 72 health reports plus bootstrap arrive per direction without errors.
+Both 512-KiB files finish with matching hashes and no missing chunks at
+327.451/327.441 seconds. RTP matching covers 9379/9434 packets through
+359.974/359.955 seconds, with no unmatched or ambiguous trace rows. Flight
+peaks are 166.086/141.001 ms around 70 seconds; SDK admission and native drain
+at those maxima are microseconds. The quality gate still fails the 200-ms
+PCM target. Fresh connection/codec histories differ, so these measurements
+are not a controlled claim of a particular latency reduction.
+
+Both fixtures join their audio/file/policy workers and stop all three nodes.
+Independent process inspection finds no owned fixture, Dart policy or stand
+application left. Poco is still absent from ADB; no installed user app or
+profile was replaced. Remaining work includes pacing legitimate maintenance
+bursts, investigating the remaining competing-source peaks and qualifying the
+actual Mac/Android call when the phone is visible.
