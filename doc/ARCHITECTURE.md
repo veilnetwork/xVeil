@@ -16452,3 +16452,59 @@ owned macOS and phone processes absent and their ADB forward removed. The final
 retry independently verifies the owned macOS PID and phone process absent,
 port 38765 free and forward 43766 absent. No normal macOS user application or
 profile was modified. No product fix, release or physical media pass is claimed.
+
+#### Physical network snapshots and bounded delivery capture
+
+A separate read-only network comparison uses the current 2584 applications
+and the persistent sovereign Mac fixture. Both native IPC peer snapshots are
+collected after the required APP_HELLO handshake. Mac has six active sessions
+and Poco five, with five common peer node IDs and no direct session between
+the endpoints. Mac's authenticated local admin ResolveIdentity command
+successfully resolves and cryptographically validates both identity documents.
+This is stronger evidence than the earlier debug document-cache probe, which
+does not perform a network lookup. It does not verify every device certificate
+or attachment route. The P-Net status query's hasCert field concerns network
+membership certificates, normally absent in public mode, and must not be used
+as evidence that an ML-KEM encryption certificate is missing.
+
+Native logs additionally record a successful Mac-side device-certificate walk
+for Poco (165 ms in the network comparison, 212 ms in the preceding foreground
+retry). The phone's corresponding walk for the Mac fails in the network-only
+comparison, but succeeded in the foreground retry (6396 ms). This variability
+does not explain the loss of a Mac-originated invitation by itself. Across
+five consecutive sovereign/network/capture launches, each endpoint retains
+the same transport ID, receive identity and instance material.
+
+An eighth physical call attempt subscribes to existing admin delivery-family
+capture streams on both nodes before placing the offer. Both subscriptions
+acknowledge. The caller records 117 outbound Forward previews: 54 target the
+Poco identity at endpoint 14, 27 its physical device at endpoint 14, nine the
+identity at chat endpoint 0, and 27 another destination. The 90 previews naming
+the Poco identity/device use six distinct first-hop peer IDs, including all
+five peers common to the preceding network snapshot. Their envelope sender is
+the Mac receive identity and their ciphertext marker is the ratchet marker.
+Poco records 85 outbound delivery previews, including frames addressed to the
+Mac identity/device, and neither capture records inbound delivery frames. The
+incoming call still does not appear within 45 seconds; no media samples exist.
+
+These are 256-byte previews, sufficient to inspect fixed envelope metadata,
+not complete ciphertext or content-equality proof. Outbound capture happens
+before transport writing; it proves selection of an outgoing frame rather
+than first-hop receipt. Capture is capped at 100 events per second per peer
+across frame families, and broadcast lag can lose observations. Consequently
+zero inbound observations do not prove network loss or identify a faulty
+relay. Inspecting relay reception/forwarding or transport-write evidence is
+the next attribution step; relay access details were requested from the user.
+No scheduling policy, sender-authentication gate or mailbox fallback changes.
+
+Private artifacts are in
+`/private/tmp/xveil-audio-resume-20261011/physical-network2584-20261014c` and
+`physical-capture2584-20261014` beside it. Earlier network helper attempts fail
+because of the missing IPC handshake and the one-way ADB exec-out pipe; these
+are diagnostic-script failures, excluded from the successful snapshot evidence.
+The blocked helper is explicitly interrupted, and all helper/application
+cleanup finishes. The successful network and capture workers close both apps
+and remove their ADB forwards. Independent process/forward checks confirm
+cleanup; the capture worker also verifies its reader thread and ADB capture
+process exited. Physical audio priority and the reported video freeze remain
+unqualified because signaling still fails before media starts.
