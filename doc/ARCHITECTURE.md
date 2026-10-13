@@ -16145,3 +16145,55 @@ relay policy changes are made here. Merely shrinking the ingress queue would
 risk repeatedly shedding the tail records of a bundle, including certificates.
 All workers exit, all three nodes stop, zero fixture sockets remain, and an
 independent process check finds no owned fixture, policy or stand application.
+
+### 2026-10-13: video discovery ceiling follows its selected budget
+
+Video's client bitrate preferences previously added 128 kbit/s to the selected
+profile for RTX/RTCP. GCC also uses this preference as its probe ceiling: a
+60→90-kbit/s profile growth could authorize a 218-kbit/s probe. The shared native
+video settings now use the selected bitrate itself as that ceiling for initial
+single/group video and retunes. Discovery, allocation-driven probing, RTX
+history and RTCP remain enabled. Negotiated feedback retains its lower floor
+and live estimate; legacy single calls retain their profile floor and seeded
+estimate. Group startup now explicitly seeds its conservative selected profile
+rather than inheriting GCC's larger default. Audio's separate Call, receiver
+policy and the application's −2/+1 video ladder are unchanged.
+
+The real bundled ProbeController regression passes: initial, profile-growth
+and allocation-driven discovery remain active but their target rates do not
+exceed the selected video ceiling; 1/8-kbit/s bounds are valid, live retunes do
+not reset the estimate and default audio discovery is preserved. The native
+call-plane suite passes after correcting its fixture to explicitly request a
+large initial video rate when testing audio/video independence. Retuning a
+new group cannot itself establish that large estimate without feedback. The
+900-kbit/s test starts both video controllers at 900 kbit/s while audio remains
+48 kbit/s and actually emits Opus. Native build and fixture export parity pass
+(119 identical test-hook exports); no public C ABI or Dart binding changes.
+
+A full 360-second obfs4/TCP, 1024-kbit/s audio/camera/screen/file fixture has valid
+14.92-ms source timing and no late intervals. All 337 competing sound edges per
+direction arrive, with no missing edges and all 20/40/60-ms source positions.
+Native audio interruptions and video protection pauses are zero; video receives
+4032/2857 frames. All 72 health updates plus bootstrap arrive per direction
+without native, poll or authentication errors. Both 512-KiB files have correct
+hashes/no missing chunks and finish at 325.064/303.750 seconds. The 6262 fully
+observed source work items contain zero partial budget shedding; 143 are wholly
+shed with 234 budget-drop cells.
+
+The quality gate still fails: PCM peaks 240.992/232.315 ms (p95 218.170/202.918),
+native playout peaks 187/192 ms. This enforces the selected probe ceiling but
+does not qualify overall audio quality or establish a causal latency reduction
+over fresh sessions with different codec/connection histories. Padding is not
+eliminated: final video counters are 398/471 packets, 101490/120105 raw bytes;
+the previous run had 458/429 and 116790/109395. A lower probe ceiling need not
+mean fewer probes or less total traffic in a different estimator history.
+
+Same-host RTP traces match 9253/8951 nonempty packets through 359.975 seconds,
+without unmatched/ambiguous rows. Flight peaks are 161.172 ms at 140.013 seconds
+and 151.165 ms at 319.343 seconds; SDK admission/native drain at those peaks
+are 5/12 and 11/16 microseconds. Further work must account for actual opaque
+transport overhead and total competing source traffic: GCC's selected ceiling
+is an RTP-rate bound, not proof of a bound on encrypted wire bytes. All fixture
+workers exit, all three nodes stop and zero sockets remain; independent process
+inspection finds no owned fixture, policy or stand application. Poco remains
+absent from ADB; no installed user app/profile was changed.
