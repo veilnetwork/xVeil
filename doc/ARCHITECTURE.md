@@ -16369,3 +16369,42 @@ quality, camera behavior and the original observed video freeze remain unverifie
 while Poco is absent from ADB. All fixture workers exit, all three nodes stop,
 zero sockets remain and independent process inspection finds no owned fixture,
 policy or stand application. No installed user application/profile was changed.
+
+### 2026-10-13: matching current Android and macOS call artifacts prepared
+
+Prepared private build 2584 for the next physical call comparison. The earlier
+2583 artifact proof names SDK 9f9800fe, so it cannot qualify the subsequently
+accepted whole-source-work reservation, monotonic diagnostics or selected-video
+probe ceiling. Android's arm64 SDK was rebuilt from 7d4f8cc1 with no default
+features and production-seeds/node-embedded/packet-tunnel. Its native media
+engine was rebuilt from the current source against the existing pinned,
+protobuf-enabled WebRTC Android cache. No rejected video-overhead variant or
+native test hooks are included. The Flutter debug APK was rebuilt with the
+production-network define, diagnostic hook and build number 2584.
+
+APK manifest number, signature and 16-KiB ZIP alignment verify. The signer
+matches both the earlier 2583 artifact and the saved 2561 update baseline.
+Hashes of the packaged SDK/media libraries exactly match their new immutable
+build inputs. The hidden-volume library matches the previous artifact. All
+99 media symbols looked up by Dart are available. The private packaging helper
+now checks every command's return status and removes its temporary password
+files after signing. Private proof metadata is in
+`/private/tmp/xveil-audio-resume-20261011/current-source2584-artifact-proof.json`;
+the APK is `mobile-2584-prod-compatible.apk` beside that proof.
+
+A matching private macOS bundle is prepared at
+`/private/tmp/xveil-audio-resume-20261011/mac-current-source2584/xveil.app`.
+Root Dart/Android configuration and SDK Dart bindings have no changes since
+the earlier current-source app; the macOS bundle reuses those unchanged Dart
+assets and replaces both native libraries with the current SDK and a freshly
+built production media engine. Its Info.plist build number is 2584. Strict
+recursive code-signature verification passes; all non-zerofill Mach-O sections
+of both bundled libraries match their exact input artifacts after signing.
+The media symbol gate passes (99 exports/99 lookups), with no native test hooks.
+
+Neither app was launched or installed. Poco remains absent from ADB; actual
+installed-device signer, upgrade behavior, Android loading, mobile audio/video
+and the reported camera freeze therefore remain unverified. These are prepared
+artifacts, not a release or a physical quality qualification. The owned native
+build container exited and the xveil-media Colima VM is confirmed stopped.
+The normal user macOS application/profile was not accessed.
