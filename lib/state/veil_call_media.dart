@@ -1534,6 +1534,7 @@ class VeilCallMediaController implements CallMediaController {
               (call.peerProtocolVersion ?? 1) >=
               kCallAudioPlayoutFeedbackMinVersion,
           peerDelayMs: _peerAudioPlayout.delayMs(now),
+          peerCurrentDelayMs: _peerAudioPlayout.currentDelayMs(now),
           receiveDelayMs: receiveDelay,
           receiveAgeMs: receiveAt == null
               ? null
