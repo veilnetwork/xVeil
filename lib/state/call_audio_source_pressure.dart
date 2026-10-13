@@ -3,8 +3,8 @@ import 'call_bitrate_adapter.dart';
 /// Endpoint measurements for the shared source budget, including audio-only
 /// calls. The node receives only a generic, expiring pressure observation.
 class CallAudioSourcePressure {
-  // Reliable background transfers retain their earlier conservative budget;
-  // the video ladder's one-frame trial is a separate endpoint policy.
+  // Retain conservative thresholds and sustained recovery. A recent peak is
+  // useful for video growth decisions, but is not the current source pressure.
   static const int playoutDegradeMs = 160;
   static const int playoutRecoverMs = 120;
   bool _pressured = true;
@@ -18,6 +18,7 @@ class CallAudioSourcePressure {
     required bool receiveExpected,
     required bool requirePeerPlayout,
     required int? peerDelayMs,
+    int? peerCurrentDelayMs,
     required int? receiveDelayMs,
     required int? receiveAgeMs,
     required bool interrupted,
@@ -37,21 +38,30 @@ class CallAudioSourcePressure {
       return null;
     }
     bool valid(int? n) => n != null && n >= 0 && n <= 60000;
+    // A current sample belongs to the same fresh, authenticated report as its
+    // peak. It cannot make an absent/invalid report healthy or exceed the peak.
+    // Older peers retain their peak-only behavior.
+    final peerDelay =
+        valid(peerDelayMs) &&
+            valid(peerCurrentDelayMs) &&
+            peerCurrentDelayMs! <= peerDelayMs!
+        ? peerCurrentDelayMs
+        : peerDelayMs;
     final peerNeeded = sendExpected && requirePeerPlayout;
     final unknown =
-        (peerNeeded && !valid(peerDelayMs)) ||
+        (peerNeeded && !valid(peerDelay)) ||
         (receiveExpected && (!valid(receiveDelayMs) || !valid(receiveAgeMs)));
     final bad =
         unknown ||
         interrupted ||
         newDrop ||
-        (peerNeeded && peerDelayMs! >= playoutDegradeMs) ||
+        (peerNeeded && peerDelay! >= playoutDegradeMs) ||
         (receiveExpected &&
             (receiveDelayMs! >= playoutDegradeMs ||
                 receiveAgeMs! >= CallBitrateAdapter.audioReceivePauseMs));
     final good =
         !bad &&
-        (!peerNeeded || peerDelayMs! < playoutRecoverMs) &&
+        (!peerNeeded || peerDelay! < playoutRecoverMs) &&
         (!receiveExpected ||
             (receiveDelayMs! < playoutRecoverMs &&
                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));

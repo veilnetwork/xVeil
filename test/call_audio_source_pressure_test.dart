@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/call_audio_source_pressure.dart';
+import 'package:xveil/state/call_peer_audio_playout.dart';
+import 'package:xveil/domain/call_signal.dart';
 
 void main() {
   bool? sample(
@@ -8,6 +10,7 @@ void main() {
     bool receive = true,
     bool requirePeer = true,
     int? peer = 100,
+    int? currentPeer,
     int? local = 100,
     int? age = 50,
     bool interrupted = false,
@@ -17,6 +20,7 @@ void main() {
     receiveExpected: receive,
     requirePeerPlayout: requirePeer,
     peerDelayMs: peer,
+    peerCurrentDelayMs: currentPeer,
     receiveDelayMs: local,
     receiveAgeMs: age,
     interrupted: interrupted,
@@ -41,6 +45,75 @@ void main() {
     expect(sample(policy, peer: 300), isTrue);
     recover(policy);
   });
+
+  test(
+    'recovered current playout releases pressure despite a retained peak',
+    () {
+      final policy = CallAudioSourcePressure();
+      expect(sample(policy, peer: 300, currentPeer: 300), isTrue);
+      for (var i = 0; i < 11; i++) {
+        expect(sample(policy, peer: 300, currentPeer: 100), isTrue);
+      }
+      expect(sample(policy, peer: 300, currentPeer: 100), isFalse);
+      expect(sample(policy, peer: 300, currentPeer: 160), isTrue);
+      // Local failures still override the healthy peer's current measurement.
+      expect(sample(policy, peer: 300, currentPeer: 100, local: 180), isTrue);
+      expect(sample(policy, peer: 300, currentPeer: 100, drops: 1), isTrue);
+    },
+  );
+
+  test('invalid or orphaned current measurements cannot hide pressure', () {
+    for (final current in [-1, 301, 60001]) {
+      final policy = CallAudioSourcePressure();
+      for (var i = 0; i < 20; i++) {
+        expect(sample(policy, peer: 300, currentPeer: current), isTrue);
+      }
+    }
+    for (final peak in [null, -1, 60001]) {
+      final policy = CallAudioSourcePressure();
+      for (var i = 0; i < 20; i++) {
+        expect(sample(policy, peer: peak, currentPeer: 100), isTrue);
+      }
+    }
+  });
+
+  test(
+    'expired or replayed peer reports cannot keep source recovery alive',
+    () {
+      final policy = CallAudioSourcePressure();
+      final tracker = CallPeerAudioPlayout();
+      final now = DateTime(2026, 10, 13);
+      final report = CallAudioPlayoutFeedback(
+        sequence: 1,
+        delayMs: 300,
+        currentDelayMs: 100,
+      );
+      tracker.observe(report, now);
+      for (var i = 0; i < 12; i++) {
+        final at = now.add(Duration(seconds: i));
+        expect(
+          sample(
+            policy,
+            peer: tracker.delayMs(at),
+            currentPeer: tracker.currentDelayMs(at),
+          ),
+          i < 11 ? isTrue : isFalse,
+        );
+      }
+      final expired = now.add(
+        CallPeerAudioPlayout.lifetime + const Duration(milliseconds: 1),
+      );
+      tracker.observe(report, expired);
+      expect(
+        sample(
+          policy,
+          peer: tracker.delayMs(expired),
+          currentPeer: tracker.currentDelayMs(expired),
+        ),
+        isTrue,
+      );
+    },
+  );
 
   test('recovered latch cannot authorize growth with intermediate playout', () {
     for (final localDirection in [false, true]) {

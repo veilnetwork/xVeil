@@ -15909,3 +15909,57 @@ competing-source queue admission. All workers exit, all three nodes stop,
 and both fixtures leave zero sockets. Independent process inspection finds
 no fixture, policy or stand application left. Poco remains absent from ADB;
 no installed user application or profile was replaced.
+
+### 2026-10-13: source recovery uses current authenticated playout
+
+The video ladder already separates current peer playout from the retained
+five-second peak, but the shared source-pressure publisher still used that
+peak as current congestion. A recovered receiver could therefore keep the
+endpoint's competing producers restricted because an earlier spike was
+repeated in fresh health reports. CallAudioSourcePressure now accepts the
+current delay from the same authenticated, freshness-checked report. Missing
+current measurements retain the older peer's peak-only behavior. A current
+measurement cannot override an absent/invalid peak or exceed it.
+
+The 160/120-ms source thresholds and twelve consecutive healthy samples are
+unchanged. Local buffer growth, receive starvation, new audio drops and
+interruptions still restrain producers. Expired/replayed peer feedback cannot
+renew recovery. The ordinary bitrate ladder still uses the retained peak to
+restrain video growth. This changes endpoint policy only, not relay scheduling
+or wire roles. Both the application and codec fixture use the same selection.
+All 104 targeted source-pressure, playout-feedback, receive-activity and
+bitrate-adapter tests pass; focused Dart analysis has no issues.
+
+The full 360-second obfs4/TCP fixture at 1024 kbit/s uses production native
+media behavior with private recording/trace hooks and SDK 9f9800fe. Audio,
+camera, screen and two 512-KiB files compete on neutral relays. Source timing is
+valid (16.85-ms maximum interval, no late intervals). All 337 competing-phase
+sound edges per direction arrive, with no missing edges and all source
+positions for 20/40/60-ms packetization. Video delivers 4254/3105 frames, with
+zero protection-pause samples and zero native audio interruptions. All 72
+health updates plus bootstrap arrive per side without authentication errors;
+both files have matching hashes and no missing chunks, finishing at
+322.563/324.625 seconds. Independent control IPC, ordered-channel offers and
+ordered-media sending are verified.
+
+The quality gate still fails: PCM maxima are 222.104/213.850 ms, p95
+207.208/211.324, and native playout maxima 178/182 ms. This run does not establish
+a causal improvement over earlier runs with different codec/connection
+histories and does not qualify physical call quality. RTP traces match
+8791/8985 packets through 359.973/359.994 seconds without ambiguous/unmatched
+rows. Same-host flight peaks are 147.814 ms at 175.812 seconds and 139.589 ms at
+230.374 seconds; local SDK admission/native drain at those peaks are tens of
+microseconds. Publication clock drift is -467 microseconds. One flight peak
+is near a warmup publication, but the other is not; this remains correlation.
+
+The frame-integrity investigation also identifies a remaining boundary:
+RelayVideoFrame admission is whole-frame only at native ingress. Subsequent
+IPC sends, deadlines and the shared lossy source allowance operate per sealed
+cell. Under pressure, an admitted RTP frame may therefore lose its tail.
+Whole-frame source admission needs a bounded local grouping/reservation
+mechanism; no remote role inference or relay priority is authorized. This
+change does not implement that mechanism or claim to resolve all freezes.
+All fixture workers exit, all three nodes stop and zero sockets remain;
+independent process inspection finds no owned fixture, policy or stand app.
+Poco remains absent from ADB and USB, so no phone upgrade or physical call was
+performed and installed user apps/profiles were left intact.
