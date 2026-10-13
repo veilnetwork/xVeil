@@ -32,10 +32,27 @@ class TcpShaperTest(unittest.TestCase):
         asyncio.run(exercise())
 
     def test_competing_connections_share_rate_and_preserve_bytes(self):
-        listener = socket.socket()
-        listener.bind(('127.0.0.1', 0))
-        listener.listen(2)
-        listener.settimeout(8)
+        self.exercise_competing_connections('aggregate', False)
+
+    def test_per_target_keeps_connections_on_one_target_shared(self):
+        self.exercise_competing_connections('per-target', False)
+
+    def test_distinct_targets_have_independent_capacity(self):
+        self.exercise_competing_connections('per-target', True)
+
+    def test_duplicate_targets_cannot_multiply_capacity(self):
+        target = ('127.0.0.1', 1)
+        with self.assertRaises(ValueError):
+            TcpShaper([target, target], scope='per-target')
+
+    def exercise_competing_connections(self, scope, distinct_targets):
+        listeners = []
+        for _ in range(2 if distinct_targets else 1):
+            listener = socket.socket()
+            listener.bind(('127.0.0.1', 0))
+            listener.listen(2)
+            listener.settimeout(8)
+            listeners.append(listener)
         failures = []
         echoes = []
 
@@ -50,7 +67,8 @@ class TcpShaperTest(unittest.TestCase):
 
         def serve():
             try:
-                for _ in range(2):
+                for index in range(2):
+                    listener = listeners[index if distinct_targets else 0]
                     conn, _ = listener.accept()
                     thread = threading.Thread(target=echo, args=(conn,))
                     echoes.append(thread)
@@ -60,13 +78,16 @@ class TcpShaperTest(unittest.TestCase):
 
         server = threading.Thread(target=serve)
         server.start()
-        shaper = TcpShaper([listener.getsockname()], trace=True)
+        targets = [listener.getsockname() for listener in listeners]
+        shaper = TcpShaper(targets, trace=True, scope=scope)
         shaper.rate_bps = 128000
         barrier = threading.Barrier(2)
         payloads = [os.urandom(16384), os.urandom(16384)]
 
-        def transfer(payload):
-            with socket.create_connection(('127.0.0.1', shaper.ports[0]), 8) as conn:
+        def transfer(item):
+            index, payload = item
+            port = shaper.ports[index if distinct_targets else 0]
+            with socket.create_connection(('127.0.0.1', port), 8) as conn:
                 conn.settimeout(8)
                 barrier.wait(timeout=3)
                 began = time.monotonic()
@@ -81,11 +102,16 @@ class TcpShaperTest(unittest.TestCase):
 
         try:
             with concurrent.futures.ThreadPoolExecutor(2) as pool:
-                results = list(pool.map(transfer, payloads))
+                results = list(pool.map(transfer, enumerate(payloads)))
             self.assertEqual([data for data, _ in results], payloads)
             # 32 KiB across two connections share 128 kbit/s, rather than each
             # receiving that capacity. Allow clock precision and final chunk.
-            self.assertGreater(max(elapsed for _, elapsed in results), 1.9)
+            elapsed = max(elapsed for _, elapsed in results)
+            if distinct_targets:
+                self.assertGreater(elapsed, .95)
+                self.assertLess(elapsed, 1.9)
+            else:
+                self.assertGreater(elapsed, 1.9)
             self.assertIsNone(shaper.failure)
             for stat in shaper.stats:
                 self.assertEqual(stat['sent_bytes'], 32768)
@@ -111,16 +137,19 @@ class TcpShaperTest(unittest.TestCase):
                     self.assertLessEqual(row['oldest_byte_arrived_at'],
                                          row['newest_byte_arrived_at'])
                     self.assertLessEqual(row['newest_byte_arrived_at'], row['read_at'])
-                by_direction[row['direction']].append(row)
+                group = (row['direction'], row['link'] if scope == 'per-target' else 0)
+                by_direction[group].append(row)
             self.assertEqual(len({row['connection'] for row in shaper.trace_rows}), 2)
             for rows in by_direction.values():
                 reservations = [row['ready'] for row in rows]
                 self.assertEqual(reservations, sorted(reservations))
                 span = reservations[-1] - rows[0]['at']
-                self.assertGreaterEqual(span, 32768 * 8 / 128000 - .01)
+                charged_bytes = sum(row['bytes'] for row in rows)
+                self.assertGreaterEqual(span, charged_bytes * 8 / 128000 - .01)
         finally:
             shaper.stop()
-            listener.close()
+            for listener in listeners:
+                listener.close()
             server.join(2)
             for thread in echoes:
                 thread.join(2)
