@@ -24,7 +24,9 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
 parser.add_argument('--transport', choices=['quic', 'tcp', 'obfs4-tcp'], default='quic',
                     help='Loopback transport; TCP checks ordered fallback, obfs4-tcp checks authenticated independent channels')
-parser.add_argument('--rate-kbps', type=int, default=0, help='Aggregate blind FIFO cap per direction across all connections; 0 leaves transport unrestricted')
+parser.add_argument('--rate-kbps', type=int, default=0, help='Blind FIFO cap per direction in the selected shaper scope; 0 leaves transport unrestricted')
+parser.add_argument('--shaper-scope', choices=['aggregate', 'per-target'], default='aggregate',
+                    help='Aggregate retains the original route-wide stress cap; per-target shares capacity across all connections to each target node (TCP control only)')
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
@@ -62,6 +64,8 @@ if args.source_cell_trace:
     os.environ['VEIL_DIAG_SOURCE_CELLS'] = '1'
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
+if args.shaper_scope != 'aggregate' and (args.transport == 'quic' or not args.rate_kbps):
+    parser.error('Per-target shaping requires TCP and a nonzero rate')
 if args.feedback_interval_seconds < 1:
     parser.error('Feedback interval must be at least one second')
 if not 500 <= args.tone_period_ms <= 5000:
@@ -210,6 +214,7 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'independent_control_ipc': not args.shared_control_ipc,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
+result['shaper_scope'] = args.shaper_scope
 result['opaque_frame_capture_start_seconds'] = args.opaque_frame_capture_start_seconds if args.opaque_frame_capture else None
 result['control_carrier'] = 'compact_call_state_diagnostic' if args.compact_call_health else 'authenticated_application_envelope'
 try:
@@ -238,7 +243,10 @@ try:
         s.close()
     if args.rate_kbps:
         shaper_type = UdpShaper if args.transport=='quic' else TcpShaper
-        shaper = shaper_type([('127.0.0.1', port) for port in ports], trace=args.shaper_trace)
+        shaper_options = {'trace': args.shaper_trace}
+        if args.transport != 'quic':
+            shaper_options['scope'] = args.shaper_scope
+        shaper = shaper_type([('127.0.0.1', port) for port in ports], **shaper_options)
     for index, identity in enumerate(identities):
         directory = ROOT / str(index)
         lines = ['persist_enabled = false', '[global]', 'meeting_points = "off"', 'builtin_seed_policy = "never"', 'admin_socket = ' + json.dumps('unix://' + str(directory / 'admin.sock')), '[Identity]']

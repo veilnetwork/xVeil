@@ -16303,3 +16303,69 @@ All workers exit, all three nodes stop and zero fixture sockets remain;
 independent process inspection finds no owned fixture, policy or stand app.
 No installed user app/profile was changed. Poco remains absent from ADB,
 so physical camera, mobile-network and audible-call quality remain unqualified.
+
+### 2026-10-13: blind-shaper buffering and separate target-capacity control
+
+The new `analyze_tcp_shaper_timing.py` separates asyncio arrival-to-read,
+read-to-reservation, reservation service, release lateness and writer drain.
+Windows use chunk read time so an awaited reservation cannot move a chunk
+silently out of its original window. Unknown arrival segments and unfinished
+writes remain unknown. Output has no payload, address, connection identifier
+or media classification; retained-event bounds and eviction counts are explicit.
+Seven analyzer regression tests pass.
+
+The earlier camera-mode aggregate capture retains all 91630 shaper events.
+During 20–360 seconds, arrival-to-read maxima are 127.910/191.981 ms whereas
+reported reservation maxima are only 60.529/56.271 ms. Directly measured
+arrival-to-write maxima are 157.083/221.837 ms. In the 154–158-second flight-peak
+window, arrival-to-read maxima are 91.589/122.962 ms and arrival-to-write maxima
+123.538/161.801 ms. The reader already owns those bytes, so a small kernel
+queue does not rule out this fixture wait. These are generic opaque chunks,
+not proven audio packets: their maxima cannot be subtracted from RTP flight
+or treated as exact attribution of an audio peak.
+
+An explicitly optional `--shaper-scope per-target` control uses an independent
+FIFO reservation clock per target node and direction, shared by all connections
+to that target. The original `aggregate` scope remains the default and remains
+a route-wide contention stress case. The control neither gives individual
+connections more bandwidth nor inspects content. Duplicate targets are rejected
+to prevent multiplying one target's allowance. Six shaper tests, including real-socket checks, verify shared capacity,
+independent target capacities, byte integrity, EOF and shutdown.
+Scope is recorded in each fixture summary; QUIC and unrestricted per-target
+invocations are rejected. This modifies the loopback test network only, with
+no production media, SDK or relay policy changes.
+
+A full 360-second per-target 1024-kbit/s camera/Opus/file control passes its
+existing quality gate without changing the native/SDK artifacts or application
+policy used in the aggregate capture. Source timing is valid (17.65-ms maximum,
+no late intervals). PCM peaks are 164.009/133.233 ms and p95 values
+132.279/131.743 ms; native playout maxima are 127/110 ms. All 337 competing sound
+edges arrive per direction with no missing edges, zero native audio interruptions
+and zero video protection pauses. The first direction covers observed 20/40-ms
+packetization positions; the second covers 20/40/60 ms. This does not claim
+60-ms coverage in both directions. Video receives 4879/4780 frames. All 72
+health reports plus bootstrap arrive per direction without native, poll or
+authentication failures. Both 512-KiB files have matching hashes/no missing
+chunks and finish at 86.878/92.281 seconds. Independent ordered channel offers
+and actual independent audio/camera sending are verified. All 4862 declared
+source work items are fully observed, with zero whole or partial budget shedding.
+
+RTP traces match 13918/14004 nonempty packets through 359.974/359.992 seconds,
+with no unmatched or ambiguous rows. Largest flights are 76.340/88.045 ms;
+SDK admission/native drain at those peaks are 5/14 and 5/17 microseconds.
+The shaper's bounded ring retains its last 100000 of 173275 events, from
+161.532 seconds; the first 73275 events were evicted. Its retained arrival-to-write
+maxima of 98.305/111.221 ms therefore do not describe the whole run. TCP snapshots
+show up to 17-ms current RTT and 2933 queued bytes. Known pre-window connection
+baselines show 21843 retransmitted bytes; sixteen other baselines remain unknown.
+Passing sound quality despite observed retransmission also prevents treating
+retransmission alone as a sufficient explanation of the earlier failure.
+
+The original aggregate gate still fails (PCM 261.295/229.947 ms). This control
+supports investigating route-wide test-network pressure before changing
+production audio protection; it does not replace that gate or establish the
+cause of Mac-to-Poco stalls from fresh codec/session histories. Physical mobile
+quality, camera behavior and the original observed video freeze remain unverified
+while Poco is absent from ADB. All fixture workers exit, all three nodes stop,
+zero sockets remain and independent process inspection finds no owned fixture,
+policy or stand application. No installed user application/profile was changed.
