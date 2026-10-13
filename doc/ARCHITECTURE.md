@@ -15970,3 +15970,40 @@ matches the previous APK; it is not installed. The Mac stand's signature is
 valid and its Mach-O code/data sections match the tested SDK and freshly built
 production media library (code signatures themselves change during bundling).
 The stand is copied outside the installed applications and is not launched.
+
+### 2026-10-13: bounded source-frame diagnostics confirm partial budget shedding
+
+An opt-in SDK trace (`VEIL_DIAG_SOURCE_CELLS=1`) now correlates local secondary
+source work items with sealed-cell admission and drop events. It records only
+existing public ciphertext epoch/sequence headers, local queue slots and byte
+counts, never plaintext, keys or peer identities. Sampling stops at sequence
+4096 per epoch and 65536 rows per process. Transit, primary and recoverable
+source traffic are excluded. The post-run analyzer treats missing events as
+unknown and distinguishes admission from delivery; repeated admissions do not
+inflate byte costs. Its scope includes relay RTX repair work items and excludes
+direct packet ingress. It does not change source policy or relay scheduling.
+
+A 110-second obfs4/TCP, 1024-kbit/s audio/camera/screen fixture has valid
+14.85-ms source timing, no native/poll/authentication failures and all 89
+competing sound edges per direction, with no missing edges. Native playout
+maxima are 146/166 ms, without audio interruptions or protection-pause samples.
+PCM maxima are 184.239/203.212 ms: the quality gate still fails in one direction.
+No competing file transfer or physical phone qualification was performed.
+
+Within the declared trace range, all 4478 source work items have complete cell
+observations: 29 are partially shed and 86 entirely shed by the source budget,
+with 144 dropped cells. No queue overflow, queue expiry, ingress-full or partial
+native-expiry events occur. The largest observed work item needs 6062 bytes
+including OVL1 and session AEAD (carrier overhead excluded), below the existing
+8192-byte allowance. Several multi-packet frames admit a prefix and drop their
+tail. The allowance can therefore run out in the middle of an ordinary frame;
+increasing the maximum frame size alone would not prevent this mechanism.
+This is evidence of partial source shedding, not proof that each affected
+frame caused the user's freeze. Whole-frame budget reservation remains to be
+implemented and verified.
+
+All 528 session tests pass (six ignored), including four new trace-boundary and
+ownership tests. All 43 FFI media-priority tests and six analyzer tests pass;
+the production-feature SDK build succeeds. All fixture workers exit, all three
+nodes stop and zero sockets remain; independent process inspection finds no
+owned fixture, policy or stand application. Poco is still absent from ADB.
