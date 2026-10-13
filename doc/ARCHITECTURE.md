@@ -15963,3 +15963,10 @@ All fixture workers exit, all three nodes stop and zero sockets remain;
 independent process inspection finds no owned fixture, policy or stand app.
 Poco remains absent from ADB and USB, so no phone upgrade or physical call was
 performed and installed user apps/profiles were left intact.
+
+Android build 2583 and a separate Mac stand build are prepared for the physical
+recheck. Android's embedded SDK and media hashes are verified and its signer
+matches the previous APK; it is not installed. The Mac stand's signature is
+valid and its Mach-O code/data sections match the tested SDK and freshly built
+production media library (code signatures themselves change during bundling).
+The stand is copied outside the installed applications and is not launched.
