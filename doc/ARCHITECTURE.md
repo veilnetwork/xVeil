@@ -15932,7 +15932,7 @@ bitrate-adapter tests pass; focused Dart analysis has no issues.
 
 The full 360-second obfs4/TCP fixture at 1024 kbit/s uses production native
 media behavior with private recording/trace hooks and SDK 9f9800fe. Audio,
-camera, screen and two 512-KiB files compete on neutral relays. Source timing is
+screen-mode synthetic video and two 512-KiB files compete on neutral relays. Source timing is
 valid (16.85-ms maximum interval, no late intervals). All 337 competing-phase
 sound edges per direction arrive, with no missing edges and all source
 positions for 20/40/60-ms packetization. Video delivers 4254/3105 frames, with
@@ -15983,7 +15983,7 @@ unknown and distinguishes admission from delivery; repeated admissions do not
 inflate byte costs. Its scope includes relay RTX repair work items and excludes
 direct packet ingress. It does not change source policy or relay scheduling.
 
-A 110-second obfs4/TCP, 1024-kbit/s audio/camera/screen fixture has valid
+A 110-second obfs4/TCP, 1024-kbit/s audio/screen-mode-video fixture has valid
 14.85-ms source timing, no native/poll/authentication failures and all 89
 competing sound edges per direction, with no missing edges. Native playout
 maxima are 146/166 ms, without audio interruptions or protection-pause samples.
@@ -16044,7 +16044,7 @@ with a spoofed source rejection and six analyzer tests pass. The production SDK
 build succeeds. No public C ABI or Dart binding changes are required.
 
 Two full 360-second obfs4/TCP fixtures at 1024 kbit/s exercise real Opus/VP8,
-camera, screen, compact control and two 512-KiB files. The first has invalid
+screen-mode synthetic video, compact control and two 512-KiB files. The first has invalid
 source timing: 43.50/71.14-ms intervals at 17.106/18.661 seconds, before video
 starts. Its 6387 fully observed source work items contain zero partially shed
 items and 98 wholly shed items; one nonce-boundary declaration is excluded.
@@ -16170,7 +16170,7 @@ new group cannot itself establish that large estimate without feedback. The
 48 kbit/s and actually emits Opus. Native build and fixture export parity pass
 (119 identical test-hook exports); no public C ABI or Dart binding changes.
 
-A full 360-second obfs4/TCP, 1024-kbit/s audio/camera/screen/file fixture has valid
+A full 360-second obfs4/TCP, 1024-kbit/s audio/screen-mode-video/file fixture has valid
 14.92-ms source timing and no late intervals. All 337 competing sound edges per
 direction arrive, with no missing edges and all 20/40/60-ms source positions.
 Native audio interruptions and video protection pauses are zero; video receives
@@ -16211,7 +16211,7 @@ Flutter policy/feedback tests and focused Dart analysis passed. The additive
 native symbol and nullable binding passed export and older-library checks.
 Those checks established mechanism/compatibility, not call quality.
 
-The full 360-second obfs4/TCP, 1024-kbit/s audio/camera/screen/file capture has
+The full 360-second obfs4/TCP, 1024-kbit/s audio/screen-mode-video/file capture has
 valid 15.76-ms source timing, no late input intervals and confirmed video hint
 configuration throughout. It does NOT qualify the variant: PCM peaks are
 411.817/291.533 ms (p95 220.795/230.049), native playout peaks 378/259 ms and
@@ -16246,3 +16246,60 @@ carrier/writer and receiver delays and validate the actual transport cost and
 shaper timing. All workers exit, all three nodes stop, zero sockets remain and
 independent process inspection finds no owned fixture, policy or stand app.
 No user application/profile or phone was changed.
+
+### 2026-10-13: timestamped TCP snapshots and camera-mode verification
+
+Opt-in TCP kernel-progress diagnostics now include the existing same-host
+monotonic clock, leaving unsupported clocks explicitly unknown. This changes
+logging only, with no socket, transport, wire or scheduling changes. The new
+`analyze_tcp_queue_timing.py` reads current kernel snapshots rather than earlier
+cumulative high-water counters. It reports legacy untimed rows, unsupported
+fields, invalid clocks and missing retransmission baselines explicitly. Its
+output contains no addresses, connection identifiers or media roles. Only an
+owned same-process loopback capture can supply the common clock origin;
+generic connection snapshots cannot attribute delay to individual RTP packets.
+Six analyzer regression tests and three transport TCP-trace tests pass; the
+production-feature SDK build succeeds.
+
+A full 360-second camera-mode obfs4/TCP capture uses the accepted selected-video
+probe ceiling, compact media/health, local source feedback and competing
+512-KiB files in both directions. Source timing is valid (14.89-ms maximum,
+no late intervals); all 337 competing sound edges arrive per direction, with
+no missing edges and all 20/40/60-ms packetization positions. Health receives
+all 72 reports plus bootstrap on each side, with no native, poll or authentication
+failures. Video receives 2345/3235 frames, without protection pauses or native
+audio interruptions. Both files have matching hashes and no missing chunks,
+finishing at 326.643/324.875 seconds. The 6181 fully observed source work items
+have zero partial budget shedding and 112 wholly shed items (176 drop cells).
+The audio quality gate still fails: PCM peaks 261.295/229.947 ms, p95
+202.348/209.100 ms, native playout peaks 211/196 ms.
+
+RTP traces match 9013/9415 nonempty packets through 359.974 seconds with no
+unmatched or ambiguous rows. Largest flights are 173.081 ms at 321.932 seconds
+and 181.588 ms at 155.352 seconds; SDK admission/native drain at those peaks
+are 6/11 and 7/14 microseconds. Across 20–360 seconds, 4207 TCP snapshots on
+30 generic connections show current RTT at most 6 ms and queued bytes at most
+3671. Observed retransmitted-byte deltas are zero on 14 connections with a
+pre-window baseline; 16 lack that baseline and remain unknown. Darwin's
+unsupported notsent count also remains unknown. In the narrower 154–158 and
+320–324-second windows, all 16 observed connections have baselines and zero
+retransmitted-byte deltas; current RTT maxima are 1 ms and queued-byte maxima
+1449/1457. These sampled data do not exclude brief unsampled stalls, but they
+do not establish large kernel queues or TCP retransmission as the cause of
+those flight peaks. Per-hop transit and neutral shaping waits remain unlocalized.
+
+Fixture scope correction: `--screen-video` selects the one synthetic VP8
+producer's screen lane instead of its camera lane. Prior runs with that flag
+exercise audio plus screen-mode video and files, not simultaneous camera and
+screen producers; this run separately exercises camera mode. The blind TCP
+shaper has one FIFO reservation clock per direction shared by every connection
+and target node. Its 1024-kbit/s setting is aggregate across the shaped route,
+not an independent 1024-kbit/s allowance on each relay hop. Opaque ciphertext
+crossing multiple shaped connections contributes to the aggregate multiple
+times. Neither observation changes production relay scheduling or classifies
+media at a relay.
+
+All workers exit, all three nodes stop and zero fixture sockets remain;
+independent process inspection finds no owned fixture, policy or stand app.
+No installed user app/profile was changed. Poco remains absent from ADB,
+so physical camera, mobile-network and audible-call quality remain unqualified.
