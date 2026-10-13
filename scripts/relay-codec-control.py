@@ -35,6 +35,7 @@ parser.add_argument('--media', type=Path, required=True)
 parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a protobuf-enabled test-hook media library')
 parser.add_argument('--audio-overhead-bytes', type=int, default=209,
                     help='Diagnostic framing estimate for adaptive Opus; default 209 retains production behavior')
+parser.add_argument('--video-overhead-bytes', type=int, default=0, help='Configure video feedback/pacing framing separately from Opus; 0 retains the legacy video model')
 parser.add_argument('--compact-media', action='store_true', help='Use compact relay audio batching, as the current application does, instead of the legacy audio/video batch format')
 parser.add_argument('--duration', type=int, default=100)
 parser.add_argument('--tone-period-ms', type=int, default=1000,
@@ -65,6 +66,8 @@ if args.feedback_interval_seconds < 1:
     parser.error('Feedback interval must be at least one second')
 if not 500 <= args.tone_period_ms <= 5000:
     parser.error('Tone period must be 500–5000 milliseconds')
+if not 0 <= args.video_overhead_bytes <= 4096 or (args.video_overhead_bytes and not args.adaptive_audio):
+    parser.error('Video overhead must be 0–4096 bytes; a positive hint requires --adaptive-audio')
 if not 1 <= args.audio_overhead_bytes <= 4096 or (not args.adaptive_audio and args.audio_overhead_bytes != 209):
     parser.error('Audio overhead must be 1–4096 bytes and an override requires --adaptive-audio')
 if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_interval_seconds < 120:
@@ -313,7 +316,7 @@ try:
     media=C.CDLL(str(media_path),mode=C.RTLD_GLOBAL)
     def mf(name,types,ret):
         f=getattr(media,name);f.argtypes=types;f.restype=ret;return f
-    create=mf('veil_media_test_adaptive_codec_create',[C.c_uint64,P,P,C.c_int],P) if args.adaptive_audio else mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
+    create=mf('veil_media_test_dual_overhead_codec_create',[C.c_uint64,P,P,C.c_int,C.c_int],P) if args.video_overhead_bytes else mf('veil_media_test_adaptive_codec_create',[C.c_uint64,P,P,C.c_int],P) if args.adaptive_audio else mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
     destroy=mf('veil_media_engine_destroy',[P],None)
     capture=mf('veil_media_test_audio_capture_tone',[P,C.c_int],C.c_int)
     playout=mf('veil_media_test_audio_playout_pcm',[P,P,C.c_size_t],C.c_int)
@@ -449,7 +452,7 @@ try:
         result['compact_control_app_identity_verified']=all(rejected_foreign_control_apps)
     os.environ['VEIL_MEDIA_TEST_VIDEO']='1'
     for i,ch in enumerate(channels):
-        e=create(ch,ids[i],ids[1-i],args.audio_overhead_bytes) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
+        e=create(ch,ids[i],ids[1-i],args.audio_overhead_bytes,args.video_overhead_bytes) if args.video_overhead_bytes else create(ch,ids[i],ids[1-i],args.audio_overhead_bytes) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
         assert e;engines.append(e)
     policylog=(ROOT/'policy.err').open('w')
     policy=subprocess.Popen(['dart',str(policy_path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=policylog,text=True,bufsize=1,env=dict(os.environ,TMPDIR='/private/tmp/'))
@@ -594,6 +597,8 @@ try:
                   control_send_samples_truncated=sum(control_attempts)>control_send_samples.maxlen)
     result['stand_clock_observations']=clock_observations
     result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
+    result['video_overhead_bytes_override'] = args.video_overhead_bytes
+    result['video_overhead_verified'] = all(x['stats'].get('video_packet_overhead_bytes') == args.video_overhead_bytes for x in samples) if args.video_overhead_bytes else None
     result['adaptive_audio'] = args.adaptive_audio
     result['audio_overhead_bytes_override'] = args.audio_overhead_bytes if args.adaptive_audio else None
     result['compact_media'] = args.compact_media
@@ -692,6 +697,8 @@ try:
     if args.tone_period_ms!=1000:result['ok']=result['ok'] and result['tone_phase_coverage_verified']
     if args.transport=='obfs4-tcp':
         result['ok']=result['ok'] and result['independent_ordered_channels_offered_verified'] and result['independent_ordered_media_send_verified']
+    if args.video_overhead_bytes:
+        result['ok'] = result['ok'] and result['video_overhead_verified']
     if args.adaptive_audio:
         result['ok'] = result['ok'] and result['adaptive_audio_verified'] and result['codec_target_bounds_verified']
     result.update(local_source_feedback=args.local_source_feedback,source_feedback_queued=source_feedback_queued,source_feedback_skipped=source_feedback_skipped,reliable_file_contention=args.compete_file,file_results=file_results if args.compete_file else [])
