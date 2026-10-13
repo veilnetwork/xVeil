@@ -16594,3 +16594,17 @@ installed. Temporary next files are absent afterward. Private proof is
 `relay-compat-artifact2584/installer-io-check-proof.json` in the existing
 artifact directory. These checks do not execute real systemd or qualify
 production startup. Services remain unchanged pending installation approval.
+
+#### Isolated Linux runtime startup check
+
+The prepared 037bee4b ELF is also run as a foreground node in an Ubuntu 22.04
+amd64 container with no external network and a read-only root filesystem.
+A generated developer config uses an existing owned stand's mined Ed25519
+identity and disables lazy mining; production PoW validation remains enabled.
+Two real CLI health requests report status ok, tick 3 then 8, and zero sessions.
+SIGTERM terminates the node with exit 0. The container is removed and its
+absence independently verified. The tested executable hash matches the
+prepared deployment candidate. Private proof is `startup-proof.json` beside
+the artifact. This checks actual runtime startup and admin access, not the
+servers' production configuration, forwarding, media, or systemd restart.
+No live server has been changed; installation approval is still pending.
