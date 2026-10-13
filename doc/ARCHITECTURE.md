@@ -16007,3 +16007,78 @@ ownership tests. All 43 FFI media-priority tests and six analyzer tests pass;
 the production-feature SDK build succeeds. All fixture workers exit, all three
 nodes stop and zero sockets remain; independent process inspection finds no
 owned fixture, policy or stand application. Poco is still absent from ADB.
+
+### 2026-10-13: reserve complete relay source work before its first cell
+
+The media pump seals a complete camera/screen work item before publishing it.
+An additive, negotiated local IPC capability carries that boundary to the node;
+old local daemons retain individual-cell compatibility. The bound is 512 cells
+and 512 KiB plus bounded sealing overhead. The daemon checks the bound and the
+client's bound application, reconstructs the existing per-cell sends and charges
+their existing per-cell rate quota before dispatch. It never forwards the local
+IPC header or boundary. Forward's network priority, envelope and opaque payload
+are unchanged; the relay integration test also checks this explicitly.
+
+Each local session envelope now retains a shared reservation token through
+ingress, scheduling and restoration. The first member reserves the sum of
+sealed sizes plus the actual envelope/session overhead for every member.
+Subsequent members/retries reuse that reservation, bound to the same endpoint
+and envelope shape. All neighbors, camera and screen retain the shared 8192-byte,
+200-ms source allowance. A failed datagram reservation rejects the whole work
+item, including tails arriving in a later window. Ordered compatibility waits
+with the complete cost. A work item larger than 8192 bytes is rejected under
+active primary pressure rather than producing an oversized burst; healthy
+sources retain the larger supported input bound. Queue shedding/expiry cancels
+unsent siblings without refunding admitted bytes. This provides atomic source
+budget admission, not atomic end-to-end delivery: IPC refusal, transport loss
+and later expiry can still prevent delivery. Direct packet ingress and anonymous
+circuit pumps are outside this relay-frame change. Relays receive no role or
+source reservation metadata and gain no media/user priority.
+
+All 533 session tests pass (six ignored), including whole-cost sharing, restored
+tokens, queue cancellation and pressured oversized-work rejection. The types
+suite passes all twelve tests, including five new reservation tests; the proto
+suite passes all 831 tests, including exhaustive truncated-batch rejection.
+All 44 media-priority tests, three writer-freshness tests, the IPC relay regression
+with a spoofed source rejection and six analyzer tests pass. The production SDK
+build succeeds. No public C ABI or Dart binding changes are required.
+
+Two full 360-second obfs4/TCP fixtures at 1024 kbit/s exercise real Opus/VP8,
+camera, screen, compact control and two 512-KiB files. The first has invalid
+source timing: 43.50/71.14-ms intervals at 17.106/18.661 seconds, before video
+starts. Its 6387 fully observed source work items contain zero partially shed
+items and 98 wholly shed items; one nonce-boundary declaration is excluded.
+It does not qualify audio performance. It receives all 337 competing sound
+edges per direction but PCM peaks are 251.202/271.505 ms, native playout 222/225
+and protection-pause counts 30/30. Both files have correct hashes/no missing
+chunks and finish at 309.960/320.949 seconds.
+
+The repeat has valid 14.88-ms source timing and no late intervals. All 6517
+declared work items have complete cell observations, with zero partially shed
+items, 98 entirely shed items and 165 budget-drop cells. No native partial
+expiry, ingress-full, queue overflow or queue expiry is observed in this scope.
+The largest observed work item costs 6062 source-budget bytes. There is no
+claim about rows outside the bounded nonce range or that each whole rejection
+corresponds to an original frame rather than an RTX repair work item.
+
+The repeat receives all 337 competing sound edges per direction with no missing
+edges and all 20/40/60-ms source positions represented. Native audio interruptions
+and protection-pause samples are zero; video receives 2782/3908 frames. All 72
+health updates plus bootstrap arrive per side, with no authentication,
+native or poll failures. Both files have correct hashes/no missing chunks,
+finishing at 299.904/302.870 seconds. Independent control IPC, ordered-channel
+offers and ordered-media sends are verified.
+
+The repeat still fails the audio quality gate: PCM peaks 232.537/233.033 ms
+(p95 199.679/201.996), native playout peaks 204/195 ms. Fresh connection/codec
+histories prevent claiming a causal latency improvement or regression from
+cross-run maxima. Same-host RTP traces match 9224/9156 nonempty packets through
+359.975 seconds without unmatched or ambiguous rows. SDK-plus-network flight
+peaks are 177.703 ms at 175.754 seconds and 158.033 ms at 175.875 seconds;
+SDK admission/native drain at those peaks are 14–19 microseconds. That remaining
+delay requires further investigation; frame-budget integrity is a separate
+verified result, not physical call qualification.
+
+All workers exit, all three nodes stop and zero sockets remain in both fixtures.
+Independent process inspection finds no fixture, policy or owned stand app.
+Poco remains absent from ADB; no phone or installed Mac app/profile was changed.
