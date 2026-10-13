@@ -15854,3 +15854,58 @@ Capture readers stop cleanly with no errors/rejected frames; their bounded
 trace ends at 97.529 seconds and absence later is not packet loss. All owned
 workers exit, all three nodes stop, and zero fixture sockets remain.
 Independent process inspection finds no fixture or policy worker left.
+
+
+### 2026-10-13 rejected allocation-only video probe suppression
+
+The bundled GCC probe controller can generate padding when the application's
+allocated video bitrate increases during ALR. A private variant supplies
+`probe_max_allocation:false` for the video environment only. Its real-controller
+regression confirms that this suppresses allocation-driven probes, preserves
+startup discovery, preserves audio's default probe policy and preserves the
+separate path-ceiling increase mechanism. The native call-plane smoke suite
+passes, including Opus delivery while both video queues are stalled, separate
+negotiated audio/video SSRCs and TWCC, sparse video, restart and teardown. Those
+tests establish mechanism and isolation, not improvement in call quality.
+
+A 110-second variant fixture has valid 15.10-ms source timing, all 89
+competing-phase sound edges per direction and all source positions for
+20/40/60-ms packets. PCM peaks are 202.617/213.988 ms, native playout 165/173,
+zero protection-pause samples and 772/207 delivered video frames. All 22 health
+reports plus bootstrap arrive. The earlier baseline capture had invalid
+22.54-ms source timing and different connection/codec history; this comparison
+cannot establish a particular latency reduction. Padding remains present:
+248/236 padding packets at the end of the short variant. Other probe causes
+were deliberately retained.
+
+A full 360-second variant run has valid 18.77-ms source timing and all 337
+competing-phase sound edges per direction, with no missing edges and all
+20/40/60-ms source positions represented. It does NOT confirm the desired
+quality: PCM peaks are 261.709/233.096 ms (p95 221.459/216.590), native playout
+255/204 ms, and video protection pauses occur in 13/15 samples. Video delivers
+1260/649 frames. Padding still totals 572/964 packets (145860/245820 bytes).
+Independent control IPC, independent ordered channel offers and independent
+ordered media sends are verified. All 72 health reports plus bootstrap arrive
+without authentication errors. Both 512-KiB files finish with matching hashes
+and no missing chunks at 320.125/322.766 seconds.
+
+RTP traces match 9348/9003 packets through 359.974/360.011 seconds without
+unmatched or ambiguous rows. Flight peaks are 166.086 ms at 109.873 seconds
+and 197.656 ms at 59.652 seconds, with microsecond SDK admission/native drain.
+Publication-clock offset changes by -9854 microseconds across the full run;
+its first-offset wall-to-monotonic publication mapping must not be treated as
+millisecond precision throughout that interval. RTP flight measurements use
+the separate same-host monotonic clock.
+
+The allocation-only experiment is rejected as an insufficient remedy. Its
+uncommitted production changes and test scaffolding were restored/removed;
+production still uses the original probe policy. Private binaries and test
+sources are retained for audit, not installation. The longer run contradicts
+accepting the short result as sufficient verification; fresh histories also
+prevent claiming that allocation suppression alone caused the deterioration.
+Remaining investigations include probes triggered by changes to the video
+path ceiling (which currently includes retransmission/RTCP headroom), and
+competing-source queue admission. All workers exit, all three nodes stop,
+and both fixtures leave zero sockets. Independent process inspection finds
+no fixture, policy or stand application left. Poco remains absent from ADB;
+no installed user application or profile was replaced.
