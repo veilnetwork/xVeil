@@ -46,6 +46,7 @@ parser.add_argument('--shared-control-ipc', action='store_true',
 parser.add_argument('--compact-call-health', action='store_true',
                     help='Diagnostic compact call-state carrier on a separate IPC sender; requires the optional SDK call-control API, not proof of application integration')
 parser.add_argument('--local-source-feedback', action='store_true', help='Feed actual endpoint quality to the shared local producer budget over negotiated IPC')
+parser.add_argument('--source-cell-trace', action='store_true', help='Privately correlate complete endpoint video work items with source admission/shedding; adds no relay roles or wire fields')
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
 parser.add_argument('--no-video', action='store_true', help='Isolate real audio/file coexistence without starting a video encoder; not a full media-priority gate')
@@ -56,6 +57,8 @@ parser.add_argument('--reannounce-interval-seconds', type=int,
 args = parser.parse_args()
 if args.chunk_trace:
     os.environ['VEIL_DIAG_CHUNKS'] = '1'
+if args.source_cell_trace:
+    os.environ['VEIL_DIAG_SOURCE_CELLS'] = '1'
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
 if args.feedback_interval_seconds < 1:
