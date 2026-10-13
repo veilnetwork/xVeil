@@ -667,16 +667,9 @@ try:
     captured=log_path.read_text();hops=re.findall('ipc.rt_trace.relay_admission[^\n]*hop=([a-f0-9]+)[^\n]*datagram_transport=(true|false)',captured)
     # Publication metadata only; no node ids, DHT keys or payload previews.
     # Missing markers on an older SDK cannot prove absence of publications.
-    publication_markers=re.findall(
-        r'node\.sovereign_identity\.replication[^\n]*reason=([a-z_]+)\s+wall_unix_ms=(\d+)', captured)
-    clock_offsets=[c['unix_us']-c['monotonic_us'] for c in clock_observations]
-    result['identity_publications']={
-        'available':bool(publication_markers),
-        'clock_offset_change_us':clock_offsets[-1]-clock_offsets[0],
-        'timestamp_resolution_us':1000,
-        'events':[{'reason':reason,'at_seconds':round(
-            (int(wall_ms)*1000-clock_offsets[0]-result['stand_start_monotonic_us'])/1e6,3)}
-            for reason,wall_ms in publication_markers]}
+    from publication_timing import publication_timing
+    result['identity_publications'] = publication_timing(
+        captured, result['stand_start_monotonic_us'], args.duration, clock_observations)
     result['neutral_datagram_route_verified']=bool(hops) and args.transport=='quic' and all(h==identities[0]['node_id'][:8] and ready=='true' for h,ready in hops)
     expected_ready = 'true' if args.transport=='obfs4-tcp' else 'false'
     result['neutral_ordered_route_verified']=bool(hops) and args.transport!='quic' and all(h==identities[0]['node_id'][:8] and ready==expected_ready for h,ready in hops)
