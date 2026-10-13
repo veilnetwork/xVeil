@@ -16408,3 +16408,47 @@ and the reported camera freeze therefore remain unverified. These are prepared
 artifacts, not a release or a physical quality qualification. The owned native
 build container exited and the xveil-media Colima VM is confirmed stopped.
 The normal user macOS application/profile was not accessed.
+
+### 2026-10-13: physical 2584 retries stop before media; exit causes checked
+
+Poco returned to ADB. Its installed 2581 application's signer matched the
+prepared 2584 APK, which was installed as an in-place update preserving data.
+The matching current macOS stand includes hidden-volume and uses private QA
+profiles. Seven physical call attempts completed: both directions with the
+older QA profile, an endpoint-exchange diagnostic retry, a temporary SDK
+9f9800fe control, and three retries with the persistent sovereign QA profile.
+The latter include a 190-second network warm-up and a final retry preserving
+the phone process that the user had explicitly launched and unlocked. No
+incoming call appeared within the 45-second observation window in any attempt;
+none reached audio/video sampling. The final retry verified the phone was
+foreground, awake and not keyguard-locked before starting the worker. The
+worker did not reinstall or relaunch the phone before that call.
+
+The SDK control changes only that native library, retaining current media and
+Dart. It is not the exact original 2581 build and cannot exclude all earlier
+SDK regressions. Current 2584 was restored afterward; the pulled installed APK
+has SDK/media bytes matching the prepared current artifact. Contact presence,
+stable stand identity, local send acceptance and network readiness do not prove
+remote call delivery. The foreground retry records an outgoing offer and local
+live-leg completion, with no incoming call-signal entry in the receiver log.
+The loss point remains unknown. These results neither qualify physical media
+quality nor attribute the failure to video protection or battery batching.
+
+After the user reported an apparent phone crash, Android's exit history and
+crash buffer were captured. The final test process exited at 23:28:04 with
+USER REQUESTED / FORCE STOP, matching the worker's explicit cleanup. The
+previous background process exited at 23:22:44 with OTHER KILLS BY SYSTEM and
+description OneKeyClean. The retained xVeil crash-buffer entries are dated
+October 7 (camera/image lifecycle, screen-capture foreground service and missing
+libc++ packaging); no new crash is recorded for this retry. A separate Android
+user's process has a low-memory exit; it is not the foreground test process.
+This evidence explains the observed test shutdown but does not rule out an
+unrecorded failure at another time.
+
+Private results and logs are beneath
+`/private/tmp/xveil-audio-resume-20261011/physical-foreground2584-20261013`;
+earlier retry cleanup metadata is retained beside it. All seven workers report
+owned macOS and phone processes absent and their ADB forward removed. The final
+retry independently verifies the owned macOS PID and phone process absent,
+port 38765 free and forward 43766 absent. No normal macOS user application or
+profile was modified. No product fix, release or physical media pass is claimed.
