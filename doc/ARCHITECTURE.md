@@ -16197,3 +16197,52 @@ is an RTP-rate bound, not proof of a bound on encrypted wire bytes. All fixture
 workers exit, all three nodes stop and zero sockets remain; independent process
 inspection finds no owned fixture, policy or stand application. Poco remains
 absent from ADB; no installed user app/profile was changed.
+
+### 2026-10-13: rejected video-overhead feedback/pacing variant
+
+A private variant added an independent pre-start video framing hint, configured
+GCC's NetworkRoute and explicitly enabled overhead in its pacer. Opus retained
+its existing 209-byte hint; the relay fixture supplied 356 bytes to video (316
+source-budget bytes plus estimated carrier overhead, not a measurement of the
+complete encrypted wire cost). Both clock-free controller integration and
+configuration-freeze checks passed: the video controller received its hint
+without changing the audio controller. Native call-plane tests, all 105 targeted
+Flutter policy/feedback tests and focused Dart analysis passed. The additive
+native symbol and nullable binding passed export and older-library checks.
+Those checks established mechanism/compatibility, not call quality.
+
+The full 360-second obfs4/TCP, 1024-kbit/s audio/camera/screen/file capture has
+valid 15.76-ms source timing, no late input intervals and confirmed video hint
+configuration throughout. It does NOT qualify the variant: PCM peaks are
+411.817/291.533 ms (p95 220.795/230.049), native playout peaks 378/259 ms and
+protection-pause counts 51/20. All 337 competing sound edges per direction
+arrive without missing edges, with all 20/40/60-ms source positions; native
+audio interruptions remain zero. Video receives 2823/1978 frames. All 72 health
+reports plus bootstrap arrive without native, poll or authentication failures.
+Both files have correct hashes/no missing chunks, finishing at
+233.558/271.020 seconds.
+
+RTP traces match 10587/10581 nonempty packets through 359.954 seconds with no
+unmatched/ambiguous rows. Worst flights are 180.796 ms at 26.512 seconds and
+338.317 ms at 26.692 seconds; SDK admission/native drain there are 9/14 and
+9/16 microseconds. Source-frame diagnostics observe 6416 complete work items,
+zero partial budget shedding and 452 wholly shed work items (586 dropped cells).
+At 25–28 seconds the neutral shaper records 334104/336521 bytes, reservation
+maxima 83.893/46.006 ms, reader-buffer maxima 7842/4076 bytes and release
+lateness maxima 2.100/2.163 ms. These opaque chunks cannot be assigned to
+individual RTP packets or subtracted from flight. Across the full competing
+phase one shaper direction also has a 78.039-ms release-lateness peak and
+152100 buffered reader bytes; source input timing alone does not prove every
+shaper release met its deadline.
+
+The production video-hint API, bindings, application wiring, export exception
+and test additions were restored rather than adopting an unqualified remedy.
+Private source, binaries and exact patches remain available for analysis. The
+fixture retains an explicitly optional experimental video-hint constructor;
+zero keeps the existing production model. This experiment does not prove a
+causal regression between fresh histories, but contradicts treating this hint
+plus pacer accounting as a sufficient fix. Next work must separate SDK queue,
+carrier/writer and receiver delays and validate the actual transport cost and
+shaper timing. All workers exit, all three nodes stop, zero sockets remain and
+independent process inspection finds no owned fixture, policy or stand app.
+No user application/profile or phone was changed.
