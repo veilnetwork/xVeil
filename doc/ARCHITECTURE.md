@@ -16570,3 +16570,27 @@ on the two reachable relays because the access request concerned reading logs
 and installation restarts their active services. No upload, installation,
 restart, release or push has occurred. Client apps remain on their qualified
 2584 artifacts; physical media and the full audio-priority goal are unverified.
+
+#### Remaining SSH access and installer failure checks
+
+The three remote-command exits are explained by the cloud image's forced root
+login message: it directs the operator to ubuntu. SFTP interprets the initial
+text bytes as an invalid packet length. Using the same supplied key with the
+advertised ubuntu account and noninteractive sudo succeeds on all three nodes.
+All five inspected production services report veil-cli 0.11.37; the additional
+three machines also have a second veil process, so any later deployment plan
+must select the production service baseline rather than an arbitrary PID.
+No server modification is performed and the pending approval still concerns
+only the original two reachable relays.
+
+The prepared installer now checks the backup's expected hash again immediately
+before rollback, refusing a backup changed during restart. Seven local checks
+execute its actual copy/hash/fsync/atomic-replacement operations in temporary
+directories with a simulated service: successful replacement, failed startup,
+failed restart, wrong candidate, changed baseline, backup collision and backup
+corruption during restart. Both ordinary failure cases restore the exact old
+bytes; precondition failures perform no restart; a changed backup is not
+installed. Temporary next files are absent afterward. Private proof is
+`relay-compat-artifact2584/installer-io-check-proof.json` in the existing
+artifact directory. These checks do not execute real systemd or qualify
+production startup. Services remain unchanged pending installation approval.
