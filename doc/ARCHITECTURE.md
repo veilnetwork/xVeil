@@ -16508,3 +16508,65 @@ and remove their ADB forwards. Independent process/forward checks confirm
 cleanup; the capture worker also verifies its reader thread and ADB capture
 process exited. Physical audio priority and the reported video freeze remain
 unqualified because signaling still fails before media starts.
+
+### 2026-10-14: confirmed first-relay origin mismatch and checked correction
+
+The user supplied SSH access for inspecting the connected relay servers.
+Five live peer addresses are obtained from an owned Mac stand's native IPC
+snapshot; four peer IDs match the preceding common-peer comparison. Two
+servers permit diagnostic commands and run veil-cli 0.11.37. Three other
+servers return remote exit status 142 even for a short echo command; a verbose
+probe on one confirms successful SSH authentication before the remote exit.
+Their running versions and state remain unknown. No service is changed.
+
+The two inspected services append to files rather than the journal. Their
+retained logs identify the actual missing-call failure: first-hop Forward
+validation rejects the stable sender identity because its authenticated
+session peer is the distinct physical device. Within the captured call's
+50-second observation envelope, matching identity/device pairs have 8 Mac / 5
+phone rejections on one server and 5 Mac / 7 phone rejections on the other.
+These include traffic from the test endpoints, not solely identifiable offers;
+the counts are not a logical-message loss rate. The original strict device-only
+predicate is present both in tag v0.11.37 and current SDK source. The prior
+sender-envelope correction's regression skipped the first relay entirely.
+
+Veil b57a4275 permits either the authenticated device address or the identity
+cryptographically proved by that device's current SessionRegistry entry at
+the first hop. Contact records, DHT claims and another device's identity confer
+no permission. Meta-E2E handling, forwarding queues, wire classes and terminal
+sender authentication are unchanged. The existing producer/receiver regression
+now passes through a real first-hop FrameDispatcher and verifies forwarding
+with hop count 0 to 1, unchanged identity and neutral queue. Ordinary sending,
+call-control fallback and device fanout each cover cold/warm receiver key
+caches; cold provenance remains Claimed, without manufactured authentication.
+An additional regression rejects missing registry, missing origin proof,
+unrelated identity and wrong physical origin while retaining legacy-device
+forwarding. The extended test fails before the fix with the same rejection
+as the server logs and passes afterward. All 157 IPC tests pass (5 ignored),
+all 270 dispatcher tests pass, and strict Clippy for both changed crates and
+all targets passes with --no-deps.
+
+A minimal backport is prepared on detached commit 037bee4b from v0.11.37.
+Its verified registry lookup is equivalent to the main fix, and the extended
+registry test fails before the patch. All 240 dispatcher tests pass afterward.
+An x86_64 Linux/glibc-2.17 CLI is built with the original default rocksdb-cold
+and tls-boring features plus production-seeds. macOS ar silently produced
+empty ELF jemalloc archives; those generated archives are rebuilt with Zig ar
+from their existing objects and the dependent Rust archive is regenerated.
+Allocator source and feature selection are unchanged. The completed ELF runs
+--version successfully in an isolated Ubuntu 22.04 amd64 container, reporting
+0.11.37. QEMU's expected jemalloc MADV_DONTNEED notice is recorded separately
+from the successful exit. This ABI smoke check is not relay startup or call
+qualification. The container is removed and its absence verified.
+
+The private binary, source/build proof and deployment plan are beneath
+`/private/tmp/xveil-audio-resume-20261011/relay-compat-artifact2584`; inspection
+logs and matched rejection counts are in `relay-ssh-inspect2584-20261014` beside
+it. The prepared installer verifies the inspected baseline and candidate
+hashes, makes a binary backup, replaces atomically and checks the restarted
+process; failed startup restores the backup. This installer is syntax-checked
+and has not run on a server. Approval was requested for sequential installation
+on the two reachable relays because the access request concerned reading logs
+and installation restarts their active services. No upload, installation,
+restart, release or push has occurred. Client apps remain on their qualified
+2584 artifacts; physical media and the full audio-priority goal are unverified.
