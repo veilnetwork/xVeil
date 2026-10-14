@@ -711,6 +711,13 @@ jobs.
 a macOS or iOS engine, so there is nothing to download and the only route is
 from source, against a WebRTC checkout:
 
+The macOS WebRTC cache must enable `rtc_enable_protobuf = true` in `args.gn`.
+Rebuild `webrtc` and export its compile commands after changing that setting.
+The media build rejects caches without the audio packet adaptation used by
+the endpoint's packet-overhead controller. With the pinned linker and a newer
+SDK containing unsupported TAPI targets, use `use_lld = false` in that cache
+to select the Apple linker.
+
 ```sh
 # macOS
 WEBRTC_SRC=~/Projects/veilnetwork/webrtc-checkout/src WEBRTC_OUT=out/mac-arm64 \
@@ -1693,6 +1700,12 @@ sha256sum libveil_media-linux-x64.so   # сверить с записью в pro
 **Для платформ Apple артефактов нет вообще.** Ни один воркфлоу не собирает
 движок под macOS или iOS, качать нечего, и единственный путь — из исходников,
 против чекаута WebRTC:
+
+В кэше WebRTC для macOS в `args.gn` нужно включить `rtc_enable_protobuf = true`,
+заново собрать `webrtc` и экспортировать команды компиляции. Сборка движка
+проверяет наличие адаптации аудиопакетов, которую использует контроллер
+накладных расходов отправителя. Если закреплённый линковщик не распознаёт
+TAPI нового SDK, добавьте в этот кэш `use_lld = false` для линковщика Apple.
 
 ```sh
 # macOS
