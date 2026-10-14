@@ -17733,3 +17733,44 @@ zero, no fixture sockets remain and independent inspection confirms the exact
 fixture/policy PIDs are absent. No installed user app/profile, phone or server
 is changed. Stable quality under contention, source-clock reliability,
 physical speech and the full incoming/anonymous isolation audit remain open.
+
+### 2026-10-15: Exercise the full neutral Forward connection pool
+
+The incoming-path audit follows the production session receiver into the
+dispatcher's actual `dispatch_with_carrier` override, then DeliveryForward
+forwarding and `send_to_on_carrier_result`. The override preserves the carrier;
+the trait's carrier-ignoring default is not the active dispatcher path.
+Ordered and parallel Forward selection use an authenticated, process-local
+ingress-connection witness rather than a remote audio/video label. Existing
+first-come assignments can borrow free physical slots from the six-slot pool.
+All forwarded frames retain the same neutral INTERACTIVE wire class.
+
+The authenticated ordered-pipe regression now covers two, four and six
+distinct live ingress connections with identical routing fields. One output
+pipe remains unread and blocked; every other pipe must decode its exact
+original frame within 250 ms. All selected senders are distinct. At the full
+six-slot bound, a seventh live ingress must be refused without aliasing,
+stealing or changing any existing assignment. Parent retirement invalidates
+the witnesses, and the existing closed-carrier reclamation test remains.
+All four focused `forward_channel_isolation_tests` pass. This exercises real
+authenticated record I/O and production selection, not a complete network
+call or the anonymous-circuit path. No production scheduling change is made.
+
+Anonymous CircuitDatagram selection has a separate limitation: its cold path
+maps circuit IDs into two neutral buckets, so different circuits can share a
+connection. The carrier supplied by the circuit dispatcher is the destination's
+previously observed reverse transport, not the current incoming-connection
+witness. It is learned only after size/replay admission; stale sequences cannot
+replace it and a new circuit incarnation does not inherit it. A valid reverse
+carrier can reuse the exact return connection before pool fallback. Treating
+that carrier as a Forward ingress witness by removing a kind check would not
+establish independent cold-circuit connections and would conflate two roles.
+
+Full anonymous connection isolation therefore remains unqualified. Further
+work needs a bounded, circuit-lifetime-aware flow identity distinct from the
+return transport, with cold/warm-path, replay, circuit-reuse and retirement
+coverage. It must preserve neutral relay service and existing connection
+quotas; a circuit ID alone is not a lifetime-safe identity. This audit does not
+resolve the separate PCM/source-clock gate failures documented above. No
+phone call, GUI app, installed profile or server is used or changed in this
+audit; the focused Rust test process exits normally.
