@@ -7,8 +7,11 @@ class CallAudioBufferWindow {
   final List<int> _delays = [];
   int? _sequence;
   bool _growing = false;
+  bool _usingMeasuredTrend = false;
 
-  bool observe(int? delayMs, {int? sequence}) {
+  bool? get growing => _delays.length == samples ? _growing : null;
+
+  bool observe(int? delayMs, {int? sequence, bool? measuredGrowing}) {
     if (delayMs == null || delayMs < 0 || delayMs > 60000) {
       reset();
       return false;
@@ -19,10 +22,16 @@ class CallAudioBufferWindow {
       return _delays.isNotEmpty && (_delays.last >= ceilingMs || _growing);
     }
     _sequence = sequence;
+    final measured = measuredGrowing != null;
+    if (measured != _usingMeasuredTrend) {
+      // Never mix a receiver's native window with our downsampled legacy one.
+      _delays.clear();
+      _usingMeasuredTrend = measured;
+    }
     _delays.add(delayMs);
     if (_delays.length > samples) _delays.removeAt(0);
-    _growing = false;
-    if (_delays.length == samples) {
+    _growing = measuredGrowing ?? false;
+    if (!measured && _delays.length == samples) {
       final before = (_delays.take(3).toList()..sort())[1];
       final after = (_delays.skip(3).toList()..sort())[1];
       // Compare medians to reject a solitary spike. The recent half must
@@ -41,5 +50,6 @@ class CallAudioBufferWindow {
     _delays.clear();
     _sequence = null;
     _growing = false;
+    _usingMeasuredTrend = false;
   }
 }

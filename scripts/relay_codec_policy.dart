@@ -50,6 +50,7 @@ Future<void> main() async {
       peerDelayMs: peer[i].delayMs(now),
       peerCurrentDelayMs: peer[i].currentDelayMs(now),
       peerSampleSequence: peer[i].sampleSequence,
+      peerBufferGrowing: peer[i].bufferGrowing(now),
       receiveDelayMs: activity[i].playoutFeedback(now).delayMs,
       receiveAgeMs: activity[i].lastRxAt == null
           ? null
@@ -79,6 +80,7 @@ Future<void> main() async {
       peerAudioDelayMs: peer[i].delayMs(now),
       peerCurrentAudioDelayMs: peer[i].currentDelayMs(now),
       peerAudioSampleSequence: peer[i].sampleSequence,
+      peerAudioBufferGrowing: peer[i].bufferGrowing(now),
       requirePeerAudioPlayout: true,
       audioInterrupted: interrupted,
     );
@@ -103,6 +105,7 @@ Future<void> main() async {
         'peerDelay': peer[i].delayMs(now),
         'peerCurrentDelay': peer[i].currentDelayMs(now),
         'peerSampleSequence': peer[i].sampleSequence,
+        'peerBufferGrowing': peer[i].bufferGrowing(now),
         'sourcePressured': sourcePressured,
       }),
     );

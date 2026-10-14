@@ -1,4 +1,5 @@
 import '../domain/call_signal.dart';
+import 'call_audio_buffer_window.dart';
 
 /// Audio activity measured at the receive stream, separately from video and
 /// RTCP ingress. Default counters from a timed-out native worker are not data.
@@ -62,6 +63,7 @@ class CallAudioReceiveActivity {
   static const feedbackWindow = Duration(seconds: 5);
   final List<({DateTime at, int delay})> _feedbackPeaks = [];
   DateTime? _lastObservedAt;
+  final _playoutWindow = CallAudioBufferWindow();
 
   void _expireFeedbackPeaks(DateTime now) {
     _feedbackPeaks.removeWhere((sample) {
@@ -85,6 +87,7 @@ class CallAudioReceiveActivity {
       sequence: current.sequence,
       delayMs: peak,
       currentDelayMs: delay,
+      bufferGrowing: _playoutWindow.growing,
       interruptionCount: current.interruptionCount,
     );
   }
@@ -109,6 +112,11 @@ class CallAudioReceiveActivity {
   }
 
   void observe(Map<String, Object?> stats, DateTime now) {
+    final previous = _lastObservedAt;
+    if (previous != null &&
+        (!now.isAfter(previous) || now.difference(previous) > sampleLifetime)) {
+      _playoutWindow.reset();
+    }
     if (_lastObservedAt != null && now.isBefore(_lastObservedAt!)) {
       _feedbackPeaks.clear();
     }
@@ -121,11 +129,13 @@ class CallAudioReceiveActivity {
     final packets = stats['audio_rx_pkts'];
     if (packets is! num || packets < 0) {
       workerStalledSince = null;
+      _playoutWindow.reset();
       return;
     }
     supported = true;
     if (stats['worker_stalled'] == 1) {
       workerStalledSince ??= now;
+      _playoutWindow.reset();
       return;
     }
     workerStalledSince = null;
@@ -165,6 +175,7 @@ class CallAudioReceiveActivity {
       }
       _feedbackPeaks.add((at: now, delay: delay));
     }
+    _playoutWindow.observe(playoutFeedback(now).delayMs);
   }
 
   void reset() {
@@ -173,6 +184,7 @@ class CallAudioReceiveActivity {
     _playoutDelayMs = null;
     _sampledAt = null;
     _feedbackPeaks.clear();
+    _playoutWindow.reset();
     _lastObservedAt = null;
     _lastPackets = 0;
     _lastInterruptionCount = null;
