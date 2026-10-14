@@ -16779,3 +16779,57 @@ Private observations are retained under
 last short observation. Both owned app instances and the logcat worker exit,
 and the owned ADB forward is removed. Process absence is independently
 verified. The normal installed Mac app and profile remain untouched.
+
+### 2026-10-14: Direct source and QUIC queue waits measured separately
+
+Direct media now reports the same endpoint-only cumulative source-queue age
+already available for relay sends. Measurement includes waiting for the SDK
+sender lock; a sampled expired sealed cell has a distinct diagnostic stage.
+Packet pumps also report bounded, opt-in expiry counts before sealing. These
+changes leave admission, deadlines, relay fairness and media wire bytes intact.
+The 44 native media-priority tests pass, including blocked camera/screen
+writers, stale bursts, and original packet deadlines.
+
+A 119-second Mac-to-Poco P2P call starts with audio and enables both cameras
+after 62 seconds. Source-queue maxima are 25.722 ms on Mac and 7.081 ms on Poco,
+with no observed source-pump expiry. Audio buffer peaks are already 393/470 ms
+before video; after video they reach 1154/1114 ms. Matched encrypted-cell delay
+spreads reach 1045/979 ms. The paired local primary and secondary traces show
+independent transports and different connection IDs on each endpoint. While
+video is paused for audio, its payload and padding byte counters stop growing;
+continued padding is not reproduced as a source of competing traffic here.
+
+A generic QUIC diagnostic then records enqueue-to-packet-creation wait for
+timed datagrams that actually transmit. Quinn supplies its runtime's monotonic
+enqueue timestamp; the protocol state machine never reads a new system clock.
+Expired or unobserved compatibility datagrams do not inflate the maximum.
+The timestamp stays local, as does the `datagram_queue_max_us` trace field.
+An injected-clock protocol test proves delayed transmission, expiry exclusion,
+unchanged received payloads and compatibility behavior. All 11 targeted Quinn
+protocol datagram tests pass. Mac and Android SDK libraries rebuild successfully;
+phone installs retain the matching signer, data and other 15 native libraries.
+
+The next 180-second P2P call rings in 0.30 seconds and enables both cameras at
+62 seconds. Direct source-queue maxima are 1.728/4.321 ms. Actual transmitted
+datagrams wait up to 193.681/199.507 ms inside QUIC, while six/39 unsent datagrams
+expire. Outbox-to-transport maxima are 0.679/1.689 ms and socket-send wait maxima
+1.139/4.193 ms. The sampled SDK receive ages peak at 0.392/1.560 ms; Mac's
+native receive-to-WebRTC handoff peaks at 0.148 ms. Both endpoints remain P2P
+with zero handovers, origin mismatches or automatic bans.
+
+Matching 69/78 encrypted-cell samples gives delivery-time spreads of
+1020/1123 ms, with 95th percentiles above each direction's minimum of 210/658 ms.
+Absolute one-way latency is still unknown because device clocks are not
+calibrated. Mac RTP arrival gaps reach 1468 ms; the largest excess over the
+audio timestamp step is 1167 ms, so silence packet suppression alone does not
+explain that gap. Audio buffers reach 661/411 ms during the audio-only baseline
+and 1214/984 ms later. Video ultimately pauses; this is not a quality pass.
+The measured QUIC queue accounts for part of the delay. The remaining spread
+still needs the SDK writer-to-daemon interval and network send/receive boundary
+isolated; it is not conclusively assigned to the ISP or congestion controller.
+The user misses the listening window, so no new audible-quality result is claimed.
+
+Private evidence is under the existing stand directory in
+`call-direct-source-queue` and `call-quinn-queue-age`. Both fixture runs close
+the owned apps and logcat workers, remove their ADB forwards, and independently
+verify process absence. No relay binary or configuration changes in this cycle.
