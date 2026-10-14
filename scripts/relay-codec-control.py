@@ -30,6 +30,8 @@ parser.add_argument('--shaper-scope', choices=['aggregate', 'per-target'], defau
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
 parser.add_argument('--native-timing-trace', action='store_true',
                     help='Enable bounded private RTP timestamp diagnostics for source/receive attribution; records no audio samples')
+parser.add_argument('--native-trace-capacity', type=int, default=4096,
+                    help='Maximum native timestamp records per stream, 1–32768; requires native timing for a nondefault limit')
 parser.add_argument('--gc-timing-trace', action='store_true',
                     help='Record bounded cyclic-GC pauses in the Python driver without changing collection or quality gates')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
@@ -68,6 +70,8 @@ if args.source_cell_trace:
     os.environ['VEIL_DIAG_SOURCE_CELLS'] = '1'
 if args.rate_kbps < 0 or args.duration < 22:
     parser.error('Rate must be nonnegative and duration at least 22 seconds')
+if not 1 <= args.native_trace_capacity <= 32768 or (not args.native_timing_trace and args.native_trace_capacity != 4096):
+    parser.error('Native trace capacity must be 1–32768 and a nondefault limit requires --native-timing-trace')
 if args.shaper_scope != 'aggregate' and (args.transport == 'quic' or not args.rate_kbps):
     parser.error('Per-target shaping requires TCP and a nonzero rate')
 if args.feedback_interval_seconds < 1:
@@ -112,6 +116,7 @@ if args.native_timing_trace:
         parser.error('Native timing log must not be a symbolic link')
     native_log.write_text('')
     os.environ['VEIL_MEDIA_DIAG_PATH'] = str(native_log)
+    os.environ['VEIL_MEDIA_RTP_TRACE_LIMIT'] = str(args.native_trace_capacity)
 for index in range(3):
     if (ROOT / str(index)).is_symlink():
         parser.error('Fixture node directories must not be symbolic links')
@@ -230,6 +235,7 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'independent_control_ipc': not args.shared_control_ipc,
           'independent_audio_feedback_ipc': True,
           'native_timing_trace': args.native_timing_trace,
+          'native_trace_capacity': args.native_trace_capacity if args.native_timing_trace else None,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
 result['shaper_scope'] = args.shaper_scope
@@ -352,6 +358,7 @@ try:
     def mf(name,types,ret):
         f=getattr(media,name);f.argtypes=types;f.restype=ret;return f
     create=mf('veil_media_test_dual_overhead_codec_create',[C.c_uint64,P,P,C.c_int,C.c_int],P) if args.video_overhead_bytes else mf('veil_media_test_adaptive_codec_create',[C.c_uint64,P,P,C.c_int],P) if args.adaptive_audio else mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
+    timing_anchor=mf('veil_media_test_audio_timing_anchor',[P,C.c_int],C.c_int) if args.native_timing_trace else None
     destroy=mf('veil_media_engine_destroy',[P],None)
     capture=mf('veil_media_test_audio_capture_tone',[P,C.c_int],C.c_int)
     playout=mf('veil_media_test_audio_playout_pcm',[P,P,C.c_size_t],C.c_int)
@@ -490,6 +497,8 @@ try:
     for i,ch in enumerate(channels):
         e=create(ch,ids[i],ids[1-i],args.audio_overhead_bytes,args.video_overhead_bytes) if args.video_overhead_bytes else create(ch,ids[i],ids[1-i],args.audio_overhead_bytes) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
         assert e;engines.append(e)
+        if timing_anchor is not None:
+            assert timing_anchor(e,i)==0
     policylog=(ROOT/'policy.err').open('w')
     policy=subprocess.Popen(['dart',str(policy_path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=policylog,text=True,bufsize=1,env=dict(os.environ,TMPDIR='/private/tmp/'))
     def command(v):

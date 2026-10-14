@@ -17298,3 +17298,80 @@ No production budget/controller/codec tuning is inferred from that guess.
 The recent-trend defect is independently reproduced and fixed, and repeated
 captures show less unnecessary video protection, but stable compliance with
 the complete audio-quality gate and physical speech quality remain open.
+
+
+### 2026-10-15: Full-duration encoder/RTP/PCM attribution
+
+The user defers the physical speech check; work continues on the owned
+synthetic fixture without starting hardware applications. Native diagnostics
+now retain an explicitly bounded, opt-in encoder input/packet timeline and
+allow 1--32768 timestamp records per stream (default remains 4096). Invalid
+limits fall back to the default. Records contain times, indices, SSRC,
+timestamps and byte counts, never samples or payloads. They accumulate in
+memory and flush after teardown, rather than writing from the encode callback.
+Normal codec decisions, budgets, controllers, source lanes and relay/wire
+behavior are unchanged.
+
+A test-build-only hook reads the actual AudioSendStream RTP start timestamp.
+The analyzer joins that offset to encoded timestamps modulo 2^32, then verifies
+encoder input indices against every synthetic source capture before assigning
+an input edge to its containing packet. Missing/ambiguous witnesses cannot
+manufacture a receiver stage. Its final WebRTC-to-PCM residual may include
+codec lookahead/FEC waiting for a following packet, jitter buffering and
+rendering: it is explicitly not a pure NetEq measurement. Production exports
+are unchanged; the owned test library adds one hook (120 exports total).
+
+The unchanged-scope six-minute aggregate capture `pcm-pipeline-360` uses a
+24000-record limit. Both source indices verify, all 704 audio-only/mixed PCM
+edges are attributed, no payload rows are unmatched, no edges are unattributed,
+and no native trace reaches its capacity. The source driver peaks at 14.93 ms,
+so source-clock validity no longer hides this run's audio failure. Mixed PCM
+peaks are 199.942/212.836 ms (receiver order), p95 178.768/174.509 ms; the strict
+200-ms quality gate fails. All 337 mixed edges per direction arrive, with full
+observed 20/40/60-ms input-position coverage, zero quiet decoded frames and zero
+native interruptions. Native queues peak at 170/190 ms. These observations do
+not establish subjective speech quality or zero concealment.
+
+The largest edge originates on source 0 at 271.690629 seconds and is rendered
+at 271.903465 seconds. Its exact containing-packet spans are:
+
+| Stage | Milliseconds |
+| --- | ---: |
+| Source capture to encoded packet ready | 20.445 |
+| Encoded packet ready to RTP send attempt | 0.031 |
+| RTP attempt to local SDK admission | 0.031 |
+| SDK admission to receiver ingress | 14.446 |
+| Ingress to WebRTC delivery | 0.029 |
+| WebRTC delivery to decoded PCM edge | 177.854 |
+
+The containing packet is 40 ms long and the source transition is its second
+10-ms input. Its following packet already arrives at 271.774827 seconds,
+128.638 ms before output. Thus this peak is dominated by post-ingress waiting,
+not the contemporary source IPC call or its 14-ms transport span. This is not
+proof that earlier transport behavior is harmless: source-0 payloads around
+265.99 seconds spend up to 154.932 ms between SDK admission and ingress. Near
+that event the receiver's sampled target grows from 80 to 140 then 160 ms,
+while concealed samples rise 3021 to 4557. The target remains 140--160 ms until
+approximately 274 seconds, when it returns to 80 ms. This supports a transient
+delivery disturbance followed by a receiver playout tail; it does not identify
+which SDK/neutral-FIFO/relay substage caused that earlier transport span.
+Lowering a buffer gauge/cap is not accepted as a fix after the earlier lossy
+capacity/target experiments.
+
+Both 512-KiB files complete with matching hashes and no missing chunks, in
+188.848/201.237 seconds. All 72 health reports plus bootstrap arrive per
+direction, all 360 source-pressure reports per endpoint are queued without
+skips, and RTCP, independent ordered channels and route checks verify. Video
+peer receive counts are 2160/2176; protection is sampled active 85/0 times.
+There are no native, poll or audio-thread failures. All source/file workers
+and policy exit, all three node-stop calls return zero, no fixture sockets
+remain, and independent process inspection finds no fixture/policy process.
+No installed Mac/phone application or server is changed.
+
+Parser bounds and encoder-ring/wrap/DTX/capacity smoke tests pass. The real
+Opus/ANA smoke retains all 20/40/60-ms choices and the 16--32-kbit payload
+bounds. Nine RTP-timing and five exact-pipeline Python tests pass, including
+wrong offsets, missing capture/ingress witnesses and reversed clocks. The
+native test library builds successfully with the existing adaptive WebRTC
+archive. Physical speech quality, stable aggregate-gate compliance and the
+remaining incoming/anonymous-path audit are still open.
