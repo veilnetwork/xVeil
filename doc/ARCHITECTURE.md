@@ -16608,3 +16608,24 @@ prepared deployment candidate. Private proof is `startup-proof.json` beside
 the artifact. This checks actual runtime startup and admin access, not the
 servers' production configuration, forwarding, media, or systemd restart.
 No live server has been changed; installation approval is still pending.
+
+#### Approved deployment to the two inspected production relays
+
+The user approves sequential installation on the two specified relays. Both
+services now run the prepared 037bee4b binary with its verified SHA-256; each
+original binary is retained in a verified rollback backup. Baseline checks,
+upload, atomic replacement and systemd restart complete on both servers.
+Real CLI health requests report ok with increasing ticks and restored sessions:
+117 to 122 with six sessions on the first, 6 to 11 with five on the second.
+The first root-issued health request is reset by the admin interface; running
+the check under the service UID succeeds. The existing admin peer-UID check
+requires the daemon's UID and is preserved. Private deployment proofs are
+`deployment-server-1/proof.json` and `deployment-server-2/proof.json` beside
+the prepared artifact. The other three relays are not modified.
+
+An owned Mac stand subsequently establishes six native peer connections,
+including both updated relays. An extra `/p2p_status` HTTP probe fails after
+the successful peer snapshot; it does not qualify end-to-end delivery.
+The stand is closed and its process absence independently verified. No phone
+is visible in ADB, so incoming ringing, audio and video remain unverified after
+the relay update. The user is asked to reconnect Poco; no call is placed.
