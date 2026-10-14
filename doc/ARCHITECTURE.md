@@ -17415,3 +17415,211 @@ fixture sockets return to zero, and independent process inspection confirms
 the exact fixture and policy PIDs are absent. No hardware applications are
 started. The complete quality requirement remains open; physical speech is
 still deferred at the user's request.
+
+
+### 2026-10-15: Preserve endpoint pacing through complete relay work items
+
+The preceding goal turn made progress: full encoder/RTP/PCM attribution
+identified post-ingress delay following a transport disturbance, and the
+one-second feedback experiment was rejected rather than transferred into the
+application. The complete audio-priority/isolation goal remains open. Physical
+speech checking is deferred at the user's request; these tests use only owned
+synthetic profiles and no hardware audio/video applications.
+
+CodeGraph cannot resolve the current Rust symbols because its rust-analyzer
+is unavailable, and the existing Graphify slice resolves older generic symbols
+rather than this source path. Focused source inspection and exact tests are the
+authority here. The relay source path collects already-paced native RTP packets
+until a complete video frame is available, then publishes all sealed cells as
+one local IPC work item. Previously it discarded every fragment's enqueue time
+except the oldest deadline. Consequently the complete-work boundary could
+collapse the native pacer's intra-frame spacing into a burst. An independent
+video connection does not undo bytes already queued on a downstream shared
+link. This is a concrete scheduling mechanism, not yet proof that it caused
+every measured network or playout pause.
+
+The candidate retains per-packet source offsets while assembling the frame,
+propagates the first offset of each compact cell, and schedules those cells at
+the originating node. A delayed release shifts subsequent releases, so the
+schedule cannot earn a catch-up burst; retries/restores of the same cell do not
+spend another interval. Timing remains separate from whole-work byte admission:
+all cells still reserve the complete encrypted-envelope cost once, and a
+rejected frame cannot grant admission to its tail. Queue predicates defer only
+the held source, keep its FIFO and permit primary/neutral work on both ordered
+and DATAGRAM paths. Existing queue expiration remains authoritative. NACK
+repairs and independently complete video RTCP carry zero-offset schedules.
+
+The schedule is a bounded, negotiated app-to-daemon extension only:
+`IPC_CAP_LOCAL_LOSSY_PACING`, acknowledged in APP_HELLO_OK, enables local message
+95 (`AppIpcPacedLossyBatch`). Offsets must begin at zero, be monotonic, match the
+bounded cell count and span at most 200000 microseconds. The daemon strips all
+offsets before constructing the same original opaque AppIpcSend bodies.
+Protocol tests compare those resulting bodies byte for byte. Older daemons
+receive the existing complete-work format or legacy cells. Neither media type,
+priority, scheduling offsets nor a new wire role reaches a relay. Audio,
+camera, screen and feedback retain their separate sources/connections; relay
+service policy and the default Cubic controller are unchanged.
+
+The existing node-embedded ingress diagnostics also referenced optional
+serde_json without enabling it. The node-embedded feature now explicitly
+enables that dependency; packet-tunnel builds already enabled it. This fixes
+the standalone embedded-feature compilation without adding a new dependency
+version.
+
+Verification before the load comparison: 539 session tests pass with eight
+existing ignored tests; this includes a deterministic ordered/DATAGRAM queue
+regression proving that a paced video head does not hold primary traffic or
+catch up after a late release. All 47 media-priority tests, five writer-freshness
+tests, seven local-work tests and two batch-protocol tests pass. The assembler
+regression retains a six-fragment 5-ms native spacing through compact grouping
+and verifies that a NACK repair starts independently. Negotiated/legacy writer
+behavior, timestamp bounds, restored cells and single whole-frame byte charging
+are covered. Focused types/protocol Clippy passes with warnings denied. Full
+FFI Clippy remains stopped by six existing session lints in unchanged code
+(argument counts, a manual Default, enum size and collapsible conditions);
+the new pacing-state complexity lint was fixed by introducing a named state.
+A production-feature Mac SDK builds with the same 190 public FFI exports.
+
+The original retained SDK differs from a fresh rebuild even before this
+candidate, so it is not used as the sole binary comparison. Both preceding
+source and candidate are rebuilt using the same compiler, feature list,
+profile and target directory, then copied to separate private paths. No build
+or heavy test runs during the timed captures. Each uses the same media library,
+policy, aggregate 1024-kbit/s limit, 512-KiB files, 360-second duration, 1010-ms
+tone changes, five-second health cadence, 24000-record diagnostics and strict
+200-ms PCM/native-buffer limits. Artifact hashes are retained with each fixture.
+The matched baseline and candidate capture results follow after completion.
+
+
+The paired captures use the fixture code hash recorded at launch, before the
+following observation extension. Source inspection finds that
+`video_rx_deliver_frames` counts RTP marker delivery at the transport shim,
+not decoded images at VeilVideoSink. These counters must not be described as
+proof of smooth decoding, rendering or moving pictures. Historical RTP-only
+quality passes therefore do not qualify that part of the goal.
+
+An explicit `--decoded-video-trace` now samples the existing remote-frame API
+once per stats interval. It copies only the fixed owned synthetic source's
+bounded image, records sequence/dimensions/SHA-256 and discards pixel bytes.
+Its optional gate requires advancing decoded frames with changing pixel hashes
+at both receivers in the final 15 seconds. Increasing RTP counters, repeated
+pixels with rising decoder sequence, early-only motion, missing receivers and
+invalid witnesses cannot satisfy it. Five tests pass. Retrieval gaps remain
+sampled observations and do not claim native decoder timing or physical screen
+presentation. No production media library, app API or GUI is changed for this
+observation extension. Existing PCM limits and other quality gates remain in
+force when the additional decoded-image gate is enabled.
+
+
+#### Matched source-pacing comparison rejected; production path restored
+
+The rebuilt baseline `pcm-pacing-matched-baseline-360` fails: mixed PCM peaks
+381.052/270.041 ms and p95 192.821/189.912 ms, native buffers 348/237 ms. Its
+source driver has one invalid 46.63-ms interval at 220.0276 seconds. The largest
+PCM edge is earlier, at 177.761876 to 178.142928 seconds; its containing-packet
+transport span is 26.673 ms and WebRTC-to-PCM residual 324.595 ms. The later
+source-clock failure cannot explain that earlier edge, but the full capture
+still cannot be presented as a clean, valid-clock quality baseline.
+
+The pacing candidate `pcm-pacing-restored-360` has valid 15.06-ms source timing
+but also fails the unchanged audio limits: mixed PCM peaks 249.819/229.629 ms,
+p95 198.194/193.711 ms and native buffer peaks 222/208 ms. All 337 mixed edges
+arrive per direction, with full packet-position coverage, no native interruption
+or quiet decoded frame, and no native/poll/audio-thread failure. Exact source
+indices and all 704 PCM attributions verify without trace clipping, unmatched
+payload rows or unattributed edges. At its worst edge (source 1, input
+359.564330 seconds), capture-to-encoded is 9.241 ms, SDK-to-ingress 14.997 ms,
+WebRTC ingress handling 0.022 ms and the post-delivery residual 225.513 ms.
+The following packet has already arrived 188.311 ms before the output edge.
+The residual remains a combined codec/playout observation, not a pure NetEq
+measurement.
+
+Bounded diagnostics confirm that the candidate's new IPC schedule is actually
+received and its source scheduler waits; this is not just a configured but
+unused API. Both files hash correctly without missing chunks, finishing at
+266.940/183.017 seconds; all 72 health reports plus bootstrap arrive. Transport
+marker counts are 2696/2652, with 39/0 sampled protection pauses. These counts
+must not be interpreted as decoded images or proof of visual quality. The
+baseline's corresponding marker counts are 2215/876 and protection 74/0;
+sequential runs and the invalid baseline clock do not establish a causal
+quality improvement from this difference.
+
+This candidate is not accepted as a repair. All new pacing capability/message,
+client/daemon/work/scheduler/native changes and candidate-only tests are
+restored, including the experimental local message 95: it is not part of the
+current production contract. Exact source patch and both SDK binaries remain
+in the private evidence directory for further analysis. Only the independently
+reproduced standalone node-embedded JSON dependency correction remains in the
+SDK worktree. No relay policy, installed application, codec/bitrate controller
+or default source scheduling is changed.
+
+Both fixtures stop all source/file workers and policy, all six node-stop calls
+return zero, no fixture sockets remain and independent inspection finds neither
+fixture nor policy process. The next capture `pcm-decoded-video-360` exercises
+the preceding working SDK with the new actual-image observer. Its additional
+observation overhead must still satisfy the unchanged source-clock gate.
+
+Decoded-image observation is enabled by default for video fixtures. An explicit
+`--no-decoded-video-trace` retains the earlier RTP-only diagnostic mode and
+cannot establish decoded-video quality; audio-only `--no-video` fixtures skip
+this video-specific observation. The in-progress explicit-observer capture
+retains its exact launch script/module privately alongside their hashes before
+this equivalent default-selection change. No source change is injected into
+a running fixture.
+
+
+#### Actual decoded images verified; full audio/source-clock gate still fails
+
+`pcm-decoded-video-360` enables the new image observer on the preceding working
+SDK, without the rejected pacing changes. It observes 310/339 new decoded-frame
+pulls and 309/338 pixel-hash changes across the mixed phase. Both receivers
+have 15 new pulls with 14 content changes in the last 15 seconds, with the last
+pulls at 359.002/359.003 seconds. All bounded pulls succeed, with maximum native
+pull duration 0.312 ms. This verifies actual changing synthetic decoded images
+at the end, not smooth presentation on hardware screens or uninterrupted video
+throughout the entire call.
+
+One receiver has a sampled 14.999-second interval without a new decoded image,
+from 78.004 to 93.003 seconds. Its sender's actual video counter stops at 101:
+the adapter issues pause=true at 78.01 seconds, native video_send_paused stays
+one, the adapter issues pause=false at 92.01 seconds and a new decoded image
+arrives at 93.003 seconds. Thus that interval is an explicit protection pause,
+not evidence of a stuck decoder while the sender continues delivering video.
+The receive transport marker counter is also unchanged through this interval.
+The current shared recovery setting requires twelve healthy samples before
+releasing the sparse video probe; do not misattribute that wait to a decoder
+freeze or assume it is solved by a source scheduler change.
+
+The full gate fails, and its limit is not relaxed. Source-driver intervals
+include 51.18, 146.92, 109.08 and 41.36 ms, above the original 40-ms limit.
+The 146.92-ms event is at 308.4348 seconds, far after the video pause. No recorded
+cyclic-GC span overlaps it. Capture-to-row spans peak at 7.554/1.735 ms; nearby
+image pulls are 0.007--0.070 ms, so the observations do not identify this long
+gap as a native image-copy or measured capture-call stall. Interpreter/host
+scheduling cause remains unproven. The mixed PCM peaks are 211.730/222.876 ms,
+p95 188.973/180.150 ms. The largest sound edge occurs earlier, at source time
+178.770971 seconds, and has a 13.066-ms SDK-to-ingress span plus 189.510-ms
+post-WebRTC-delivery residual. A later driver failure does not explain that
+earlier peak, but the complete run remains unqualified.
+
+Both capture indices and all 704 PCM edge attributions verify, without trace
+clipping, unmatched payload rows or unattributed edges. Both files match their
+hashes without missing chunks, finishing at 194.771/213.357 seconds. RTCP
+verifies; all 72 health reports plus bootstrap arrive. Source feedback queues
+360/355 non-null observations with no refused/skipped admissions (a null policy
+verdict does not renew the lease). Native, poll and audio-thread failure counts
+are zero. All workers and policy exit, all three node stops return zero and
+no fixture sockets remain. Independent PID checks confirm the paired and
+image-observer fixture/policy processes are absent. No installed Mac/phone app,
+real microphone/speaker/camera, relay policy or server is changed.
+
+A fresh `cargo check -p veilclient-ffi --features node-embedded` passes with the
+one-line JSON dependency fix. The five image-observer tests pass; the fixture
+parses, its new positive/negative CLI option is present, and both worktree diffs
+pass whitespace checks. The SDK source-pacing variant remains rejected and
+archived privately, while the default actual-decoded-image verification stays
+in the working fixture. Audio priority under contention, reliable source-clock
+qualification, physical speech and broader incoming/anonymous paths remain
+open. Further buffer-policy work must distinguish six fresh local samples
+(~six seconds) from six five-second peer reports (~25--30 seconds); increasing
+all health traffic to one second has already failed the measured comparison.
