@@ -16,7 +16,7 @@ from udp_fifo_shaper import UdpShaper
 from tcp_fifo_shaper import TcpShaper
 from opaque_frame_capture import OpaqueFrameCapture
 import ctypes as C
-import json, os, socket, time, tomllib, traceback
+import gc, json, os, socket, time, tomllib, traceback
 from pathlib import Path
 from pcm_timing import input_edges
 os.umask(0o077)
@@ -30,6 +30,8 @@ parser.add_argument('--shaper-scope', choices=['aggregate', 'per-target'], defau
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
 parser.add_argument('--native-timing-trace', action='store_true',
                     help='Enable bounded private RTP timestamp diagnostics for source/receive attribution; records no audio samples')
+parser.add_argument('--gc-timing-trace', action='store_true',
+                    help='Record bounded cyclic-GC pauses in the Python driver without changing collection or quality gates')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
 parser.add_argument('--opaque-frame-capture-start-seconds', type=int, default=18,
@@ -206,6 +208,10 @@ audio_failure=[]
 source_feedback_queued=[0,0]
 source_feedback_skipped=[0,0]
 opaque_capture=None
+gc_observer=None
+gc_spans=collections.deque(maxlen=1024)
+gc_events=0
+gc_started=None
 file_threads=[]
 file_stop=threading.Event()
 file_lock=threading.Lock()
@@ -506,6 +512,20 @@ try:
     if shaper:shaper.rate_bps=args.rate_kbps*1000
     startat=time.monotonic();lasttick=startat;maxscheduler=0;videostarted=False;latestfeedback=[None,None];targets=[None,None]
     clock_observations=[clock_observation()]
+    if args.gc_timing_trace:
+        def gc_observer(phase, info):
+            global gc_started,gc_events
+            at=time.monotonic()
+            if phase=='start':
+                gc_started=(at,info.get('generation'))
+            elif phase=='stop' and gc_started is not None:
+                began,generation=gc_started;gc_started=None
+                if began-startat<=args.duration:
+                    gc_spans.append({'from_seconds':began-startat,
+                                     'to_seconds':at-startat,
+                                     'generation':generation})
+                    gc_events+=1
+        gc.callbacks.append(gc_observer)
     # Bound in-memory timing evidence; never do diagnostic I/O on the PCM
     # thread. Locate host scheduling stalls instead of attributing them to QUIC.
     driver_late_intervals=[];driver_late_count=0
@@ -753,6 +773,11 @@ except Exception:
     (ROOT/'failure.txt').write_text(traceback.format_exc())
     result['ok']=False;result['failure_saved_privately']=True
 finally:
+    if gc_observer is not None:
+        gc.callbacks.remove(gc_observer)
+        result['driver_gc_timing']={'events':gc_events,'spans':list(gc_spans),
+                                   'evicted':gc_events-len(gc_spans),
+                                   'collection_policy_unchanged':True}
     audio_stop.set()
     if audio_thread is not None:
         audio_thread.join(timeout=5)
