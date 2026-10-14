@@ -38,6 +38,42 @@ void main() {
     expect(sample(policy, send: send, receive: receive), isFalse);
   }
 
+  test(
+    'source budget consumes native trend and cannot ignore a capped current buffer',
+    () {
+      final policy = CallAudioSourcePressure();
+      recover(policy, receive: false);
+      bool? observe(int seq, int delay, bool growing) => policy.observe(
+        sendExpected: true,
+        receiveExpected: false,
+        requirePeerPlayout: true,
+        peerDelayMs: delay,
+        peerCurrentDelayMs: delay,
+        peerSampleSequence: seq,
+        peerBufferGrowing: growing,
+        receiveDelayMs: null,
+        receiveAgeMs: null,
+        interrupted: false,
+        audioTxDrops: 0,
+      );
+      expect(observe(6, 100, true), isTrue);
+      expect(
+        observe(6, 100, false),
+        isTrue,
+        reason: 'cached report cannot erase native pressure',
+      );
+      for (var n = 7; n <= 18; n++) {
+        observe(n, 100, false);
+      }
+      expect(observe(19, 100, false), isFalse);
+      expect(
+        observe(20, 200, false),
+        isTrue,
+        reason: 'hard ceiling is independent of the hint',
+      );
+    },
+  );
+
   test('audio-only source waits for sustained measured recovery', () {
     final policy = CallAudioSourcePressure();
     expect(sample(policy, peer: null), isTrue);

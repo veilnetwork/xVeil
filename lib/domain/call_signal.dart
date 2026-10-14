@@ -239,6 +239,7 @@ class CallAudioPlayoutFeedback {
     required this.sequence,
     this.delayMs,
     this.currentDelayMs,
+    this.bufferGrowing,
     this.interruptionCount,
   });
 
@@ -249,6 +250,10 @@ class CallAudioPlayoutFeedback {
   /// [delayMs]. Absent on older peers and fixed-size group feedback.
   final int? currentDelayMs;
 
+  /// Trend over six fresh native receiver snapshots, not six heartbeats.
+  /// Absent until the receiver has a complete window and on older peers.
+  final bool? bufferGrowing;
+
   /// Monotonic across receiver repairs. Optional for older peers.
   final int? interruptionCount;
 
@@ -256,6 +261,7 @@ class CallAudioPlayoutFeedback {
     'n': sequence,
     if (delayMs != null) 'd': delayMs,
     if (currentDelayMs != null) 'cd': currentDelayMs,
+    if (bufferGrowing != null) 'g': bufferGrowing,
     if (interruptionCount != null) 'i': interruptionCount,
   };
 
@@ -264,6 +270,7 @@ class CallAudioPlayoutFeedback {
     final sequence = raw['n'];
     final delay = raw['d'];
     final current = raw['cd'];
+    final growing = raw['g'];
     final interruptions = raw['i'];
     if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
       return null;
@@ -279,6 +286,9 @@ class CallAudioPlayoutFeedback {
             current > delay)) {
       return null;
     }
+    if (growing != null && (growing is! bool || current == null)) {
+      return null;
+    }
     if (interruptions != null &&
         (interruptions is! int ||
             interruptions < 0 ||
@@ -289,6 +299,7 @@ class CallAudioPlayoutFeedback {
       sequence: sequence,
       delayMs: delay as int?,
       currentDelayMs: current as int?,
+      bufferGrowing: growing as bool?,
       interruptionCount: interruptions as int?,
     );
   }

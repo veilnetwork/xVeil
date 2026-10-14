@@ -23,6 +23,7 @@ class CallAudioSourcePressure {
     required int? peerDelayMs,
     int? peerCurrentDelayMs,
     int? peerSampleSequence,
+    bool? peerBufferGrowing,
     required int? receiveDelayMs,
     required int? receiveAgeMs,
     required bool interrupted,
@@ -45,12 +46,11 @@ class CallAudioSourcePressure {
     // A current sample belongs to the same fresh, authenticated report as its
     // peak. It cannot make an absent/invalid report healthy or exceed the peak.
     // Older peers retain their peak-only behavior.
-    final peerDelay =
+    final hasCurrentPeerDelay =
         valid(peerDelayMs) &&
-            valid(peerCurrentDelayMs) &&
-            peerCurrentDelayMs! <= peerDelayMs!
-        ? peerCurrentDelayMs
-        : peerDelayMs;
+        valid(peerCurrentDelayMs) &&
+        peerCurrentDelayMs! <= peerDelayMs!;
+    final peerDelay = hasCurrentPeerDelay ? peerCurrentDelayMs : peerDelayMs;
     final peerNeeded = sendExpected && requirePeerPlayout;
     final unknown =
         (peerNeeded && !valid(peerDelay)) ||
@@ -58,6 +58,9 @@ class CallAudioSourcePressure {
     final peerPressure = _peerBuffer.observe(
       peerNeeded ? peerDelay : null,
       sequence: peerSampleSequence,
+      measuredGrowing: peerNeeded && hasCurrentPeerDelay
+          ? peerBufferGrowing
+          : null,
     );
     final receivePressure = _receiveBuffer.observe(
       receiveExpected ? receiveDelayMs : null,

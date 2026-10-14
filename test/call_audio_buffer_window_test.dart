@@ -110,4 +110,19 @@ void main() {
       expect(window.observe(120), isFalse);
     }
   });
+  test(
+    'native receiver trend overrides coarse history without bypassing replay or ceiling',
+    () {
+      final w = CallAudioBufferWindow();
+      expect(w.observe(100, sequence: 6, measuredGrowing: true), isTrue);
+      expect(w.observe(100, sequence: 6, measuredGrowing: false), isTrue);
+      expect(w.observe(80, sequence: 5, measuredGrowing: false), isTrue);
+      expect(w.observe(110, sequence: 11, measuredGrowing: false), isFalse);
+      expect(w.observe(200, sequence: 12, measuredGrowing: false), isTrue);
+      expect(w.observe(110, sequence: 13, measuredGrowing: false), isFalse);
+      // Losing support must warm a separate legacy window, not reuse hints.
+      expect(w.observe(130, sequence: 14), isFalse);
+      expect(w.growing, isNull);
+    },
+  );
 }

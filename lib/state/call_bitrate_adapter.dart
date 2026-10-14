@@ -338,6 +338,7 @@ class CallBitrateAdapter {
     int? peerAudioDelayMs,
     int? peerCurrentAudioDelayMs,
     int? peerAudioSampleSequence,
+    bool? peerAudioBufferGrowing,
     bool requirePeerAudioPlayout = false,
     int? expectedAudioFeedbackReports,
     int? expectedVideoFeedbackReports,
@@ -442,6 +443,7 @@ class CallBitrateAdapter {
       peerAudioDelayMs: peerAudioDelayMs,
       peerCurrentAudioDelayMs: peerCurrentAudioDelayMs,
       peerAudioSampleSequence: peerAudioSampleSequence,
+      peerAudioBufferGrowing: peerAudioBufferGrowing,
       requirePeerAudioPlayout: requirePeerAudioPlayout && sendAudioExpected,
       requireAudioReceive: receive.expected,
       audioReceiveAgeMs: receive.ageMs,
@@ -524,6 +526,7 @@ class CallBitrateAdapter {
     int? peerAudioDelayMs,
     int? peerCurrentAudioDelayMs,
     int? peerAudioSampleSequence,
+    bool? peerAudioBufferGrowing,
     bool requirePeerAudioPlayout = false,
     bool missingAudioReceiverFeedback = false,
     bool requireAudioReceive = false,
@@ -540,13 +543,14 @@ class CallBitrateAdapter {
         _floorPeerSampleSequence ??= peerAudioSampleSequence;
       }
     }
-    final currentPeerDelay =
+    final hasCurrentPeerDelay =
         peerAudioDelayMs != null &&
-            peerAudioDelayMs >= 0 &&
-            peerAudioDelayMs <= 60000 &&
-            peerCurrentAudioDelayMs != null &&
-            peerCurrentAudioDelayMs >= 0 &&
-            peerCurrentAudioDelayMs <= peerAudioDelayMs
+        peerAudioDelayMs >= 0 &&
+        peerAudioDelayMs <= 60000 &&
+        peerCurrentAudioDelayMs != null &&
+        peerCurrentAudioDelayMs >= 0 &&
+        peerCurrentAudioDelayMs <= peerAudioDelayMs;
+    final currentPeerDelay = hasCurrentPeerDelay
         ? peerCurrentAudioDelayMs
         : peerAudioDelayMs;
     final receiveBufferPressure = _receiveBuffer.observe(
@@ -555,6 +559,9 @@ class CallBitrateAdapter {
     final peerBufferPressure = _peerBuffer.observe(
       requirePeerAudioPlayout ? currentPeerDelay : null,
       sequence: peerAudioSampleSequence,
+      measuredGrowing: requirePeerAudioPlayout && hasCurrentPeerDelay
+          ? peerAudioBufferGrowing
+          : null,
     );
     final usePlayout = requirePeerAudioPlayout || requireAudioReceivePlayout;
     final bufferPressure = receiveBufferPressure || peerBufferPressure;

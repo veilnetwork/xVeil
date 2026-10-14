@@ -17623,3 +17623,113 @@ qualification, physical speech and broader incoming/anonymous paths remain
 open. Further buffer-policy work must distinguish six fresh local samples
 (~six seconds) from six five-second peer reports (~25--30 seconds); increasing
 all health traffic to one second has already failed the measured comparison.
+
+
+### 2026-10-15: Send the receiver's native buffer trend in existing health reports
+
+The previous goal turn made progress by rejecting the source-pacing variant,
+fixing standalone embedded-node JSON compilation and replacing RTP-marker-only
+video checks with actual decoded-image observation. The complete audio-priority
+and interaction-isolation goal remains open. Physical speech is still deferred
+at the user's request; no hardware call is required for this cycle.
+
+Source inspection confirms an inconsistent observation horizon: the local
+adapter receives native stats once per second, but the peer adapter originally
+builds its six-sample trend from health reports sent every five seconds. Its
+window therefore spans about 25 seconds rather than five. This can miss a
+short native rise and keep an earlier rise until enough sparse reports arrive.
+Sending every health report once per second was already measured and rejected;
+this change retains the existing cadence and carries the actual native verdict.
+
+CallAudioReceiveActivity now maintains the same six-fresh-snapshot buffer
+window locally. Its existing outgoing peak/current/sequence report can include
+optional boolean `g`, associated with that current snapshot. It remains absent
+until the native window is complete, and resets on an unmeasurable worker,
+stale accepted audio, missing delay, repair, a backwards/equal sampling clock
+or a sampling gap longer than the native snapshot lifetime. Reading feedback
+does not consume the window. The existing peak field remains unchanged.
+
+The optional boolean requires an explicit valid current-delay field. The peer
+tracker gives it the same receipt-time expiry, monotonic sequence/replay and
+repair invalidation as the existing current measurement. The adapter and local
+source-pressure policy consume this native verdict when available; older peers
+retain their existing downsampled inference. Switching between native and
+legacy modes does not mix the two histories. A cached report cannot replace a
+verdict or count as several fresh failures. A false trend never overrides the
+independent 200-ms current-buffer ceiling. Existing degradation/recovery counts,
+20-ms trend threshold, video ladder, codec bounds and controller budgets remain
+unchanged.
+
+The regular authenticated call-health path, compact encrypted health path,
+application host and owned relay fixture all carry/consume the same field. No
+extra timer or message is introduced, no media role or scheduling instruction
+is exposed to relays, and audio/video/screen/RTCP/control keep their existing
+separate sources/connections. The optional map field is compatible with older
+JSON decoders that ignore unknown keys; no call-signal index, binary feedback
+layout, native ABI, relay policy or server is changed.
+
+A regression first fails on the old implementation: six actual receiver
+snapshots establish growth, but the outgoing five-second report omits it. With
+the change, 175 targeted activity/window/peer/adapter/source-budget/call-wire
+and realtime-signaling tests pass, and focused analysis of the eleven changed
+Dart source/test items reports no issues. Tests include current/peak validity,
+wire roundtrip, legacy absence, malformed hints, stale receipt/replay/repair,
+unknown/equal/backwards/gapped sampling, the hard ceiling and cached reports.
+An end-to-end policy regression sends only at seconds 0, 5 and 10; two actual
+growing native windows can cut two video rungs, while intervening cached polls
+cannot cut more. This tests horizon correction, not acoustic quality.
+
+A fresh production-feature SDK from the current accepted source builds with
+the same 190 public FFI exports; it contains none of the rejected source-pacing
+changes. The six-minute `pcm-native-trend-360` capture uses that SDK, the same
+media library, aggregate 1024-kbit/s shaping, two 512-KiB files, five-second
+health cadence, 1010-ms tone changes, 24000-record native tracing and unchanged
+quality limits. Actual decoded-image observation is enabled. It must still
+qualify source timing, audio quality and video progress before any overall
+improvement is claimed. Artifact hashes include the policy, feedback domain,
+activity, peer tracker and source-budget code as well as the binaries/fixture.
+
+
+The full `pcm-native-trend-360` capture executes the new field: over the 340
+mixed-phase samples per endpoint, the peer-native verdict is true 20/9 times
+and false 320/331 times, never absent. All 72 health reports plus bootstrap
+arrive per direction at the unchanged five-second cadence, with no control
+admission or health-authentication failures. Both files match their hashes
+without missing chunks, finishing at 214.132/217.473 seconds. Source feedback
+queues 359/360 non-null verdicts with no skipped/refused admissions. RTCP,
+codec bounds, routes and independent ordered media channels verify, and native,
+poll, audio-thread, image-pull, file-authentication, duplicate-file and
+asynchronous file-send failures are all zero.
+
+There are zero sampled protection pauses in both directions. The actual-image
+observer retrieves 339/336 new decoded frames with 338/335 content changes;
+both directions have 15 new pulls and 14 content changes in the final 15
+seconds. Maximum sampled retrieval gaps are 1.005/2.002 seconds. These are
+one-second polling observations, not exact native decoder gaps or physical
+screen presentation. This run does not reproduce the preceding explicit
+15-second protection pause, but sequential, unqualified captures do not prove
+a causal visual improvement in every scenario.
+
+The complete gate still fails. Mixed PCM peaks are 202.539/208.967 ms, p95
+190.245/189.660 ms, and native buffer peaks 160/184 ms. All 337 mixed sound
+edges arrive per direction with full 20/40/60-ms source-position coverage,
+zero native interruptions and no quiet decoded frames. Both capture indices
+and all 704 edge attributions verify without unmatched payload rows,
+unattributed edges or native trace clipping. The largest edge originates at
+168.671589 seconds: capture-to-encoded 23.555 ms, encoded-to-send 0.023 ms,
+local SDK admission 0.020 ms, SDK-to-ingress 15.291 ms, ingress handling
+0.009 ms and WebRTC-to-PCM residual 170.070 ms. The residual still includes
+codec/lookahead and playout, not just NetEq.
+
+A separate driver interval of 43.79 ms occurs at 205.5565 seconds, above the
+unchanged 40-ms source-clock limit. It cannot explain the earlier largest PCM
+edge, but it independently disqualifies the full capture. Do not round either
+the 200-ms sound threshold or the driver limit into success. The native-window
+feedback defect is independently reproduced and fixed; this is not proof that
+the remaining acoustic/network delay has been repaired.
+
+All source/file workers and policy exit, all three node-stop calls return
+zero, no fixture sockets remain and independent inspection confirms the exact
+fixture/policy PIDs are absent. No installed user app/profile, phone or server
+is changed. Stable quality under contention, source-clock reliability,
+physical speech and the full incoming/anonymous isolation audit remain open.
