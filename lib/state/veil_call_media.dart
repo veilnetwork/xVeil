@@ -752,6 +752,7 @@ class VeilCallMediaController implements CallMediaController {
         'audio_rx_supported': _audioReceiveActivity.supported,
         'peer_audio_playout_ms': _peerAudioPlayout.delayMs(DateTime.now()),
         'local_source_pressured': _sourcePressured,
+        'video_audio_buffer_pressure': _bitrateAdapter?.audioBufferPressure,
         'local_source_feedback_queued': _sourceFeedbackQueued,
         'local_source_feedback_skipped': _sourceFeedbackSkipped,
         'audio_rx_age_ms': engineStats.containsKey('audio_rx_native_age_ms')
@@ -1535,6 +1536,7 @@ class VeilCallMediaController implements CallMediaController {
               kCallAudioPlayoutFeedbackMinVersion,
           peerDelayMs: _peerAudioPlayout.delayMs(now),
           peerCurrentDelayMs: _peerAudioPlayout.currentDelayMs(now),
+          peerSampleSequence: _peerAudioPlayout.sampleSequence,
           receiveDelayMs: receiveDelay,
           receiveAgeMs: receiveAt == null
               ? null
