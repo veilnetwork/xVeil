@@ -16864,3 +16864,57 @@ The fixture closes both owned apps, the logcat worker and its ADB forward;
 the launcher confirms the owned Mac process has exited. No audible-quality
 confirmation was obtained in this run. Diagnostics build on Mac and Android;
 the terminal timestamp fake-clock test and five source sampling tests pass.
+
+### 2026-10-14: Audio RTCP leaves the RTP source queue and writer
+
+Direct and relay calls attach a sender-only media binding on local endpoint 19,
+with the same source app identity and remote inbox as audio. Its bounded RTCP
+queue and IPC writer are separate from audio, camera, screen and lifecycle
+state. Feedback uses the existing generic local signaling transport, retaining
+its canonical compatibility path during warming or capacity recovery. Locally
+ready control children are independent of the audio and video connections.
+The existing encrypted RTCP body and primary cipher remain interoperable;
+relays receive no media role, local deadline or scheduling privilege.
+
+Short control requests carry an IPC-only selector. A trusted local deadline
+survives daemon ingress, scheduler pop/restore and QUIC enqueue; expired work
+cannot renew its lifetime while a route or destination turn waits. A pending
+short control also releases reliable-source admission at its deadline instead
+of retaining the five-second lifecycle window. Existing setup/end signaling
+keeps its longer bound. RTP never waits to batch with feedback, and feedback
+overflow or a contended feedback sender never falls back into the audio queue.
+The shared direct transport sequence now also covers feedback and compact state.
+
+Verification: 537 session tests pass (six pre-existing ignored), including
+independent-source congestion/recovery tests; 58 embedded media tests pass.
+Additional targeted checks cover local-only direct/relay headers, preserved
+deadline through scheduler restore and QUIC selection, feedback overflow,
+RTCP plaintext round-trip and cancellation of a blocked feedback pump. Four
+SDK writer freshness tests pass. Transport analysis finds no Dart issues, and
+Mac/Android SDK and app builds succeed. The generated C header and both ABI
+contract hashes agree. The matching-signer phone update retains application
+data and the other 15 original native libraries; only the private Mac stand
+bundle is replaced.
+
+A 180-second Mac/Poco call on Wi-Fi/mobile data rings in 0.43 seconds and
+enables both cameras at 62.21 seconds. Both endpoints stay P2P with zero route
+handovers. Primary audio uses an independent connection in all 150/178 sampled
+admissions; generic control uses one in 154/155 samples after initial warming.
+Control and video connection IDs are disjoint from audio IDs on both endpoints.
+Twenty-six/seven sampled feedback sends match authenticated peer receipt;
+84/87 stats snapshots contain audio receiver feedback, with 21/25 distinct RTT
+observations. Packet-duration adaptation exercises 20, 40 and 60 ms on both ends.
+This establishes feedback delivery and functioning adaptation, not speech quality.
+
+Remaining quality failure: primary QUIC packetization wait peaks at 1.533 ms on
+Mac and 195.906 ms on Poco, with zero/15 unsent expiries. Native source queue
+maxima are 2.005/3.766 ms. Audio buffers reach 831/301 ms before video and
+1124/460 ms afterward; interruptions and video pause still occur. Matched audio
+cell delay spreads are 990/337 ms. Clock offsets remain uncalibrated and network
+variation prevents attributing differences between sequential calls to this
+change. Separating RTCP therefore does not resolve all remaining delays. The
+anonymous feedback path and broader incoming-flow isolation also remain open.
+
+Evidence is retained in `call-feedback-separate` in the private stand cache.
+Both owned apps and logcat exit, the ADB forward is removed, and app process
+absence is independently verified. No new listening confirmation is claimed.

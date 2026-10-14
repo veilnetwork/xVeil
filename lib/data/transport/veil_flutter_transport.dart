@@ -232,6 +232,53 @@ class VeilFlutterTransport
   final VeilClient _p2pStreamClient;
   final AppHandle _p2pStreamApp;
   final AppHandle _mediaApp;
+  static const _feedbackEndpointId = 19; // Local sender only.
+  final _feedbackSenders =
+      <bool, Future<({VeilClient client, AppHandle app})>>{};
+
+  Future<int> _attachFeedback(int chan, bool identity) async {
+    if (!AppHandle.supportsMediaFeedbackSender || _disposing) return chan;
+    final future = _feedbackSenders.putIfAbsent(identity, () async {
+      final client = await VeilClient.connect(_socketPath);
+      try {
+        final app = identity
+            ? await client.bindNamed(
+                namespace: veilChatNamespace,
+                name: veilMediaName,
+                endpointId: _feedbackEndpointId,
+              )
+            : await client.bindDeviceScoped(
+                namespace: veilChatNamespace,
+                name: veilMediaName,
+                endpointId: _feedbackEndpointId,
+              );
+        return (client: client, app: app);
+      } catch (_) {
+        await client.close();
+        rethrow;
+      }
+    });
+    try {
+      final sender = await future;
+      if (_disposing) throw StateError('transport disposed during media setup');
+      if (!sender.app.configureMediaFeedbackSender(chan)) {
+        throw StateError('media feedback sender unavailable');
+      }
+      devLog(() => 'xVeil[call-media]: separate audio feedback configured');
+    } catch (_) {
+      try {
+        await future;
+      } catch (_) {
+        if (identical(_feedbackSenders[identity], future)) {
+          _feedbackSenders.remove(identity);
+        }
+      }
+      closeMediaChannel(chan);
+      rethrow;
+    }
+    return chan;
+  }
+
   static const _callControlEndpointId = 18; // Local sender only.
   final _callControlSenders =
       <bool, Future<({VeilClient client, AppHandle app})>>{};
@@ -266,6 +313,7 @@ class VeilFlutterTransport
   }
 
   Future<int> _attachCallControl(int chan, bool identity) async {
+    await _attachFeedback(chan, identity);
     if (!supportsCallControl || _disposing) return chan;
     final future = _callControlSenders.putIfAbsent(
       identity,
@@ -1504,7 +1552,10 @@ class VeilFlutterTransport
   Future<void> dispose() async {
     _disposing = true;
     _configuredControlChannels.clear();
-    for (final pending in _callControlSenders.values.toList()) {
+    for (final pending in [
+      ..._callControlSenders.values,
+      ..._feedbackSenders.values,
+    ]) {
       try {
         final sender = await pending;
         await sender.app.close();
@@ -1512,6 +1563,7 @@ class VeilFlutterTransport
       } catch (_) {}
     }
     _callControlSenders.clear();
+    _feedbackSenders.clear();
     await _p2pStreamApp.close();
     await _siblingApp?.close();
     await _realtimeApp.close();
