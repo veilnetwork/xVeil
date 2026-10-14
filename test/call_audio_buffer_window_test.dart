@@ -36,6 +36,51 @@ void main() {
     expect(CallAudioBufferWindow().observe(1000), isTrue);
   });
 
+  test('a drained recent rise below the ceiling is not ongoing growth', () {
+    final window = CallAudioBufferWindow();
+    for (final value in [52, 52, 52, 90, 93]) {
+      window.observe(value);
+    }
+    expect(window.observe(73), isFalse);
+    expect(window.observe(73), isFalse);
+  });
+
+  test(
+    'fresh stable reports clear a step while cached ones retain its verdict',
+    () {
+      final window = CallAudioBufferWindow();
+      for (var i = 0; i < 6; i++) {
+        expect(window.observe(60, sequence: i), isFalse);
+      }
+      expect(window.observe(90, sequence: 6), isFalse);
+      expect(window.observe(90, sequence: 7), isTrue);
+      for (var i = 0; i < 10; i++) {
+        expect(window.observe(90, sequence: 7), isTrue);
+      }
+      expect(window.observe(90, sequence: 8), isFalse);
+    },
+  );
+
+  test('recent trend still detects slow and staircase growth', () {
+    for (final values in [
+      [60, 68, 76, 84, 92, 100],
+      [60, 80, 80, 100, 100, 120],
+    ]) {
+      final window = CallAudioBufferWindow();
+      for (final value in values.take(5)) {
+        window.observe(value);
+      }
+      expect(window.observe(values.last), isTrue);
+    }
+  });
+
+  test('a stable capped buffer remains pressure', () {
+    final window = CallAudioBufferWindow();
+    for (var i = 0; i < 10; i++) {
+      expect(window.observe(200, sequence: i), isTrue);
+    }
+  });
+
   test(
     'cached or replayed peer reports cannot manufacture growth or recovery',
     () {

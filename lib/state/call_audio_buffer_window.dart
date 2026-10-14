@@ -25,12 +25,14 @@ class CallAudioBufferWindow {
     if (_delays.length == samples) {
       final before = (_delays.take(3).toList()..sort())[1];
       final after = (_delays.skip(3).toList()..sort())[1];
-      // Compare medians to reject a solitary spike; also require a rising
-      // current measurement so an already drained spike cannot cut video.
+      // Compare medians to reject a solitary spike. The recent half must
+      // still rise: an earlier step followed by a plateau or drain is not
+      // ongoing growth, even while the older baseline remains in the window.
       _growing =
           after - before >= growthMs &&
           delayMs - before >= growthMs &&
-          delayMs - _delays.first >= growthMs;
+          delayMs - _delays.first >= growthMs &&
+          delayMs > _delays[samples - 3];
     }
     return delayMs >= ceilingMs || _growing;
   }

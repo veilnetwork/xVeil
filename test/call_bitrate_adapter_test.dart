@@ -127,6 +127,16 @@ void main() {
     expect(a.level, 2);
   });
 
+  test('a recovered peer buffer cannot cut video using an older rise', () {
+    final a = direct();
+    final delays = [52, 52, 52, 90, 93, 73, 73];
+    for (var i = 0; i < delays.length; i++) {
+      native(a, peerDelay: delays[i], peerSequence: i);
+    }
+    expect(a.level, 0);
+    expect(a.audioReserve, isFalse);
+  });
+
   for (final level in [0, 4]) {
     test('cached peer growth cannot repeat a video cut at level $level', () {
       final a = direct(level: level);
