@@ -17044,3 +17044,51 @@ the next audio frame. Removing RTCP would remove these inputs without removing
 QUIC ACKs or the measured congestion-window wait. Direct/relay audio feedback
 already has a separate bounded writer and short local expiry; anonymous-path
 separation remains outstanding.
+
+### 2026-10-14: Anonymous audio feedback owns an independent outgoing source
+
+Anonymous channels now install their bounded RTCP ingress at creation instead
+of falling back into the audio FIFO. Its pump, repair notification, cipher
+epoch/lock, circuit pool, opening debounce and pinned outgoing route are
+independent of audio, camera, screen and recoverable file data. The new local
+control source uses the existing generic signaling selector; no source role,
+deadline or scheduling request is serialized for a relay. Private route offers
+also leave the audio sender and use this control source with a short deadline.
+
+The VMR1 offer still contains the same two authenticated opaque receive
+addresses. Control constructs its own outgoing circuit to the primary address;
+screen constructs its own to the secondary address. This preserves existing
+peer framing and authentication. It separates outgoing ownership and session
+sources, not every incoming stage: feedback still converges on the primary
+receive address, and the broader receiving pipeline remains to be qualified.
+Generic signaling retains its existing canonical compatibility while its
+optional independent child is warming or unavailable.
+
+Both pinned and published anonymous routes now pass an admitted cell's original
+local deadline into the session outbox. Previously freshness was checked before
+this queue but could be lost upon admission. A bounded registry send preserves
+the deadline, normal outbound accounting and successful-send activity; expired
+best-effort work is discarded without declaring a failed route. This keeps an
+active timed sender eligible for normal session retention. Existing untimed
+circuit callers retain their original behavior.
+
+Verification so far: 107 media-related tests pass, including blocked RTCP send
+and warm-up while audio advances, bounded overflow without fallback, four
+independent cipher producers, repair fan-out and cancellation of all five route
+workers. Three in-process neutral-relay tests pass: authenticated RTCP reaches
+the peer through a distinct outgoing circuit/return registration, private route
+repair and screen/camera delivery succeed, audio survives a stalled video sink,
+and separate first hops are retained when alternatives exist. These fixtures
+exercise circuit routing and endpoint queues, not physical speech quality or a
+new aggregate PCM result. No phone call or user app was started in this cycle.
+Private test logs are under the existing stand cache with the
+`anonymous-control-` prefix. Cubic remains the production controller default.
+
+Two node boundary checks also pass: short control retains the ordinary neutral
+wire flags, and already expired work never enters the session queue. Sixteen
+registry tests pass, including an exact comparison of the retained original
+expiry and session retention after timed sends. Total targeted coverage in this
+cycle is 128 passing tests, not a full workspace suite. Test processes exit and
+their embedded fixture runtimes stop. Installed applications and relay servers
+are unchanged. Continuous-speech and aggregate PCM qualification remain open;
+the user has deferred the audible check and requested continued offline work.
