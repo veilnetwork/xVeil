@@ -5,6 +5,20 @@ from analyze_relay_rtp_timing import analyze
 
 
 class RtpTimingTest(unittest.TestCase):
+    def test_explicit_capacity_is_used_and_legacy_capacity_is_retained(self):
+        rows = ['audio.rtp.send.begin count=1 limit=2 ssrc=5',
+                'audio.rtp.send seq=1 timestamp=1 attempted_us=21000000 admitted_us=21001000 accepted=1',
+                'audio.rtp.ingress.begin count=1 limit=2 ssrc=5',
+                'audio.rtp.ingress seq=1 timestamp=1 arrived_us=21002000 drained_us=21003000 payload_bytes=20']
+        summary = dict(loopback_only=True, stand_start_monotonic_us=0, duration_seconds=60)
+        result = analyze(summary, rows)
+        self.assertFalse(result['trace_limit_may_have_been_reached'])
+        self.assertEqual(result['send_trace_limits'], [2])
+        self.assertTrue(analyze(summary, [r.replace('limit=2', 'limit=1') for r in rows])['trace_limit_may_have_been_reached'])
+        self.assertEqual(analyze(summary, [r.replace(' limit=2', '') for r in rows])['send_trace_limits'], [4096])
+        with self.assertRaisesRegex(ValueError, 'capacity'):
+            analyze(summary, [r.replace('limit=2', 'limit=0') for r in rows])
+
     def test_pairs_by_packet_identity_not_stop_order_and_ignores_padding(self):
         # Receive block order is reversed relative to sender teardown order.
         rows = '''audio.rtp.send.begin count=2
