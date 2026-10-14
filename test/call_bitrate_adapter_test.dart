@@ -76,6 +76,58 @@ void main() {
   }
 
   test(
+    'transport estimates and interruptions cannot cut stable audio buffers',
+    () {
+      final a = direct();
+      for (var i = 0; i < 60; i++) {
+        native(
+          a,
+          stats: {
+            ...healthy(drops: i * 20, audioDrops: i),
+            'rtt_ms': 2500,
+            'tx_jitter_ms': 100,
+            'tx_loss_pct': 15,
+            'audio_delay_ms': 150,
+            'audio_rx_native_age_ms': 1500,
+          },
+          peerDelay: 150,
+          peerSequence: i,
+          interrupted: true,
+        );
+      }
+      expect(a.level, 0);
+      expect(a.audioReserve, isFalse);
+    },
+  );
+
+  test(
+    'a growing receive buffer cuts two rungs before reaching the ceiling',
+    () {
+      final a = direct();
+      for (final delay in [60, 70, 80, 90, 100, 110]) {
+        native(a, stats: {...healthy(), 'audio_delay_ms': delay});
+        expect(a.level, 0);
+      }
+      native(a, stats: {...healthy(), 'audio_delay_ms': 120});
+      expect(a.level, 2);
+      expect(a.audioReserve, isFalse);
+    },
+  );
+
+  test('growth is measured independently for the two audio directions', () {
+    final a = direct();
+    for (var i = 0; i < 7; i++) {
+      native(
+        a,
+        stats: {...healthy(), 'audio_delay_ms': 140 - i * 10},
+        peerDelay: 60 + i * 10,
+        peerSequence: i,
+      );
+    }
+    expect(a.level, 2);
+  });
+
+  test(
     'new low latency video probes each rung without a minute of sparse frames',
     () {
       final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
@@ -377,12 +429,12 @@ void main() {
     expect(a.level, 3);
   });
 
-  test('stale measurements lower earned video but do not claim an outage', () {
+  test('stale measurements hold earned video without claiming an outage', () {
     final a = direct();
     for (var i = 0; i < 60; i++) {
       native(a, stats: {'audio_feedback_reports': 0}, peerDelay: null);
     }
-    expect(a.target.maxFps, 1.0);
+    expect(a.target.maxFps, 60.0);
     expect(a.audioReserve, isFalse);
     expect(a.videoAdvice, CallVideoAdvice.keep);
   });
@@ -396,12 +448,7 @@ void main() {
     expect(a.audioReserve, isFalse);
   });
 
-  for (final failure in [
-    'receive buffer',
-    'peer buffer',
-    'RTP outage',
-    'interruption',
-  ]) {
+  for (final failure in ['receive buffer', 'peer buffer']) {
     test('$failure reduces video before pausing at the applied floor', () {
       final a = direct();
       void bad() => native(
@@ -483,7 +530,7 @@ void main() {
     expect(a.audioReserve, isTrue);
   });
 
-  test('an old peak reduces video but cannot fail a healthy floor trial', () {
+  test('an old peak cannot reduce video when the current buffer recovered', () {
     final a = direct();
     for (var i = 0; i < 20; i++) {
       native(
@@ -494,10 +541,10 @@ void main() {
         peerSequence: i + 1,
       );
     }
-    expect(a.atFloor, isTrue);
+    expect(a.level, 0);
     expect(a.audioReserve, isFalse);
     expect(a.videoAdvice, CallVideoAdvice.keep);
-    expect(a.target.maxFps, 1);
+    expect(a.target.maxFps, 60);
   });
 
   test('pretrial peer report cannot be reused to claim the floor failed', () {
@@ -566,56 +613,53 @@ void main() {
     },
   );
 
-  test(
-    'current recovery resumes sparse video while retaining peak growth guard',
-    () {
-      final a = direct(level: 4);
-      for (var i = 0; i < 6; i++) {
-        native(
-          a,
-          stats: {...healthy(), 'video_tx_frames': i + 1},
-          peerDelay: 300,
-          currentPeerDelay: 300,
-          peerSequence: i + 1,
-        );
-      }
-      expect(a.audioReserve, isTrue);
-      for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
-        native(
-          a,
-          stats: {...healthy(), 'video_tx_frames': 6},
-          peerDelay: 300,
-          currentPeerDelay: 100,
-          peerSequence: 7 + i,
-        );
-      }
-      expect(a.audioReserve, isFalse);
-      expect(a.target.maxFps, 1);
-      for (var i = 0; i < 20; i++) {
-        native(
-          a,
-          stats: {...healthy(), 'video_tx_frames': 7 + i},
-          peerDelay: 300,
-          currentPeerDelay: 100,
-          peerSequence: 20 + i,
-        );
-      }
-      expect(
-        a.target.maxFps,
-        1,
-        reason: 'recent peaks still cannot earn more bandwidth',
+  test('current recovery resumes and grows video despite a drained peak', () {
+    final a = direct(level: 4);
+    for (var i = 0; i < 6; i++) {
+      native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': i + 1},
+        peerDelay: 300,
+        currentPeerDelay: 300,
+        peerSequence: i + 1,
       );
-    },
-  );
+    }
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': 6},
+        peerDelay: 300,
+        currentPeerDelay: 100,
+        peerSequence: 7 + i,
+      );
+    }
+    expect(a.audioReserve, isFalse);
+    expect(a.target.maxFps, 1);
+    for (var i = 0; i < 20; i++) {
+      native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': 7 + i},
+        peerDelay: 300,
+        currentPeerDelay: 100,
+        peerSequence: 20 + i,
+      );
+    }
+    expect(
+      a.target.maxFps,
+      greaterThan(1),
+      reason: 'fresh healthy buffers can earn growth after a peak drains',
+    );
+  });
 
   test('secondary losses alone never pause known healthy audio', () {
     final a = direct();
     for (var i = 0; i < 60; i++) {
       native(a, stats: healthy(drops: i * 20));
     }
-    expect(a.atFloor, isTrue);
+    expect(a.level, 0);
     expect(a.audioReserve, isFalse);
-    expect(a.target.maxFps, 1.0);
+    expect(a.target.maxFps, 60.0);
   });
 
   test('a floor trial requires newly sent frames, not an applied budget', () {
@@ -669,8 +713,8 @@ void main() {
 
   test('recovered playout resumes a probe on a high RTT and jitter route', () {
     final a = direct(level: 4);
-    native(a, interrupted: true);
-    native(a, interrupted: true);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
     expect(a.audioReserve, isTrue);
     for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
       native(
@@ -705,8 +749,8 @@ void main() {
     () {
       for (final failure in ['peer', 'receive', 'missing', 'severe RTT']) {
         final a = direct(level: 4);
-        native(a, interrupted: true);
-        native(a, interrupted: true);
+        native(a, peerDelay: 300);
+        native(a, peerDelay: 300);
         for (var i = 0; i < 30; i++) {
           native(
             a,
@@ -727,8 +771,8 @@ void main() {
 
   test('healthy audio may resume a trial despite secondary losses', () {
     final a = direct(level: 4);
-    native(a, interrupted: true);
-    native(a, interrupted: true);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
     expect(a.audioReserve, isTrue);
     for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
       native(a, stats: healthy(drops: i * 20));
@@ -741,8 +785,8 @@ void main() {
 
   test('missing measurement breaks a consecutive recovery streak', () {
     final a = direct(level: 4);
-    native(a, interrupted: true);
-    native(a, interrupted: true);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
     for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
       native(a);
     }
@@ -755,7 +799,7 @@ void main() {
     expect(a.audioReserve, isFalse);
   });
 
-  test('local primary drops reduce and pause without remote reports', () {
+  test('local primary drops without buffers cannot invent buffer pressure', () {
     final a = direct();
     for (var i = 0; i < 8; i++) {
       native(
@@ -764,7 +808,8 @@ void main() {
         peerDelay: null,
       );
     }
-    expect(a.audioReserve, isTrue);
+    expect(a.audioReserve, isFalse);
+    expect(a.level, 0);
     expect(a.rttBaselineMs, isNull);
   });
 
@@ -804,8 +849,8 @@ void main() {
 
   test('muted sender needs actual incoming recovery, then video reports', () {
     final a = direct(level: 4);
-    native(a, interrupted: true);
-    native(a, interrupted: true);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
     expect(a.audioReserve, isTrue);
     for (var i = 0; i < 20; i++) {
       native(
@@ -873,7 +918,7 @@ void main() {
   test(
     'partial room reports cannot earn growth or fabricate disable advice',
     () {
-      final a = direct();
+      final a = direct(level: 4);
       for (var i = 0; i < 60; i++) {
         native(a, audioReceivers: 2);
       }
@@ -912,7 +957,12 @@ void main() {
   test('fresh bad partial room feedback still substantiates video advice', () {
     final a = direct();
     for (var i = 0; i < 60; i++) {
-      native(a, stats: {...healthy(), 'tx_loss_pct': 12}, audioReceivers: 2);
+      native(
+        a,
+        stats: {...healthy(), 'tx_loss_pct': 12},
+        peerDelay: 300,
+        audioReceivers: 2,
+      );
     }
     expect(a.atFloor, isTrue);
     expect(a.audioReserve, isTrue);

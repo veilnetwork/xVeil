@@ -1,10 +1,11 @@
 import 'call_audio_receive_activity.dart';
+import 'call_audio_buffer_window.dart';
 
 /// Pure sender-side link-quality ladder for live call video.
 ///
-/// Consumes the per-second engine stats sample (remote-reported outbound loss
-/// and jitter from RTCP report blocks, round-trip time, and the local sender
-/// queue drop counter) and walks a fixed ladder of bitrate fractions below the
+/// Uses current audio buffer trends to cut video. Transport estimates still
+/// gate improvement and serve as a fallback without playout telemetry.
+/// Walks a fixed ladder of bitrate fractions below the
 /// route profile's budget. The route profile is a hard ceiling: adaptation
 /// only ever spends LESS than the negotiated route allows (the padded onion
 /// budget stays authoritative), so privacy decisions are never traded for
@@ -94,10 +95,10 @@ class CallBitrateAdapter {
   static const int audioReceivePauseMs = 1000;
   static const int audioReceiveRecoverMs = 500;
 
-  /// Native buffer delay is not acoustic latency. Reduce video above 200 ms,
-  /// then wait for the buffer to drain below 160 ms before spending more.
+  /// Native buffer delay is not acoustic latency. Reduce video only on a
+  /// rising window or at this ceiling; stable lower buffers hold their rung.
   /// End-to-end quality is verified separately with decoded PCM measurements.
-  static const int playoutDegradeMs = 200;
+  static const int playoutDegradeMs = CallAudioBufferWindow.ceilingMs;
   static const int playoutRecoverMs = 160;
 
   /// Bufferbloat guard, relative to the call's own RTT baseline. The relay
@@ -144,6 +145,10 @@ class CallBitrateAdapter {
   int? _curWindowMin;
   int? _prevWindowMin;
   int _windowFill = 0;
+  final _receiveBuffer = CallAudioBufferWindow();
+  final _peerBuffer = CallAudioBufferWindow();
+  bool _bufferPressure = false;
+  bool get audioBufferPressure => _bufferPressure;
   ({int maxBitrateKbps, double maxFps})? _appliedTarget;
 
   /// Try the current video budget. A busy native worker leaves it pending;
@@ -186,6 +191,9 @@ class CallBitrateAdapter {
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
     _floorPeerSampleSequence = null;
+    _receiveBuffer.reset();
+    _peerBuffer.reset();
+    _bufferPressure = false;
   }
 
   /// Current RTT baseline (windowed min), or null before any RTT sample.
@@ -315,7 +323,8 @@ class CallBitrateAdapter {
   }
 
   /// Native zero defaults, expired reports and older libraries without report
-  /// freshness are unknown quality. Local drops still justify reducing video.
+  /// freshness are unknown quality. Without playout telemetry local drops
+  /// still govern the legacy ladder; unknown audio never earns improvement.
   /// A room supplies its connected receiver count: incomplete audio feedback
   /// gives bandwidth back and cannot earn recovery; known bad reports still
   /// substantiate congestion even when other receivers have not reported.
@@ -527,7 +536,25 @@ class CallBitrateAdapter {
         _floorPeerSampleSequence ??= peerAudioSampleSequence;
       }
     }
-    final currentPeerDelay = peerCurrentAudioDelayMs ?? peerAudioDelayMs;
+    final currentPeerDelay =
+        peerAudioDelayMs != null &&
+            peerAudioDelayMs >= 0 &&
+            peerAudioDelayMs <= 60000 &&
+            peerCurrentAudioDelayMs != null &&
+            peerCurrentAudioDelayMs >= 0 &&
+            peerCurrentAudioDelayMs <= peerAudioDelayMs
+        ? peerCurrentAudioDelayMs
+        : peerAudioDelayMs;
+    final receiveBufferPressure = _receiveBuffer.observe(
+      requireAudioReceivePlayout ? audioReceiveDelayMs : null,
+    );
+    final peerBufferPressure = _peerBuffer.observe(
+      requirePeerAudioPlayout ? currentPeerDelay : null,
+      sequence: peerAudioSampleSequence,
+    );
+    final usePlayout = requirePeerAudioPlayout || requireAudioReceivePlayout;
+    final bufferPressure = receiveBufferPressure || peerBufferPressure;
+    _bufferPressure = bufferPressure;
     final peerTrialMeasured =
         peerAudioSampleSequence == null ||
         _floorPeerSampleSequence == null ||
@@ -553,24 +580,19 @@ class CallBitrateAdapter {
             audioReceiveAgeMs < audioReceiveRecoverMs);
     final peerPlayoutOutage =
         requirePeerAudioPlayout &&
-        currentPeerDelay != null &&
-        currentPeerDelay >= playoutDegradeMs &&
+        peerBufferPressure &&
         (!atFloor || peerTrialMeasured);
-    // Losing a measurement gives video less bandwidth but does not prove an
-    // audio failure. A receiver that has not reported cannot earn recovery.
+    // Missing measurements block growth; they do not prove buffer pressure.
     final audioUnproven =
         (requireAudioReceivePlayout && audioReceiveDelayMs == null) ||
         (requireAudioReceive &&
             (audioReceiveAgeMs == null || audioReceiveAgeMs < 0)) ||
         (requirePeerAudioPlayout && peerAudioDelayMs == null);
-    // Missing/stale reports are not healthy samples. Actual new local audio
-    // drops still justify reducing video while waiting for remote feedback.
-    final playoutBad =
-        requirePeerAudioPlayout &&
-        (peerAudioDelayMs == null || peerAudioDelayMs >= playoutDegradeMs);
+    // Missing/stale reports cannot earn growth or declare buffer pressure.
+    final playoutBad = bufferPressure;
     final playoutGood =
         !requirePeerAudioPlayout ||
-        (peerAudioDelayMs != null && peerAudioDelayMs < playoutRecoverMs);
+        (currentPeerDelay != null && currentPeerDelay < playoutRecoverMs);
     if (!feedbackAvailable &&
         !newDrops &&
         !newAudioDrops &&
@@ -608,13 +630,10 @@ class CallBitrateAdapter {
         rttBad ||
         newDrops ||
         newAudioDrops;
-    final bad =
-        networkBad ||
-        playoutBad ||
-        missingAudioReceiverFeedback ||
-        receiveOutage ||
-        audioInterrupted ||
-        audioUnproven;
+    // With measured playout support, RTT/loss/gaps may withhold growth but
+    // only a growing/capped buffer can reduce the current video budget.
+    // Video-only and legacy calls retain their transport-based ladder.
+    final bad = usePlayout ? bufferPressure : networkBad;
     final audioGood =
         feedbackAvailable &&
         rttMs > 0 &&
@@ -622,6 +641,9 @@ class CallBitrateAdapter {
         txJitterMs < 40 &&
         rttGood &&
         !newAudioDrops &&
+        !bufferPressure &&
+        !missingAudioReceiverFeedback &&
+        !audioUnproven &&
         playoutGood &&
         !audioInterrupted &&
         receiveGood &&
@@ -648,8 +670,8 @@ class CallBitrateAdapter {
         audioReceiveDelayMs != null &&
         audioReceiveDelayMs < 100 &&
         requirePeerAudioPlayout &&
-        peerAudioDelayMs != null &&
-        peerAudioDelayMs < 100;
+        currentPeerDelay != null &&
+        currentPeerDelay < 100;
     _startupGoodStreak = startupGood ? _startupGoodStreak + 1 : 0;
     // A healthy measured playout can earn the one-fps probe even on a route
     // whose RTT/jitter does not permit a larger video budget. Those network
@@ -662,6 +684,7 @@ class CallBitrateAdapter {
         !audioUnproven &&
         !audioInterrupted &&
         !newAudioDrops &&
+        !bufferPressure &&
         (!requirePeerAudioPlayout ||
             (currentPeerDelay != null &&
                 currentPeerDelay < playoutRecoverMs)) &&
@@ -682,15 +705,16 @@ class CallBitrateAdapter {
       _audioRecoveryStreak = 0;
     }
 
-    final measuredAudioFailure =
-        receiveOutage ||
-        peerPlayoutOutage ||
-        audioInterrupted ||
-        newAudioDrops ||
-        (!measuredPlayoutHealthy &&
-            sendAudioExpected &&
-            (anyAudioFeedbackAvailable ?? feedbackAvailable) &&
-            (txLossPct >= 5 || txJitterMs >= 80 || rttMs >= severeRttMs));
+    final measuredAudioFailure = usePlayout
+        ? receiveBufferPressure || peerPlayoutOutage
+        : receiveOutage ||
+              peerPlayoutOutage ||
+              audioInterrupted ||
+              newAudioDrops ||
+              (!measuredPlayoutHealthy &&
+                  sendAudioExpected &&
+                  (anyAudioFeedbackAvailable ?? feedbackAvailable) &&
+                  (txLossPct >= 5 || txJitterMs >= 80 || rttMs >= severeRttMs));
     _severeStreak = atFloor && videoFloorApplied && measuredAudioFailure
         ? _severeStreak + 1
         : 0;
@@ -722,7 +746,7 @@ class CallBitrateAdapter {
       if (atFloor) {
         // Unknown playout reserves bandwidth but cannot substantiate a
         // user-facing claim that the link fails to carry video.
-        if (networkBad || peerPlayoutOutage) {
+        if (usePlayout ? bufferPressure : networkBad) {
           if (++_floorBadStreak >= adviseAfter) {
             _advice = CallVideoAdvice.suggestDisable;
           }

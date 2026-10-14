@@ -1,17 +1,20 @@
 import 'call_bitrate_adapter.dart';
+import 'call_audio_buffer_window.dart';
 
 /// Endpoint measurements for the shared source budget, including audio-only
 /// calls. The node receives only a generic, expiring pressure observation.
 class CallAudioSourcePressure {
-  // Retain conservative thresholds and sustained recovery. A recent peak is
-  // useful for video growth decisions, but is not the current source pressure.
-  static const int playoutDegradeMs = 160;
-  static const int playoutRecoverMs = 120;
+  // Use the video ladder's buffer rails and sustained recovery. A retained
+  // peak is not the current source pressure.
+  static const int playoutDegradeMs = CallAudioBufferWindow.ceilingMs;
+  static const int playoutRecoverMs = CallBitrateAdapter.playoutRecoverMs;
   bool _pressured = true;
   int _healthy = 0;
   int? _lastAudioDrops;
+  final _peerBuffer = CallAudioBufferWindow();
+  final _receiveBuffer = CallAudioBufferWindow();
 
-  /// Null means no audio source is expected: stop refreshing the node lease.
+  /// Null means no source or no verdict: stop refreshing the node lease.
   /// Freshness of peer and receive measurements is enforced by their trackers.
   bool? observe({
     required bool sendExpected,
@@ -19,6 +22,7 @@ class CallAudioSourcePressure {
     required bool requirePeerPlayout,
     required int? peerDelayMs,
     int? peerCurrentDelayMs,
+    int? peerSampleSequence,
     required int? receiveDelayMs,
     required int? receiveAgeMs,
     required bool interrupted,
@@ -51,16 +55,21 @@ class CallAudioSourcePressure {
     final unknown =
         (peerNeeded && !valid(peerDelay)) ||
         (receiveExpected && (!valid(receiveDelayMs) || !valid(receiveAgeMs)));
-    final bad =
-        unknown ||
-        interrupted ||
-        newDrop ||
-        (peerNeeded && peerDelay! >= playoutDegradeMs) ||
-        (receiveExpected &&
-            (receiveDelayMs! >= playoutDegradeMs ||
-                receiveAgeMs! >= CallBitrateAdapter.audioReceivePauseMs));
+    final peerPressure = _peerBuffer.observe(
+      peerNeeded ? peerDelay : null,
+      sequence: peerSampleSequence,
+    );
+    final receivePressure = _receiveBuffer.observe(
+      receiveExpected ? receiveDelayMs : null,
+    );
+    // Competing sources use the same buffer trigger as the video ladder.
+    // RTT/loss/unknown feedback cannot quietly cut video in this other layer.
+    final bad = peerPressure || receivePressure;
     final good =
         !bad &&
+        !unknown &&
+        !interrupted &&
+        !newDrop &&
         (!peerNeeded || peerDelay! < playoutRecoverMs) &&
         (!receiveExpected ||
             (receiveDelayMs! < playoutRecoverMs &&
@@ -73,17 +82,16 @@ class CallAudioSourcePressure {
     } else {
       _healthy = 0;
     }
-    // A released hysteresis latch does not prove that the current sample is
-    // healthy. The node uses false to grow other producers' byte allowance;
-    // intermediate measurements must not authorize that growth. Keep the
-    // latch intact so a brief intermediate sample does not require another
-    // full recovery streak once measurements are good again.
-    return _pressured || !good;
+    // Unknown/marginal measurements cannot authorize producer growth, but
+    // must not renew a congestion lease after measured pressure has cleared.
+    return _pressured ? true : (good ? false : null);
   }
 
   void reset() {
     _pressured = true;
     _healthy = 0;
     _lastAudioDrops = null;
+    _peerBuffer.reset();
+    _receiveBuffer.reset();
   }
 }
