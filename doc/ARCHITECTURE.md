@@ -17375,3 +17375,43 @@ wrong offsets, missing capture/ingress witnesses and reversed clocks. The
 native test library builds successfully with the existing adaptive WebRTC
 archive. Physical speech quality, stable aggregate-gate compliance and the
 remaining incoming/anonymous-path audit are still open.
+
+
+#### One-second health-feedback comparison rejected
+
+A separate six-minute capture `pcm-pipeline-feedback-1s-360` changes only the
+fixture's existing health-feedback interval from five seconds to one. This
+explicitly tests whether a faster six-fresh-sample peer window is sufficient;
+it does not change production heartbeat behavior. Artifact hashes, aggregate
+1024-kbit/s shaping, source files, codecs, source-pressure cadence, duration,
+tone positions and acceptance limits match `pcm-pipeline-360`.
+
+The candidate still fails: mixed PCM peaks are 193.067/212.403 ms and p95
+181.035/179.755 ms, with a valid 18.66-ms maximum driver interval. All 337
+mixed edges per direction arrive; both capture indices and all 704 edge
+attributions verify without unmatched payload rows, unattributed edges or
+trace clipping. No native interruption or quiet decoded frame is recorded.
+At the largest edge, source capture-to-encoded is 54.572 ms, SDK-to-ingress
+43.120 ms and WebRTC-to-output residual 114.658 ms; these remain distinct
+stages rather than a pure NetEq attribution. Native buffer maxima are
+150/179 ms.
+
+Peer video receives only 933/744 frames versus 2160/2176 in the five-second
+run, while protection is sampled active 60/53 times versus 85/0. Both files
+still hash correctly without missing chunks, but finish later at
+241.539/251.905 seconds versus 188.848/201.237. All 360 source-pressure reports
+per endpoint are queued without skips. Each endpoint sends 360 health reports
+and receives 360 including bootstrap (one final report per direction is not
+observed before teardown); no health authentication or control admission
+failure is recorded. RTCP and full packet-position coverage verify.
+Sequential runs are not a deterministic causal A/B proof, but this candidate
+neither passes the strict audio gate nor supplies evidence for accepting its
+extra feedback traffic/video suppression. The interval change is rejected
+and not transferred into the application. Faster reports alone are not an
+established repair for delivery disturbances and the following playout tail.
+
+All source/file workers and policy exit, all three nodes stop successfully,
+fixture sockets return to zero, and independent process inspection confirms
+the exact fixture and policy PIDs are absent. No hardware applications are
+started. The complete quality requirement remains open; physical speech is
+still deferred at the user's request.
