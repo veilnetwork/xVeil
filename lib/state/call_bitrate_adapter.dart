@@ -530,8 +530,12 @@ class CallBitrateAdapter {
     int? audioReceiveAgeMs,
     bool videoFloorApplied = true,
   }) {
+    final freshPeerSample =
+        peerAudioSampleSequence == null ||
+        (_lastPeerSampleSequence == null ||
+            peerAudioSampleSequence > _lastPeerSampleSequence!);
     if (peerAudioSampleSequence != null && peerAudioSampleSequence >= 0) {
-      _lastPeerSampleSequence = peerAudioSampleSequence;
+      if (freshPeerSample) _lastPeerSampleSequence = peerAudioSampleSequence;
       if (atFloor && !_audioReserve && _appliedTarget == target) {
         _floorPeerSampleSequence ??= peerAudioSampleSequence;
       }
@@ -554,6 +558,15 @@ class CallBitrateAdapter {
     );
     final usePlayout = requirePeerAudioPlayout || requireAudioReceivePlayout;
     final bufferPressure = receiveBufferPressure || peerBufferPressure;
+    // A cached remote growth verdict holds pressure, but is not another bad
+    // measurement. Otherwise a five-second report cuts several rungs or pauses
+    // the floor on consecutive one-second polls without new peer evidence.
+    // Fresh local samples and the hard ceiling retain prompt protection.
+    final pressureSampleCanAdvance =
+        !usePlayout ||
+        receiveBufferPressure ||
+        (currentPeerDelay != null && currentPeerDelay >= playoutDegradeMs) ||
+        freshPeerSample;
     _bufferPressure = bufferPressure;
     final peerTrialMeasured =
         peerAudioSampleSequence == null ||
@@ -715,9 +728,11 @@ class CallBitrateAdapter {
                   sendAudioExpected &&
                   (anyAudioFeedbackAvailable ?? feedbackAvailable) &&
                   (txLossPct >= 5 || txJitterMs >= 80 || rttMs >= severeRttMs));
-    _severeStreak = atFloor && videoFloorApplied && measuredAudioFailure
-        ? _severeStreak + 1
-        : 0;
+    if (atFloor && videoFloorApplied && measuredAudioFailure) {
+      if (pressureSampleCanAdvance) _severeStreak++;
+    } else {
+      _severeStreak = 0;
+    }
     if (supportsLowRateVideo &&
         (sendAudioExpected ||
             requireAudioReceive ||
@@ -732,6 +747,7 @@ class CallBitrateAdapter {
 
     if (bad) {
       _goodStreak = 0;
+      if (!pressureSampleCanAdvance) return null;
       _badStreak++;
       if (_badStreak >= degradeAfter && _level < ladder.length - 1) {
         _badStreak = 0;

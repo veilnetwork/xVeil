@@ -17035,12 +17035,14 @@ Cubic remains the production default. Private output is retained in
 `controlled-independent-loss-controllers.log` under the existing stand cache.
 
 RTCP feedback must be distinguished from QUIC transport acknowledgements.
-The audio engine negotiates transport-wide sequence feedback, consumes RTCP
-sender/receiver reports, and attaches an optional authenticated application
-report of receiver playout delay. This supplies bitrate/frame-duration
-adaptation and the remote-buffer input used by video protection. RTCP carries
+The audio engine negotiates transport-wide sequence feedback and consumes RTCP
+sender/receiver reports for bitrate/frame-duration adaptation. The shim also
+contains an optional authenticated application report of receiver playout
+delay, but the one-to-one host does not enable its local sample setter. Its
+remote-buffer input for video protection instead comes from authenticated call
+health messages. RTCP carries
 reception information but does not require waiting for a report before sending
-the next audio frame. Removing RTCP would remove these inputs without removing
+the next audio frame. Removing RTCP would remove delivery feedback without removing
 QUIC ACKs or the measured congestion-window wait. Direct/relay audio feedback
 already has a separate bounded writer and short local expiry; anonymous-path
 separation remains outstanding.
@@ -17092,3 +17094,124 @@ cycle is 128 passing tests, not a full workspace suite. Test processes exit and
 their embedded fixture runtimes stop. Installed applications and relay servers
 are unchanged. Continuous-speech and aggregate PCM qualification remain open;
 the user has deferred the audible check and requested continued offline work.
+
+### 2026-10-15: Full aggregate PCM gate with the current feedback sender
+
+The codec fixture had not attached the independent audio RTCP sender used by
+the application. It now binds that sender on another IPC connection with the
+same media app identity and remote inbox. Fresh receiver reports near the end
+and actual audio RTCP transmission are required, rather than treating successful
+configuration as delivery proof. The policy harness also supplies the peer
+sample sequence to source-pressure tracking, matching the current host. An
+explicit optional native-timing flag writes bounded RTP timestamps only inside
+the owned fixture directory; it records no audio samples. Existing native
+diagnostics remain disabled unless explicitly requested.
+
+The normal SDK and protobuf-enabled synthetic-ADM media library build. The
+360-second obfs4/TCP run retains the original aggregate 1024-kbit/s blind FIFO,
+camera-mode VP8, 209-byte audio overhead, compact media/health, local source
+feedback and 512-KiB competing files in both directions. No production controller,
+relay policy, installed app or physical audio device is changed.
+
+The quality gate remains failed. PCM peaks are 220.314/182.381 ms and p95
+167.048/163.281 ms, with all 337 mixed-phase sound edges received per direction
+and every observed 20/40/60-ms packet position covered. Native playout peaks
+are 181/153 ms, with zero interruptions and zero quiet decoded frames. Native
+buffer measurements alone therefore cannot qualify the stricter delay gate
+measured at decoded PCM output. Both files have matching hashes/no missing chunks and finish at
+141.833/252.446 seconds. All 72 health reports plus bootstrap arrive per
+direction; all 360 source-pressure reports per endpoint are queued. RTCP
+delivery, independent ordered media sends and the neutral ordered route verify.
+There are no native, poll, audio-thread or authentication failures.
+
+The driver has two late intervals at 93.250/315.538 seconds (26.03/52.08 ms), so
+this is also not a valid scheduler-quality pass. However, the largest PCM edges
+occur at 25--28 seconds, before either driver stall; they cannot be dismissed
+as those stalls. Video protection is sampled active 112/113 times during the
+340-second competing phase; peer video receives 834/863 frames. These results
+do not establish acceptable sustained video quality or isolate one change's
+causal effect relative to earlier sequential captures.
+
+In the 24--30-second peak window, the blind shaper retains every chunk and
+observes arrival-to-read waits up to 194.525/63.749 ms and arrival-to-write waits
+up to 223.617/97.183 ms. Generic TCP snapshots show up to 1-ms current RTT and
+2639 queued bytes. Sparse receiving-IPC observations over the full capture
+stay below 1.775 ms. The opaque shaper chunks are not identified audio packets,
+so these maxima cannot yet assign an individual PCM peak to the shaper.
+The next diagnostic capture enables bounded native timestamps for that
+attribution; no additional production tuning follows from a guessed cause.
+
+Private evidence is in `pcm-aggregate-feedback-separated` under the existing
+stand cache, including artifact hashes and peak analysis. All three nodes stop,
+the policy exits, the fixture PID is independently absent and zero fixture
+sockets remain. Physical speech quality and the original aggregate PCM gate
+remain unqualified.
+
+A separate 110-second diagnostic repeat does not reproduce the 220-ms peak:
+PCM peaks are 153.387/169.427 ms, with all 89 mixed-phase edges received per
+direction. Fresh RTCP still verifies. Native trace buffers reach their 4096-row
+limit, covering sends only through 96.397/100.480 seconds; they cannot qualify
+the whole run or any later peak. Matched nonempty RTP has zero unmatched rows.
+Competing-phase admission-to-ingress maxima are 87.622/88.959 ms, while
+ingress-to-WebRTC maxima are 0.544/0.118 ms. This does not reproduce a receiving
+worker backlog. Both files remain incomplete at the shorter cutoff, and video
+protection is sampled active 62/65 times out of the 90-second competing phase;
+the repeat is diagnostic, not a replacement acceptance gate. Its private
+evidence is in `pcm-aggregate-native-timing-110`; all runtimes and the policy
+exit, no owned codec fixture remains and zero sockets remain.
+
+### 2026-10-15: Cached peer growth must not count as repeated failures
+
+The full capture exposes a concrete policy defect at the sparse video floor.
+At 31 seconds side zero receives one new peer-buffer observation (153 ms);
+the same sequence is polled again at 32 seconds while its local buffer remains
+123 ms. The retained growth verdict is counted twice as consecutive severe
+failures, causing a full video pause from one authenticated peer measurement.
+The same repeated-verdict counting can also descend through multiple rungs or
+raise disable advice without another report. Holding pressure until fresh
+evidence is reasonable; manufacturing several failure samples is not.
+
+The adapter now advances growth-based degradation/advice/floor-failure streaks
+only on a fresh peer sample or a fresh pressured local buffer. Cached growth
+continues to hold pressure and cannot authorize recovery. A hard-ceiling peer
+buffer retains the existing prompt protection, as do peers without sequence
+support. Peer sequence tracking remains monotonic. Three regression checks
+cover repeated cached growth at full budget and at the floor, a subsequent
+fresh growth report, and fresh local growth with a cached healthy peer. All
+91 adapter/source-pressure/buffer-window tests pass. A full unchanged-scope
+360-second aggregate capture is required to check the candidate's audio/video
+tradeoff before treating the defect fix as a quality improvement.
+
+The candidate's full 360-second aggregate capture passes the existing quality
+gate without changing its rate, scope, file sizes, duration, codec settings or
+200-ms decoded-PCM limit. Mixed-phase PCM peaks are 172.610/188.458 ms and p95
+161.591/169.193 ms. All 337 sound edges arrive per direction, with all observed
+20/40/60-ms packet positions covered. Native buffer maxima are 143/152 ms;
+there are zero interruptions, quiet decoded frames, native/poll/audio-thread
+errors or authentication failures. Fresh RTCP verifies. All 72 health reports
+plus bootstrap arrive per direction, and all 360 source-pressure reports per
+endpoint are queued with no skips. Both 512-KiB files match their hashes with
+no missing chunks and finish at 256.468/224.165 seconds. Independent ordered
+media sends and channel offers verify.
+
+The driver peaks at 30.82 ms, below the unchanged 40-ms gate; two intervals
+exceed the diagnostic 20-ms late marker. Do not describe it as a run without
+scheduler stalls. Bounded native traces again reach 4096 rows per source and
+cannot qualify full-duration RTP timing. Within their covered competing phase,
+admission-to-ingress peaks are 80.403/90.715 ms and ingress-to-WebRTC peaks
+0.564/0.093 ms, with zero unmatched payload rows.
+
+Video quality remains asymmetric and is not accepted as finished: protection
+is sampled active 49/162 times over the 340-second competing phase, compared
+with 112/113 in the earlier run. Native send counts are 1700/375 and peer receive
+counts 363/1628. This does not establish improvement in both directions or
+attribute all differences between sequential runs to this one fix. The cached
+report defect is independently covered by regression tests; further video
+quality and physical speech checks remain required. The original aggregate
+PCM scenario has now passed once, not every call/network scenario.
+
+Private candidate evidence is `pcm-aggregate-fresh-peer-360`, including artifact
+hashes, full samples and bounded RTP analysis. All nodes stop, policy and owned
+fixture processes independently exit and zero fixture sockets remain. Targeted
+Dart analysis reports no issues. No installed Mac/phone application or relay
+server is changed during this work cycle.

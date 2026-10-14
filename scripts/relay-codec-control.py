@@ -28,6 +28,8 @@ parser.add_argument('--rate-kbps', type=int, default=0, help='Blind FIFO cap per
 parser.add_argument('--shaper-scope', choices=['aggregate', 'per-target'], default='aggregate',
                     help='Aggregate retains the original route-wide stress cap; per-target shares capacity across all connections to each target node (TCP control only)')
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
+parser.add_argument('--native-timing-trace', action='store_true',
+                    help='Enable bounded private RTP timestamp diagnostics for source/receive attribution; records no audio samples')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
 parser.add_argument('--opaque-frame-capture-start-seconds', type=int, default=18,
@@ -102,6 +104,12 @@ else:
         ROOT.mkdir(mode=0o700)
 if ROOT.stat().st_uid != os.getuid() or ROOT.stat().st_mode & 0o077:
     parser.error('Fixture directory must be owner-only')
+if args.native_timing_trace:
+    native_log = ROOT / 'native.log'
+    if native_log.is_symlink():
+        parser.error('Native timing log must not be a symbolic link')
+    native_log.write_text('')
+    os.environ['VEIL_MEDIA_DIAG_PATH'] = str(native_log)
 for index in range(3):
     if (ROOT / str(index)).is_symlink():
         parser.error('Fixture node directories must not be symbolic links')
@@ -146,6 +154,7 @@ channelstats = fn('veil_media_channel_get_stats',
                   [C.c_uint64, C.POINTER(MediaChannelStats)], C.c_int)
 
 secondary_sender = fn('veil_media_channel_set_secondary_sender', [C.c_uint64, P, E], C.c_int)
+feedback_sender = fn('veil_media_channel_set_feedback_sender', [C.c_uint64, P, E], C.c_int)
 screen_sender = fn('veil_media_channel_set_screen_sender', [C.c_uint64, P, E], C.c_int) if args.screen_video else None
 screen_select = fn('veil_media_channel_set_screen_sharing', [C.c_uint64, C.c_int], C.c_int) if args.screen_video else None
 source_report = fn('veil_app_report_local_source_pressure', [P, C.c_uint8, C.c_uint64, E], C.c_int) if args.local_source_feedback else None
@@ -181,6 +190,7 @@ identities = []
 extra_handles = []
 extra_apps = []
 secondary_apps = []
+feedback_apps = []
 screen_apps = []
 nodes = []
 handles = []
@@ -212,6 +222,8 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'duration_seconds': args.duration,
           'feedback_interval_seconds': args.feedback_interval_seconds,
           'independent_control_ipc': not args.shared_control_ipc,
+          'independent_audio_feedback_ipc': True,
+          'native_timing_trace': args.native_timing_trace,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
 result['shaper_scope'] = args.shaper_scope
@@ -303,6 +315,15 @@ try:
         assert secondary_app
         extra_apps.append(secondary_app)
         secondary_apps.append(secondary_app)
+        # Match the application's sender-only RTCP binding: same app identity,
+        # separate endpoint/socket, existing remote media inbox and ciphertext.
+        feedback_handle = checked(connect, uri, len(uri))
+        assert feedback_handle
+        extra_handles.append(feedback_handle)
+        feedback_app = checked(bind, feedback_handle, b'xveil-control', 13, b'media', 5, 5)
+        assert feedback_app
+        extra_apps.append(feedback_app)
+        feedback_apps.append(feedback_app)
         if args.screen_video:
             screen_handle = checked(connect, uri, len(uri))
             assert screen_handle
@@ -435,6 +456,7 @@ try:
         ch=checked(openmedia,apps[index],ids[1-index],appids[1-index],0,keys[index],keys[1-index])
         assert ch;channels.append(ch)
         assert checked(secondary_sender,ch,secondary_apps[index])==0
+        assert checked(feedback_sender,ch,feedback_apps[index])==0
         if args.screen_video:
             assert checked(screen_sender,ch,screen_apps[index])==0
             assert screen_select(ch,1)==0
@@ -608,6 +630,15 @@ try:
     result['video_overhead_bytes_override'] = args.video_overhead_bytes
     result['video_overhead_verified'] = all(x['stats'].get('video_packet_overhead_bytes') == args.video_overhead_bytes for x in samples) if args.video_overhead_bytes else None
     result['adaptive_audio'] = args.adaptive_audio
+    # A separate sender being configured proves ownership, not delivery.
+    # Require fresh receiver feedback near the end, with actual audio RTCP TX.
+    result['audio_rtcp_feedback_verified'] = all(
+        any(x['side'] == side and x['t'] >= max(20, args.duration - 15)
+            and x['stats'].get('audio_feedback_reports') == 1
+            and x['stats'].get('rtcp_tx_pkts', 0)
+                > x['stats'].get('video_rtcp_tx_pkts', 0)
+            for x in samples)
+        for side in range(2))
     result['audio_overhead_bytes_override'] = args.audio_overhead_bytes if args.adaptive_audio else None
     result['compact_media'] = args.compact_media
     if args.adaptive_audio:
@@ -701,6 +732,7 @@ try:
     pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
     result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad+control_failures) and all(healthrecv[i]==healthsent[1-i]+1 for i in range(2)) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
+    result['ok'] = result['ok'] and result['audio_rtcp_feedback_verified']
     result['tone_phase_coverage_verified']=all(phase_coverage)
     if args.tone_period_ms!=1000:result['ok']=result['ok'] and result['tone_phase_coverage_verified']
     if args.transport=='obfs4-tcp':

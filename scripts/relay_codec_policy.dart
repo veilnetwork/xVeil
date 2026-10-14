@@ -49,6 +49,7 @@ Future<void> main() async {
       requirePeerPlayout: true,
       peerDelayMs: peer[i].delayMs(now),
       peerCurrentDelayMs: peer[i].currentDelayMs(now),
+      peerSampleSequence: peer[i].sampleSequence,
       receiveDelayMs: activity[i].playoutFeedback(now).delayMs,
       receiveAgeMs: activity[i].lastRxAt == null
           ? null
