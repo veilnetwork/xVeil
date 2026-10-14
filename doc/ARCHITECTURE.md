@@ -16728,3 +16728,54 @@ does not occur and no new physical call is placed. The owned Mac is closed
 and its process absence independently verified. The normal Mac application
 and user profile remain untouched. Post-deployment media progress, audio
 latency and the video-freeze report still require a physical retest.
+
+### 2026-10-14: Phone origin rejection fixed; remaining delivery jitter measured
+
+Poco returns on mobile data with Wi-Fi disabled. The first buffer-policy call
+and a subsequent audio-only baseline still use its older native SDK. Phone
+logs prove that valid traffic from the owned Mac identity is rejected as an
+origin mismatch five times; the fifth violation triggers a five-second ban.
+The stable identity differs from the authenticated physical device address.
+This is the same first-hop guard defect already fixed in b57a4275 on Mac and
+the six inspected relays. All six relay logs are rechecked after the first
+call: their installed hashes match the candidate and no test-endpoint origin
+rejection occurs in that observation window. Audio-only stalls establish that
+video traffic is not required to reproduce the remaining symptoms.
+
+The matching-signer diagnostic Android 0.13.84+2586 APK updates the phone's
+native SDK to 4dd54907, which includes that guard fix. Its other 15 native
+libraries, including the media engine, remain byte-identical to the previously
+installed phone build. Installation preserves application data. A controlled
+179-second call starts with audio and enables video after 62 seconds. Ringing
+takes 0.13 seconds, both endpoints remain on P2P with zero handovers, and the
+phone records neither an origin rejection nor an automatic ban. Audio buffer
+maxima are still 1495 ms on Mac and 1010 ms on Poco, and video eventually
+pauses. Fixing the false ban therefore does not qualify overall call quality.
+
+Three additive endpoint-only native media diagnostics expose lifetime output
+duration, emitted jitter-buffer samples and received audio samples. They do
+not alter the C ABI or transmit media classification to relays. The Mac media
+library builds successfully and is exercised in a separate 90-second P2P
+call, upgrading to video after 47 seconds. Across 44 valid snapshots, output
+duration advances at 1.0 times wall time; the Mac playback clock is not slow.
+The Mac buffer peaks at 719 ms, while incoming RTP gaps reach 750 ms. Native
+receive-to-WebRTC handoff takes at most 0.076 ms in this captured trace.
+
+Existing sampled encrypted-cell traces match 53 Mac-to-phone and 32
+phone-to-Mac cells. Receive-minus-send timestamp spread is 145 and 633 ms,
+respectively; the 95th percentiles above each direction's minimum are 119 and
+283 ms. Device clocks are not calibrated, so these are delay variations, not
+absolute one-way latency measurements. Sampled SDK receiver ages peak at 368
+and 193 microseconds. The remaining delay variation occurs before these
+receiver stages; these sparse samples do not isolate sender scheduling,
+transport queues or network delay. It is not attributed solely to the ISP.
+The 20-ms growth threshold and 200-ms ceiling remain unchanged pending that
+isolation; RTT alone does not measure the receiver's queued audio duration.
+
+Private observations are retained under
+`/Users/vart/.cache/codex/xveil-physical-20261014`, in
+`call-audio-before-video`, `call-sdk-updated-audio-before-video` and
+`call-playout-clock`. The user could not confirm audible quality during the
+last short observation. Both owned app instances and the logcat worker exit,
+and the owned ADB forward is removed. Process absence is independently
+verified. The normal installed Mac app and profile remain untouched.
