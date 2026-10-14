@@ -16833,3 +16833,34 @@ Private evidence is under the existing stand directory in
 `call-direct-source-queue` and `call-quinn-queue-age`. Both fixture runs close
 the owned apps and logcat workers, remove their ADB forwards, and independently
 verify process absence. No relay binary or configuration changes in this cycle.
+
+### 2026-10-14: Terminal media queue measured, audio feedback separation pending
+
+Endpoint-only timestamps now distinguish terminal daemon queue entry, IPC
+encoding and SDK authenticated dispatch for direct AppRtData. They never enter
+wire frames. A local source sample also connects native admission to the session
+budget using the same sealed-cell nonce, with bounded opt-in sampling.
+
+The next 179-second Mac/Poco call remains P2P with zero handovers. Native send to
+session budget admission peaks at 13.400/3.507 ms. Terminal queue entry to SDK
+authenticated dispatch peaks at 1.135/2.932 ms; actual terminal queue residence
+is at most 0.648/0.291 ms in the samples. Source queues peak at 0.876/4.583 ms,
+while QUIC packetization waits reach 0.710/198.597 ms, with zero/19 expiries.
+Thus a terminal IPC backlog is not reproduced in this call. The 73/116 matched
+cell samples have delay spreads of 237/255 ms; uncalibrated device clocks still
+preclude an absolute one-way latency claim. Audio buffers reach 496/392 ms and
+video pauses. Sequential calls vary without a behavioral change, so these
+numbers do not establish a quality improvement.
+
+Audio RTCP still shares the primary source connection. Native counters show
+approximately 10.6 feedback packets per second on Mac and 4.2 on Poco, generally
+only a few dozen payload bytes before sealing and transport framing. They carry
+useful congestion/loss feedback; disabling them would remove adaptation input.
+The next change separates their local queue and sender from RTP rather than
+adding a wait to audio. No relay prioritization or visible media class is planned.
+
+Private proof is retained in `call-terminal-queue-age` under the stand cache.
+The fixture closes both owned apps, the logcat worker and its ADB forward;
+the launcher confirms the owned Mac process has exited. No audible-quality
+confirmation was obtained in this run. Diagnostics build on Mac and Android;
+the terminal timestamp fake-clock test and five source sampling tests pass.
