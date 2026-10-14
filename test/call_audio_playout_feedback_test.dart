@@ -330,11 +330,11 @@ void main() {
     },
   );
 
-  test('stale playout gives audio bandwidth back and never earns recovery', () {
+  test('stale playout holds earned video and never earns recovery', () {
     final adapter = CallBitrateAdapter(
       baseBitrateKbps: 900,
       baseFps: 60,
-      initialLevel: 0,
+      initialLevel: 3,
     );
     final peer = CallPeerAudioPlayout();
     peer.observe(
@@ -353,7 +353,7 @@ void main() {
         requirePeerAudioPlayout: true,
       );
     }
-    expect(adapter.atFloor, isTrue);
+    expect(adapter.level, 3);
     expect(
       adapter.videoAdvice,
       CallVideoAdvice.keep,
@@ -372,7 +372,7 @@ void main() {
       peerAudioDelayMs: 80,
       requirePeerAudioPlayout: true,
     );
-    expect(adapter.atFloor, isTrue, reason: 'unknown breaks recovery streak');
+    expect(adapter.level, 3, reason: 'unknown breaks recovery streak');
   });
 
   test('bad playout trials the one-fps floor before pausing without RTCP', () {
