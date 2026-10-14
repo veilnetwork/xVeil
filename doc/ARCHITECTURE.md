@@ -17836,3 +17836,83 @@ production-feature check with node-embedded, production-seeds and packet-tunnel.
 No native ABI, installed application/profile, phone or relay server is changed.
 The earlier PCM/source-clock gate failures remain open, as do multi-hop call
 qualification and physical speech. The goal is not complete.
+
+### 2026-10-15: Real multi-hop media/file coexistence and recoverable DATA backpressure
+
+The previous turn repaired circuit-lifetime connection selection and verified
+one real obfs4 scheduler-to-child hop. This cycle extends the SDK's media-route
+stand to four actual node runtimes with authenticated obfs4 listeners, peer
+sessions, registry/exporter-bound children, encrypted onion splicing and
+end-to-end sealed media. There is no in-memory delivery bridge in this mode.
+The existing memory-linked tests remain available for their separate purposes.
+The real mode disables external seeds and PEX, reserves distinct loopback
+ports before startup, pins the rendezvous and makes only the two middle nodes
+relay-capable. Test identities use the explicit test-low-difficulty feature;
+no installed identity/profile, phone or server participates.
+
+The stand verifies both endpoints' ordinary receive registrations, negotiates
+audio/camera/control private routes, and walks each sender's actual circuit
+state through the middle to the final rendezvous. Both directions must deliver
+their exact original audio/video packet bytes, and RTCP must also arrive.
+This is transport/media-channel coverage, not real Opus/VP8 decoding, bandwidth
+shaping, a WAN, microphone/speaker quality or screen presentation.
+
+The first simultaneous-file fixture incorrectly opened a second base stream
+core alongside the media core. Unlike production's AnonStreamHub, the two
+owners competed for one published receive registration. The helper now builds
+one base stream mux plus its isolated media producers, matching production.
+That flawed fixture's timeout is not evidence of an application defect. A
+subsequent shared-owner fixture still exposes a real file stall. The same
+4-MiB file also stalls without media, and a controlled source comparison with
+the pre-circuit-flow-selection production code (c605f2de) reproduces it. All
+temporarily replaced source files are restored byte-for-byte after comparison.
+The problem is not attributed to the preceding circuit-flow fix.
+
+Private transport tracing shows recoverable source DATA accepted into local
+ingress and then dropped by the endpoint's short datagram-buffer admission
+rule: a sampled source trace records 89 buffer drops. Record expiry/eviction,
+decode rejection, rate limiting, violations and bandwidth drops are zero in
+that capture. This is avoidable local loss before transmission, not proof of
+network loss. ARQ then spends RTO intervals recovering the discarded flight.
+
+Recoverable DATA now shares the existing bounded reliable-source credit
+budget: four 1536-byte units, with each admitted frame owning its cost through
+ingress and the priority queue. Both awaited and immediate enqueue paths obey
+the bound. Lossy-queue insertion and pop/restore preserve the permit; draining
+ingress cannot manufacture new capacity. The independent primary ingress is
+unaffected. A full bound returns pressure to the stream driver, which already
+retains unsent cells and retries WouldBlock.
+
+After ordinary source scheduling selects local, credited recoverable DATA,
+the session retains the exact unsent frame if its own child is warming, its
+endpoint source budget is unavailable or its complete-frame buffer admission
+fails. A two-millisecond retry uses the existing timer; the same source is
+deferred in both datagram and ordinary drain for that pass. Other local media
+and neutral transit can progress. The original residence/deadline remains;
+already partially sent frames are not replayed. Relays keep identical neutral
+admission/FIFO service, no wire role/deadline/priority or quota changes, and
+the four-KiB endpoint backlog bound is retained.
+
+The formerly failing real file-only stand now delivers all 4 MiB exactly.
+The complete five-test media-route network module passes, including legacy
+memory-linked repair/path-diversity/intentional-loss coverage. Its real mixed
+case verifies the complete 4-MiB file, all 50 audio packets while that transfer
+is still active, and 392 actually received competing camera packets. Peak
+send-to-media-callback packet time is 1.260 ms in that loopback run, below the
+unchanged 200-ms packet gate. It is not the earlier 209-ms PCM measurement.
+All four real nodes stop their listeners and runtimes, and the test process
+exits. Separate regressions verify retained credit through scheduler restore,
+release after admission and wake-up on shutdown. Full session verification
+passes 546 tests, with eight unit tests and one doctest ignored. The first full
+attempt exposed a test-setup deadlock: its authored-source test awaited enqueue
+of 32 frames before starting the scheduler, which now correctly holds source
+credits across both queues. That verified-stuck test process was stopped. The
+fixture now runs its producer and scheduler concurrently; its original exact
+32-message order/completeness, neutral-transit latency, pressure-byte and total
+duration gates remain unchanged and pass in the final full run.
+
+The incoming anonymous address map still combines primary/control and
+camera/screen into two receive circuits. Separating those remains open and
+must account for bounded circuit/connection capacity. The original PCM and
+source-clock gates, shaped/WAN coexistence and physical speech also remain
+open. No completion claim is made from the packet-level test.
