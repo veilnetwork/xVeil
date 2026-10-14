@@ -16918,3 +16918,41 @@ anonymous feedback path and broader incoming-flow isolation also remain open.
 Evidence is retained in `call-feedback-separate` in the private stand cache.
 Both owned apps and logcat exit, the ADB forward is removed, and app process
 absence is independently verified. No new listening confirmation is claimed.
+
+### 2026-10-14: Small-window QUIC pacing wake corrected
+
+A deterministic test reproduces an unnecessary 283.395-ms pacing sleep with
+a 4065-byte congestion window, 120-ms RTT and a 1200-byte packet request.
+Enough credit for that packet is available after approximately 29 ms, but the
+previous timer waits to refill the minimum ten-MTU bucket. The bucket remains
+useful for retaining burst credit; it is no longer the mandatory refill target.
+The timer now waits for one requested packet or the normal two-ms batching
+interval, whichever requires more credit. The 5/4 refill rate, transmitted-byte
+debit and congestion window are unchanged. No application role is inspected.
+
+The new deadline arithmetic rounds upward. Rounding down to one byte short
+would repeatedly discard fractional refill credit while advancing the pacer
+clock, as caught by the sustained-rate test. Both new injected-clock tests and
+all 273 Quinn protocol tests pass. The 537 session tests also pass (six existing
+ignored), including independent-source congestion, neutral transit, file
+progress and recovery. Mac and Android SDK libraries rebuild successfully.
+The phone update retains the matching signer, data and its other 15 native
+libraries. The C ABI and Dart kernel are unchanged in this cycle.
+
+The next 180-second Wi-Fi/mobile P2P call rings in 0.21 seconds and enables
+video at 62.11 seconds, with no handovers. Quality is still not a pass: audio
+buffers reach 764/511 ms before video and 1141/827 ms afterward, and video pauses.
+Primary QUIC packetization waits peak at 196.490/198.149 ms with 38/27 unsent
+expiries. Source queues peak at 0.449/15.239 ms; sampled SDK receive stages stay
+below 1.1 ms. Matched delivery-time spreads reach 987/1608 ms. These sequential
+calls have uncontrolled network variation, so neither improvement nor
+regression in overall call quality is attributed to the timer fix. The small
+window defect is proven independently; remaining waits still need congestion
+window, missing ACK and pacing causes distinguished at the stall itself.
+
+An active third-party VPN is observed on Mac, but its involvement in the
+call path is unproven: all seven public endpoints present in this runtime log
+resolve to en0. VPN settings are not changed. Private evidence is retained in
+`call-pacing-small-window` under the existing stand cache. Both owned apps and
+logcat exit, the ADB forward is removed, and process absence is independently
+verified. No new audible speech-quality result is claimed.
