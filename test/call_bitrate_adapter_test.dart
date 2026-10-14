@@ -127,6 +127,58 @@ void main() {
     expect(a.level, 2);
   });
 
+  for (final level in [0, 4]) {
+    test('cached peer growth cannot repeat a video cut at level $level', () {
+      final a = direct(level: level);
+      var frames = 0;
+      void sample(int sequence, int delay) => native(
+        a,
+        stats: {...healthy(), 'video_tx_frames': ++frames},
+        peerDelay: delay,
+        peerSequence: sequence,
+      );
+      for (var i = 0; i < 6; i++) {
+        sample(i, 60);
+      }
+      sample(6, 100);
+      sample(7, 100);
+      expect(a.audioBufferPressure, isTrue);
+      for (var i = 0; i < 20; i++) {
+        sample(7, 100);
+      }
+      expect(a.audioBufferPressure, isTrue, reason: 'pressure is retained');
+      expect(a.level, level, reason: 'one report is not several bad samples');
+      expect(a.audioReserve, isFalse);
+      expect(a.videoAdvice, CallVideoAdvice.keep);
+      sample(8, 120);
+      if (level == 0) {
+        expect(
+          a.level,
+          2,
+          reason: 'a fresh growth sample still cuts two rungs',
+        );
+      } else {
+        expect(
+          a.audioReserve,
+          isTrue,
+          reason: 'fresh failure of the floor pauses',
+        );
+      }
+    });
+  }
+
+  test('fresh local growth still pauses with a cached healthy peer', () {
+    final a = direct(level: 4);
+    for (final delay in [60, 70, 80, 90, 100, 110, 120]) {
+      native(
+        a,
+        stats: {...healthy(), 'audio_delay_ms': delay},
+        peerSequence: 1,
+      );
+    }
+    expect(a.audioReserve, isTrue);
+  });
+
   test(
     'new low latency video probes each rung without a minute of sparse frames',
     () {
