@@ -19,6 +19,7 @@ import ctypes as C
 import gc, json, os, socket, time, tomllib, traceback
 from pathlib import Path
 from pcm_timing import input_edges
+from decoded_video_progress import summarize as summarize_decoded_video
 os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
@@ -32,6 +33,8 @@ parser.add_argument('--native-timing-trace', action='store_true',
                     help='Enable bounded private RTP timestamp diagnostics for source/receive attribution; records no audio samples')
 parser.add_argument('--native-trace-capacity', type=int, default=4096,
                     help='Maximum native timestamp records per stream, 1–32768; requires native timing for a nondefault limit')
+parser.add_argument('--decoded-video-trace', action=argparse.BooleanOptionalAction, default=True,
+                    help='Require changing decoded synthetic images at both receivers near the end (default for video); disabling retains only RTP diagnostics, no pixels are retained')
 parser.add_argument('--gc-timing-trace', action='store_true',
                     help='Record bounded cyclic-GC pauses in the Python driver without changing collection or quality gates')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
@@ -86,6 +89,8 @@ if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_inte
     parser.error('Diagnostic routing refresh interval must be between 1 and 119 seconds')
 if args.file_bytes < 2048 or args.file_bytes % 2048:
     parser.error('File size must be a positive multiple of 2048 bytes')
+if args.no_video:
+    args.decoded_video_trace = False
 if args.screen_video and args.no_video:
     parser.error('--screen-video requires video')
 if args.compact_call_health and args.shared_control_ipc:
@@ -235,6 +240,7 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'independent_control_ipc': not args.shared_control_ipc,
           'independent_audio_feedback_ipc': True,
           'native_timing_trace': args.native_timing_trace,
+          'decoded_video_trace': args.decoded_video_trace,
           'native_trace_capacity': args.native_trace_capacity if args.native_timing_trace else None,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
@@ -364,6 +370,12 @@ try:
     playout=mf('veil_media_test_audio_playout_pcm',[P,P,C.c_size_t],C.c_int)
     getstats=mf('veil_media_engine_get_stats',[P],P)
     mfree=mf('veil_media_free_string',[P],None)
+    pull_video=mf('veil_media_engine_get_video_frame',[P,P,C.c_int,P,P],C.c_int) if args.decoded_video_trace else None
+    # The owned synthetic camera is fixed at 320x240; downscaling is allowed.
+    # Never retain pixels, grow a buffer from untrusted dimensions or use hardware.
+    video_buffers=[C.create_string_buffer(320*240*4) for _ in range(2)] if args.decoded_video_trace else []
+    video_widths=[C.c_int() for _ in range(2)];video_heights=[C.c_int() for _ in range(2)]
+    decoded_video_rows=[];decoded_video_failures=[0,0]
     startvideo=mf('veil_media_engine_start_video',[P,C.c_int,C.c_int,C.c_int,C.c_int],C.c_int)
     pause=mf('veil_media_engine_set_video_send_paused',[P,C.c_int],C.c_int)
     budget=mf('veil_media_engine_set_video_budget',[P,C.c_int,C.c_double],C.c_int)
@@ -593,6 +605,20 @@ try:
                 if not ptr:pollfail[i]+=1;continue
                 try:stats=json.loads(C.string_at(ptr))
                 finally:mfree(ptr)
+                if pull_video is not None and videostarted:
+                    began=time.monotonic()
+                    seq=pull_video(e,video_buffers[i],len(video_buffers[i]),C.byref(video_widths[i]),C.byref(video_heights[i]))
+                    row={'t':time.monotonic()-startat,'side':i,'seq':max(0,seq),'pull_ms':(time.monotonic()-began)*1000}
+                    if seq>0:
+                        width,height=video_widths[i].value,video_heights[i].value
+                        if not (0<width<=320 and 0<height<=240):
+                            decoded_video_failures[i]+=1;row['seq']=0
+                        else:
+                            digest=hashlib.sha256(memoryview(video_buffers[i]).cast('B')[:width*height*4]).hexdigest()
+                            row.update(width=width,height=height,sha256=digest)
+                    elif seq<0:
+                        decoded_video_failures[i]+=1
+                    decoded_video_rows.append(row)
                 feedback=[]
                 while inbox[i]:feedback.append(inbox[i].popleft())
                 sampled_at=int(time.time()*1000)
@@ -648,6 +674,10 @@ try:
     result['runtime_counter_deltas'] = [{k:after[k]-before[k] for k in counter_names}
                                       for before,after in zip(metrics_before,metrics_after)]
     (ROOT/'pcm-samples.json').write_text(json.dumps(pcmrows))
+    if args.decoded_video_trace:
+        (ROOT/'decoded-video-samples.json').write_text(json.dumps(decoded_video_rows))
+        result['decoded_video_progress']=summarize_decoded_video(decoded_video_rows,args.duration)
+        result['decoded_video_failures']=decoded_video_failures
     (ROOT/'codec-samples.json').write_text(json.dumps(samples))
     result.update(stand_start_monotonic_us=round(startat*1_000_000),real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
     result.update(control_send_attempts=control_attempts,
@@ -762,6 +792,8 @@ try:
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
     result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad+control_failures) and all(healthrecv[i]==healthsent[1-i]+1 for i in range(2)) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
     result['ok'] = result['ok'] and result['audio_rtcp_feedback_verified']
+    if args.decoded_video_trace:
+        result['ok']=result['ok'] and result['decoded_video_progress']['moving_at_end'] and not any(decoded_video_failures)
     result['tone_phase_coverage_verified']=all(phase_coverage)
     if args.tone_period_ms!=1000:result['ok']=result['ok'] and result['tone_phase_coverage_verified']
     if args.transport=='obfs4-tcp':
