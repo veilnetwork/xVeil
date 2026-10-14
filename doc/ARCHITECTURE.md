@@ -16669,8 +16669,8 @@ relays still running 0.11.37. Their logs match the test endpoints' sender/device
 prefixes and the two call windows, with 35/34/25/15 and 20/30/27/29 first-hop
 origin rejections respectively. These are encrypted endpoint traffic counts,
 not solely identified audio packets or a logical packet-loss rate. The two
-already updated relays report no matching rejection in the first attempt's
-collected window. All four additional production services are x86_64, and their
+already updated relays report no matching rejection in the preceding contact
+setup's observation window. All four additional production services are x86_64, and their
 running and installed executable hashes match the inspected baselines. A plan
 is prepared for the same 037bee4b candidate; installation needs separate user
 approval beyond the original two hosts. No additional server is changed.
