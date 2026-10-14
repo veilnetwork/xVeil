@@ -16629,3 +16629,53 @@ the successful peer snapshot; it does not qualify end-to-end delivery.
 The stand is closed and its process absence independently verified. No phone
 is visible in ADB, so incoming ringing, audio and video remain unverified after
 the relay update. The user is asked to reconnect Poco; no call is placed.
+
+### 2026-10-14: Poco returns; ringing works, media still stalls
+
+Poco is connected with Wi-Fi disabled, on diagnostic Android 0.13.84+2584.
+The preceding `/private/tmp` stand artifacts are absent. A durable owned stand
+is prepared under `/Users/vart/.cache/codex/xveil-physical-20261014`, with a
+fresh sovereign Mac profile and its private unlock material retained there.
+The current SDK b57a4275 and production native media are rebuilt; strict Mac
+signing and the 99-export media ABI gate pass. The installed phone is preserved.
+
+A new QA contact request does not arrive in 75 seconds; initial mailbox lookup
+cannot find a usable recipient KEM/relay record. Register status 11 means the
+local rendezvous publisher slot cap, not a relay startup failure. Both controlled
+endpoints are then accepted locally for the call fixture, with this contact
+delivery failure retained separately. After network warm-up, Mac-to-Poco video
+ringing appears in 0.34 seconds and the answered call stays active for 179
+seconds. The user hears audio and confirms frozen images on both devices.
+Video protection pauses both senders within seven seconds. Sampled buffer
+maxima are 1402 ms on Mac and 477 ms on Poco; received-audio packet ages reach
+1133/4142 ms. Interruptions continue after video has paused. These packet ages
+and buffer delays are distinct observations, not an acoustic latency test.
+
+The rebuilt Mac WebRTC cache has protobuf disabled, so native audio packet
+adaptation is unavailable despite the successful ABI check. A separate cache
+enables protobuf and uses the Apple linker because the pinned LLD cannot parse
+the current SDK's TAPI targets. The media engine is rebuilt with no test hooks.
+Veil 4dd54907 makes the macOS media build reject a cache missing this adaptor:
+the real disabled cache fails before compilation, while the enabled cache
+builds and passes the 99-export/signature checks. A second 179-second call
+reports adaptation enabled on both endpoints and incoming ringing in 1.36
+seconds, but video still pauses. Buffer maxima are 984/444 ms; audio packet
+ages reach 688/5258 ms. The sequential runs do not establish a causal quality
+improvement. Audio/video quality remains unqualified; protection thresholds
+are not loosened to mask these observations.
+
+A fresh native Mac peer snapshot identifies four additional SSH-accessible
+relays still running 0.11.37. Their logs match the test endpoints' sender/device
+prefixes and the two call windows, with 35/34/25/15 and 20/30/27/29 first-hop
+origin rejections respectively. These are encrypted endpoint traffic counts,
+not solely identified audio packets or a logical packet-loss rate. The two
+already updated relays report no matching rejection in the first attempt's
+collected window. All four additional production services are x86_64, and their
+running and installed executable hashes match the inspected baselines. A plan
+is prepared for the same 037bee4b candidate; installation needs separate user
+approval beyond the original two hosts. No additional server is changed.
+
+Both phone runs are force-stopped, their ADB forwards removed, and every owned
+Mac instance exits, including the final peer-only probe. Private evidence and
+the additional deployment plan remain in the durable stand directory. The
+normal Mac application and its user profile are not modified.
