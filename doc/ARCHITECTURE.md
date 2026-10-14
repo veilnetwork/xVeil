@@ -17007,3 +17007,40 @@ the controlled comparison is `controlled-small-loss-controllers.log` beside it.
 Both owned apps and logcat exit, the ADB forward is removed, and app process
 absence is independently verified. A continuous-speech check is requested;
 offline work can continue while the user is unavailable.
+
+### 2026-10-14: Controller comparison with independent competing sources
+
+The real encrypted, exporter-bound independent-source fixture now accepts an
+explicit congestion controller, neutral link delay and periodic UDP loss. Its
+existing regression wrapper retains Cubic, 20-ms one-way delay and no injected
+loss. A manual comparison runs Cubic and BBR with and without simultaneous
+video, screen and canonical reliable-file producers. All sources share the
+same neutral 1-Mbit/s FIFO, 120-ms one-way delay and one dropped UDP packet in
+fifty per direction; loss starts after child authentication.
+
+| Controller | Competing traffic | Primary received / 500 | Primary p95 age | Maximum age | Maximum receive gap |
+| --- | --- | --- | --- | --- | --- |
+| Cubic | None | 492 | 192.49 ms | 274.53 ms | 126.97 ms |
+| Cubic | Video, screen, file | 493 | 184.03 ms | 230.09 ms | 127.38 ms |
+| BBR | None | 490 | 125.23 ms | 125.60 ms | 125.39 ms |
+| BBR | Video, screen, file | 488 | 131.31 ms | 134.71 ms | 126.70 ms |
+
+There are no duplicate primary frames. Loaded Cubic/BBR cases deliver 25/23
+video frames, 22/25 screen frames and 33792/37888 file bytes. BBR reduces packet
+age in this run, but primary delivery gaps remain and fewer primary frames
+arrive. This single run neither establishes better audible speech nor qualifies
+a production default change. The manual test passes; its bounded file/video
+progress checks are characterization, not a complete media-quality gate.
+Cubic remains the production default. Private output is retained in
+`controlled-independent-loss-controllers.log` under the existing stand cache.
+
+RTCP feedback must be distinguished from QUIC transport acknowledgements.
+The audio engine negotiates transport-wide sequence feedback, consumes RTCP
+sender/receiver reports, and attaches an optional authenticated application
+report of receiver playout delay. This supplies bitrate/frame-duration
+adaptation and the remote-buffer input used by video protection. RTCP carries
+reception information but does not require waiting for a report before sending
+the next audio frame. Removing RTCP would remove these inputs without removing
+QUIC ACKs or the measured congestion-window wait. Direct/relay audio feedback
+already has a separate bounded writer and short local expiry; anonymous-path
+separation remains outstanding.
