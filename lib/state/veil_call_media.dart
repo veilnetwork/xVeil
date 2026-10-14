@@ -751,6 +751,9 @@ class VeilCallMediaController implements CallMediaController {
         'media_repairing': _routeRepairing,
         'audio_rx_supported': _audioReceiveActivity.supported,
         'peer_audio_playout_ms': _peerAudioPlayout.delayMs(DateTime.now()),
+        'peer_audio_buffer_growing': _peerAudioPlayout.bufferGrowing(
+          DateTime.now(),
+        ),
         'local_source_pressured': _sourcePressured,
         'video_audio_buffer_pressure': _bitrateAdapter?.audioBufferPressure,
         'local_source_feedback_queued': _sourceFeedbackQueued,
@@ -1537,6 +1540,7 @@ class VeilCallMediaController implements CallMediaController {
           peerDelayMs: _peerAudioPlayout.delayMs(now),
           peerCurrentDelayMs: _peerAudioPlayout.currentDelayMs(now),
           peerSampleSequence: _peerAudioPlayout.sampleSequence,
+          peerBufferGrowing: _peerAudioPlayout.bufferGrowing(now),
           receiveDelayMs: receiveDelay,
           receiveAgeMs: receiveAt == null
               ? null
@@ -1674,6 +1678,7 @@ class VeilCallMediaController implements CallMediaController {
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
             peerCurrentAudioDelayMs: _peerAudioPlayout.currentDelayMs(now),
             peerAudioSampleSequence: _peerAudioPlayout.sampleSequence,
+            peerAudioBufferGrowing: _peerAudioPlayout.bufferGrowing(now),
             requirePeerAudioPlayout:
                 call.media.audio &&
                 (call.peerProtocolVersion ?? 1) >=

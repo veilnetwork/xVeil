@@ -8,6 +8,7 @@ class CallPeerAudioPlayout {
   DateTime? _receivedAt;
   int? _delayMs;
   int? _currentDelayMs;
+  bool? _bufferGrowing;
   int get sampleSequence => _sequence;
   int? _interruptionCount;
   bool _interrupted = false;
@@ -17,6 +18,16 @@ class CallPeerAudioPlayout {
     _sequence = feedback.sequence;
     _delayMs = feedback.delayMs;
     _currentDelayMs = feedback.currentDelayMs ?? feedback.delayMs;
+    final current = feedback.currentDelayMs;
+    final peak = feedback.delayMs;
+    _bufferGrowing =
+        current != null &&
+            peak != null &&
+            current >= 0 &&
+            current <= peak &&
+            peak <= 60000
+        ? feedback.bufferGrowing
+        : null;
     _receivedAt = now;
     final count = feedback.interruptionCount;
     if (count != null) {
@@ -49,12 +60,16 @@ class CallPeerAudioPlayout {
   int? currentDelayMs(DateTime now) =>
       delayMs(now) == null ? null : _currentDelayMs;
 
+  bool? bufferGrowing(DateTime now) =>
+      currentDelayMs(now) == null ? null : _bufferGrowing;
+
   /// A local unmute or rebuild needs new feedback, while old frames must still
   /// be rejected. A new call gets a new tracker instead.
   void invalidateMeasurement() {
     _interrupted = false;
     _delayMs = null;
     _currentDelayMs = null;
+    _bufferGrowing = null;
     _receivedAt = null;
   }
 }
