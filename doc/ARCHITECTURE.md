@@ -16956,3 +16956,54 @@ resolve to en0. VPN settings are not changed. Private evidence is retained in
 `call-pacing-small-window` under the existing stand cache. Both owned apps and
 logcat exit, the ADB forward is removed, and process absence is independently
 verified. No new audible speech-quality result is claimed.
+
+### 2026-10-14: Remaining primary waits attributed to congestion-window blocking
+
+Generic QUIC diagnostics now record a pending timed datagram's age when
+congestion, pacing or path anti-amplification actually prevents transmission.
+The congestion observation retains the simultaneous window, outstanding bytes,
+reserved builder bytes, opaque payload size, probe timeout count and RTT.
+Expired and untimed compatibility traffic cannot invent an observation. These
+local numbers add no wire metadata, role recognition or scheduling privilege.
+A real protocol test proves the window-limited case and expiry exclusion;
+all 274 protocol tests and the targeted source-recovery tests pass. Mac/Android
+SDK builds succeed without a C ABI change.
+
+The next 180-second physical call rings in 0.26 seconds, enables video at
+62.13 seconds and remains P2P. At Mac's largest blocked observation, a 279-byte
+timed payload has waited 198.744 ms: window 2904 bytes, outstanding 3863 bytes,
+no reserved builder bytes, two probe timeouts, smoothed RTT 41.562 ms.
+Outstanding bytes may exceed the reduced window during loss recovery/probes;
+there is no space for this new ordinary packet. Poco's largest blocked age is
+163.379 ms with window 13566, outstanding 13607, a 297-byte payload, no builder
+reservation, no probe timeout and RTT 377.940 ms. Neither primary connection
+records pacing or anti-amplification blocking. Thus the measured remaining
+waits are for congestion-window/ACK progress, not the small-window pacing timer
+fixed in the previous cycle or a fabricated full-MTU builder reservation.
+
+Actual transmitted primary datagrams wait at most 183.458/168.657 ms; nine/zero
+unsent datagrams expire. Audio buffers still peak at 1197/970 ms in the baseline
+without video; this is not a quality pass. Source queues peak at 2.915/4.009 ms,
+socket-send waits at 1.952/5.894 ms, and sampled SDK receive ages stay below
+1.1 ms. A loopback-host network query during warmup observes three owned UDP
+socket rows on en0 and none on a tunnel; Android's current transports are
+cellular, without a VPN transport. These observations do not alone establish
+the physical cause of delayed/lost ACKs or every media-delivery gap.
+
+A separate controlled comparison uses real encrypted QUIC, the same neutral
+1-Mbit/s FIFO, 300-byte-scale logical packets every 20 ms, one dropped UDP
+packet in fifty in each direction, and a 150-ms bidirectional blackout. The
+drop/service policy never reads a role or payload. With 20-ms one-way delay,
+Cubic/BBR first fresh delivery after the outage is 182/35 ms and maximum
+post-outage packet age 169/25 ms. At 120-ms one-way delay the values are
+283/136 ms and 323/125 ms; maximum receive gaps are 245/41 ms. Each case admits
+900 logical frames with no duplicates. This isolates an avoidable controller
+contribution on that reproducible lossy path. It does not qualify physical
+speech quality, competing traffic or a production controller-default change.
+Cubic remains the production default pending those checks.
+
+Private physical proof is in `call-quic-stall-reasons` under the stand cache;
+the controlled comparison is `controlled-small-loss-controllers.log` beside it.
+Both owned apps and logcat exit, the ADB forward is removed, and app process
+absence is independently verified. A continuous-speech check is requested;
+offline work can continue while the user is unavailable.
