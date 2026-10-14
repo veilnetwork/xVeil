@@ -27,10 +27,16 @@ def analyze(summary, lines):
     start = summary['stand_start_monotonic_us']
     end = summary['duration_seconds']
     blocks = {'send': [], 'ingress': []}
+    limits = {'send': [], 'ingress': []}
     for line in lines:
         for kind in blocks:
             if f'audio.rtp.{kind}.begin ' in line:
+                m = re.search(r'\blimit=(\d+)\b', line)
+                limit = int(m[1]) if m else 4096
+                if not 1 <= limit <= 32768:
+                    raise ValueError('Invalid native trace capacity')
                 blocks[kind].append([])
+                limits[kind].append(limit)
             elif f'audio.rtp.{kind} seq=' in line:
                 if not blocks[kind]:
                     raise ValueError('RTP row without a trace block')
@@ -76,7 +82,10 @@ def analyze(summary, lines):
         'first_five_seconds_excluded': True,
         'unmatched_payload_rows': unmatched,
         'trace_limit_may_have_been_reached': any(
-            len(b) >= 4096 for kind in blocks.values() for b in kind),
+            len(b) >= limit for kind in blocks
+            for b, limit in zip(blocks[kind], limits[kind])),
+        'send_trace_limits': limits['send'],
+        'receive_trace_limits': limits['ingress'],
         'send_trace_rows': [len(b) for b in blocks['send']],
         'receive_trace_rows': [len(b) for b in blocks['ingress']],
         'phases': [dict(source_trace_block=source, phase=phase,
