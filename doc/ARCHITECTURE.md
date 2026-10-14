@@ -17215,3 +17215,86 @@ hashes, full samples and bounded RTP analysis. All nodes stop, policy and owned
 fixture processes independently exit and zero fixture sockets remain. Targeted
 Dart analysis reports no issues. No installed Mac/phone application or relay
 server is changed during this work cycle.
+
+### 2026-10-15: A settled recent buffer must not inherit an older growth verdict
+
+The passing aggregate capture still contains long video protection pauses.
+One lasts 24--56 seconds with native buffers only 58--108 ms and peer current
+buffers 52--93 ms. A peer window such as `[52, 52, 52, 90, 93, 73]` still
+declares growth: the median of its latter half is above its old baseline,
+although the current buffer has already drained. The next fresh 73-ms sample
+can even trigger a two-rung cut from that old rise. Five-second peer reporting
+magnifies how long this mistaken verdict delays recovery.
+
+The growth predicate retains the existing six-sample median comparison and
+20-ms growth threshold, but also requires a positive trend within its recent
+three fresh measurements. Settled or falling recent values below the ceiling
+no longer inherit an earlier rise. This is shared by the video adapter and
+the local source-pressure tracker. The 200-ms ceiling, replay/cached-sample
+handling, recovery hysteresis, source lanes and relay scheduling are unchanged.
+Slow growth and growth with intermediate flat samples still trigger.
+
+Before the implementation change, three new regressions fail on the original
+code: a drained recent rise is considered pressure, fresh stable reports fail
+to clear a step, and the recovered peer buffer unnecessarily cuts two video
+rungs. Afterward all 96 buffer-window, video-adapter and source-pressure tests
+pass; targeted Dart analysis is clean. The comparison fixture retains the
+same SDK/media artifact hashes, aggregate rate, files, codec, flags and duration.
+The full 360-second `pcm-aggregate-recent-trend-360` capture is required before
+claiming an improvement in audio/video coexistence.
+
+The first full comparison has mixed-phase PCM peaks 193.512/192.049 ms and p95
+172.346/181.145 ms, with all 337 sound edges per direction and all observed
+20/40/60-ms input positions. Native buffers peak at 165/172 ms with no native
+audio interruptions or quiet decoded frames. Video protection is sampled active
+40/28 times rather than 49/162; peer video receives 979/3243 frames rather than
+363/1628. Both 512-KiB files match their hashes with no missing chunks and finish
+at 231.803/166.327 seconds. RTCP, ordered channels, route checks, codec bounds,
+health delivery and local source-pressure admission verify, without native,
+poll, audio-thread, authentication or asynchronous file-send errors.
+
+The overall gate nevertheless fails its unchanged source-clock criterion:
+one driver interval is 55.63 ms at 289.618 seconds, above the 40-ms limit.
+Both neighbouring capture/playout spans are under a millisecond; the largest
+measured capture-to-row spans over the run are 2.78/1.34 ms. Thus the recorded
+gap occurs before the next native capture, not inside those measured calls.
+This does not identify whether Python GC, the interpreter or host scheduling
+caused it, and is not permission to ignore the gate. Evidence remains in
+`pcm-aggregate-recent-trend-360`; all three nodes stop and no sockets remain.
+
+A separate explicit `--gc-timing-trace` adds a bounded observation of Python
+cyclic-GC start/stop times to the owned fixture. It does not disable collection,
+change its thresholds or relax any acceptance criterion. An unchanged-policy,
+unchanged-binary 360-second repeat (`pcm-aggregate-recent-trend-gc-360`) checks
+the source-clock failure and possible overlap with collection pauses.
+
+The repeat has a valid source clock under the original 40-ms criterion:
+maximum 21.23 ms, with three diagnostic intervals just over 20 ms. It retains
+86 GC spans without eviction; their maximum is 3.10 ms and none overlaps those
+three intervals. This does not retrospectively explain the earlier 55.63-ms
+gap. The quality gate now fails the PCM limit itself: peaks 202.720/194.196 ms,
+p95 181.648/172.348 ms. The 200-ms limit remains unchanged; do not round this
+into a passing result. All 337 mixed-phase edges per direction arrive, with
+full observed 20/40/60-ms input-position coverage, zero native interruptions
+and zero quiet decoded frames. Native buffers peak at 170/156 ms.
+
+Video protection is sampled active only 23/0 times; peer receive counts are
+859/2458, compared with 363/1628 before this recent-trend fix. Both files match
+their hashes without missing chunks and finish at 249.063/228.450 seconds.
+RTCP, channels, codec bounds, route and source-pressure checks pass; all health
+reports plus bootstrap arrive and all 360 local feedback reports per endpoint
+are queued. There are no native, poll, audio-thread, control, authentication,
+duplicate-file or asynchronous file-send failures. All three nodes stop,
+policy and owned fixture processes independently exit and no sockets remain.
+
+The residual peak is at source/output times 113.121/113.324 seconds. Nearby
+receiver polls are at most 137 ms while the sender reports 60-ms packetization.
+These are not exact per-packet attribution and must not be added as a causal
+decomposition. Bounded native tracing of only the first 4096 rows cannot by
+itself assign this later peak to packetization, transport or playout. The next
+investigation must distinguish those spans without changing the acceptance
+limit or assuming that a smaller native buffer proves total delay is healthy.
+No production budget/controller/codec tuning is inferred from that guess.
+The recent-trend defect is independently reproduced and fixed, and repeated
+captures show less unnecessary video protection, but stable compliance with
+the complete audio-quality gate and physical speech quality remain open.
