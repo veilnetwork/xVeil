@@ -16679,3 +16679,52 @@ Both phone runs are force-stopped, their ADB forwards removed, and every owned
 Mac instance exits, including the final peer-only probe. Private evidence and
 the additional deployment plan remain in the durable stand directory. The
 normal Mac application and its user profile are not modified.
+
+### 2026-10-14: Remaining relay deployment and buffer trend trigger
+
+The user approves updating the four additional inspected relays. They are
+updated sequentially with the same tested 037bee4b backport binary, preserving
+configuration, identity and node data. Before replacement each installed and
+running executable matches the approved baseline. Atomic replacement retains
+the original executable in a verified rollback backup. Each restarted primary
+`veil.service` runs the candidate hash, remains on the same PID across the
+health observation, and answers real CLI requests under its service UID.
+Ticks advance from 5 to 10 on all four, with five or six connected sessions.
+Private deployment proofs are retained under
+`/Users/vart/.cache/codex/xveil-physical-20261014/approved-relay-deployments`.
+All six inspected relays have now received this backport; this is not a claim
+about every relay in the network or a completed media qualification.
+
+At the user's request, video degradation with playout telemetry now requires
+audio buffer growth or the existing 200-ms ceiling. Each direction has its own
+sliding window of six valid measurements. Growth means at least 20 ms between
+the medians of the earlier and later three samples, with both the current and
+first-to-last measurements confirming the rise. Local observations arrive at
+the stats cadence; remote observations advance only with a new authenticated
+report sequence, so the remote window can span longer than six seconds.
+An isolated sub-ceiling spike, a drained retained peak, missing feedback,
+RTT, losses, RTP gaps and interruptions alone do not lower an earned video
+rung. These observations still withhold improvement. The same trigger governs
+the endpoint's shared source-pressure reports: after pressure has cleared,
+unknown/marginal samples send no new verdict instead of renewing a pressure
+lease or authorizing producer growth. Both layers recover below 160 ms after
+12 healthy observations. Initial conservative source reservation is retained;
+video-only/legacy calls without playout telemetry retain transport adaptation.
+Relays receive no media classification or priority.
+
+The existing two-rung decrease, one-rung improvement and measured one-fps
+trial before pausing video are retained. Engine replacement and unknown
+measurements clear trend history. Diagnostics expose
+`video_audio_buffer_pressure` for comparison with rung and pause transitions.
+The focused buffer, ladder, source-pressure, receive-activity and authenticated
+playout-feedback suites pass all 112 tests; targeted analysis reports no issues.
+The owned Mac bundle and matching-signer Android 0.13.84+2585 APK are built.
+The APK retains the installed phone's exact native Veil, media and storage
+libraries, and contains the new Dart buffer-window policy; Mac retains its
+protobuf-enabled media engine. Native staging files are restored afterward.
+
+Poco disappears from ADB before the in-place APK install, so that installation
+does not occur and no new physical call is placed. The owned Mac is closed
+and its process absence independently verified. The normal Mac application
+and user profile remain untouched. Post-deployment media progress, audio
+latency and the video-freeze report still require a physical retest.

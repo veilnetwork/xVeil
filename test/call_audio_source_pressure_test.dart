@@ -46,6 +46,75 @@ void main() {
     recover(policy);
   });
 
+  test('source pressure follows sustained growth below the shared ceiling', () {
+    for (final incoming in [false, true]) {
+      final policy = CallAudioSourcePressure();
+      recover(policy);
+      for (final delay in [110, 120, 130, 140, 150, 160]) {
+        sample(
+          policy,
+          peer: incoming ? 100 : delay,
+          local: incoming ? delay : 100,
+        );
+      }
+      expect(
+        sample(policy, peer: incoming ? 100 : 160, local: incoming ? 160 : 100),
+        isTrue,
+      );
+      recover(policy);
+    }
+  });
+
+  test('cached peer report cannot fill a source growth window', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy, receive: false);
+    // An expired report breaks the trend, while the released latch is kept.
+    expect(sample(policy, receive: false, peer: null), isNull);
+    for (var i = 0; i < 5; i++) {
+      policy.observe(
+        sendExpected: true,
+        receiveExpected: false,
+        requirePeerPlayout: true,
+        peerDelayMs: 60 + i * 10,
+        peerSampleSequence: i,
+        receiveDelayMs: null,
+        receiveAgeMs: null,
+        interrupted: false,
+        audioTxDrops: 0,
+      );
+    }
+    for (var i = 0; i < 20; i++) {
+      expect(
+        policy.observe(
+          sendExpected: true,
+          receiveExpected: false,
+          requirePeerPlayout: true,
+          peerDelayMs: 110,
+          peerSampleSequence: 4,
+          receiveDelayMs: null,
+          receiveAgeMs: null,
+          interrupted: false,
+          audioTxDrops: 0,
+        ),
+        isFalse,
+      );
+    }
+    expect(
+      policy.observe(
+        sendExpected: true,
+        receiveExpected: false,
+        requirePeerPlayout: true,
+        peerDelayMs: 110,
+        peerSampleSequence: 5,
+        receiveDelayMs: null,
+        receiveAgeMs: null,
+        interrupted: false,
+        audioTxDrops: 0,
+      ),
+      isTrue,
+    );
+  });
+
   test(
     'recovered current playout releases pressure despite a retained peak',
     () {
@@ -55,10 +124,10 @@ void main() {
         expect(sample(policy, peer: 300, currentPeer: 100), isTrue);
       }
       expect(sample(policy, peer: 300, currentPeer: 100), isFalse);
-      expect(sample(policy, peer: 300, currentPeer: 160), isTrue);
+      expect(sample(policy, peer: 300, currentPeer: 160), isNull);
       // Local failures still override the healthy peer's current measurement.
-      expect(sample(policy, peer: 300, currentPeer: 100, local: 180), isTrue);
-      expect(sample(policy, peer: 300, currentPeer: 100, drops: 1), isTrue);
+      expect(sample(policy, peer: 300, currentPeer: 100, local: 180), isNull);
+      expect(sample(policy, peer: 300, currentPeer: 100, drops: 1), isNull);
     },
   );
 
@@ -110,66 +179,61 @@ void main() {
           peer: tracker.delayMs(expired),
           currentPeer: tracker.currentDelayMs(expired),
         ),
-        isTrue,
+        isNull,
       );
     },
   );
 
   test('recovered latch cannot authorize growth with intermediate playout', () {
     for (final localDirection in [false, true]) {
-      final policy = CallAudioSourcePressure();
-      recover(policy);
-      for (final delay in [120, 126, 146, 159]) {
+      for (final delay in [160, 170, 180, 199]) {
+        final policy = CallAudioSourcePressure();
+        recover(policy);
         expect(
           sample(
             policy,
             peer: localDirection ? 100 : delay,
             local: localDirection ? delay : 100,
           ),
-          isTrue,
+          isNull,
         );
+        expect(sample(policy), isFalse);
+        expect(sample(policy, peer: 200), isTrue);
+        recover(policy);
       }
-      // Intermediate measurements withhold growth without changing the
-      // existing 160-ms degradation latch or its 12-sample bad-path recovery.
-      expect(sample(policy), isFalse);
-      expect(sample(policy, peer: 160), isTrue);
-      recover(policy);
     }
   });
 
   test('intermediate receive age cannot authorize growth after recovery', () {
     final policy = CallAudioSourcePressure();
     recover(policy);
-    expect(sample(policy, age: 500), isTrue);
-    expect(sample(policy, age: 999), isTrue);
+    expect(sample(policy, age: 500), isNull);
+    expect(sample(policy, age: 999), isNull);
     expect(sample(policy, age: 50), isFalse);
     // Muted/legacy directions still do not require unused measurements.
     expect(sample(policy, receive: false, local: null, age: null), isFalse);
     expect(sample(policy, send: false, peer: null), isFalse);
   });
 
-  test(
-    'standing delay throttles other bindings before the PCM budget is spent',
-    () {
-      final policy = CallAudioSourcePressure();
-      recover(policy);
+  test('capped buffers throttle sources until sustained recovery', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy);
+    expect(sample(policy, peer: 200), isTrue);
+    for (var i = 0; i < 20; i++) {
       expect(sample(policy, peer: 180), isTrue);
-      for (var i = 0; i < 20; i++) {
-        expect(sample(policy, peer: 140), isTrue);
-      }
-      recover(policy);
-      expect(sample(policy, local: 180), isTrue);
-    },
-  );
+    }
+    recover(policy);
+    expect(sample(policy, local: 200), isTrue);
+  });
 
   test('fresh peer measurements cannot hide stalled or old local audio', () {
     final policy = CallAudioSourcePressure();
     recover(policy);
-    expect(sample(policy, local: null), isTrue);
-    expect(sample(policy, age: 1000), isTrue);
-    expect(sample(policy, age: null), isTrue);
-    expect(sample(policy, age: -1), isTrue);
-    recover(policy);
+    expect(sample(policy, local: null), isNull);
+    expect(sample(policy, age: 1000), isNull);
+    expect(sample(policy, age: null), isNull);
+    expect(sample(policy, age: -1), isNull);
+    expect(sample(policy), isFalse);
   });
 
   test(
@@ -188,14 +252,14 @@ void main() {
     },
   );
 
-  test('primary failures and interruptions restrain all competing sources', () {
+  test('drops and interruptions with stable buffers only withhold growth', () {
     final policy = CallAudioSourcePressure();
     recover(policy);
-    expect(sample(policy, drops: 1), isTrue);
+    expect(sample(policy, drops: 1), isNull);
     // A new engine may reset its native counter; history is not a new loss.
-    recover(policy);
-    expect(sample(policy, interrupted: true), isTrue);
-    recover(policy);
+    expect(sample(policy), isFalse);
+    expect(sample(policy, interrupted: true), isNull);
+    expect(sample(policy), isFalse);
   });
 
   test('muted local mic still protects measured incoming audio', () {
@@ -211,7 +275,7 @@ void main() {
       final policy = CallAudioSourcePressure();
       recover(policy, receive: false);
       expect(sample(policy, receive: false, local: null, age: null), isFalse);
-      expect(sample(policy, receive: false, peer: null), isTrue);
+      expect(sample(policy, receive: false, peer: null), isNull);
     },
   );
 
@@ -230,6 +294,6 @@ void main() {
       sample(policy, requirePeer: false, peer: null);
     }
     expect(sample(policy, requirePeer: false, peer: null), isFalse);
-    expect(sample(policy, requirePeer: false, peer: null, local: null), isTrue);
+    expect(sample(policy, requirePeer: false, peer: null, local: null), isNull);
   });
 }
