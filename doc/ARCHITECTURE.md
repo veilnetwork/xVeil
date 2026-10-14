@@ -17774,3 +17774,65 @@ quotas; a circuit ID alone is not a lifetime-safe identity. This audit does not
 resolve the separate PCM/source-clock gate failures documented above. No
 phone call, GUI app, installed profile or server is used or changed in this
 audit; the focused Rust test process exits normally.
+
+### 2026-10-15: Preserve anonymous circuit ownership independently of return transport
+
+The preceding audit led to a reproducible selection failure. Two installed
+circuits whose IDs hash to the same legacy neutral bucket select the same
+ordered sender when supplied only with their cold destination-carrier
+observations. The valid-1024-byte-cell regression fails specifically on the
+distinct-sender assertion. An earlier fixture draft used an invalid 512-byte
+cell and failed construction; it is not evidence of the selection defect.
+
+Each installed circuit now owns a small process-local flow object per
+direction, distinct from its learned return connection. The queue carries a
+weak witness, which cannot retain the circuit or the session. Circuit flow
+identities and authenticated ingress-connection identities occupy different
+typed namespaces and are never serialized or logged as allocation addresses.
+Both ordered and QUIC pool selection can assign a distinct physical connection
+to each live circuit, within the existing six-slot first-come bound. A seventh
+known flow cannot steal or alias an occupied slot. Legacy traffic retains its
+two buckets. The dispatcher supplies the lifetime witness in forward, backward
+and rendezvous-return CircuitDatagram sends; reliable circuit messages retain
+their existing path.
+
+The production session loop first attempts the circuit's independently ready
+child. Otherwise, the existing peer-bound reverse observation remains a
+compatibility fallback, followed by the previous ordinary transport behavior.
+This ordering prevents an already shared reverse pipe from permanently
+bypassing ready independent assignments. Warm-up, exhausted quotas and legacy
+peers therefore still do not provide unconditional isolation. No application
+role, media priority, new wire field, scheduling privilege, mailbox path,
+connection quota or relay bandwidth/admission rule is added or changed.
+
+Only admitted newer sequences update reverse observations. Flow ownership
+does not change when an observation is replaced, cleared or expires. Explicit
+teardown, idle GC, install-pressure detachment and table destruction retire
+ownership; even a retained Arc<CircuitState> or carrier cannot revive it. A
+new incarnation using the same wire ID receives fresh ownership. Fallback
+preserves the underlying exact Sent/Dropped/Unavailable result, including a
+partial send's byte accounting, and does not retry it on another path.
+
+Authenticated ordered-pipe regressions cover two and six colliding cold
+circuits, six circuits sharing one old return pipe, a blocked unread pipe,
+seventh-flow saturation and reclamation after detachment while the old state
+is retained. Every other receiver decodes its exact neutral frame within
+250 ms. Four lifecycle/fallback tests cover stable directional ownership,
+sequence replacement/clearing, reused IDs, peer binding, admission/partial
+results, GC, table destruction and weak-witness expiry.
+
+A separate real-obfs4 test runs the production session scheduler, authenticates
+all six children through the ordinary registry/exporter proof, and supplies six
+colliding circuit IDs that all remember one shared return carrier. All six
+original frames arrive on different physical child connections; the shared
+fallback is never invoked. The scheduler and accept/receive tasks are joined
+after shutdown. This covers actual queue-to-child selection and encrypted I/O,
+not a complete multi-hop onion call or real speech quality.
+
+The combined veil-anonymity, veil-dispatcher and veil-session suite passes
+1148 tests (9 unit tests and one doctest are ignored); the subsequently added
+production-scheduler regression also passes. The embedded SDK passes a fresh
+production-feature check with node-embedded, production-seeds and packet-tunnel.
+No native ABI, installed application/profile, phone or relay server is changed.
+The earlier PCM/source-clock gate failures remain open, as do multi-hop call
+qualification and physical speech. The goal is not complete.
