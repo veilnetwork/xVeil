@@ -1,5 +1,67 @@
 # Calls media handoff
 
+## 2026-10-15: late audio burst localized before native Mac ingress
+
+The previous goal turn made progress (root 49c60b25): complete-file evidence
+and separate endpoint producer-budget rejections changed the next action.
+SDK 8f77e5af adds opt-in playout timing, not an audio-policy fix. It requires
+both VEIL_MEDIA_PLAYOUT_TRACE=1 and an explicit VEIL_MEDIA_DIAG_PATH, reserves
+65536 metadata rows before render, and writes only at NetEq teardown. Rows
+contain monotonic callback entry/exit, actual queued samples in milliseconds,
+target, discarded decoded blocks and fallback; no PCM is retained. The eight
+decoder-outcome/clock cases still pass. A regression verifies both opt-ins,
+the hard row limit, truncation count, and absence of file creation during
+capture. The production Mac build retains 99 exports.
+
+call-playout-trace-300 uses private Mac build 2597 with this native diagnostic
+variant, unchanged Rust SDK 11f4dfe3 and hidden-volume, and unchanged phone
+2598. Both stay P2P; ring delay is 0.43 seconds. The call has 298.92 seconds of
+RPC observations, while the complete native render trace covers 300.6172
+seconds: 30063/30063 rows, below the 65536 cap. RTP receipt/send traces use
+the existing optional 32768-row limit rather than cutting off after 4096.
+
+This is a NEGATIVE quality run, not a successful latency/full-cadence gate.
+Video-phase sampled median TX marker rates are 6.34/15.27 per second, and
+registered audio interruption counts finish at 2/1. Decoded catch-up finishes
+at 35/18 batches and 1450/800 discarded milliseconds. Two-second RPC snapshots
+show audio_delay_ms peaks of 117/201 ms, but the complete render trace exposes
+an ACTUAL queued-buffer peak of 441 ms and a target peak of 450 ms. A low
+sampled maximum is not proof that the queue stayed below the budget.
+
+Mac render does not stall: maximum gap is 13.302 ms and maximum complete
+GetAudio work is 0.474 ms. Around 140 seconds, actual nonempty incoming Opus
+RTP packets arrive in a burst with a relative timestamp/arrival residual up
+to 720.883 ms. This is relative to the first actual payload, not a synchronized
+absolute one-way delay. Their native ingress-to-drain queue peaks around
+9.287 ms; first decoded catch-up is at render time 140.218 seconds. The large
+delay precedes native Mac ingress, so this run does not justify attributing
+the late buildup to a stopped renderer or its extra catch-up pulls.
+
+Source timing analysis must exclude padding. Audio RTP padding reuses an old
+timestamp and produced misleading 300–400-ms residuals with no encoder frame.
+Matching the first send for each encoder timestamp after the initial RTP
+offset gives 12726 packets, all with exactly 20 header bytes beyond the
+encoder payload; maximum encode-to-SendRtp time is 28.348 ms. The receiver
+analysis likewise excludes zero-payload packets. Do not infer a Mac capture
+freeze from the padding rows. Phone source timing remains unmeasured.
+
+A subsequent preflight attempted to enable the existing phone encode/send
+trace with a temporary lldb-server. Attach worked, but this host LLDB could
+not evaluate the target setenv call, even after loading the device executable
+and resolving the actual libc symbol. No diagnostic environment was enabled,
+and no additional call was placed. The waiting runner was explicitly stopped;
+its finally block closed both apps. Temporary server files, both owned ADB
+forwards and the empty fixture directory were removed. Independent process
+absence proofs cover the measured call and the stopped preflight.
+
+Next: obtain Android encode/send/native-admission timings through a supported
+diagnostic mechanism before the call, then correlate identical RTP packets
+with the Mac receipt burst. This distinguishes phone capture/encode/SDK delay
+from transport delivery. Do not change relay priority, blame Android power
+saving, or relax buffer/loss triggers without that boundary evidence. Group
+decoded catch-up and the new SDK's ordered/screen full-codec coexistence
+qualification also remain outstanding; keep the full goal active.
+
 ## 2026-10-15: Android SDK update and endpoint pressure accounting
 
 Phone profile build 2598 now carries SDK 11f4dfe3, built locally with NDK
