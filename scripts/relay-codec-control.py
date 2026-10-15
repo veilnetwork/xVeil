@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from udp_fifo_shaper import UdpShaper
 from tcp_fifo_shaper import TcpShaper
 from process_tcp_shaper import ProcessTcpShaper
+from fixture_paths import validate_unix_fixture_paths
 from opaque_frame_capture import OpaqueFrameCapture
 import ctypes as C
 import gc, json, os, socket, time, tomllib, traceback
@@ -119,6 +120,10 @@ if args.directory is None:
     ROOT = Path(tempfile.mkdtemp(prefix='xveil-relay-control-', dir='/private/tmp'))
 else:
     ROOT = args.directory.absolute()
+    try:
+        validate_unix_fixture_paths(ROOT)
+    except ValueError as error:
+        parser.error(str(error))
     if ROOT.exists():
         if ROOT.is_symlink() or not (ROOT / 'fixture.json').is_file():
             parser.error('Existing directory is not an owned relay-control fixture')
@@ -413,6 +418,14 @@ try:
     # Bounded local timing only: no control contents or destination identifiers.
     # Submission/return measures IPC admission, never end-to-end receipt.
     control_send_samples=collections.deque(maxlen=512)
+    control_receive_samples=collections.deque(maxlen=512)
+    def accept_health(index, raw):
+        value=json.loads(healthkeys[1-index].decrypt(raw[:12],raw[12:],b'codec-control-v1'))
+        inbox[index].append({'at':int(time.time()*1000),'value':value})
+        control_receive_samples.append({'side':index,
+            'source_nonce':int.from_bytes(raw[:12],'big'),
+            'received_at_seconds':time.monotonic()-startat if startat is not None else None})
+        healthrecv[index]+=1
     handler_type=C.CFUNCTYPE(None,P,P,P,C.c_uint8,C.c_uint64,P,C.c_size_t)
     handler=fn('veil_app_set_recv_handler',[P,handler_type,P,E],C.c_int)
     freebuf=fn('veil_free_buf',[P,C.c_size_t],None)
@@ -496,9 +509,7 @@ try:
                 assert C.string_at(node,32)==ids[1-index].raw[:32]
                 assert C.string_at(app,32)==controlids[1-index].raw[:32]
                 raw=C.string_at(data,size)
-                value=json.loads(healthkeys[1-index].decrypt(raw[:12],raw[12:],b'codec-control-v1'))
-                inbox[index].append({'at':int(time.time()*1000),'value':value})
-                healthrecv[index]+=1
+                accept_health(index,raw)
             except Exception:healthbad[index]+=1
             finally:freebuf(node,64+size)
         cb=handler_type(receive_health);callbacks.append(cb)
@@ -530,6 +541,17 @@ try:
             extra_apps.append(app)
             assert checked(compact_configure,ch,app)==0
         result['compact_control_app_identity_verified']=all(rejected_foreign_control_apps)
+    def poll_compact_health():
+        if not args.compact_call_health:return
+        for i,ch in enumerate(channels):
+            for _ in range(8):
+                count=compact_poll(ch,compact_buffers[i],768)
+                if count==0:break
+                if count<0:
+                    healthbad[i]+=1
+                    break
+                try:accept_health(i,compact_buffers[i].raw[:count])
+                except Exception:healthbad[i]+=1
     os.environ['VEIL_MEDIA_TEST_VIDEO']='1'
     for i,ch in enumerate(channels):
         e=create(ch,ids[i],ids[1-i],args.audio_overhead_bytes,args.video_overhead_bytes) if args.video_overhead_bytes else create(ch,ids[i],ids[1-i],args.audio_overhead_bytes) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
@@ -620,22 +642,11 @@ try:
         if args.opaque_frame_capture and tick==100*args.opaque_frame_capture_start_seconds:
             opaque_capture=OpaqueFrameCapture(ROOT, [identity['node_id'] for identity in identities])
             opaque_capture.start()
+        # Match VeilCallMediaController's independent 100-ms control timer.
+        # A one-second stats poll misses a report sent after its final read.
+        if tick%10==0:poll_compact_health()
         if tick%100==0:
             if native_driver is not None:pcmrows.extend(native_driver.drain())
-            if args.compact_call_health:
-                for i,ch in enumerate(channels):
-                    for _ in range(8):
-                        count=compact_poll(ch,compact_buffers[i],768)
-                        if count==0:break
-                        if count<0:
-                            healthbad[i]+=1
-                            break
-                        try:
-                            raw=compact_buffers[i].raw[:count]
-                            value=json.loads(healthkeys[1-i].decrypt(raw[:12],raw[12:],b'codec-control-v1'))
-                            inbox[i].append({'at':int(time.time()*1000),'value':value})
-                            healthrecv[i]+=1
-                        except Exception:healthbad[i]+=1
             prepare=tick>=2000 and not videostarted
             for i,e in enumerate(engines):
                 ptr=getstats(e)
@@ -696,6 +707,7 @@ try:
                     returned_at=time.monotonic()
                     control_attempts[i]+=1
                     control_send_samples.append({'side':i,
+                        'source_nonce':int.from_bytes(nonce,'big'),
                         'submitted_at_seconds':submitted_at-startat,
                         ('local_queue_admission_ms' if args.compact_call_health else 'ipc_admission_ms'):(returned_at-submitted_at)*1000,
                         'encrypted_application_bytes':len(payload),'result':rc})
@@ -704,6 +716,7 @@ try:
                     command({'index':i,'op':'feedbackAttempt',
                              'feedback':latestfeedback[i],
                              'now':int(time.time()*1000)})
+    poll_compact_health()
     clock_observations.append(clock_observation())
     audio_stop.set()
     if native_driver is not None:
@@ -751,7 +764,10 @@ try:
     result.update(control_send_attempts=control_attempts,
                   control_send_failures=control_failures,
                   control_send_samples=list(control_send_samples),
-                  control_send_samples_truncated=sum(control_attempts)>control_send_samples.maxlen)
+                  control_send_samples_truncated=sum(control_attempts)>control_send_samples.maxlen,
+                  control_receive_samples=list(control_receive_samples),
+                  control_receive_samples_truncated=sum(healthrecv)>control_receive_samples.maxlen,
+                  compact_control_poll_interval_ms=100 if args.compact_call_health else None)
     result['stand_clock_observations']=clock_observations
     result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
     result['video_overhead_bytes_override'] = args.video_overhead_bytes
