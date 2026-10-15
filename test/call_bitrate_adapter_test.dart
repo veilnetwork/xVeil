@@ -78,14 +78,14 @@ void main() {
   }
 
   test(
-    'transport estimates and interruptions cannot cut stable audio buffers',
+    'transport estimates without actual RTP loss cannot cut stable buffers',
     () {
       final a = direct();
       for (var i = 0; i < 60; i++) {
         native(
           a,
           stats: {
-            ...healthy(drops: i * 20, audioDrops: i),
+            ...healthy(drops: i * 20),
             'rtt_ms': 2500,
             'tx_jitter_ms': 100,
             'tx_loss_pct': 15,
@@ -94,7 +94,6 @@ void main() {
           },
           peerDelay: 150,
           peerSequence: i,
-          interrupted: true,
         );
       }
       expect(a.level, 0);
@@ -115,6 +114,54 @@ void main() {
       expect(a.audioReserve, isFalse);
     },
   );
+
+  for (final lane in ['audio', 'video']) {
+    test('fresh $lane RTP loss cuts once despite healthy buffers', () {
+      final a = direct();
+      native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 7});
+      expect(a.level, 0, reason: 'historical loss starts the baseline');
+      native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 8});
+      expect(a.level, 2);
+      for (var i = 0; i < 6; i++) {
+        native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 8});
+      }
+      expect(a.level, 2, reason: 'a cached count is not repeated loss');
+      native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 0});
+      expect(a.level, 2, reason: 'counter reset is not a new loss');
+      native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 1});
+      expect(a.level, 4);
+      expect(a.audioReserve, isFalse);
+    });
+    test('replacement engine starts a new $lane loss baseline', () {
+      final a = direct();
+      native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 1});
+      a.invalidateAppliedState();
+      native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 10});
+      expect(a.level, 0, reason: 'replacement snapshot is not a new event');
+      native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 11});
+      expect(a.level, 2);
+    });
+  }
+  test(
+    'fresh audio interruptions reduce video, then protect a failing floor',
+    () {
+      final a = direct();
+      native(a, interrupted: true);
+      expect(a.level, 2);
+      native(a, interrupted: true);
+      expect(a.level, 4);
+      native(a, interrupted: true);
+      native(a, interrupted: true);
+      expect(a.audioReserve, isTrue);
+    },
+  );
+  test('RTP loss while camera is off is not a new video failure on resume', () {
+    final a = direct();
+    native(a, stats: {...healthy(), 'video_tx_rtp_drops': 0}, video: false);
+    native(a, stats: {...healthy(), 'video_tx_rtp_drops': 10}, video: false);
+    native(a, stats: {...healthy(), 'video_tx_rtp_drops': 10});
+    expect(a.level, 0);
+  });
 
   test('growth is measured independently for the two audio directions', () {
     final a = direct();
@@ -995,7 +1042,7 @@ void main() {
     expect(a.audioReserve, isFalse);
   });
 
-  test('local primary drops without buffers cannot invent buffer pressure', () {
+  test('fresh primary drops protect audio even without buffer telemetry', () {
     final a = direct();
     for (var i = 0; i < 8; i++) {
       native(
@@ -1004,8 +1051,9 @@ void main() {
         peerDelay: null,
       );
     }
-    expect(a.audioReserve, isFalse);
-    expect(a.level, 0);
+    expect(a.audioReserve, isTrue);
+    expect(a.level, 4);
+    expect(a.audioBufferPressure, isFalse);
     expect(a.rttBaselineMs, isNull);
   });
 
@@ -1330,8 +1378,9 @@ void main() {
     a.onNativeStats(healthy(audioDrops: 500));
     expect(a.level, 0);
     a.onNativeStats(healthy(audioDrops: 501));
-    a.onNativeStats(healthy(audioDrops: 502));
     expect(a.level, 2);
+    a.onNativeStats(healthy(audioDrops: 502));
+    expect(a.level, 4);
   });
   test('requested buffer withholds growth without cutting measured video', () {
     final a = direct(level: 2);

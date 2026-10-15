@@ -67,8 +67,8 @@ class CallAudioSourcePressure {
     final receivePressure = _receiveBuffer.observe(
       receiveExpected ? receiveDelayMs : null,
     );
-    // Competing sources use the same buffer trigger as the video ladder.
-    // RTT/loss/unknown feedback cannot quietly cut video in this other layer.
+    // Competing sources honor fresh audio loss and the video buffer trigger.
+    // Transport estimates or unknown feedback alone cannot cut this budget.
     final peerTarget =
         peerNeeded && valid(peerDelay) && valid(peerTargetDelayMs)
         ? peerTargetDelayMs
@@ -78,6 +78,8 @@ class CallAudioSourcePressure {
         ? receiveTargetDelayMs
         : null;
     final bad =
+        newDrop ||
+        interrupted ||
         peerPressure ||
         receivePressure ||
         (peerTarget != null && peerTarget >= playoutDegradeMs) ||
