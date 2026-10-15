@@ -147,6 +147,10 @@ class CallBitrateAdapter {
   int _windowFill = 0;
   final _receiveBuffer = CallAudioBufferWindow();
   final _peerBuffer = CallAudioBufferWindow();
+  // The global trend can still describe a higher rung after its budget was
+  // cut. Pausing the one-fps trial needs growth in a fresh trial-only window.
+  final _floorReceiveBuffer = CallAudioBufferWindow();
+  final _floorPeerBuffer = CallAudioBufferWindow();
   bool _bufferPressure = false;
   bool get audioBufferPressure => _bufferPressure;
   ({int maxBitrateKbps, double maxFps})? _appliedTarget;
@@ -163,6 +167,8 @@ class CallBitrateAdapter {
     if (atFloor && !_audioReserve) {
       // A report that preceded this trial cannot prove it failed.
       _floorPeerSampleSequence = _lastPeerSampleSequence;
+      _floorReceiveBuffer.reset();
+      _floorPeerBuffer.reset();
     }
     _appliedTarget = desired;
     return true;
@@ -193,6 +199,8 @@ class CallBitrateAdapter {
     _floorPeerSampleSequence = null;
     _receiveBuffer.reset();
     _peerBuffer.reset();
+    _floorReceiveBuffer.reset();
+    _floorPeerBuffer.reset();
     _bufferPressure = false;
   }
 
@@ -579,6 +587,30 @@ class CallBitrateAdapter {
         peerAudioSampleSequence == null ||
         _floorPeerSampleSequence == null ||
         peerAudioSampleSequence > _floorPeerSampleSequence!;
+    final measuredFloor = atFloor && !_audioReserve && videoFloorApplied;
+    final floorReceivePressure = _floorReceiveBuffer.observe(
+      measuredFloor && requireAudioReceivePlayout ? audioReceiveDelayMs : null,
+    );
+    final floorPeerPressure = _floorPeerBuffer.observe(
+      measuredFloor && peerTrialMeasured && requirePeerAudioPlayout
+          ? currentPeerDelay
+          : null,
+      sequence: peerAudioSampleSequence,
+    );
+    // Keep the original full trend for cuts and growth admission. For a
+    // below-ceiling pause, additionally prove that the applied floor itself
+    // failed: a peer's measured verdict may still include the previous rung.
+    // The window's hard ceiling remains immediate, even before six samples.
+    final floorBufferFailure =
+        (receiveBufferPressure &&
+            (floorReceivePressure ||
+                (audioReceiveDelayMs != null &&
+                    audioReceiveDelayMs >= playoutDegradeMs))) ||
+        (peerBufferPressure &&
+            peerTrialMeasured &&
+            (floorPeerPressure ||
+                (currentPeerDelay != null &&
+                    currentPeerDelay >= playoutDegradeMs)));
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
     final newAudioDrops =
@@ -696,15 +728,18 @@ class CallBitrateAdapter {
     // A healthy measured playout can earn the one-fps probe even on a route
     // whose RTT/jitter does not permit a larger video budget. Those network
     // estimates still govern growth; they must not latch a video pause after
-    // both receivers recovered. Without actual playout measurements retain
-    // the older network-based recovery, including freshness/report checks.
+    // both receivers recovered. A growth verdict below the recovery rails
+    // must not hold already paused video indefinitely: release only the
+    // sparse floor, whose own trial window can establish a new failure.
+    // Larger budgets still require !bufferPressure through audioGood.
+    // Without actual playout measurements retain the older network-based
+    // recovery, including freshness/report checks.
     final measuredPlayoutHealthy =
         (requirePeerAudioPlayout || requireAudioReceivePlayout) &&
         feedbackAvailable &&
         !audioUnproven &&
         !audioInterrupted &&
         !newAudioDrops &&
-        !bufferPressure &&
         (!requirePeerAudioPlayout ||
             (currentPeerDelay != null &&
                 currentPeerDelay < playoutRecoverMs)) &&
@@ -726,7 +761,7 @@ class CallBitrateAdapter {
     }
 
     final measuredAudioFailure = usePlayout
-        ? receiveBufferPressure || peerPlayoutOutage
+        ? floorBufferFailure
         : receiveOutage ||
               peerPlayoutOutage ||
               audioInterrupted ||
@@ -769,7 +804,7 @@ class CallBitrateAdapter {
       if (atFloor) {
         // Unknown playout reserves bandwidth but cannot substantiate a
         // user-facing claim that the link fails to carry video.
-        if (usePlayout ? bufferPressure : networkBad) {
+        if (usePlayout ? floorBufferFailure : networkBad) {
           if (++_floorBadStreak >= adviseAfter) {
             _advice = CallVideoAdvice.suggestDisable;
           }

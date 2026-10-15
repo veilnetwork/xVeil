@@ -189,6 +189,138 @@ void main() {
     expect(a.audioReserve, isTrue);
   });
 
+  test('pre-floor growth cannot prove the new one-fps trial failed', () {
+    final a = direct();
+    var frames = 0;
+    var sequence = 0;
+    void tick(int delay, {bool growing = true}) {
+      apply(a);
+      a.onNativeStats(
+        {...healthy(), 'video_tx_frames': ++frames},
+        receiveAudioExpected: true,
+        requireAudioReceivePlayout: true,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: delay,
+        peerCurrentAudioDelayMs: delay,
+        peerAudioSampleSequence: ++sequence,
+        peerAudioBufferGrowing: growing,
+      );
+      apply(a);
+    }
+
+    // The peer's six-sample trend still includes the higher sending rungs.
+    for (final delay in [70, 80, 90, 100]) {
+      tick(delay);
+    }
+    expect(a.atFloor, isTrue);
+    expect(a.audioReserve, isFalse);
+    for (final delay in [110, 120, 120]) {
+      tick(delay);
+    }
+    expect(
+      a.audioBufferPressure,
+      isTrue,
+      reason: 'the old growth verdict still prevents a larger video budget',
+    );
+    expect(
+      a.audioReserve,
+      isFalse,
+      reason: 'the trial needs its own window, not a higher-rung verdict',
+    );
+    expect(a.videoAdvice, CallVideoAdvice.keep);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      tick(120, growing: false);
+    }
+    expect(a.audioReserve, isFalse);
+    expect(a.level, 3);
+  });
+
+  test(
+    'bounded healthy audio can resume only a probe despite a growth verdict',
+    () {
+      final a = direct(level: 4);
+      native(a, peerDelay: 300);
+      native(a, peerDelay: 300);
+      expect(a.audioReserve, isTrue);
+      var sequence = 0;
+      var frames = 0;
+      void tick({required bool paused}) {
+        apply(a);
+        a.onNativeStats(
+          {
+            ...healthy(),
+            'audio_delay_ms': 90,
+            'video_tx_frames': paused ? frames : ++frames,
+          },
+          receiveAudioExpected: true,
+          requireAudioReceivePlayout: true,
+          requirePeerAudioPlayout: true,
+          peerAudioDelayMs: 100,
+          peerCurrentAudioDelayMs: 100,
+          peerAudioSampleSequence: ++sequence,
+          peerAudioBufferGrowing: true,
+        );
+        apply(a);
+      }
+
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+        tick(paused: true);
+        expect(a.audioReserve, isTrue);
+      }
+      tick(paused: true);
+      expect(a.audioReserve, isFalse);
+      expect(a.target.maxFps, 1);
+      for (var i = 0; i < 30; i++) {
+        tick(paused: false);
+        expect(a.audioReserve, isFalse);
+        expect(
+          a.level,
+          4,
+          reason: 'the growth verdict still forbids a larger video budget',
+        );
+      }
+    },
+  );
+
+  for (final direction in ['local', 'peer']) {
+    test('new $direction growth during the floor trial still pauses video', () {
+      final a = direct(level: 4);
+      var frames = 0;
+      var sequence = 0;
+      void tick(int delay, {bool growing = false}) {
+        apply(a);
+        a.onNativeStats(
+          {
+            ...healthy(),
+            'video_tx_frames': ++frames,
+            'audio_delay_ms': direction == 'local' ? delay : 60,
+          },
+          receiveAudioExpected: true,
+          requireAudioReceivePlayout: true,
+          requirePeerAudioPlayout: true,
+          peerAudioDelayMs: direction == 'peer' ? delay : 60,
+          peerCurrentAudioDelayMs: direction == 'peer' ? delay : 60,
+          peerAudioSampleSequence: ++sequence,
+          peerAudioBufferGrowing: direction == 'peer' && growing,
+        );
+        apply(a);
+      }
+
+      for (var i = 0; i < 8; i++) {
+        tick(60);
+      }
+      expect(a.atFloor, isTrue);
+      for (final delay in [70, 80, 90, 100, 110, 120]) {
+        tick(delay, growing: true);
+      }
+      expect(
+        a.audioReserve,
+        isTrue,
+        reason: 'trial-only growth must still protect audio below 200 ms',
+      );
+    });
+  }
+
   test(
     'new low latency video probes each rung without a minute of sparse frames',
     () {
