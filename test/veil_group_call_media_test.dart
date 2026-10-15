@@ -420,7 +420,7 @@ void main() {
   );
 
   test(
-    'group interruptions hold video until an actual buffer reaches the ceiling',
+    'fresh group audio interruptions reduce video and pause a failed floor trial',
     () {
       fakeAsync((clock) {
         final self = _id(1), alice = _id(2), bob = _id(3);
@@ -462,17 +462,14 @@ void main() {
         for (var i = 1; i <= 6; i++) {
           engine.stats = sample(i);
           clock.elapse(const Duration(seconds: 1));
-          if (i <= 4) expect(engine.pauses.last, isFalse);
+          if (i <= 3) expect(engine.pauses.last, isFalse);
         }
         expect(
           engine.pauses.last,
-          isFalse,
-          reason: 'interruptions alone do not meet the measured-buffer rule',
+          isTrue,
+          reason: 'fresh audio loss also triggers protection below the ceiling',
         );
-        expect(engine.targets.last.maxBitrateKbps, 150);
-        engine.stats = sample(6, bobDelay: 220);
-        clock.elapse(const Duration(seconds: 6));
-        expect(engine.pauses.last, isTrue);
+        expect(engine.targets.last.maxBitrateKbps, lessThan(150));
         expect(engine.cameraStarted, 1);
         engine.stats = sample(6);
         clock.elapse(const Duration(seconds: 11));

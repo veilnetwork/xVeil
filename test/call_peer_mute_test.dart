@@ -48,6 +48,9 @@ class _FakeMessaging implements MessagingService {
   bool get isAnonymousIdentity => false;
 
   @override
+  Future<NodeId> localDeviceId() async => NodeId(Uint8List(32));
+
+  @override
   void Function(NodeId peer, CallSignal signal)? onCallSignal;
 
   @override
