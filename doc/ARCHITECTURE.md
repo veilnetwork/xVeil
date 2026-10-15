@@ -18246,3 +18246,78 @@ test processes exit. No installed app/profile, phone or relay is changed. The
 instrumentation and this evidence are committed unsigned without pushing;
 audio quality under contention, unnecessary video holds, shaped anonymous
 codec routes, reliable test-source timing and physical speech remain open.
+
+#### Calibrate the synthetic audio source; reject codec-clock budget holding
+
+The fixture now uses the native synthetic capture/playout loop by default;
+`--no-native-pcm-driver` retains the Python clock for comparison. On macOS its
+`audio` scheduling mode requests USER_INTERACTIVE QoS for that one callback
+thread, records the request/result/observed class, and fails qualification if
+the request was not admitted. `--native-pcm-priority default` preserves the
+inherited QoS for controls. SDK/relay worker scheduling and network priorities
+are not changed. This is best-effort endpoint scheduling, not a real-time
+deadline guarantee or a claim to reproduce CoreAudio hardware scheduling.
+The existing application already separates kHigh audio worker/network queues
+from kNormal video queues. Forced 65-ms callback and 70-ms evidence-reader
+stalls still appear as clock failures; GIL progress, C/ctypes layout, QoS
+reporting and joined shutdown pass their regressions. No latency is subtracted.
+
+The six-minute `pcm-qos-audio-baseline-360` uses restored codec behavior,
+accepted SDK/Rust artifact, allocation-timing media, duplex 512-KiB files and
+the neutral aggregate 1024-kbit/s obfs4 limiter. QoS is admitted/observed as 33.
+The source clock qualifies at 21.18 ms, but the full run FAILS on mixed PCM
+203.572/192.589 ms. Video retrieval gaps reach 48/2 seconds, matching protective
+holds; no tone is missing or quiet, both files match and all nodes stop.
+This does not establish that QoS alone fixed source timing under every load.
+
+A corrected packet-stability experiment then evaluates budget expiry at each
+10-ms codec input, rather than waiting for another allocation notification.
+It represents the previous estimate through the instant of its replacement,
+keeps a fixed 2.0–2.1-s minimum, applies decreases immediately and lets an
+unchanged improving estimate recover without further callbacks. The real Opus
+regression verifies sparse recovery, rejects short estimate spikes and keeps
+all payload/duration bounds. Its opt-in trace distinguishes the original
+notification time from a later local application time, creating no fictitious
+new network estimate.
+
+The experiment is nevertheless REVERTED: `pcm-opus-codec-clock-360` FAILS with
+mixed PCM 194.131/213.811 ms and a 89.90-ms source interval. Timed-wait lateness
+reaches 79.991 ms, versus 1.135-ms callbacks and 0.021-ms evidence publication,
+despite admitted QoS 33. All 704 edges join, free-line packets recover to 20 ms
+and no PCM frame is quiet. Actual encoded-packet duration changes in the mixed
+phase are 84/87, versus 99/95 in the baseline; 60-ms packets become more common
+and mixed p95 increases to 189.575/193.921 ms. Lower churn and a correct sparse-
+callback contract do not qualify this tradeoff. Independent captures do not
+prove a causal performance delta. The patch/dylib remain private; no budget
+hysteresis, its experiment-only tests, or its local-application trace field is
+left in the accepted SDK. Production allocation logic remains unchanged.
+
+Inspection of this host's libc++ confirms `_LIBCPP_HAS_COND_CLOCKWAIT=0`:
+condition-variable waits for a steady deadline convert to `system_clock`.
+The macOS synthetic clock now waits directly with `mach_wait_until` on the
+Mach monotonic clock, rounding up tick conversion and retrying interrupted
+waits. Stop is checked at the next normal deadline (one 10-ms period); all
+callbacks finish before engine destruction. Other platforms retain their
+ordinary condition-variable implementation. Unexpected timer errors are
+recorded and fail the gate. This removes a wall-clock dependency; it does not
+attribute the earlier wait spikes to NTP or promise scheduler deadlines.
+
+The full `pcm-mach-audio-baseline-360` capture keeps the original codec and all
+contention/quality thresholds. QoS is 33, timer errors are zero and the maximum
+source interval is 37.81 ms, so this capture qualifies the source-clock gate.
+The full audio gate still FAILS at PCM 222.327/291.735 ms (p95 182.000/181.120).
+One native buffer reaches 260 ms; images change at the end but retrieval gaps
+reach 20/19 seconds. There are no missing tone edges, quiet frames or native
+interruptions, and full files match (229.1/224.3 s). All 71,944 observations for
+35,972 ticks are retained; the sample count is not asserted to be a perfect
+hardware clock. The 292-ms edge at 181.808 s spends 31.324 ms before encoding,
+0.039 ms through send/admission, 15.934 ms to ingress, 0.035 ms into WebRTC and
+244.403 ms afterward. The source's only >=20-ms interval is much later, at
+228.856 s. Thus this earlier playout tail remains with a qualifying source
+clock; it cannot be dismissed as that later source interval.
+
+All fixture nodes/threads stop, sockets disappear and Python/Dart processes
+exit. No installed app/profile, phone or relay is modified. Only the source
+measurement changes and this evidence are committed unsigned without pushing.
+Audio priority under contention, long video holds, shaped anonymous codec
+routes and physical speech still require verification; the full goal is active.
