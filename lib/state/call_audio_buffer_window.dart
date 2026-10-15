@@ -11,6 +11,9 @@ class CallAudioBufferWindow {
 
   bool? get growing => _delays.length == samples ? _growing : null;
 
+  /// Bounded local diagnostics; callers cannot mutate the policy's window.
+  List<int> get diagnosticSamples => List<int>.unmodifiable(_delays);
+
   bool observe(int? delayMs, {int? sequence, bool? measuredGrowing}) {
     if (delayMs == null || delayMs < 0 || delayMs > 60000) {
       reset();

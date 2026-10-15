@@ -167,7 +167,7 @@ void main() {
       expect(sample(policy, peer: 300, currentPeer: 160), isNull);
       // Local failures still override the healthy peer's current measurement.
       expect(sample(policy, peer: 300, currentPeer: 100, local: 180), isNull);
-      expect(sample(policy, peer: 300, currentPeer: 100, drops: 1), isNull);
+      expect(sample(policy, peer: 300, currentPeer: 100, drops: 1), isTrue);
     },
   );
 
@@ -292,14 +292,21 @@ void main() {
     },
   );
 
-  test('drops and interruptions with stable buffers only withhold growth', () {
+  test('fresh audio loss restrains other sources until sustained recovery', () {
     final policy = CallAudioSourcePressure();
     recover(policy);
-    expect(sample(policy, drops: 1), isNull);
-    // A new engine may reset its native counter; history is not a new loss.
-    expect(sample(policy), isFalse);
-    expect(sample(policy, interrupted: true), isNull);
-    expect(sample(policy), isFalse);
+    expect(sample(policy, drops: 1), isTrue);
+    for (var n = 0; n < 11; n++) {
+      expect(sample(policy, drops: 1), isTrue);
+    }
+    expect(
+      sample(policy, drops: 1),
+      isFalse,
+      reason: 'a cached drop count cannot renew pressure',
+    );
+    expect(sample(policy), isFalse, reason: 'counter reset is not loss');
+    expect(sample(policy, interrupted: true), isTrue);
+    recover(policy);
   });
 
   test('muted local mic still protects measured incoming audio', () {
