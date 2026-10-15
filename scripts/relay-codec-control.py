@@ -60,6 +60,8 @@ parser.add_argument('--adaptive-audio', action='store_true', help='Enable the pr
 parser.add_argument('--audio-overhead-bytes', type=int, default=209,
                     help='Diagnostic framing estimate for adaptive Opus; default 209 retains production behavior')
 parser.add_argument('--video-overhead-bytes', type=int, default=0, help='Configure video feedback/pacing framing separately from Opus; 0 retains the legacy video model')
+parser.add_argument('--max-rtp-packet-size', type=int,
+                    help='Diagnostic video packet ceiling, 576–1460 bytes; omitted retains the constructor default. Does not change the blind limiter or codec bitrate')
 parser.add_argument('--compact-media', action='store_true', help='Use compact relay audio batching, as the current application does, instead of the legacy audio/video batch format')
 parser.add_argument('--duration', type=int, default=100)
 parser.add_argument('--tone-period-ms', type=int, default=1000,
@@ -102,6 +104,10 @@ if not 0 <= args.video_overhead_bytes <= 4096 or (args.video_overhead_bytes and 
     parser.error('Video overhead must be 0–4096 bytes; a positive hint requires --adaptive-audio')
 if not 1 <= args.audio_overhead_bytes <= 4096 or (not args.adaptive_audio and args.audio_overhead_bytes != 209):
     parser.error('Audio overhead must be 1–4096 bytes and an override requires --adaptive-audio')
+if args.max_rtp_packet_size is not None and not 576 <= args.max_rtp_packet_size <= 1460:
+    parser.error('RTP packet size must be 576–1460 bytes')
+if args.max_rtp_packet_size is not None and args.no_video:
+    parser.error('An RTP packet size override requires video')
 if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_interval_seconds < 120:
     parser.error('Diagnostic routing refresh interval must be between 1 and 119 seconds')
 if args.file_bytes < 2048 or args.file_bytes % 2048:
@@ -414,6 +420,7 @@ try:
     create=mf('veil_media_test_dual_overhead_codec_create',[C.c_uint64,P,P,C.c_int,C.c_int],P) if args.video_overhead_bytes else mf('veil_media_test_adaptive_codec_create',[C.c_uint64,P,P,C.c_int],P) if args.adaptive_audio else mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
     timing_anchor=mf('veil_media_test_audio_timing_anchor',[P,C.c_int],C.c_int) if args.native_timing_trace else None
     destroy=mf('veil_media_engine_destroy',[P],None)
+    set_packet_size=mf('veil_media_engine_set_max_rtp_packet_size',[P,C.c_int],C.c_int) if args.max_rtp_packet_size is not None else None
     capture=mf('veil_media_test_audio_capture_tone',[P,C.c_int],C.c_int)
     playout=mf('veil_media_test_audio_playout_pcm',[P,P,C.c_size_t],C.c_int)
     getstats=mf('veil_media_engine_get_stats',[P],P)
@@ -574,6 +581,10 @@ try:
     for i,ch in enumerate(channels):
         e=create(ch,ids[i],ids[1-i],args.audio_overhead_bytes,args.video_overhead_bytes) if args.video_overhead_bytes else create(ch,ids[i],ids[1-i],args.audio_overhead_bytes) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
         assert e;engines.append(e)
+        if set_packet_size is not None:
+            # Audio is already running, but the native setter permits this
+            # until video's stream/packetizer is created. Do not rebuild audio.
+            assert set_packet_size(e,args.max_rtp_packet_size)==0
         if timing_anchor is not None:
             assert timing_anchor(e,i)==0
     policylog=(ROOT/'policy.err').open('w')
@@ -790,6 +801,7 @@ try:
     result['stand_clock_observations']=clock_observations
     result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
     result['video_overhead_bytes_override'] = args.video_overhead_bytes
+    result['max_rtp_packet_size_override'] = args.max_rtp_packet_size
     result['video_overhead_verified'] = all(x['stats'].get('video_packet_overhead_bytes') == args.video_overhead_bytes for x in samples) if args.video_overhead_bytes else None
     result['adaptive_audio'] = args.adaptive_audio
     # Optional diagnostic, never synthesized from another delay field. Older

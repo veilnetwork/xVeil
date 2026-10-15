@@ -43,6 +43,7 @@ def analyze(summary, capture, runtime_lines):
     owned = set()
     captured_witnesses = set()
     observation_ranges = collections.defaultdict(list)
+    source_sizes = collections.defaultdict(list)
     for row in capture['rows']:
         observer = row['source'] if row['direction'] == 'tx' else row['target']
         observation_ranges[observer].append((row['at_us'] - origin) / 1e6)
@@ -59,6 +60,14 @@ def analyze(summary, capture, runtime_lines):
                 and row['target'] == 0 and (row['body_len'], row['preview_sha256']) in witnesses):
             owned.add(key)
             captured_witnesses.add((row['body_len'], row['preview_sha256']))
+            if 'sealed_payload_bytes' in row:
+                size = row['sealed_payload_bytes']
+                if type(size) is not int or not 36 <= size <= row['body_len']:
+                    raise ValueError('Invalid sealed payload size')
+                wrapper = row['body_len'] - size
+                if wrapper not in (238, 240, 242):
+                    raise ValueError('Invalid Forward wrapper size')
+                source_sizes[key].append((size, wrapper))
     paths = collections.defaultdict(dict)
     ambiguous = set()
     for (key, pair, _), sides in grouped.items():
@@ -90,6 +99,11 @@ def analyze(summary, capture, runtime_lines):
                           relay_to_target_ms=(clocks[3] - clocks[2]) / 1000,
                           total_ms=(clocks[3] - clocks[0]) / 1000))
     spans = ('source_to_relay_ms', 'relay_residence_ms', 'relay_to_target_ms', 'total_ms')
+    # Exactly one source observation is required. Old captures lacking the
+    # length stay unknown; neither a preview hash nor an RTP count fills it in.
+    sizes = [rows[0] for key, rows in source_sizes.items()
+             if key not in ambiguous and len(rows) == 1]
+    wrapper_counts = collections.Counter(wrapper for _, wrapper in sizes)
     missing_times = [(at - origin) / 1e6 for key in witnesses - captured_witnesses
                      for at in witness_times.get(key, ())]
     lower = summary.get('opaque_frame_capture_start_seconds')
@@ -108,6 +122,16 @@ def analyze(summary, capture, runtime_lines):
                 uncaptured_source_witnesses_in_window=missing_in_window,
                 captured_owned_primary_cells=len(owned), ambiguous_route_cells=len(ambiguous),
                 incomplete_route_cells=incomplete, matched_route_cells=len(cells),
+                source_cell_framing=dict(
+                    measured_cells=len(sizes),
+                    unknown_or_ambiguous_cells=len(owned) - len(sizes),
+                    delivery_wrapper_counts=dict(sorted(wrapper_counts.items())),
+                    sealed_payload_bytes=sum(size for size, _ in sizes),
+                    ovl_frame_bytes=sum(size + wrapper + 24
+                                        for size, wrapper in sizes),
+                    includes_ovl_header=True,
+                    excludes_session_codec_carrier_padding_and_ip=True,
+                    cells_are_not_rtp_packets=True),
                 capture_limit_reached_nodes=capture.get('capture_limit_reached_nodes'),
                 observed_ranges_seconds={str(i): [min(v), max(v)]
                                          for i, v in observation_ranges.items()},
