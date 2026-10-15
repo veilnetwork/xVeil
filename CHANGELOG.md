@@ -32,6 +32,11 @@ bumps may change behaviour a user notices.
 - Video bursts are retried within their original transport lifetime when an
   independent sender briefly lacks capacity, instead of dropping the burst's
   tail immediately.
+- Durable live retries to long-silent devices retain their probe backoff even
+  when those frames are ineligible for mailbox storage; a returning device
+  immediately receives its queued frames.
+- Android screen-capture acknowledgements no longer emit development logs in
+  release builds.
 
 ### Diagnostics
 

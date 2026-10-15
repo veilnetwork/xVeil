@@ -77,7 +77,7 @@ void main() {
   testWidgets('pending outgoing shows the waiting banner', (tester) async {
     await tester.pumpWidget(_host(_c(ContactStatus.pendingOutgoing)));
     await tester.pump();
-    expect(find.textContaining('waiting for approval'), findsOneWidget);
+    expect(find.textContaining('Waiting for a response'), findsOneWidget);
     expect(find.byIcon(Icons.send), findsNothing);
   });
 
@@ -103,19 +103,21 @@ void main() {
   // no libveil_media. Recording and dialling are not offered, rather than
   // offered and broken. Typing still works, so the chat is not crippled —
   // only the parts that need the engine are gone.
-  testWidgets('with no media engine an accepted chat offers no mic and no call',
-      (tester) async {
-    VeilMediaNative.debugForceAvailable = false;
-    await tester.pumpWidget(_host(_c(ContactStatus.accepted)));
-    await tester.pump();
-    expect(find.byIcon(Icons.mic), findsNothing);
-    expect(find.byIcon(Icons.call), findsNothing);
-    expect(find.byKey(const ValueKey('composer-video-note')), findsNothing);
-    // The composer is otherwise intact.
-    await tester.enterText(find.byType(TextField), 'hi');
-    await tester.pump();
-    expect(find.byIcon(Icons.send), findsOneWidget);
-  });
+  testWidgets(
+    'with no media engine an accepted chat offers no mic and no call',
+    (tester) async {
+      VeilMediaNative.debugForceAvailable = false;
+      await tester.pumpWidget(_host(_c(ContactStatus.accepted)));
+      await tester.pump();
+      expect(find.byIcon(Icons.mic), findsNothing);
+      expect(find.byIcon(Icons.call), findsNothing);
+      expect(find.byKey(const ValueKey('composer-video-note')), findsNothing);
+      // The composer is otherwise intact.
+      await tester.enterText(find.byType(TextField), 'hi');
+      await tester.pump();
+      expect(find.byIcon(Icons.send), findsOneWidget);
+    },
+  );
 
   testWidgets('no contact yet shows a connection-request composer', (
     tester,

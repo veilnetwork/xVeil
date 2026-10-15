@@ -13367,7 +13367,7 @@ and buffering under concurrent reliable transfer remain unresolved. All three
 nodes stop successfully, all workers exit, and no fixture sockets remain.
 
 
-The regular `/Users/vart/Applications/xVeil.app` is then replaced with local
+The regular `$HOME/Applications/xVeil.app` is then replaced with local
 build 0.13.84+2570, built without the Dart debug API and without native media
 test exports. Its FFI and media `__text` sections match those used in the
 physical call. The Rust plugin's later rebuild had refreshed the SDK cache,
@@ -16634,7 +16634,7 @@ the relay update. The user is asked to reconnect Poco; no call is placed.
 
 Poco is connected with Wi-Fi disabled, on diagnostic Android 0.13.84+2584.
 The preceding `/private/tmp` stand artifacts are absent. A durable owned stand
-is prepared under `/Users/vart/.cache/codex/xveil-physical-20261014`, with a
+is prepared under `$HOME/.cache/codex/xveil-physical-20261014`, with a
 fresh sovereign Mac profile and its private unlock material retained there.
 The current SDK b57a4275 and production native media are rebuilt; strict Mac
 signing and the 99-export media ABI gate pass. The installed phone is preserved.
@@ -16691,7 +16691,7 @@ the original executable in a verified rollback backup. Each restarted primary
 health observation, and answers real CLI requests under its service UID.
 Ticks advance from 5 to 10 on all four, with five or six connected sessions.
 Private deployment proofs are retained under
-`/Users/vart/.cache/codex/xveil-physical-20261014/approved-relay-deployments`.
+`$HOME/.cache/codex/xveil-physical-20261014/approved-relay-deployments`.
 All six inspected relays have now received this backport; this is not a claim
 about every relay in the network or a completed media qualification.
 
@@ -16773,7 +16773,7 @@ The 20-ms growth threshold and 200-ms ceiling remain unchanged pending that
 isolation; RTT alone does not measure the receiver's queued audio duration.
 
 Private observations are retained under
-`/Users/vart/.cache/codex/xveil-physical-20261014`, in
+`$HOME/.cache/codex/xveil-physical-20261014`, in
 `call-audio-before-video`, `call-sdk-updated-audio-before-video` and
 `call-playout-clock`. The user could not confirm audible quality during the
 last short observation. Both owned app instances and the logcat worker exit,
