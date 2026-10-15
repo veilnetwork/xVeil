@@ -79,6 +79,8 @@ import '../state/app_controller.dart';
 import '../state/device_silence.dart';
 import '../state/call_log.dart';
 import '../state/call_service.dart';
+import '../state/call_slot.dart';
+import 'native_media_trace.dart';
 import '../state/mailbox_service.dart';
 import '../state/cloud_service.dart';
 import '../state/cloud_capability_service.dart';
@@ -1023,6 +1025,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/rt_trace':
           await _rtTraceHook(req);
           return;
+        case '/native_media_trace':
+          await _nativeMediaTraceHook(req);
+          return;
         case '/publish_pause':
           await _publishPauseHook(req);
           return;
@@ -1304,18 +1309,26 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/call_audio_mirror':
           if (!_requireReady(req)) return;
           final on = req.uri.queryParameters['on'];
-          final seconds = int.tryParse(req.uri.queryParameters['seconds'] ?? '30');
+          final seconds = int.tryParse(
+            req.uri.queryParameters['seconds'] ?? '30',
+          );
           if ((on != '0' && on != '1') ||
-              seconds == null || seconds < 1 || seconds > 60) {
+              seconds == null ||
+              seconds < 1 ||
+              seconds > 60) {
             await _json(req, {
               'ok': false,
               'error': 'on must be 0/1; seconds must be 1..60',
             }, status: 400);
             return;
           }
-          await _json(req, await mirrorActiveCallAudioForDiagnostics(
-            enabled: on == '1', seconds: seconds,
-          ));
+          await _json(
+            req,
+            await mirrorActiveCallAudioForDiagnostics(
+              enabled: on == '1',
+              seconds: seconds,
+            ),
+          );
           return;
         case '/call_route_delivery':
           if (!_requireReady(req)) return;
@@ -2278,10 +2291,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     if (!_requireReady(req)) return;
     final native = ref.read(realStackProvider)?.ratchetState;
     if (native == null) return _json(req, {'ok': false, 'error': 'no ratchet'});
-    String short(List<int> bytes) => blake3Hash(Uint8List.fromList(bytes))
-        .take(4)
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
+    String short(List<int> bytes) => blake3Hash(
+      Uint8List.fromList(bytes),
+    ).take(4).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     return _json(req, {
       'ok': true,
       'conversations': [
@@ -2388,7 +2400,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       return _json(req, {'ok': false, 'error': 'peer must be 64 hex'});
     }
     final ratchet = ref.read(messagingServiceProvider).ratchet;
-    if (ratchet == null) return _json(req, {'ok': false, 'error': 'no ratchet'});
+    if (ratchet == null) {
+      return _json(req, {'ok': false, 'error': 'no ratchet'});
+    }
     final dropped = await ratchet.forgetPeer(NodeId.fromHex(hex));
     return _json(req, {'ok': true, 'dropped': dropped});
   }
@@ -5234,7 +5248,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       'highWater': sync.highWater,
       'holes': {
         for (final e in sync.holes.entries)
-          e.key: [for (final (lo, hi) in e.value) [lo, hi]],
+          e.key: [
+            for (final (lo, hi) in e.value) [lo, hi],
+          ],
       },
     });
   }
@@ -5419,6 +5435,41 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
     try {
       veil.veilDebugSetRtTrace(on ? 1 : 0);
       return _json(req, {'ok': true, 'on': on});
+    } catch (e) {
+      return _json(req, {'ok': false, 'error': '$e'});
+    }
+  }
+
+  /// Options are fixed and the file stays beside the owner-only hook key.
+  /// Configure synchronously while the call slot is free, including teardown;
+  /// no incoming call can interleave with the environment update on this isolate.
+  Future<void> _nativeMediaTraceHook(HttpRequest req) async {
+    if (ref.read(callSlotProvider).owner != null) {
+      return _json(req, {
+        'ok': false,
+        'error': 'call slot is busy',
+      }, status: 409);
+    }
+    final on = req.uri.queryParameters['on'] == '1';
+    try {
+      if (Platform.isWindows) {
+        return _json(req, {
+          'ok': false,
+          'error': 'POSIX diagnostics unavailable',
+        });
+      }
+      final keyFile = _soakKeyFile;
+      if (keyFile == null) throw StateError('No private runtime directory');
+      final file = File('${File(keyFile).parent.path}/native-media.log');
+      if (on) {
+        file.createSync();
+        if (posixChmod(file.path, 0x180) != 0 ||
+            file.statSync().mode & 0x3F != 0) {
+          throw StateError('Cannot restrict native trace permissions');
+        }
+      }
+      final ok = configureNativeMediaTrace(on ? file.path : null);
+      return _json(req, {'ok': ok, 'on': on, 'path': file.path});
     } catch (e) {
       return _json(req, {'ok': false, 'error': '$e'});
     }
@@ -5913,7 +5964,10 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       if (index < 0 || index >= list.length) {
         return _json(req, {'ok': false, 'error': 'no such request'});
       }
-      await messaging.answerClearRequest(list[index], accept: q['accept'] == '1');
+      await messaging.answerClearRequest(
+        list[index],
+        accept: q['accept'] == '1',
+      );
     }
     final now = await messaging.pendingClearRequests();
     return _json(req, {
