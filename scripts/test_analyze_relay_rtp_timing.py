@@ -50,6 +50,32 @@ audio.rtp.ingress seq=8 timestamp=0 arrived_us=22000000 drained_us=22002000 payl
                     ['audio.rtp.send.begin count=1', row,
                      'audio.rtp.send.begin count=1', row])
 
+    def test_window_uses_send_clock_and_joins_later_teardown_blocks(self):
+        # A packet sent inside the window arrives after its upper boundary.
+        # Receiver teardown may precede sender teardown in the diagnostic log.
+        rows = '''audio.rtp.ingress.begin count=2
+audio.rtp.ingress seq=1 timestamp=1 arrived_us=18000000 drained_us=18001000 payload_bytes=20
+audio.rtp.ingress seq=2 timestamp=2 arrived_us=18002000 drained_us=18003000 payload_bytes=20
+audio.rtp.send.begin count=2
+audio.rtp.send seq=1 timestamp=1 attempted_us=17900000 admitted_us=17901000 accepted=1
+audio.rtp.send seq=2 timestamp=2 attempted_us=18000000 admitted_us=18001000 accepted=1'''
+        summary = dict(loopback_only=True, stand_start_monotonic_us=0,
+                       duration_seconds=60)
+        result = analyze(summary, rows.splitlines(), 17.9, 18)
+        self.assertEqual(result['window_seconds'], [17.9, 18])
+        self.assertEqual(result['window_selected_by'], 'attempted_us')
+        self.assertEqual(result['phases'][0]['admitted_to_ingress'],
+                         dict(count=1, max_ms=99., p95_ms=99.))
+
+    def test_refuses_invalid_recorded_window(self):
+        summary = dict(loopback_only=True, stand_start_monotonic_us=0,
+                       duration_seconds=60)
+        for lower, upper in [(-1, 10), (10, 10), (11, 10), (0, 61),
+                             (float('nan'), 10), (0, float('inf'))]:
+            with self.subTest(lower=lower, upper=upper):
+                with self.assertRaisesRegex(ValueError, 'window'):
+                    analyze(summary, [], lower, upper)
+
     def test_refuses_cross_device_clock_assumptions(self):
         with self.assertRaisesRegex(ValueError, 'same-process'):
             analyze(dict(loopback_only=False), [])
