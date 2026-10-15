@@ -1,5 +1,151 @@
 # Calls media handoff
 
+## 2026-10-15: reject packet-shortening hold and audit relay framing
+
+The proposed one-second sustained-headroom requirement before shortening
+Opus packets was implemented privately and tested with the real ANA/Opus
+encoder. Its burst, sparse-callback, threshold and immediate-scarcity checks
+passed, but the unchanged native adaptive-encapsulation PCM test did not:
+candidate current-delay peaks were 81/211/231 ms, versus 56/178/198 ms for
+the stock library on the same test. Candidate/stock source-clock lateness was
+3.41/3.45 ms; neither run dropped wire packets. Tone-edge delays reached
+310.15/280.04 ms respectively (the native smoke's existing gate checks current
+delay; the full relay gate independently checks actual PCM edges). This is
+not a replicated causal study, but the candidate fails qualification. Both
+encoder files were restored. Do not adopt that hold or its anti-flap test as
+a product requirement. The exact rejected patch, binaries and logs remain in
+the private cache under rejected-opus-one-second-hysteresis.patch and
+opus-hysteresis-*.log.
+
+The 209-byte hint is NOT wholly lost: native code supplies NetworkRoute's
+packet_overhead, the transport feedback adapter counts it and AudioSendStream
+propagates it to ANA along with RTP overhead. Its value describes the direct
+QUIC model: seal 36 + authenticated AppRtData 89 + OVL 24 + datagram AEAD/header
+40 + opaque-flow prefix 20. The comment saying both non-onion routes use that
+framing is inaccurate. A compact Delivery/Forward uses next-hop 32 + envelope
+197 + suffix 9 and optional marker pairs (2 bytes each); the fixture's neutral
+class adds one pair. Its fixed overhead is consequently 360 bytes on a single
+QUIC flow datagram, or 316 bytes on an ordinary session stream before carrier
+framing, for one unbatched RTP packet. An independent ordered channel uses
+the same 60-byte flow/datagram codec as QUIC, plus a two-byte record length;
+it does NOT use the ordinary stream's 16-byte session seal instead. RTP itself
+and QUIC/TCP/IP are separate.
+These are per-hop costs, not their sum across two hops. Multiple RTP packets
+may share a seal; fragmentation or bucket padding needs separate accounting.
+
+For unfragmented, unbucketed obfs4 writes, encrypted length 2 +
+pad-length 1 + AEAD tag 16 + uniform 0..255 padding adds a mean 146.5 bytes:
+462.5 in total on the ordinary stream. The independent ordered channel in the
+fixture instead costs 360 + 2 + 146.5 = 508.5 bytes. The diagnostic comparison
+was launched with 463 before this extra codec layer was established; preserve
+it as an intermediate estimate, NOT a complete wire-accounting correction. The padding
+reservation constant 1024 is NOT the random padding range. No privacy padding
+is removed. A one-value replacement is not yet an app fix: direct routes,
+carrier choice, batching and route handover need a truthful model.
+
+Capture now retains the already validated sealed payload length. Primary-hop
+analysis reports known/unknown source-cell size counts, Delivery wrapper
+counts and OVL-frame bytes. It explicitly excludes the session codec, carrier
+padding/QUIC/TCP/IP and does not equate cells with RTP packets. This avoids
+calling an ordinary-stream AEAD estimate a measurement of a parallel channel.
+Legacy captures lacking the field remain unknown; ambiguous source records
+cannot establish a size. No ciphertext preview, plaintext or new role leaves
+the reader, and relay scheduling/wire formats are unchanged.
+
+The prior SDK cache path rust-target/debug/libveilclient_ffi.dylib is absent.
+The current SDK source (17e5b731, clean) was rebuilt in the repository's own
+third_party/veil/target with the same embedded/production/packet-tunnel features;
+overhead-audit-sdk-build.log records success. Do not claim byte-for-byte identity
+with the older full capture solely from the source commit. No physical app or
+relay is updated. Blackview BV6600Pro is visible over ADB; no phone or GUI app
+is started during these synthetic controls.
+
+Intermediate relay-overhead-463-full-360 completes with FALSE status. Its PCM
+peaks improve to 171.342/180.165 ms, with no missing edges or quiet frames,
+but the source interval reaches 45.30 ms (unchanged gate: below 40 ms).
+One sampled video gap is still 13 seconds, with 12 protective pause samples.
+Both 512-KiB files are exact (189.2/201.5 seconds), and all 84/90 health reports
+plus bootstrap arrive. This capture cannot qualify a product change.
+
+The corrected-model relay-overhead-509-full-360 also completes FALSE, now with
+a valid 37.96-ms source interval: PCM peaks 205.710/215.807 ms, p95
+171.891/188.418 ms. Current-delay peaks are 158/172 ms, all 704 tone edges
+are matched, and there are no quiet PCM frames or reported interruptions.
+Video moves through the end with no protective pause samples; maximum sampled
+pull gaps are 1.015/1.018 seconds. Both files are exact (224.8/200.3 seconds),
+and all 91/90 health reports plus bootstrap arrive. The improved distribution
+does NOT satisfy the unchanged 200-ms actual-PCM gate. No blanket replacement
+of the application's 209-byte hint is adopted.
+
+The new capture metadata verifies all 12,244 owned primary source cells have
+a 240-byte Forward wrapper, with no unknown/ambiguous sizes. All 12,244 also
+have complete two-hop capture paths. OVL-frame total is 6,754,549 bytes for
+3,522,133 sealed-payload bytes. These counts include primary RTCP/batches and
+are not per-RTP overhead or a measurement of obfs4 padding. Both full captures
+stop all three nodes with status 0, reap policy/audio/file/shaper workers and
+leave zero fixture sockets. Thirteen scoped Python capture/analyzer tests pass.
+
+Next separate candidate: the 1000-byte RTP and compact-cell ceilings were
+chosen for 1382-byte QUIC datagrams, while independent ordered records permit
+1200 bytes. A 1000-byte RTP packet becomes a 1360-byte flow datagram on the
+neutral relay path and splits. With an 840-byte RTP/cell ceiling it fits
+exactly; smaller batched packets must ALSO obey that cell limit. Merely
+lowering the batch cap can add another Forward/seal, so fragmentation counts
+alone do not establish a bandwidth or quality improvement. A new actual
+seal/Forward/fragment-codec regression checks the full record boundary and
+retains fragmentation for old 1000-byte raw packets. The stand's optional
+--max-rtp-packet-size uses the existing native setter before video starts,
+without restarting audio; the default constructor behavior is unchanged.
+This candidate was compared with both audio hints before changing the app
+ceiling. The SDK cell-limit experiment was NOT accepted:
+
+* relay-cell-840-audio-209-full-360: valid 16.91-ms source interval, PCM peaks
+  211.147/183.366 ms (p95 170.657/172.129), current buffers 156/152 ms. No
+  protection pauses, missing edges, quiet PCM or reported interruptions; video
+  moves at the end with maximum sampled gaps 1.999/2.003 seconds. Exact files
+  finish at 215.9/194.4 seconds and all 87/91 health reports plus bootstrap
+  arrive. Overall FALSE: actual PCM still exceeds 200 ms.
+* relay-cell-840-audio-509-full-360: valid 14.71-ms source interval, PCM peaks
+  191.910/211.644 ms (p95 179.413/189.194), current buffers 162/168 ms. Again
+  no protection pauses, missing edges, quiet PCM or reported interruptions;
+  video moves at the end with maximum sampled gaps 2.000/3.000 seconds. Exact
+  files finish at 202.2/200.4 seconds and all 85/87 health reports plus
+  bootstrap arrive. Overall FALSE: the combined change is also insufficient.
+
+Both captures attribute all 704 PCM edges without unmatched attribution.
+The 840/209 worst input at second 160.591 uses a 60-ms packet: capture to
+encoded 39.467 ms, SDK flight 20.842 ms, post-WebRTC residual 150.790 ms.
+For 840/509 the worst input at 125.241 similarly uses 60 ms: capture to
+encoded 50.007 ms, flight 69.443 ms, residual 92.117 ms. The residual can
+include following-packet/FEC lookahead and rendering, not only NetEq. Both
+full captures stop nodes with status 0, reap every worker and leave no sockets.
+
+The exact candidate patch and library are preserved privately as
+relay-cell-840-candidate.patch and relay-cell-840-sdk/libveilclient_ffi.dylib
+(SHA-256 5e164a8d4c26997804893cc6fece54750b8f24228cec52fe21e9596f9ef36d3f).
+The candidate patch is against SDK 17e5b731, not the final test-only commit.
+Production RTP and compact-cell limits remain 1000; no runtime behavior is
+promoted from these failed gates. The retained SDK test documents the actual
+boundary with real seal/Forward/fragment codecs: 840 bytes uses one record,
+841 and old 1000 use two. Its header and traffic-class marker are neutral.
+The full 47-test media-priority module passes after restoring runtime settings;
+the restored SDK is rebuilt into the normal repository target. Python's 13
+scoped capture/analyzer tests and script syntax check also pass. No whole CI
+or physical speech-quality qualification is claimed.
+
+Next concrete investigation: a 509-byte route hint reaches ANA as 529 bytes
+including RTP, as witnessed in native encoder rows. The controller's 160-kbit
+ceiling and the encoder's 25% control headroom permit at most 120 kbit/s there.
+At 40 ms the strict payload-floor threshold is already 121.8 kbit/s, so the
+ceiling itself prevents choosing 40 ms even if the path has headroom. Testing
+a framing-aware controller ceiling that can admit 40 ms is justified; it is
+NOT a reason to force short packets, remove control headroom or reduce receiver
+capacity. A product remedy still needs route/carrier-aware framing estimates
+and safe handover rather than applying the obfs4 mean to every QUIC route.
+SDK 207c641b retains the boundary test and corrected source comment only.
+The goal remains active and quality unresolved. Blackview currently has
+0.13.84 (2572); it and the user's desktop app were not launched or replaced.
+
 ## 2026-10-15: trace owned primary cells through both relay hops
 
 Previous cycle made progress in SDK `7a8988b1` and xVeil `361ce0ee`. Quality

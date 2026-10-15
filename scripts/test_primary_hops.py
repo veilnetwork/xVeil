@@ -135,6 +135,28 @@ class PrimaryHopTest(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertNotIn('seal', old)
 
+    def test_cell_framing_uses_validated_length_without_guessing_rtp_count(self):
+        rows = path()
+        self.assertEqual(rows[0]['sealed_payload_bytes'], 36)
+        result = analyze(SUMMARY, evidence(rows), [witness(rows[0])])
+        cost = result['source_cell_framing']
+        self.assertEqual(cost['measured_cells'], 1)
+        self.assertEqual(cost['delivery_wrapper_counts'], {238: 1})
+        self.assertEqual(cost['ovl_frame_bytes'], 36 + 238 + 24)
+        self.assertTrue(cost['excludes_session_codec_carrier_padding_and_ip'])
+        self.assertTrue(cost['cells_are_not_rtp_packets'])
+        # Legacy records and ambiguous duplicate observations provide no size.
+        del rows[0]['sealed_payload_bytes']
+        legacy = analyze(SUMMARY, evidence(rows), [witness(rows[0])])['source_cell_framing']
+        self.assertEqual(legacy['measured_cells'], 0)
+        self.assertEqual(legacy['unknown_or_ambiguous_cells'], 1)
+        rows = path()
+        self.assertEqual(analyze(SUMMARY, evidence(rows + [rows[0]]), [witness(rows[0])])[
+            'source_cell_framing']['measured_cells'], 0)
+        rows[0]['sealed_payload_bytes'] = rows[0]['body_len']
+        with self.assertRaisesRegex(ValueError, 'wrapper'):
+            analyze(SUMMARY, evidence(rows), [witness(rows[0])])
+
 
 if __name__ == '__main__':
     unittest.main()
