@@ -24,6 +24,7 @@ from pathlib import Path
 from pcm_timing import capture_coverage, input_edges
 from decoded_video_progress import summarize as summarize_decoded_video
 from native_pcm_driver import NativePcmDriver, build as build_pcm_driver
+from file_transfer_snapshot import snapshot_transfers
 os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
@@ -511,7 +512,8 @@ try:
                         if len(chunks[i])==file_bytes//2048:
                             data=b''.join(chunks[i][n] for n in range(file_bytes//2048))
                             file_results[i].update(received=len(data),hash_matches=hashlib.sha256(data).digest()==hashlib.sha256(file_payloads[1-i]).digest(),receipt_duration_ms=round((time.monotonic()-file_started[1-i])*1000,1) if file_started[1-i] is not None else None)
-                except Exception:file_auth_errors[i]+=1
+                except Exception:
+                    with file_lock:file_auth_errors[i]+=1
                 finally:freebuf(node,64+size)
             cb=handler_type(receive_file);callbacks.append(cb)
             assert checked(handler,file_apps[i],cb,None)==0
@@ -756,6 +758,14 @@ try:
                              'now':int(time.time()*1000)})
     poll_compact_health()
     clock_observations.append(clock_observation())
+    # File callbacks can continue during PCM/log analysis and teardown. Freeze
+    # evidence at the end of the measured workload, not at final JSON writing.
+    if args.compete_file:
+        with file_lock:
+            frozen_files = snapshot_transfers(file_results, chunks, file_payloads,
+                                               file_auth_errors, file_duplicates,
+                                               file_send_failures)
+        result['file_snapshot_seconds'] = time.monotonic() - startat
     audio_stop.set()
     if native_driver is not None:
         pcmrows.extend(native_driver.stop())
@@ -955,14 +965,11 @@ try:
         result['ok'] = result['ok'] and result['video_overhead_verified']
     if args.adaptive_audio:
         result['ok'] = result['ok'] and result['adaptive_audio_verified'] and result['codec_target_bounds_verified']
-    result.update(local_source_feedback=args.local_source_feedback,source_feedback_queued=source_feedback_queued,source_feedback_skipped=source_feedback_skipped,reliable_file_contention=args.compete_file,file_results=file_results if args.compete_file else [])
+    result.update(local_source_feedback=args.local_source_feedback,source_feedback_queued=source_feedback_queued,source_feedback_skipped=source_feedback_skipped,reliable_file_contention=args.compete_file,file_results=[])
     if args.local_source_feedback:result['ok']=result['ok'] and all(source_feedback_queued) and not any(source_feedback_skipped)
     if args.compete_file:
-        with file_lock:
-            for i in range(2):
-                file_results[i]['missing_indices'] = sorted(set(range(file_bytes//2048)) - chunks[i].keys())
-        result.update(file_auth_errors=file_auth_errors,file_duplicates=file_duplicates,file_async_send_failures=[dict(x) for x in file_send_failures])
-        result['ok']=result['ok'] and all(x.get('hash_matches') and x.get('queued')==file_bytes for x in file_results) and not any(file_auth_errors+file_duplicates) and not any(file_send_failures)
+        result.update(frozen_files)
+        result['ok']=result['ok'] and all(x.get('hash_matches') and x.get('queued')==file_bytes for x in frozen_files['file_results']) and not any(frozen_files['file_auth_errors']+frozen_files['file_duplicates']) and not any(frozen_files['file_async_send_failures'])
 except Exception:
     (ROOT/'failure.txt').write_text(traceback.format_exc())
     result['ok']=False;result['failure_saved_privately']=True
