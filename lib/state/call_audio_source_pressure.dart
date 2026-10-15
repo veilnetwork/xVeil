@@ -1,5 +1,6 @@
 import 'call_bitrate_adapter.dart';
 import 'call_audio_buffer_window.dart';
+import 'call_rtcp_loss.dart';
 
 /// Endpoint measurements for the shared source budget, including audio-only
 /// calls. The node receives only a generic, expiring pressure observation.
@@ -11,6 +12,7 @@ class CallAudioSourcePressure {
   bool _pressured = true;
   int _healthy = 0;
   int? _lastAudioDrops;
+  final _rtcpLoss = CallRtcpLoss();
   final _peerBuffer = CallAudioBufferWindow();
   final _receiveBuffer = CallAudioBufferWindow();
 
@@ -30,7 +32,15 @@ class CallAudioSourcePressure {
     required int? receiveAgeMs,
     required bool interrupted,
     required int? audioTxDrops,
+    Object? audioLossReportUs,
   }) {
+    final networkLoss = _rtcpLoss
+        .observe(
+          audioReportUs: audioLossReportUs,
+          audioExpected: sendExpected,
+          videoExpected: false,
+        )
+        .audio;
     final drops = audioTxDrops != null && audioTxDrops >= 0
         ? audioTxDrops
         : null;
@@ -79,6 +89,7 @@ class CallAudioSourcePressure {
         : null;
     final bad =
         newDrop ||
+        networkLoss ||
         interrupted ||
         peerPressure ||
         receivePressure ||
@@ -112,6 +123,7 @@ class CallAudioSourcePressure {
     _pressured = true;
     _healthy = 0;
     _lastAudioDrops = null;
+    _rtcpLoss.reset();
     _peerBuffer.reset();
     _receiveBuffer.reset();
   }

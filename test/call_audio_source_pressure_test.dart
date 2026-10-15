@@ -17,6 +17,7 @@ void main() {
     int? age = 50,
     bool interrupted = false,
     int? drops = 0,
+    Object? lossReportUs,
   }) => policy.observe(
     sendExpected: send,
     receiveExpected: receive,
@@ -29,6 +30,7 @@ void main() {
     receiveAgeMs: age,
     interrupted: interrupted,
     audioTxDrops: drops,
+    audioLossReportUs: lossReportUs,
   );
 
   void recover(
@@ -41,6 +43,19 @@ void main() {
     }
     expect(sample(policy, send: send, receive: receive), isFalse);
   }
+
+  test('fresh peer audio loss restrains sources without a growing buffer', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy);
+    expect(sample(policy, lossReportUs: 100), isTrue);
+    for (var i = 0; i < 11; i++) {
+      expect(sample(policy, lossReportUs: 100), isTrue);
+    }
+    expect(sample(policy, lossReportUs: 100), isFalse);
+    expect(sample(policy, lossReportUs: 0), isFalse);
+    expect(sample(policy, lossReportUs: 50), isFalse);
+    expect(sample(policy, lossReportUs: 101), isTrue);
+  });
 
   test(
     'source budget consumes native trend and cannot ignore a capped current buffer',
