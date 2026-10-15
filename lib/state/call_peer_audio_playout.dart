@@ -13,6 +13,8 @@ class CallPeerAudioPlayout {
   int get sampleSequence => _sequence;
   int? _interruptionCount;
   bool _interrupted = false;
+  int? _recoveryCount;
+  bool _recovered = false;
 
   void observe(CallAudioPlayoutFeedback feedback, DateTime now) {
     if (feedback.sequence <= _sequence) return;
@@ -39,11 +41,32 @@ class CallPeerAudioPlayout {
         : null;
     _receivedAt = now;
     final count = feedback.interruptionCount;
+    final rawRecoveries = feedback.recoveryCount;
+    final recoveries =
+        rawRecoveries != null &&
+            count != null &&
+            rawRecoveries >= 0 &&
+            rawRecoveries <= count
+        ? rawRecoveries
+        : null;
+    final recoveryDelta =
+        recoveries != null &&
+            _recoveryCount != null &&
+            recoveries > _recoveryCount!
+        ? recoveries - _recoveryCount!
+        : 0;
     if (count != null) {
       if (_interruptionCount != null && count > _interruptionCount!) {
-        _interrupted = true;
+        if (count - _interruptionCount! > recoveryDelta) _interrupted = true;
       }
       _interruptionCount = count;
+    }
+    if (recoveries != null &&
+        count != null &&
+        recoveries >= 0 &&
+        recoveries <= count) {
+      if (recoveryDelta > 0) _recovered = true;
+      _recoveryCount = recoveries;
     }
   }
 
@@ -52,6 +75,12 @@ class CallPeerAudioPlayout {
     final interrupted = _interrupted;
     _interrupted = false;
     return interrupted;
+  }
+
+  bool takeRecovery() {
+    final recovered = _recovered;
+    _recovered = false;
+    return recovered;
   }
 
   int? delayMs(DateTime now) {
@@ -79,6 +108,7 @@ class CallPeerAudioPlayout {
   /// be rejected. A new call gets a new tracker instead.
   void invalidateMeasurement() {
     _interrupted = false;
+    _recovered = false;
     _delayMs = null;
     _currentDelayMs = null;
     _targetDelayMs = null;

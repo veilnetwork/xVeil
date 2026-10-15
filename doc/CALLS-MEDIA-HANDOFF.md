@@ -1,5 +1,123 @@
 # Calls media handoff
 
+## 2026-10-15: bounded receiver catch-up candidate
+
+The preceding goal turn made progress (root b6c7293f/SDK 8b217c44, installed
+2593) and identified large receiver residuals after prompt packet delivery.
+This cycle tests a distinct mechanism from the rejected small-buffer/cap-only
+changes. A NetEq factory wrapper delegates the original codec, FEC, PLC,
+capacity and time-stretching policy. After a successful normal-speech pull,
+only when actual queued samples exceed 120 ms and another decoded block or
+the next packet is available, it decodes/skips old ten-ms blocks. Work is
+bounded to sixteen extra pulls per callback; errors retain the last successful
+frame. No full buffer/decoder reset or forced PLC is used. This is TEST ONLY:
+VEIL_MEDIA_TEST_HOOKS plus VEIL_MEDIA_TEST_AUDIO_DRAIN, unicast fixture only.
+Production libraries and installed build 2593 remain unchanged. Do not enable
+this for production or claim room support from the unicast experiment.
+
+The wrapper exports exact cumulative audio_latency_recovery_count and
+audio_latency_discarded_ms diagnostics. The first full 360-second run,
+bounded-playout-full-360, retains the prior ordinary-control obfs4/1,024-kbit/s
+aggregate FIFO, 512-KiB files in each direction, real Opus/VP8/Dart policy,
+native PCM clock and all input positions. Mixed PCM peaks are now
+151.643/151.931 ms (p95 150.193/150.053), versus the preceding accepted
+production-media run's 251.497/280.445 ms. This is separate-run evidence, not
+a deterministic paired causal estimate. All 704 tone edges match, no quiet
+frames or reported interruptions occur; current buffers peak at 130/133 ms.
+Clock passes narrowly at 39.35-ms maximum interval, without dropped rows or
+timer errors. The maximum driver callback is 18.306 ms, not an isolated
+single-stream drain measurement. Recovery batches number 66/86, dropping
+710/890 ms over six minutes (about 0.2 percent, not a speech-quality proof).
+
+The WHOLE gate nevertheless fails. One direction has no changing picture at
+the end, sampled video pauses occupy 227/188 mixed seconds, and files reach
+only 516096/514048 bytes by the deadline instead of 524288 each. All nodes
+stop with status 0; no fixture sockets remain. Treating each intentional
+catch-up as a hard interruption falsely declares the one-fps floor broken
+and prolongs background throttling. Desired-buffer targets exceed 120 ms in
+only 6/41 and 6/62 catch-up polling samples, so a blanket target cap does not
+explain most events and was not added.
+
+The next policy separates deliberate catch-up from unplanned interruption:
+the existing encrypted feedback's total interruption count remains conservative
+for older peers, with an optional validated `lr` subset counter for upgraded
+peers. Actual interruptions cannot be hidden by this subset, replay cannot
+renew it, and repairs retain monotonic application counters. Catch-up lowers
+video but does not itself prove the sparse floor failed. Only pure catch-up
+gets three healthy samples of source-pressure recovery; genuine congestion
+keeps twelve, and catch-up cannot shorten an existing genuine fault's lease.
+Five focused Flutter suites pass 149 tests, including wire compatibility,
+invalid subset rejection, real-versus-planned loss and unchanged hard-failure
+floor protection. This policy is being qualified with the same complete gate.
+
+The second complete run, bounded-playout-separated-full-360, lowers mixed PCM
+peaks to 160.185/160.510 ms, p95 150.955/151.501 ms. All 704 edges match;
+clock is valid at 33.11 ms, with no dropped rows or timer errors. Both exact
+512-KiB files finish in 339.115/339.756 seconds and both receivers show changing
+images at the end. Sampled video pauses fall to 24/0 seconds, with maximum
+sampled decoded gaps 3/13 seconds. Intentional discarded audio increases to
+2350/3590 ms (208/308 batches) over six minutes, about 0.65/1 percent.
+This remains a STRICT gate failure: one ten-ms output observation at second
+310.264669 has RMS 298.308 versus the unchanged 500 threshold. The same
+one-second observation interval contains new catch-up batches and one NetEq
+concealment event, but that is not an exact causal join. No zero-loss gate
+has been weakened to call this a pass.
+
+An independent decoder-outcome regression exposes/fixes a definite wrapper
+bug: successful GetAudio may return PLC/CNG or muted audio, not usable speech.
+Extra catch-up pulls must retain the last actual speech block in those cases,
+as they already do on errors. A fallback counter records such attempts
+separately from discarded old speech. The new native unit verifies normal,
+PLC, mute, error and sixteen-pull work limits; it explicitly undefines NDEBUG
+so the WebRTC release flags cannot compile its assertions away. The default
+call-planes runner includes it. This does not prove the one quiet sample's
+cause; the guarded variant requires another complete qualification run.
+
+bounded-playout-speech-full-360, with the guard, meets the media criteria but
+still fails the WHOLE gate: driver interval reaches 53.41 ms (bound 40), with
+45.017-ms wake lateness and 27.921-ms maximum full driver callback. No dropped
+rows or timer errors occur. Mixed PCM peaks are 185.953/186.013 ms, p95
+151.336/151.276; all 704 edges match, quiet frames and registered interruptions
+are zero. Buffers peak at 130/130 ms. Both exact files finish around 339.3
+seconds; both directions move at the end, with sampled gaps 2/14 seconds and
+video pauses 13/0 seconds. Catch-up discards 2780/4390 ms in 246/377 batches;
+fallback counters stay zero. Thus the fallback guard is verified by the native
+decoder-outcome regression, not exercised in this full capture; do not claim
+it caused the quiet sample to disappear. All nodes stop with status 0 and
+no fixture sockets remain. An unchanged repeat is justified by the concrete
+clock-validity failure; no pacing, fixture priority or quality bound is changed.
+
+The unchanged bounded-playout-speech-repeat-full-360 also fails: interval
+68.98 ms, wake lateness 60.119 ms, maximum full callback 12.761 ms. Mixed PCM
+peaks are 190.598/201.163 ms (p95 151.090/151.469). All 704 edges match,
+quiet frames and interruptions remain zero; both exact files finish around
+336.6/339.1 seconds, both images move at the end, sampled video pauses are
+zero, and maximum decoded gaps are 3/2 seconds. Discarded old speech totals
+2320/2510 ms in 207/222 recovery batches; fallback counters remain zero.
+Nodes stop with status 0; no fixture sockets remain. This is not a qualifying
+clock or a green latency gate. Do not repeat unchanged runs hoping for green.
+
+The next concrete risk is now synthetic audio scheduling: two guarded runs
+miss the 40-ms clock bound through 45/60-ms wake lateness, whereas maximum
+full callbacks are 28/13 ms. Any new timing mode must be justified against
+actual CoreAudio/AAudio thread scheduling, explicitly requested/read back in
+the fixture, and reported without silently changing priority or quality gates.
+The current stand uses its existing audio QoS class 33, not a hard real-time
+deadline. No real-time mode was introduced here and host-wide scheduling was
+not changed. The eight-case native regression now also verifies no extra
+pulls on a healthy buffer, unavailable next audio or an explicit action
+override. Production enablement, room integration and physical qualification
+remain outstanding; installed build 2593 is preserved and no apps are launched
+on the physical endpoints this cycle.
+Targeted analysis of the seven changed production/policy Dart files reports
+no issues. All four stand processes are terminal, their three nodes report
+successful shutdown, no fixture Unix sockets remain, and no relay-codec
+driver or Dart policy process remains. The candidate is retained behind its
+explicit test-only guard for the next investigation rather than installed or
+presented as a production fix. No commits are signed or pushed.
+The guarded native prototype and its regression runner are committed in SDK
+e60b6421. Its default production path remains the preceding accepted behavior.
+
 ## 2026-10-15: consume fresh fractional RTCP loss at endpoints
 
 The preceding goal turn made concrete progress (root 1fe89ece, installed

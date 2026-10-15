@@ -242,6 +242,7 @@ class CallAudioPlayoutFeedback {
     this.targetDelayMs,
     this.bufferGrowing,
     this.interruptionCount,
+    this.recoveryCount,
   });
 
   final int sequence;
@@ -262,6 +263,10 @@ class CallAudioPlayoutFeedback {
   /// Monotonic across receiver repairs. Optional for older peers.
   final int? interruptionCount;
 
+  /// Subset of interruptionCount caused by deliberate latency catch-up.
+  /// Older peers conservatively treat these losses as interruptions.
+  final int? recoveryCount;
+
   Map<String, dynamic> toJson() => {
     'n': sequence,
     if (delayMs != null) 'd': delayMs,
@@ -269,6 +274,7 @@ class CallAudioPlayoutFeedback {
     if (targetDelayMs != null) 'td': targetDelayMs,
     if (bufferGrowing != null) 'g': bufferGrowing,
     if (interruptionCount != null) 'i': interruptionCount,
+    if (recoveryCount != null) 'lr': recoveryCount,
   };
 
   static CallAudioPlayoutFeedback? fromJson(Object? raw) {
@@ -279,6 +285,7 @@ class CallAudioPlayoutFeedback {
     final target = raw['td'];
     final growing = raw['g'];
     final interruptions = raw['i'];
+    final recoveries = raw['lr'];
     if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
       return null;
     }
@@ -306,6 +313,13 @@ class CallAudioPlayoutFeedback {
             interruptions > 9007199254740991)) {
       return null;
     }
+    if (recoveries != null &&
+        (recoveries is! int ||
+            recoveries < 0 ||
+            interruptions is! int ||
+            recoveries > interruptions)) {
+      return null;
+    }
     return CallAudioPlayoutFeedback(
       sequence: sequence,
       delayMs: delay as int?,
@@ -313,6 +327,7 @@ class CallAudioPlayoutFeedback {
       targetDelayMs: target as int?,
       bufferGrowing: growing as bool?,
       interruptionCount: interruptions as int?,
+      recoveryCount: recoveries as int?,
     );
   }
 }

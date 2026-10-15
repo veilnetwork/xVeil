@@ -40,6 +40,7 @@ void main() {
     int? peerTargetDelay,
     int? peerSequence,
     bool interrupted = false,
+    bool recovered = false,
     bool send = true,
     bool receive = true,
     bool video = true,
@@ -59,6 +60,7 @@ void main() {
       peerTargetAudioDelayMs: peerTargetDelay,
       peerAudioSampleSequence: peerSequence,
       audioInterrupted: interrupted,
+      audioRecoveryObserved: recovered,
       expectedAudioFeedbackReports: audioReceivers,
       expectedVideoFeedbackReports: videoReceivers,
     );
@@ -183,6 +185,28 @@ void main() {
     expect(a.level, 4);
     expect(a.audioReserve, isTrue);
   });
+
+  test(
+    'planned catch-up lowers video without declaring the sparse floor failed',
+    () {
+      final a = direct();
+      native(a, recovered: true);
+      expect(a.level, 2);
+      native(a, recovered: true);
+      expect(a.level, 4);
+      for (var i = 0; i < 20; i++) {
+        native(a, recovered: true);
+      }
+      expect(a.audioReserve, isFalse);
+      native(a, interrupted: true);
+      native(a, interrupted: true);
+      expect(
+        a.audioReserve,
+        isTrue,
+        reason: 'real interruptions still protect audio',
+      );
+    },
+  );
   test(
     'fresh audio interruptions reduce video, then protect a failing floor',
     () {
