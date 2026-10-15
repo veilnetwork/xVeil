@@ -1,5 +1,146 @@
 # Calls media handoff
 
+## 2026-10-15: pace this node's own DHT publications
+
+Previous goal turn made authoritative progress in SDK `e5b108de` and xVeil
+`ab565a7f`: group source admission and native fresh-snapshot revisions. Full
+constrained quality is still unproven. No playout capacity, codec duration,
+RTCP or acceptance threshold is changed in this cycle.
+
+Further analysis of `pcm-process-fifo-adaptive-stress-360` finds both directions'
+150–185-second flight maxima at seconds 176.156/176.159 (134.658/156.483 ms).
+The three nodes queued identity publications around second 175.955. Receiver
+target increases already began around second 175, so correlation with publication
+does NOT establish a complete causal explanation. Source input, flight and
+rendered PCM remain separately attributed; the worst later edge has only
+25.394-ms flight and a 225.614-ms post-WebRTC residual.
+
+Code inspection finds a concrete independent burst source:
+`identity_local/publisher_dht.rs::replicate_dht_value` synchronously offered
+every full background STORE copy to peer outboxes, outside own DATA admission.
+It also appended ALL live sessions after the K closest candidates, exceeding
+the documented replication factor. Own routing/recovery RPCs already have a
+different allowance; this maintenance publication path did not use it.
+
+SDK `410c1516`: `SessionTxRegistry` now owns one bounded publication worker shared across all
+neighbors and publisher instances. Only explicitly authored, best-effort
+background records use it. It emits at 8,192 bytes/second of encoded DHT frame
+data (not a wire-byte promise), charging from actual emission rather than
+planned deadlines. Executor pauses cannot accumulate catch-up credit. Pending
+work has 64-frame/512-KiB payload bounds and a 60-second age limit. Admission
+overflow and expiry increment the existing drop counter. Failed destinations
+do not spend another neighbor's byte allowance. A weak registry reference and
+an owned abort handle prevent the worker from retaining the node; a captured
+node runtime also supports synchronous maintenance/FFI callers on plain threads.
+Local DHT storage and queue admission remain synchronous; remote copies are
+best-effort and may be rejected/expire, as outbox failures were before.
+
+This pacing is identical at idle nodes and nodes making calls. It does not
+inspect traffic, alter wire classes, prioritize a remote user or change transit
+service. The original BACKGROUND frame remains byte-for-byte the same. Live
+replication candidates prefer reachable closest peers, then live bootstrap
+fallbacks, with an actual maximum of `DHT_REPLICATION_K=8`.
+
+Eight deterministic paused-clock tests verify shared pacing, exact frame bytes,
+unaffected ordinary sends, no catch-up burst, frame/byte bounds, expiration,
+drop metrics, disconnected destinations, plain-thread publication and task
+teardown. The complete session suite passes 554 tests (8 existing ignored).
+Publisher tests pass all seven cases, including cold routing-table fallback and
+fanout with more than eight connected peers. The complete node-runtime suite
+passed 657 tests (11 ignored); its original single-retry fixture incorrectly
+offered 32 frames without consuming a four-credit ingress. That fixture now
+asserts backpressure, drains before retrying admission and retains every one
+of its 32 wire/E2E/order/primary/transit checks. Production retry logic is
+unchanged. The production embedded SDK was rebuilt after the final changes.
+
+Clippy with denied warnings reports eight existing sites in untouched session
+files (`priority_queue`, `ordered_lanes`, `runner`, `parallel_lanes`,
+`reliable_streams`); it is NOT a green gate. Do not claim CI/release readiness.
+Private logs under the existing cache: `local-replication-pacing-qualified.log`,
+`local-replication-session-qualified.log`, `local-replication-publisher-qualified.log`,
+`local-replication-runtime-qualified.log`, `local-replication-clippy.log` and
+`local-replication-sdk-qualified.log`.
+
+Full quality comparison: `pcm-bg-paced-360`, using
+stock adaptive 20–60-ms media, the actual Dart policy, independent obfs4 source
+connections, isolated neutral aggregate 1,024-kbit/s FIFO, two 512-KiB files,
+native timing, full PCM capture, source clock, moving-image and cleanup gates.
+This control must finish and be analyzed before attributing quality gains to
+the publication change. Running relays and handset/GUI applications have not
+been modified or started by these checks.
+
+The initial, longer-named `pcm-paced-publications-adaptive-stress-360` failed
+BEFORE measurement: its admin socket path was 104 bytes, exceeding Darwin's
+103-byte pathname limit (the 104-byte field needs a NUL terminator). Runtime tasks exited,
+all node stops returned zero, and the independent shaper exited. Three stale
+IPC socket files remained; after the process exited, lsof confirmed no open
+descriptors and they were removed. Original evidence/summary is preserved,
+with a separate `cleanup.json`. This is not a quality result or evidence of a
+publication-policy failure. The shorter fixture above is a separate run, not
+a restart after an observation timeout. The harness now checks actual encoded
+socket-path lengths before creating an explicit stand directory; Darwin/Linux
+boundary and multibyte-path tests pass. Default `/private/tmp/` fixtures remain
+short. This does not claim to repair production IPC startup error reporting.
+
+The shorter `pcm-bg-paced-360` completed. Full capture and all 704 tone edges
+are attributed, with no quiet PCM, missing transitions or audio interruptions.
+The source clock passes at 22.410 ms. Audio-only PCM peaks at 130.830/150.118 ms;
+mixed-phase peaks at 190.156/172.026 ms (p95 171.172/169.872 ms), below the
+unchanged 200-ms gate. Current native buffer maxima are 150/153 ms. Both files
+are exact (248.5/245.8 seconds), all source feedback is queued, runtime drop
+counter deltas are zero, node stops succeed and no sockets remain. Images move
+at the end, but protective pauses still occupy 24 one-second samples in one
+direction and sampled image gaps reach 13/2 seconds. Audio improvement in this
+capture is not proof that publications were the sole cause of earlier tails.
+
+The combined result is nevertheless FALSE: receiver counts are 90/93, versus
+89/93 sent plus one bootstrap per side. The final side-0 control was submitted
+at second 359.002, AFTER the last compact receive poll at second 359; the old
+stand never polled again. It consumed compact control only with 1-Hz stats,
+whereas `VeilCallMediaController._startControlPolling` uses a separate 100-ms
+timer. The stand now follows that 100-ms cadence and drains once at the end;
+the complete-control gate is unchanged. Bounded metadata records source nonce
+and local receipt time, without plaintext or peer identifiers. The original
+failed summary is preserved; do not edit its result to green retroactively.
+
+`bg-control-tail-22` is a scoped real-SDK/crypto control check, not mixed-video
+qualification: one ordinary report per second, urgent schedule disabled, no
+video/files, default 1,000-ms tones. All 22 reports per side arrive, including
+nonce 22 submitted at second 21.003 and consumed at 21.100. Both bootstraps are
+present (23/23 total), the scoped result passes, all nodes stop and no sockets
+remain. The full unchanged 1,010-ms tone/video/file comparison with accurate
+control polling is `pcm-bg-ctrl-360`; evaluate that completed capture separately.
+
+The completed `pcm-bg-ctrl-360` rejects any claim of stable audio qualification.
+All 88/96 ordinary controls arrive at the opposite sides, exactly once by
+source nonce, plus each bootstrap; bounded metadata is not truncated. Final
+reports sent at second 355.004 are consumed at 355.101. Both 512-KiB files are
+exact, without duplicate chunks (218.8/199.0 seconds). The independent native
+clock passes at a 17.390-ms maximum interval; all 704 expected tone edges are
+attributed, with no quiet PCM or reported interruptions. However mixed-phase
+PCM peaks are 221.641/269.700 ms, failing the unchanged 200-ms gate; p95 is
+171.933/180.986 ms. Native current-buffer maxima are 188/234 ms. Video is moving
+at the end, but sampled image gaps reach 13/20 seconds and protective pause
+samples total 31/12. The aggregate combined result remains FALSE.
+
+The worst edge (source 0, input second 110.093) has 39.681-ms capture/encoding,
+17.843-ms SDK-to-ingress flight, and 212.105-ms post-WebRTC residual. Neighboring
+edges have the same elevated residual; this is not solely a network-flight
+peak. That residual includes receiver buffering, codec/FEC dependencies and
+rendering, and must not be called NetEq delay alone. Across all packets, flight
+maxima remain 181.446/154.173 ms. The blind shaper trace independently records
+up to 293.284/70.866-ms reader-arrival-to-read spans; opaque chunks are not RTP
+packets, so this does not assign those spans to the worst audio edge. It is
+unsafe to infer that DHT pacing solved the complete quality problem from the
+preceding single passing audio capture.
+
+All node stops return zero, the isolated shaper and audio/file/policy workers
+exit, and no fixture sockets remain. Blackview `BV6600Pro` is available over
+ADB; no physical app/call was started in this cycle. Public relays and installed
+applications are unchanged. Next work must separate receiver recovery and
+false-positive video growth from remaining flight stalls using the retained
+trace, without relaxing gates or adding relay traffic recognition.
+
 ## 2026-10-15: group source admission and fresh playout revisions
 
 Previous goal turn made progress in `5acafe82`: the blind FIFO is independent
