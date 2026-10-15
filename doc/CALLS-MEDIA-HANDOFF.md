@@ -1,5 +1,90 @@
 # Calls media handoff
 
+## 2026-10-15: private route expiry under periodic feedback
+
+The user deferred the speech test; continue with owned synthetic fixtures. No
+phone, installed application, real microphone, speaker or camera was opened.
+
+### Proven defect and fix
+
+An optional native-codec fixture now runs two synthetic Opus/VP8 engines through
+four real node runtimes: A/C → middle → rendezvous, using authenticated loopback
+obfs4 sessions. All four private receive addresses and both relay hops are checked.
+It does not use the application's Dart adapter or a network shaper. Anonymous
+audio retains its production fixed packetization; the non-onion adaptive codec
+helper's overhead and RTP-size overrides are not applied.
+
+Before the fix, primary private circuit admission stopped after about 12 seconds;
+audio continued over the fallback pool. Camera and screen subsequently did the
+same. Separate endpoint counters distinguish private admission, fallback attempts
+and received private media cells before AEAD; a quiet private counter alone is
+not proof that sound stopped.
+
+The cause was `PriorityQueue::pop_local_datagram_lane_if`: periodic signaling
+datagrams skipped reliable controls in the same local queue, then spent the next
+shared signaling allowance before those controls could send. Route probes starved.
+Route probes now use the existing endpoint network-maintenance queue/budget,
+independently of application signaling. An initial candidate preserving reliable
+signaling FIFO prevented expiry but regressed two existing RTCP delivery tests;
+it was rejected and the queue implementation was restored. Forwarded traffic
+remains neutral. No relay role, wire priority, service privilege or byte allowance
+changed.
+
+The real 18-second primary + 10-Hz feedback regression failed with the original
+signaling queue selection. Idle routes and primary traffic without feedback
+passed the diagnostic controls. The final maintenance queue selection passed all
+nine network scenarios (eight together, then the existing splice/repair test
+after updating its expected local probe selector), including legacy interop and
+RTCP delivery. Production `cargo check`, the native-library loader test and both
+Python native PCM/ABI tests passed.
+
+### Native rerun and remaining failure
+
+Private evidence is beneath
+`~/.cache/codex/xveil-physical-20261014/anonymous-native-maintenance-60/`.
+The earlier `anonymous-native-fifo-fixed-60/` directory is evidence for the
+**rejected FIFO candidate**, not the final queue selection.
+The 60-second capture includes audio alone, camera from second 20, and screen
+traffic from second 40. Audio/camera/screen fallback counters remained zero;
+control retained only its five bootstrap fallback attempts per endpoint.
+Decoded video content changed in both phases and native audio RTCP was present.
+The source clock's maximum interval was 15.008 ms, with no lost observations or
+native callback errors. Exact source-tone edge matching found 55/55 changes in
+each direction after warmup: maximum PCM delay 53.552/53.591 ms, no quiet PCM
+frames and no reported interruptions. This is local synthetic evidence, not
+speech quality or a shaped multi-hop latency result. Fixed anonymous encoders do
+not emit the adaptive encoder-input trace; full stage attribution is unavailable.
+
+The complete optional fixture **still fails**: two simultaneous 512-KiB files
+receive zero bytes and time out, including after the native engines stop. Circuit
+confirmation logs report no ACK/probe echo; the cause remains unresolved. Do not
+describe this capture as successful competing file traffic. File progress is
+recorded explicitly. Completion is checked after stopping the native producers:
+1 MiB cannot finish in the 40-second mixed phase within the shared 20-KiB/s source
+DATA/control allowance even with no RTCP. This arithmetic does not explain the
+zero progress or failed circuit confirmations.
+
+The native fixture requires `test-low-difficulty` as well as `node-embedded`;
+without it a filtered invocation can silently run zero tests. Build the media
+library with `VEIL_MEDIA_TEST_HOOKS=1`; set `VEIL_MEDIA_TEST_VIDEO=1`,
+`VEIL_MEDIA_CODEC_TEST_DYLIB`, `VEIL_MEDIA_PCM_DRIVER_DYLIB`,
+`VEIL_MEDIA_CODEC_OUTPUT` (an existing owner-only empty directory), and
+`VEIL_MEDIA_DIAG_PATH`. Run the ignored exact test
+`media_ffi::media_route_network_tests::codecs::real_anonymous_codecs_share_obfs4_with_files_on_four_private_planes`.
+The loader resolves SDK symbols from that Rust executable, avoiding a second SDK
+channel table. Both native PCM ABI layouts are verified before writable buffers
+are passed across FFI. All four nodes and native engines stop before gate failures
+are reported. Use `TMPDIR=/private/tmp/` throughout.
+
+The earlier long non-onion stress result still exceeds the 200-ms PCM target;
+this unshaped anonymous capture does not close that remaining goal.
+Next, isolate the simultaneous file-open failure and exercise sustained source
+pressure: eight padded route probes every two seconds can exceed the existing
+network-maintenance allowance while pressure is active. The unshaped capture
+does not validate that case.
+
+## Historical handoff
+
 Date: 2026-07-09.
 
 This note preserves the last known working context after the local scratchpad was
