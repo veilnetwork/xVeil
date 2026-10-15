@@ -56,6 +56,8 @@ parser.add_argument('--tone-period-ms', type=int, default=1000,
                     help='Tone transition interval; 1010 ms exercises different 10-ms input positions within Opus packets')
 parser.add_argument('--feedback-interval-seconds', type=int, default=5,
                     help='Diagnostic feedback cadence; default retains the production five-second cadence')
+parser.add_argument('--urgent-playout-feedback', action=argparse.BooleanOptionalAction, default=True,
+                    help='Send fresh buffer-pressure reports using the application schedule (default); --no-urgent-playout-feedback retains ordinary cadence for comparison')
 parser.add_argument('--shared-control-ipc', action='store_true',
                     help='Diagnostic compatibility mode: share control and audio IPC; the application uses separate connections')
 parser.add_argument('--compact-call-health', action='store_true',
@@ -537,6 +539,7 @@ try:
     (ROOT/'metrics-before.json').write_text(json.dumps(metrics_before))
     if shaper:shaper.rate_bps=args.rate_kbps*1000
     startat=time.monotonic();lasttick=startat;maxscheduler=0;videostarted=False;latestfeedback=[None,None];targets=[None,None]
+    urgent_feedback=[False,False];feedback_recent=[False,False]
     clock_observations=[clock_observation()]
     if args.gc_timing_trace:
         def gc_observer(phase, info):
@@ -638,6 +641,8 @@ try:
                     elif rc==1:source_feedback_skipped[i]+=1
                     else:raise RuntimeError('Local source feedback refused')
                 latestfeedback[i]=r['feedback'];targets[i]=r['target']
+                urgent_feedback[i]=r['urgentFeedback']
+                feedback_recent[i]=r['feedbackRecentlyAttempted']
                 pauseok=True;budgetok=True
                 if r['pause'] is not None:pauseok=pause(e,int(r['pause']))==0
                 if r['budget'] is not None:budgetok=budget(e,r['budget']['kbps'],r['budget']['fps'])==0
@@ -654,8 +659,11 @@ try:
                     for i in range(2):
                         thread=threading.Thread(target=write_file,args=(i,),name='stand-file')
                         file_threads.append(thread);thread.start()
-            if tick%(100*args.feedback_interval_seconds)==0:
+            periodic_feedback=tick%(100*args.feedback_interval_seconds)==0
+            if periodic_feedback or (args.urgent_playout_feedback and any(urgent_feedback)):
                 for i in range(2):
+                    if not periodic_feedback and not urgent_feedback[i]:continue
+                    if args.urgent_playout_feedback and periodic_feedback and feedback_recent[i]:continue
                     nonce=noncecounter[i].to_bytes(12,'big');noncecounter[i]+=1
                     payload=nonce+healthkeys[i].encrypt(nonce,json.dumps(latestfeedback[i]).encode(),b'codec-control-v1')
                     submitted_at=time.monotonic()
@@ -668,6 +676,9 @@ try:
                         'encrypted_application_bytes':len(payload),'result':rc})
                     if rc==0:healthsent[i]+=1
                     else:control_failures[i]+=1
+                    command({'index':i,'op':'feedbackAttempt',
+                             'feedback':latestfeedback[i],
+                             'now':int(time.time()*1000)})
     clock_observations.append(clock_observation())
     audio_stop.set()
     if native_driver is not None:
@@ -703,6 +714,7 @@ try:
         result['decoded_video_failures']=decoded_video_failures
     (ROOT/'codec-samples.json').write_text(json.dumps(samples))
     result.update(stand_start_monotonic_us=round(startat*1_000_000),real_opus=True,real_vp8=not args.no_video,video_requested=not args.no_video,application_adapter=True,on_path_encrypted_playout_feedback=True,health_sent=healthsent,health_received_including_bootstrap=healthrecv,health_auth_errors=healthbad,max_driver_interval_ms=round(maxscheduler,2),native_failures=nativefail,poll_failures=pollfail,audio_thread_failures=len(audio_failure))
+    result['urgent_playout_feedback']=args.urgent_playout_feedback
     result.update(control_send_attempts=control_attempts,
                   control_send_failures=control_failures,
                   control_send_samples=list(control_send_samples),
