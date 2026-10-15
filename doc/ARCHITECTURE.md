@@ -18395,3 +18395,80 @@ profile handshakes and analysis of the shared constants/controller/helper
 pass. Selecting `anonymous` here is not proof of anonymous circuit delivery:
 full shaped four-plane anonymous codec traffic and physical speech remain
 open, alongside contention tails and unnecessary video holds.
+
+#### Require a floor trial's own evidence; let bounded audio resume a probe
+
+A new regression reproduces a policy error: after two ordinary two-rung cuts,
+the sender reaches one fps, but a peer's still-growing six-sample verdict
+includes the earlier, larger rungs. Three further reports at 110/120/120 ms
+pause the new trial even though they do not establish its own sustained
+failure. Before the fix the regression fails on `audioReserve == true`.
+
+The adapter now retains separate receive/peer windows for a measured floor
+trial. A successful floor retune and engine replacement reset them. Only an
+applied trial with newly sent frames warms them; the peer's pre-trial sequence
+cannot contribute. Below the existing 200-ms ceiling, stopping the floor
+requires both the ordinary pressure verdict and its fresh trial window.
+Cached reports cannot manufacture that history. The ceiling does not wait
+for six samples; actual new frames are still required to establish the trial.
+The same evidence governs below-ceiling advice to disable video. Ordinary
+two-rung cuts and admission of higher video budgets keep their full windows.
+
+The first six-minute `pcm-floor-window-stress-360` capture shows this alone
+does not fix long holds: decoded retrieval gaps reach 77/56 s, mixed PCM is
+183.472/212.038 ms, and the source clock also FAILS at 42.20 ms. All 704 tone
+edges join, full files match, both images move at the end and no quiet frames
+or native interruptions occur. Buffer maxima are 162/181 ms. In the longest
+hold the buffers are mostly below 160 ms, often below 100 ms; small subsequent
+growth verdicts repeatedly reset the twelve-sample resume streak, despite
+video already being off. This capture is not a quality qualification.
+
+Paused recovery now follows the existing bounded-audio probe rule without
+requiring every growth verdict to be false: both required receivers must
+remain below 160 ms, measurements/reports must be fresh, audio arrival must
+be recent, no new primary drops/interruption may occur, and RTT must remain
+below the severe bound for twelve consecutive samples. This releases only
+the one-fps floor. Growing beyond it still requires no buffer pressure and
+the original transport/receive evidence; a new measured floor failure can
+stop the probe again. No source budget, wire role, relay scheduling, mailbox
+behavior or numeric buffer threshold changes. All 108 policy/window/feedback/
+source-pressure regressions and static analysis pass, including real growth
+after the trial starts, capped buffers, old frames, engine replacement,
+missing/partial feedback and a bounded paused probe that cannot climb while
+the peer still reports growth.
+
+The preceding `pcm-production-relay-profile-360` uses the shared 150-kbit/s /
+15-fps profile on ordinary relay delivery, not anonymous circuits. Its
+observed mixed PCM peaks are 184.325/184.350 ms, all 704 edges join, both
+512-KiB files match and there are no protective video pauses. Sampled decoded
+retrieval gaps are 2/3 s. The run nevertheless FAILS its source-clock gate:
+one wake reaches a 135.51-ms source interval (callback maximum 0.748 ms,
+wake lateness 128.391 ms), despite admitted QoS and zero timer errors. It
+does not establish a source-qualified production-profile quality result.
+
+With both policy corrections, `pcm-floor-probe-stress-360` retains the original
+900/15 stress profile, full duplex 512-KiB files, the same SDK/media artifacts
+and the blind 1024-kbit/s aggregate cap. There are zero protective pause
+samples; sampled decoded-image gaps peak at about 2 s in each direction, and
+both images change throughout the final fifteen seconds. Full files match
+(282.0/276.0 s), all 704 PCM edges join exact source indices, and there are no
+quiet frames or native interruptions. Native buffer maxima are 194/174 ms.
+This independent capture is not a controlled causal performance delta, and
+the paused-resume branch is not exercised here because no pause occurred;
+its bounded-probe/growth-blocking regression supplies that policy evidence.
+
+The full run still FAILS: mixed decoded PCM peaks at 213.599/214.488 ms
+(p95 197.826/191.057), and the source clock has one 42.83-ms interval at
+61.155 s. QoS is admitted, timer errors/dropped observations are zero and all
+71,948 observations for 35,974 ticks are retained. The largest edge is at
+139.385 s, in a 40-ms packet: capture-to-encoded is 24.522 ms, transport
+flight 17.409 ms and WebRTC-ingress-to-PCM residual 172.449 ms. No failed
+interval or tone edge is discarded. Audio latency and source qualification
+still require work; a moving picture alone does not qualify them.
+
+The two reproduced policy defects are corrected without changing relay
+service or source priorities. All fixture nodes stop with status zero,
+sockets disappear and exact Python/Dart PIDs exit. No installed app/profile,
+phone or relay is changed. Project changes are committed unsigned without
+pushing. Shaped four-plane anonymous codec traffic and deferred physical
+speech remain open alongside the PCM/clock gates; the full goal is active.
