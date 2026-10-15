@@ -6,6 +6,50 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.85] — 2026-10-15
+
+### Changed
+
+- Calls use separate endpoint transport resources for audio, video, screen
+  sharing and feedback. Audio measurements constrain competing video, file
+  transfer and background publication work without disclosing media roles or
+  adding media priority at relays.
+- Video quality decreases on fresh media loss or sustained audio-buffer growth,
+  and recovers gradually with fresh receiver measurements. The one-frame-per-
+  second trial must itself show audio pressure before video is paused.
+- Mailbox storage is restricted to contact requests and their acceptance;
+  call signaling and media use live routes.
+
+### Fixed
+
+- Contact requests retain their pending state while delivery catches up, use
+  fresh mailbox keys on retry, and route identity-addressed call signaling to
+  the correct device.
+- Front-camera preview mirrors camera pixels without reversing its labels.
+- Capture and rendering work no longer share audio processing queues. Adaptive
+  audio and bounded decoded catch-up are included in freshly rebuilt native
+  call engines rather than relying on the previous published binaries.
+- Video bursts are retried within their original transport lifetime when an
+  independent sender briefly lacks capacity, instead of dropping the burst's
+  tail immediately.
+
+### Diagnostics
+
+- The explicitly enabled, authenticated development API can capture bounded
+  native encode, RTP and playout timing into a private file before a call.
+  This API remains absent from release builds and records no audio samples.
+- Media contention fixtures retain complete file hashes and immutable timing
+  evidence rather than accepting arrivals after the measurement ends.
+
+### Known issue
+
+- Intermittent late audio bursts can still trigger catch-up and sharply lower
+  video quality. Their remaining source is under investigation; this release
+  does not claim the call-quality investigation is complete.
+
+Native dependencies: veil 0.11.40, hidden-volume 2.6.1, and call engines rebuilt
+from the matching Veil sources in `engine-2026.10.15`.
+
 ## [0.13.84] — 2026-10-02
 
 ### Added
