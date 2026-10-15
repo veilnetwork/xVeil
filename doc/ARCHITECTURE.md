@@ -18346,3 +18346,52 @@ Endpoint source-frame observations in 174–180 s contain no giant video work
 item (largest raw item 2,459 bytes / three cells). Aggregate queueing still
 requires attribution across ordinary media, file and maintenance traffic;
 no production scheduling or relay priority is changed on this evidence.
+
+#### Separate maintenance traffic from video recovery; use real profile ceilings
+
+`pcm-maintenance-audio-control-200` keeps the same SDK/media binaries, neutral
+1024-kbit/s aggregate obfs4 proxy and native Mach/QoS clock, with no video or
+files. Source intervals qualify at 18.78 ms; observed continuation PCM peaks
+are 112.663/133.327 ms, buffers peak at 93/106 ms, and no quiet frames or
+interruptions occur. Three warmup publications still happen near 175.736 s.
+In 174–180 s the two RTP flight maxima are 51.340/43.725 ms: publication alone
+does not reproduce the 264-ms mixed-traffic burst in this capture. This does
+not exonerate maintenance under contention or assign the mixed queue's bytes.
+The overall run remains FAIL: each source changes its last tone at 199.981 s,
+but playout recording ends at 199.992 s. Those two unobserved edges are kept as
+failures, not excluded to make this diagnostic control green. All other 386
+edges join exact source indices. All nodes stop and sockets disappear.
+
+The mixed capture's policy raises video from 90 kbit/s / 1.5 fps to
+225 kbit/s / 3.75 fps at 177.004 s, shortly before the 177.880-s transport
+peak. This motivates a candidate that limits each earned cadence increase
+to one fps, including intermediate steps inside a coarse ladder rung; every
+step still earns the ordinary recovery interval and keeps the existing mean
+frame-byte bound. Seventy-three policy tests and static analysis pass, but
+the six-minute `pcm-recovery-fps-step-360` does not qualify the tradeoff.
+With full duplex 512-KiB files, all 704 edges join, the clock qualifies at
+34.80 ms, and buffer maxima are 179/180 ms. Mixed PCM is 192.080/211.079 ms
+(p95 182.097/189.265), versus the prior baseline's 222.327/291.735 ms
+(p95 182.000/181.120). Decoded retrieval gaps still reach 16/25 s and files
+finish at 279.6/288.5 s, versus 229.1/224.3 s in the baseline. Both images
+move at the end, files match, no quiet frames/interruptions occur and cleanup
+is complete. Independent captures are not a controlled causal delta; a lower
+single maximum does not qualify the worse p95/video/file tradeoff. The
+candidate, its optional parameter, environment switch and experiment-only
+tests are REVERTED; its patch remains in private evidence. Recovery behavior
+and the production SDK are unchanged.
+
+Profile inspection also establishes that the old fixture's 900-kbit/s / 15-fps
+ceiling is a stress combination, not either production video profile.
+`call_video_profile.dart` now supplies the exact existing 900/60 direct and
+150/15 anonymous ceilings to both the controller and fixture. The controller
+retains its existing route selection and camera dimensions. The fixture's
+`--video-profile stress|direct|anonymous` defaults to the original stress
+combination; changing its profile does not change the network route or any
+quality gate. The synthetic camera remains 320x240, explicitly distinguished
+from the selected profile's nominal camera dimensions. The helper's profile
+handshake records actual bitrate/fps/dimensions in each new summary. All three
+profile handshakes and analysis of the shared constants/controller/helper
+pass. Selecting `anonymous` here is not proof of anonymous circuit delivery:
+full shaped four-plane anonymous codec traffic and physical speech remain
+open, alongside contention tails and unnecessary video holds.
