@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
-from opaque_frame_capture import OpaqueFrameCapture, sanitize
+from opaque_frame_capture import OpaqueFrameCapture, sanitize, MAX_CAPTURE_ROWS_PER_NODE
 from analyze_opaque_frame_capture import analyze
 from tcp_fifo_shaper import kernel_unread_bytes
 
@@ -37,6 +37,13 @@ SUMMARY = dict(loopback_only=True, stand_start_monotonic_us=0, duration_seconds=
 
 
 class OpaqueCaptureTest(unittest.TestCase):
+    def test_full_run_capture_keeps_an_explicit_finite_limit(self):
+        capture = OpaqueFrameCapture(Path('/private/tmp'), IDS, limit=MAX_CAPTURE_ROWS_PER_NODE)
+        self.assertEqual(capture.limit, MAX_CAPTURE_ROWS_PER_NODE)
+        for limit in [0, MAX_CAPTURE_ROWS_PER_NODE + 1, True, 1.5]:
+            with self.assertRaises(ValueError):
+                OpaqueFrameCapture(Path('/private/tmp'), IDS, limit=limit)
+
     def test_kernel_backlog_snapshot_does_not_consume_or_change_bytes(self):
         left, right = socket.socketpair()
         try:
@@ -126,6 +133,8 @@ class OpaqueCaptureTest(unittest.TestCase):
             self.assertEqual(snapshot['rejected']['nonopaque'], 1)
             self.assertEqual(snapshot['rejected']['invalid_direction'], 1)
             self.assertEqual(snapshot['reader_errors'], [])
+            self.assertEqual(snapshot['events_per_node'], [2])
+            self.assertEqual(snapshot['capture_limit_reached_nodes'], [])
 
 
 if __name__ == '__main__':
