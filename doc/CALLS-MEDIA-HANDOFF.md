@@ -1,5 +1,126 @@
 # Calls media handoff
 
+## 2026-10-15: trace owned primary cells through both relay hops
+
+Previous cycle made progress in SDK `7a8988b1` and xVeil `361ce0ee`. Quality
+is still unqualified: prior full captures fail the unchanged 200-ms PCM gate
+and contain long video pauses. This cycle changes observation only: codecs,
+playout capacity, video/source policies, wire formats, forwarding/scheduling
+and the blind 1,024-kbit/s aggregate limiter are unchanged. No physical app or
+relay deployment is performed.
+
+The old source-cell diagnostic recognized direct AppRtData primary frames,
+but not their authored Delivery/Forward form. Explicit source tracing now
+recognizes a COMPLETE, locally owned primary Forward with the existing VME1
+seal. Wire hints and neutral forwarded queues cannot establish ownership.
+Explicit bounded tracing covers late primary sequences instead of stopping
+at 4,096; ordinary sparse RT tracing retains its original sequence/sample
+budget. Each owned-source row contains the SHA-256 of the same encrypted
+body preview used by the observer (maximum 256 bytes), never payloads, keys,
+node IDs or a role sent to the relay. SHA-256 was already in the lockfile;
+it is now a direct veil-session diagnostic dependency. Six focused trace
+tests include late relayed primary ownership, foreign queue rejection,
+truncation/trailing-byte rejection and the existing source bounds.
+
+The fixture observer can explicitly request up to 131,072 sanitized records
+per node; its default is still 4,096. It reports raw event counts and nodes
+that reach the cap. Existing nonce/routing metadata is parsed ONLY on the
+host from known fixture Forward previews, not by relay service. A new analyzer
+joins a source's PRIVATE owned-preview witness to that cell's two hop pairs.
+It refuses ambiguous/partial routes and inverted clocks, prints no nonce or
+hash, and does not claim full-body equality or interpret missing capture as
+loss. Repeated source epochs across opposite directions cannot cross-label
+ownership. Twelve Python tests cover these joins, privacy/bounds and legacy
+observations.
+
+The initial real-SDK `primary-hop-smoke-22` (no video/files) passed its scoped
+quality/control/cleanup gates and joined 1,530 primary routes with sub-26-ms
+capture-to-target maxima. It also exposed two more observation limitations:
+100 events/sec/peer is shared between directions and silently samples capture;
+and incoming frame headers sometimes retain the 16-byte session AEAD tag in
+body_len although the observed body excludes it. The 54 incomplete routes are
+not audio loss evidence. That short capture and its original result remain
+unchanged; do not retrofit an inferred 16-byte correction into old evidence.
+
+CaptureEvent/AdminResult now retain the original header body_len AND provide
+optional observed_body_len measured before the preview is clipped. Older
+serialized events still deserialize with None. The CLI ignores the optional
+extension; the host normalizes only when the measured field exists and keeps
+wire_body_len for auditing. A separate unit test verifies legacy JSON reading
+and extended serialization. Debug event sampling remains 100/sec/peer by
+default; the trusted VEIL_DIAG_CAPTURE_EVENTS_PER_SEC environment override
+allows 1–1,000 for owned fixtures only, with the same bounded peer map. The
+public limiter constructor clamps that diagnostic ceiling; tests check both
+its cap and peer isolation. It changes no service/data allowance or role.
+
+Verification: dispatcher-state 8 tests, session 555 passed/8 existing ignored,
+node-runtime 657 passed/11 ignored plus 8 integration tests. The newly added
+admin compatibility case separately passes after the full suites. Session
+and dispatcher-state Clippy pass all targets with denied warnings; default
+CLI check (including RocksDB/BoringSSL) and production embedded FFI build pass.
+Private cache logs: primary-capture-suites.log, primary-capture-admin-compat.log,
+primary-capture-clippy.log, primary-capture-cli.log, primary-capture-sdk-final.log.
+
+The full comparison is primary-route-full-360: stock media, the complete
+mixed/file profile, native clock/tone-position coverage and every unchanged
+quality gate; capture begins at second 1, record bound 131,072/node and debug
+sampling budget 1,000/peer/sec. Source-cell tracing is explicit. Evaluate its
+terminal result and attribution limits before claiming the worst audio path
+is localized. No compilers or other load tests run during its timed phase.
+
+SDK `17e5b731` contains the diagnostic changes above. The full
+primary-route-full-360 completed with FALSE quality status: mixed PCM peaks
+221.398/251.678 ms (p95 210.346/218.789), still above 200 ms. All 704 tone
+transitions are attributed, the source clock passes at 27.750 ms, no quiet PCM
+or interruptions are reported, and native current-buffer maxima are 188/221 ms.
+All 85/99 controls arrive exactly once plus bootstraps; both 512-KiB files are
+exact (291.3/277.1 seconds). Video moves through the end, but one direction has
+a 13-second sampled gap and 12 protective pause samples. Runtime drop/failure
+deltas are zero. All nodes return zero on stop; audio/file/policy/shaper workers
+exit and no fixture sockets remain. No physical speech quality is qualified.
+
+The new observation covers the actual bad interval. Capture records
+81,149/40,564/40,586 events for the relay/endpoints, with no cap reached,
+reader errors or rejected records. 15,671 received rows have different header
+and observed lengths; the measured length corrects their grouping without
+rewriting old captures. There are 19,847 distinct private primary witnesses;
+only 84 lack a source TX capture, ALL before capture started (0.011409–0.991884
+seconds). No source witness lacks its clock. Every one of the remaining
+19,763 owned primary cells is matched across BOTH hops, with zero incomplete
+or ambiguous routes. Capture continues through second 360.3, source trace
+limits are not reached. This is a census of the emitted source witnesses in
+the recorded interval, not an assertion of full-body equality or a general
+adversarial traffic classifier. See primary-hops.json for clock/boundary counts.
+
+Primary capture-to-target maxima are 156.428/146.088 ms. The worst cell is
+source node 1 at second 256.472: 53.504 ms source-to-relay, 0.130 ms relay
+residence, 102.794 ms relay-to-target. Across all matched primary cells relay
+residence p95 is 0.199/0.200 ms; maxima are 10.259/2.433 ms. Both transport legs
+contribute; the data do not justify prioritizing a user or recognizing media
+at the relay. These legs include the blind proxy's buffers and kernel queues,
+not just propagation on a physical network.
+
+The native worst PCM edge is source 0 (fixture NODE 1), input second 263.611,
+251.678 ms total. Its packet flight is only 10.876 ms and its post-WebRTC
+residual is 240.675 ms. At second 256 the receiving side had a 100-ms target;
+after the preceding 156-ms primary flight, concealment increases, then its
+target/current buffer reach 180/221 ms. They stay elevated for several seconds
+and recover to 100/123 ms around second 265. Publication warmup is at 265.951,
+AFTER this burst, so that publication is not its initiating event.
+
+Next controlled candidate: stabilize adaptation's brief packet-duration
+improvements, while retaining immediate efficiency changes under low bandwidth.
+In the complete native trace source 0 changes duration 135 times and source 1
+112 times. 25/32 and 29/36 bouts at 20 ms last at most one second of encoded
+audio. Around the worst edge source 0 runs 60 ms for 4.68 seconds, then 40 ms
+for 2.12 seconds, briefly 20 ms for 340 ms, then returns to 60 ms. The current
+BoundedAudioEncoder mirrors FAST FrameLengthControllerV2 without hysteresis.
+Those facts justify testing a sustained-headroom requirement before shortening
+packets; they do NOT prove duration switching is the sole cause. Do not force
+20/40 ms or lower receiver capacity: rejected controls remain documented below.
+The next candidate needs native packet/PCM and full video/file coexistence
+comparison with the same gates. Current product quality remains unresolved.
+
 ## 2026-10-15: inspect transport burst and restore session lint gate
 
 Previous cycle made progress in SDK `12816b7c` and xVeil `a87980e8`, closing

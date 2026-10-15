@@ -17,6 +17,7 @@ from tcp_fifo_shaper import TcpShaper
 from process_tcp_shaper import ProcessTcpShaper
 from fixture_paths import validate_unix_fixture_paths
 from opaque_frame_capture import OpaqueFrameCapture
+from opaque_frame_capture import MAX_CAPTURE_ROWS_PER_NODE
 import ctypes as C
 import gc, json, os, socket, time, tomllib, traceback
 from pathlib import Path
@@ -49,6 +50,10 @@ parser.add_argument('--chunk-trace', action='store_true', help='Privately correl
 parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
 parser.add_argument('--opaque-frame-capture-start-seconds', type=int, default=18,
                     help='Start the bounded opaque capture later to inspect a known periodic spike; default 18 seconds preserves the initial-phase capture')
+parser.add_argument('--opaque-frame-capture-limit', type=int, default=4096,
+                    help='Bound sanitized records per owned node; up to 131072 for full-run hop attribution (default 4096)')
+parser.add_argument('--opaque-frame-capture-event-rate', type=int, default=100,
+                    help='Owned-node debug-event sampling budget per peer/second, 1–1000 (default 100); changes no data rate or scheduling')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
 parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a protobuf-enabled test-hook media library')
@@ -68,7 +73,7 @@ parser.add_argument('--shared-control-ipc', action='store_true',
 parser.add_argument('--compact-call-health', action='store_true',
                     help='Diagnostic compact call-state carrier on a separate IPC sender; requires the optional SDK call-control API, not proof of application integration')
 parser.add_argument('--local-source-feedback', action='store_true', help='Feed actual endpoint quality to the shared local producer budget over negotiated IPC')
-parser.add_argument('--source-cell-trace', action='store_true', help='Privately correlate complete endpoint video work items with source admission/shedding; adds no relay roles or wire fields')
+parser.add_argument('--source-cell-trace', action='store_true', help='Privately correlate endpoint source work and encrypted primary previews with source admission; adds no relay roles or wire fields')
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
 parser.add_argument('--no-video', action='store_true', help='Isolate real audio/file coexistence without starting a video encoder; not a full media-priority gate')
@@ -113,6 +118,16 @@ if not 1 <= args.opaque_frame_capture_start_seconds < args.duration:
     parser.error('Opaque capture start must fall inside the stand duration')
 if not args.opaque_frame_capture and args.opaque_frame_capture_start_seconds != 18:
     parser.error('A capture start override requires --opaque-frame-capture')
+if not 1 <= args.opaque_frame_capture_limit <= MAX_CAPTURE_ROWS_PER_NODE:
+    parser.error('Opaque capture limit must be 1–131072 records per node')
+if not args.opaque_frame_capture and args.opaque_frame_capture_limit != 4096:
+    parser.error('A capture limit override requires --opaque-frame-capture')
+if not 1 <= args.opaque_frame_capture_event_rate <= 1000:
+    parser.error('Capture event rate must be 1–1000 events per peer/second')
+if not args.opaque_frame_capture and args.opaque_frame_capture_event_rate != 100:
+    parser.error('A capture event-rate override requires --opaque-frame-capture')
+if args.opaque_frame_capture:
+    os.environ['VEIL_DIAG_CAPTURE_EVENTS_PER_SEC'] = str(args.opaque_frame_capture_event_rate)
 sdk_path = args.sdk.resolve(strict=True)
 media_path = args.media.resolve(strict=True)
 policy_path = Path(__file__).resolve().with_name('relay_codec_policy.dart')
@@ -269,6 +284,9 @@ result['rate_kbps'] = args.rate_kbps
 result['media_sha256'] = hashlib.sha256(media_path.read_bytes()).hexdigest()
 result['shaper_process_isolated'] = args.shaper_process
 result['opaque_frame_capture_start_seconds'] = args.opaque_frame_capture_start_seconds if args.opaque_frame_capture else None
+result['opaque_frame_capture_limit'] = args.opaque_frame_capture_limit if args.opaque_frame_capture else None
+result['opaque_frame_capture_event_rate'] = args.opaque_frame_capture_event_rate if args.opaque_frame_capture else None
+result['source_cell_trace'] = args.source_cell_trace
 result['control_carrier'] = 'compact_call_state_diagnostic' if args.compact_call_health else 'authenticated_application_envelope'
 try:
     pcm_driver_library=build_pcm_driver(ROOT) if args.native_pcm_driver else None
@@ -640,7 +658,8 @@ try:
     for tick in range(args.duration*100):
         target=startat+tick*.01;time.sleep(max(0,target-time.monotonic()))
         if args.opaque_frame_capture and tick==100*args.opaque_frame_capture_start_seconds:
-            opaque_capture=OpaqueFrameCapture(ROOT, [identity['node_id'] for identity in identities])
+            opaque_capture=OpaqueFrameCapture(ROOT, [identity['node_id'] for identity in identities],
+                                             limit=args.opaque_frame_capture_limit)
             opaque_capture.start()
         # Match VeilCallMediaController's independent 100-ms control timer.
         # A one-second stats poll misses a report sent after its final read.
