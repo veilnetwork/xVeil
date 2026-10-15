@@ -18321,3 +18321,28 @@ exit. No installed app/profile, phone or relay is modified. Only the source
 measurement changes and this evidence are committed unsigned without pushing.
 Audio priority under contention, long video holds, shaped anonymous codec
 routes and physical speech still require verification; the full goal is active.
+
+The RTP analyzer now accepts a bounded send-time window, matching the blind
+TCP analyzer's time-window controls without confusing their selection clocks.
+Seven regressions pass, including receiver-before-sender teardown, a packet
+arriving after the selected window, the exclusive upper boundary, and invalid
+windows. Full-trace ambiguity/capacity reporting remains available.
+
+In that same Mach-clock capture, the 174–180-s window contains 277 matched
+audio payloads, no unmatched payloads and no trace-capacity truncation.
+SDK-admission-to-ingress peaks are 264.359 ms at 177.880 s and 148.756 ms in
+the other direction. During 177–178 s the blind aggregate proxy's direction 0
+has 131,251 bytes in 129 chunks: known reader-arrival-to-write peaks at
+262.312 ms, arrival-to-read at 209.099 ms, FIFO reservation-to-ready at
+59.508 ms and ready-to-write at 2.108 ms. These are separate span maxima, not
+one packet's additive stages. All 94,408 proxy observations are retained;
+proxy connection/direction identifiers do not identify audio. Thus earlier
+transport queueing precedes the later 292-ms decoded edge and 260-ms buffer;
+its tail cannot be attributed only to the later packet's 15.934-ms flight.
+
+The three identity warmup publication markers occur near 175.807 s, but
+temporal proximity does not identify their bytes as the queue's cause.
+Endpoint source-frame observations in 174–180 s contain no giant video work
+item (largest raw item 2,459 bytes / three cells). Aggregate queueing still
+requires attribution across ordinary media, file and maintenance traffic;
+no production scheduling or relay priority is changed on this evidence.
