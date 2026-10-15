@@ -18082,3 +18082,97 @@ nodes stop successfully, sockets disappear, and the Python/Dart processes exit.
 The helper/fixture changes and evidence are committed unsigned without pushing;
 the audio-priority goal, reliable source-clock gate, shaped anonymous-route
 codec checks and physical speech assessment remain open.
+
+#### Expedite receive-buffer pressure between ordinary health reports
+
+The previous capture exposes a feedback timing gap: source 0 measures native
+buffer growth at 148 s, but source 1's cached peer report still says healthy
+until approximately 151 s. One-to-one call health was sent every five seconds,
+independently of the one-second native buffer sampling. A receiver could thus
+know that its downlink is filling while its peer still grows video on stale
+healthy feedback.
+
+`CallAudioFeedbackSchedule` now authorizes an extra existing encrypted health
+report for a fresh native sequence when the current buffer is growing or
+at the unchanged 200-ms ceiling, and once when a known growth/ceiling verdict
+clears. A retained high peak with a recovered current buffer is not new
+pressure. The existing one-second call monitor polls this verdict
+only for active audio calls with feedback-capable peers. Attempts, including
+rejected queues, are bounded to one per second; a cached/replayed sequence is
+not resent urgently. The ordinary five-second heartbeat remains for healthy
+calls. It coalesces a recent health/capture announcement while still checking
+liveness, P2P admission and receive-route repair. Repair requests are never
+suppressed by that coalescing. A reversed wall clock cannot suppress ordinary
+heartbeats or authorize an urgent burst, and teardown resets the schedule.
+
+The same call health format, call-key-sealed compact carrier and regular
+signaling fallback are used. There is no new wire field, relay role, relay QoS,
+mailbox path or degradation trigger. The video ladder still decides locally
+from measured buffer growth/ceiling. Group calls retain their native RTCP
+feedback path; this change does not qualify group or anonymous-route quality.
+
+A service regression first fails on the old code (no report before the normal
+beat), then passes with the fix. It checks healthy cadence, growth reporting
+before five seconds, no resend of a cached sample, urgent ceiling and clear,
+coalescing at the periodic boundary and no sends after disposal. Six schedule tests pin
+the rate/replay/measurement/clock rules. The service, schedule and playout-
+feedback suites pass all 189 tests; the existing mute-announcement test now
+expects the urgent ceiling report as well as periodic health. The real codec
+fixture shares the production schedule through its Dart policy helper and
+uses it by default; `--no-urgent-playout-feedback` retains the old cadence for
+comparison. The captured candidate explicitly enables the new schedule.
+
+The intermediate `pcm-urgent-feedback-360` candidate reports pressure promptly
+but does not yet expedite its clear. It passes the existing fixture gates:
+mixed PCM maxima 193.172/191.951 ms, no lost tone edges or quiet PCM, native
+buffers at most 151/157 ms and source intervals at most 19.51 ms. All 704 edges
+join exactly, traces are complete, both files arrive intact and decoded images
+move at the end. Thirty-one newly received pressure sequences (including
+reports coincident with periodic health) appear at the peer's next one-second
+poll, at most 1003.04 ms after the source stats observation. This establishes
+report timeliness in this run, not a controlled causal latency comparison with
+the earlier independent run.
+
+However, actual decoded-image retrieval gaps reach 45/55 seconds, matching
+explicit audio-protection holds of up to 54/44 seconds. During a long hold,
+both buffers remain below 160 ms but a cached growth verdict and occasional
+small local buffer rises repeatedly reset the required 12 healthy samples.
+The existing tail-progress gate does not qualify that video tradeoff. The
+schedule therefore also expedites the first measured clear, bounded by the
+same interval and replay rules; an absent/incomplete native trend is not a
+clear. Steady healthy samples then resume normal cadence. A test covers that
+single clear followed by suppressed healthy repeats, and the real service
+test verifies its current/peak fields. The second six-minute capture checks
+this complete pressure/clear behavior with identical quality thresholds.
+
+The final `pcm-urgent-feedback-clear-360` run uses the same accepted SDK/media,
+neutral aggregate obfs4 limiter, duplex 512-KiB files, 1010-ms tones and native
+clock. It FAILS the full gate: mixed PCM maxima are 229.102/211.845 ms (p95
+187.757/181.207), and source intervals reach 71.80 ms at 84.726 s and 148.63 ms
+at 86.305 s. Capture/playout operations themselves take at most 0.319 ms. The
+largest PCM edge is later, at 105.047 s: capture-to-encode 30.481 ms, admission
+and send 0.036 ms, SDK-to-ingress 11.853 ms, ingress-to-WebRTC 0.020 ms and
+186.713 ms thereafter. The earlier host stalls may affect subsequent buffer
+adaptation; this capture does not isolate their contribution to the later
+playout tail or qualify latency by excluding them.
+
+All 71,902 observations are retained with no native/queue/poll errors. Both
+capture indices and all 704 edges join exactly, with no missing/clipped trace
+evidence; 20/40/60-ms positions are covered. Native buffer maxima are 189/183 ms,
+with no quiet PCM or reported interruptions. Both full files match their hashes
+(218.2/214.2 s), there are no asynchronous send failures, and all 92/86 periodic
+plus expedited reports arrive at the corresponding receiver, plus bootstrap.
+RTCP and independent ordered sends remain verified.
+
+Decoded images change at both receivers through the final 15 seconds. Maximum
+sampled retrieval gaps are approximately 14 seconds; explicit holds last
+12–13 seconds (37/26 paused samples total), rather than the intermediate run's
+longer holds. These independent runs establish observed behavior, not a
+controlled causal performance comparison. The required 12 consecutive healthy
+samples, video-degrade/recovery thresholds and source-clock/PCM gates are not
+weakened. Further work must qualify audio under contention while reducing
+unnecessary video holds, then cover shaped anonymous routes and physical
+speech. No phone, installed application/profile, relay or native production
+library is changed. Both real fixture processes and their Dart helpers exit,
+all three nodes stop successfully and sockets disappear. Project edits are
+committed unsigned without pushing; the overall goal remains active.
