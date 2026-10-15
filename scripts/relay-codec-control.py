@@ -79,6 +79,8 @@ parser.add_argument('--local-source-feedback', action='store_true', help='Feed a
 parser.add_argument('--source-cell-trace', action='store_true', help='Privately correlate endpoint source work and encrypted primary previews with source admission; adds no relay roles or wire fields')
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
+parser.add_argument('--file-checkpoint-seconds', type=int,
+                    help='Freeze additional file evidence during a longer run; does not replace the final quality/completion gate')
 parser.add_argument('--no-video', action='store_true', help='Isolate real audio/file coexistence without starting a video encoder; not a full media-priority gate')
 parser.add_argument('--video-profile', choices=['stress', 'direct', 'anonymous'], default='stress',
                     help='Use shared production video policy ceilings, or retain the original 900-kbit/15-fps stress profile (default); synthetic camera remains 320x240 and route is unchanged')
@@ -116,6 +118,9 @@ if args.reannounce_interval_seconds is not None and not 0 < args.reannounce_inte
     parser.error('Diagnostic routing refresh interval must be between 1 and 119 seconds')
 if args.file_bytes < 2048 or args.file_bytes % 2048:
     parser.error('File size must be a positive multiple of 2048 bytes')
+if args.file_checkpoint_seconds is not None and (
+        not args.compete_file or not 0 < args.file_checkpoint_seconds < args.duration):
+    parser.error('A file checkpoint requires competing files and must precede the run end')
 if args.no_video:
     args.decoded_video_trace = False
 if args.screen_video and args.no_video:
@@ -272,6 +277,8 @@ file_stop=threading.Event()
 file_lock=threading.Lock()
 file_results=[{},{}]
 file_started=[None,None]
+file_receipts=[collections.deque(maxlen=4096), collections.deque(maxlen=4096)]
+file_receipt_counts=[0,0]
 file_send_failures=[collections.Counter(),collections.Counter()]
 file_apps=[]
 file_bytes=args.file_bytes
@@ -507,6 +514,9 @@ try:
                     assert len(chunk)==2048
                     with file_lock:
                         if index in chunks[i]:file_duplicates[i]+=1
+                        else:
+                            file_receipts[i].append((time.monotonic()-startat,index))
+                            file_receipt_counts[i]+=1
                         chunks[i][index]=chunk
                         file_results[i].update(received=len(chunks[i])*2048,missing_chunks=file_bytes//2048-len(chunks[i]))
                         if len(chunks[i])==file_bytes//2048:
@@ -674,6 +684,15 @@ try:
         audio_thread=threading.Thread(target=audio_loop,name='stand-pcm');audio_thread.start()
     for tick in range(args.duration*100):
         target=startat+tick*.01;time.sleep(max(0,target-time.monotonic()))
+        if (args.file_checkpoint_seconds is not None and
+                tick >= args.file_checkpoint_seconds*100 and
+                'file_checkpoint' not in result):
+            with file_lock:
+                checkpoint = snapshot_transfers(file_results, chunks, file_payloads,
+                                                file_auth_errors, file_duplicates,
+                                                file_send_failures)
+                checkpoint['observed_seconds'] = time.monotonic()-startat
+            result['file_checkpoint'] = checkpoint
         if args.opaque_frame_capture and tick==100*args.opaque_frame_capture_start_seconds:
             opaque_capture=OpaqueFrameCapture(ROOT, [identity['node_id'] for identity in identities],
                                              limit=args.opaque_frame_capture_limit)
@@ -765,6 +784,9 @@ try:
             frozen_files = snapshot_transfers(file_results, chunks, file_payloads,
                                                file_auth_errors, file_duplicates,
                                                file_send_failures)
+            result['file_receipt_trace'] = [list(rows) for rows in file_receipts]
+            result['file_receipt_trace_truncated'] = [
+                count > len(rows) for count, rows in zip(file_receipt_counts, file_receipts)]
         result['file_snapshot_seconds'] = time.monotonic() - startat
     audio_stop.set()
     if native_driver is not None:
