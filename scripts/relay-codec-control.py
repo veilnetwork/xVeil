@@ -14,6 +14,7 @@ import subprocess, threading, collections, math
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from udp_fifo_shaper import UdpShaper
 from tcp_fifo_shaper import TcpShaper
+from process_tcp_shaper import ProcessTcpShaper
 from opaque_frame_capture import OpaqueFrameCapture
 import ctypes as C
 import gc, json, os, socket, time, tomllib, traceback
@@ -30,6 +31,7 @@ parser.add_argument('--rate-kbps', type=int, default=0, help='Blind FIFO cap per
 parser.add_argument('--shaper-scope', choices=['aggregate', 'per-target'], default='aggregate',
                     help='Aggregate retains the original route-wide stress cap; per-target shares capacity across all connections to each target node (TCP control only)')
 parser.add_argument('--shaper-trace', action='store_true', help='Privately record blind FIFO timing and packet sizes, without payloads or addresses')
+parser.add_argument('--shaper-process', action='store_true', help='Isolate the unchanged blind TCP FIFO from the codec driver GIL; no traffic classification or extra capacity')
 parser.add_argument('--native-timing-trace', action='store_true',
                     help='Enable bounded private RTP timestamp diagnostics for source/receive attribution; records no audio samples')
 parser.add_argument('--native-trace-capacity', type=int, default=4096,
@@ -104,6 +106,8 @@ if args.screen_video and args.no_video:
     parser.error('--screen-video requires video')
 if args.compact_call_health and args.shared_control_ipc:
     parser.error('--compact-call-health requires separate control IPC')
+if args.shaper_process and (args.transport == 'quic' or not args.rate_kbps):
+    parser.error('--shaper-process requires a rate-limited TCP transport')
 if not 1 <= args.opaque_frame_capture_start_seconds < args.duration:
     parser.error('Opaque capture start must fall inside the stand duration')
 if not args.opaque_frame_capture and args.opaque_frame_capture_start_seconds != 18:
@@ -258,6 +262,7 @@ result['reannounce_interval_seconds_override'] = args.reannounce_interval_second
 result['shaper_scope'] = args.shaper_scope
 result['rate_kbps'] = args.rate_kbps
 result['media_sha256'] = hashlib.sha256(media_path.read_bytes()).hexdigest()
+result['shaper_process_isolated'] = args.shaper_process
 result['opaque_frame_capture_start_seconds'] = args.opaque_frame_capture_start_seconds if args.opaque_frame_capture else None
 result['control_carrier'] = 'compact_call_state_diagnostic' if args.compact_call_health else 'authenticated_application_envelope'
 try:
@@ -289,11 +294,14 @@ try:
         ports.append(s.getsockname()[1])
         s.close()
     if args.rate_kbps:
-        shaper_type = UdpShaper if args.transport=='quic' else TcpShaper
+        shaper_type = UdpShaper if args.transport=='quic' else ProcessTcpShaper if args.shaper_process else TcpShaper
         shaper_options = {'trace': args.shaper_trace}
         if args.transport != 'quic':
             shaper_options['scope'] = args.shaper_scope
         shaper = shaper_type([('127.0.0.1', port) for port in ports], **shaper_options)
+        if args.shaper_process:
+            result['shaper_process_pid'] = shaper.pid
+            result['codec_process_pid'] = os.getpid()
     for index, identity in enumerate(identities):
         directory = ROOT / str(index)
         lines = ['persist_enabled = false', '[global]', 'meeting_points = "off"', 'builtin_seed_policy = "never"', 'admin_socket = ' + json.dumps('unix://' + str(directory / 'admin.sock')), '[Identity]']
@@ -931,12 +939,18 @@ finally:
         result['ok'] = result['ok'] and rc == 0
 
     if shaper is not None:
-        result['neutral_shaper_final']=shaper.stats
-        shaper.stop()
-        if shaper.trace_rows is not None and startat is not None:
-            (ROOT/'shaper-queues.json').write_text(json.dumps({'startat':startat,'events':shaper.trace_events,'rows':list(shaper.trace_rows)}))
-        result['shaper_failed']=shaper.failure
-        result['ok']=result['ok'] and shaper.failure is None
+        try:
+            shaper.stop()
+            result['neutral_shaper_final']=shaper.stats
+            if shaper.trace_rows is not None and startat is not None:
+                (ROOT/'shaper-queues.json').write_text(json.dumps({'startat':startat,'events':shaper.trace_events,'rows':list(shaper.trace_rows)}))
+            result['shaper_failed']=shaper.failure
+            result['shaper_process_exited']=shaper.process.poll() is not None if args.shaper_process else None
+            result['ok']=result['ok'] and shaper.failure is None
+        except Exception as error:
+            # A failed control/stop must not skip the owned SDK node cleanup.
+            result['shaper_failed']=type(error).__name__
+            result['ok']=False
     for ch in reversed(channels):mediaclose(ch)
     for app in reversed(extra_apps):appclose(app)
     for h in reversed(extra_handles):close(h)

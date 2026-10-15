@@ -1,5 +1,82 @@
 # Calls media handoff
 
+## 2026-10-15: isolate the blind FIFO runtime
+
+Previous goal turn made authoritative progress in SDK `673a76fd` and xVeil
+`5c029f1f`/`477a047d`: real Darwin write accumulation is fixed, but complete
+audio/video quality still fails. Repeating fixed-20-ms audio with that SDK
+was rejected; do not restore that candidate merely because transport changed.
+
+The previous capture has unexplained same-process Python shaper release stalls
+up to 109 ms. An independent real-socket witness now proves a fixture coupling:
+holding the codec/test runtime's GIL for 0.9 seconds delays traffic through the
+thread-based FIFO by about 795 ms. Moving the identical FIFO to a child process
+reduces that witness delay below one millisecond. Both the timed sender and its echo
+endpoint live in another process, so the witness itself does not share the
+blocked GIL. This proves the coupling, not that GC caused an earlier burst or
+that the application has no transport backlog.
+
+`ProcessTcpShaper` uses the existing `TcpShaper` without changing reservations,
+the aggregate rate, socket bounds, byte order or connection treatment. A
+private inherited pipe carries only setup/rate/snapshot/stop, never media.
+The codec harness opts in with `--shaper-process` and records distinct worker/
+codec PIDs. The worker exits on stop or pipe EOF; a control deadline fails
+the fixture and cleans up, without restarting it or accepting an older result.
+Snapshots are retrieved after stopping production; stop failure no longer
+skips SDK node cleanup. The original thread mode remains available explicitly.
+The shaper analyzer now labels the clocks same-host, rather than same-process.
+
+All fourteen socket/arrival/lifecycle tests pass: both implementations share
+capacity across competing connections, honor per-target grouping, transfer
+all bytes, deliver EOF and close idle connections. Eight stage-analysis tests
+pass, including independent-process metadata and shared monotonic origin.
+Private evidence: `process-shaper-tests-final.log`. A killed-worker regression
+reports failure, observes the child terminal, joins its response reader and
+closes both control handles rather than reporting a successful stop.
+
+The full comparison is `pcm-process-fifo-adaptive-stress-360`, using unchanged
+production SDK/media binaries, adaptive 20–60-ms Opus, actual Dart policy,
+independent obfs4 channels, a neutral aggregate 1,024-kbit/s FIFO and two
+512-KiB files. It adds `--shaper-process --gc-timing-trace` to the previous
+command; capture, source-clock, PCM, image, file and cleanup gates are unchanged.
+No phone/GUI app, running relay, release or remote branch is changed here.
+
+The isolated full capture still fails quality. Both directions cover the full
+360 seconds, all 704 expected tone edges are attributed, the source clock
+passes at 36.150 ms, and there are no missing transitions, quiet PCM samples or
+reported audio interruptions. Mixed-phase PCM peaks at 260.954/240.927 ms
+(p95 181.045/190.293 ms), native delay at 225/206 ms, and sampled video gaps at
+22/16 seconds. Files pass byte-for-byte (256.0/247.1 seconds), control reports
+arrive completely, decoded images move at the end, every worker exits, node
+stops return zero and no fixture sockets remain. Distinct actual codec/shaper
+PIDs are recorded; the child exits successfully. The PCM/source/video/file
+acceptance gates were not relaxed.
+
+At the largest edge (second 177.768, 60-ms packet, source input at position
+40 ms), capture-to-encode is 9.912 ms, SDK-to-ingress 25.394 ms and the
+post-WebRTC residual 225.614 ms. It includes lookahead/playout/rendering.
+All-packet mixed-phase SDK-to-ingress maxima are still 140.911/156.483 ms;
+do not claim transport has no bursts from a prompt containing packet. The
+blind FIFO's maximum ready-to-write spans are now 31.039/31.207 ms, while
+reader-arrival-to-read reaches 405.162/84.230 ms on opaque chunks of unknown
+role. These maxima are not matched audio packets. The driver records forty
+GC events, maximum 2.579 ms; GC in this run does not explain the quality tail.
+Process isolation fixes a proven fixture coupling, not the whole product.
+
+Prioritize the concrete group source-admission gap below and continue receiver
+playout attribution with the isolated FIFO. Do not disable RTCP, raise audio
+quality gates, classify relay payloads or globally force a rejected duration.
+
+Read-only follow-up: `VeilGroupCallMediaController._pollStats` adjusts the group
+video adapter but never calls `reportLocalSourcePressure`; the group channel
+transport interface has no corresponding method. Only the one-to-one controller
+reports `CallAudioSourcePressure` to the SDK. Thus group audio's feedback does
+not constrain this endpoint's competing file/DATA admission as a normal call
+does. This is a concrete remaining product gap, in addition to optional group
+target telemetry. Implement and verify it before claiming all call types are
+covered. This control's passing one-to-one source report counts cannot prove
+group source admission.
+
 ## 2026-10-15: Darwin TCP write readiness
 
 Previous goal turn: progress in `f9c8af2c` (separate authenticated requested
