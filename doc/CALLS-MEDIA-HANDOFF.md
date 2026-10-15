@@ -1,5 +1,72 @@
 # Calls media handoff
 
+## 2026-10-15: enable adaptive Opus in protobuf-free Android builds
+
+SDK 618a6d6c fixes the confirmed platform gap. The engine formerly rejected
+nonzero audio_packet_overhead when WEBRTC_ENABLE_PROTOBUF=0, so standard
+Android bundles never entered the adaptive Opus path tested on the Mac bench.
+The prior installed app was protected by that rejection; do not label the
+standalone regression's crash as an observed phone crash.
+
+The pinned WebRTC ControllerManagerImpl translation unit is retained with its
+LICENSE/PATENTS and upstream source hash. Its only source changes are one
+include and an exact versioned-local-config branch before the original parser.
+That branch constructs the same real FrameLengthControllerV2 (16-kbit/s floor,
+fast adaptation), then BitrateController (zero offsets). It uses Opus's actual
+supported frame lengths and initial state. The unchanged upstream protobuf
+path remains available. All five platform builders compile this member before
+the normally extracted WebRTC archive; iOS puts it in the force-loaded Veil
+archive. Do not force-load WebRTC or omit the replacement object. No test-only
+encoder API, header-access workaround, new codec, relay metadata or scheduler
+priority is used. This removes a build dependency, not the existing payload,
+allocation, audio-buffer or video-policy limits.
+
+Real Opus regression passes against both pinned macOS archives:
+ana-protoless-after.log and ana-protobuf-after.log. Each checks supported
+maxptime 20/40/60, every allocation transition's 16–32-kbit/s payload bound,
+and actual encoded packet durations under the four framing profiles. Without
+the replacement factory, explicitly enabling the same config against the
+protobuf-free archive crashes the standalone encoder: ana-protoless-before.log.
+Again, production previously refused to enable that configuration.
+
+The complete protobuf-free Call engine passes --dual-framing isolation
+(audio 509/video 536 retained across video startup). Its unchanged
+--adaptive-encapsulation decoded-PCM smoke also passes: current-delay peaks
+83/132/152 ms, reverse 71/159/179 ms, zero dropped wire packets or reported
+interruptions, source-clock lateness 6.24 ms. Actual tone-edge peaks are
+229.95/261.20 ms; the smoke gates current delay. This is functional/native
+qualification, NOT a passing full relay actual-PCM quality gate. The earlier
+full-capture failures remain unresolved.
+
+The Android production library builds successfully against the verified
+standard arm64 SDK (protobuf disabled), with 99 public media exports. Added
+DT_NEEDED libveilclient_ffi.so on the host because the isolated builder lacks
+patchelf. Profile/AOT app 0.13.84+2589 (split APK versionCode 4589) is installed
+on Blackview BV6600Pro via adb install -r. Its signing certificate matches the
+previous installed debug app. Both packaged media and Rust SDK bytes exactly
+match the fresh outputs after the same NDK --strip-unneeded step used by
+Gradle; phone2589-native-proof.json records hashes. The SDK Rust binary is the
+fresh same-day release build from the previous section, unchanged by this
+C++-only fix. Existing storage library and application data are preserved.
+The pre-update APK is backed up as blackview-before2588.apk.
+
+The phone's local API starts after both upgrades. Its existing personality
+remains locked; the cached Poco test password fails to open that container.
+Asked the user to unlock it, without resetting data or guessing passwords.
+The attempted physical call stops before placing a call. Both test app
+processes exit; the phone ADB forward is removed. There is no new physical
+voice/video quality result yet. Do not imply that native tests prove speech
+quality or solve all pauses on real networks.
+
+A fresh Mac QA app was built with TMPDIR=/private/tmp/ and the current Rust
+SDK. Its Dart build is 2588; its final production media is 618a6d6c against the
+protobuf-free Mac archive (99 exports). The app-generated MacOS/xveil-debug.log
+was moved outside the bundle before re-signing; final strict/deep signature
+verification passes. This private QA bundle is not an /Applications update.
+No app remains running from these tests, no Docker builder remains, no relay
+was deployed, no tags/releases/pushes were made. Audio/video qualification
+remains active; the phone unlock request is pending.
+
 ## 2026-10-15: reject codec-ceiling fix; retain isolated framing probes
 
 The real Opus characterization now covers separate framing/allocation profiles.
