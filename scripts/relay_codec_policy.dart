@@ -88,9 +88,11 @@ Future<void> main() async {
       requirePeerPlayout: true,
       peerDelayMs: peer[i].delayMs(now),
       peerCurrentDelayMs: peer[i].currentDelayMs(now),
+      peerTargetDelayMs: peer[i].targetDelayMs(now),
       peerSampleSequence: peer[i].sampleSequence,
       peerBufferGrowing: peer[i].bufferGrowing(now),
       receiveDelayMs: activity[i].playoutFeedback(now).delayMs,
+      receiveTargetDelayMs: activity[i].playoutFeedback(now).targetDelayMs,
       receiveAgeMs: activity[i].lastRxAt == null
           ? null
           : now.difference(activity[i].lastRxAt!).inMilliseconds,
@@ -118,6 +120,7 @@ Future<void> main() async {
       receiveAudioExpected: true,
       peerAudioDelayMs: peer[i].delayMs(now),
       peerCurrentAudioDelayMs: peer[i].currentDelayMs(now),
+      peerTargetAudioDelayMs: peer[i].targetDelayMs(now),
       peerAudioSampleSequence: peer[i].sampleSequence,
       peerAudioBufferGrowing: peer[i].bufferGrowing(now),
       requirePeerAudioPlayout: true,
@@ -148,6 +151,7 @@ Future<void> main() async {
         'audioReserve': a.audioReserve,
         'peerDelay': peer[i].delayMs(now),
         'peerCurrentDelay': peer[i].currentDelayMs(now),
+        'peerTargetDelay': peer[i].targetDelayMs(now),
         'peerSampleSequence': peer[i].sampleSequence,
         'peerBufferGrowing': peer[i].bufferGrowing(now),
         'sourcePressured': sourcePressured,

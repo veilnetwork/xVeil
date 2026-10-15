@@ -1,5 +1,96 @@
 # Calls media handoff
 
+## 2026-10-15: requested-buffer telemetry and endpoint admission
+
+The previous goal turn made authoritative progress in `b0786510`: complete
+capture qualification and two packet-duration counterexamples. Both duration
+experiments were rejected; the SDK remains `20d9d301` with adaptive 20–60-ms
+Opus and no change to native playout or relay scheduling.
+
+The next endpoint candidate transmits the receiver's requested jitter-buffer
+target as optional encrypted JSON `ap.td`, distinct from actual/peak delay
+`d`/`cd`. Unknown fields remain compatible with older peers. The target is
+validated, expires with the actual sample, is cleared on unknown snapshots and
+repairs, and cannot be refreshed by replay. A native target requires accepted
+audio, a responsive worker and a receive age no greater than three seconds.
+It cannot qualify absent/stale audio as healthy or turn a target into measured
+mouth-to-ear delay.
+
+The user requires video cuts only for measured buffer growth or its ceiling.
+An initial candidate using the requested target as another cut trigger was
+withdrawn before evaluation. Its partial `pcm-target-buffer-stress-360` fixture
+was interrupted and cleaned up: all three node stops returned zero, workers
+joined, no fixture sockets remained. It is not a quality result.
+
+The revised candidate uses the target only to withhold VIDEO GROWTH and limit
+competing own reliable DATA. Existing video reduction and sparse-floor pause/
+recovery continue using actual receiver-buffer measurements. A target at
+200 ms can expedite one existing encrypted report per second; targets below
+the 160-ms recovery rail permit gradual producer growth again. The requested
+target and current delay have separate fields and neither overwrites the other.
+No priority, media role, mailbox operation or service privilege reaches relays.
+The one-to-one controller and the codec stand consume the same measurements.
+Fixed-size native group APP feedback does not yet carry the optional target;
+group target propagation remains a separate completion item, not a claimed fix.
+
+The focused suite passed 134 tests, including separate current/target values,
+expiry, replay, missing/stalled receivers, legacy reports, urgent feedback,
+reliable-source admission and the invariant that a target alone cannot cut
+video. Static analysis of all eight affected runtime/stand files found no
+issues. The native media library was rebuilt unchanged into
+`media-buffer-target/` before measurements. Evidence beneath
+`~/.cache/codex/xveil-physical-20261014/pcm-target-admission-stress-360` uses real
+Opus/VP8, the actual Dart policy, authenticated feedback, separate obfs4 media/
+control/file connections, a neutral aggregate 1,024-kbit/s FIFO and simultaneous
+512-KiB files. Full capture, PCM <200 ms, source clock <40 ms, moving decoded
+images, exact files and shutdown gates are retained.
+
+A read-only transport follow-up found that `veil-transport/src/tcp.rs` applies
+its 4096-byte unsent readiness threshold only on Linux/Android, though the local
+Darwin SDK declares `TCP_NOTSENT_LOWAT` (0x201). Apple's
+[tcp option handling](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/netinet/tcp_usrreq.c)
+and [readiness check](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/netinet/tcp_subr.c)
+confirm an unsent-data readiness mechanism. This is not a hard byte cap and is
+not proof of the measured backlog's cause. No socket configuration was changed
+in this candidate. A platform-specific blocked-writer experiment is needed
+before attempting a Darwin port or attributing quality gains to it.
+
+The 360-second admission candidate does not meet quality acceptance. Coverage
+is complete in both directions and all 704 expected tone edges are exactly
+attributed, with no missing transitions or quiet PCM samples. Both files pass
+byte-for-byte (281.6/307.6 seconds), decoded images move through the end with
+approximately two-second maximum sampled gaps, and no protective video pause
+occurs. Nonetheless mixed-phase PCM peaks at 348.235/327.663 ms (p95
+210.459/201.029 ms), and native delay reaches 208 ms.
+
+The independent source clock also fails at 155.510 ms near second 239.589 and
+113.600 ms near second 241.054. Its measured maximum wake lateness is
+148.948 ms while the native callback peaks at only 2.271 ms. The independent
+Python shaper records approximately 147-ms late releases too. This locates
+these outliers in scheduling of threads in the same process, not a demonstrated
+155-ms codec callback. It does not identify the scheduling cause or prove a
+host-wide pause. Even BEFORE second 230, exactly joined mixed-phase PCM peaks
+at 211.783/242.321 ms, so excluding the clock event cannot qualify the run.
+The largest unaffected edge retains a substantial post-WebRTC span. No timing
+or PCM gate was weakened, and no complete-quality claim follows from this run.
+
+`target-telemetry-audio-22` separately verifies both peers actually receiving
+optional targets 40/60 ms over the authenticated encrypted path; the explicit
+`requested_buffer_telemetry_verified` diagnostic is true. This short wire test
+is not a full quality pass: its 1010-ms source has insufficient post-second-20
+capture-position coverage for all observed packet durations, so the overall
+fixture correctly fails that separate gate. It is not a replacement for the
+long stress case. Both this fixture and the long run joined their workers,
+stopped all three nodes with result zero and left no sockets.
+
+The retained endpoint feature makes requested targets available independently
+of measured delay and prevents increasing competing producers into a requested
+buffer ceiling. Its focused behavioral/compatibility tests pass, but the full
+goal remains open: complete constrained-network quality, source scheduling
+qualification, generic transport backpressure/pacing, group target propagation,
+and physical application checks are not established by these captures.
+No phone/GUI app, running relay, release or remote branch was changed.
+
 ## 2026-10-15: adaptive packet-duration follow-up
 
 The previous cycle made authoritative progress (`20d9d301` SDK, `5c00cc69`

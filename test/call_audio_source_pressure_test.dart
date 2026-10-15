@@ -11,6 +11,8 @@ void main() {
     bool requirePeer = true,
     int? peer = 100,
     int? currentPeer,
+    int? targetPeer,
+    int? targetLocal,
     int? local = 100,
     int? age = 50,
     bool interrupted = false,
@@ -21,6 +23,8 @@ void main() {
     requirePeerPlayout: requirePeer,
     peerDelayMs: peer,
     peerCurrentDelayMs: currentPeer,
+    peerTargetDelayMs: targetPeer,
+    receiveTargetDelayMs: targetLocal,
     receiveDelayMs: local,
     receiveAgeMs: age,
     interrupted: interrupted,
@@ -331,5 +335,25 @@ void main() {
     }
     expect(sample(policy, requirePeer: false, peer: null), isFalse);
     expect(sample(policy, requirePeer: false, peer: null, local: null), isNull);
+  });
+  test('requested buffer ceiling restricts competing DATA until recovery', () {
+    for (final incoming in [false, true]) {
+      final policy = CallAudioSourcePressure();
+      recover(policy);
+      expect(
+        sample(
+          policy,
+          targetPeer: incoming ? null : 220,
+          targetLocal: incoming ? 220 : null,
+        ),
+        isTrue,
+      );
+      recover(policy);
+      expect(sample(policy, targetPeer: 199, targetLocal: 199), isNull);
+      expect(
+        sample(policy, receive: false, peer: null, targetPeer: 300),
+        isNull,
+      );
+    }
   });
 }
