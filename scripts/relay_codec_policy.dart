@@ -4,6 +4,7 @@ import 'package:xveil/state/call_bitrate_adapter.dart';
 import 'package:xveil/state/call_audio_receive_activity.dart';
 import 'package:xveil/state/call_peer_audio_playout.dart';
 import 'package:xveil/state/call_audio_source_pressure.dart';
+import 'package:xveil/state/call_audio_feedback_schedule.dart';
 import 'package:xveil/domain/call_signal.dart';
 
 Future<void> main() async {
@@ -18,11 +19,20 @@ Future<void> main() async {
   final activity = List.generate(2, (_) => CallAudioReceiveActivity());
   final peer = List.generate(2, (_) => CallPeerAudioPlayout());
   final sourcePressure = List.generate(2, (_) => CallAudioSourcePressure());
+  final feedbackSchedule = List.generate(2, (_) => CallAudioFeedbackSchedule());
   await for (final line
       in stdin.transform(utf8.decoder).transform(const LineSplitter())) {
     final req = jsonDecode(line) as Map<String, dynamic>;
     final i = req['index'] as int;
     final a = adapters[i];
+    if (req['op'] == 'feedbackAttempt') {
+      feedbackSchedule[i].recordAttempt(
+        CallAudioPlayoutFeedback.fromJson(req['feedback']),
+        DateTime.fromMillisecondsSinceEpoch(req['now'] as int),
+      );
+      stdout.writeln('{}');
+      continue;
+    }
     if (req['op'] == 'ack') {
       a.applyPendingPause((_) => req['pauseOk'] == true);
       a.applyPendingTarget((_) => req['budgetOk'] == true);
@@ -98,6 +108,11 @@ Future<void> main() async {
     stdout.writeln(
       jsonEncode({
         'feedback': activity[i].outgoingPlayoutFeedback(now).toJson(),
+        'urgentFeedback': feedbackSchedule[i].shouldSendUrgent(
+          activity[i].outgoingPlayoutFeedback(now),
+          now,
+        ),
+        'feedbackRecentlyAttempted': feedbackSchedule[i].attemptedRecently(now),
         'pause': pause,
         'budget': budget,
         'target': {'kbps': target.maxBitrateKbps, 'fps': target.maxFps},

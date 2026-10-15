@@ -875,6 +875,103 @@ void main() {
       posture: CallPosture.direct,
     );
 
+    test('fresh growing audio buffer reports before the five-second beat', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()
+          ..playout = const CallAudioPlayoutFeedback(
+            sequence: 1,
+            delayMs: 80,
+            currentDelayMs: 80,
+            bufferGrowing: false,
+          );
+        final svc = CallService(fake, now: () => clock.now(), media: media)
+          ..start();
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: 'urgent-playout',
+            type: CallSignalType.offer,
+            media: const CallMedia(audio: true),
+            posture: CallPosture.direct,
+            protocolVersion: kCallSignalProtocolVersion,
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        expect(svc.current?.status, CallStatus.active);
+        fake.sent.clear();
+        async.elapse(const Duration(seconds: 1));
+        expect(
+          fake.sent,
+          isEmpty,
+          reason: 'healthy audio retains normal cadence',
+        );
+        media.playout = const CallAudioPlayoutFeedback(
+          sequence: 2,
+          delayMs: 170,
+          currentDelayMs: 170,
+          bufferGrowing: true,
+        );
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(fake.sent, hasLength(1));
+        expect(fake.sent.single.type, CallSignalType.health);
+        expect(fake.sent.single.audioPlayout?.sequence, 2);
+        expect(fake.sent.single.audioPlayout?.bufferGrowing, isTrue);
+        async.elapse(const Duration(seconds: 1));
+        expect(
+          fake.sent,
+          hasLength(1),
+          reason: 'cached samples are not resent',
+        );
+        media.playout = const CallAudioPlayoutFeedback(
+          sequence: 3,
+          delayMs: 210,
+          currentDelayMs: 210,
+          bufferGrowing: false,
+        );
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(
+          fake.sent,
+          hasLength(2),
+          reason: 'the hard ceiling is also urgent',
+        );
+        media.playout = const CallAudioPlayoutFeedback(
+          sequence: 4,
+          delayMs: 210,
+          currentDelayMs: 210,
+          bufferGrowing: false,
+        );
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(fake.sent, hasLength(3), reason: 'coalesce the periodic beat');
+        media.playout = const CallAudioPlayoutFeedback(
+          sequence: 5,
+          delayMs: 210,
+          currentDelayMs: 80,
+          bufferGrowing: false,
+        );
+        async.elapse(const Duration(seconds: 1));
+        async.flushMicrotasks();
+        expect(fake.sent, hasLength(4), reason: 'clear pressure promptly too');
+        expect(fake.sent.last.audioPlayout?.currentDelayMs, 80);
+        expect(fake.sent.last.audioPlayout?.bufferGrowing, isFalse);
+        media.playout = const CallAudioPlayoutFeedback(
+          sequence: 6,
+          delayMs: 80,
+          currentDelayMs: 80,
+          bufferGrowing: false,
+        );
+        async.elapse(const Duration(seconds: 1));
+        expect(fake.sent, hasLength(4), reason: 'healthy samples stay periodic');
+        svc.dispose();
+        async.elapse(const Duration(seconds: 6));
+        expect(fake.sent, hasLength(4), reason: 'no feedback after disposal');
+      });
+    });
+
     test('compact health retains bootstrap, backstop and repair signaling', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -1323,8 +1420,13 @@ void main() {
         fake.sent.clear();
         async.elapse(kCallHeartbeatInterval);
         async.flushMicrotasks();
-        expect(fake.sent.single.type, CallSignalType.health);
-        final back = CallSignal.tryDecode(fake.sent.single.encode())!;
+        expect(
+          fake.sent,
+          hasLength(2),
+          reason: 'urgent ceiling then periodic health',
+        );
+        expect(fake.sent.every((s) => s.type == CallSignalType.health), isTrue);
+        final back = CallSignal.tryDecode(fake.sent.last.encode())!;
         expect(back.audioPlayout!.delayMs, 540);
         expect(back.audioPlayout!.sequence, 3);
         fake.sent.clear();
