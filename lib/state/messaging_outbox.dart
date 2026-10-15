@@ -281,7 +281,7 @@ class _MessagingOutbox {
     final mailboxEligible =
         envelope.kind == WireKind.request || envelope.kind == WireKind.accept;
     final skipLive =
-        mailboxEligible &&
+        !_MessagingMailboxDelivery.isCallSignalId(frameId) &&
         !startLiveBeforeEnqueue &&
         await _longSilent(peer.hex);
     Future<void> tryLive() async {
@@ -620,9 +620,7 @@ class _MessagingOutbox {
       // dropped and no attempt is counted against an unsent frame.
       if (redrive.length >= _maxLiveRedrivesPerPass) continue;
       // Past the ceiling check, so a probe is spent only on a frame that goes.
-      if (!isCallSignal &&
-          mailboxEligible &&
-          !_takeSilentProbe(frame.peerHex, now)) {
+      if (!isCallSignal && !_takeSilentProbe(frame.peerHex, now)) {
         continue;
       }
       final count = (backoff?.count ?? 0) + 1;

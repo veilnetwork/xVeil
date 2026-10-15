@@ -312,34 +312,46 @@ void main() {
     );
   });
 
-  test('the retried offer is deposited under the key the ORIGINAL send used, '
-      'so the mailbox holds one copy and not a growing pile', () async {
-    await boot(lose: WireKind.contentManifest);
-    final sink = _RecordingSink();
-    mA.attachMailbox(sink);
+  test(
+    'a lost file offer retries live without entering the contact mailbox',
+    () async {
+      await boot(lose: WireKind.contentManifest);
+      final sink = _RecordingSink();
+      mA.attachMailbox(sink);
 
-    await mA.sendFile(b, rnd(200 * 1024, 5), 'holiday.jpg');
-    await settle();
-    int offerDeposits() => sink.stashed
-        .where((s) => WireEnvelope.decode(s.$2).kind == WireKind.contentManifest)
-        .length;
-    expect(
-      offerDeposits(),
-      1,
-      reason: 'precondition: the original send deposited the offer once',
-    );
+      await mA.sendFile(b, rnd(200 * 1024, 5), 'holiday.jpg');
+      final file = (await sA.loadMessages(
+        b.hex,
+      )).where((message) => message.isFile).single;
+      await settle();
+      int offerDeposits() => sink.stashed
+          .where(
+            (s) => WireEnvelope.decode(s.$2).kind == WireKind.contentManifest,
+          )
+          .length;
+      expect(
+        offerDeposits(),
+        0,
+        reason: 'file offers are not contact requests or acceptances',
+      );
+      expect(tA.sent[WireKind.contentManifest], 1);
 
-    await mA.flushOutbox();
-    await settle();
+      await mA.flushOutbox();
+      await settle();
 
-    // The deposit is keyed `mf:<msgId>`, the same key the original send chose,
-    // so the retry's deposit dedups against it. Keying it any other way makes
-    // every retry tick leave ANOTHER copy of the same offer at the relay, and
-    // the recipient drains the same file offer over and over.
-    expect(
-      offerDeposits(),
-      1,
-      reason: 'the retry re-used the original deposit key — no second copy',
-    );
-  });
+      expect(
+        offerDeposits(),
+        0,
+        reason: 'the retry must preserve the contact-only mailbox policy',
+      );
+      expect(tA.sent[WireKind.contentManifest], greaterThan(1));
+      expect(
+        (await sB.loadMessages(
+          a.hex,
+        )).where((message) => message.id == file.id),
+        hasLength(1),
+        reason: 'the lost offer is recovered live as one logical file',
+      );
+    },
+  );
 }
