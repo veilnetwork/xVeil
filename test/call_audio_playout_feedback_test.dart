@@ -8,6 +8,48 @@ import 'package:xveil/state/call_peer_audio_playout.dart';
 
 void main() {
   final start = DateTime.utc(2026, 10, 5);
+
+  test(
+    'planned recovery survives wire delivery without hiding real interruptions',
+    () {
+      final peer = CallPeerAudioPlayout();
+      void report(int sequence, int total, int? recovered) {
+        final wire = jsonDecode(
+          jsonEncode(
+            CallAudioPlayoutFeedback(
+              sequence: sequence,
+              delayMs: 100,
+              interruptionCount: total,
+              recoveryCount: recovered,
+            ).toJson(),
+          ),
+        );
+        peer.observe(CallAudioPlayoutFeedback.fromJson(wire)!, start);
+      }
+
+      report(1, 0, 0);
+      report(2, 2, 2);
+      expect(peer.takeRecovery(), isTrue);
+      expect(peer.takeRecovery(), isFalse);
+      expect(peer.takeInterruption(), isFalse);
+      report(2, 3, 2); // replay cannot invent another loss
+      expect(peer.takeInterruption(), isFalse);
+      report(3, 4, 3); // one planned drop and one real interruption
+      expect(peer.takeRecovery(), isTrue);
+      expect(peer.takeInterruption(), isTrue);
+      report(4, 5, null); // older peer remains conservatively supported
+      expect(peer.takeRecovery(), isFalse);
+      expect(peer.takeInterruption(), isTrue);
+      for (final invalid in [
+        {'n': 1, 'lr': 1},
+        {'n': 1, 'i': 1, 'lr': 2},
+        {'n': 1, 'i': 1, 'lr': -1},
+        {'n': 1, 'i': 1, 'lr': '1'},
+      ]) {
+        expect(CallAudioPlayoutFeedback.fromJson(invalid), isNull);
+      }
+    },
+  );
   const healthyNetwork = {
     'worker_stalled': 0,
     'audio_feedback_reports': 1,
