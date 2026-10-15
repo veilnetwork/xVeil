@@ -21,11 +21,14 @@ def distribution(values):
             'p95_ms': round(ordered[math.ceil(.95 * len(ordered)) - 1], 3)}
 
 
-def analyze(summary, lines):
+def analyze(summary, lines, lower=5, upper=None):
     if summary.get('loopback_only') is not True:
         raise ValueError('Timing requires a same-process loopback fixture')
     start = summary['stand_start_monotonic_us']
     end = summary['duration_seconds']
+    upper = end if upper is None else upper
+    if not all(math.isfinite(v) for v in (lower, upper, end)) or not 0 <= lower < upper <= end:
+        raise ValueError('Invalid recorded-time window')
     blocks = {'send': [], 'ingress': []}
     limits = {'send': [], 'ingress': []}
     for line in lines:
@@ -63,7 +66,7 @@ def analyze(summary, lines):
                 continue
             source, row = sent
             at = (row['attempted_us'] - start) / 1_000_000
-            if not 5 <= at < end:
+            if not lower <= at < upper:
                 continue
             phase = 'audio-only' if at < 20 else 'competing'
             flight = (received['arrived_us'] - row['admitted_us']) / 1000
@@ -79,7 +82,9 @@ def analyze(summary, lines):
     return {
         'same_process_fixture_only': True,
         'trace_blocks_are_not_device_labels': True,
-        'first_five_seconds_excluded': True,
+        'first_five_seconds_excluded': lower >= 5,
+        'window_seconds': [lower, upper],
+        'window_selected_by': 'attempted_us',
         'unmatched_payload_rows': unmatched,
         'trace_limit_may_have_been_reached': any(
             len(b) >= limit for kind in blocks
@@ -99,10 +104,12 @@ def analyze(summary, lines):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('fixture', type=Path)
+    parser.add_argument('--from-seconds', type=float, default=5)
+    parser.add_argument('--to-seconds', type=float)
     args = parser.parse_args()
     summary = json.loads((args.fixture / 'summary.json').read_text())
     with (args.fixture / 'native.log').open() as log:
-        print(json.dumps(analyze(summary, log), indent=2))
+        print(json.dumps(analyze(summary, log, args.from_seconds, args.to_seconds), indent=2))
 
 
 if __name__ == '__main__':
