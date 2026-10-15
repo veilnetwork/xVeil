@@ -4,6 +4,7 @@
 #include <atomic>
 #include <cassert>
 #include <cstdio>
+#include <string>
 
 namespace {
 struct Fake {
@@ -33,12 +34,15 @@ int PlayoutTone(void* ptr, int16_t* pcm, size_t capacity) {
   return 480;
 }
 }
-int main() {
+int main(int argc, char** argv) {
+  if (argc > 2 || (argc == 2 && std::string(argv[1]) != "--deadline")) return 2;
+  const int priority = argc == 2 && std::string(argv[1]) == "--deadline" ? 2 : 1;
   Fake a, b;
   const double origin = stand_pcm_now();
   assert(!stand_pcm_start(nullptr, PlayoutTone, &a, &b, origin, 1010, 1));
   assert(!stand_pcm_start(CaptureTone, PlayoutTone, &a, &a, origin, 1010, 1));
-  void* handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, origin, 1010, 1);
+  assert(!stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, origin, 1010, 3));
+  void* handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, origin, 1010, priority);
   assert(handle);
   while (a.calls.load() < 5) std::this_thread::sleep_for(std::chrono::milliseconds(1));
   a.stall = true;
@@ -53,6 +57,11 @@ int main() {
   assert(stats.late_intervals >= 2 && stats.dropped_rows == 0);
   assert(!stats.failures[0] && !stats.failures[1]);
   assert(n == stats.ticks * 2 && n >= 24);
+  if (priority == 2) {
+    assert(stats.deadline_requested == 1 && stats.deadline_result == 0);
+    assert(stats.deadline_active == 1 && stats.deadline_misses == 0);
+    assert(stats.deadline_checks >= 2);
+  }
   std::array<double, 2> previous{};
   bool long_playout = false;
   for (size_t i = 0; i < n; ++i) {
@@ -77,6 +86,7 @@ int main() {
   full.engines = {&a, &b};
   full.origin = stand_pcm_now();
   full.period_ms = 1010;
+  full.deadline_priority = priority == 2;
   full.rows.resize(kCapacity);
   full.thread = std::thread([&] { full.Run(); });
   while (a.calls.load() == calls)
@@ -88,7 +98,7 @@ int main() {
   // actual source-clock failure, rather than being blamed on the codec.
   const int before_publication_test = a.calls.load();
   a.hold_capture = true;
-  handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, stand_pcm_now(), 1010, 1);
+  handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, stand_pcm_now(), 1010, priority);
   while (!a.capture_entered.load())
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   {
