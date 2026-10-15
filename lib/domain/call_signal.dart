@@ -13,7 +13,7 @@ import 'dart:typed_data';
 ///
 /// Wire form is compact JSON with short keys so re-sends stay cheap:
 ///   {c:callId, k:type, m:{a,v,s}, p:posture, t:{k,r,e}, mk:mediaKey, r:reason,
-///    mr:mediaRepairRequested, cm:{a,v,s} capture, ap:{n,d,i} audio playout,
+///    mr:mediaRepairRequested, cm:{a,v,s} capture, ap:{n,d,cd,td,g,i} audio playout,
 ///    v:protocolVersion, ts:sentAtMs}
 /// Unknown keys are ignored on decode, and an unknown [type]/[posture]/[kind]
 /// enum index decodes to its `.unknown` sentinel so a newer peer's additions
@@ -239,6 +239,7 @@ class CallAudioPlayoutFeedback {
     required this.sequence,
     this.delayMs,
     this.currentDelayMs,
+    this.targetDelayMs,
     this.bufferGrowing,
     this.interruptionCount,
   });
@@ -249,6 +250,10 @@ class CallAudioPlayoutFeedback {
   /// Current receiver snapshot, distinguished from the five-second peak in
   /// [delayMs]. Absent on older peers and fixed-size group feedback.
   final int? currentDelayMs;
+
+  /// Requested jitter-buffer target; this is not measured playout delay.
+  /// Absent on older peers. It shares the actual sample's freshness.
+  final int? targetDelayMs;
 
   /// Trend over six fresh native receiver snapshots, not six heartbeats.
   /// Absent until the receiver has a complete window and on older peers.
@@ -261,6 +266,7 @@ class CallAudioPlayoutFeedback {
     'n': sequence,
     if (delayMs != null) 'd': delayMs,
     if (currentDelayMs != null) 'cd': currentDelayMs,
+    if (targetDelayMs != null) 'td': targetDelayMs,
     if (bufferGrowing != null) 'g': bufferGrowing,
     if (interruptionCount != null) 'i': interruptionCount,
   };
@@ -270,6 +276,7 @@ class CallAudioPlayoutFeedback {
     final sequence = raw['n'];
     final delay = raw['d'];
     final current = raw['cd'];
+    final target = raw['td'];
     final growing = raw['g'];
     final interruptions = raw['i'];
     if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
@@ -286,6 +293,10 @@ class CallAudioPlayoutFeedback {
             current > delay)) {
       return null;
     }
+    if (target != null &&
+        (target is! int || target < 0 || target > 60000 || delay == null)) {
+      return null;
+    }
     if (growing != null && (growing is! bool || current == null)) {
       return null;
     }
@@ -299,6 +310,7 @@ class CallAudioPlayoutFeedback {
       sequence: sequence,
       delayMs: delay as int?,
       currentDelayMs: current as int?,
+      targetDelayMs: target as int?,
       bufferGrowing: growing as bool?,
       interruptionCount: interruptions as int?,
     );

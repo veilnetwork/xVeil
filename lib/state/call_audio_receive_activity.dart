@@ -46,12 +46,28 @@ class CallAudioReceiveActivity {
     return buffer != null && buffer > delay ? buffer : delay;
   }
 
+  static int? nativeTargetDelay(Map<String, Object?> stats) {
+    if (nativePlayoutDelay(stats) == null) return null;
+    final age = stats['audio_rx_native_age_ms'];
+    if (age is! num ||
+        !age.isFinite ||
+        age < 0 ||
+        age > sampleLifetime.inMilliseconds) {
+      return null;
+    }
+    final target = stats['audio_jb_target_ms'];
+    return target is num && target.isFinite && target >= 0 && target <= 60000
+        ? target.toInt()
+        : null;
+  }
+
   int _lastPackets = 0;
   bool supported = false;
   DateTime? lastRxAt;
   DateTime? workerStalledSince;
   int _sequence = 0;
   int? _playoutDelayMs;
+  int? _targetDelayMs;
   DateTime? _sampledAt;
   int? _lastInterruptionCount;
   int _interruptionCount = 0;
@@ -87,6 +103,7 @@ class CallAudioReceiveActivity {
       sequence: current.sequence,
       delayMs: peak,
       currentDelayMs: delay,
+      targetDelayMs: current.targetDelayMs,
       bufferGrowing: _playoutWindow.growing,
       interruptionCount: current.interruptionCount,
     );
@@ -105,6 +122,7 @@ class CallAudioReceiveActivity {
     return CallAudioPlayoutFeedback(
       sequence: _sequence,
       delayMs: fresh ? _playoutDelayMs : null,
+      targetDelayMs: fresh ? _targetDelayMs : null,
       interruptionCount: fresh && _lastInterruptionCount != null
           ? _interruptionCount
           : null,
@@ -125,6 +143,7 @@ class CallAudioReceiveActivity {
     interrupted = false;
     _sequence++;
     _playoutDelayMs = null;
+    _targetDelayMs = null;
     _sampledAt = null;
     final packets = stats['audio_rx_pkts'];
     if (packets is! num || packets < 0) {
@@ -165,6 +184,7 @@ class CallAudioReceiveActivity {
     // Only a successfully queried audio worker supplies a playout estimate.
     if (delay != null) {
       _playoutDelayMs = delay;
+      _targetDelayMs = nativeTargetDelay(stats);
       _sampledAt = now;
       // A newer equal/higher sample outlives the older one. Keep descending
       // candidates so expiry also preserves smaller intervening peaks. Normal
@@ -182,6 +202,7 @@ class CallAudioReceiveActivity {
     // Keep sequence monotonic across session repairs and unknown snapshots.
     _sequence++;
     _playoutDelayMs = null;
+    _targetDelayMs = null;
     _sampledAt = null;
     _feedbackPeaks.clear();
     _playoutWindow.reset();

@@ -22,9 +22,11 @@ class CallAudioSourcePressure {
     required bool requirePeerPlayout,
     required int? peerDelayMs,
     int? peerCurrentDelayMs,
+    int? peerTargetDelayMs,
     int? peerSampleSequence,
     bool? peerBufferGrowing,
     required int? receiveDelayMs,
+    int? receiveTargetDelayMs,
     required int? receiveAgeMs,
     required bool interrupted,
     required int? audioTxDrops,
@@ -67,12 +69,26 @@ class CallAudioSourcePressure {
     );
     // Competing sources use the same buffer trigger as the video ladder.
     // RTT/loss/unknown feedback cannot quietly cut video in this other layer.
-    final bad = peerPressure || receivePressure;
+    final peerTarget =
+        peerNeeded && valid(peerDelay) && valid(peerTargetDelayMs)
+        ? peerTargetDelayMs
+        : null;
+    final receiveTarget =
+        receiveExpected && valid(receiveDelayMs) && valid(receiveTargetDelayMs)
+        ? receiveTargetDelayMs
+        : null;
+    final bad =
+        peerPressure ||
+        receivePressure ||
+        (peerTarget != null && peerTarget >= playoutDegradeMs) ||
+        (receiveTarget != null && receiveTarget >= playoutDegradeMs);
     final good =
         !bad &&
         !unknown &&
         !interrupted &&
         !newDrop &&
+        (peerTarget == null || peerTarget < playoutRecoverMs) &&
+        (receiveTarget == null || receiveTarget < playoutRecoverMs) &&
         (!peerNeeded || peerDelay! < playoutRecoverMs) &&
         (!receiveExpected ||
             (receiveDelayMs! < playoutRecoverMs &&

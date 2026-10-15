@@ -137,4 +137,38 @@ void main() {
       expect(schedule.shouldSendUrgent(sample(1), start), isTrue);
     },
   );
+  test(
+    'requested buffer ceiling is urgent without relabeling current delay',
+    () {
+      final schedule = CallAudioFeedbackSchedule();
+      final report = CallAudioPlayoutFeedback.fromJson({
+        'n': 1,
+        'd': 60,
+        'cd': 60,
+        'g': false,
+        'td': 220,
+      })!;
+      expect(schedule.shouldSendUrgent(report, start), isTrue);
+      schedule.recordAttempt(report, start);
+      expect(
+        schedule.shouldSendUrgent(
+          report,
+          start.add(const Duration(seconds: 1)),
+        ),
+        isFalse,
+      );
+      final clear = CallAudioPlayoutFeedback.fromJson({
+        'n': 2,
+        'd': 60,
+        'cd': 60,
+        'g': false,
+        'td': 80,
+      })!;
+      expect(
+        schedule.shouldSendUrgent(clear, start.add(const Duration(seconds: 1))),
+        isTrue,
+      );
+      expect(report.delayMs, 60);
+    },
+  );
 }

@@ -749,6 +749,14 @@ try:
     result['video_overhead_bytes_override'] = args.video_overhead_bytes
     result['video_overhead_verified'] = all(x['stats'].get('video_packet_overhead_bytes') == args.video_overhead_bytes for x in samples) if args.video_overhead_bytes else None
     result['adaptive_audio'] = args.adaptive_audio
+    # Optional diagnostic, never synthesized from another delay field. Older
+    # peers/libraries retain their current-delay behavior without this target.
+    result['requested_buffer_telemetry_verified'] = all(
+        any(row['side'] == side and row['t'] >= max(5, args.duration - 15)
+            and type(row['policy'].get('peerTargetDelay')) is int
+            and 0 <= row['policy']['peerTargetDelay'] <= 60000
+            for row in samples)
+        for side in range(2))
     # A separate sender being configured proves ownership, not delivery.
     # Require fresh receiver feedback near the end, with actual audio RTCP TX.
     result['audio_rtcp_feedback_verified'] = all(
