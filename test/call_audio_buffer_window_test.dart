@@ -31,9 +31,34 @@ void main() {
     expect(window.observe(80), isFalse);
   });
 
+  test('bounded packet timing oscillations do not manufacture growth', () {
+    for (final values in [
+      [36, 56, 36, 36, 56, 56],
+      [36, 56, 37, 36, 56, 57, 35, 55, 36, 36, 55, 56],
+      [109, 129, 109, 109, 129, 129],
+    ]) {
+      final window = CallAudioBufferWindow();
+      for (var repeat = 0; repeat < 4; repeat++) {
+        for (final delay in values) {
+          expect(window.observe(delay), isFalse, reason: '$values at $delay');
+        }
+      }
+    }
+  });
+
   test('ceiling triggers without waiting to fill the growth window', () {
     expect(CallAudioBufferWindow().observe(200), isTrue);
     expect(CallAudioBufferWindow().observe(1000), isTrue);
+  });
+
+  test('an earlier isolated peak cannot hide continuing growth', () {
+    final window = CallAudioBufferWindow();
+    var detected = false;
+    for (final delay in [60, 190, 80, 90, 100, 110, 120, 130, 140, 150]) {
+      detected = window.observe(delay) || detected;
+    }
+    expect(detected, isTrue);
+    expect(window.growing, isTrue);
   });
 
   test('a drained recent rise below the ceiling is not ongoing growth', () {
