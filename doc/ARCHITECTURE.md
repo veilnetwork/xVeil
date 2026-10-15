@@ -18006,3 +18006,79 @@ video progress and physical speech remain open. No phone, installed app/profile
 or server is used or changed in this cycle. Real fixture nodes stop and test
 process exit is verified before the work cycle is committed. The goal remains
 active.
+
+#### Native synthetic PCM clock independent of Python polling
+
+The codec fixture now accepts `--native-pcm-driver`. Its stand-only C++ helper
+calls the existing synthetic ADM capture/playout hooks directly on a native
+thread every 10 ms; no Python callback, physical audio device, scheduling
+priority, production ABI or relay policy is involved. Python still performs
+the same application-adapter, encrypted feedback and decoded-video checks.
+The native driver records each side's actual capture and post-playout times,
+input index, PCM RMS and frequency crossings. Capture time is independent of
+output processing and the two monotonic-clock epochs are checked before use.
+It never backdates inputs or emits a burst of catch-up samples after a stall.
+
+The private evidence queue holds at most 4096 observations; overflow counts
+as a failed capture rather than silently replacing observations or blocking
+media. The full gate also requires two observations per source tick. Actual
+per-side capture intervals must remain below the original 40-ms limit; PCM
+latency remains strictly below 200 ms. Callback errors, decoded-image progress,
+full file contents, feedback authentication and shutdown keep their existing
+gates. The Python clock remains available for compatibility/comparison.
+
+The native regression injects a real 65-ms callback stall and verifies that
+both its processing delay and subsequent capture interval remain visible,
+that a full evidence queue reports overflow, and that capture stops before
+the engine owner can free its state. A Python integration test holds the GIL
+for 120 ms and proves native capture continues, validates the ctypes record
+layout/clock ordering, and checks joined shutdown. Run the latter with
+`TMPDIR=/private/tmp/ python3 -m unittest discover -s scripts -p
+'test_native_pcm_driver.py'`; the C++ regression is
+`clang++ -std=c++20 -O2 -Wall -Wextra -Werror -pthread
+scripts/native_pcm_driver_test.cc -o <private-output>` followed by that binary.
+
+The six-minute `pcm-native-clock-current-360` run pins accepted SDK a7b6d717
+(production-seeds/node-embedded/packet-tunnel), the existing protobuf-enabled
+Opus/VP8 test media, a neutral obfs4 TCP relay, an aggregate 1024-kbit/s FIFO
+limit, duplex 512-KiB files, compact media/control and 1010-ms tone changes.
+This exercises the ordinary relay channel; it does not qualify the new four
+anonymous receive circuits under codecs. No microphone, speaker or phone is
+used. All 71,942 observations for 35,971 source ticks are present, with zero
+queue overflow or native/poll errors. The capture-index/RTP join verifies both
+sources and attributes all 704 tone transitions without trace clipping or
+unmatched payloads; all 20/40/60-ms packet positions are covered.
+
+The full run FAILS. Mixed PCM maxima are 263.774/213.195 ms (p95 178.665/183.918),
+and one sampled native buffer reaches 226 ms. The largest edge at source 1
+time 150.496 s spends 0.231 ms capture-to-encode, 0.019 ms before send,
+0.011 ms in SDK admission, 13.989 ms to receiver ingress, 0.024 ms to WebRTC
+delivery, then 249.500 ms until the decoded tone edge. The last span includes
+codec lookahead/following packets and playout, not NetEq alone. Earlier, around
+147.8 s, matching audio packets spend up to 179.954 ms from SDK admission to
+ingress; the sampled preferred/current jitter buffers subsequently grow to
+180/226 ms. This is a network burst followed by a receiver playout tail, not
+evidence that the peak packet itself took 264 ms through the relay. The exact
+traffic responsible for the earlier burst is not established. The adapter
+reduces video budgets during this growth; decoded images keep changing through
+the final 15 seconds on both sides.
+
+Separately, both source intervals reach 45.72/45.63 ms at 316.914 s, failing
+the unchanged 40-ms clock gate despite the native driver. Capture/playout calls
+throughout the run take at most 0.65 ms, and source intervals in the earlier
+145–153-s peak window stay below 15.03 ms. Thus removing Python from the clock
+does not eliminate every host scheduling/timer stall, while this later stall
+cannot explain the earlier PCM peak. Do not claim the GIL was the sole cause
+or qualify the full run by excluding its failed interval.
+
+There are no missing tone transitions, quiet decoded frames or reported native
+interruptions; that does not establish physical speech quality. Both full files
+arrive with correct hashes and no asynchronous send errors (166.6/202.6 s), all
+72 periodic health reports plus bootstrap arrive per direction, and real RTCP
+and independent ordered media sends are observed. These delivery checks do not
+override either failed latency gate. The native regression, GIL integration,
+two input-clock tests and five pipeline-attribution tests pass. All fixture
+nodes stop successfully, sockets disappear, and the Python/Dart processes exit.
+The helper/fixture changes and evidence are committed unsigned without pushing;
+the audio-priority goal, reliable source-clock gate, shaped anonymous-route
+codec checks and physical speech assessment remain open.
