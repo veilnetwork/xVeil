@@ -1,5 +1,58 @@
 # Calls media handoff
 
+## 2026-10-15: close the SOCKS write-admission bypass
+
+Previous turn made progress in SDK `410c1516` and xVeil `4f1090b7`; the
+accurate-control 360-second mixed capture remains a quality FAILURE, not a
+qualified build. This cycle keeps its audio/video gates, codecs, RTCP and
+receiver capacity unchanged. No physical app/call or relay was started/updated.
+
+SDK `12816b7c`: ordinary `socks://` and `sockstls://` transport connections now
+use the same Darwin write-admission wrapper as direct TCP/TLS. SOCKS tunnel
+sockets also receive the established TCP send-buffer/unsent threshold and MSS
+settings on supported platforms. The transport honors its context's NODELAY
+setting. TLS still selects BoringSSL or rustls exactly as before, and proxy
+DNS resolution stays remote. The public raw bootstrap socket API retains its
+return type and gains the socket settings; it does not promise the stream
+wrapper's partial-write bound. These are uniform local transport bounds, never
+media-role detection or preferential relay service. A 4-KiB write bound is not
+a claim that total in-flight/socket/TLS buffering is 4 KiB. SOCKS' returned
+connection still does not expose independent auxiliary-session capability.
+
+Two tests exercise the PUBLIC transport over an actual loopback SOCKS handshake,
+with a domain-only target (`peer.invalid`) and optionally real TLS. The proxy
+stops reading: a 512-KiB reliable write must wait while a message in the reverse
+direction still arrives. Releasing reads must deliver the exact complete byte
+sequence and EOF. On Darwin the first application write must be partial and
+at most 4 KiB. Reverting just the production implementation to its parent,
+while retaining the tests, produces two expected failures: original first
+writes accept 327,212 and 393,216 bytes. The fixed source is restored before
+final verification; the failure artifact is an intentional baseline witness.
+
+Complete transport results: rustls 152 unit + 5 integration + 2 doc tests;
+BoringSSL 160 unit + 5 integration + 2 doc tests, all passing. Transport Clippy
+with all targets, BoringSSL and denied warnings passes. The production embedded
+FFI SDK builds successfully. These scoped green checks do NOT erase the eight
+previously documented session-Clippy findings or prove full workspace CI.
+Private cache logs: `socks-admission-before.log`,
+`socks-admission-rustls-full.log`, `socks-admission-boring-full.log`,
+`socks-admission-clippy.log`, `socks-admission-sdk.log`.
+
+Receiver analysis of the preserved `pcm-bg-ctrl-360` narrows the next action.
+Before the 269.700-ms PCM edge at second 110, both paths have their maximum
+flight delay around second 106.85–106.89 (154/181 ms). The receiver gauges then
+fall to 4/20 ms around second 107; concealed samples increase, followed by
+140/200-ms requested buffer targets and 188/234-ms current buffers. By seconds
+116–117 current buffers recover to roughly 104/107 ms. This is consistent with
+receiver recovery after a transport burst; the later worst edge's short flight
+does not establish an isolated receiver bug. Adaptive Opus packet durations
+also change through this interval, but their causal contribution is unproven.
+There is no justification yet for reducing capacity or forcing 20-ms packets.
+The source's video padding increases by only seven packets (1,785 bytes) during
+one upgrade in this interval: that observation alone cannot explain the whole
+stall. Follow-up must isolate the original flight burst and recovery, and
+separately verify whether below-ceiling video pauses are justified growth.
+
 ## 2026-10-15: pace this node's own DHT publications
 
 Previous goal turn made authoritative progress in SDK `e5b108de` and xVeil
