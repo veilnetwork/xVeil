@@ -1,5 +1,113 @@
 # Calls media handoff
 
+## 2026-10-15: reject cold-video seed candidate; resume Blackview calls
+
+The preceding cycle made progress (SDK 618a6d6c/root 72c80614), including
+installing Android build 2589 with adaptive Opus available. Qualification is
+still open. This cycle tested a separate startup hypothesis: a video Call's
+default estimate is 300 kbit/s and the stream then seeds the entire selected
+profile before measuring spare capacity. A candidate seeds both video Calls
+at 30 kbit/s and seeds feedback-capable streams at min(30 kbit/s, selected),
+retaining their maximum, later discovery, audio Call and legacy stream floor.
+A real ProbeController regression fails against the prior helper and passes
+with the candidate: initial clusters stay at/below min(selected,180 kbit/s),
+while profile/allocation-driven discovery and the original ceilings remain.
+
+The unchanged full mixed gate still fails: cold-video-full-360 uses the real
+Opus/VP8/Dart adapter, independent obfs4 channels, a blind 1,024-kbit/s aggregate
+FIFO, two exact 512-KiB encrypted files and native PCM/tone-position coverage.
+PCM peaks are 291.205/220.350 ms (p95 219.909/200.359 ms), versus audio-only
+peaks 71.885/90.431 ms in the same run. The clock passes (33.40-ms maximum
+interval); all 704 edges are attributed, no quiet frames or reported
+interruptions occur. Current buffers reach 242/200 ms. Video has 55/49
+protective pause samples and maximum sampled gaps of 20/17 seconds, though
+both directions move at the end. Files finish exactly in 282.6/292.2 seconds;
+all 95/99 feedback reports plus bootstrap arrive. All workers exit, three
+nodes stop with status 0 and no fixture sockets remain.
+
+The candidate is rejected and all three SDK source/test edits are restored.
+Its exact patch remains private as rejected-cold-video-start.patch, alongside
+cold-video-before/after.log and the media-cold-video library. This was against
+the protobuf-free Mac archive; do not interpret differences from older,
+protobuf-enabled bench binaries as a matched causal comparison. The absolute
+quality failure suffices to withhold the candidate.
+
+Attribution covers all 21,108 captured owned primary cells across both hops,
+with zero ambiguous/incomplete routes or in-window uncaptured witnesses. The
+largest 205-ms flight is at second 71.462: source-to-relay 92.392 ms, relay
+residence 0.150 ms, relay-to-target 112.458 ms. The worst PCM edge is later,
+at input second 73.731, on a 40-ms packet: capture-to-encode 31.876 ms,
+SDK-to-ingress 12.416 ms, post-WebRTC residual 246.886 ms. The following packet
+arrives at second 73.815. As before, that residual is not a direct NetEq-only
+measurement. Initial seeding alone does not remove steady-state flight bursts
+and their receiver recovery tail; do not reduce receiver capacity or relabel
+transit traffic to make this gate pass.
+
+The user supplied a replacement-phone password; it successfully opens the
+existing Blackview identity and reaches real-stack ready. No new identity,
+profile or container reset is needed. Password material remains only in the
+private local fixture. Physical call artifacts are call-blackview2589-aot;
+the private Mac bundle uses the accepted 618a6d6c production media, not the
+rejected cold-video candidate. Initial incoming signal arrives in 0.17 seconds,
+and both endpoints become active over P2P. Native stats confirm adaptive audio
+is actually enabled on BOTH endpoints (209-byte hint, real 20-ms packets and
+28.4-kbit/s target in the early sample), rather than inferred from build flags.
+The first call completes 177.97 seconds of observation, enabling video at
+62.03 seconds. Both endpoints stay active over P2P throughout, with zero route
+handovers, reported interruptions, discarded audio packets or audio TX drops.
+A single jitter-buffer flush is already present in the early audio phase and
+does not increase with video. Sampled audio-buffer maxima after warmup are
+96/91 ms for audio-only, 93/93 ms with video. These are buffer gauges, not an
+acoustic end-to-end latency measurement; no continuous speech is supplied.
+Both directions encode, decode and present camera frames. Lifetime video TX
+rates finish around 21/20 fps; coarse inter-snapshot medians are 17/16 fps.
+Do not mistake the lifetime native video_tx_fps field for the current rung's
+cadence. Direct profile permits 60 fps, while observed local previews run
+around 30. The ladder varies through 1/6/15/30/60 fps and drops to 1 fps on
+Mac near the end despite all observed audio buffers being below 100 ms.
+Fresh-window growth still triggers that policy; higher sustained P2P FPS needs
+investigation of those actual windows, not a blanket higher maximum or removal
+of audio guards. The user reports the P2P image/overall result looks very good
+and would prefer higher FPS. Both owned apps and the logcat process exit, and
+the ADB forward is removed. No existing identity is reset.
+
+A second call deliberately sets both QA endpoints' P2P policy to denied, with
+the prior effective policy saved and restoration wired before process cleanup.
+Its first setup attempt never places a call or changes a policy: the private
+Mac launcher's naive bind preflight mistakes the just-closed port's TIME_WAIT
+for a live listener. The old PID is absent and lsof shows no listener; the
+private preflight gains SO_REUSEADDR and the next attempt starts normally.
+Artifacts are call-blackview2589-relay2-aot. Both native endpoints confirm an
+active RELAY call; incoming signaling arrives in 0.15 seconds. Audio adaptation
+is enabled on both, with actual 20/40-ms packetization observed. Final relay
+counters confirm 179.67 seconds of active relay observation, with video from
+61.66 seconds. Both endpoints retain enabled ANA; there are zero reported audio
+interruptions, discarded audio packets, audio TX drops or route handovers.
+After warmup the sampled current-buffer maxima are 157/144 ms for audio-only
+and 186/164 ms with video. Video-phase RTT ranges are 90–117/87–117 ms. These
+are sampled buffer/RTCP gauges, not acoustic latency or measured speech quality.
+Both directions deliver/present camera frames, but cadence is lower: coarse
+inter-snapshot video TX medians are 6.4/1.0 fps, corresponding received medians
+1.0/6.4 fps. Phone has six sampled protective video pauses. This is not proof
+of sustained high-quality relay video or constrained file coexistence.
+
+The previous effective P2P policies are restored AND read back successfully on
+both endpoints before shutdown. Both owned app processes, the logcat process
+and the ADB forward are gone. The private Mac preflight fix is retained only
+in the QA launcher. No relay binary, privacy policy or production video ladder
+was changed this cycle. Installed Android remains build 2589/SDK 618a6d6c;
+rejected cold-start code was never installed on either physical endpoint.
+relay-codec-control's help now correctly requires the local ANA factory rather
+than protobuf, matching the prior accepted SDK fix. Root/SDK working trees are
+committed/clean at cycle end; no commits are signed or pushed.
+
+Next action: inspect actual fresh buffer-window inputs and current peer values
+behind sub-100-ms P2P rung reductions, and qualify any improvement against both
+real calls and the still-failing mixed relay gate. Current mediaDiagnostics
+exposes peer retained delay/growth but not its current/target/sequence, so the
+existing physical snapshots cannot exactly replay every adaptation input.
+Do not present higher FPS as merely raising the already-60-fps profile ceiling.
+
 ## 2026-10-15: enable adaptive Opus in protobuf-free Android builds
 
 SDK 618a6d6c fixes the confirmed platform gap. The engine formerly rejected
