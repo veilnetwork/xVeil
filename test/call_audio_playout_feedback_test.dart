@@ -674,4 +674,92 @@ void main() {
       expect(adapter.level, CallBitrateAdapter.ladder.length - 2);
     }
   });
+  test('requested buffer stays separate from measured delay on the wire', () {
+    final rx = CallAudioReceiveActivity();
+    rx.observe({
+      'worker_stalled': 0,
+      'audio_rx_pkts': 100,
+      'audio_rx_native_age_ms': 0,
+      'audio_delay_ms': 60,
+      'audio_jb_target_ms': 300,
+    }, start);
+    final json = rx.outgoingPlayoutFeedback(start).toJson();
+    expect(json['d'], 60);
+    expect(json['cd'], 60);
+    expect(json['td'], 300);
+    expect(CallAudioPlayoutFeedback.fromJson(json)!.toJson()['td'], 300);
+  });
+  test('requested buffer validation, replay and expiry match its sample', () {
+    for (final bad in [-1, 60001, '300', 300.5]) {
+      expect(
+        CallAudioPlayoutFeedback.fromJson({'n': 1, 'd': 60, 'td': bad}),
+        isNull,
+      );
+    }
+    expect(CallAudioPlayoutFeedback.fromJson({'n': 1, 'td': 300}), isNull);
+    final peer = CallPeerAudioPlayout();
+    peer.observe(
+      CallAudioPlayoutFeedback.fromJson({'n': 2, 'd': 60, 'td': 300})!,
+      start,
+    );
+    peer.observe(
+      CallAudioPlayoutFeedback.fromJson({'n': 1, 'd': 60, 'td': 60})!,
+      start.add(const Duration(seconds: 1)),
+    );
+    expect(peer.targetDelayMs(start), 300);
+    expect(peer.currentDelayMs(start), 60);
+    expect(peer.targetDelayMs(start.add(const Duration(seconds: 13))), isNull);
+    peer.invalidateMeasurement();
+    expect(peer.targetDelayMs(start), isNull);
+    peer.observe(
+      CallAudioPlayoutFeedback.fromJson({'n': 2, 'd': 60, 'td': 300})!,
+      start,
+    );
+    expect(peer.targetDelayMs(start), isNull);
+    peer.observe(
+      const CallAudioPlayoutFeedback(sequence: 3, delayMs: 60),
+      start,
+    );
+    expect(
+      peer.targetDelayMs(start),
+      isNull,
+      reason: 'old peers retain no target',
+    );
+  });
+
+  test(
+    'requested native buffer expires and unknown workers cannot supply it',
+    () {
+      final rx = CallAudioReceiveActivity();
+      final stats = <String, Object>{
+        'worker_stalled': 0,
+        'audio_rx_pkts': 100,
+        'audio_rx_native_age_ms': 0,
+        'audio_delay_ms': 60,
+        'audio_jb_target_ms': 300,
+      };
+      rx.observe(stats, start);
+      expect(rx.playoutFeedback(start).targetDelayMs, 300);
+      expect(
+        rx.playoutFeedback(start.add(const Duration(seconds: 4))).targetDelayMs,
+        isNull,
+      );
+      for (final change in [
+        {'worker_stalled': 1},
+        {'audio_rx_pkts': 0},
+        {'audio_rx_native_age_ms': 4000},
+      ]) {
+        rx.observe({
+          ...stats,
+          ...change,
+        }, start.add(const Duration(seconds: 1)));
+        expect(
+          rx
+              .playoutFeedback(start.add(const Duration(seconds: 1)))
+              .targetDelayMs,
+          isNull,
+        );
+      }
+    },
+  );
 }

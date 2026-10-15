@@ -37,6 +37,7 @@ void main() {
     Map<String, dynamic>? stats,
     int? peerDelay = 60,
     int? currentPeerDelay,
+    int? peerTargetDelay,
     int? peerSequence,
     bool interrupted = false,
     bool send = true,
@@ -55,6 +56,7 @@ void main() {
       requirePeerAudioPlayout: send,
       peerAudioDelayMs: peerDelay,
       peerCurrentAudioDelayMs: currentPeerDelay,
+      peerTargetAudioDelayMs: peerTargetDelay,
       peerAudioSampleSequence: peerSequence,
       audioInterrupted: interrupted,
       expectedAudioFeedbackReports: audioReceivers,
@@ -1331,4 +1333,43 @@ void main() {
     a.onNativeStats(healthy(audioDrops: 502));
     expect(a.level, 2);
   });
+  test('requested buffer withholds growth without cutting measured video', () {
+    final a = direct(level: 2);
+    for (var n = 0; n < 30; n++) {
+      native(a, stats: {...healthy(), 'audio_jb_target_ms': 220});
+    }
+    expect(a.level, 2);
+    final b = direct();
+    for (var n = 0; n < 30; n++) {
+      native(b, stats: {...healthy(), 'audio_jb_target_ms': 199});
+    }
+    expect(b.level, 0);
+  });
+  test(
+    'requested peer buffer withholds growth without changing actual delay',
+    () {
+      final a = direct(level: 2);
+      for (var n = 0; n < 30; n++) {
+        native(a, peerTargetDelay: 300, peerSequence: n);
+      }
+      expect(a.level, 2);
+      final b = direct();
+      for (var n = 0; n < 30; n++) {
+        native(b, peerDelay: null, peerTargetDelay: 300, peerSequence: n);
+      }
+      expect(b.level, 0, reason: 'a target alone cannot validate absent audio');
+      final c = direct();
+      for (var n = 0; n < 30; n++) {
+        native(
+          c,
+          stats: {
+            ...healthy(),
+            'audio_rx_native_age_ms': 4000,
+            'audio_jb_target_ms': 300,
+          },
+        );
+      }
+      expect(c.level, 0, reason: 'stale receive targets are not new pressure');
+    },
+  );
 }

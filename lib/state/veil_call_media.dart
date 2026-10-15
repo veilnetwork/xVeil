@@ -1516,9 +1516,13 @@ class VeilCallMediaController implements CallMediaController {
               kCallAudioPlayoutFeedbackMinVersion,
           peerDelayMs: _peerAudioPlayout.delayMs(now),
           peerCurrentDelayMs: _peerAudioPlayout.currentDelayMs(now),
+          peerTargetDelayMs: _peerAudioPlayout.targetDelayMs(now),
           peerSampleSequence: _peerAudioPlayout.sampleSequence,
           peerBufferGrowing: _peerAudioPlayout.bufferGrowing(now),
           receiveDelayMs: receiveDelay,
+          receiveTargetDelayMs: _audioReceiveActivity
+              .playoutFeedback(now)
+              .targetDelayMs,
           receiveAgeMs: receiveAt == null
               ? null
               : now.difference(receiveAt).inMilliseconds,
@@ -1654,6 +1658,7 @@ class VeilCallMediaController implements CallMediaController {
             receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
             peerCurrentAudioDelayMs: _peerAudioPlayout.currentDelayMs(now),
+            peerTargetAudioDelayMs: _peerAudioPlayout.targetDelayMs(now),
             peerAudioSampleSequence: _peerAudioPlayout.sampleSequence,
             peerAudioBufferGrowing: _peerAudioPlayout.bufferGrowing(now),
             requirePeerAudioPlayout:

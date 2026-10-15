@@ -342,9 +342,11 @@ class CallBitrateAdapter {
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
     int? audioReceiveDelayMs,
+    int? audioReceiveTargetDelayMs,
     bool audioInterrupted = false,
     int? peerAudioDelayMs,
     int? peerCurrentAudioDelayMs,
+    int? peerTargetAudioDelayMs,
     int? peerAudioSampleSequence,
     bool? peerAudioBufferGrowing,
     bool requirePeerAudioPlayout = false,
@@ -381,6 +383,9 @@ class CallBitrateAdapter {
     final receiveRequested =
         receiveAudioExpected || (audioReceiveQuality?.expected ?? false);
     final receiveDelay = audioReceiveDelayMs ?? _nativeReceiveDelay(stats);
+    final receiveTarget =
+        audioReceiveTargetDelayMs ??
+        CallAudioReceiveActivity.nativeTargetDelay(stats);
     // With the local mic muted, no outbound audio report can establish
     // recovery. Healthy incoming audio can earn a sparse video probe; growing
     // beyond that floor still needs fresh video reports from every receiver.
@@ -450,6 +455,7 @@ class CallBitrateAdapter {
       anyAudioFeedbackAvailable: anyFeedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
       peerCurrentAudioDelayMs: peerCurrentAudioDelayMs,
+      peerTargetAudioDelayMs: peerTargetAudioDelayMs,
       peerAudioSampleSequence: peerAudioSampleSequence,
       peerAudioBufferGrowing: peerAudioBufferGrowing,
       requirePeerAudioPlayout: requirePeerAudioPlayout && sendAudioExpected,
@@ -458,6 +464,7 @@ class CallBitrateAdapter {
       requireAudioReceivePlayout:
           requireAudioReceivePlayout && receiveRequested,
       audioReceiveDelayMs: receiveDelay,
+      audioReceiveTargetDelayMs: receiveTarget,
       missingAudioReceiverFeedback: !feedbackAvailable,
       audioInterrupted: audioInterrupted,
       videoFloorApplied:
@@ -523,6 +530,7 @@ class CallBitrateAdapter {
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
     int? audioReceiveDelayMs,
+    int? audioReceiveTargetDelayMs,
     bool audioInterrupted = false,
     required int rttMs,
     required int txJitterMs,
@@ -533,6 +541,7 @@ class CallBitrateAdapter {
     bool? anyAudioFeedbackAvailable,
     int? peerAudioDelayMs,
     int? peerCurrentAudioDelayMs,
+    int? peerTargetAudioDelayMs,
     int? peerAudioSampleSequence,
     bool? peerAudioBufferGrowing,
     bool requirePeerAudioPlayout = false,
@@ -561,6 +570,26 @@ class CallBitrateAdapter {
     final currentPeerDelay = hasCurrentPeerDelay
         ? peerCurrentAudioDelayMs
         : peerAudioDelayMs;
+    int? validTargetDelay(int? value, int? measured) =>
+        measured != null &&
+            measured >= 0 &&
+            measured <= 60000 &&
+            value != null &&
+            value >= 0 &&
+            value <= 60000
+        ? value
+        : null;
+    final receiveTarget = requireAudioReceivePlayout
+        ? validTargetDelay(audioReceiveTargetDelayMs, audioReceiveDelayMs)
+        : null;
+    final peerTarget = requirePeerAudioPlayout
+        ? validTargetDelay(peerTargetAudioDelayMs, currentPeerDelay)
+        : null;
+    final targetsRecovered =
+        (receiveTarget == null || receiveTarget < playoutRecoverMs) &&
+        (peerTarget == null || peerTarget < playoutRecoverMs);
+    // Requested targets may withhold producer growth, but are not measured
+    // buffer occupancy. Only current-buffer growth/the ceiling can cut video.
     final receiveBufferPressure = _receiveBuffer.observe(
       requireAudioReceivePlayout ? audioReceiveDelayMs : null,
     );
@@ -687,6 +716,7 @@ class CallBitrateAdapter {
     // Video-only and legacy calls retain their transport-based ladder.
     final bad = usePlayout ? bufferPressure : networkBad;
     final audioGood =
+        targetsRecovered &&
         feedbackAvailable &&
         rttMs > 0 &&
         txLossPct <= 1 &&
@@ -711,6 +741,8 @@ class CallBitrateAdapter {
       _startupGoodStreak = 0;
     }
     final startupGood =
+        (receiveTarget == null || receiveTarget < 100) &&
+        (peerTarget == null || peerTarget < 100) &&
         _startupRecovery &&
         good &&
         measuredVideoProgress &&

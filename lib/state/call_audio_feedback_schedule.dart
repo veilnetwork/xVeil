@@ -21,15 +21,18 @@ class CallAudioFeedbackSchedule {
     if (feedback == null) return null;
     final peak = feedback.delayMs;
     final current = feedback.currentDelayMs ?? peak;
+    final target = feedback.targetDelayMs;
     if (peak == null ||
         peak < 0 ||
         peak > 60000 ||
         current == null ||
         current < 0 ||
-        current > peak) {
+        current > peak ||
+        (target != null && (target < 0 || target > 60000))) {
       return null;
     }
-    if (current >= CallAudioBufferWindow.ceilingMs ||
+    if ((target != null && target >= CallAudioBufferWindow.ceilingMs) ||
+        current >= CallAudioBufferWindow.ceilingMs ||
         feedback.bufferGrowing == true) {
       return true;
     }
