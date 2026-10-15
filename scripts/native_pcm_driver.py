@@ -16,7 +16,10 @@ class Row(C.Structure):
 class Stats(C.Structure):
     _fields_ = [('max_interval_ms', C.c_double),
                 ('late_intervals', C.c_uint64), ('dropped_rows', C.c_uint64),
-                ('failures', C.c_uint64 * 2), ('ticks', C.c_uint64)]
+                ('failures', C.c_uint64 * 2), ('ticks', C.c_uint64)] + [
+                    (name, C.c_double) for name in (
+                        'max_wake_lateness_ms', 'max_callback_ms',
+                        'max_publication_ms')]
 
 
 def build(directory):

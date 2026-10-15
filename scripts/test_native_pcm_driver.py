@@ -58,6 +58,9 @@ extern "C" int fake_playout(void*, int16_t* out, size_t capacity) {
                 self.assertEqual(len(rows), driver.stats.ticks * 2)
                 self.assertEqual(driver.stats.dropped_rows, 0)
                 self.assertEqual(list(driver.stats.failures), [0, 0])
+                self.assertGreater(driver.stats.max_callback_ms, 0)
+                self.assertGreater(driver.stats.max_publication_ms, 0)
+                self.assertGreaterEqual(driver.stats.max_wake_lateness_ms, 0)
                 for row in rows:
                     self.assertLessEqual(0, row['source_at'])
                     self.assertLessEqual(row['source_at'], row['t'])
