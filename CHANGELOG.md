@@ -37,6 +37,8 @@ bumps may change behaviour a user notices.
   immediately receives its queued frames.
 - Android screen-capture acknowledgements no longer emit development logs in
   release builds.
+- Veil includes the current rustls and Quinn security fixes while preserving
+  local datagram deadlines and endpoint traffic separation.
 
 ### Diagnostics
 
