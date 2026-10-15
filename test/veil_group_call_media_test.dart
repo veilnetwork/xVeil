@@ -42,9 +42,385 @@ GroupCall _call(NodeId self, List<NodeId> peers, {bool video = false}) {
   );
 }
 
+Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
+  'audio_rx_supported': 1,
+  'audio_rx_native_age_supported': 1,
+  'worker_stalled': 0,
+  'audio_playout_peers': peers.length,
+  'audio_playout_reports': peers.length,
+  'audio_playout_ms': delay,
+  'audio_tx_rtp_drops': 0,
+  'audio_receivers': {
+    for (final peer in peers)
+      peer.hex: {
+        'audio_rx_pkts': 20,
+        'audio_delay_ms': 100,
+        'audio_rx_native_age_ms': 10,
+        'audio_interruption_count': 0,
+      },
+  },
+};
+
 void main() {
+  test('a cached group report below the ceiling cannot cut live video', () {
+    fakeAsync((clock) {
+      final self = _id(1), peer = _id(2);
+      final engine = _FakeEngine();
+      Map<String, dynamic> report(int sequence, int delay) => {
+        ..._sourceStats([peer], delay: delay),
+        'audio_playout_sequence': sequence,
+        'audio_feedback_reports': 1,
+        'rtt_ms': 80,
+      };
+      engine.stats = report(1, 100);
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        now: () => DateTime(2026, 10, 15).add(clock.elapsed),
+      );
+      controller.start(_call(self, [peer], video: true));
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 48));
+      expect(engine.targets.last.maxBitrateKbps, 150);
+      engine.stats = report(2, 140);
+      clock.elapse(const Duration(seconds: 20));
+      expect(engine.targets.last.maxBitrateKbps, 150);
+      expect(engine.pauses.last, isFalse);
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test('cached group playout cannot fill the source growth window', () {
+    fakeAsync((clock) {
+      final self = _id(1), peer = _id(2);
+      final transport = _FakeTransport(self);
+      final engine = _FakeEngine()..stats = _sourceStats([peer]);
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        now: () => DateTime(2026, 10, 15).add(clock.elapsed),
+      );
+      controller.start(_call(self, [peer]));
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 12));
+      expect(transport.pressureReports.last.pressured, isFalse);
+      engine.stats = {
+        ..._sourceStats([peer], delay: 140),
+        'audio_playout_sequence': 1,
+      };
+      clock.elapse(const Duration(seconds: 20));
+      expect(transport.pressureReports.last.pressured, isFalse);
+      final rising = [100, 100, 100, 125, 130, 135];
+      for (var i = 0; i < rising.length; i++) {
+        engine.stats = {
+          ..._sourceStats([peer], delay: rising[i]),
+          'audio_playout_sequence': i + 2,
+        };
+        clock.elapse(const Duration(seconds: 1));
+        expect(
+          transport.pressureReports.last.pressured,
+          i == rising.length - 1,
+        );
+      }
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
   test(
-    'one interrupted audio receiver pauses group video with fresh packets',
+    'malformed group report counts stay unknown without breaking the stats timer',
+    () {
+      for (final count in [null, 'invalid', double.nan, -1]) {
+        fakeAsync((clock) {
+          final self = _id(1), peer = _id(2);
+          final transport = _FakeTransport(self);
+          final engine = _FakeEngine()
+            ..stats = {
+              ..._sourceStats([peer]),
+              'audio_playout_reports': count,
+            };
+          final controller = VeilGroupCallMediaController(
+            transport,
+            roomMediaSecret: _room(),
+            engineFactory: (_) => engine,
+            requestMicrophone: () async => true,
+            now: () => DateTime(2026, 10, 15).add(clock.elapsed),
+          );
+          controller.start(_call(self, [peer]));
+          clock.flushMicrotasks();
+          clock.elapse(const Duration(seconds: 15));
+          expect(transport.pressureReports, hasLength(15));
+          expect(transport.pressureReports.every((r) => r.pressured), isTrue);
+          engine.stats = _sourceStats([peer]);
+          clock.elapse(const Duration(seconds: 12));
+          expect(transport.pressureReports.last.pressured, isFalse);
+          controller.stop();
+          clock.flushMicrotasks();
+        });
+      }
+    },
+  );
+
+  test(
+    'new group listeners cannot spend source headroom from the old roster',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final transport = _FakeTransport(self);
+        final engine = _FakeEngine()..stats = _sourceStats([alice]);
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          now: () => DateTime(2026, 10, 15).add(clock.elapsed),
+        );
+        controller.start(_call(self, [alice]));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 12));
+        expect(transport.pressureReports.last.pressured, isFalse);
+        controller.update(_call(self, [alice, bob]));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 20));
+        expect(transport.pressureReports.last.pressured, isTrue);
+        engine.stats = _sourceStats([alice, bob]);
+        clock.elapse(const Duration(seconds: 12));
+        expect(transport.pressureReports.last.pressured, isFalse);
+        engine.stats = const {};
+        final reports = transport.pressureReports.length;
+        clock.elapse(const Duration(seconds: 10));
+        expect(
+          transport.pressureReports,
+          hasLength(reports),
+          reason: 'unknown samples cannot renew a cleared congestion lease',
+        );
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
+    'group local mute still protects incoming audio and no-audio stops reports',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), peer = _id(2);
+        final transport = _FakeTransport(self);
+        final engine = _FakeEngine()
+          ..stats = {
+            ..._sourceStats([peer]),
+            'audio_receivers': {
+              peer.hex: {
+                'audio_rx_pkts': 20,
+                'audio_delay_ms': 220,
+                'audio_rx_native_age_ms': 10,
+              },
+            },
+          };
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          now: () => DateTime(2026, 10, 15).add(clock.elapsed),
+        );
+        final room = _call(self, [peer]);
+        controller.start(room);
+        clock.flushMicrotasks();
+        controller.setMicMuted(true);
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 20));
+        expect(transport.pressureReports.last.pressured, isTrue);
+        controller.update(
+          room.copyWith(
+            participants: {
+              ...room.participants,
+              peer.hex: room.participants[peer.hex]!.copyWith(
+                media: const CallMedia(audio: false),
+              ),
+            },
+          ),
+        );
+        clock.flushMicrotasks();
+        final count = transport.pressureReports.length;
+        clock.elapse(const Duration(seconds: 5));
+        expect(transport.pressureReports, hasLength(count));
+        expect(controller.debugNativeStats['local_source_pressured'], isNull);
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
+    'group feedback stays bounded and a stopped epoch cannot update its successor',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), peer = _id(2);
+        final pending = Completer<bool>();
+        final transport = _FakeTransport(self)..pendingPressure = pending;
+        final engine = _FakeEngine()..stats = _sourceStats([peer]);
+        final origin = DateTime(2026, 10, 15);
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          now: () => origin.add(clock.elapsed),
+        );
+        final room = _call(self, [peer]);
+        controller.start(room);
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 5));
+        expect(transport.pressureReports, hasLength(1));
+        expect(
+          transport.pressureReports.single.at,
+          origin.add(const Duration(seconds: 1)),
+        );
+        controller.stop();
+        clock.flushMicrotasks();
+        controller.start(room);
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 3));
+        expect(transport.pressureReports, hasLength(1));
+        transport.pendingPressure = null;
+        pending.complete(true);
+        clock.flushMicrotasks();
+        expect(
+          controller.debugNativeStats['local_source_feedback_queued'],
+          0,
+          reason: 'same engine object in another epoch is still a new call',
+        );
+        clock.elapse(const Duration(seconds: 1));
+        expect(transport.pressureReports, hasLength(2));
+        expect(transport.pressureReports.last.at, origin.add(clock.elapsed));
+        expect(controller.debugNativeStats['local_source_feedback_queued'], 1);
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
+    'unavailable group source IPC cannot break audio or accumulate reports',
+    () {
+      for (final mode in ['throw', 'error', 'reject']) {
+        fakeAsync((clock) {
+          final self = _id(1), peer = _id(2);
+          final transport = _FakeTransport(self)
+            ..throwPressure = mode == 'throw'
+            ..failPressure = mode == 'error'
+            ..rejectPressure = mode == 'reject';
+          final engine = _FakeEngine()..stats = _sourceStats([peer]);
+          final controller = VeilGroupCallMediaController(
+            transport,
+            roomMediaSecret: _room(),
+            engineFactory: (_) => engine,
+            requestMicrophone: () async => true,
+            now: () => DateTime(2026, 10, 15).add(clock.elapsed),
+          );
+          controller.start(_call(self, [peer]));
+          clock.flushMicrotasks();
+          clock.elapse(const Duration(seconds: 15));
+          expect(transport.pressureReports, hasLength(15));
+          expect(
+            controller.debugNativeStats['local_source_feedback_skipped'],
+            15,
+          );
+          expect(
+            controller.debugNativeStats['local_source_feedback_queued'],
+            0,
+          );
+          expect(engine.started, 1);
+          controller.stop();
+          clock.flushMicrotasks();
+        });
+      }
+    },
+  );
+
+  test(
+    'audio-only group reports pressure and recovers only with every peer',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final transport = _FakeTransport(self);
+        final engine = _FakeEngine();
+        final origin = DateTime(2026, 10, 15);
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          now: () => origin.add(clock.elapsed),
+        );
+        Map<String, dynamic> sample({int reports = 2, int delay = 100}) => {
+          'audio_rx_supported': 1,
+          'audio_rx_native_age_supported': 1,
+          'worker_stalled': 0,
+          'audio_playout_peers': 2,
+          'audio_playout_reports': reports,
+          'audio_playout_ms': delay,
+          'audio_tx_rtp_drops': 0,
+          'audio_receivers': {
+            for (final peer in [alice, bob])
+              peer.hex: {
+                'audio_rx_pkts': 20,
+                'audio_delay_ms': 100,
+                'audio_rx_native_age_ms': 10,
+                'audio_interruption_count': 0,
+              },
+          },
+        };
+        engine.stats = sample();
+        controller.start(_call(self, [alice, bob]));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 1));
+        expect(transport.pressureReports.last.pressured, isTrue);
+        expect(transport.pressureReports.last.at, origin.add(clock.elapsed));
+        clock.elapse(const Duration(seconds: 11));
+        expect(transport.pressureReports.last.pressured, isFalse);
+        engine.stats = sample(reports: 1, delay: 220);
+        clock.elapse(const Duration(seconds: 1));
+        expect(
+          transport.pressureReports.last.pressured,
+          isTrue,
+          reason: 'one known overloaded receiver suffices',
+        );
+        engine.stats = sample(reports: 1);
+        clock.elapse(const Duration(seconds: 20));
+        expect(
+          transport.pressureReports.last.pressured,
+          isTrue,
+          reason: 'one healthy receiver cannot clear the missing peer',
+        );
+        engine.stats = sample();
+        clock.elapse(const Duration(seconds: 11));
+        expect(transport.pressureReports.last.pressured, isTrue);
+        clock.elapse(const Duration(seconds: 1));
+        expect(transport.pressureReports.last.pressured, isFalse);
+        expect(
+          engine.videoStarted,
+          0,
+          reason: 'audio-only calls need admission too',
+        );
+        controller.stop();
+        clock.flushMicrotasks();
+        final count = transport.pressureReports.length;
+        clock.elapse(const Duration(seconds: 5));
+        expect(transport.pressureReports, hasLength(count));
+      });
+    },
+  );
+
+  test(
+    'group interruptions hold video until an actual buffer reaches the ceiling',
     () {
       fakeAsync((clock) {
         final self = _id(1), alice = _id(2), bob = _id(3);
@@ -56,27 +432,28 @@ void main() {
           requestMicrophone: () async => true,
           requestCamera: () async => true,
         );
-        Map<String, dynamic> sample(int interruptions) => {
-          'audio_rx_supported': 1,
-          'audio_rx_native_age_supported': 1,
-          'worker_stalled': 0,
-          'audio_feedback_reports': 2,
-          'rtt_ms': 80,
-          'audio_receivers': {
-            alice.hex: {
-              'audio_rx_pkts': 20,
-              'audio_delay_ms': 100,
-              'audio_rx_native_age_ms': 10,
-              'audio_interruption_count': 0,
-            },
-            bob.hex: {
-              'audio_rx_pkts': 20,
-              'audio_delay_ms': 100,
-              'audio_rx_native_age_ms': 10,
-              'audio_interruption_count': interruptions,
-            },
-          },
-        };
+        Map<String, dynamic> sample(int interruptions, {int bobDelay = 100}) =>
+            {
+              'audio_rx_supported': 1,
+              'audio_rx_native_age_supported': 1,
+              'worker_stalled': 0,
+              'audio_feedback_reports': 2,
+              'rtt_ms': 80,
+              'audio_receivers': {
+                alice.hex: {
+                  'audio_rx_pkts': 20,
+                  'audio_delay_ms': 100,
+                  'audio_rx_native_age_ms': 10,
+                  'audio_interruption_count': 0,
+                },
+                bob.hex: {
+                  'audio_rx_pkts': 20,
+                  'audio_delay_ms': bobDelay,
+                  'audio_rx_native_age_ms': 10,
+                  'audio_interruption_count': interruptions,
+                },
+              },
+            };
         engine.stats = sample(0);
         controller.start(_call(self, [alice, bob], video: true));
         clock.flushMicrotasks();
@@ -87,8 +464,17 @@ void main() {
           clock.elapse(const Duration(seconds: 1));
           if (i <= 4) expect(engine.pauses.last, isFalse);
         }
+        expect(
+          engine.pauses.last,
+          isFalse,
+          reason: 'interruptions alone do not meet the measured-buffer rule',
+        );
+        expect(engine.targets.last.maxBitrateKbps, 150);
+        engine.stats = sample(6, bobDelay: 220);
+        clock.elapse(const Duration(seconds: 6));
         expect(engine.pauses.last, isTrue);
         expect(engine.cameraStarted, 1);
+        engine.stats = sample(6);
         clock.elapse(const Duration(seconds: 11));
         expect(engine.pauses.last, isTrue);
         clock.elapse(const Duration(seconds: 1));
@@ -294,84 +680,91 @@ void main() {
     },
   );
 
-  test('one group audio outage pauses video despite another healthy peer', () {
-    fakeAsync((clock) {
-      final self = _id(1), alice = _id(2), bob = _id(3);
-      final engine = _FakeEngine();
-      final controller = VeilGroupCallMediaController(
-        _FakeTransport(self),
-        roomMediaSecret: _room(),
-        engineFactory: (_) => engine,
-        requestMicrophone: () async => true,
-        requestCamera: () async => true,
-      );
-      final room = _call(self, [alice, bob], video: true);
-      controller.start(room);
-      clock.flushMicrotasks();
-      Map<String, dynamic> sample(int? aliceAge, int? bobAge) => {
-        'audio_rx_supported': 1,
-        'audio_rx_native_age_supported': 1,
-        'worker_stalled': 0,
-        'audio_feedback_reports': 2,
-        'rtt_ms': 80,
-        'audio_receivers': {
-          alice.hex: {
-            'audio_rx_pkts': 20,
-            'audio_delay_ms': 100,
-            'audio_rx_native_age_ms': aliceAge,
+  test(
+    'one group buffer ceiling pauses video despite another healthy peer',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final engine = _FakeEngine();
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        final room = _call(self, [alice, bob], video: true);
+        controller.start(room);
+        clock.flushMicrotasks();
+        Map<String, dynamic> sample(
+          int? aliceAge,
+          int? bobAge, {
+          int bobDelay = 100,
+        }) => {
+          'audio_rx_supported': 1,
+          'audio_rx_native_age_supported': 1,
+          'worker_stalled': 0,
+          'audio_feedback_reports': 2,
+          'rtt_ms': 80,
+          'audio_receivers': {
+            alice.hex: {
+              'audio_rx_pkts': 20,
+              'audio_delay_ms': 100,
+              'audio_rx_native_age_ms': aliceAge,
+            },
+            bob.hex: {
+              'audio_rx_pkts': 20,
+              'audio_delay_ms': bobDelay,
+              'audio_rx_native_age_ms': bobAge,
+            },
           },
-          bob.hex: {
-            'audio_rx_pkts': 20,
-            'audio_delay_ms': 100,
-            'audio_rx_native_age_ms': bobAge,
-          },
-        },
-      };
-      engine.stats = sample(100, 100);
-      clock.elapse(const Duration(seconds: 48));
-      expect(engine.targets.last.maxBitrateKbps, 150);
-      engine.stats = sample(100, 4456); // sustained outage after floor trial
-      clock.elapse(const Duration(seconds: 6));
-      expect(
-        engine.pauses.last,
-        isTrue,
-        reason: 'healthy Alice cannot mask Bob',
-      );
-      expect(engine.cameraStarted, 1, reason: 'pause retains capture');
-      engine.stats = sample(100, null);
-      clock.elapse(const Duration(seconds: 20));
-      expect(
-        engine.pauses.last,
-        isTrue,
-        reason: 'unknown Bob cannot earn recovery',
-      );
-      engine.stats = {'audio_feedback_reports': 2, 'rtt_ms': 80};
-      clock.elapse(const Duration(seconds: 20));
-      expect(
-        engine.pauses.last,
-        isTrue,
-        reason: 'missing capability field cannot forget known native support',
-      );
-      engine.stats = {...sample(0, 0), 'worker_stalled': 1};
-      clock.elapse(const Duration(seconds: 20));
-      expect(
-        engine.pauses.last,
-        isTrue,
-        reason: 'a stalled audio worker is unknown',
-      );
-      engine.stats = sample(100, 100);
-      clock.elapse(const Duration(seconds: 11));
-      expect(engine.pauses.last, isTrue);
-      clock.elapse(const Duration(seconds: 1));
-      expect(
-        engine.pauses.last,
-        isFalse,
-        reason: 'all expected audio must be fresh for twelve samples',
-      );
-      controller.stop();
-      clock.flushMicrotasks();
-    });
-  });
+        };
+        engine.stats = sample(100, 100);
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last.maxBitrateKbps, 150);
+        engine.stats = sample(100, 4456, bobDelay: 220);
+        clock.elapse(const Duration(seconds: 6));
+        expect(
+          engine.pauses.last,
+          isTrue,
+          reason: 'healthy Alice cannot mask Bob',
+        );
+        expect(engine.cameraStarted, 1, reason: 'pause retains capture');
+        engine.stats = sample(100, null);
+        clock.elapse(const Duration(seconds: 20));
+        expect(
+          engine.pauses.last,
+          isTrue,
+          reason: 'unknown Bob cannot earn recovery',
+        );
+        engine.stats = {'audio_feedback_reports': 2, 'rtt_ms': 80};
+        clock.elapse(const Duration(seconds: 20));
+        expect(
+          engine.pauses.last,
+          isTrue,
+          reason: 'missing capability field cannot forget known native support',
+        );
+        engine.stats = {...sample(0, 0), 'worker_stalled': 1};
+        clock.elapse(const Duration(seconds: 20));
+        expect(
+          engine.pauses.last,
+          isTrue,
+          reason: 'a stalled audio worker is unknown',
+        );
+        engine.stats = sample(100, 100);
+        clock.elapse(const Duration(seconds: 11));
+        expect(engine.pauses.last, isTrue);
+        clock.elapse(const Duration(seconds: 1));
+        expect(
+          engine.pauses.last,
+          isFalse,
+          reason: 'all expected audio must be fresh for twelve samples',
+        );
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
 
   test('group receive priority follows remote mute, unmute and removal', () {
     fakeAsync((clock) {
@@ -411,7 +804,7 @@ void main() {
           },
           bob.hex: {
             'audio_rx_pkts': 20,
-            'audio_delay_ms': 100,
+            'audio_delay_ms': 220,
             'audio_rx_native_age_ms': 13000,
           },
         },
@@ -456,7 +849,7 @@ void main() {
   });
 
   test(
-    'known group outage remains actionable when another peer never sent audio',
+    'known group buffer ceiling remains actionable when another peer never sent audio',
     () {
       fakeAsync((clock) {
         final self = _id(1), alice = _id(2), bob = _id(3);
@@ -505,7 +898,7 @@ void main() {
           'audio_receivers': {
             alice.hex: {
               'audio_rx_pkts': 20,
-              'audio_delay_ms': 100,
+              'audio_delay_ms': 220,
               'audio_rx_native_age_ms': 1085,
             },
             bob.hex: {
@@ -519,7 +912,8 @@ void main() {
         expect(
           engine.pauses.last,
           isTrue,
-          reason: 'known Alice outage is sufficient despite unknown Bob',
+          reason:
+              'known Alice buffer ceiling is sufficient despite unknown Bob',
         );
         controller.stop();
         clock.flushMicrotasks();
@@ -749,6 +1143,7 @@ void main() {
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
       expect(engine.cameraStarted, 1);
+      final earned = engine.targets.last;
       engine.throwStats = true;
       clock.elapse(const Duration(seconds: 2));
       expect(
@@ -756,10 +1151,14 @@ void main() {
         isFalse,
         reason: 'unknown worker health still permits the sparse trial',
       );
-      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      expect(
+        engine.targets.last,
+        earned,
+        reason: 'unknown health holds the earned rung without a buffer cut',
+      );
       engine.throwStats = false;
       clock.elapse(const Duration(seconds: 11));
-      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      expect(engine.targets.last, earned);
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
       controller.stop();
@@ -897,10 +1296,15 @@ void main() {
       expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
+      final earned = engine.targets.last;
       engine.stats = {...engine.stats, 'audio_playout_reports': 0};
       clock.elapse(const Duration(seconds: 8));
       expect(engine.pauses.last, isFalse);
-      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      expect(
+        engine.targets.last,
+        earned,
+        reason: 'missing playout holds the rung rather than cutting video',
+      );
       engine.stats = {...engine.stats, 'audio_playout_peers': 0};
       clock.elapse(const Duration(seconds: 1));
       expect(
@@ -960,7 +1364,11 @@ void main() {
         'audio_playout_ms': -1,
       };
       clock.elapse(const Duration(seconds: 8));
-      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+      expect(
+        engine.targets.last,
+        (maxBitrateKbps: 150, maxFps: 15),
+        reason: 'expired reports alone cannot cut the earned video budget',
+      );
       expect(engine.pauses.last, isFalse);
       controller.setMicMuted(true);
       clock.flushMicrotasks();
@@ -996,7 +1404,7 @@ void main() {
   });
 
   test(
-    'group video requires fresh audio feedback from every connected peer',
+    'group video grows only with fresh feedback and holds an earned rung on unknown samples',
     () {
       fakeAsync((clock) {
         final self = _id(1), alice = _id(2), bob = _id(3), carol = _id(4);
@@ -1029,8 +1437,9 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 1.0),
-          reason: 'losing a receiver must release bandwidth for audio',
+          (maxBitrateKbps: 150, maxFps: 15),
+          reason:
+              'missing feedback cannot cut video without measured buffer pressure',
         );
         engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
         clock.elapse(const Duration(seconds: 48));
@@ -1054,11 +1463,10 @@ void main() {
         final healthy = engine.stats;
         engine.stats = const {};
         clock.elapse(const Duration(seconds: 8));
-        expect(
-          engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 1.0),
-          reason: 'unreadable native stats cannot keep full video',
-        );
+        expect(engine.targets.last, (
+          maxBitrateKbps: 150,
+          maxFps: 15,
+        ), reason: 'unreadable stats hold the earned rung');
         engine.stats = healthy;
         clock.elapse(const Duration(seconds: 48));
         expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
@@ -1066,8 +1474,8 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 1.0),
-          reason: 'a failed query must still apply the reduced video target',
+          (maxBitrateKbps: 150, maxFps: 15),
+          reason: 'a failed query cannot invent measured buffer pressure',
         );
         engine.throwStats = false;
         clock.elapse(const Duration(seconds: 48));
@@ -1076,7 +1484,7 @@ void main() {
         clock.elapse(const Duration(seconds: 8));
         expect(
           engine.targets.last,
-          (maxBitrateKbps: 8, maxFps: 1.0),
+          (maxBitrateKbps: 150, maxFps: 15),
           reason:
               'cached reports from a stalled audio worker cannot grow video',
         );
@@ -1610,6 +2018,22 @@ class _FakeTransport implements GroupMediaChannelTransport {
   bool rejectScreen = false;
   final Map<String, Uint8List> txKeys = {};
   final Map<String, Uint8List> rxKeys = {};
+  final List<({bool pressured, DateTime at})> pressureReports = [];
+  Completer<bool>? pendingPressure;
+  bool failPressure = false;
+  bool throwPressure = false;
+  bool rejectPressure = false;
+
+  @override
+  Future<bool> reportLocalSourcePressure({
+    required bool pressured,
+    required DateTime sampledAt,
+  }) {
+    pressureReports.add((pressured: pressured, at: sampledAt));
+    if (throwPressure) throw StateError('local IPC unavailable');
+    if (failPressure) return Future.error(StateError('local IPC unavailable'));
+    return pendingPressure?.future ?? Future.value(!rejectPressure);
+  }
 
   @override
   Future<Uint8List> localNodeId() async => self.bytes;
