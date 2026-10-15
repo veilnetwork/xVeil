@@ -9,6 +9,7 @@ namespace {
 struct Fake {
   std::atomic<int> calls{0};
   std::atomic<bool> stall{false};
+  std::atomic<bool> hold_capture{false}, capture_entered{false}, release_capture{false};
   int frequency = 0;
 };
 int CaptureTone(void* ptr, int frequency) {
@@ -17,6 +18,11 @@ int CaptureTone(void* ptr, int frequency) {
   fake.frequency = frequency;
   if (fake.stall.exchange(false))
     std::this_thread::sleep_for(std::chrono::milliseconds(65));
+  if (fake.hold_capture.exchange(false)) {
+    fake.capture_entered = true;
+    while (!fake.release_capture.load())
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
   return 0;
 }
 int PlayoutTone(void* ptr, int16_t* pcm, size_t capacity) {
@@ -43,6 +49,7 @@ int main() {
   PcmStats stats{};
   const auto n = stand_pcm_poll(handle, rows.data(), rows.size(), &stats);
   assert(stats.max_interval_ms >= 65);
+  assert(stats.max_callback_ms >= 65);
   assert(stats.late_intervals >= 2 && stats.dropped_rows == 0);
   assert(!stats.failures[0] && !stats.failures[1]);
   assert(n == stats.ticks * 2 && n >= 24);
@@ -77,5 +84,26 @@ int main() {
   stand_pcm_request_stop(&full);
   full.thread.join();
   assert(full.stats.dropped_rows >= 2 && full.rows.size() == kCapacity);
+  // A slow evidence reader must remain visible as publication delay and an
+  // actual source-clock failure, rather than being blamed on the codec.
+  const int before_publication_test = a.calls.load();
+  a.hold_capture = true;
+  handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, stand_pcm_now(), 1010);
+  while (!a.capture_entered.load())
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  {
+    auto* driver = static_cast<Driver*>(handle);
+    std::lock_guard held(driver->mu);
+    a.release_capture = true;
+    std::this_thread::sleep_for(std::chrono::milliseconds(70));
+  }
+  while (a.calls.load() < before_publication_test + 4)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  stand_pcm_request_stop(handle);
+  while (!stand_pcm_finished(handle))
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  stand_pcm_poll(handle, rows.data(), rows.size(), &stats);
+  assert(stats.max_publication_ms >= 60 && stats.max_interval_ms >= 60);
+  stand_pcm_destroy(handle);
   std::puts("native PCM driver: real stalls, timestamps, bounded rows, stop verified");
 }

@@ -18176,3 +18176,73 @@ speech. No phone, installed application/profile, relay or native production
 library is changed. Both real fixture processes and their Dart helpers exit,
 all three nodes stop successfully and sockets disappear. Project edits are
 committed unsigned without pushing; the overall goal remains active.
+
+#### Reject allocation-callback hysteresis; observe the actual allocator clock
+
+The accepted `pcm-urgent-feedback-clear-360` capture samples about 80 packet-
+duration changes per direction. An experiment held improving encoder budgets
+for two seconds while applying decreases immediately. Its real Opus regression
+proved that short estimate spikes no longer alternate 20/60-ms packets and
+that 16–32-kbit/s payload limits and 20/40/60-ms codec ranges remain valid.
+Those properties did not qualify call quality. The original experimental hold
+and a fixed-size sliding-window variant have both been REVERTED, including
+their experiment-only regression changes. The active encoder retains the
+original allocation/adaptation logic and no new duration cap or delay limit.
+Private patches and exact dylibs remain with their corresponding captures.
+
+`pcm-opus-allocation-hold-360` FAILS: mixed PCM peaks are 190.190/200.697 ms,
+the driver reaches 47.18 ms at 280.186 s, and one quiet PCM frame is recorded.
+Actual packet-duration transitions fall to 2/1, but both audio-only directions
+remain on 60-ms packets with approximately 134-ms PCM peaks instead of the
+accepted profile's mostly 20-ms free-line behavior. All 704 edges still join
+exactly and files match. The sliding-window `pcm-opus-allocation-window-360`
+also FAILS: mixed PCM peaks 241.138/221.824 ms, driver 48.64 ms at 3.718 s,
+and both audio-only directions remain on 60-ms packets (143/161-ms peaks).
+There are only 7/1 sampled duration transitions and no quiet frames, but lower
+churn does not justify the additional delay. Images move at the end; maximum
+sampled retrieval gaps are approximately 15/1 seconds. These independent runs
+are not a controlled causal comparison, and their failed gates are retained.
+
+The accepted native changes are diagnostic only. Opt-in `AudioEncodeTiming`
+now snapshots the last allocation time, raw allocated bps, bps actually passed
+to ANA and per-packet framing bytes alongside each encoded packet. The bounded
+trace stores metadata, never samples/payloads; it allocates its packet reserve
+up front and writes only after encoder shutdown. Disabled tracing does not
+read a clock or change adaptation. Its smoke test checks immutable allocation
+snapshots, DTX exclusion, lost-input evidence and the existing capacity bound.
+The original real Opus/ANA smoke passes for 20/40/60-ms maxima.
+
+The synthetic PCM driver separately records maximum timed-wait lateness,
+capture/playout duration and evidence-publication duration, without subtracting
+any from the strict 40-ms source-clock gate. Its regression injects a 65-ms
+callback stall and a held evidence mutex; both remain actual clock failures
+and appear in the corresponding stage. The timer/stop mutex is then separated
+from evidence reads, preserving bounded queue overflow/failure reporting and
+joined shutdown. The Python GIL/ctypes integration checks the new fields and
+still proves capture continues while Python holds the GIL. No OS priority is
+changed and no scheduler cause is asserted solely from these observations.
+
+The 30-second `pcm-allocation-audio-control-30` diagnostic uses the restored
+encoder plus allocation metadata, real Opus and the neutral 1024-kbit/s relay;
+it deliberately has no video/file and cannot qualify the full contention goal.
+It FAILS the source-clock gate at 46.19 ms. Recorded maxima are 36.655 ms late
+after the timed wait (including reacquiring the then-shared mutex), 0.388 ms
+capture/playout and 0.020 ms publication. This capture predates separating the
+timer mutex. All native/poll operations succeed, decoded tone edges are present
+and audio continuation peaks are 94.160/128.723 ms; no frame is quiet.
+
+More importantly, the actual allocation trace contains active-stream gaps of
+6.508 s (16.642–23.151 s) and 6.781 s (2.056–8.837 s), with 160,000 bps before
+and after each gap. The observer is notified of estimates, not on every codec
+input. No notification is not proof of missing RTCP or unavailable capacity.
+The rejected filters cannot use callback count/gaps as an audio-sampling clock;
+any future duration hysteresis must respect this event-driven contract and
+prove that an unchanged healthy estimate can recover promptly. At startup the
+trace records 48,000 raw / 46,533 ANA bps and 229 framing bytes, then records
+the actual higher allocations instead of substituting Call's aggregate BWE.
+
+All fixture nodes stop successfully, sockets disappear and Python/Dart/native
+test processes exit. No installed app/profile, phone or relay is changed. The
+instrumentation and this evidence are committed unsigned without pushing;
+audio quality under contention, unnecessary video holds, shaped anonymous
+codec routes, reliable test-source timing and physical speech remain open.
