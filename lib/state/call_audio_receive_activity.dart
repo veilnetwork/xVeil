@@ -70,8 +70,11 @@ class CallAudioReceiveActivity {
   int? _targetDelayMs;
   DateTime? _sampledAt;
   int? _lastInterruptionCount;
+  int? _lastRecoveryCount;
   int _interruptionCount = 0;
+  int _recoveryCount = 0;
   bool interrupted = false;
+  bool recovered = false;
   static const sampleLifetime = Duration(seconds: 3);
   // Health signals are sent every five seconds, while native stats are polled
   // every second. Preserve intervening peaks for the outgoing report without
@@ -106,6 +109,7 @@ class CallAudioReceiveActivity {
       targetDelayMs: current.targetDelayMs,
       bufferGrowing: _playoutWindow.growing,
       interruptionCount: current.interruptionCount,
+      recoveryCount: current.recoveryCount,
     );
   }
 
@@ -123,8 +127,13 @@ class CallAudioReceiveActivity {
       sequence: _sequence,
       delayMs: fresh ? _playoutDelayMs : null,
       targetDelayMs: fresh ? _targetDelayMs : null,
-      interruptionCount: fresh && _lastInterruptionCount != null
+      interruptionCount:
+          fresh &&
+              (_lastInterruptionCount != null || _lastRecoveryCount != null)
           ? _interruptionCount
+          : null,
+      recoveryCount: fresh && _lastRecoveryCount != null
+          ? _recoveryCount
           : null,
     );
   }
@@ -141,6 +150,7 @@ class CallAudioReceiveActivity {
     _lastObservedAt = now;
     _expireFeedbackPeaks(now);
     interrupted = false;
+    recovered = false;
     _sequence++;
     _playoutDelayMs = null;
     _targetDelayMs = null;
@@ -168,6 +178,16 @@ class CallAudioReceiveActivity {
         interrupted = true;
       }
       _lastInterruptionCount = interruptions;
+    }
+    final recoveries = stats['audio_latency_recovery_count'];
+    if (stats['worker_stalled'] == 0 && recoveries is int && recoveries >= 0) {
+      final previous = _lastRecoveryCount;
+      if (previous != null && recoveries > previous) {
+        _interruptionCount += recoveries - previous;
+        _recoveryCount += recoveries - previous;
+        recovered = true;
+      }
+      _lastRecoveryCount = recoveries;
     }
     final count = packets.toInt();
     final nativeAge = stats['audio_rx_native_age_ms'];
@@ -209,7 +229,9 @@ class CallAudioReceiveActivity {
     _lastObservedAt = null;
     _lastPackets = 0;
     _lastInterruptionCount = null;
+    _lastRecoveryCount = null;
     interrupted = false;
+    recovered = false;
     supported = false;
     lastRxAt = null;
     workerStalledSince = null;

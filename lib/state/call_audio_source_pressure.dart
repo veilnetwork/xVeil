@@ -11,6 +11,7 @@ class CallAudioSourcePressure {
   static const int playoutRecoverMs = CallBitrateAdapter.playoutRecoverMs;
   bool _pressured = true;
   int _healthy = 0;
+  int _recoverySamples = CallBitrateAdapter.recoverAfter;
   int? _lastAudioDrops;
   final _rtcpLoss = CallRtcpLoss();
   final _peerBuffer = CallAudioBufferWindow();
@@ -33,6 +34,7 @@ class CallAudioSourcePressure {
     required bool interrupted,
     required int? audioTxDrops,
     Object? audioLossReportUs,
+    bool recovered = false,
   }) {
     final networkLoss = _rtcpLoss
         .observe(
@@ -97,6 +99,7 @@ class CallAudioSourcePressure {
         (receiveTarget != null && receiveTarget >= playoutDegradeMs);
     final good =
         !bad &&
+        !recovered &&
         !unknown &&
         !interrupted &&
         !newDrop &&
@@ -106,11 +109,18 @@ class CallAudioSourcePressure {
         (!receiveExpected ||
             (receiveDelayMs! < playoutRecoverMs &&
                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
-    if (bad) {
+    if (bad || recovered) {
+      if (bad) {
+        _recoverySamples = CallBitrateAdapter.recoverAfter;
+      } else if (!_pressured) {
+        // Catch-up already restored the queue. Briefly yield our producers,
+        // without shortening any still-active genuine congestion recovery.
+        _recoverySamples = CallBitrateAdapter.startupRecoverAfter;
+      }
       _pressured = true;
       _healthy = 0;
     } else if (good) {
-      if (++_healthy >= CallBitrateAdapter.recoverAfter) _pressured = false;
+      if (++_healthy >= _recoverySamples) _pressured = false;
     } else {
       _healthy = 0;
     }
@@ -122,6 +132,7 @@ class CallAudioSourcePressure {
   void reset() {
     _pressured = true;
     _healthy = 0;
+    _recoverySamples = CallBitrateAdapter.recoverAfter;
     _lastAudioDrops = null;
     _rtcpLoss.reset();
     _peerBuffer.reset();

@@ -4,6 +4,42 @@ import 'package:xveil/state/call_audio_receive_activity.dart';
 void main() {
   final start = DateTime.utc(2026, 10, 5);
 
+  test('intentional latency recovery reports fresh audio loss once', () {
+    final activity = CallAudioReceiveActivity();
+    final stats = <String, Object?>{
+      'audio_rx_pkts': 30,
+      'audio_rx_native_age_ms': 10,
+      'worker_stalled': 0,
+      'audio_delay_ms': 100,
+      'audio_interruption_count': 4,
+      'audio_latency_recovery_count': 5,
+    };
+    activity.observe(stats, start);
+    expect(activity.interrupted, isFalse);
+    activity.observe({...stats, 'audio_latency_recovery_count': 7}, start);
+    expect(activity.interrupted, isFalse);
+    expect(activity.recovered, isTrue);
+    expect(activity.outgoingPlayoutFeedback(start).interruptionCount, 2);
+    expect(activity.outgoingPlayoutFeedback(start).recoveryCount, 2);
+    activity.observe({...stats, 'audio_latency_recovery_count': 7}, start);
+    expect(activity.interrupted, isFalse);
+    expect(activity.recovered, isFalse);
+    expect(activity.outgoingPlayoutFeedback(start).interruptionCount, 2);
+    activity.observe({...stats, 'audio_latency_recovery_count': 0}, start);
+    expect(activity.interrupted, isFalse, reason: 'counter reset is not loss');
+    activity.observe({
+      ...stats,
+      'audio_interruption_count': 5,
+      'audio_latency_recovery_count': 1,
+    }, start);
+    expect(activity.interrupted, isTrue);
+    expect(activity.outgoingPlayoutFeedback(start).interruptionCount, 4);
+    activity.reset();
+    activity.observe({...stats, 'audio_latency_recovery_count': 100}, start);
+    expect(activity.interrupted, isFalse);
+    expect(activity.outgoingPlayoutFeedback(start).interruptionCount, 4);
+  });
+
   test('fresh native arrival read preserves pending interruption feedback', () {
     final activity = CallAudioReceiveActivity();
     final stats = <String, Object?>{
