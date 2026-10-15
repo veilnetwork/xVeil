@@ -1,4 +1,4 @@
-// Stand only. No Python callbacks, device I/O, scheduler priority, or network
+// Stand only. No Python callbacks, device I/O, or network
 // policy. The real test ADM still drives the production Opus/NetEq pipeline.
 #include <algorithm>
 #include <array>
@@ -11,6 +11,8 @@
 #include <thread>
 #ifdef __APPLE__
 #include <mach/mach_time.h>
+#include <pthread.h>
+#include <pthread/qos.h>
 #else
 #include <time.h>
 #endif
@@ -39,6 +41,8 @@ struct PcmStats {
   double max_interval_ms;
   uint64_t late_intervals, dropped_rows, failures[2], ticks;
   double max_wake_lateness_ms, max_callback_ms, max_publication_ms;
+  int32_t qos_supported, qos_result, qos_requested, qos_actual;
+  int32_t timer_error;
 };
 namespace {
 using Capture = int (*)(void*, int);
@@ -50,6 +54,7 @@ struct Driver {
   std::array<void*, 2> engines;
   double origin;
   int period_ms;
+  bool audio_priority = true;
   std::mutex mu;
   std::mutex wake_mu;  // An evidence reader cannot hold the timer/stop mutex.
   std::condition_variable wake;
@@ -58,17 +63,64 @@ struct Driver {
   PcmStats stats{};
   std::thread thread;
 
+  bool WaitUntil(std::chrono::steady_clock::time_point deadline) {
+#ifdef __APPLE__
+    static const auto timebase = [] {
+      mach_timebase_info_data_t value;
+      mach_timebase_info(&value);
+      return value;
+    }();
+    // libc++ on this host converts condition-variable deadlines to wall time.
+    // Keep the synthetic device on Mach monotonic time instead. Stop is polled
+    // at each deadline, at most one normal 10-ms period after the request.
+    for (;;) {
+      {
+        std::lock_guard lock(wake_mu);
+        if (stop) return true;
+      }
+      const auto remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(
+          deadline - std::chrono::steady_clock::now()).count();
+      if (remaining <= 0) return false;
+      const uint64_t ticks = (uint64_t(remaining) * timebase.denom + timebase.numer - 1)
+                             / timebase.numer;
+      const auto result = mach_wait_until(mach_absolute_time() + ticks);
+      if (result != KERN_SUCCESS && result != KERN_ABORTED) {
+        std::lock_guard lock(mu);
+        stats.timer_error = result;
+        return true;
+      }
+    }
+#else
+    std::unique_lock lock(wake_mu);
+    return wake.wait_until(lock, deadline, [&] { return stop; });
+#endif
+  }
+
   void Run() {
+#ifdef __APPLE__
+    {
+      std::lock_guard lock(mu);
+      // Synthetic capture represents the device callback, not a background
+      // observer. Match latency-sensitive endpoint audio work; SDK/relay worker
+      // threads and all network policies retain their original scheduling.
+      stats.qos_supported = 1;
+      stats.qos_requested = audio_priority ? QOS_CLASS_USER_INTERACTIVE : 0;
+      if (audio_priority)
+        stats.qos_result = pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+      qos_class_t actual;
+      int relative = 0;
+      const int queried = pthread_get_qos_class_np(pthread_self(), &actual, &relative);
+      if (!stats.qos_result) stats.qos_result = queried;
+      stats.qos_actual = queried ? 0 : static_cast<int32_t>(actual);
+    }
+#endif
     auto deadline = std::chrono::steady_clock::now();
     std::array<double, 2> previous{stand_pcm_now(), stand_pcm_now()};
     uint64_t tick = 0;
     for (;;) {
       double wake_lateness_ms = 0;
+      if (WaitUntil(deadline)) break;
       {
-        std::unique_lock lock(wake_mu);
-        if (wake.wait_until(lock, deadline, [&] { return stop; })) break;
-        // Includes reacquiring the mutex after the timed wait. This is not
-        // an assertion about which OS scheduler or mutex caused a late wake.
         wake_lateness_ms = std::max(0.0,
             std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - deadline).count());
@@ -134,7 +186,8 @@ struct Driver {
 };
 }
 extern "C" void* stand_pcm_start(Capture capture, Playout playout, void* a,
-                                  void* b, double origin, int period_ms) {
+                                  void* b, double origin, int period_ms,
+                                  int audio_priority) {
   if (!capture || !playout || !a || !b || a == b || !std::isfinite(origin) ||
       origin > stand_pcm_now() || period_ms < 500 || period_ms > 5000) return nullptr;
   auto* driver = new Driver;
@@ -143,6 +196,7 @@ extern "C" void* stand_pcm_start(Capture capture, Playout playout, void* a,
   driver->engines = {a, b};
   driver->origin = origin;
   driver->period_ms = period_ms;
+  driver->audio_priority = audio_priority != 0;
   driver->thread = std::thread([driver] { driver->Run(); });
   return driver;
 }
