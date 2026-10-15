@@ -292,6 +292,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     this._engineFactory = NativeGroupAudioEngine.create,
     Future<bool> Function()? requestMicrophone,
     Future<bool> Function()? requestCamera,
+    bool? desktopScreenCaptureSupported,
     this._statsInterval = const Duration(seconds: 1),
     DateTime Function()? now,
   }) : // Public `roomMediaSecret:` param → private field, as with `media:` on
@@ -300,6 +301,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
        _roomMediaSecret = roomMediaSecret,
        _requestMicrophone = requestMicrophone ?? _defaultMicPermission,
        _requestCamera = requestCamera ?? _defaultCameraPermission,
+       _desktopScreenCaptureSupported =
+           desktopScreenCaptureSupported ?? Platform.isMacOS,
        _now = now ?? DateTime.now;
 
   // Keep this in sync with the platforms that bundle the group-engine ABI.
@@ -311,6 +314,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final GroupAudioEngineFactory _engineFactory;
   final Future<bool> Function() _requestMicrophone;
   final Future<bool> Function() _requestCamera;
+  // The injected engine's screen capability can differ from the test host.
+  final bool _desktopScreenCaptureSupported;
   final Duration _statsInterval;
   final DateTime Function() _now;
   final AndroidScreenCaptureFactory _screenCaptureFactory =
@@ -1149,7 +1154,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         if (identical(_screenStarting, start)) _screenStarting = null;
       }
     }
-    if (!Platform.isMacOS) return false;
+    if (!_desktopScreenCaptureSupported) return false;
     try {
       if (enabled) {
         final started = startDesktopScreenCapture(

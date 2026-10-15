@@ -1787,6 +1787,26 @@ void main() {
     expect(controller.videoFrameFor(peer).value?.rgba.first, 2);
   });
 
+  test('unsupported desktop screen leaves the camera source intact', () async {
+    final self = _id(1);
+    final transport = _FakeTransport(self);
+    final engine = _FakeEngine();
+    final controller = VeilGroupCallMediaController(
+      transport,
+      roomMediaSecret: _room(),
+      engineFactory: (_) => engine,
+      requestMicrophone: () async => true,
+      requestCamera: () async => true,
+      desktopScreenCaptureSupported: false,
+    );
+    addTearDown(controller.stop);
+    expect(await controller.start(_call(self, [_id(2)], video: true)), isTrue);
+    final cameraStarts = engine.cameraStarted;
+    expect(await controller.setScreenShareEnabled(true), isFalse);
+    expect(transport.screenModes, isEmpty);
+    expect(engine.cameraStarted, cameraStarts);
+  });
+
   test(
     'group screen source reaches existing and newly joined channels',
     () async {
@@ -1801,6 +1821,7 @@ void main() {
         engineFactory: (_) => engine,
         requestMicrophone: () async => true,
         requestCamera: () async => true,
+        desktopScreenCaptureSupported: true,
       );
       addTearDown(controller.stop);
       expect(await controller.start(_call(self, [alice], video: true)), isTrue);
@@ -1833,6 +1854,7 @@ void main() {
           engineFactory: (_) => engine,
           requestMicrophone: () async => true,
           requestCamera: () async => true,
+          desktopScreenCaptureSupported: true,
         );
         addTearDown(controller.stop);
         expect(
