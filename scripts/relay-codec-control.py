@@ -56,7 +56,7 @@ parser.add_argument('--opaque-frame-capture-event-rate', type=int, default=100,
                     help='Owned-node debug-event sampling budget per peer/second, 1–1000 (default 100); changes no data rate or scheduling')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
-parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a protobuf-enabled test-hook media library')
+parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a test-hook media library with the local ANA factory')
 parser.add_argument('--audio-overhead-bytes', type=int, default=209,
                     help='Diagnostic framing estimate for adaptive Opus; default 209 retains production behavior')
 parser.add_argument('--video-overhead-bytes', type=int, default=0, help='Configure video feedback/pacing framing separately from Opus; 0 retains the legacy video model')
