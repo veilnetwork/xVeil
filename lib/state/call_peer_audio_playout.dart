@@ -8,6 +8,7 @@ class CallPeerAudioPlayout {
   DateTime? _receivedAt;
   int? _delayMs;
   int? _currentDelayMs;
+  int? _targetDelayMs;
   bool? _bufferGrowing;
   int get sampleSequence => _sequence;
   int? _interruptionCount;
@@ -18,6 +19,14 @@ class CallPeerAudioPlayout {
     _sequence = feedback.sequence;
     _delayMs = feedback.delayMs;
     _currentDelayMs = feedback.currentDelayMs ?? feedback.delayMs;
+    final target = feedback.targetDelayMs;
+    _targetDelayMs =
+        feedback.delayMs != null &&
+            target != null &&
+            target >= 0 &&
+            target <= 60000
+        ? target
+        : null;
     final current = feedback.currentDelayMs;
     final peak = feedback.delayMs;
     _bufferGrowing =
@@ -60,6 +69,9 @@ class CallPeerAudioPlayout {
   int? currentDelayMs(DateTime now) =>
       delayMs(now) == null ? null : _currentDelayMs;
 
+  int? targetDelayMs(DateTime now) =>
+      delayMs(now) == null ? null : _targetDelayMs;
+
   bool? bufferGrowing(DateTime now) =>
       currentDelayMs(now) == null ? null : _bufferGrowing;
 
@@ -69,6 +81,7 @@ class CallPeerAudioPlayout {
     _interrupted = false;
     _delayMs = null;
     _currentDelayMs = null;
+    _targetDelayMs = null;
     _bufferGrowing = null;
     _receivedAt = null;
   }
