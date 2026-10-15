@@ -1,5 +1,84 @@
 # Calls media handoff
 
+## 2026-10-15: Darwin TCP write readiness
+
+Previous goal turn: progress in `f9c8af2c` (separate authenticated requested
+buffer telemetry and endpoint admission), with the complete quality goal still
+unproven. The current cycle addresses kernel send accumulation, preserving
+video cuts only on measured buffer growth/ceiling and neutral relay service.
+
+Two real-kernel regressions initially failed on macOS. The SDK configured no
+Darwin unsent threshold; the stalled-reader test retained 64,800 socket bytes
+after local ACK settlement. Enabling Darwin `TCP_NOTSENT_LOWAT=4096` alone
+made the option test pass but left the same 64,800-byte backlog. This is a
+readiness threshold, not a hard queue cap; Tokio can keep using its cached
+writable flag without asking the kernel about the smaller threshold.
+
+A generic write gate (SDK `673a76fd`) now rechecks OS writability with nonblocking poll, clears
+only obsolete readiness, and limits one new input write to 4096 bytes. Plain
+TCP, obfs4, rustls/BoringSSL TLS, WS/WSS and boxed HTTPS paths use it. Public
+TLS stream aliases/handshake return types remain unchanged. A separate duplicated
+socket descriptor owns the writable registration so TLS's read-side protocol
+flushes cannot steal the writer's wakeup. It is a descriptor for the existing
+connection, not another authenticated endpoint or connection-budget slot. Both
+descriptors close with the stream. Registration failure falls back to existing
+I/O; already admitted framing still flushes and graceful shutdown does not wait
+for a new admission. Other platforms delegate their existing I/O unchanged.
+No payload class, wire priority, media role, new packet ACK or relay privilege
+is introduced. The implementation is shared by all TCP traffic in these paths.
+
+The same stalled-reader control now settles at 4,800 socket bytes. It includes
+in-flight data: this is not an exact unsent counter or a universal remote-link
+bound. After reading resumes, every accepted byte arrives in order. A separate
+128-KiB scalar/128-KiB vectored control verifies partial writes and exact data,
+including EOF after dropping the duplicated readiness registration.
+
+All 150 transport unit tests passed. Clippy with warnings denied passed after
+moving an existing export before its test module and removing an existing
+identity conversion in a fixture. Both production SDK build and optional
+`tls-boring` check passed. The non-Apple pass-through compiled in an offline
+ARM64 Linux container; its first setup attempt lacked the workspace's configured
+clang, so the successful check explicitly used the image's GCC/cc. The owned
+container exited and was removed. No server was updated.
+
+Private logs are under `~/.cache/codex/xveil-physical-20261014/`:
+`darwin-backpressure-red.log`, `darwin-lowat-only.log`,
+`darwin-fresh-write-gate.log`, `darwin-gated-transport-final.log`,
+`darwin-gate-clippy.log`, `darwin-gate-boring-check.log`, and
+`darwin-gate-linux-check.log`. The complete quality comparison uses
+`pcm-darwin-gated-stress-360`, stock adaptive Opus 20–60 ms, actual Dart policy,
+a neutral aggregate 1,024-kbit/s obfs4 FIFO and two 512-KiB files. Capture,
+source-clock, PCM, decoded-image, exact-file and cleanup gates remain unchanged.
+
+That 360-second capture is complete and still fails the unchanged quality gate.
+The source clock now passes at 25.440 ms, with no dropped observations, callback
+errors, quiet PCM frames, missing transitions or reported audio interruptions.
+All 704 expected tone edges are exactly attributed. Mixed-phase PCM maxima are
+213.452/201.736 ms (p95 190.557/190.820 ms); native delay peaks at 181/171 ms.
+The largest edge at second 141.407 has 32.678 ms capture-to-encode, 16.112 ms
+SDK-to-ingress and 164.598 ms from WebRTC submission to the rendered transition.
+The latter includes lookahead/playout/rendering, not a NetEq-only measurement.
+Both 512-KiB files arrive exactly (190.2/201.4 seconds), and decoded images move
+through the end. However one direction has twelve protective-pause samples
+and a 13-second sampled video gap; the other has about two-second gaps. This
+transport correction is not a complete audio/video quality fix.
+
+Independent blind-shaper timing reports up to 99.494/263.403 ms waiting for a
+reader turn, followed by up to 45.318/55.231 ms reservation delay. These opaque
+chunk maxima are not matched audio packets. They cannot be added to the tone
+edge spans or used to claim a media-specific relay scheduling defect. All
+three nodes stopped successfully, every fixture worker exited, and no fixture
+sockets remain. No GUI or phone app was opened in this cycle. The connected
+replacement remains Blackview BV6600Pro, not the earlier Poco.
+
+The next isolated comparison combines this SDK with the existing fixed-20-ms
+candidate library (`media-opus-duration20/libveil_media.dylib`) in
+`pcm-darwin-gated-duration20-stress-360`. No packet-duration source change is
+accepted on the strength of the previous, ungated test. Current production
+media remains adaptive 20–60 ms. SOCKS proxy return paths have not yet been
+wrapped by this gate; group target propagation and physical application
+qualification likewise remain open.
+
 ## 2026-10-15: requested-buffer telemetry and endpoint admission
 
 The previous goal turn made authoritative progress in `b0786510`: complete
