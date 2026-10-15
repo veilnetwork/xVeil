@@ -79,6 +79,29 @@ media remains adaptive 20–60 ms. SOCKS proxy return paths have not yet been
 wrapped by this gate; group target propagation and physical application
 qualification likewise remain open.
 
+The fixed-20-ms comparison has now finished and is rejected again. Source
+coverage is complete, the source clock passes at 39.390 ms, and all 704 expected
+tone edges are attributed with no missing transitions, quiet PCM or reported
+audio interruptions. However mixed-phase PCM peaks at 311.437/320.861 ms
+(p95 201.844/219.084 ms), native buffer delay at 281/288 ms, and sampled video
+gaps reach 21 seconds in both directions. Protective pauses occupy 39/32
+one-second samples. Both files are exact (210.4/228.4 seconds), endpoint control
+arrives completely, every fixture worker exits, all three node stops return
+zero, and no fixture sockets remain. Production media source was never changed
+for this comparison; it used the already isolated candidate dylib.
+
+At the largest edge (second 233.311), capture-to-encode is 11.545 ms,
+SDK-to-ingress 11.332 ms and the post-WebRTC residual 297.937 ms. Across the
+whole mixed phase, packet SDK-to-ingress maxima are nevertheless
+236.114/231.681 ms. This is consistent with a receiver retaining delay after an
+earlier delivery burst, not proof that packet transport is always prompt. The
+same-process Python blind shaper records up to 109.621/109.408 ms between a
+reservation becoming ready and its actual write. The capture has no GC timing
+trace, so the cause of those scheduling stalls is unknown. Future work must
+separate fixture-process stalls from product transport accumulation; it cannot
+attribute them to relays or call the receiver residual NetEq alone. Keep the
+unchanged full quality gates. Neither duration experiment qualifies the goal.
+
 ## 2026-10-15: requested-buffer telemetry and endpoint admission
 
 The previous goal turn made authoritative progress in `b0786510`: complete
