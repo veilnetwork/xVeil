@@ -817,7 +817,7 @@ void main() {
       addTearDown(messaging.dispose);
       final device = _id(3);
       final received = Completer<void>();
-      messaging.onCallSignal = (_, __) => received.complete();
+      messaging.onCallSignal = (_, _) => received.complete();
       transport.realtimeInbound.add(
         InboundMessage(
           src: peer,
@@ -845,7 +845,7 @@ void main() {
     addTearDown(messaging.dispose);
     final device = _id(3);
     final received = Completer<void>();
-    messaging.onCallSignal = (_, __) => received.complete();
+    messaging.onCallSignal = (_, _) => received.complete();
     transport.realtimeInbound.add(
       InboundMessage(
         src: peer,
@@ -870,7 +870,7 @@ void main() {
       final device = _id(3);
       final received = Completer<void>();
       var calls = 0;
-      messaging.onP2PEndpoints = (_, __) {
+      messaging.onP2PEndpoints = (_, _) {
         calls++;
         if (!received.isCompleted) received.complete();
       };

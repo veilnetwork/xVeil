@@ -1148,7 +1148,7 @@ void main() {
       // and then offers a file to that contact's second device.
       expect(tB.srcDevice, isNull);
       final call = Completer<void>();
-      mA.onCallSignal = (_, __) => call.complete();
+      mA.onCallSignal = (_, _) => call.complete();
       realtimeA.realtimeInbound.add(
         InboundMessage(
           src: b,
