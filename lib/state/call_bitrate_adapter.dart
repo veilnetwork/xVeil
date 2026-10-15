@@ -1,5 +1,6 @@
 import 'call_audio_receive_activity.dart';
 import 'call_audio_buffer_window.dart';
+import 'call_rtcp_loss.dart';
 
 /// Pure sender-side link-quality ladder for live call video.
 ///
@@ -138,6 +139,7 @@ class CallBitrateAdapter {
   int? _lastTxDrops;
   int? _lastAudioTxDrops;
   int? _lastVideoTxDrops;
+  final _rtcpLoss = CallRtcpLoss();
   int? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
   int? _floorTrialLastFrames;
@@ -235,6 +237,7 @@ class CallBitrateAdapter {
     // a new baseline, even if it already exceeds the predecessor's count.
     _lastAudioTxDrops = null;
     _lastVideoTxDrops = null;
+    _rtcpLoss.reset();
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
     _floorPeerSampleSequence = null;
@@ -400,6 +403,20 @@ class CallBitrateAdapter {
     // another receiver is missing. A healthy peer cannot mask a silent one.
     ({bool expected, int? ageMs})? audioReceiveQuality,
   }) {
+    final networkLoss = _rtcpLoss.observe(
+      audioReportUs: stats['audio_loss_report_us'],
+      videoReportUs: stats['video_loss_report_us'],
+      audioExpected: sendAudioExpected,
+      videoExpected: videoSendExpected,
+    );
+    final videoDrops = stats['video_tx_rtp_drops'];
+    final validVideoDrops = videoDrops is int && videoDrops >= 0;
+    final videoLoss =
+        validVideoDrops &&
+        videoSendExpected &&
+        _lastVideoTxDrops != null &&
+        videoDrops > _lastVideoTxDrops!;
+    if (validVideoDrops) _lastVideoTxDrops = videoDrops;
     final expectedReports = sendAudioExpected
         ? expectedAudioFeedbackReports
         : expectedVideoFeedbackReports;
@@ -443,8 +460,10 @@ class CallBitrateAdapter {
                   (receiveDelay != null && receiveDelay < playoutRecoverMs)));
       final drops = (stats['tx_drops'] as num?)?.toInt() ?? 0;
       final newDrops = _lastTxDrops != null && drops > _lastTxDrops!;
-      if (!receiveRequested ||
-          (incomingHealthy && !audioInterrupted && !newDrops)) {
+      if (!networkLoss.video &&
+          !videoLoss &&
+          (!receiveRequested ||
+              (incomingHealthy && !audioInterrupted && !newDrops))) {
         _mutedRecoveryStreak++;
         if (_audioReserve &&
             (!receiveRequested || _mutedRecoveryStreak >= recoverAfter)) {
@@ -460,14 +479,6 @@ class CallBitrateAdapter {
     final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
-    final videoDrops = stats['video_tx_rtp_drops'];
-    final validVideoDrops = videoDrops is int && videoDrops >= 0;
-    final videoLoss =
-        validVideoDrops &&
-        videoSendExpected &&
-        _lastVideoTxDrops != null &&
-        videoDrops > _lastVideoTxDrops!;
-    if (validVideoDrops) _lastVideoTxDrops = videoDrops;
     final outcome = onSample(
       videoSendExpected: videoProgress,
       measuredVideoProgress:
@@ -519,6 +530,8 @@ class CallBitrateAdapter {
       missingAudioReceiverFeedback: !feedbackAvailable,
       audioInterrupted: audioInterrupted,
       videoLossObserved: videoLoss,
+      audioNetworkLossObserved: networkLoss.audio,
+      videoNetworkLossObserved: networkLoss.video,
       videoFloorApplied:
           _appliedTarget == target &&
           _appliedPause != true &&
@@ -587,6 +600,8 @@ class CallBitrateAdapter {
     int? audioReceiveTargetDelayMs,
     bool audioInterrupted = false,
     bool videoLossObserved = false,
+    bool audioNetworkLossObserved = false,
+    bool videoNetworkLossObserved = false,
     required int rttMs,
     required int txJitterMs,
     required int txLossPct,
@@ -727,12 +742,16 @@ class CallBitrateAdapter {
         _lastAudioTxDrops != null &&
         audioTxDrops > _lastAudioTxDrops!;
     _lastAudioTxDrops = audioTxDrops;
-    final freshAudioLoss = newAudioDrops || audioInterrupted;
-    final freshMediaLoss = freshAudioLoss || videoLossObserved;
+    final freshAudioLoss =
+        newAudioDrops || audioInterrupted || audioNetworkLossObserved;
+    final freshMediaLoss =
+        freshAudioLoss || videoLossObserved || videoNetworkLossObserved;
     _bufferInputs?.addAll({
       'audio_rtp_drop': newAudioDrops,
       'video_rtp_drop': videoLossObserved,
       'audio_interruption': audioInterrupted,
+      'audio_network_loss': audioNetworkLossObserved,
+      'video_network_loss': videoNetworkLossObserved,
     });
 
     final receiveOutage =
@@ -763,6 +782,7 @@ class CallBitrateAdapter {
         !requirePeerAudioPlayout ||
         (currentPeerDelay != null && currentPeerDelay < playoutRecoverMs);
     if (!feedbackAvailable &&
+        !freshMediaLoss &&
         !newDrops &&
         !newAudioDrops &&
         !playoutBad &&
@@ -810,7 +830,7 @@ class CallBitrateAdapter {
         txLossPct <= 1 &&
         txJitterMs < 40 &&
         rttGood &&
-        !newAudioDrops &&
+        !freshAudioLoss &&
         !bufferPressure &&
         !missingAudioReceiverFeedback &&
         !audioUnproven &&
@@ -859,7 +879,7 @@ class CallBitrateAdapter {
         feedbackAvailable &&
         !audioUnproven &&
         !audioInterrupted &&
-        !newAudioDrops &&
+        !freshAudioLoss &&
         (!requirePeerAudioPlayout ||
             (currentPeerDelay != null &&
                 currentPeerDelay < playoutRecoverMs)) &&
@@ -869,6 +889,7 @@ class CallBitrateAdapter {
                 audioReceiveDelayMs < playoutRecoverMs)) &&
         rttMs < severeRttMs;
     if (_audioReserve &&
+        !freshMediaLoss &&
         (measuredPlayoutHealthy || audioGood) &&
         (audioTxDrops != null || !newDrops)) {
       _audioRecoveryStreak++;
@@ -880,16 +901,18 @@ class CallBitrateAdapter {
       _audioRecoveryStreak = 0;
     }
 
-    final measuredAudioFailure = usePlayout
-        ? floorBufferFailure || freshAudioLoss
-        : receiveOutage ||
-              peerPlayoutOutage ||
-              audioInterrupted ||
-              newAudioDrops ||
-              (!measuredPlayoutHealthy &&
-                  sendAudioExpected &&
-                  (anyAudioFeedbackAvailable ?? feedbackAvailable) &&
-                  (txLossPct >= 5 || txJitterMs >= 80 || rttMs >= severeRttMs));
+    final measuredAudioFailure =
+        freshAudioLoss ||
+        (usePlayout
+            ? floorBufferFailure
+            : receiveOutage ||
+                  peerPlayoutOutage ||
+                  (!measuredPlayoutHealthy &&
+                      sendAudioExpected &&
+                      (anyAudioFeedbackAvailable ?? feedbackAvailable) &&
+                      (txLossPct >= 5 ||
+                          txJitterMs >= 80 ||
+                          rttMs >= severeRttMs)));
     if (atFloor && videoFloorApplied && measuredAudioFailure) {
       if (pressureSampleCanAdvance || freshAudioLoss) _severeStreak++;
     } else {
@@ -908,7 +931,7 @@ class CallBitrateAdapter {
     }
 
     if (freshMediaLoss && _level < ladder.length - 1) {
-      // A new RTP admission failure or measured audio interruption is
+      // A new RTP admission failure, peer loss report or audio interruption is
       // source congestion evidence. Consume its event once; a retained count,
       // estimated loss percentage or intentionally skipped camera frame is
       // not another failure on the next one-second poll.
