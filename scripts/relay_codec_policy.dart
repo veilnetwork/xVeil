@@ -5,14 +5,29 @@ import 'package:xveil/state/call_audio_receive_activity.dart';
 import 'package:xveil/state/call_peer_audio_playout.dart';
 import 'package:xveil/state/call_audio_source_pressure.dart';
 import 'package:xveil/state/call_audio_feedback_schedule.dart';
+import 'package:xveil/state/call_video_profile.dart';
 import 'package:xveil/domain/call_signal.dart';
 
 Future<void> main() async {
+  final profileName =
+      Platform.environment['XVEIL_TEST_VIDEO_PROFILE'] ?? 'stress';
+  final profile = switch (profileName) {
+    'direct' => directCallVideoProfile,
+    'anonymous' => anonymousCallVideoProfile,
+    // Preserve the original, deliberately large byte budget per frame.
+    'stress' => const CallVideoProfile(
+      maxBitrateKbps: 900,
+      maxFps: 15,
+      cameraWidth: 320,
+      cameraHeight: 240,
+    ),
+    _ => throw ArgumentError.value(profileName, 'video profile'),
+  };
   final adapters = List.generate(
     2,
     (_) => CallBitrateAdapter(
-      baseBitrateKbps: 900,
-      baseFps: 15,
+      baseBitrateKbps: profile.maxBitrateKbps,
+      baseFps: profile.maxFps,
       supportsLowRateVideo: true,
     ),
   );
@@ -25,6 +40,20 @@ Future<void> main() async {
     final req = jsonDecode(line) as Map<String, dynamic>;
     final i = req['index'] as int;
     final a = adapters[i];
+    if (req['op'] == 'profile') {
+      stdout.writeln(
+        jsonEncode({
+          'name': profileName,
+          'kbps': profile.maxBitrateKbps,
+          'fps': profile.maxFps,
+          'profileCameraWidth': profile.cameraWidth,
+          'profileCameraHeight': profile.cameraHeight,
+          'syntheticCameraWidth': 320,
+          'syntheticCameraHeight': 240,
+        }),
+      );
+      continue;
+    }
     if (req['op'] == 'feedbackAttempt') {
       feedbackSchedule[i].recordAttempt(
         CallAudioPlayoutFeedback.fromJson(req['feedback']),
