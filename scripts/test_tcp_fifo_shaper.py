@@ -2,16 +2,25 @@
 import asyncio
 import collections
 import concurrent.futures
+import json
 import os
 import socket
+import subprocess
+import sys
 import threading
 import time
 import unittest
 
 from tcp_fifo_shaper import ReaderArrivalTrace, TcpShaper
+from process_tcp_shaper import ProcessTcpShaper
 
 
 class TcpShaperTest(unittest.TestCase):
+    shaper_type = TcpShaper
+
+    def assert_worker_exited(self, shaper):
+        self.assertFalse(shaper.worker.is_alive())
+
     def test_existing_buffer_is_unknown_and_partial_reads_preserve_arrival_segments(self):
         async def exercise():
             reader = asyncio.StreamReader(limit=4096)
@@ -43,7 +52,7 @@ class TcpShaperTest(unittest.TestCase):
     def test_duplicate_targets_cannot_multiply_capacity(self):
         target = ('127.0.0.1', 1)
         with self.assertRaises(ValueError):
-            TcpShaper([target, target], scope='per-target')
+            self.shaper_type([target, target], scope='per-target')
 
     def exercise_competing_connections(self, scope, distinct_targets):
         listeners = []
@@ -79,7 +88,7 @@ class TcpShaperTest(unittest.TestCase):
         server = threading.Thread(target=serve)
         server.start()
         targets = [listener.getsockname() for listener in listeners]
-        shaper = TcpShaper(targets, trace=True, scope=scope)
+        shaper = self.shaper_type(targets, trace=True, scope=scope)
         shaper.rate_bps = 128000
         barrier = threading.Barrier(2)
         payloads = [os.urandom(16384), os.urandom(16384)]
@@ -153,7 +162,7 @@ class TcpShaperTest(unittest.TestCase):
             server.join(2)
             for thread in echoes:
                 thread.join(2)
-        self.assertFalse(shaper.worker.is_alive())
+        self.assert_worker_exited(shaper)
         self.assertFalse(server.is_alive())
         self.assertTrue(all(not thread.is_alive() for thread in echoes))
         self.assertEqual(failures, [])
@@ -163,7 +172,7 @@ class TcpShaperTest(unittest.TestCase):
             listener.bind(('127.0.0.1', 0))
             listener.listen(1)
             listener.settimeout(3)
-            shaper = TcpShaper([listener.getsockname()])
+            shaper = self.shaper_type([listener.getsockname()])
             try:
                 with socket.create_connection(('127.0.0.1', shaper.ports[0]), 3) as client:
                     upstream, _ = listener.accept()
@@ -175,7 +184,85 @@ class TcpShaperTest(unittest.TestCase):
                         self.assertEqual(upstream.recv(1), b'')
             finally:
                 shaper.stop()
-            self.assertFalse(shaper.worker.is_alive())
+            self.assert_worker_exited(shaper)
+
+
+class ProcessTcpShaperTest(TcpShaperTest):
+    shaper_type = ProcessTcpShaper
+
+    def assert_worker_exited(self, shaper):
+        self.assertEqual(shaper.process.poll(), 0)
+        self.assertFalse(shaper.reader.is_alive())
+
+    def test_dead_worker_fails_stop_and_closes_control_handles(self):
+        shaper = self.shaper_type([('127.0.0.1', 1)])
+        self.assertNotEqual(shaper.pid, os.getpid())
+        self.assertEqual(shaper.pid, shaper.process.pid)
+        shaper.process.kill()
+        shaper.process.wait(timeout=5)
+        with self.assertRaises((BrokenPipeError, RuntimeError)):
+            shaper.stop()
+        self.assertIsNotNone(shaper.process.poll())
+        self.assertFalse(shaper.reader.is_alive())
+        self.assertTrue(shaper.process.stdin.closed)
+        self.assertTrue(shaper.process.stdout.closed)
+
+
+class ShaperRuntimeIsolationTest(unittest.TestCase):
+    def test_parent_gil_stall_cannot_delay_isolated_network(self):
+        # Echo endpoint AND timed sender live outside this runtime. Otherwise
+        # blocking the test's GIL would pause the witness, hiding the defect.
+        witness_source = '''
+import socket, threading, time, json
+listener=socket.socket(); listener.bind(('127.0.0.1',0)); listener.listen(1)
+print(listener.getsockname()[1],flush=True)
+def echo():
+    conn,_=listener.accept()
+    with conn:
+        while data:=conn.recv(4096): conn.sendall(data)
+thread=threading.Thread(target=echo);thread.start()
+port=int(input())
+with socket.create_connection(('127.0.0.1',port),3) as conn:
+    conn.settimeout(3);conn.sendall(b'warm');assert conn.recv(4)==b'warm'
+    print('ready',flush=True);assert input()=='go';time.sleep(.1)
+    began=time.monotonic();conn.sendall(b'check');data=conn.recv(5)
+    print(json.dumps(dict(seconds=time.monotonic()-began,exact=data==b'check')),flush=True)
+thread.join(3);listener.close()
+'''
+        observed = {}
+        for label, factory in [('thread', TcpShaper), ('process', ProcessTcpShaper)]:
+            witness = subprocess.Popen([sys.executable, '-u', '-c', witness_source],
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                       text=True, bufsize=1)
+            shaper = None
+            try:
+                target = ('127.0.0.1', int(witness.stdout.readline()))
+                shaper = factory([target])
+                witness.stdin.write(str(shaper.ports[0]) + '\n')
+                witness.stdin.flush()
+                self.assertEqual(witness.stdout.readline().strip(), 'ready')
+                old_interval = sys.getswitchinterval()
+                try:
+                    sys.setswitchinterval(2)
+                    witness.stdin.write('go\n'); witness.stdin.flush()
+                    until = time.monotonic() + .9
+                    while time.monotonic() < until:
+                        pass
+                finally:
+                    sys.setswitchinterval(old_interval)
+                result = json.loads(witness.stdout.readline())
+                self.assertTrue(result['exact'])
+                observed[label] = result['seconds']
+                self.assertEqual(witness.wait(timeout=5), 0)
+            finally:
+                if shaper is not None:
+                    shaper.stop()
+                if witness.poll() is None:
+                    witness.kill(); witness.wait(timeout=5)
+                witness.stdin.close(); witness.stdout.close()
+        print('parent-GIL witness seconds:', observed, flush=True)
+        self.assertGreater(observed['thread'], .65)
+        self.assertLess(observed['process'], .4)
 
 
 if __name__ == '__main__':

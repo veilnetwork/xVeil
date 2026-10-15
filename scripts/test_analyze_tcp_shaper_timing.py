@@ -54,6 +54,12 @@ class ShaperTimingTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             analyze(dict(SUMMARY, shaper_scope='per-media'), capture([ROW]), 20, 21)
 
+    def test_process_isolation_retains_same_host_clock_scope(self):
+        r = analyze(dict(SUMMARY, shaper_process_isolated=True), capture([ROW]), 20, 21)
+        self.assertTrue(r['same_host_fixture_only'])
+        self.assertTrue(r['shaper_process_isolated'])
+        self.assertEqual(r['directions'][0]['spans']['ready_to_write']['max_ms'], 10)
+
     def test_invalid_clocks_and_stage_order_rejected(self):
         for row in [dict(ROW, read_at=5000), dict(ROW, ready=21.0), dict(ROW, at=float('nan'))]:
             with self.assertRaises(ValueError): analyze(SUMMARY, capture([row]), 20, 21)
