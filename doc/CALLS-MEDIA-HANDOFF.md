@@ -1,5 +1,113 @@
 # Calls media handoff
 
+## 2026-10-15: Android SDK update and endpoint pressure accounting
+
+Phone profile build 2598 now carries SDK 11f4dfe3, built locally with NDK
+28.2.13676358 for arm64/API 24. Its signer matches the previous installation;
+the update preserves both fixture identity and data. Native media remains
+the same 9e binary (99 exports), and unrelated native dependencies are
+byte-identical to build 2595 apart from the generated Dart application.
+The installed SDK ELF SHA-256 is
+7f6df9c52ef1fa8bb5eff6be78950a8a0473122c36f0461498682e8edd232585.
+This is a private QA build, not a published release.
+
+call-mac2597-phone2598-retry is a negative physical video result: both stay
+P2P for 178.30 seconds, ring delay is 0.30 seconds, but sampled median TX
+marker rates are 5.85/29.41 per second. Mac has four adapter cuts, each
+recording fresh video RTCP loss; phone has none. Sampled audio buffers remain
+5–55/47–77 ms, with no registered interruptions, catch-up or audio admission
+drops. These measurements do not establish perceptual speech quality.
+
+Do NOT describe this as zero endpoint video drops. The datagram_admission
+counters cover transport capacity and bandwidth, but a separate
+local_source_pressure event records producer-budget rejection. Mac reports
+at least 371 secondary drops there; phone reports at least 25. Both report
+zero secondary buffer/bandwidth drops and zero QUIC packet losses in their
+sampled admission windows. Mac also has at least 59 capacity deferrals.
+In the previous good Mac2597/phone2595 call, the corresponding logged lower
+bounds were only one secondary producer-budget rejection on each endpoint.
+These counters can retain an unlogged tail, so sums are lower bounds.
+
+Sparse Mac video-channel cells 1400, 1450, 1500, 1550 and 1600 have all four
+sender IPC milestones but no matching authenticated receive sample. Their
+direct_queued times fall within 1792080751024–1792080751423 ms, and the same
+sender logs 292 secondary producer-budget rejections at 1792080751789 ms.
+This localizes a plausible source of missing cells before transport admission;
+it does not prove the fate of each cell individually. Video RTCP shares this
+local channel, so sealed sequence counts are not pure RTP packet counts.
+Do not infer a new Android SDK regression from this single run or blame the
+network solely because a peer RTCP report observes loss. The existing source
+pressure follows measured audio buffer growth and has a recovery hold.
+No relay policy, buffer ceiling or loss trigger is relaxed to hide this result.
+
+call-mac2597-phone2598-repeat uses the SAME installed binaries and identities.
+Ring delay is 0.33 seconds, observation span 178.06 seconds, both stay P2P.
+Sampled median TX marker rates are 29.90/29.34 per second, but this is NOT a
+stable full-cadence pass: both adapters cut at about 137/145 seconds and end
+at the one-fps rung. Phone has six sampled audio-protection pause observations.
+Mac's cuts include fresh video RTCP loss, while phone's include measured
+buffer growth and subsequent audio catch-up. All 117 adapter observations
+are retained per endpoint without gaps. Mac logs at least 510 secondary
+producer-budget rejections, phone at least one. This disproves treating the
+earlier asymmetric median alone as a persistent Android transport regression.
+
+Video-phase sampled audio_delay_ms ranges are 9–135/19–120 ms; registered
+interruptions, audio admission drops and handovers stay zero. Both endpoints
+nevertheless perform decoded catch-up: final audio_latency_recovery_count is
+227/183 and audio_latency_discarded_ms is 2940/2310; each also reports one
+audio_jb_flushes. Do not claim this run has no audio recovery merely because
+audio_discarded_packets is zero (that field excludes decoded catch-up).
+The remaining question is why the queue grows late in an initially healthy
+call and whether its protection/recovery cycle unnecessarily suppresses video;
+the current evidence is insufficient to relax the protection or blame the OS.
+Both physical calls' app processes, logcat readers and ADB forwards are absent
+after hangup, independently verified. No source fix is claimed in this cycle.
+
+## 2026-10-15: file tail under sustained primary pressure
+
+Previous cycle made progress (root cc6d8da1, SDK 11f4dfe3), fixing the physical
+Mac video admission loss. Its 360-second QUIC run ended with incomplete files.
+Current work keeps that negative result and adds a bounded per-fragment receipt
+trace (4096 observations per direction) plus an optional immutable in-run file
+checkpoint. The checkpoint is diagnostic and never substitutes for the final
+complete-file/hash gate. No sender rate, byte count, latency/clock threshold or
+relay scheduling changes. Snapshot regression tests and Python compilation pass.
+
+secondary-retry-quic-observe-420 PASSES the complete gate over seven minutes
+with the SAME SDK/media libraries, blind aggregate 1,024-kbit/s UDP FIFO,
+real Opus/VP8, two full 512-KiB encrypted files and 1010-ms tone transitions.
+Its immutable checkpoint at 360.001 seconds still FAILS file completion:
+direction 0 has 512000 bytes and indices 250–255 pending; direction 1 has
+516096 bytes and indices 252–255 pending. This does not turn the earlier
+six-minute workload into a pass.
+
+Both files then complete while audio/video remain active: receiver times
+364.907/362.837 seconds after workload start, or 344.898/342.828 seconds after
+file enqueue. Every one of the 256 fragments arrives on each side, both hashes
+match, and authentication errors, duplicates and async send failures are zero.
+The traces are complete, with maximum inter-fragment gaps 5.995/5.594 seconds;
+fragment arrival order differs from index order and is handled by assembly.
+This run establishes eventual completion under the existing pressure budget.
+It contradicts irreversible loss in this observed tail; it does not promise
+that every configuration finishes a 512-KiB file in six minutes.
+
+In the earlier 360-second run, sourcePressured is true in 342/340 of the 360
+endpoint observations. The existing reliable secondary allowance under
+pressure is 1024 wire bytes per 200 ms; actual encrypted frame cost determines
+the per-frame delay. Current evidence is consistent with slow background DATA
+admission while preserving audio, and does not justify raising that allowance
+merely to meet the private six-minute cutoff.
+
+All 822 tone edges match in the 420-second run, with no missing edges, quiet
+PCM frames or registered interruptions. Mixed PCM peaks 159.934/190.017 ms;
+p95 is 150.030/150.131 ms. Current buffers peak at 140/143 ms. Native clock
+maximum interval is 10.19 ms, wake lateness 0.138 ms and full callback 1.944 ms.
+All 42000 ticks and 422 exact policy read-backs are present; dropped rows,
+timer errors and policy misses are zero. Both synthetic images change at the
+end, sampled maximum gaps are about three seconds, and no audio-protection
+pause samples occur. All three nodes exit zero and no fixture sockets remain.
+The result measures synthetic media timing, not perceptual speech quality.
+
 ## 2026-10-15: independent video capacity retry
 
 The preceding cycle made progress (root ed066ec2, SDK 9e933061), but its
