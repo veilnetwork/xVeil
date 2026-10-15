@@ -1,5 +1,85 @@
 # Calls media handoff
 
+## 2026-10-15: inspect transport burst and restore session lint gate
+
+Previous cycle made progress in SDK `12816b7c` and xVeil `a87980e8`, closing
+proxied write-admission bypasses. The original mixed audio/video quality failure
+remains open. No handset or GUI app is started in this cycle, and no relay is
+updated. The preserved `pcm-bg-ctrl-360` is still the failed evidence, not a
+passing result to reinterpret.
+
+At the original 106–108-second flight spike, existing SDK diagnostics across
+observed channels show cumulative outbox-to-transport admission maxima under
+8 ms, ordered-record queue maxima 5.053 ms, write/flush maxima 3.762 ms,
+receive-queue maxima 0.474 ms and dispatch maxima 0.167 ms. These sampled and
+cumulative diagnostics do not uniquely join an RTP packet to a child, but do
+not explain the full 181-ms flight. Socket snapshots in this interval report
+queued high-water marks below 4 KiB. The blind shaper independently observes
+reader-buffer residence, which must not be mistaken for an SDK queue or the
+same audio packet. Follow-up capture is `pcm-hop-capture-360`: SDK binary built
+at `12816b7c`, stock media, full unchanged 360-second stress profile, both files,
+accurate 100-ms control polling, isolated 1,024-kbit/s aggregate FIFO and native
+PCM clock. Bounded opaque preview capture starts at second 100 to separate
+capture-before-write and dispatch on each hop. Missing captures are not losses
+and preview matches do not prove full-body equality.
+
+While that immutable binary runs, session cleanup removes the eight previously
+reported library Clippy violations without suppressing the gate. Queue helpers
+carry the existing complete `FrameEnvelope` instead of separately passing eight
+metadata fields; original lossy ingress time, deadline, source cell, signaling
+reservation and reliable credit stay owned until the same admission/drop point.
+The existing metadata-preservation test now enters through `push_envelope`.
+Both large parallel-session enum variants move behind one Box each, reducing
+the enclosing runner's inline state; no pool count, owner, worker or wire changes.
+Pool default is derived, an unnecessary carrier lifetime is elided, and identical
+admission conditions/nested receipt guards are combined. Queue policy and
+transport selection are unchanged. Verification and final capture results must
+be recorded below before claiming any green gate.
+
+The completed `pcm-hop-capture-360` remains FALSE. Mixed-phase PCM peaks
+210.731/221.310 ms fail the same 200-ms gate; p95 is 189.847/191.372 ms.
+All 704 tone transitions are attributed, no quiet PCM or reported interruptions
+occur, and the native source clock passes at 14.360 ms. Native current-buffer
+maxima are 166/176 ms. All 90/93 controls arrive exactly once by nonce (plus
+bootstraps); both 512-KiB files are exact in 243.4/242.7 seconds. Images move
+through the end, but sampled gaps reach 13/14 seconds, with 13/24 protective
+pause samples. Node stops return zero; native audio, files, policy and shaper
+exit; no sockets remain. None of this qualifies physical speech quality.
+
+Opaque capture accepts all three observers, has no reader errors/rejections,
+and closes all readers. Its 4,096-row-per-node limits fill normally: relay
+TX coverage ends at second 121.677, endpoint TX coverage around 142.4. Within
+that CAPTURED SUBSET, unique preview matches show endpoint-to-relay maxima
+159.875/126.605 ms and relay-to-endpoint maxima 66.905/67.393 ms. There are two
+ambiguous groups and 6,706 incomplete groups; these are NOT packet-loss counts.
+No captured body exceeds 1,220 bytes. The largest actual PCM edge is at second
+213.111, OUTSIDE capture coverage. Neither that edge nor the former run's
+181-ms RTP peak can be assigned to one hop from this partial observation.
+The native RTP trace remains complete; its 100–125-second flight maxima are
+114.053/130.064 ms. They must not be equated to opaque-preview maxima, which
+can include OTHER producers and different timestamps. Per-hop attribution of
+the worst audio edge remains open; do not use a random matching small frame
+as an audio witness. Next tracing needs bounded coverage through the actual
+bad window and an endpoint-only correspondence to the audio source, without
+adding roles/priority to relay service or the wire.
+
+Session Clippy now passes `--all-targets -- -D warnings`. After the original
+eight library findings were fixed, all-targets additionally found an existing
+`feedback_tests` module before production items in `local_reliable_admission`;
+that unchanged test module is moved to the end. No allow is added. The full
+session suite passes 554 tests (8 existing ignored, one doc test ignored).
+SDK `7a8988b1` contains this session refactor. The complete node-runtime suite
+passes 657 unit tests (11 existing ignored), plus its 8 integration tests; its
+two doc tests remain ignored. The final embedded production-feature FFI build
+passes. Logs are `session-admission-runtime-tests.log` and
+`session-admission-sdk.log`. This final binary includes the refactor; the full
+mixed capture above intentionally used the pre-refactor `12816b7c` binary.
+No whole-workspace CI result or new physical/relay quality qualification is
+claimed. All owned test processes and fixture sockets are gone.
+Private artifacts: the capture's `hop-analysis.json`, `pipeline.json`,
+`shaper-timing.json`; `session-admission-clippy-final.log` and
+`session-admission-tests.log` in the same cache root.
+
 ## 2026-10-15: close the SOCKS write-admission bypass
 
 Previous turn made progress in SDK `410c1516` and xVeil `4f1090b7`; the
