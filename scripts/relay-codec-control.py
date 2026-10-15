@@ -18,7 +18,7 @@ from opaque_frame_capture import OpaqueFrameCapture
 import ctypes as C
 import gc, json, os, socket, time, tomllib, traceback
 from pathlib import Path
-from pcm_timing import input_edges
+from pcm_timing import capture_coverage, input_edges
 from decoded_video_progress import summarize as summarize_decoded_video
 from native_pcm_driver import NativePcmDriver, build as build_pcm_driver
 os.umask(0o077)
@@ -223,6 +223,7 @@ policy=None
 media=None
 audio_thread=None
 native_driver=None
+startat=None
 audio_stop=threading.Event()
 audio_failure=[]
 source_feedback_queued=[0,0]
@@ -255,10 +256,15 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
 result['reannounce_interval_seconds_override'] = args.reannounce_interval_seconds
 result['shaper_scope'] = args.shaper_scope
+result['rate_kbps'] = args.rate_kbps
+result['media_sha256'] = hashlib.sha256(media_path.read_bytes()).hexdigest()
 result['opaque_frame_capture_start_seconds'] = args.opaque_frame_capture_start_seconds if args.opaque_frame_capture else None
 result['control_carrier'] = 'compact_call_state_diagnostic' if args.compact_call_health else 'authenticated_application_envelope'
 try:
     pcm_driver_library=build_pcm_driver(ROOT) if args.native_pcm_driver else None
+    # First dlopen can involve slow host validation. Complete it before the
+    # workload origin, keeping the library mapped while the driver uses it.
+    pcm_driver_preload=C.CDLL(str(pcm_driver_library)) if pcm_driver_library else None
     if args.transport == 'obfs4-tcp':
         # Private, disposable fixture key shared by its three loopback nodes.
         # Authenticated obfs4 exposes the auxiliary-stream handle; plain TCP
@@ -538,6 +544,12 @@ try:
         payload=nonce+healthkeys[i].encrypt(nonce,json.dumps({'n':0}).encode(),b'codec-control-v1')
         checked(normalsend,controlapps[i],ids[1-i],controlids[1-i],2,payload,len(payload))
     command({'index':0,'op':'ack','pauseOk':False,'budgetOk':False})
+    bootstrap_deadline=time.monotonic()+30
+    while not all(count==1 for count in healthrecv):
+        if time.monotonic()>=bootstrap_deadline:
+            raise RuntimeError('Authenticated bootstrap feedback was not received')
+        time.sleep(.01)
+    result['bootstrap_feedback_received_verified']=True
     time.sleep(4)
     metrics_before = [admin(i, 'metrics')['result'] for i in range(3)]
     assert all(m.get('metrics_enabled') for m in metrics_before), 'Fixture metrics are disabled'
@@ -720,6 +732,7 @@ try:
     result['runtime_counter_deltas'] = [{k:after[k]-before[k] for k in counter_names}
                                       for before,after in zip(metrics_before,metrics_after)]
     (ROOT/'pcm-samples.json').write_text(json.dumps(pcmrows))
+    result['pcm_capture_coverage']=capture_coverage(pcmrows,args.duration)
     if args.decoded_video_trace:
         (ROOT/'decoded-video-samples.json').write_text(json.dumps(decoded_video_rows))
         result['decoded_video_progress']=summarize_decoded_video(decoded_video_rows,args.duration)
@@ -835,7 +848,9 @@ try:
             independent_slots[slot]>=2 for slot in required_slots)
     route_ok = result['neutral_datagram_route_verified'] if args.transport=='quic' else result['neutral_ordered_route_verified']
     mixed=phases[-1]['directions']
-    pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
+    pcm_ok=result['pcm_capture_coverage']['verified'] and all(
+        phase['missing']==0 and phase['matched']>0 and phase['max_ms']<200
+        for direction in result['decoded_pcm_edges'] for phase in direction['phases'])
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
     result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad+control_failures) and all(healthrecv[i]==healthsent[1-i]+1 for i in range(2)) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
     if native_driver is not None:
@@ -910,7 +925,7 @@ finally:
     if shaper is not None:
         result['neutral_shaper_final']=shaper.stats
         shaper.stop()
-        if shaper.trace_rows is not None:
+        if shaper.trace_rows is not None and startat is not None:
             (ROOT/'shaper-queues.json').write_text(json.dumps({'startat':startat,'events':shaper.trace_events,'rows':list(shaper.trace_rows)}))
         result['shaper_failed']=shaper.failure
         result['ok']=result['ok'] and shaper.failure is None

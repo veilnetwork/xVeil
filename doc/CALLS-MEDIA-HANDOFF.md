@@ -1,5 +1,113 @@
 # Calls media handoff
 
+## 2026-10-15: adaptive packet-duration follow-up
+
+The previous cycle made authoritative progress (`20d9d301` SDK, `5c00cc69`
+superproject): reordered-cell handling, config persistence and real unshaped
+anonymous codecs/files were verified. This follow-up retains the full audio
+priority goal, including the unresolved constrained-network PCM tail.
+
+The older `pcm-floor-probe-stress-360/pipeline.json` attributes all 704 expected
+tone edges, with no unattributed edges. Its largest edge, 214.488 ms, consists of
+24.522 ms capture-to-encode, 17.409 ms SDK-to-ingress and 172.449 ms from WebRTC
+submission to the rendered tone transition (plus negligible other stages).
+That residual can include following-packet/FEC lookahead and rendering as well
+as jitter buffering; it is not a direct NetEq-only measurement. The largest
+edge occurred on a 40-ms packet while the stream also used 60-ms packets.
+The nearest receiver snapshots show a 60→40→20→40-ms transition around
+seconds 131–139 and a 120–140-ms jitter-buffer target. Mixed-phase edge maxima
+by containing packet were 206.500 ms (20 ms), 214.488 ms (40 ms), and 213.599 ms
+(60 ms). These are observations of one adaptive stream, not isolated experiments
+at each fixed duration; they cannot establish causation or prove a smaller cap
+sufficient without rerunning the full workload.
+
+A candidate limits negotiated adaptive Opus sends to 20–40 ms rather than
+20–60 ms. The wrapper continues to honor the encoder's supported range and
+retain a 16–32-kbit/s payload target. Fixed-packetization anonymous audio and
+relay scheduling are unchanged. The real Opus/ANA smoke passed the existing
+20-, 40- and 60-ms negotiated-range cases. The engine and current production
+SDK were rebuilt before starting PCM measurements.
+
+The codec harness now records its requested shaping rate and media-library
+SHA-256, complementing its SDK hash. Earlier artifacts omitted those fields.
+The older shaper's first unqueued reservation independently establishes the
+same 1,024,000-bit/s aggregate rate (383 bytes / 2.9921875 ms). The candidate
+uses real codecs, the Dart adapter, encrypted endpoint feedback, independent
+obfs4 connections and simultaneous 512-KiB file transfers in both directions.
+The blind FIFO treats connections equally; it does not inspect media roles.
+
+The first `pcm-duration40-stress-360` capture cannot qualify the candidate:
+the native helper was built before setup but first loaded only after the
+workload origin. Host library validation delayed capture and polling by
+42.601 seconds. There were no observations in the audio-only phase, despite
+the old row-count gate passing. Both files completed and all nodes stopped,
+but startup quiet frames, missing transitions and later PCM peaks failed the
+quality gate. Exact post-second-50 attribution still contains a 273.627-ms
+edge (40-ms packet, 40.878-ms SDK-to-ingress, 232.606-ms post-WebRTC residual),
+so this is not evidence that forty milliseconds solved the tail either.
+
+The helper is now explicitly loaded before the workload origin. A pure coverage
+gate requires both directions to begin within 100 ms and reach the final 100 ms;
+both audio-only and competing phases must contain matched tone transitions.
+Four timing unit tests passed, including the delayed-load counterexample, and
+the new gate rejects the actual incomplete capture. Setup also waits for the
+initial authenticated bootstrap feedback before starting the timed workload.
+The corrected long capture is `pcm-duration40-preloaded-stress-360`.
+
+That corrected 40-ms capture covers 0.0003–359.989 seconds in both directions;
+all 704 expected edges are exactly attributed. It still fails: mixed-phase
+peak PCM delay is 250.159/211.081 ms (p95 172.043/161.337 ms). The largest edge
+at second 140.392 has only 28.878 ms SDK-to-ingress but 220.923 ms after WebRTC
+submission. The independent source clock also fails its separate gate at
+44.900 ms around second 52.946, far from this largest delay. No quiet PCM
+frames, reported interruptions or protective video pauses occurred, decoded
+images kept changing, and both files completed exactly (195.5/185.8 seconds).
+Thus a 40-ms cap is insufficient, despite improved p95; it is not accepted as
+an audio-quality fix. All nodes stopped with no remaining fixture sockets.
+The next isolated candidate keeps packet length at 20 ms while retaining
+bitrate adaptation; it changes no playout or video-protection threshold.
+The 20-ms candidate library is `media-opus-duration20/libveil_media.dylib`,
+with evidence in `pcm-duration20-preloaded-stress-360`. Its command uses the
+current debug SDK plus `--transport obfs4-tcp --rate-kbps 1024 --duration 360
+--adaptive-audio --compact-media --compact-call-health --local-source-feedback
+--compete-file --native-timing-trace --native-trace-capacity 24000
+--tone-period-ms 1010 --shaper-trace`, always with `TMPDIR=/private/tmp/`.
+
+The fixed-20-ms candidate also fails, despite complete capture and a passing
+source-clock maximum of 32.870 ms. Audio-only PCM peaks at 63.327/63.412 ms;
+under competing video/files the peaks become 271.423/858.842 ms (p95
+231.916/258.703 ms). All 704 expected edges are exactly attributed. The largest
+edge at second 76.765 contains 9.335 ms capture-to-encode, 658.529 ms
+SDK-to-ingress and 190.928 ms from WebRTC submission to rendered output.
+Both files complete exactly (271.8/287.5 seconds), and video still changes near
+the end, but sampled video gaps reach 20/42 seconds and protective pauses occur.
+No quality gates were relaxed. Both packet-duration candidates were rejected
+and the production engine was restored byte-for-byte to `20d9d301`.
+
+The next frontier is transport accumulation under contention, not merely Opus
+packet collection. In seconds 70–78, blind shaper direction 1 records up to
+494.345 ms from byte arrival in its reader to read, plus up to 65.061 ms
+reservation delay; reader-arrival-to-write reaches 528.916 ms. Those opaque
+chunks cannot be attributed to a particular media packet without correlation.
+The RTP join independently proves the audio's 658.529-ms pre-ingress delay.
+See `pipeline.json`, `shaper-timing.json` and `shaper-peak-window.json` in the
+20-ms artifact directory. Source-side padding counters stay at 7/8 packets,
+so an ongoing native audio padding flood is not supported by these counters.
+
+There is also an early signal to investigate: side 1's native requested jitter
+buffer target jumps to 220 ms at second 70 and 300 ms at second 71, while its
+reported current delay remains 25/90 ms. The current-delay trigger reduces
+video later. Distinguish the requested target from measured current/PCM delay;
+do not silently relabel one as the other or permit relay media priorities.
+Investigate endpoint pacing/backpressure and whether authenticated target-buffer
+telemetry can warn senders before the receive queue fills.
+
+All three optional codec captures stopped their three nodes with result zero,
+joined their workers, and left no fixture sockets. No phone or GUI application
+was launched. The only retained edits in this cycle are the measurement/setup
+fixes, their coverage tests, and this handoff. No release, push or relay update
+was performed.
+
 ## 2026-10-15: sustained pressure, reordered cells and relay allowance
 
 SDK commit: `20d9d301` (local, unsigned, not pushed).
