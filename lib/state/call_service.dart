@@ -11,6 +11,7 @@ import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'messaging.dart';
 import 'call_slot.dart';
+import 'call_audio_feedback_schedule.dart';
 import 'group_service_providers.dart';
 import 'p2p_endpoint_service.dart';
 import 'call_video_prompt.dart';
@@ -438,6 +439,7 @@ class CallService {
   Call? _current;
   Timer? _ringTimer;
   Timer? _heartbeatTimer;
+  final _audioFeedbackSchedule = CallAudioFeedbackSchedule();
   Timer? _directAdmissionTimer;
   bool _directAdmissionCheckBusy = false;
   StreamSubscription<void>? _screenShareStoppedSub;
@@ -2160,6 +2162,7 @@ class CallService {
       signal = signal.copyWith(
         compactHealthReady: _media?.canReceiveEphemeralHealth ?? false,
       );
+      _audioFeedbackSchedule.recordAttempt(signal.audioPlayout, _now());
     }
     if (call != null &&
         call.callId == signal.callId &&
@@ -2259,7 +2262,20 @@ class CallService {
     _peerConfirmedAfterConnect = peerAlreadyConfirmed;
     _directAdmissionTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       final call = _current;
-      if (call != null) unawaited(_checkLostDirectSession(call));
+      if (call != null) {
+        unawaited(_checkLostDirectSession(call));
+        if (call.status == CallStatus.active &&
+            call.media.audio &&
+            _signalProtocolVersion >= kCallAudioPlayoutFeedbackMinVersion &&
+            (call.peerProtocolVersion ?? 1) >=
+                kCallAudioPlayoutFeedbackMinVersion &&
+            _audioFeedbackSchedule.shouldSendUrgent(
+              _media?.audioPlayoutFeedback,
+              _now(),
+            )) {
+          unawaited(_announceCapture());
+        }
+      }
     });
     _heartbeatTimer = Timer.periodic(kCallHeartbeatInterval, (_) {
       final c = _current;
@@ -2320,6 +2336,12 @@ class CallService {
         }
       }
       unawaited(_checkLateP2P());
+      // An urgent report/capture announcement already carries this health
+      // state. Keep liveness checks and route repair, coalesce its duplicate.
+      if (!receiveNeedsRepair &&
+          _audioFeedbackSchedule.attemptedRecently(_now())) {
+        return;
+      }
       unawaited(
         _sendCallSignal(
           c.peer,
@@ -2350,6 +2372,7 @@ class CallService {
     _heartbeatTimer = null;
     _lastPeerSignalAt = null;
     _lastRegularHealthAt = null;
+    _audioFeedbackSchedule.reset();
     _peerCompactReadyUntil = null;
     _lastPeerCompactHealthAtMs = null;
     _peerConfirmedAfterConnect = false;
