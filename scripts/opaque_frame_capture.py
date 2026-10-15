@@ -75,6 +75,10 @@ def sanitize(event, observer, known):
     seal = sealed_forward(body, fields['body_len'], fields['family'], fields['msg_type'], known)
     if seal is not None:
         row['seal'] = seal
+        # Retain the already validated public length, not ciphertext bytes.
+        # This measures the Delivery wrapper without assuming one sealed cell
+        # contains exactly one RTP packet (it may contain a batch).
+        row['sealed_payload_bytes'] = int.from_bytes(body[225:229], 'big')
     return row, None
 
 

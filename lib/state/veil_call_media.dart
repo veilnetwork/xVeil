@@ -1432,10 +1432,12 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
     if (feedback && highQuality) {
-      // Unbatched AppRtData framing: media seal 36 + authenticated app header
+      // Direct QUIC AppRtData framing: media seal 36 + authenticated app header
       // 89 + OVL 24 + session seal 40 + opaque flow 20. RTP is separate. This
       // hint excludes QUIC/IP; endpoint control headroom is reserved natively.
-      // Both non-onion routes use this framing, so a handover keeps the codec.
+      // This shared hint stays fixed across handover. Delivery/Forward and
+      // ordered carriers have different costs; replacing it requires a model
+      // that accounts for the actual route and batching, not just RTP bytes.
       final adaptive = engine.setAudioPacketOverhead(209);
       devLog(() => 'xVeil[call-media]: adaptive audio packets=$adaptive');
     }
