@@ -6,11 +6,24 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 
-from native_pcm_driver import NativePcmDriver
+from native_pcm_driver import NativePcmDriver, Row, Stats
 
 
 class NativeClockTests(unittest.TestCase):
+    def test_stale_layout_cannot_start_a_native_writer(self):
+        for mismatch in ('row_size', 'stats_size'):
+            library = Mock()
+            library.stand_pcm_row_size.return_value = C.sizeof(Row)
+            library.stand_pcm_stats_size.return_value = C.sizeof(Stats)
+            getattr(library, 'stand_pcm_' + mismatch).return_value += 8
+            with self.subTest(mismatch=mismatch), patch(
+                    'native_pcm_driver.C.CDLL', return_value=library):
+                with self.assertRaisesRegex(RuntimeError, 'ABI layout mismatch'):
+                    NativePcmDriver('unused', None, None, [None, None], 0, 1010)
+            library.stand_pcm_start.assert_not_called()
+
     def test_python_polling_cannot_stop_capture_and_shutdown_joins_it(self):
         source = Path(__file__).with_name('native_pcm_driver.cc')
         with tempfile.TemporaryDirectory() as directory:
