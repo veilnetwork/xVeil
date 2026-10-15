@@ -44,6 +44,9 @@ struct PcmStats {
   int32_t qos_supported, qos_result, qos_requested, qos_actual;
   int32_t timer_error;
 };
+// Foreign test hosts must verify both layouts before passing writable buffers.
+extern "C" size_t stand_pcm_row_size() { return sizeof(PcmRow); }
+extern "C" size_t stand_pcm_stats_size() { return sizeof(PcmStats); }
 namespace {
 using Capture = int (*)(void*, int);
 using Playout = int (*)(void*, int16_t*, size_t);

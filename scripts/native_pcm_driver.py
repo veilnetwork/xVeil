@@ -39,6 +39,12 @@ class NativePcmDriver:
     def __init__(self, library, capture, playout, engines, origin, period_ms,
                  priority='audio'):
         self.lib = C.CDLL(str(library))
+        for name, expected in (('row_size', C.sizeof(Row)),
+                               ('stats_size', C.sizeof(Stats))):
+            size = getattr(self.lib, 'stand_pcm_' + name)
+            size.argtypes, size.restype = [], C.c_size_t
+            if size() != expected:
+                raise RuntimeError('Native PCM driver ABI layout mismatch: ' + name)
         signatures = {
             'now': ([], C.c_double),
             'start': ([C.c_void_p] * 4 + [C.c_double, C.c_int, C.c_int], C.c_void_p),
