@@ -418,6 +418,7 @@ try:
     def mf(name,types,ret):
         f=getattr(media,name);f.argtypes=types;f.restype=ret;return f
     create=mf('veil_media_test_dual_overhead_codec_create',[C.c_uint64,P,P,C.c_int,C.c_int],P) if args.video_overhead_bytes else mf('veil_media_test_adaptive_codec_create',[C.c_uint64,P,P,C.c_int],P) if args.adaptive_audio else mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
+    video_overhead=mf('veil_media_test_video_transport_overhead',[P],C.c_int) if args.video_overhead_bytes and hasattr(media,'veil_media_test_video_transport_overhead') else None
     timing_anchor=mf('veil_media_test_audio_timing_anchor',[P,C.c_int],C.c_int) if args.native_timing_trace else None
     destroy=mf('veil_media_engine_destroy',[P],None)
     set_packet_size=mf('veil_media_engine_set_max_rtp_packet_size',[P,C.c_int],C.c_int) if args.max_rtp_packet_size is not None else None
@@ -683,6 +684,10 @@ try:
                 if not ptr:pollfail[i]+=1;continue
                 try:stats=json.loads(C.string_at(ptr))
                 finally:mfree(ptr)
+                if video_overhead is not None:
+                    # Read the controller's applied value, never echo the CLI
+                    # argument as if it were native measurement. -1 is unknown.
+                    stats['video_packet_overhead_bytes']=video_overhead(e)
                 if pull_video is not None and videostarted:
                     began=time.monotonic()
                     seq=pull_video(e,video_buffers[i],len(video_buffers[i]),C.byref(video_widths[i]),C.byref(video_heights[i]))

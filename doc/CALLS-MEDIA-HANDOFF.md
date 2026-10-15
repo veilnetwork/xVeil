@@ -1,5 +1,77 @@
 # Calls media handoff
 
+## 2026-10-15: reject codec-ceiling fix; retain isolated framing probes
+
+The real Opus characterization now covers separate framing/allocation profiles.
+At a 509-byte route hint plus RTP overhead, the stock 160-kbit/s controller
+ceiling settles on 60-ms packets; 183,736 bit/s permits 40 ms while preserving
+the 16–32-kbit/s payload bounds and a 25% control allowance. Scarcity still
+selects 60 ms and recovery returns to the profile's healthy packet length.
+This mechanism is tested, but raising the production ceiling did not pass
+end-to-end qualification. The production encoder and engine changes were
+restored; SDK ada10011 contains tests and stand-only hooks, not that fix.
+
+framing-audio-ceiling-full-360 fails the unchanged gate: actual PCM peaks
+181.953/291.560 ms, p95 170.330/200.062 ms; current buffers 156/250 ms.
+Video gaps reach 16 seconds with 15/14 protective pause samples. The source
+clock also fails (63.18-ms interval, 53.521-ms wake lateness), but the worst
+PCM edge is at 33.331 seconds, before the clock stall at 147.334 seconds.
+That edge spends 276.158 ms after WebRTC reception. A separate early owned
+source-to-target path takes 218.156 ms: source-to-relay 143.592 ms, relay
+residence 0.130 ms, relay-to-target 74.434 ms. This does not identify one
+network cause, but relay processing itself does not account for that path's
+waiting time. All 704 tone edges are matched; both files are exact and all
+health reports arrive. There are no quiet frames or reported interruptions.
+
+An exploratory first-hop model estimates video overhead at 535.609 bytes per
+RTP packet for the complete joined source frames in this capture. It uses the
+verified Forward/OVL/VDF framing, a 1,200-byte ordered-record limit and the
+expected obfs4 padding, not measured padding or TCP/IP bytes. Sequence traces
+are bounded: 5,851 of 5,894 observed frames join completely, the last at
+309.807 seconds. Missing joins are unknown, not observed packet loss. The
+early 20–35-second subset has all 187 frames complete and estimates 531.564
+bytes/RTP. Do not present this as a full-capture wire census.
+
+The stand-only constructor independently configures video overhead; actual
+controller getters verify audio 509 and video 536 before and after video
+startup. relay-codec-control.py records the native applied video value rather
+than echoing its argument. dual-framing-controller-full-360 also fails:
+PCM peaks 249.883/289.951 ms, p95 181.109/218.641 ms, current buffers 211/260 ms,
+with a valid 18.60-ms source interval. Video keeps moving (maximum sampled
+gaps 2.002/2.003 seconds, no protective pauses); both files are exact, all
+704 edges and all health reports arrive. Buffer feedback is received and
+reduces the sender's video budget on the next policy tick. This is not an
+accepted remedy. Both full runs stop all nodes with status 0, reap workers
+and leave no stand sockets. No relay scheduling or privacy policy changed.
+
+Rejected binaries, exact patches and logs are retained privately under
+xveil-physical-20261014/{media-framing-audio-ceiling,
+media-dual-framing-controller,framing-audio-ceiling-and-video-model.patch}.
+The restored-production stand library is media-framing-diagnostics; its
+--dual-framing smoke and the real Opus profile characterization pass.
+
+A further build gap needs investigation: the pinned standard Android WebRTC
+bundle sets rtc_enable_protobuf=false, while Veil currently gates adaptive
+Opus setup on WEBRTC_ENABLE_PROTOBUF. The Mac adaptive bench uses a different,
+protobuf-enabled build. Native ANA controllers exist in both builds, but the
+stock ControllerManagerImpl::Create factory returns null without protobuf.
+Do not infer that the phone exercises the Mac adaptive packetization path.
+Possible follow-up is a programmatic factory for the same real controllers,
+with identical pinned-source build integration and tests on both variants.
+Do not call a test-only encoder factory from production or pass an unsupported
+marker to the unmodified protobuf parser.
+
+Blackview remains connected, replacing Poco; no cellular phone is required
+for these endpoint investigations. Fresh Android media (99 production exports)
+and Rust SDK release builds succeeded. The downloaded Android WebRTC SDK was
+verified against pin 4ef980bc2c70834276c791e71e7834b8809f24ad and its manifest.
+The media build lacked patchelf in its container; the host added and checked
+DT_NEEDED libveilclient_ffi.so before staging. A profile/AOT APK 2588 with the
+explicit local debug-hook opt-in is being built; installation and physical
+quality are not yet verified. The installed APK was backed up first. No app
+was started during these synthetic experiments; no servers were deployed.
+The audio/video qualification objective remains open.
+
 ## 2026-10-15: reject packet-shortening hold and audit relay framing
 
 The proposed one-second sustained-headroom requirement before shortening
