@@ -1,5 +1,62 @@
 # Calls media handoff
 
+## 2026-10-16: releases published; video loss localized before QUIC admission
+
+Veil v0.11.40 is published at 487ad756. Its main CI passed all six jobs,
+including 6490 default tests, the additional feature suites, Windows native
+tests, devnet and benchmarks. Both release workflows succeeded; all 43 public
+CLI/checksum/signature/manifest assets are present. The macOS and Linux ARM64
+musl CLIs report 0.11.40, and eight public binary digests match their tested CI
+artifacts. rustls 0.23.46 and the patched quinn-proto 0.11.18 passed the audits.
+hidden-volume remains unchanged at v2.6.1. No relay deployment was performed.
+
+xVeil v0.13.85 is published at ef29d49f, with the released SDK pointer and
+engine-2026.10.15. Main CI passed 5513 Flutter tests with 132 platform/explicit
+skips; all nine release jobs passed and all 12 app assets are present.
+
+Continued with private diagnostic build 2600 on Blackview and a real AOT
+Profile Mac app. The former Mac stand app contained a Debug/JIT kernel; the
+new app has an AOT snapshot. These QA packages were built at root b6e614c7
+and SDK ba242a9f; subsequent SDK changes are test/CI changes, and ef29d49f adds
+the release pointer and changelog. The three actually mapped Mac native
+libraries match the prepared package hashes. Phone installation retained its
+data and signing identity.
+
+call-native-api-both-300 captures 298.92 seconds of observations: audio first,
+both cameras enabled at 61.90 seconds, both endpoints P2P throughout. Incoming
+call detection took 1.09 seconds with a one-second polling interval. Both
+native traces are complete: Mac 29858/29858 render rows spanning 298.564 s,
+phone 30104/30104 spanning 301.015 s. Native receive RTP clock residual maxima,
+excluding empty padding, are 30.126/34.059 ms relative to each first payload;
+these are not synchronized one-way delays. The previous 720-ms burst was not
+reproduced. Registered interruption counts stay zero. Speech quality remains
+unqualified because the run used ambient input rather than continuous speech.
+
+The full Mac buffer peak is 340 ms at the FIRST render callback, reduced to
+170 ms by 16 extra decoder pulls in that callback. After the first second,
+buffer peaks are 89/93 ms; target peaks are 80/80 ms. Maximum render gaps are
+10.979/43.712 ms and GetAudio work maxima 0.246/4.710 ms. RPC snapshots peak at
+59/74 ms and again miss the startup maximum. Several build/runtime changes
+separate this run from the previous one; this does not assign the improvement
+to AOT or to an individual patch.
+
+The remaining negative result is Mac video. Sampled TX marker-rate medians
+are 5.85/29.56 per second. Mac records five quality cuts (four video-loss
+witnesses and one receive-buffer-growth witness), spending much of the run at
+1 or 6 fps targets; phone records no cuts. Mac native producer-pressure logs
+contain at least 285 video drops and one startup audio drop; phone has one of
+each. Mac video QUIC loss and expired-datagram counters remain zero in the
+captured records. A burst of 263 local video drops occurs around 152 seconds,
+after the first cut is already visible at 151.53 seconds. Inspect endpoint
+producer admission, large RTP bursts and quality reconfiguration at this seam.
+Keep relays opaque and neutral.
+
+Private evidence includes both native logs, immutable buffer decisions,
+next-findings.json and mapped-library proofs. Both native call owners closed
+before app termination. Both app processes, the owned logcat reader and ADB
+forward are independently verified absent. The broader QoS goal remains
+active; source-drop repair and new-SDK group/full-codec qualification remain.
+
 ## 2026-10-15: late audio burst localized before native Mac ingress
 
 The previous goal turn made progress (root 49c60b25): complete-file evidence
