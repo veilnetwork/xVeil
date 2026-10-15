@@ -1,5 +1,91 @@
 # Calls media handoff
 
+## 2026-10-15: sustained pressure, reordered cells and relay allowance
+
+SDK commit: `20d9d301` (local, unsigned, not pushed).
+
+Three further causes were reproduced without phones or speech:
+
+1. Under a continuous endpoint pressure report, eight private send/receive
+   circuits queued a padded probe every two seconds, exceeding the existing
+   maintenance allowance. Probe admission is now coalesced: skip checks while
+   an echo is under two seconds old and allow six seconds between admitted
+   checks. A rejected admission can retry on the normal worker tick. The
+   twelve-second stale threshold and byte allowances are unchanged.
+2. Coalescing alone was insufficient. A 36-second isolated control passed, but
+   the combined suite and a 72-second control still replaced healthy circuits.
+   Debug logs identified `anonymity.circuit.replay_fwd_dropped` for delayed
+   reliable checks: independent fresh datagrams overtook them by more than the
+   shared 64-cell replay window. The old window treated unseen packets as too
+   old. A regression admitting sequence 2 after 128 newer cells failed before
+   the fix. The shared window now holds 8192 cells in a circular bitmap, clearing
+   only expired slots rather than shifting the whole bitmap for each packet.
+   Duplicates, zero, and out-of-window cells remain rejected; reference-set
+   tests cover word boundaries, multiple wraps, large jumps and `u32::MAX`.
+   State is bounded at a 1-KiB bitmap per direction. This is uniform replay
+   handling: no relay media recognition, scheduling priority, wire format,
+   nonce or per-user service privilege changed. Relays must also receive the
+   updated library to tolerate the larger reordering distance; old relays still
+   enforce 64 cells. No running relay was updated in this cycle.
+3. `DhtConfig::is_default` omitted `service_budget_bytes_per_hour`. If that
+   allowance was the only changed DHT field, whole-config serialization omitted
+   `[dht]`, including an explicit zero. New saves and existing-file patches were
+   affected. The fixture's intended large allowance was lost: all four nodes
+   actually used the Leaf default of 8 MiB/hour. Media exhausted its burst; new
+   file circuit builds were declined at the middle relay while existing media
+   correctly continued. The prior zero-byte captures were not proof of broken
+   file routing or successful isolation under competing file traffic.
+
+The DHT predicate now preserves an explicit allowance. A regression checks zero,
+1 MiB/hour and the largest TOML integer through serialization, new-file saves
+and existing-file updates. All 234 `veil-cfg` tests passed with
+`test-low-difficulty`; the production-difficulty full run was stopped while two
+unrelated PoW searches were running. The direct serialization regression also
+passed without that feature. All 334 anonymity tests passed (one ignored), as did all 33 dispatcher
+anonymity tests. Production `cargo check` and formatting checks passed.
+
+The stand now uses an explicit, TOML-representable 1-TiB/hour allowance on every
+node and verifies its actual runtime value immediately after startup. Both
+512-KiB files passed byte-for-byte in the real-obfs4 active-primary fixture;
+the same workload previously timed out with zero bytes. The native codec stand
+also requires nonzero file progress during media before claiming competing
+file load. It still has no network shaper or application Dart adapter.
+
+Private logs share `~/.cache/codex/xveil-physical-20261014/`:
+`service-allowance-config-red.log`, `service-allowance-config-fixed.log`,
+`service-allowance-cfg-suite-low-difficulty.log`,
+`pressured-private-routes-red.log`, `pressured-private-routes-coalesced-72.log`,
+`pressured-private-routes-replay-debug.log`, `circuit-reordering-suite.log`, and
+`primary-bidirectional-files-fixed.log` preserve the controls and counterexamples.
+The replacement Android device is Blackview BV6600Pro (Android 11), available
+through ADB; read-only checks did not launch its application.
+
+With the larger replay window, the 72-second sustained-pressure control passed:
+3600/3600 primary packets per direction used private circuits, all four route
+identities stayed unchanged, no primary/camera/screen fallback attempts occurred,
+and the debug log contained no replay-window drops. The five control fallback
+attempts per endpoint are bootstrap traffic predating route readiness. See
+`pressured-private-routes-reordered-72.log`. This is endpoint pressure policy
+with fresh packets, not a physical packet-loss or cellular-network simulation.
+
+The corrected 60-second real-codec fixture also passed. Evidence is in
+`anonymous-native-live-files-60/` and the adjacent `.log`. Both 512-KiB files
+completed byte-for-byte while native media was still active; this verifies
+actual contention rather than merely queued file requests. Audio, camera and
+screen each progressed on their separate private paths, decoded images changed
+in both video phases, and no media fallback occurred. Control retained the five
+bootstrap attempts. All four nodes and native engines stopped normally.
+
+Exact synthetic tone matching found all 55 expected transitions per direction
+after warmup, with no missing transitions, quiet PCM observations or reported
+interruptions. Peak source-to-rendered PCM delay was 52.096/52.129 ms (p95
+51.430/51.508 ms). The independent 10-ms source clock peaked at 12.754 ms, with
+12004 observations, none dropped, and no native callback errors. Reported native
+audio delay peaked at 42 ms. See `pcm-tone-analysis.json` for phase detail.
+This validates fixed-packetization codecs on unshaped loopback obfs4. It does not
+validate the Dart adapter, adaptive non-onion packetization or phone acoustics;
+the earlier long stress case exceeding 200-ms PCM latency remains open.
+
 ## 2026-10-15: private route expiry under periodic feedback
 
 The user deferred the speech test; continue with owned synthetic fixtures. No
@@ -55,14 +141,14 @@ frames and no reported interruptions. This is local synthetic evidence, not
 speech quality or a shaped multi-hop latency result. Fixed anonymous encoders do
 not emit the adaptive encoder-input trace; full stage attribution is unavailable.
 
-The complete optional fixture **still fails**: two simultaneous 512-KiB files
-receive zero bytes and time out, including after the native engines stop. Circuit
-confirmation logs report no ACK/probe echo; the cause remains unresolved. Do not
-describe this capture as successful competing file traffic. File progress is
-recorded explicitly. Completion is checked after stopping the native producers:
-1 MiB cannot finish in the 40-second mixed phase within the shared 20-KiB/s source
-DATA/control allowance even with no RTCP. This arithmetic does not explain the
-zero progress or failed circuit confirmations.
+At that commit the complete optional fixture failed: both simultaneous 512-KiB
+files received zero bytes and timed out, including after native engines stopped.
+The allowance-serialization cause was established in the follow-up above. That
+capture did not verify competing file traffic. The previous assertion that the
+two opposite-direction files could not finish during the mixed phase also
+incorrectly combined separate endpoints' allowances; it was removed. The final
+fixture records actual progress during media and permits completion afterward
+when needed, without assuming either outcome.
 
 The native fixture requires `test-low-difficulty` as well as `node-embedded`;
 without it a filtered invocation can silently run zero tests. Build the media
@@ -78,10 +164,8 @@ are reported. Use `TMPDIR=/private/tmp/` throughout.
 
 The earlier long non-onion stress result still exceeds the 200-ms PCM target;
 this unshaped anonymous capture does not close that remaining goal.
-Next, isolate the simultaneous file-open failure and exercise sustained source
-pressure: eight padded route probes every two seconds can exceed the existing
-network-maintenance allowance while pressure is active. The unshaped capture
-does not validate that case.
+The simultaneous file-open and sustained-pressure follow-ups are recorded at
+the top of this document; both now have positive controls after their fixes.
 
 ## Historical handoff
 
