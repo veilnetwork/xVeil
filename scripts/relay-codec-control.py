@@ -69,6 +69,8 @@ parser.add_argument('--source-cell-trace', action='store_true', help='Privately 
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
 parser.add_argument('--no-video', action='store_true', help='Isolate real audio/file coexistence without starting a video encoder; not a full media-priority gate')
+parser.add_argument('--video-profile', choices=['stress', 'direct', 'anonymous'], default='stress',
+                    help='Use shared production video policy ceilings, or retain the original 900-kbit/15-fps stress profile (default); synthetic camera remains 320x240 and route is unchanged')
 parser.add_argument('--screen-video', action='store_true',
                     help='Route synthetic VP8 through the separate screen producer and IPC connection; uses no screen capture')
 parser.add_argument('--reannounce-interval-seconds', type=int,
@@ -521,12 +523,13 @@ try:
         if timing_anchor is not None:
             assert timing_anchor(e,i)==0
     policylog=(ROOT/'policy.err').open('w')
-    policy=subprocess.Popen(['dart',str(policy_path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=policylog,text=True,bufsize=1,env=dict(os.environ,TMPDIR='/private/tmp/'))
+    policy=subprocess.Popen(['dart',str(policy_path)],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=policylog,text=True,bufsize=1,env=dict(os.environ,TMPDIR='/private/tmp/',XVEIL_TEST_VIDEO_PROFILE=args.video_profile))
     def command(v):
         policy.stdin.write(json.dumps(v)+'\n');policy.stdin.flush()
         response=policy.stdout.readline()
         if not response:raise RuntimeError('Policy helper stopped')
         return json.loads(response)
+    result['video_policy_profile']=command({'index':0,'op':'profile'})
     pcm=(C.c_int16*480)();pcmrows=[];samples=[];nativefail=[0,0];pollfail=[0,0]
     # Prime the endpoint certificate cache through ordinary encrypted delivery;
     # control's cached-only path deliberately never initiates DHT discovery.

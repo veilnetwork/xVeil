@@ -20,6 +20,7 @@ import 'android_native_call_camera.dart';
 import 'android_native_call_video.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
+import 'call_video_profile.dart';
 import 'call_audio_receive_activity.dart';
 import 'call_audio_source_pressure.dart';
 import 'call_microphone_state.dart';
@@ -101,32 +102,8 @@ Future<Map<String, Object?>> mirrorActiveCallAudioForDiagnostics({
 final ValueNotifier<VeilVideoFrame?> localVideoFrame =
     ValueNotifier<VeilVideoFrame?>(null);
 
-class _CallVideoProfile {
-  const _CallVideoProfile({
-    required this.maxBitrateKbps,
-    required this.maxFps,
-    required this.cameraWidth,
-    required this.cameraHeight,
-  });
-
-  final int maxBitrateKbps;
-  final int maxFps;
-  final int cameraWidth;
-  final int cameraHeight;
-}
-
-const _directVideoProfile = _CallVideoProfile(
-  maxBitrateKbps: 900,
-  maxFps: 60,
-  cameraWidth: 640,
-  cameraHeight: 360,
-);
-const _anonymousVideoProfile = _CallVideoProfile(
-  maxBitrateKbps: 150,
-  maxFps: 15,
-  cameraWidth: 352,
-  cameraHeight: 198,
-);
+const _directVideoProfile = directCallVideoProfile;
+const _anonymousVideoProfile = anonymousCallVideoProfile;
 
 const int _compactRelayRtpPacketSize = 1000;
 
@@ -1827,7 +1804,7 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   CallBitrateAdapter _videoAdapterForProfile(
-    _CallVideoProfile profile,
+    CallVideoProfile profile,
     VeilMediaEngine engine,
   ) {
     final previous = _bitrateAdapter;
