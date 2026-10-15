@@ -1,5 +1,109 @@
 # Calls media handoff
 
+## 2026-10-15: independent video capacity retry
+
+The preceding cycle made progress (root ed066ec2, SDK 9e933061), but its
+physical clean calls still had asymmetric video. Follow-up inspection of the
+saved physical 2595 traces identifies endpoint admission loss: Mac local slot
+2 on an independent QUIC child reports at least 173 buffer drops, versus zero
+reported QUIC packet losses/expired outgoing datagrams on that child. Phone's
+corresponding producer has no admission buffer drops. The 4-KiB local backlog
+bound rejected the tail of a short RTP burst despite an otherwise healthy
+path. One sampled video RR loss is 64%; the audio tx_loss_pct field and a later
+healthy video report must not be used to label these video losses sub-percent.
+Raw Mac baseline logs and bounded aggregate counters are retained privately
+in call-blackview2595-clean before the next launch replaces its runtime log.
+
+SDK ca5b7e4e retains a fresh local secondary/screen envelope when its negotiated
+independent child's capacity is temporarily unavailable. It retries after two
+ms, preserving the original admission time, expiry, credit and FIFO position.
+The 4-KiB backlog bound, transport capacity, sender bandwidth limits and packet
+deadlines are unchanged. Only that source is deferred for the scheduler pass;
+audio, other local channels and neutral transit remain eligible. The canonical
+ordered drain also skips that waiting datagram, so it cannot escape onto the
+shared stream. No-carrier, independent child, local secondary class and an
+explicit trusted deadline were required by this initial candidate.
+Legacy/shared and transit paths retain their existing behavior. Endpoint
+source credit is checked after
+capacity readiness, preventing a retry from consuming it repeatedly.
+
+The optional endpoint admission trace separately counts capacity deferrals;
+it does not label network traffic or alter relay scheduling. Fifteen focused
+session tests pass, including actual independent connection isolation, primary
+delivery with competing endpoint producers, primary expiry/control admission,
+FIFO/capacity separation and retry deadline preservation. The retry test also
+excludes a transit carrier, absent independent support, primary/control/data
+classes and a missing deadline. Expired deferred video is still discarded.
+
+The first controlled physical run (Mac 2596, phone 2595) confirms this initial
+candidate does NOT activate for P2P: the new trace schema is present, but it
+records zero capacity deferrals and at least 233 secondary buffer drops, again
+with zero reported QUIC packet losses. The SDK AppRtSend deadline bounds its
+writer before IPC; it is not serialized into the daemon's session envelope.
+This is a verified negative result, not a qualified video improvement.
+
+SDK 11f4dfe3 therefore uses the session's existing implicit 500-ms secondary
+queue lifetime, based on original queued_at, even when AppRtSend supplies no
+explicit deadline. An earlier explicit expiry still wins. The same deadline
+now follows secondary packets into QUIC; no retry can renew it. Transit
+carriers and the neutral INTERACTIVE class remain excluded. The full session
+crate passes: 557 tests, zero failures, eight explicitly ignored manual
+characterizations. This includes both primary and secondary expiry, isolation,
+writer-pressure and reconnect tests. The first physical run's applications,
+logcat and forward were removed and process absence verified.
+
+The corrected physical run (Mac QA 2597, phone profile 2595) verifies activation
+and fixes the asymmetry in this controlled Wi-Fi P2P case. The SDK alone is
+replaced on Mac; native media and hidden-volume bytes match build 2595, and
+the receiver phone is unchanged. Ring delay is 0.32 seconds, observation span
+178.16 seconds. Both directions stay P2P. Video-phase sampled median TX rates
+are 29.90/29.56 FPS, versus Mac's 0.98 FPS before the fix. Source/peer native
+delivered RTP-frame counts match at the final observation: 3308/3308 from Mac,
+3253/3253 from phone. These are transport-frame counters, not proof that every
+pixel was displayed. Mac reports at least 1346 capacity deferrals and zero
+secondary buffer/bandwidth drops or reported QUIC packet losses. Its observed
+outbox-to-transport maximum is 25.508 ms; Quinn queue maximum is 5.624 ms.
+
+Audio during video has sampled buffers 5–55 / 14–54 ms, with zero registered
+interruptions, catch-up/discard/fallback counts, audio RTP admission drops and
+route handovers on both endpoints. Neither adapter reduces its rung or pauses
+video for audio, and the complete histories have no observation gaps. No
+speech/listening quality is established. Both owned app processes, logcat and
+the test ADB forward are confirmed absent after hangup. Android's session
+sender binary has not been updated in this cycle; the cross-platform SDK
+source includes the fix, but this result qualifies the changed Mac sender.
+
+secondary-retry-quic-full-360 exercises the new SDK with real Opus/VP8 and
+two 512-KiB encrypted competing files, behind a blind aggregate 1,024-kbit/s
+UDP FIFO. The complete gate FAILS because the two files are still incomplete
+at the end of the workload; neither final hash is available. Do not describe
+this as a passed full coexistence gate or claim missing chunks were lost
+irreversibly. Async send failures, authentication errors and duplicates are
+zero, but eventual file completion is not established by this stopped run.
+
+Its timing/media components pass: all 704 PCM edges match without missing
+markers, mixed PCM peaks 180.010/170.068 ms and p95 150.027/150.083 ms. No quiet
+PCM frames or native interruptions occur; current audio buffers peak at
+141/141 ms. The independent native clock has maximum interval 10.26 ms, wake
+lateness 0.139 ms, full callback 0.436 ms, no missed policy read-backs, dropped
+rows or timer error. Both synthetic images change near the end, but sampled
+gaps reach 13 seconds and audio-protection pauses occupy 12/22 samples. This
+does not establish uninterrupted/high-FPS video on the constrained link.
+All three nodes exit zero and no fixture sockets remain.
+
+This failed run also exposes a measurement race: live file callbacks still
+mutate received-byte/hash fields after the script computes missing_indices.
+The resulting summary can have inconsistent counts. The harness now freezes
+file data, recomputes completion/hash from those bytes, and copies failure
+counters under the callback lock immediately after the measured workload.
+Analysis/teardown arrivals cannot change that verdict. Three focused Python
+tests pass for late-callback isolation, actual-byte hash verification and
+failure-counter isolation; the script compiles. No workload size, clock,
+latency, image-progress or complete-file gate is relaxed. Follow up with the
+frozen evidence to distinguish insufficient six-minute file throughput from
+loss/retry failure, and compare the prior SDK on the same QUIC workload if
+needed. The earlier complete obfs4 gate remains a separate recorded result.
+
 ## 2026-10-15: catch-up arrival clock and physical diagnostic control
 
 SDK 9e933061 fixes a regression exposed by the new production catch-up path.
@@ -35,8 +139,9 @@ identify which diagnostic operation caused the perturbation.
 The clean repeat still exposes asymmetric video performance: sampled median
 TX rates approximately 0.99 FPS from Mac and 29.41 FPS from phone. Its complete
 adaptation history attributes the Mac cuts to fresh video RTCP loss witnesses,
-not growing/capped audio buffers or intentional catch-up. Integer loss
-percentages can round those small nonzero loss fractions to zero. This agrees
+not growing/capped audio buffers or intentional catch-up. Follow-up above
+locates loss inside endpoint admission; the audio loss percentage alone did
+not describe these video events. This agrees
 with the user's instruction that actual image loss may reduce quality, but
 does not qualify high-FPS recovery. No listening/speech quality is established.
 Both owned applications, logcat and the test forward were removed, with
