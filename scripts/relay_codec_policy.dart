@@ -100,6 +100,7 @@ Future<void> main() async {
       audioTxDrops: stats['audio_tx_rtp_drops'] is int
           ? stats['audio_tx_rtp_drops'] as int
           : null,
+      audioLossReportUs: stats['audio_loss_report_us'],
     );
     if (req['prepare'] == true) {
       a.prepareVideoSend(
@@ -155,6 +156,7 @@ Future<void> main() async {
         'peerSampleSequence': peer[i].sampleSequence,
         'peerBufferGrowing': peer[i].bufferGrowing(now),
         'sourcePressured': sourcePressured,
+        'audioAdaptation': a.bufferDiagnostics,
       }),
     );
   }

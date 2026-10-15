@@ -1531,6 +1531,7 @@ class VeilCallMediaController implements CallMediaController {
               : now.difference(receiveAt).inMilliseconds,
           interrupted: audioInterrupted,
           audioTxDrops: nativeDrops is int ? nativeDrops : null,
+          audioLossReportUs: stats['audio_loss_report_us'],
         );
         _sourcePressured = sourcePressured;
         if (sourcePressured != null && !_sourceFeedbackPending) {

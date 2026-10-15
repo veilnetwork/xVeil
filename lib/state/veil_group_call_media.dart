@@ -850,6 +850,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       receiveDelayMs: channelsComplete ? _groupAudioReceiveDelay(stats) : null,
       receiveAgeMs: channelsComplete ? receiveQuality.ageMs : null,
       interrupted: _audioInterrupted,
+      audioLossReportUs: stats['audio_loss_report_us'],
       audioTxDrops: stats['audio_tx_rtp_drops'] is int
           ? stats['audio_tx_rtp_drops'] as int
           : null,
