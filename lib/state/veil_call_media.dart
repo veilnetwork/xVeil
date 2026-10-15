@@ -733,6 +733,7 @@ class VeilCallMediaController implements CallMediaController {
         ),
         'local_source_pressured': _sourcePressured,
         'video_audio_buffer_pressure': _bitrateAdapter?.audioBufferPressure,
+        'audio_adaptation': _bitrateAdapter?.bufferDiagnostics,
         'local_source_feedback_queued': _sourceFeedbackQueued,
         'local_source_feedback_skipped': _sourceFeedbackSkipped,
         'audio_rx_age_ms': engineStats.containsKey('audio_rx_native_age_ms')

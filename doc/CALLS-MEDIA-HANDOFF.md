@@ -1,5 +1,93 @@
 # Calls media handoff
 
+## 2026-10-15: trace exact adaptation inputs; honor fresh media loss
+
+The user now explicitly accepts losing parts of an image or sound during a
+call, provided actual loss triggers lower quality. This extends the earlier
+buffer-growth/ceiling-only rule. The Dart ladder now reduces video by two
+rungs on a fresh audio/video RTP admission failure or a registered audio
+interruption, even with stable measured buffers. Initial historical counters,
+unchanged counts and counter resets do not represent new loss. Camera-off
+video drops are consumed as a baseline, not deferred until camera resume.
+Engine replacement also starts new media-drop baselines. Fresh audio failures
+at a measured one-fps floor can pause video after two failing observations;
+video-only loss does not suspend audio. Actual audio failures also restrain
+the endpoint's competing background sources until sustained recovery. Relays
+remain opaque and neutral; no wire roles or server priorities were added.
+
+Partial network loss reported in RTCP is NOT fully covered by this change:
+the native audio_feedback_reports/video_feedback_reports fields describe
+report availability, not monotonic report counts. Cached loss percentages
+alone remain insufficient to reduce video with healthy measured buffers.
+Next, expose a fresh loss witness from authenticated RR/SR observations,
+including nonzero fractional loss that rounds below one percent. Do not
+refresh an old lossy peer's witness when another room participant reports
+healthy reception. Local RTP admission failure is congestion evidence, not
+proof of audible loss (the redundant audio copy may still arrive, and RTP
+admission counters also include padding probes).
+
+Local diagnostics now retain sixteen immutable one-second policy input/output
+snapshots: the actual receive/peer windows, current/target/peak delay, peer
+sequence/freshness, pressure, loss events, rung and streaks. These fields never
+enter peer feedback or relay traffic. This closes the gap between a later
+debug-API native snapshot and the input which actually caused a policy change.
+The adapter exists after video starts; its absence during audio-only baseline
+is expected. A bounded history lets a two-second observer retrieve every
+one-second policy decision without inferring it from stale gauges.
+
+Physical diagnostic build 2590 completes 178.34 seconds of Mac/Blackview P2P
+observation, with video enabled at 61.83 seconds and incoming signaling in
+0.21 seconds. Both endpoints stay active; no audio interruption, discarded
+audio, audio TX drop or route handover is observed. Video-phase sampled audio
+buffers peak at 93/76 ms. Both directions present camera frames. The trace
+contains 118 immutable decisions per endpoint, without missing observations.
+Both owned apps/logcat exit and the ADB forward is removed. Native artifacts
+remain the accepted SDK 618a6d6c media, including the real protobuf-free ANA
+factory. No rejected cold-start, framing or receiver-capacity candidate ships.
+
+Exact traces explain remaining P2P FPS reductions, not yet their remedy.
+Mac observations 55 and 57 consume peer growth sequences 115 and 117, while
+cached 115 at observation 56 correctly cannot advance the bad streak. The
+second fresh pulse cuts 60 to 15 fps. The receiver's native windows include
+healthy samples between growth pulses; whether skipped feedback sequences
+should break a below-ceiling bad streak needs a regression and qualification.
+Do not call repeated cached feedback an unfixed defect. A later local buffer
+step, windows [6,36,36,36,65,73] then [36,36,36,65,73,73], cuts 15 to 1 fps;
+the next window is stable. Desired target also rises from 40 to 80 ms. This
+does not yet establish whether the step is genuine network accumulation or
+receiver target adjustment. RTT is 6–20 ms and reported loss is zero in that
+video phase. No buffer thresholds or production FPS limits changed here.
+
+Targeted Flutter suites pass 111 tests with TMPDIR=/private/tmp/, including
+fresh-versus-cached audio/video drop counts, counter resets, engine replacement,
+camera-off baselines and actual audio-failure recovery. Physical build 2591
+then completes 179.97 seconds with video from 61.80 seconds and incoming
+signaling in 0.19 seconds. Both identities match the prior fixture; no data
+reset is performed. Both endpoints remain active over P2P, with no route
+handover, registered interruption, discarded audio or RTP admission drop in
+the sampled call. Thus the new loss branches are tested by regression, not
+exercised by this healthy-network capture. Audio-only buffer maxima are
+109/68 ms and video-phase maxima 111/77 ms; these are gauges, not acoustic
+latency. Each endpoint has 119 immutable decisions, without missing records.
+Coarse video TX medians are about 15 fps. Phone still has six protective
+video-pause samples from the existing buffer policy; higher sustained FPS
+remains open. Both apps/logcat exit, the ADB forward is removed, and Mac/phone
+process absence is independently verified. Final build 2592 adds the engine
+counter-baseline regression fix and freezes diagnostic latest to the last
+recorded snapshot; its media/SDK native artifacts are unchanged.
+Build 2592 is installed in place on Android (versionCode 4592, matching signer
+and accepted stripped native hashes) and staged in the private Mac QA bundle.
+Both final apps reach real-stack ready with their existing identities intact.
+Startup smoke finishes without another call; both owned processes and the
+test forward are independently verified absent. No release, push or relay
+deployment is performed in this cycle.
+
+The unchanged mixed relay qualification still fails its PCM latency gate;
+fresh-drop handling alone cannot fix runs with zero such events. Prior primary,
+cold-video and dual-framing captures all have zero observed audio/video RTP
+admission drops and registered audio interruptions. Keep that failure open;
+healthy short physical calls are not substitute qualification.
+
 ## 2026-10-15: reject cold-video seed candidate; resume Blackview calls
 
 The preceding cycle made progress (SDK 618a6d6c/root 72c80614), including

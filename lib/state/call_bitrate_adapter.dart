@@ -3,8 +3,9 @@ import 'call_audio_buffer_window.dart';
 
 /// Pure sender-side link-quality ladder for live call video.
 ///
-/// Uses current audio buffer trends to cut video. Transport estimates still
-/// gate improvement and serve as a fallback without playout telemetry.
+/// Uses current audio buffer trends and fresh media loss to cut video.
+/// Transport estimates still gate improvement and serve as a fallback without
+/// playout telemetry.
 /// Walks a fixed ladder of bitrate fractions below the
 /// route profile's budget. The route profile is a hard ceiling: adaptation
 /// only ever spends LESS than the negotiated route allows (the padded onion
@@ -136,6 +137,7 @@ class CallBitrateAdapter {
   int _mutedRecoveryStreak = 0;
   int? _lastTxDrops;
   int? _lastAudioTxDrops;
+  int? _lastVideoTxDrops;
   int? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
   int? _floorTrialLastFrames;
@@ -153,7 +155,42 @@ class CallBitrateAdapter {
   final _floorPeerBuffer = CallAudioBufferWindow();
   bool _bufferPressure = false;
   bool get audioBufferPressure => _bufferPressure;
+  int _bufferObservationSequence = 0;
+  Map<String, Object?>? _bufferInputs;
+  final List<Map<String, Object?>> _bufferHistory = [];
+
+  /// The exact last policy inputs, unlike a later native stats snapshot.
+  /// Kept local to diagnostics; no fields enter peer feedback or relay traffic.
+  Map<String, Object?>? _bufferSnapshot() {
+    final inputs = _bufferInputs;
+    if (inputs == null) return null;
+    return Map<String, Object?>.unmodifiable({
+      ...inputs,
+      'level_after': _level,
+      'bad_streak_after': _badStreak,
+      'good_streak_after': _goodStreak,
+      'severe_streak_after': _severeStreak,
+      'paused_after': _audioReserve,
+    });
+  }
+
   ({int maxBitrateKbps, double maxFps})? _appliedTarget;
+
+  Map<String, Object?> get bufferDiagnostics => {
+    'latest': _bufferHistory.isEmpty ? null : _bufferHistory.last,
+    'recent': List<Map<String, Object?>>.unmodifiable(_bufferHistory),
+  };
+
+  void _recordBufferDecision() {
+    final snapshot = _bufferSnapshot();
+    if (snapshot == null ||
+        (_bufferHistory.isNotEmpty &&
+            _bufferHistory.last['observation'] == snapshot['observation'])) {
+      return;
+    }
+    _bufferHistory.add(snapshot);
+    if (_bufferHistory.length > 16) _bufferHistory.removeAt(0);
+  }
 
   /// Try the current video budget. A busy native worker leaves it pending;
   /// the next poll retries the latest budget, never a superseded one.
@@ -194,6 +231,10 @@ class CallBitrateAdapter {
   void invalidateAppliedState() {
     _appliedTarget = null;
     _appliedPause = null;
+    // Native counters belong to the replaced engine. Its first snapshot is
+    // a new baseline, even if it already exceeds the predecessor's count.
+    _lastAudioTxDrops = null;
+    _lastVideoTxDrops = null;
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
     _floorPeerSampleSequence = null;
@@ -202,6 +243,8 @@ class CallBitrateAdapter {
     _floorReceiveBuffer.reset();
     _floorPeerBuffer.reset();
     _bufferPressure = false;
+    _bufferInputs = null;
+    _bufferHistory.clear();
   }
 
   /// Current RTT baseline (windowed min), or null before any RTT sample.
@@ -417,7 +460,15 @@ class CallBitrateAdapter {
     final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
-    return onSample(
+    final videoDrops = stats['video_tx_rtp_drops'];
+    final validVideoDrops = videoDrops is int && videoDrops >= 0;
+    final videoLoss =
+        validVideoDrops &&
+        videoSendExpected &&
+        _lastVideoTxDrops != null &&
+        videoDrops > _lastVideoTxDrops!;
+    if (validVideoDrops) _lastVideoTxDrops = videoDrops;
+    final outcome = onSample(
       videoSendExpected: videoProgress,
       measuredVideoProgress:
           videoProgress && videoFrames is num && videoFrames > 0,
@@ -467,11 +518,14 @@ class CallBitrateAdapter {
       audioReceiveTargetDelayMs: receiveTarget,
       missingAudioReceiverFeedback: !feedbackAvailable,
       audioInterrupted: audioInterrupted,
+      videoLossObserved: videoLoss,
       videoFloorApplied:
           _appliedTarget == target &&
           _appliedPause != true &&
           floorTrialMeasured,
     );
+    _recordBufferDecision();
+    return outcome;
   }
 
   /// Applying a one-fps budget is not evidence that the encoder sent it.
@@ -532,6 +586,7 @@ class CallBitrateAdapter {
     int? audioReceiveDelayMs,
     int? audioReceiveTargetDelayMs,
     bool audioInterrupted = false,
+    bool videoLossObserved = false,
     required int rttMs,
     required int txJitterMs,
     required int txLossPct,
@@ -589,7 +644,7 @@ class CallBitrateAdapter {
         (receiveTarget == null || receiveTarget < playoutRecoverMs) &&
         (peerTarget == null || peerTarget < playoutRecoverMs);
     // Requested targets may withhold producer growth, but are not measured
-    // buffer occupancy. Only current-buffer growth/the ceiling can cut video.
+    // buffer occupancy. A target alone cannot substantiate a video reduction.
     final receiveBufferPressure = _receiveBuffer.observe(
       requireAudioReceivePlayout ? audioReceiveDelayMs : null,
     );
@@ -612,6 +667,31 @@ class CallBitrateAdapter {
         (currentPeerDelay != null && currentPeerDelay >= playoutDegradeMs) ||
         freshPeerSample;
     _bufferPressure = bufferPressure;
+    _bufferInputs = {
+      'observation': ++_bufferObservationSequence,
+      'level_before': _level,
+      'receive_required': requireAudioReceivePlayout,
+      'receive_ms': audioReceiveDelayMs,
+      'receive_target_ms': receiveTarget,
+      'receive_window_ms': _receiveBuffer.diagnosticSamples,
+      'receive_pressure': receiveBufferPressure,
+      'peer_required': requirePeerAudioPlayout,
+      'peer_peak_ms': peerAudioDelayMs,
+      'peer_current_ms': currentPeerDelay,
+      'peer_target_ms': peerTarget,
+      'peer_sequence': peerAudioSampleSequence,
+      'peer_fresh': freshPeerSample,
+      'peer_growing': peerAudioBufferGrowing,
+      'peer_window_ms': _peerBuffer.diagnosticSamples,
+      'peer_pressure': peerBufferPressure,
+      'pressure_can_advance': pressureSampleCanAdvance,
+      'targets_recovered': targetsRecovered,
+      'feedback_available': feedbackAvailable,
+      'rtt_ms': rttMs,
+      'tx_jitter_ms': txJitterMs,
+      'tx_loss_pct': txLossPct,
+    };
+
     final peerTrialMeasured =
         peerAudioSampleSequence == null ||
         _floorPeerSampleSequence == null ||
@@ -647,6 +727,14 @@ class CallBitrateAdapter {
         _lastAudioTxDrops != null &&
         audioTxDrops > _lastAudioTxDrops!;
     _lastAudioTxDrops = audioTxDrops;
+    final freshAudioLoss = newAudioDrops || audioInterrupted;
+    final freshMediaLoss = freshAudioLoss || videoLossObserved;
+    _bufferInputs?.addAll({
+      'audio_rtp_drop': newAudioDrops,
+      'video_rtp_drop': videoLossObserved,
+      'audio_interruption': audioInterrupted,
+    });
+
     final receiveOutage =
         (requireAudioReceive &&
             audioReceiveAgeMs != null &&
@@ -712,9 +800,9 @@ class CallBitrateAdapter {
         newDrops ||
         newAudioDrops;
     // With measured playout support, RTT/loss/gaps may withhold growth but
-    // only a growing/capped buffer can reduce the current video budget.
+    // a growing/capped buffer or fresh media loss can reduce video.
     // Video-only and legacy calls retain their transport-based ladder.
-    final bad = usePlayout ? bufferPressure : networkBad;
+    final bad = (usePlayout ? bufferPressure : networkBad) || freshMediaLoss;
     final audioGood =
         targetsRecovered &&
         feedbackAvailable &&
@@ -735,8 +823,8 @@ class CallBitrateAdapter {
     // Audio alone cannot prove there is headroom for a larger video source.
     // Keep the measured rung while capture is off; healthy audio may still
     // release a protection pause, so an enabled sender can try its sparse floor.
-    final good = audioGood && !newDrops && videoSendExpected;
-    if (networkBad || receiveOutage || peerPlayoutOutage || audioInterrupted) {
+    final good = audioGood && !newDrops && !freshMediaLoss && videoSendExpected;
+    if (networkBad || receiveOutage || peerPlayoutOutage || freshMediaLoss) {
       _startupRecovery = false;
       _startupGoodStreak = 0;
     }
@@ -793,7 +881,7 @@ class CallBitrateAdapter {
     }
 
     final measuredAudioFailure = usePlayout
-        ? floorBufferFailure
+        ? floorBufferFailure || freshAudioLoss
         : receiveOutage ||
               peerPlayoutOutage ||
               audioInterrupted ||
@@ -803,7 +891,7 @@ class CallBitrateAdapter {
                   (anyAudioFeedbackAvailable ?? feedbackAvailable) &&
                   (txLossPct >= 5 || txJitterMs >= 80 || rttMs >= severeRttMs));
     if (atFloor && videoFloorApplied && measuredAudioFailure) {
-      if (pressureSampleCanAdvance) _severeStreak++;
+      if (pressureSampleCanAdvance || freshAudioLoss) _severeStreak++;
     } else {
       _severeStreak = 0;
     }
@@ -819,9 +907,20 @@ class CallBitrateAdapter {
       return target;
     }
 
+    if (freshMediaLoss && _level < ladder.length - 1) {
+      // A new RTP admission failure or measured audio interruption is
+      // source congestion evidence. Consume its event once; a retained count,
+      // estimated loss percentage or intentionally skipped camera frame is
+      // not another failure on the next one-second poll.
+      _goodStreak = 0;
+      _badStreak = 0;
+      _floorBadStreak = 0;
+      _level = (_level + 2).clamp(0, ladder.length - 1);
+      return target;
+    }
     if (bad) {
       _goodStreak = 0;
-      if (!pressureSampleCanAdvance) return null;
+      if (!pressureSampleCanAdvance && !freshMediaLoss) return null;
       _badStreak++;
       if (_badStreak >= degradeAfter && _level < ladder.length - 1) {
         _badStreak = 0;
