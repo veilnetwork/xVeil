@@ -693,6 +693,9 @@ try:
                                      'dropped_rows':native_driver.stats.dropped_rows,
                                      'ticks':native_driver.stats.ticks,
                                      'observation_count_verified':len(pcmrows)==native_driver.stats.ticks*2}
+        result['native_pcm_driver']['stage_maxima_ms']={
+            name:getattr(native_driver.stats,name) for name in (
+                'max_wake_lateness_ms','max_callback_ms','max_publication_ms')}
     else:
         audio_thread.join(timeout=5)
         assert not audio_thread.is_alive()
