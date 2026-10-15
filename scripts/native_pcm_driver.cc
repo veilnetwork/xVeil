@@ -38,6 +38,7 @@ struct PcmRow {
 struct PcmStats {
   double max_interval_ms;
   uint64_t late_intervals, dropped_rows, failures[2], ticks;
+  double max_wake_lateness_ms, max_callback_ms, max_publication_ms;
 };
 namespace {
 using Capture = int (*)(void*, int);
@@ -50,6 +51,7 @@ struct Driver {
   double origin;
   int period_ms;
   std::mutex mu;
+  std::mutex wake_mu;  // An evidence reader cannot hold the timer/stop mutex.
   std::condition_variable wake;
   bool stop = false, finished = false;
   std::deque<PcmRow> rows;
@@ -61,9 +63,15 @@ struct Driver {
     std::array<double, 2> previous{stand_pcm_now(), stand_pcm_now()};
     uint64_t tick = 0;
     for (;;) {
+      double wake_lateness_ms = 0;
       {
-        std::unique_lock lock(mu);
+        std::unique_lock lock(wake_mu);
         if (wake.wait_until(lock, deadline, [&] { return stop; })) break;
+        // Includes reacquiring the mutex after the timed wait. This is not
+        // an assertion about which OS scheduler or mutex caused a late wake.
+        wake_lateness_ms = std::max(0.0,
+            std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - deadline).count());
       }
       std::array<PcmRow, 2> pair{};
       std::array<uint64_t, 2> failures{};
@@ -93,9 +101,14 @@ struct Driver {
           row.freq = crossings * 48000.0 / (2 * count);
         }
       }
+      const double publication_started = stand_pcm_now();
       {
         std::lock_guard lock(mu);
+        stats.max_wake_lateness_ms = std::max(stats.max_wake_lateness_ms,
+                                             wake_lateness_ms);
         for (size_t side = 0; side < pair.size(); ++side) {
+          stats.max_callback_ms = std::max(stats.max_callback_ms,
+              (pair[side].t - pair[side].source_at) * 1000);
           stats.max_interval_ms = std::max(stats.max_interval_ms, pair[side].interval_ms);
           if (pair[side].interval_ms >= 20) ++stats.late_intervals;
           stats.failures[side] += failures[side];
@@ -106,6 +119,8 @@ struct Driver {
           }
         }
         stats.ticks = ++tick;
+        stats.max_publication_ms = std::max(stats.max_publication_ms,
+            (stand_pcm_now() - publication_started) * 1000);
       }
       deadline += std::chrono::milliseconds(10);
       // Never invent backdated samples or burst synthetic catch-up audio.
@@ -113,7 +128,7 @@ struct Driver {
       if (deadline < now - std::chrono::milliseconds(10))
         deadline = now + std::chrono::milliseconds(10);
     }
-    std::lock_guard lock(mu);
+    std::lock_guard lock(wake_mu);
     finished = true;
   }
 };
@@ -145,13 +160,13 @@ extern "C" size_t stand_pcm_poll(void* handle, PcmRow* out, size_t capacity,
 }
 extern "C" void stand_pcm_request_stop(void* handle) {
   auto& d = *static_cast<Driver*>(handle);
-  std::lock_guard lock(d.mu);
+  std::lock_guard lock(d.wake_mu);
   d.stop = true;
   d.wake.notify_one();
 }
 extern "C" int stand_pcm_finished(void* handle) {
   auto& d = *static_cast<Driver*>(handle);
-  std::lock_guard lock(d.mu);
+  std::lock_guard lock(d.wake_mu);
   return d.finished;
 }
 extern "C" void stand_pcm_destroy(void* handle) {
