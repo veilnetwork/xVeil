@@ -116,6 +116,21 @@ void main() {
   );
 
   for (final lane in ['audio', 'video']) {
+    test('fresh $lane network loss cuts once with healthy measured audio', () {
+      final a = direct();
+      native(a, stats: {...healthy(), '${lane}_loss_report_us': 100});
+      expect(a.level, 2);
+      for (var i = 0; i < 6; i++) {
+        native(a, stats: {...healthy(), '${lane}_loss_report_us': 100});
+      }
+      expect(a.level, 2, reason: 'cached report cannot renew loss');
+      native(a, stats: {...healthy(), '${lane}_loss_report_us': 0});
+      native(a, stats: {...healthy(), '${lane}_loss_report_us': 50});
+      expect(a.level, 2, reason: 'expiry/room removal cannot replay loss');
+      native(a, stats: {...healthy(), '${lane}_loss_report_us': 101});
+      expect(a.level, 4);
+      expect(a.audioReserve, isFalse);
+    });
     test('fresh $lane RTP loss cuts once despite healthy buffers', () {
       final a = direct();
       native(a, stats: {...healthy(), '${lane}_tx_rtp_drops': 7});
@@ -142,6 +157,32 @@ void main() {
       expect(a.level, 2);
     });
   }
+  test('ongoing fresh audio network loss cannot earn video resume', () {
+    final a = direct();
+    for (var i = 0; i < 4; i++) {
+      native(a, interrupted: true);
+    }
+    expect(a.audioReserve, isTrue);
+    for (var i = 1; i <= CallBitrateAdapter.recoverAfter + 1; i++) {
+      native(a, stats: {...healthy(), 'audio_loss_report_us': i});
+      expect(a.audioReserve, isTrue);
+    }
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      native(a, stats: {...healthy(), 'audio_loss_report_us': 100});
+    }
+    expect(a.audioReserve, isTrue, reason: 'first new report resets recovery');
+    native(a, stats: {...healthy(), 'audio_loss_report_us': 100});
+    expect(a.audioReserve, isFalse);
+  });
+  test('fresh RTCP loss protects the floor with an older peer', () {
+    final a = direct();
+    for (var i = 1; i <= 4; i++) {
+      apply(a);
+      a.onNativeStats({...healthy(), 'audio_loss_report_us': i});
+    }
+    expect(a.level, 4);
+    expect(a.audioReserve, isTrue);
+  });
   test(
     'fresh audio interruptions reduce video, then protect a failing floor',
     () {

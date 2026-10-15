@@ -1,5 +1,118 @@
 # Calls media handoff
 
+## 2026-10-15: consume fresh fractional RTCP loss at endpoints
+
+The preceding goal turn made concrete progress (root 1fe89ece, installed
+2592); qualification remains open. SDK 8b217c44 now exposes additive local
+audio_loss_report_us/video_loss_report_us fields in unicast and room stats.
+Each records the local arrival time of the last valid authenticated RR/SR
+block with nonzero fractional loss for our corresponding SSRC, even when the
+displayed integer percentage rounds to zero. A later healthy block retains
+the old loss time; it cannot renew it. Witnesses expire after fifteen seconds
+from the lossy observation itself. Room stats aggregate only those loss
+witnesses, so another participant's healthy report cannot refresh old loss.
+Malformed compound packets publish no partial observation; foreign SSRCs do
+not create evidence. No relay role, wire extension or network priority changes.
+
+Dart consumes each lane's loss timestamp once, retaining its high water over
+expiry, missing fields and room member removal. Reports while a source is
+off are consumed without deferred cuts when it resumes. Engine replacement
+resets the tracker. Fresh audio/video network loss now cuts video by two
+rungs alongside actual RTP admission failure and registered interruptions.
+Audio loss also restrains our background producers in unicast and rooms and
+cannot earn recovery of paused video. Older peers without playout telemetry
+still protect audio when the native receiver reports actual loss. RTCP packet
+loss is congestion evidence, not proof of audible loss after FEC/redundancy.
+
+The focused real-native call-planes --rtcp-loss regression passes against the
+protobuf-free Mac archive. It injects RR and SR through the actual shim
+callback and verifies sub-one-percent loss, stream binding, malformed compound
+rejection, cached reads, healthy reports and two-participant room expiry. The
+default call-planes runner now includes this regression. The four targeted
+Flutter suites pass 118 tests, including repeated/expired/older room witnesses,
+mute/camera-off consumption, floor protection with an older peer, and the
+requirement that ongoing fresh loss cannot resume paused video. Production Mac
+and Android media build successfully with their accepted protobuf-free WebRTC
+archives and preserve all 99 production exports. Android compilation uses a
+new owned throwaway Linux container with read-only source/SDK mounts; an initial
+direct host invocation rejected the Linux compiler and produced no library.
+
+The stand policy driver now passes the same audio loss witness to background
+source pressure and records its immutable adaptation decisions. Historical
+primary/dual-framing/cold-video full captures had no integer audio RTCP loss,
+but their video RTCP loss peaks were 50/60/37 percent, respectively. Thus the
+new video loss trigger can actually affect this workload; a full qualification
+run is warranted, unlike blindly repeating the prior zero-admission-drop test.
+
+rtcp-loss-full-360 completes the full 360-second Opus/VP8/Dart mixed workload
+with independent ordered obfs4 channels, blind aggregate 1,024-kbit/s shaping,
+two 512-KiB encrypted files, native PCM clock and full tone-position coverage.
+This uses the driver's ordinary encrypted health carrier, not the optional
+compact-call-health diagnostic from the prior primary run; it is an absolute
+qualification, not a matched causal latency comparison. The gate FAILS: mixed
+PCM peaks 251.497/280.445 ms, p95 201.718/191.007 ms; audio-only peaks are
+111.529/91.501 ms. Driver clock is valid at 31.93 ms maximum interval, with
+zero dropped rows, timer errors or native/poll/health/control failures. All
+704 tone edges match, no edges are missing, no quiet PCM frames or registered
+interruptions occur. Sampled mixed buffers reach 216/249 ms. Video moves at
+the end but sampled decoded gaps reach 34/26 seconds. Both files arrive with
+exact hashes in 283.965/256.355 seconds. Three nodes stop with status 0 and no
+fixture sockets remain.
+
+Each endpoint records all 360 immutable decisions. Fresh RTCP video-loss
+events number 14/17; audio-loss events are zero. Three video-loss events on
+side 1 cut the rung; all remaining events occur at the floor or while paused.
+Thus the new signal really reaches the application policy under congestion,
+but reacting to loss alone cannot remove the existing mixed-load latency
+failure. Do not relax the latency gate or remove audio guards to call this
+goal complete. Further work must address accumulation/transit and receiver
+recovery while preserving useful video cadence and relay neutrality.
+
+Exact native pipeline attribution covers all 704 tone edges, with zero
+unmatched payload rows, missing edge witnesses or reached trace limits. The
+worst 280.445-ms edge is source 0 at second 256.546303 on a 40-ms packet:
+capture-to-encode 30.293 ms, encoder-to-send 0.022, send-to-SDK 0.012,
+SDK-to-ingress 12.893, ingress-to-WebRTC 0.016, residual-to-PCM 237.209 ms.
+The following packet arrives at second 256.628873, nearly 198 ms before that
+PCM edge. The preceding 279.899-ms edge has only 13.150-ms SDK-to-ingress and
+266.490-ms residual. This residual includes codec lookahead/following-packet
+requirements, buffering and rendering; it is not a direct NetEq-only gauge.
+The next investigation should target receiver recovery after accumulation,
+with the user's tolerance for partial audio loss, rather than attributing
+these particular peaks to ongoing 200-ms network flight. Prior blanket
+receiver-capacity reductions failed; do not restore them without a distinct
+measured recovery mechanism and qualification.
+The pinned receive-stream Stop/Start seam already calls ChannelReceive's
+StopPlayout -> NetEq::FlushBuffers (packet and sync buffers, first_packet reset)
+and resets NACK state. A conditional, bounded recovery through that seam is
+only a candidate, NOT implemented or qualified here. It must explicitly report
+locally discarded audio to the existing loss/peer-quality policy: RTCP network
+loss alone does not account for packets already received and then discarded.
+
+Build 2593 is installed in place on Blackview and staged in the private Mac
+QA bundle, with SDK 8b217c44 media and unchanged Rust/hidden-volume artifacts.
+APK signing certificate matches the prior installed debug/profile build;
+packaged media matches its freshly stripped production artifact. Existing
+identities on both endpoints match the previous fixture. Physical artifacts
+are call-blackview2593-rtcp-loss: incoming signaling 1.12 seconds (one-second
+ring polling), 179.94 seconds observed, video enabled at 61.84 seconds. Both
+endpoints stay active over P2P with zero sampled audio interruptions, audio
+admission drops, discarded audio or route handovers. Both production libraries
+expose the new loss fields. Sampled video-phase audio buffers peak at 50/69 ms;
+no continuous speech or acoustic latency is measured.
+
+This physical call is NOT a higher-FPS qualification: Mac sends about 1 fps,
+phone about 6 fps (coarse TX medians), despite low audio buffer occupancy.
+There are 6/2 fresh video-loss witnesses; Mac's four cuts and two of phone's
+three cuts are loss-driven, with one further phone cut from local buffer
+growth. All sampled integer video loss percentages are zero; coarse gauges
+can miss reports and also round nonzero fractions below one percent. Keep
+the sparse cadence/recovery issue open rather than calling this very low FPS
+good video quality. No video pauses occur in this call. All 118/119 recorded
+decisions are immutable and gap-free. Both apps and logcat exit; process
+absence and removal of the owned ADB forward are independently verified.
+No relay deployment, release, signed commit or push is performed this cycle.
+
 ## 2026-10-15: trace exact adaptation inputs; honor fresh media loss
 
 The user now explicitly accepts losing parts of an image or sound during a
