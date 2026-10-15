@@ -20,6 +20,7 @@ import 'call_microphone_state.dart';
 import 'desktop_screen_capture_start.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
+import 'call_audio_source_pressure.dart';
 import 'group_call_service.dart';
 import 'mac_media_permissions.dart';
 import 'media_ffi.dart';
@@ -40,6 +41,12 @@ abstract interface class GroupMediaChannelTransport {
 
   /// Select only this endpoint's independent screen producer.
   int setScreenSharing(int channel, bool on);
+
+  /// Expiring, endpoint-local source admission; never sent to room peers.
+  Future<bool> reportLocalSourcePressure({
+    required bool pressured,
+    required DateTime sampledAt,
+  });
 }
 
 class VeilGroupMediaChannelTransport implements GroupMediaChannelTransport {
@@ -67,6 +74,15 @@ class VeilGroupMediaChannelTransport implements GroupMediaChannelTransport {
 
   @override
   void close(int channel) => _transport.closeMediaChannel(channel);
+
+  @override
+  Future<bool> reportLocalSourcePressure({
+    required bool pressured,
+    required DateTime sampledAt,
+  }) => _transport.reportLocalSourcePressure(
+    pressured: pressured,
+    sampledAt: sampledAt,
+  );
 }
 
 /// Resolves the room-scoped root secret the per-pair media keys hang off.
@@ -304,6 +320,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final Map<String, int> _lastRxPackets = {};
   final Map<String, DateTime> _lastRxAt = {};
   final Map<String, CallAudioReceiveActivity> _audioReceiveActivity = {};
+  final _sourcePressure = CallAudioSourcePressure();
+  final Set<String> _expectedMediaPeers = {};
+  bool? _sourcePressured;
+  bool _sourceFeedbackPending = false;
+  int _sourceFeedbackQueued = 0;
+  int _sourceFeedbackSkipped = 0;
   bool _supportsAudioReceiveStats = false;
   bool _supportsAudioReceiveAgeStats = false;
   int _peerAudioPlayoutPeers = 0;
@@ -312,7 +334,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   // The debug API reads the same sample used by the audio-priority policy;
   // polling the API must not cause additional native worker/RTCP sampling.
-  Map<String, dynamic> get debugNativeStats => _latestNativeStats;
+  Map<String, dynamic> get debugNativeStats => _engine == null
+      ? const {}
+      : {
+          ..._latestNativeStats,
+          'local_source_pressured': _sourcePressured,
+          'local_source_feedback_queued': _sourceFeedbackQueued,
+          'local_source_feedback_skipped': _sourceFeedbackSkipped,
+        };
   DateTime? get debugNativeStatsAt => _latestNativeStatsAt;
   final Set<String> _expectedAudioPeers = {};
   final Map<String, ValueNotifier<VeilVideoFrame?>> _peerVideoFrames = {};
@@ -564,9 +593,21 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         .where((peer) => peer.nodeId.hex != _localIdHex && peer.media.audio)
         .map((peer) => peer.nodeId.hex)
         .toSet();
+    final nextMediaPeers = call.participants.keys
+        .where((key) => key != _localIdHex)
+        .toSet();
+    if (!setEquals(nextMediaPeers, _expectedMediaPeers) ||
+        !setEquals(nextAudioPeers, _expectedAudioPeers)) {
+      // A new/unmuted/replaced receiver cannot spend the old roster's earned
+      // source headroom while channel creation or its measurements are pending.
+      _sourcePressure.reset();
+      _sourcePressured = null;
+    }
+    _expectedMediaPeers
+      ..clear()
+      ..addAll(nextMediaPeers);
     if (_audioEnabled &&
         _videoRunning &&
-        _supportsAudioReceiveAgeStats &&
         nextAudioPeers.any((key) => !_expectedAudioPeers.contains(key))) {
       // Reduce BEFORE opening/adding the fanout, including an existing peer
       // that unmutes. The next fresh samples must establish this peer's audio
@@ -708,6 +749,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         }, now);
       }
     }
+    _reportSourcePressure(expected, stats, now);
     if (!_videoRunning) return;
     final adapter = _bitrateAdapter;
     if (adapter == null) return;
@@ -726,6 +768,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         audioInterrupted: _audioInterrupted,
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
+        peerCurrentAudioDelayMs: _groupPeerAudioDelay(stats),
+        peerAudioSampleSequence: _groupPeerAudioSequence(stats),
+        peerAudioBufferGrowing: _groupPeerAudioSequence(stats) == null
+            ? false
+            : null,
         audioReceiveQuality: _groupAudioReceiveQuality(stats),
         expectedVideoFeedbackReports: _peers.length,
         expectedAudioFeedbackReports: _audioEnabled && !_microphoneState.muted
@@ -766,6 +813,77 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   bool get _hasExpectedIncomingAudio =>
       _audioEnabled && _peers.keys.any(_expectedAudioPeers.contains);
+
+  void _reportSourcePressure(
+    GroupAudioEngine engine,
+    Map<String, dynamic> stats,
+    DateTime now,
+  ) {
+    final sendExpected =
+        _audioEnabled &&
+        !_microphoneState.muted &&
+        _expectedMediaPeers.isNotEmpty;
+    final receiveExpected = _audioEnabled && _expectedAudioPeers.isNotEmpty;
+    final channelsComplete = _expectedMediaPeers.every(_peers.containsKey);
+    var peerDelay = _groupPeerAudioDelay(stats);
+    final reports = stats['audio_playout_reports'];
+    // Any known overloaded listener suffices. Recovery requires fresh reports
+    // for the whole fanout, including listeners whose microphones are muted.
+    // Older peers without this optional report cannot prove source headroom.
+    if ((reports is! num ||
+            !reports.isFinite ||
+            reports < _expectedMediaPeers.length ||
+            !channelsComplete) &&
+        (peerDelay == null ||
+            peerDelay < CallAudioSourcePressure.playoutDegradeMs)) {
+      peerDelay = null;
+    }
+    final receiveQuality = _groupAudioReceiveQuality(stats);
+    final pressure = _sourcePressure.observe(
+      sendExpected: sendExpected,
+      receiveExpected: receiveExpected,
+      requirePeerPlayout: sendExpected,
+      peerDelayMs: peerDelay,
+      peerCurrentDelayMs: peerDelay,
+      peerSampleSequence: _groupPeerAudioSequence(stats),
+      peerBufferGrowing: _groupPeerAudioSequence(stats) == null ? false : null,
+      receiveDelayMs: channelsComplete ? _groupAudioReceiveDelay(stats) : null,
+      receiveAgeMs: channelsComplete ? receiveQuality.ageMs : null,
+      interrupted: _audioInterrupted,
+      audioTxDrops: stats['audio_tx_rtp_drops'] is int
+          ? stats['audio_tx_rtp_drops'] as int
+          : null,
+    );
+    _sourcePressured = pressure;
+    if (pressure == null || _sourceFeedbackPending) return;
+    final epoch = _mediaEpoch;
+    _sourceFeedbackPending = true;
+    unawaited(
+      Future<bool>.sync(
+            () => _transport.reportLocalSourcePressure(
+              pressured: pressure,
+              sampledAt: now,
+            ),
+          )
+          .then<void>(
+            (queued) {
+              if (_engine != engine || _mediaEpoch != epoch) return;
+              if (queued) {
+                _sourceFeedbackQueued++;
+              } else {
+                _sourceFeedbackSkipped++;
+              }
+            },
+            onError: (Object _) {
+              // Unavailable/older local IPC lets the original lease expire.
+              if (_engine == engine && _mediaEpoch == epoch) {
+                _sourceFeedbackSkipped++;
+              }
+            },
+          )
+          .whenComplete(() => _sourceFeedbackPending = false),
+    );
+  }
 
   void _applyVideoPolicy(GroupAudioEngine engine, CallBitrateAdapter adapter) {
     final applied = adapter.applyPendingTarget(
@@ -855,6 +973,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   bool get _requirePeerAudioPlayout =>
       _audioEnabled && !_microphoneState.muted && _peerAudioPlayoutPeers > 0;
 
+  int? _groupPeerAudioSequence(Map<String, dynamic> stats) {
+    final value = stats['audio_playout_sequence'];
+    return value is int && value >= 0 ? value : null;
+  }
+
   void _observeAudioPlayoutPeers(Map<String, dynamic> stats) {
     final peers = stats['audio_playout_peers'];
     // A missing/failed sample cannot revoke a capability already observed.
@@ -868,13 +991,15 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   // estimate still substantiates congestion when another estimate is missing.
   int? _groupPeerAudioDelay(Map<String, dynamic> stats) {
     final peers = _peerAudioPlayoutPeers;
-    final reports = (stats['audio_playout_reports'] as num?) ?? 0;
+    final reports = stats['audio_playout_reports'];
     final delay = stats['audio_playout_ms'];
     if (delay is! num ||
         !delay.isFinite ||
         delay < 0 ||
         delay > 60000 ||
         peers <= 0 ||
+        reports is! num ||
+        !reports.isFinite ||
         reports <= 0) {
       return null;
     }
@@ -907,6 +1032,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final engine = _engine;
     final cached = _peers.remove(peer.hex);
     if (cached == null) return;
+    _sourcePressure.reset();
+    _sourcePressured = null;
     _lastRxPackets.remove(peer.hex);
     _lastRxAt.remove(peer.hex);
     _audioReceiveActivity.remove(peer.hex);
@@ -943,6 +1070,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> setMicMuted(bool muted) async {
     final changed = muted != _microphoneState.muted;
     _microphoneState.setMuted(muted);
+    if (changed) {
+      _sourcePressure.reset();
+      _sourcePressured = null;
+    }
     try {
       final adapter = _bitrateAdapter;
       final engine = _engine;
@@ -1149,6 +1280,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<void> _stopLocked({bool clearMicrophoneState = true}) async {
     if (clearMicrophoneState) _microphoneState.clear();
     _audioEnabled = false;
+    _sourcePressure.reset();
+    _sourcePressured = null;
+    _sourceFeedbackQueued = 0;
+    _sourceFeedbackSkipped = 0;
+    _expectedMediaPeers.clear();
     _peerAudioPlayoutPeers = 0;
     _supportsAudioReceiveAgeStats = false;
     _latestNativeStats = const {};

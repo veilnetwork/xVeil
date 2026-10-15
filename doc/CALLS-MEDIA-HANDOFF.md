@@ -1,5 +1,76 @@
 # Calls media handoff
 
+## 2026-10-15: group source admission and fresh playout revisions
+
+Previous goal turn made progress in `5acafe82`: the blind FIFO is independent
+of the codec driver's GIL. Its full 360-second adaptive control still fails at
+260.954/240.927-ms PCM peaks and 22/16-second sampled video gaps. Those quality
+failures remain open; this cycle does not qualify them away.
+
+`GroupMediaChannelTransport` now forwards the same local source-feedback API
+as ordinary calls. `VeilGroupCallMediaController` runs `CallAudioSourcePressure`
+before its video-only branch, so audio-only rooms also constrain competing own
+DATA/file admission. Any known listener at the buffer ceiling establishes
+pressure even with other reports absent. Recovery requires native fresh report
+coverage for the entire intended fanout and current audio for every expected
+incoming source. A muted microphone does not exempt incoming audio; no active
+audio source means no lease renewal. Older listeners without optional playout
+reports cannot prove source headroom, while unsupported local IPC simply
+rejects the report and preserves the existing transport fallback.
+
+Roster changes, channel invalidation and microphone changes reset earned
+headroom. Missing/pending channels cannot borrow the prior roster's recovery.
+One report may be in flight across stop/restart, retaining its ORIGINAL
+sampling time. Completion from another media epoch cannot update the new
+call's diagnostics, even if a test reuses the same engine object. Rejections,
+synchronous exceptions and asynchronous IPC failures do not break the stats
+timer or audio. Stop ceases reporting; the existing 1,500-ms SDK lease expires
+naturally. No relay priority, traffic class, media metadata or new network
+message is introduced. The application's shared call slot prevents ordinary
+and group calls from independently clearing one bound media app's lease.
+
+SDK `e5b108de` adds native group JSON `audio_playout_sequence`: a local monotonic revision
+of accepted remote playout snapshots, support/freshness transitions and roster
+size. Polling cached RTCP and replaying an old report leave it unchanged. New
+reports, unknown samples and expiry update it. Both group source admission and
+the video adapter consume this revision rather than filling a growth window
+with repeated polls. Older native libraries without it retain ceiling
+protection but do not manufacture a below-ceiling remote growth trend.
+The encrypted RTCP format, negotiated codecs and C ABI exports are unchanged.
+
+The pre-edit group suite was rechecked at `5acafe82`: eight existing tests
+failed there too. Several expected the superseded rule that gaps, interruptions
+or missing reports directly cut video. Those cases now assert holding an earned
+rung for unknown/non-growing measurements, and inject an ACTUAL buffer ceiling
+where they test overload/mute/peer isolation and recovery. The PCM stress gates
+are unchanged. This also exposed and fixed a real legacy-library fanout gap:
+adding an audio participant previously reset video's earned budget only with
+native receive-age support; the reset now happens before adding that fanout
+with either library capability.
+
+The focused Flutter suite passes 151 tests (group controller, source pressure,
+receive activity and bitrate adapter). Static analysis of the two edited root
+files has no issues. New controls cover audio-only reporting, all-peer recovery,
+local/remote mute, roster changes, stale completed epochs, bounded pending IPC,
+rejected/throwing IPC, malformed counts, cached-report video stability and six
+fresh growing source observations. The native call-plane smoke also passes:
+actual WebRTC/Opus, independent audio/video workers, replay/expiry/revision
+checks, sparse video encoding, group fanout and teardown. It uses a MOCK Veil
+boundary, not a shaped group/file network or physical handset.
+
+Use `TMPDIR=/private/tmp/ WEBRTC_OUT=out/mac-arm64-call-adaptive bash
+third_party/veil/flutter/veil_media/test/run_call_planes_smoke.sh`. The first
+attempt with the build script's older default `out/mac-arm64` correctly refused
+its protobuf-disabled cache; the explicit adaptive cache built and passed.
+Private logs: `group-source-baseline-tests.log`, `group-source-admission-red.log`,
+`group-source-admission-qualified.log`, `group-source-admission-analyze-qualified.log`
+and `group-source-native-planes-adaptive.log` under the existing private cache.
+
+Still required: full group/native SDK file-contention qualification, optional
+group target-delay telemetry, SOCKS gate coverage, constrained-network receiver
+tail diagnosis and physical application checks. No release, remote branch,
+running relay or phone profile was changed by these headless controls.
+
 ## 2026-10-15: isolate the blind FIFO runtime
 
 Previous goal turn made authoritative progress in SDK `673a76fd` and xVeil
