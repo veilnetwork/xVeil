@@ -23,6 +23,14 @@ class Stats(C.Structure):
                             (name, C.c_int32) for name in (
                                 'qos_supported', 'qos_result', 'qos_requested', 'qos_actual',
                                 'timer_error')]
+    _fields_ += [(name, C.c_int32) for name in (
+        'deadline_requested', 'deadline_result', 'deadline_active')]
+    _fields_ += [(name, C.c_uint32) for name in (
+        'deadline_period_ticks', 'deadline_computation_ticks', 'deadline_constraint_ticks')]
+    _fields_ += [(name, C.c_uint32) for name in (
+        'deadline_actual_period_ticks', 'deadline_actual_computation_ticks',
+        'deadline_actual_constraint_ticks')]
+    _fields_ += [(name, C.c_uint64) for name in ('deadline_checks', 'deadline_misses')]
 
 
 def build(directory):
@@ -38,6 +46,10 @@ def build(directory):
 class NativePcmDriver:
     def __init__(self, library, capture, playout, engines, origin, period_ms,
                  priority='audio'):
+        if priority not in ('audio', 'default', 'deadline'):
+            raise ValueError('Unknown synthetic audio scheduling mode')
+        if priority == 'deadline' and sys.platform != 'darwin':
+            raise ValueError('Deadline scheduling requires macOS')
         self.lib = C.CDLL(str(library))
         for name, expected in (('row_size', C.sizeof(Row)),
                                ('stats_size', C.sizeof(Stats))):
@@ -69,7 +81,7 @@ class NativePcmDriver:
         self.stats = Stats()
         self._keepalive = (capture, playout, engines)
         self.handle = self._start(capture, playout, *engines, origin, period_ms,
-                                  int(priority == 'audio'))
+                                  {'default': 0, 'audio': 1, 'deadline': 2}[priority])
         if not self.handle:
             raise RuntimeError('Native PCM driver rejected its arguments')
 

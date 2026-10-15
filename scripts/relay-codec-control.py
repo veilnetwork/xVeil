@@ -19,7 +19,7 @@ from fixture_paths import validate_unix_fixture_paths
 from opaque_frame_capture import OpaqueFrameCapture
 from opaque_frame_capture import MAX_CAPTURE_ROWS_PER_NODE
 import ctypes as C
-import gc, json, os, socket, time, tomllib, traceback
+import gc, json, os, socket, sys, time, tomllib, traceback
 from pathlib import Path
 from pcm_timing import capture_coverage, input_edges
 from decoded_video_progress import summarize as summarize_decoded_video
@@ -44,8 +44,8 @@ parser.add_argument('--gc-timing-trace', action='store_true',
                     help='Record bounded cyclic-GC pauses in the Python driver without changing collection or quality gates')
 parser.add_argument('--native-pcm-driver', action=argparse.BooleanOptionalAction, default=True,
                     help='Use an independent native capture/playout clock (default, requires clang++); --no-native-pcm-driver retains the Python clock for comparison')
-parser.add_argument('--native-pcm-priority', choices=['audio', 'default'], default='audio',
-                    help='macOS synthetic capture QoS: audio matches latency-sensitive capture; default retains inherited scheduling for comparison; no network priority changes')
+parser.add_argument('--native-pcm-priority', choices=['audio', 'default', 'deadline'], default='audio',
+                    help='Synthetic callback scheduling: audio uses macOS QoS, default inherits scheduling, deadline explicitly requests/read-backs a 10-ms macOS time-constraint policy; no network priority changes')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
 parser.add_argument('--opaque-frame-capture-start-seconds', type=int, default=18,
@@ -86,6 +86,9 @@ parser.add_argument('--screen-video', action='store_true',
 parser.add_argument('--reannounce-interval-seconds', type=int,
                     help='Diagnostic routing refresh interval, below the unchanged 120-second route TTL; omitted retains production defaults')
 args = parser.parse_args()
+if args.native_pcm_priority == 'deadline' and (
+        sys.platform != 'darwin' or not args.native_pcm_driver):
+    parser.error('Deadline scheduling requires the native macOS PCM driver')
 if args.chunk_trace:
     os.environ['VEIL_DIAG_CHUNKS'] = '1'
 if args.source_cell_trace:
@@ -763,6 +766,7 @@ try:
                                'side':x['side'],'interval_ms':round(x['interval_ms'],2)}
                               for x in pcmrows if x['interval_ms']>=20][:128]
         result['native_pcm_driver']={'clock_check_span_us':native_driver.clock_check_span_us,
+                                     'scheduling_mode':args.native_pcm_priority,
                                      'dropped_rows':native_driver.stats.dropped_rows,
                                      'ticks':native_driver.stats.ticks,
                                      'observation_count_verified':len(pcmrows)==native_driver.stats.ticks*2}
@@ -772,6 +776,12 @@ try:
         result['native_pcm_driver']['scheduling']={
             name:getattr(native_driver.stats,name) for name in (
                 'qos_supported','qos_result','qos_requested','qos_actual')}
+        result['native_pcm_driver']['deadline_scheduling']={
+            name:getattr(native_driver.stats,name) for name in (
+                'deadline_requested','deadline_result','deadline_active',
+                'deadline_period_ticks','deadline_computation_ticks','deadline_constraint_ticks',
+                'deadline_actual_period_ticks','deadline_actual_computation_ticks','deadline_actual_constraint_ticks',
+                'deadline_checks','deadline_misses')}
         result['native_pcm_driver']['timer_error']=native_driver.stats.timer_error
     else:
         audio_thread.join(timeout=5)
@@ -927,6 +937,13 @@ try:
             result['ok']=result['ok'] and native_driver.stats.qos_result==0 and (
                 native_driver.stats.qos_requested==0 or
                 native_driver.stats.qos_actual==native_driver.stats.qos_requested)
+        if args.native_pcm_priority == 'deadline':
+            result['ok'] = result['ok'] and (
+                native_driver.stats.deadline_requested == 1 and
+                native_driver.stats.deadline_result == 0 and
+                native_driver.stats.deadline_active == 1 and
+                native_driver.stats.deadline_checks >= 2 and
+                native_driver.stats.deadline_misses == 0)
     result['ok'] = result['ok'] and result['audio_rtcp_feedback_verified']
     if args.decoded_video_trace:
         result['ok']=result['ok'] and result['decoded_video_progress']['moving_at_end'] and not any(decoded_video_failures)

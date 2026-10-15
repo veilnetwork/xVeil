@@ -25,6 +25,20 @@ class NativeClockTests(unittest.TestCase):
             library.stand_pcm_start.assert_not_called()
 
     def test_python_polling_cannot_stop_capture_and_shutdown_joins_it(self):
+        self._exercise_clock('audio')
+
+    @unittest.skipUnless(sys.platform == 'darwin', 'Mach time constraints require macOS')
+    def test_deadline_policy_is_applied_read_back_and_stopped(self):
+        self._exercise_clock('deadline')
+
+    def test_invalid_priority_cannot_start_a_writer(self):
+        with patch('native_pcm_driver.C.CDLL') as load:
+            with self.assertRaises(ValueError):
+                NativePcmDriver('unused', None, None, [None, None], 0, 1010,
+                                priority='unexpected')
+            load.assert_not_called()
+
+    def _exercise_clock(self, priority):
         source = Path(__file__).with_name('native_pcm_driver.cc')
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -55,7 +69,7 @@ extern "C" int fake_playout(void*, int16_t* out, size_t capacity) {
             native.fake_calls.argtypes, native.fake_calls.restype = [C.c_int], C.c_int
             driver = NativePcmDriver(library, native.fake_capture, native.fake_playout,
                                      [native.fake_device(i) for i in range(2)],
-                                     time.monotonic(), 1010)
+                                     time.monotonic(), 1010, priority=priority)
             try:
                 previous = native.fake_calls(0)
                 interval = sys.getswitchinterval()
@@ -80,6 +94,19 @@ extern "C" int fake_playout(void*, int16_t* out, size_t capacity) {
                     self.assertEqual(driver.stats.qos_result, 0)
                     self.assertEqual(driver.stats.qos_actual, driver.stats.qos_requested)
                     self.assertNotEqual(driver.stats.qos_actual, 0)
+                if priority == 'deadline':
+                    self.assertEqual(driver.stats.deadline_requested, 1)
+                    self.assertEqual(driver.stats.deadline_result, 0)
+                    self.assertEqual(driver.stats.deadline_active, 1)
+                    self.assertGreaterEqual(driver.stats.deadline_checks, 2)
+                    self.assertEqual(driver.stats.deadline_misses, 0)
+                    self.assertLess(driver.stats.deadline_computation_ticks,
+                                    driver.stats.deadline_constraint_ticks)
+                    self.assertLess(driver.stats.deadline_constraint_ticks,
+                                    driver.stats.deadline_period_ticks)
+                else:
+                    self.assertEqual(driver.stats.deadline_requested, 0)
+                    self.assertEqual(driver.stats.deadline_checks, 0)
                 for row in rows:
                     self.assertLessEqual(0, row['source_at'])
                     self.assertLessEqual(row['source_at'], row['t'])

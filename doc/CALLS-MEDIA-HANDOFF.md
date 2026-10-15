@@ -1,5 +1,155 @@
 # Calls media handoff
 
+## 2026-10-15: catch-up arrival clock and physical diagnostic control
+
+SDK 9e933061 fixes a regression exposed by the new production catch-up path.
+NetEq advances its internal ten-ms timer on every GetAudio call. Decoding
+several old blocks during one render callback also advanced the arrival-delay
+estimator, inventing jitter and rebuilding the removed backlog. The original
+default controller now receives a separate timer advanced once per outer
+render callback. Codec, FEC, PLC and packet bookkeeping retain their original
+timer; there is no timer rewind, buffer flush or relay change. The clock is
+owned before the inner decoder so it outlives its controller.
+
+The real Opus DTX regression now starts silence at five seconds: the injected
+burst ends at four seconds but its final packets can arrive 300 ms later.
+This isolates ten healthy DTX seconds from the injected loss tail; the
+unchanged resumed-PCM gate remains below 160 ms. With the SAME updated test,
+the old library fails at 280 ms and the corrected library passes at 140 ms,
+with zero additional concealed samples/interruptions. Healthy DTX discards no
+extra decoded audio. Perfect-network DTX passes at 100 ms. The decoder-outcome
+unit additionally verifies one arrival-clock tick even for seventeen decoder
+pulls, and two ticks for two render callbacks, including a decoder error.
+
+Private call-blackview2594-playout is an INTRUSIVE diagnostic run: immediately
+after enabling video it invokes macOS sample plus Android dumpsys/thread
+inspection. It reports Mac/phone catch-up discard totals 340/6490 ms and low
+video FPS. A clean same-build repeat, call-blackview2594-clean, removes those
+operations from the timed observation. It rings in 0.26 seconds and stays P2P
+on both devices for 178.30 seconds, with zero registered interruptions or
+route handovers. Mac/phone catch-up discard totals are 0/10 ms, with 0/1
+recovery batches. Video-phase sampled audio buffers are 3–53 / 57–87 ms.
+The earlier intrusive run does not establish ordinary-call behavior or
+identify which diagnostic operation caused the perturbation.
+
+The clean repeat still exposes asymmetric video performance: sampled median
+TX rates approximately 0.99 FPS from Mac and 29.41 FPS from phone. Its complete
+adaptation history attributes the Mac cuts to fresh video RTCP loss witnesses,
+not growing/capped audio buffers or intentional catch-up. Integer loss
+percentages can round those small nonzero loss fractions to zero. This agrees
+with the user's instruction that actual image loss may reduce quality, but
+does not qualify high-FPS recovery. No listening/speech quality is established.
+Both owned applications, logcat and the test forward were removed, with
+explicit process-exit/read-back proof stored in the private result directory.
+
+The corrected default native call-planes suite passes, including its RTCP
+loss/expiry tests, group isolation, held video queues and eight-case catch-up
+regression. Both production media builds retain 99 public exports. Private
+Mac QA and Android profile build 2595 contain the corrected media library;
+Android update uses the same signing certificate and preserves identity/data.
+The packaged Android media hash is
+474b227190d84fa5dbb7c573232fad160d57798f784e38162fe6909acd3928ca;
+Rust remains byte-identical to build 2594. No release or push was performed.
+
+arrival-clock-full-360 PASSES the unchanged complete gate with the corrected
+library: six minutes, aggregate 1,024-kbit/s blind FIFO, separate ordered obfs4
+channels, real Opus/VP8, and exact 512-KiB encrypted files in both directions.
+All 704 PCM edges match with no quiet frames or registered interruptions.
+Mixed PCM peaks are 180.019/170.069 ms; p95 is 150.143/150.169 ms. Current
+buffers peak at 130/139 ms. Both images move at the end; maximum sampled image
+gaps are approximately three seconds, with no video-protection pause samples.
+Files finish at 339.125/340.160 seconds. Clock maximum interval is 10.18 ms,
+wake lateness 0.142 ms and full callback 0.551 ms; all 36,000 ticks and 362
+matching policy read-backs are present, without timer errors or dropped rows.
+Catch-up intentionally discards 14,090/7,450 ms in 1,101/603 batches; fallback
+counts are zero. The gate establishes timing and continued video/file progress,
+not perceptual speech quality or high FPS under this constrained workload.
+All three nodes exit with status zero and no fixture sockets remain.
+
+Physical call-blackview2595-clean then runs the corrected production media on
+both owned endpoints: ring 0.25 seconds, 178.35 seconds of observations, P2P
+throughout, zero route handovers, RTP audio admission drops, registered audio
+interruptions or catch-up/discard/fallback counts on either device. Camera is
+enabled at 62.11 seconds; sampled video-phase buffers are 29–59 / 55–75 ms.
+Identities match the preceding build. Mac/phone sampled median video TX rates
+remain asymmetric at 0.98/29.41 FPS. All seven Mac rung cuts have a fresh video
+RTCP loss witness and no gaps in the adaptation history; the phone has no rung
+cuts. There are no audio-protection pause samples on either side. This confirms
+the installed build and healthy quiet-call behavior, not speech audibility or
+resolution of the remaining Mac video rate/recovery issue. Follow up by
+correlating Mac video RTP/RTCP loss and recovery eligibility, without weakening
+the actual-loss trigger. Both owned app processes, logcat and the test ADB
+forward are confirmed absent after hangup.
+
+## 2026-10-15: explicit synthetic audio deadline scheduling
+
+Previous turn made progress (root 6d5e42a3, SDK e60b6421); the guarded catch-up
+candidate remained unqualified after ordinary-QoS fixture wake delays. Local
+source confirms the production Mac ADM pulls from an AVAudioSourceNode render
+callback, and Android requests AAudio LOW_LATENCY callbacks. The latter is a
+request, not read-back proof of the phone's effective scheduling. The synthetic
+clock formerly requested only USER_INTERACTIVE QoS. This cycle adds an opt-in
+`--native-pcm-priority deadline` fixture mode; the default stays `audio` and
+no application, SDK/relay worker or host-wide priority changes.
+
+The requested Mach time-constraint period/computation/constraint is 10/3/5 ms.
+The local SDK header explains why the initial 10/2/5 request was not exact:
+kernel computation is forced to at least half the constraint, so read-back
+returned 2.5 ms. The final 3-ms request matches exactly. The ignored preemptible
+field is not used as proof. Requested AND actual timing fields are exported,
+with checks at startup, each hundred ticks and shutdown; any mismatch or
+read-back error invalidates the gate. Native/Python Stats ABI sizes are
+verified before starting the writer. Unknown modes and deadline mode without
+a native macOS clock fail before the fixture starts. This is a representative
+real-time timing model, not proof that CoreAudio uses these exact parameters.
+
+Four Python tests pass for default QoS, deadline policy read-back, invalid
+mode rejection and stale ABI rejection. Native stall/publication regressions
+also pass in explicit deadline mode: deliberate 65/70-ms blocking still appears
+as a clock failure; it is not hidden by priority or catch-up samples.
+
+bounded-playout-deadline-full-360 PASSES the complete unchanged quality gate
+with the guarded receiver candidate: 360 seconds, real Opus/VP8/Dart, blind
+aggregate 1,024-kbit/s obfs4 shaping, exact 512-KiB files in each direction,
+native PCM and all input positions. Mixed PCM peaks 150.122/170.083 ms, p95
+150.052/150.131; audio-only peaks 70.095/110.111. All 704 tone edges match,
+quiet frames and reported interruptions are zero, current buffers peak at
+130/130 ms. Maximum driver interval is 10.20 ms, wake lateness 0.149 ms,
+maximum full callback 0.244 ms. All 36,000 ticks are recorded without dropped
+rows or timer error. All 362 policy read-backs match, without a single miss.
+Both files finish with exact hashes at 339.689/337.418 seconds; both directions
+show changing images at the end, with sampled gaps 3/13 seconds and video pauses
+12/0 seconds. Intentional discarded audio totals 2250/4220 ms in 202/360
+batches; fallback counters remain zero. Three nodes stop with status 0 and
+no fixture sockets remain. No continuous speech quality is established.
+
+Before production enablement, compare the same library and full workload with
+the catch-up factory disabled under the SAME explicit deadline mode. Otherwise
+improving the synthetic source clock could be mistaken for a receiver fix.
+
+The matched baseline-deadline-full-360 FAILS the unchanged latency gate:
+mixed PCM peaks 190.049/220.055 ms, p95 180.018/190.016. Its clock is valid at
+10.15 ms, wake lateness 0.135 ms, with all 36,000 ticks and 362 matching policy
+checks. Catch-up/discard counters are exactly zero, proving the control was
+disabled in this same test library. All 704 edges match, quiet/interruptions
+are zero, both exact files finish at 308.448/300.876 seconds, images move at
+the end, and nodes/sockets clean up. Video pauses are 36/38 sampled seconds.
+This controlled configuration comparison supports a receiver benefit in
+addition to the timing-model change; it is not a repeated statistical trial.
+
+SDK 5d482ffe promotes the same catch-up implementation to production UNICAST
+calls, with its explicit recovery/discard counters. Room receive streams still
+use their previous factory and remain outstanding. Test libraries now enable
+the production default, with only VEIL_MEDIA_TEST_DISABLE_AUDIO_DRAIN permitting
+an explicit baseline opt-out. The old opt-in was solely the earlier prototype;
+its archived libraries preserve the recorded commands. The default real-native
+call-planes suite, RTCP loss regression and eight-case catch-up regression pass
+after promotion, including audio delivery with stalled video queues and safe
+restart/teardown. Production Mac/Android media builds preserve 99 public
+exports; Rust/hidden-volume code and all relay binaries are unchanged.
+Raw NetEq sample/output-duration counters also include decoded catch-up blocks;
+use the separately exported discarded duration when interpreting playout rate.
+
 ## 2026-10-15: bounded receiver catch-up candidate
 
 The preceding goal turn made progress (root b6c7293f/SDK 8b217c44, installed
