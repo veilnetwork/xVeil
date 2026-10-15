@@ -38,8 +38,10 @@ parser.add_argument('--decoded-video-trace', action=argparse.BooleanOptionalActi
                     help='Require changing decoded synthetic images at both receivers near the end (default for video); disabling retains only RTP diagnostics, no pixels are retained')
 parser.add_argument('--gc-timing-trace', action='store_true',
                     help='Record bounded cyclic-GC pauses in the Python driver without changing collection or quality gates')
-parser.add_argument('--native-pcm-driver', action='store_true',
-                    help='Drive the synthetic capture/playout clock on a native thread independent of Python polling; requires clang++ and retains all quality gates')
+parser.add_argument('--native-pcm-driver', action=argparse.BooleanOptionalAction, default=True,
+                    help='Use an independent native capture/playout clock (default, requires clang++); --no-native-pcm-driver retains the Python clock for comparison')
+parser.add_argument('--native-pcm-priority', choices=['audio', 'default'], default='audio',
+                    help='macOS synthetic capture QoS: audio matches latency-sensitive capture; default retains inherited scheduling for comparison; no network priority changes')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
 parser.add_argument('--opaque-frame-capture-start-seconds', type=int, default=18,
@@ -587,7 +589,7 @@ try:
             audio_failure.append(traceback.format_exc())
             audio_stop.set()
     if args.native_pcm_driver:
-        native_driver=NativePcmDriver(pcm_driver_library,capture,playout,engines,startat,args.tone_period_ms)
+        native_driver=NativePcmDriver(pcm_driver_library,capture,playout,engines,startat,args.tone_period_ms,args.native_pcm_priority)
     else:
         audio_thread=threading.Thread(target=audio_loop,name='stand-pcm');audio_thread.start()
     for tick in range(args.duration*100):
@@ -696,6 +698,10 @@ try:
         result['native_pcm_driver']['stage_maxima_ms']={
             name:getattr(native_driver.stats,name) for name in (
                 'max_wake_lateness_ms','max_callback_ms','max_publication_ms')}
+        result['native_pcm_driver']['scheduling']={
+            name:getattr(native_driver.stats,name) for name in (
+                'qos_supported','qos_result','qos_requested','qos_actual')}
+        result['native_pcm_driver']['timer_error']=native_driver.stats.timer_error
     else:
         audio_thread.join(timeout=5)
         assert not audio_thread.is_alive()
@@ -830,7 +836,11 @@ try:
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
     result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad+control_failures) and all(healthrecv[i]==healthsent[1-i]+1 for i in range(2)) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
     if native_driver is not None:
-        result['ok']=result['ok'] and native_driver.stats.dropped_rows==0 and result['native_pcm_driver']['observation_count_verified']
+        result['ok']=result['ok'] and native_driver.stats.dropped_rows==0 and result['native_pcm_driver']['observation_count_verified'] and native_driver.stats.timer_error==0
+        if native_driver.stats.qos_supported:
+            result['ok']=result['ok'] and native_driver.stats.qos_result==0 and (
+                native_driver.stats.qos_requested==0 or
+                native_driver.stats.qos_actual==native_driver.stats.qos_requested)
     result['ok'] = result['ok'] and result['audio_rtcp_feedback_verified']
     if args.decoded_video_trace:
         result['ok']=result['ok'] and result['decoded_video_progress']['moving_at_end'] and not any(decoded_video_failures)

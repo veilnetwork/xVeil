@@ -19,7 +19,10 @@ class Stats(C.Structure):
                 ('failures', C.c_uint64 * 2), ('ticks', C.c_uint64)] + [
                     (name, C.c_double) for name in (
                         'max_wake_lateness_ms', 'max_callback_ms',
-                        'max_publication_ms')]
+                        'max_publication_ms')] + [
+                            (name, C.c_int32) for name in (
+                                'qos_supported', 'qos_result', 'qos_requested', 'qos_actual',
+                                'timer_error')]
 
 
 def build(directory):
@@ -33,11 +36,12 @@ def build(directory):
 
 
 class NativePcmDriver:
-    def __init__(self, library, capture, playout, engines, origin, period_ms):
+    def __init__(self, library, capture, playout, engines, origin, period_ms,
+                 priority='audio'):
         self.lib = C.CDLL(str(library))
         signatures = {
             'now': ([], C.c_double),
-            'start': ([C.c_void_p] * 4 + [C.c_double, C.c_int], C.c_void_p),
+            'start': ([C.c_void_p] * 4 + [C.c_double, C.c_int, C.c_int], C.c_void_p),
             'poll': ([C.c_void_p, C.POINTER(Row), C.c_size_t, C.POINTER(Stats)], C.c_size_t),
             'request_stop': ([C.c_void_p], None),
             'finished': ([C.c_void_p], C.c_int),
@@ -58,7 +62,8 @@ class NativePcmDriver:
         self.buffer = (Row * 1024)()
         self.stats = Stats()
         self._keepalive = (capture, playout, engines)
-        self.handle = self._start(capture, playout, *engines, origin, period_ms)
+        self.handle = self._start(capture, playout, *engines, origin, period_ms,
+                                  int(priority == 'audio'))
         if not self.handle:
             raise RuntimeError('Native PCM driver rejected its arguments')
 

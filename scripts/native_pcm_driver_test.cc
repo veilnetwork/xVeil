@@ -36,9 +36,9 @@ int PlayoutTone(void* ptr, int16_t* pcm, size_t capacity) {
 int main() {
   Fake a, b;
   const double origin = stand_pcm_now();
-  assert(!stand_pcm_start(nullptr, PlayoutTone, &a, &b, origin, 1010));
-  assert(!stand_pcm_start(CaptureTone, PlayoutTone, &a, &a, origin, 1010));
-  void* handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, origin, 1010);
+  assert(!stand_pcm_start(nullptr, PlayoutTone, &a, &b, origin, 1010, 1));
+  assert(!stand_pcm_start(CaptureTone, PlayoutTone, &a, &a, origin, 1010, 1));
+  void* handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, origin, 1010, 1);
   assert(handle);
   while (a.calls.load() < 5) std::this_thread::sleep_for(std::chrono::milliseconds(1));
   a.stall = true;
@@ -88,7 +88,7 @@ int main() {
   // actual source-clock failure, rather than being blamed on the codec.
   const int before_publication_test = a.calls.load();
   a.hold_capture = true;
-  handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, stand_pcm_now(), 1010);
+  handle = stand_pcm_start(CaptureTone, PlayoutTone, &a, &b, stand_pcm_now(), 1010, 1);
   while (!a.capture_entered.load())
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   {
