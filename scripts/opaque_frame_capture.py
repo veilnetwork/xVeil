@@ -11,6 +11,31 @@ import threading
 import time
 from collections import Counter
 
+MAX_CAPTURE_ROWS_PER_NODE = 131072
+
+
+def sealed_forward(preview, body_len, family, msg_type, known):
+    """Read only existing VME1 nonce/routing metadata on this owned fixture.
+
+    Offsets follow veil-proto DeliveryEnvelope/ForwardPayload. A truncated
+    preview is not authenticated/full-body equality and never establishes a
+    producer role; that requires the endpoint's private source witness.
+    """
+    if (family, msg_type) != (3, 3) or len(preview) < 249:
+        return None
+    payload_size = int.from_bytes(preview[225:229], 'big')
+    end = 229 + payload_size
+    if not 36 <= payload_size <= 1024 * 1024 or body_len - end not in (9, 11, 13):
+        return None
+    source = known.get(preview[81:113].hex())
+    target = known.get(preview[32:64].hex())
+    if source is None or target is None or source == target or preview[229:233] != b'VME1':
+        return None
+    sequence = int.from_bytes(preview[241:249], 'big')
+    if not sequence:
+        return None
+    return dict(source=source, target=target, epoch=preview[233:241].hex(), sequence=sequence)
+
 
 def sanitize(event, observer, known):
     if event.get('e2e_plaintext') is not False:
@@ -29,25 +54,36 @@ def sanitize(event, observer, known):
     try:
         body = bytes.fromhex(event['body_hex'])
         fields = {key: event[key] for key in ('ts_us', 'family', 'msg_type', 'body_len')}
+        wire_body_len = fields['body_len']
+        observed = event.get('observed_body_len')
+        if observed is not None:
+            fields['body_len'] = observed
         if (len(body) > 256 or not body
                 or any(type(v) is not int for v in fields.values())
+                or type(wire_body_len) is not int or not 0 <= wire_body_len <= 16 * 1024 * 1024
                 or fields['ts_us'] < 0 or not 0 <= fields['family'] <= 255
                 or not 0 <= fields['msg_type'] <= 65535
                 or not len(body) <= fields['body_len'] <= 16 * 1024 * 1024):
             return None, 'invalid_frame'
     except (KeyError, ValueError, TypeError):
         return None, 'invalid_frame'
-    return dict(source=source, target=target, direction=direction,
+    row = dict(source=source, target=target, direction=direction,
                 at_us=fields['ts_us'], family=fields['family'],
                 msg_type=fields['msg_type'], body_len=fields['body_len'],
-                preview_len=len(body), preview_sha256=hashlib.sha256(body).hexdigest()), None
+                wire_body_len=wire_body_len,
+                preview_len=len(body), preview_sha256=hashlib.sha256(body).hexdigest())
+    seal = sealed_forward(body, fields['body_len'], fields['family'], fields['msg_type'], known)
+    if seal is not None:
+        row['seal'] = seal
+    return row, None
 
 
 class OpaqueFrameCapture:
     def __init__(self, root, identities, limit=4096):
         self.root = root
         self.known = {value.lower().removeprefix('0x'): i for i, value in enumerate(identities)}
-        if len(self.known) != len(identities) or not 1 <= limit <= 4096:
+        if (len(self.known) != len(identities) or type(limit) is not int
+                or not 1 <= limit <= MAX_CAPTURE_ROWS_PER_NODE):
             raise ValueError('Capture requires distinct fixture identities and a bounded limit')
         self.limit = limit
         self.rows = []
@@ -55,6 +91,7 @@ class OpaqueFrameCapture:
         self.acks = []
         self.errors = []
         self.eof = []
+        self.events = Counter()
         self.sockets = []
         self.threads = []
         self.lock = threading.Lock()
@@ -107,6 +144,7 @@ class OpaqueFrameCapture:
                     elif event.get('type') == 'capture_frame':
                         row, rejection = sanitize(event, index, self.known)
                         with self.lock:
+                            self.events[index] += 1
                             if rejection:
                                 self.rejected[rejection] += 1
                             elif len(self.rows) < self.limit * len(self.known):
@@ -139,6 +177,9 @@ class OpaqueFrameCapture:
             return dict(format='xveil-opaque-frame-capture-v1', clock=self.clock,
                         limit_per_node=self.limit, expected_nodes=len(self.known),
                         ack_nodes=sorted(set(self.acks)), eof_nodes=sorted(set(self.eof)),
+                        events_per_node=[self.events[i] for i in range(len(self.known))],
+                        capture_limit_reached_nodes=[i for i in range(len(self.known))
+                                                    if self.events[i] >= self.limit],
                         reader_errors=list(self.errors), rejected=dict(self.rejected),
                         readers_exited=all(not t.is_alive() for t in self.threads),
                         rows=list(self.rows))
