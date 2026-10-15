@@ -20,6 +20,7 @@ import gc, json, os, socket, time, tomllib, traceback
 from pathlib import Path
 from pcm_timing import input_edges
 from decoded_video_progress import summarize as summarize_decoded_video
+from native_pcm_driver import NativePcmDriver, build as build_pcm_driver
 os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
@@ -37,6 +38,8 @@ parser.add_argument('--decoded-video-trace', action=argparse.BooleanOptionalActi
                     help='Require changing decoded synthetic images at both receivers near the end (default for video); disabling retains only RTP diagnostics, no pixels are retained')
 parser.add_argument('--gc-timing-trace', action='store_true',
                     help='Record bounded cyclic-GC pauses in the Python driver without changing collection or quality gates')
+parser.add_argument('--native-pcm-driver', action='store_true',
+                    help='Drive the synthetic capture/playout clock on a native thread independent of Python polling; requires clang++ and retains all quality gates')
 parser.add_argument('--chunk-trace', action='store_true', help='Privately correlate generic encrypted-envelope fragments across source and relay stages; not a media classifier')
 parser.add_argument('--opaque-frame-capture', action='store_true', help='Boundedly hash opaque admin frame previews on owned fixture nodes; excludes plaintext and unknown identities')
 parser.add_argument('--opaque-frame-capture-start-seconds', type=int, default=18,
@@ -213,6 +216,7 @@ engines=[]
 policy=None
 media=None
 audio_thread=None
+native_driver=None
 audio_stop=threading.Event()
 audio_failure=[]
 source_feedback_queued=[0,0]
@@ -248,6 +252,7 @@ result['shaper_scope'] = args.shaper_scope
 result['opaque_frame_capture_start_seconds'] = args.opaque_frame_capture_start_seconds if args.opaque_frame_capture else None
 result['control_carrier'] = 'compact_call_state_diagnostic' if args.compact_call_health else 'authenticated_application_envelope'
 try:
+    pcm_driver_library=build_pcm_driver(ROOT) if args.native_pcm_driver else None
     if args.transport == 'obfs4-tcp':
         # Private, disposable fixture key shared by its three loopback nodes.
         # Authenticated obfs4 exposes the auxiliary-stream handle; plain TCP
@@ -578,13 +583,17 @@ try:
         except Exception:
             audio_failure.append(traceback.format_exc())
             audio_stop.set()
-    audio_thread=threading.Thread(target=audio_loop,name='stand-pcm');audio_thread.start()
+    if args.native_pcm_driver:
+        native_driver=NativePcmDriver(pcm_driver_library,capture,playout,engines,startat,args.tone_period_ms)
+    else:
+        audio_thread=threading.Thread(target=audio_loop,name='stand-pcm');audio_thread.start()
     for tick in range(args.duration*100):
         target=startat+tick*.01;time.sleep(max(0,target-time.monotonic()))
         if args.opaque_frame_capture and tick==100*args.opaque_frame_capture_start_seconds:
             opaque_capture=OpaqueFrameCapture(ROOT, [identity['node_id'] for identity in identities])
             opaque_capture.start()
         if tick%100==0:
+            if native_driver is not None:pcmrows.extend(native_driver.drain())
             if args.compact_call_health:
                 for i,ch in enumerate(channels):
                     for _ in range(8):
@@ -660,8 +669,22 @@ try:
                     if rc==0:healthsent[i]+=1
                     else:control_failures[i]+=1
     clock_observations.append(clock_observation())
-    audio_stop.set();audio_thread.join(timeout=5)
-    assert not audio_thread.is_alive()
+    audio_stop.set()
+    if native_driver is not None:
+        pcmrows.extend(native_driver.stop())
+        maxscheduler=native_driver.stats.max_interval_ms
+        nativefail=list(native_driver.stats.failures)
+        driver_late_count=native_driver.stats.late_intervals
+        driver_late_intervals=[{'t':round(x['source_at'],4),
+                               'side':x['side'],'interval_ms':round(x['interval_ms'],2)}
+                              for x in pcmrows if x['interval_ms']>=20][:128]
+        result['native_pcm_driver']={'clock_check_span_us':native_driver.clock_check_span_us,
+                                     'dropped_rows':native_driver.stats.dropped_rows,
+                                     'ticks':native_driver.stats.ticks,
+                                     'observation_count_verified':len(pcmrows)==native_driver.stats.ticks*2}
+    else:
+        audio_thread.join(timeout=5)
+        assert not audio_thread.is_alive()
     if audio_failure:(ROOT/'audio-thread-failure.txt').write_text(''.join(audio_failure))
     metrics_after = [admin(i, 'metrics')['result'] for i in range(3)]
     (ROOT/'metrics-after.json').write_text(json.dumps(metrics_after))
@@ -791,6 +814,8 @@ try:
     pcm_ok=all(x['phases'][-1]['missing']==0 and x['phases'][-1]['matched']>0 and x['phases'][-1]['max_ms']<200 for x in result['decoded_pcm_edges'])
     video_ok = all(d['maxima']['video_tx_frames']>0 and d['maxima']['video_rx_deliver_frames']>0 for d in mixed) if not args.no_video else all(d['maxima']['video_tx_frames']==0 and d['maxima']['video_rx_deliver_frames']==0 for d in mixed)
     result['ok']=pcm_ok and video_ok and not audio_failure and maxscheduler<40 and route_ok and not any(nativefail+pollfail+healthbad+control_failures) and all(healthrecv[i]==healthsent[1-i]+1 for i in range(2)) and all(d['maxima']['audio_delay_ms']<200 and d['maxima']['audio_interruption_count']==0 and d['quiet_pcm_frames']==0 for d in mixed)
+    if native_driver is not None:
+        result['ok']=result['ok'] and native_driver.stats.dropped_rows==0 and result['native_pcm_driver']['observation_count_verified']
     result['ok'] = result['ok'] and result['audio_rtcp_feedback_verified']
     if args.decoded_video_trace:
         result['ok']=result['ok'] and result['decoded_video_progress']['moving_at_end'] and not any(decoded_video_failures)
@@ -820,6 +845,9 @@ finally:
                                    'evicted':gc_events-len(gc_spans),
                                    'collection_policy_unchanged':True}
     audio_stop.set()
+    if native_driver is not None:
+        native_driver.stop()
+        result['audio_thread_exited']=native_driver.handle is None
     if audio_thread is not None:
         audio_thread.join(timeout=5)
         result['audio_thread_exited']=not audio_thread.is_alive()
