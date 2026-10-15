@@ -17790,8 +17790,9 @@ weak witness, which cannot retain the circuit or the session. Circuit flow
 identities and authenticated ingress-connection identities occupy different
 typed namespaces and are never serialized or logged as allocation addresses.
 Both ordered and QUIC pool selection can assign a distinct physical connection
-to each live circuit, within the existing six-slot first-come bound. A seventh
-known flow cannot steal or alias an occupied slot. Legacy traffic retains its
+to each live circuit, within the existing per-peer bound (six ordered slots,
+seven QUIC slots). The ordered-pool test refuses a seventh known flow without
+stealing or aliasing an occupied slot. Legacy traffic retains its
 two buckets. The dispatcher supplies the lifetime witness in forward, backward
 and rendezvous-return CircuitDatagram sends; reliable circuit messages retain
 their existing path.
@@ -17916,3 +17917,92 @@ camera/screen into two receive circuits. Separating those remains open and
 must account for bounded circuit/connection capacity. The original PCM and
 source-clock gates, shaped/WAN coexistence and physical speech also remain
 open. No completion claim is made from the packet-level test.
+
+### 2026-10-15: Separate four anonymous receive circuits and route keepalives
+
+The preceding cycle fixed avoidable recoverable-DATA loss and established real
+four-node obfs4 media/file coexistence. The next audit finds four independent
+outgoing media producers but only two private receive addresses: control shares
+the primary receive circuit and screen shares the camera circuit. A regression
+first fails on the actual two-address result, before changing the implementation.
+
+MediaRoutes now constructs four independently owned private receive circuits,
+feeds, cookies and lifecycle workers. Each modern producer selects its exact
+peer receive address. Screen sending remains inactive until requested; creating
+its receiving address does not start a video encoder. The four receive workers
+plus advertisement replace the former two receive/two auxiliary-send workers
+plus advertisement, retaining five owned tasks. File streams keep their common
+base hub and default receive registration separately.
+
+The existing VMR1 control remains inside directional call AEAD. Its bounded
+decoder accepts one to four unique plane IDs (0--3), an exact length and a
+required primary address. A four-address body is 345 bytes. Until a peer proves
+the extended decoder by publishing an auxiliary address, the sender also emits
+an unchanged two-address compatibility copy. Old VMR1 decoders reject the full
+shape but consume its control prefix before any WebRTC delivery; they can use
+the companion. Once extended support is observed, compatibility copies cannot
+collapse this channel's receive paths, even if reordered from a later revision.
+At one generation only a strict address superset is accepted; changing an
+accepted address still requires a newer revision. A new channel can negotiate
+legacy behavior again. Partial extended offers never silently remap a missing
+screen address onto the camera address.
+
+Real-obfs4 compatibility coverage uses an explicit test-only emulation of the
+old two-address publication/decoder/receive-worker scheme, not an older shipped
+binary. Both directions deliver audio, camera, screen and RTCP. The legacy path
+retains its original shared auxiliary addresses and is not described as fully
+isolated. Authentication coverage now exercises a complete four-address offer:
+plaintext and a modified AEAD tag cannot change the receive map or upgrade its
+capability, and valid private control never reaches the engine or increments
+media liveness.
+
+Adding concurrent receive builders exposed two local first-hop allocation
+defects. A scarce sibling sharing an already owned session could exclude that
+session from its original owner, moving the owner onto another producer's
+session. A focused regression reproduces this; existing ownership now remains
+eligible. Early screen/control construction could also consume alternatives
+before the audio/camera builders. Generic auxiliary path groups still prefer
+unused live sessions, but, when none remain, primary/camera/base-stream groups
+can share an auxiliary reservation before collapsing onto each other. An
+auxiliary group can yield a shared session when new live capacity appears.
+Selection/reservation remains atomic and process-local; random candidate order,
+dead-session checks, lifetime-counted release, relay admission and connection
+quotas remain. The original three-middle test again proves distinct audio,
+camera and file first hops without relaxing its assertions.
+
+An early real-network iteration lost one expected media packet. A subsequent
+traced run did not reproduce that timeout, but did record one primary-source
+buffer rejection; this alone does not identify the missing packet. Inspection
+also shows steady-state padded keepalives entering the corresponding media
+child. Periodic private-route keepalives now use reliable CircuitData on the
+existing local call-control lane. Reliable observations do not overwrite the
+learned return carrier. The initial datagram probe still teaches that exact
+child to older relays; readiness and echo waiting share the existing three-
+second bound, with 250-ms retries. This bounded initialization wait retains
+compatibility fallback on timeout, rather than asserting unconditional path
+proof. The network regression observes reliable control probes at the endpoint
+while every forwarded wire header remains neutral INTERACTIVE.
+
+All six media-route network tests pass. They cover the old-format emulation,
+four matching peer receive addresses, distinct circuit ownership, camera sink
+stall while screen arrives, control sink stall while audio arrives, first-hop
+diversity, repair, teardown and the earlier file-loss recovery. The real
+four-node/two-relay mixed case transfers all 4 MiB, all 50 audio packets while
+the file is active, 209 camera packets and 195 screen packets. Peak measured
+send-to-media-callback time is 1.844 ms in that unshaped loopback run. This does
+not measure PCM, decoder frame progress or physical screen/acoustic quality.
+The seven path-group tests and 110 additional media tests also pass (123
+top-level tests across these suites); the latter include route negotiation,
+native media ingress/backpressure, authentication and callback boundaries.
+A production-feature SDK check with node-embedded, production-seeds and
+packet-tunnel succeeds without test-only legacy state. No C ABI or relay-visible
+producer role/scheduling instruction is added.
+
+Four logical receive circuits do not imply unlimited independent physical
+connections: the existing bounded pools and legacy/warm-up fallback still
+apply, especially when many circuits share one peer link. The earlier PCM
+200-ms/source-clock gates remain unqualified; shaped/WAN contention, real codec
+video progress and physical speech remain open. No phone, installed app/profile
+or server is used or changed in this cycle. Real fixture nodes stop and test
+process exit is verified before the work cycle is committed. The goal remains
+active.
