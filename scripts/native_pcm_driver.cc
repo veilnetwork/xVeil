@@ -11,6 +11,8 @@
 #include <thread>
 #ifdef __APPLE__
 #include <mach/mach_time.h>
+#include <mach/mach.h>
+#include <mach/thread_policy.h>
 #include <pthread.h>
 #include <pthread/qos.h>
 #else
@@ -43,6 +45,10 @@ struct PcmStats {
   double max_wake_lateness_ms, max_callback_ms, max_publication_ms;
   int32_t qos_supported, qos_result, qos_requested, qos_actual;
   int32_t timer_error;
+  int32_t deadline_requested, deadline_result, deadline_active;
+  uint32_t deadline_period_ticks, deadline_computation_ticks, deadline_constraint_ticks;
+  uint32_t deadline_actual_period_ticks, deadline_actual_computation_ticks, deadline_actual_constraint_ticks;
+  uint64_t deadline_checks, deadline_misses;
 };
 // Foreign test hosts must verify both layouts before passing writable buffers.
 extern "C" size_t stand_pcm_row_size() { return sizeof(PcmRow); }
@@ -58,6 +64,7 @@ struct Driver {
   double origin;
   int period_ms;
   bool audio_priority = true;
+  bool deadline_priority = false;
   std::mutex mu;
   std::mutex wake_mu;  // An evidence reader cannot hold the timer/stop mutex.
   std::condition_variable wake;
@@ -65,6 +72,30 @@ struct Driver {
   std::deque<PcmRow> rows;
   PcmStats stats{};
   std::thread thread;
+
+#ifdef __APPLE__
+  void CheckDeadlinePolicy() {
+    thread_time_constraint_policy_data_t actual{};
+    mach_msg_type_number_t count = THREAD_TIME_CONSTRAINT_POLICY_COUNT;
+    boolean_t defaults = FALSE;
+    const auto result = thread_policy_get(pthread_mach_thread_np(pthread_self()),
+        THREAD_TIME_CONSTRAINT_POLICY, reinterpret_cast<thread_policy_t>(&actual),
+        &count, &defaults);
+    stats.deadline_actual_period_ticks = actual.period;
+    stats.deadline_actual_computation_ticks = actual.computation;
+    stats.deadline_actual_constraint_ticks = actual.constraint;
+    const bool matched = result == KERN_SUCCESS && !defaults &&
+        count == THREAD_TIME_CONSTRAINT_POLICY_COUNT &&
+        actual.period == stats.deadline_period_ticks &&
+        actual.computation == stats.deadline_computation_ticks &&
+        actual.constraint == stats.deadline_constraint_ticks;
+    ++stats.deadline_checks;
+    stats.deadline_active = matched;
+    if (!matched) ++stats.deadline_misses;
+    if (result != KERN_SUCCESS && stats.deadline_result == KERN_SUCCESS)
+      stats.deadline_result = result;
+  }
+#endif
 
   bool WaitUntil(std::chrono::steady_clock::time_point deadline) {
 #ifdef __APPLE__
@@ -115,6 +146,23 @@ struct Driver {
       const int queried = pthread_get_qos_class_np(pthread_self(), &actual, &relative);
       if (!stats.qos_result) stats.qos_result = queried;
       stats.qos_actual = queried ? 0 : static_cast<int32_t>(actual);
+      if (deadline_priority) {
+        mach_timebase_info_data_t scale{};
+        mach_timebase_info(&scale);
+        const auto ticks = [&](uint64_t ns) {
+          return static_cast<uint32_t>(ns * scale.denom / scale.numer);
+        };
+        thread_time_constraint_policy_data_t policy{
+            ticks(10'000'000), ticks(3'000'000), ticks(5'000'000), TRUE};
+        stats.deadline_requested = 1;
+        stats.deadline_period_ticks = policy.period;
+        stats.deadline_computation_ticks = policy.computation;
+        stats.deadline_constraint_ticks = policy.constraint;
+        stats.deadline_result = thread_policy_set(
+            pthread_mach_thread_np(pthread_self()), THREAD_TIME_CONSTRAINT_POLICY,
+            reinterpret_cast<thread_policy_t>(&policy), THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+        CheckDeadlinePolicy();
+      }
     }
 #endif
     auto deadline = std::chrono::steady_clock::now();
@@ -174,6 +222,9 @@ struct Driver {
           }
         }
         stats.ticks = ++tick;
+#ifdef __APPLE__
+        if (deadline_priority && tick % 100 == 0) CheckDeadlinePolicy();
+#endif
         stats.max_publication_ms = std::max(stats.max_publication_ms,
             (stand_pcm_now() - publication_started) * 1000);
       }
@@ -183,6 +234,12 @@ struct Driver {
       if (deadline < now - std::chrono::milliseconds(10))
         deadline = now + std::chrono::milliseconds(10);
     }
+#ifdef __APPLE__
+    if (deadline_priority) {
+      std::lock_guard lock(mu);
+      CheckDeadlinePolicy();
+    }
+#endif
     std::lock_guard lock(wake_mu);
     finished = true;
   }
@@ -193,6 +250,10 @@ extern "C" void* stand_pcm_start(Capture capture, Playout playout, void* a,
                                   int audio_priority) {
   if (!capture || !playout || !a || !b || a == b || !std::isfinite(origin) ||
       origin > stand_pcm_now() || period_ms < 500 || period_ms > 5000) return nullptr;
+  if (audio_priority < 0 || audio_priority > 2) return nullptr;
+#ifndef __APPLE__
+  if (audio_priority == 2) return nullptr;
+#endif
   auto* driver = new Driver;
   driver->capture = capture;
   driver->playout = playout;
@@ -200,6 +261,7 @@ extern "C" void* stand_pcm_start(Capture capture, Playout playout, void* a,
   driver->origin = origin;
   driver->period_ms = period_ms;
   driver->audio_priority = audio_priority != 0;
+  driver->deadline_priority = audio_priority == 2;
   driver->thread = std::thread([driver] { driver->Run(); });
   return driver;
 }
