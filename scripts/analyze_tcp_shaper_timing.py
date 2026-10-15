@@ -25,7 +25,7 @@ def distribution(values):
 
 def analyze(summary, capture, lower=20, upper=None):
     if summary.get('loopback_only') is not True or summary.get('session_transport') != 'obfs4-tcp':
-        raise ValueError('Requires an owned same-process TCP fixture')
+        raise ValueError('Requires an owned same-host TCP fixture')
     duration = summary['duration_seconds']
     upper = duration if upper is None else upper
     if not 0 <= lower < upper <= duration:
@@ -74,7 +74,8 @@ def analyze(summary, capture, lower=20, upper=None):
     scope = summary.get('shaper_scope', 'aggregate')
     if scope not in ('aggregate', 'per-target'):
         raise ValueError('Unknown recorded shaper scope')
-    return {'same_process_fixture_only': True,
+    return {'same_host_fixture_only': True,
+            'shaper_process_isolated': summary.get('shaper_process_isolated', False),
             'opaque_chunks_are_not_rtp_packets': True,
             'directions_are_not_media_roles': True,
             'scope': scope,
