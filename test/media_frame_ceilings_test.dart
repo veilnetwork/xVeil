@@ -42,8 +42,9 @@ void main() {
 
     test('the Dart note ceiling matches kMaxVnoteSide in the recorder', () {
       final src = read('src/veil_video_note.cc');
-      final m =
-          RegExp(r'constexpr uint16_t kMaxVnoteSide = (\d+);').firstMatch(src);
+      final m = RegExp(
+        r'constexpr uint16_t kMaxVnoteSide = (\d+);',
+      ).firstMatch(src);
       expect(m, isNotNull, reason: 'kMaxVnoteSide is gone from the note code');
       expect(int.parse(m!.group(1)!), kVeilMaxVnoteSide);
     });
@@ -173,12 +174,12 @@ void main() {
         contains('struct TaskGuard'),
         reason: 'the shim carries nothing a queued task can safely check',
       );
-      final post = shim.indexOf('network_queue_->PostTask(');
+      final post = shim.indexOf('queue->PostTask(');
       expect(post, isNot(-1), reason: 'the post moved');
       final lambda = shim.substring(post, post + 700);
       expect(
         lambda,
-        contains('guard = self->task_guard_'),
+        contains('guard = task_guards_[secondary]'),
         reason: 'the task captures only a raw pointer to the shim',
       );
       expect(
@@ -188,7 +189,7 @@ void main() {
       );
 
       final dtor = shim.indexOf('VeilTransportShim::~VeilTransportShim');
-      final cleared = shim.indexOf('task_guard_->alive = false');
+      final cleared = shim.indexOf('guard->alive = false');
       expect(dtor, isNot(-1), reason: 'the destructor moved');
       expect(
         cleared,
@@ -197,7 +198,7 @@ void main() {
       );
       expect(
         shim.substring(dtor, cleared),
-        contains('std::lock_guard<std::mutex> lock(task_guard_->mu)'),
+        contains('std::lock_guard<std::mutex> lock(guard->mu)'),
         reason:
             'the flag is cleared without the lock, so a task mid-delivery is '
             'not waited for',
