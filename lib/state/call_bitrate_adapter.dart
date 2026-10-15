@@ -398,6 +398,7 @@ class CallBitrateAdapter {
     bool requirePeerAudioPlayout = false,
     int? expectedAudioFeedbackReports,
     int? expectedVideoFeedbackReports,
+    bool audioRecoveryObserved = false,
     bool receiveAudioExpected = false,
     // A room supplies the worst expected receiver, retaining unknown when
     // another receiver is missing. A healthy peer cannot mask a silent one.
@@ -532,6 +533,7 @@ class CallBitrateAdapter {
       videoLossObserved: videoLoss,
       audioNetworkLossObserved: networkLoss.audio,
       videoNetworkLossObserved: networkLoss.video,
+      audioRecoveryObserved: audioRecoveryObserved,
       videoFloorApplied:
           _appliedTarget == target &&
           _appliedPause != true &&
@@ -602,6 +604,7 @@ class CallBitrateAdapter {
     bool videoLossObserved = false,
     bool audioNetworkLossObserved = false,
     bool videoNetworkLossObserved = false,
+    bool audioRecoveryObserved = false,
     required int rttMs,
     required int txJitterMs,
     required int txLossPct,
@@ -745,13 +748,17 @@ class CallBitrateAdapter {
     final freshAudioLoss =
         newAudioDrops || audioInterrupted || audioNetworkLossObserved;
     final freshMediaLoss =
-        freshAudioLoss || videoLossObserved || videoNetworkLossObserved;
+        freshAudioLoss ||
+        videoLossObserved ||
+        videoNetworkLossObserved ||
+        audioRecoveryObserved;
     _bufferInputs?.addAll({
       'audio_rtp_drop': newAudioDrops,
       'video_rtp_drop': videoLossObserved,
       'audio_interruption': audioInterrupted,
       'audio_network_loss': audioNetworkLossObserved,
       'video_network_loss': videoNetworkLossObserved,
+      'audio_latency_recovery': audioRecoveryObserved,
     });
 
     final receiveOutage =
@@ -889,7 +896,9 @@ class CallBitrateAdapter {
                 audioReceiveDelayMs < playoutRecoverMs)) &&
         rttMs < severeRttMs;
     if (_audioReserve &&
-        !freshMediaLoss &&
+        !freshAudioLoss &&
+        !videoLossObserved &&
+        !videoNetworkLossObserved &&
         (measuredPlayoutHealthy || audioGood) &&
         (audioTxDrops != null || !newDrops)) {
       _audioRecoveryStreak++;

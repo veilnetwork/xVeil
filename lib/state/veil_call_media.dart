@@ -1504,6 +1504,11 @@ class VeilCallMediaController implements CallMediaController {
         final now = DateTime.now();
         _audioReceiveActivity.observe(stats, now);
         final peerInterrupted = _peerAudioPlayout.takeInterruption();
+        final peerRecovered = _peerAudioPlayout.takeRecovery();
+        final audioRecovered =
+            call.media.audio &&
+            ((_peerAudioCaptureEnabled && _audioReceiveActivity.recovered) ||
+                (!_microphoneState.muted && peerRecovered));
         final audioInterrupted =
             call.media.audio &&
             ((_peerAudioCaptureEnabled && _audioReceiveActivity.interrupted) ||
@@ -1530,6 +1535,7 @@ class VeilCallMediaController implements CallMediaController {
               ? null
               : now.difference(receiveAt).inMilliseconds,
           interrupted: audioInterrupted,
+          recovered: audioRecovered,
           audioTxDrops: nativeDrops is int ? nativeDrops : null,
           audioLossReportUs: stats['audio_loss_report_us'],
         );
@@ -1659,6 +1665,7 @@ class VeilCallMediaController implements CallMediaController {
             requireAudioReceivePlayout:
                 call.media.audio && _peerAudioCaptureEnabled,
             audioInterrupted: audioInterrupted,
+            audioRecoveryObserved: audioRecovered,
             receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
             peerCurrentAudioDelayMs: _peerAudioPlayout.currentDelayMs(now),

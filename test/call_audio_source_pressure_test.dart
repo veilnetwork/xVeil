@@ -18,6 +18,7 @@ void main() {
     bool interrupted = false,
     int? drops = 0,
     Object? lossReportUs,
+    bool recovered = false,
   }) => policy.observe(
     sendExpected: send,
     receiveExpected: receive,
@@ -31,6 +32,7 @@ void main() {
     interrupted: interrupted,
     audioTxDrops: drops,
     audioLossReportUs: lossReportUs,
+    recovered: recovered,
   );
 
   void recover(
@@ -56,6 +58,21 @@ void main() {
     expect(sample(policy, lossReportUs: 50), isFalse);
     expect(sample(policy, lossReportUs: 101), isTrue);
   });
+
+  test(
+    'planned catch-up uses brief pressure without shortening genuine failure recovery',
+    () {
+      final policy = CallAudioSourcePressure();
+      recover(policy);
+      expect(sample(policy, recovered: true), isTrue);
+      expect(sample(policy), isTrue);
+      expect(sample(policy), isTrue);
+      expect(sample(policy), isFalse);
+      expect(sample(policy, interrupted: true), isTrue);
+      expect(sample(policy, recovered: true), isTrue);
+      recover(policy);
+    },
+  );
 
   test(
     'source budget consumes native trend and cannot ignore a capped current buffer',

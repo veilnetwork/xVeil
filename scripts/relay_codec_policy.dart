@@ -82,6 +82,8 @@ Future<void> main() async {
     activity[i].observe(stats, now);
     final peerInterrupted = peer[i].takeInterruption();
     final interrupted = activity[i].interrupted || peerInterrupted;
+    final peerRecovered = peer[i].takeRecovery();
+    final recovered = activity[i].recovered || peerRecovered;
     final sourcePressured = sourcePressure[i].observe(
       sendExpected: true,
       receiveExpected: true,
@@ -97,6 +99,7 @@ Future<void> main() async {
           ? null
           : now.difference(activity[i].lastRxAt!).inMilliseconds,
       interrupted: interrupted,
+      recovered: recovered,
       audioTxDrops: stats['audio_tx_rtp_drops'] is int
           ? stats['audio_tx_rtp_drops'] as int
           : null,
@@ -126,6 +129,7 @@ Future<void> main() async {
       peerAudioBufferGrowing: peer[i].bufferGrowing(now),
       requirePeerAudioPlayout: true,
       audioInterrupted: interrupted,
+      audioRecoveryObserved: recovered,
     );
     final target = a.target;
     bool? pause;
