@@ -1,5 +1,47 @@
 # Calls media handoff
 
+## 2026-10-16: coalesce concurrent local route discovery; audio goal remains ACTIVE
+
+Successful writer/child admission now records the local node, exact observation
+clock and a short full-frame fingerprint under the existing optional bounded
+metadata diagnostic. Failed attempts remain separately labeled. No payloads,
+roles or priorities go to relays. Local writer admission is not remote delivery;
+raw plaintext lengths exclude encryption, framing, padding and QUIC overhead.
+
+`group-files-admission-baseline-1024-60` proves 12 logical key/route responses,
+each admitted on two relay-star legs: 24 copies, 33,096 plaintext bytes, between
+20.024 and 20.259 seconds from origin. Four distinct responses per sender/
+recipient pair explain repeated local discovery. It is NEGATIVE: all 330 PCM
+transitions match, peak 340.073 ms. All native/route/cleanup gates verify.
+
+A new concurrent-send regression fails on old source (3 queries instead of 1).
+The fix serializes only local discovery for (local node, destination, route
+policy), then rechecks the verified cache/miss state. Weak gates are bounded to
+128 live keys; unrelated destinations retain normal recovery at capacity.
+Cancellation releases the lock so a queued caller can perform recovery. The
+ordinary and relay-only policies remain separate. No relay scheduling changes.
+Both concurrency and cancellation tests plus all 65 send-handler tests pass;
+seven frame-diagnostic tests also pass.
+
+`group-files-route-coalesce-1024-60` confirms 6 logical proofs / 12 admitted
+hop copies (16,548 plaintext bytes), half the baseline. It remains NEGATIVE:
+all 330 transitions match, loaded peak 330.033 ms; audio-only peaks below 200 ms.
+This single comparison proves reduced repeated discovery, not a statistically
+established latency improvement or completed combined file/video qualification.
+Workers, policy processes and four nodes exit; independent PID checks and zero
+sockets verify. Source/binary snapshots and proof JSONs are private:
+`group-admission-metadata-sdk`, `group-route-coalesce-sdk`,
+`group-admission-baseline-proof.json`, `group-route-coalesce-proof.json`.
+
+Current user reports take the next investigation step: last published xVeil
+0.13.86 on Windows/Android loses contact requests/acceptances toward Android;
+a nickname claim reports no sovereign identity. They are not reproduced or
+fixed yet. Inspect provisioning/deferred-load and contact delivery independently,
+without silently replacing identity keys or routing ordinary traffic via mailbox.
+The audio goal remains active; remaining source/control and video handshake
+bursts still fail the original quality gate. No new release/push or physical
+app/microphone/speaker use in this cycle.
+
 ## 2026-10-16: isolate the file-start routing exchange; attribution still open
 
 Two additional diagnostic captures remain NEGATIVE. Discovery-only metadata
