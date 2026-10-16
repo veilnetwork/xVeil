@@ -1,5 +1,41 @@
 # Calls media handoff
 
+## 2026-10-16: release preparation and three-party preflight remains negative
+
+The draining-window guard in 5b8d37c7 rejects the recorded falling-latest
+buffer sample [80,80,88,101,128,110] ms. The focused suite has 208 passing
+Flutter tests. Repeating the full seven-minute QUIC/file workload preserves
+all 822 tone edges below 200 ms (peaks 160.037/190.008 ms). Both encrypted
+files eventually match their hashes, but the immutable 360-second checkpoint
+still lacks two chunks per file; completion is later, 342.223/342.651 seconds
+after enqueue. One video path still has an approximately 14-second gap caused
+by actual sustained buffer growth and fresh decoded recovery events. This
+is progress on false pressure, not a claim that all image pauses are fixed.
+
+Private AOT build 2603 packages the current group catch-up engine on both
+Android and macOS. The two-minute physical call completed and both owned apps
+are verified stopped. Its raw traces remain pending analysis; do not infer
+continuous speech quality or a completed group qualification from that run.
+
+The new scripts/group-codec-control.py is an experimental three-party fixture:
+four owned SDK nodes, six remote Opus paths, VP8 and three encrypted files.
+The native synthetic clock identifies both remote tones independently in each
+receiver's actual mixed PCM. Ordinal transition matching rejects whole-period
+stale audio. Unit tests cover the six paths and stale-audio detection.
+
+The unrestricted 40-second preflight group-preflight-40 is NEGATIVE: three of
+six audio paths receive nothing. All four nodes stop with status zero and no
+sockets remain. The process-global inbound cipher/receiver selection is under
+investigation; this is not yet established as a defect between independent
+physical devices. Preserve this failed evidence and first fix/validate basic
+delivery before running the shaped three-party load. The fixture is not a
+release qualification gate and is not used to assert successful group QoS.
+
+Release preparation targets Veil 0.11.41 (group decoded catch-up), unchanged
+hidden-volume 2.6.1 and xVeil 0.13.86 (buffer trend guards and recovery feedback).
+Publish fresh engine binaries before moving app release pins. The broader
+audio-priority goal and three-party qualification remain active afterwards.
+
 ## 2026-10-16: SDK 0.11.40 contention gates; repair group decoded catch-up
 
 Previous cycle is progress: ca3432e7 removed false buffer-growth pressure and

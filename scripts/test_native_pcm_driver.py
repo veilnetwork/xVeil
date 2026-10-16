@@ -38,6 +38,82 @@ class NativeClockTests(unittest.TestCase):
                                 priority='unexpected')
             load.assert_not_called()
 
+    def test_group_clock_identifies_both_remote_bands_while_python_is_busy(self):
+        source = Path(__file__).with_name('native_pcm_driver.cc')
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            fixture = directory / 'group.cc'
+            fixture.write_text('''
+#include "''' + str(source) + '''"
+#include <atomic>
+struct Fake { std::atomic<int> frequency{0}, calls{0}; };
+Fake devices[3];
+extern "C" void* fake_device(int i) { return &devices[i]; }
+extern "C" int fake_calls(int i) { return devices[i].calls.load(); }
+extern "C" int fake_capture(void* device, int frequency) {
+  auto* d = static_cast<Fake*>(device);
+  d->frequency = frequency;
+  ++d->calls;
+  return 0;
+}
+extern "C" int fake_playout(void* device, int16_t* pcm, size_t capacity) {
+  if (capacity != 480) return -1;
+  const auto receiver = static_cast<Fake*>(device) - devices;
+  for (size_t i = 0; i < capacity; ++i) {
+    double value = 0;
+    for (int source = 0; source < 3; ++source)
+      if (source != receiver)
+        value += 6000 * std::sin(2 * 3.14159265358979323846 *
+            devices[source].frequency.load() * i / 48000);
+    pcm[i] = static_cast<int16_t>(value);
+  }
+  return 480;
+}
+''')
+            library = directory / ('group.dylib' if sys.platform == 'darwin' else 'group.so')
+            subprocess.run(['clang++', '-std=c++20', '-O2', '-pthread', '-fPIC',
+                            '-dynamiclib' if sys.platform == 'darwin' else '-shared',
+                            str(fixture), '-o', str(library)], check=True)
+            native = C.CDLL(str(library))
+            native.fake_device.argtypes, native.fake_device.restype = [C.c_int], C.c_void_p
+            native.fake_calls.argtypes, native.fake_calls.restype = [C.c_int], C.c_int
+            driver = NativePcmDriver(
+                library, native.fake_capture, native.fake_playout,
+                [native.fake_device(i) for i in range(3)],
+                time.monotonic() - .45, 500,
+                priority='deadline' if sys.platform == 'darwin' else 'audio',
+                group=True)
+            try:
+                interval = sys.getswitchinterval()
+                try:
+                    sys.setswitchinterval(.5)
+                    deadline = time.monotonic() + .14
+                    while time.monotonic() < deadline:
+                        pass
+                finally:
+                    sys.setswitchinterval(interval)
+                rows = driver.stop()
+                self.assertEqual(len(rows), driver.stats.ticks * 6)
+                self.assertEqual({r['side'] for r in rows}, {1, 2, 3, 5, 6, 7})
+                self.assertEqual(list(driver.stats.failures), [0, 0])
+                self.assertEqual(driver.stats.dropped_rows, 0)
+                self.assertEqual(driver.stats.timer_error, 0)
+                for row in rows:
+                    self.assertEqual(row['freq'], row['source_freq'])
+                    self.assertTrue(4200 < row['rms'] < 4300)
+                    self.assertLessEqual(row['source_at'], row['t'])
+                for source in range(3):
+                    bands = {r['freq'] for r in rows if r['side'] % 3 == source}
+                    self.assertEqual(len(bands), 2)
+                if sys.platform == 'darwin':
+                    self.assertTrue(driver.stats.deadline_active)
+                    self.assertEqual(driver.stats.deadline_misses, 0)
+                calls = native.fake_calls(0)
+                time.sleep(.025)
+                self.assertEqual(native.fake_calls(0), calls)
+            finally:
+                driver.stop()
+
     def _exercise_clock(self, priority):
         source = Path(__file__).with_name('native_pcm_driver.cc')
         with tempfile.TemporaryDirectory() as directory:

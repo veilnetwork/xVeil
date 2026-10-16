@@ -45,9 +45,11 @@ def build(directory):
 
 class NativePcmDriver:
     def __init__(self, library, capture, playout, engines, origin, period_ms,
-                 priority='audio'):
+                 priority='audio', group=False):
         if priority not in ('audio', 'default', 'deadline'):
             raise ValueError('Unknown synthetic audio scheduling mode')
+        if len(engines) != (3 if group else 2):
+            raise ValueError('Synthetic clock requires two direct or three group engines')
         if priority == 'deadline' and sys.platform != 'darwin':
             raise ValueError('Deadline scheduling requires macOS')
         self.lib = C.CDLL(str(library))
@@ -59,14 +61,16 @@ class NativePcmDriver:
                 raise RuntimeError('Native PCM driver ABI layout mismatch: ' + name)
         signatures = {
             'now': ([], C.c_double),
-            'start': ([C.c_void_p] * 4 + [C.c_double, C.c_int, C.c_int], C.c_void_p),
+            'start': ([C.c_void_p] * (5 if group else 4) +
+                      [C.c_double, C.c_int, C.c_int], C.c_void_p),
             'poll': ([C.c_void_p, C.POINTER(Row), C.c_size_t, C.POINTER(Stats)], C.c_size_t),
             'request_stop': ([C.c_void_p], None),
             'finished': ([C.c_void_p], C.c_int),
             'destroy': ([C.c_void_p], None),
         }
         for name, (args, result) in signatures.items():
-            f = getattr(self.lib, 'stand_pcm_' + name)
+            symbol = 'stand_group_pcm_start' if group and name == 'start' else 'stand_pcm_' + name
+            f = getattr(self.lib, symbol)
             f.argtypes, f.restype = args, result
             setattr(self, '_' + name, f)
         # Do not assume two monotonic clock APIs share an epoch. Both sides
