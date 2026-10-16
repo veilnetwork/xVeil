@@ -1,5 +1,24 @@
 # Three-party group audio preflight
 
+## 2026-10-17: native pacing experiment rejected
+
+A real-pacer component test reduces a 5060-byte immediate burst to 2024 bytes
+with a 4x/100-ms video profile, finishing by 97 ms with every packet in order.
+Small/high-rate frames remain immediate. The full candidate is measurement-
+valid but NEGATIVE: 2112 ordinal matches / zero missing, loaded peak
+210.046 ms, six moving tails 14/6/13/6/13/14, and three full correct 512-KiB
+files by 352.182/312.512/352.364 s within the original 360-s deadline.
+
+The origin SDK's relay frame assembler collects those paced RTP packets until
+the marker and sends the complete frame as one local work batch. The upstream
+pacer therefore does not establish spaced cell release at the relay path and
+can add sender delay. The native treatment and its helper/test are REVERTED;
+current video remains 4x/25 ms. Private source patches, binaries and negative
+proof remain available. Next pace cells after whole-frame source admission,
+preserving ownership, deadlines and neutral relay behavior. See
+CALLS-MEDIA-HANDOFF.md for the exact call path, evidence and retained standalone
+VAP1 test-reader fix. The immutable contention fixture/gates are unchanged.
+
 ## 2026-10-16: earlier DATA pressure and faster decoded catch-up; full test NEGATIVE
 
 The candidate now restrains own ordered DATA on sustained relative RTT growth
