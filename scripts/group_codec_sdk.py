@@ -20,16 +20,21 @@ E = C.POINTER(P)
 
 
 class GroupSdk:
-    def __init__(self, sdk, directory, rate_kbps=0):
+    def __init__(self, sdk, directory, rate_kbps=0, *, attach=False, trace=False):
         self.root = Path(directory).absolute()
         validate_unix_fixture_paths(self.root)
-        self.root.mkdir(mode=0o700, exist_ok=False)
+        if attach:
+            if not self.root.is_dir():
+                raise ValueError('Owned transport fixture is missing')
+        else:
+            self.root.mkdir(mode=0o700, exist_ok=False)
         self.lib = C.CDLL(str(Path(sdk).resolve(strict=True)), mode=C.RTLD_GLOBAL)
         self.nodes, self.handles, self.apps, self.channels = [], [], [], []
         self.ids, self.media_apps, self.media_ids = [], [], []
         self.callbacks = []
         self.shaper = None
         self.rate_kbps = rate_kbps
+        self.trace = trace
         self.closed = False
         self.stop_results = []
         self.channel_pairs = {}
@@ -90,7 +95,7 @@ class GroupSdk:
             raise RuntimeError('SDK application identity unavailable')
         return handle, app, app_id
 
-    def start(self):
+    def start(self, *, transport_only=False):
         identities, ports = [], []
         for index in range(4):
             (self.root / str(index)).mkdir(mode=0o700)
@@ -103,7 +108,7 @@ class GroupSdk:
                 listener.bind(('127.0.0.1', 0))
                 ports.append(listener.getsockname()[1])
         if self.rate_kbps:
-            self.shaper = UdpShaper([('127.0.0.1', p) for p in ports])
+            self.shaper = UdpShaper([('127.0.0.1', p) for p in ports], trace=self.trace)
             # The caller starts the measured rate only after bootstrap. Each
             # direction has one blind FIFO shared by all target connections.
         self.relay_id = str(identities[0]['node_id']).removeprefix('0x')
@@ -153,6 +158,8 @@ class GroupSdk:
             else:
                 raise RuntimeError(f'Node {index} did not connect to the owned star')
 
+        if transport_only:
+            return self
         secondary, feedback = [], []
         receive = self.fn('veil_media_start_direct_receiver',
                           [P, P, C.c_size_t, P, C.c_size_t, E], C.c_int)

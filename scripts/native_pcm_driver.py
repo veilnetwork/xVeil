@@ -45,10 +45,14 @@ def build(directory):
 
 class NativePcmDriver:
     def __init__(self, library, capture, playout, engines, origin, period_ms,
-                 priority='audio', group=False):
+                 priority='audio', group=False, local_group=None):
         if priority not in ('audio', 'default', 'deadline'):
             raise ValueError('Unknown synthetic audio scheduling mode')
-        if len(engines) != (3 if group else 2):
+        if local_group is not None and (type(local_group) is not int or not 0 <= local_group <= 2):
+            raise ValueError('Local group participant must be 0, 1 or 2')
+        if local_group is not None and group:
+            raise ValueError('Select a local or a whole group clock')
+        if len(engines) != (1 if local_group is not None else 3 if group else 2):
             raise ValueError('Synthetic clock requires two direct or three group engines')
         if priority == 'deadline' and sys.platform != 'darwin':
             raise ValueError('Deadline scheduling requires macOS')
@@ -70,6 +74,9 @@ class NativePcmDriver:
         }
         for name, (args, result) in signatures.items():
             symbol = 'stand_group_pcm_start' if group and name == 'start' else 'stand_pcm_' + name
+            if name == 'start' and local_group is not None:
+                symbol = 'stand_group_local_pcm_start'
+                args = [C.c_void_p] * 3 + [C.c_int, C.c_double, C.c_int, C.c_int]
             f = getattr(self.lib, symbol)
             f.argtypes, f.restype = args, result
             setattr(self, '_' + name, f)
@@ -84,7 +91,8 @@ class NativePcmDriver:
         self.buffer = (Row * 1024)()
         self.stats = Stats()
         self._keepalive = (capture, playout, engines)
-        self.handle = self._start(capture, playout, *engines, origin, period_ms,
+        self.handle = self._start(capture, playout, *engines,
+                                  *([] if local_group is None else [local_group]), origin, period_ms,
                                   {'default': 0, 'audio': 1, 'deadline': 2}[priority])
         if not self.handle:
             raise RuntimeError('Native PCM driver rejected its arguments')
