@@ -1,5 +1,90 @@
 # Calls media handoff
 
+## 2026-10-17: protect unicast signal; current full capture still NEGATIVE
+
+A new real Opus/ANA regression isolates the ordinary framing adaptor from the
+network, NetEq and physical devices. It feeds the unchanged 1300/1700-Hz input
+through the actual bundled Opus encoder and decoder, with framing overheads
+209/509 bytes, DTX on/off, an initial healthy allocation followed by pressure,
+and all 360 simulated seconds included. Baseline SDK 6ee3b63d permits a
+16-kbit payload minimum. The 209-byte profiles have no quiet blocks; BOTH
+509-byte profiles produce **96 consecutive 10-ms quiet blocks** (first at
+**0.54 s**), even with DTX disabled. The minimum measured payload is 16000;
+do not assume that every quiet sample began at exactly that target. This is
+conditional codec attenuation, not evidence that every 16-kbit call is silent.
+The RED component exits 2 (its Python runner exits 1). Source/input hashes,
+the original log and a baseline source snapshot are retained privately.
+
+Protect the opted-in unicast framing adaptor at **24 kbit/s payload**, sharing
+that floor between real FrameLengthControllerV2, gross-overhead budgeting and
+the codec target after ANA callbacks. The wrapper switches floors only after
+successfully enabling the recognized local framing configuration. Fixed group
+budgets keep their established **16..32-kbit API**; their application policy
+already uses 24 or 32. Ordinary TWCC allocation also has a 24-kbit minimum.
+No-feedback legacy mode stays at 32 kbit/s. No packet format, codec, relay
+metadata/priority, channel topology, ceiling or packet-duration limit changes.
+
+The identical new signal check is GREEN: all four profiles keep useful signal
+through the entire run, minimum payload 24000, no quiet blocks. Existing real
+ANA startup/RTT/loss/overhead tests verify the 24..32-kbit bound with actual
+20/40/60-ms packets, including recovery. The separate group signal matrix is
+unchanged: the explicit 16-kbit diagnostic still fades for 69 blocks, while all
+24/32-kbit protected profiles pass. This preserves the public fixed-budget
+contract rather than silently raising a caller's explicit group request.
+
+The real Call allocator -> ChannelSend -> Opus test measures **32 -> 24 -> 32**
+when the estimate falls and recovers, and **32 -> 32 -> 32** without feedback.
+Its old exact 12-kbit expectation initially fails, then is updated to the new
+exact 24-kbit floor; no wait/deadline/quality condition is weakened. The final
+complete call-plane and RTCP-loss modes pass, including stalled-video audio
+progress, low-rate video/recovery, independent feedback, legacy behavior and
+teardown. The initial expected-value failure log remains private.
+
+Frozen native test-hooks SHA-256:
+`8fb01875b1d9e9cdc0e776a76dc3a7d4ce3656df0b95a401df3c77c4ede30fff`
+(**131** unchanged exports); production:
+`195894e0ca60350ab5d9d2991e42522a2b8a85b5665adc2b3073ba8901c9c2ee`
+(**100** unchanged exports). Rust FFI is still the frozen 70d27678... artifact
+from origin work pacing (190 API exports). Private `unicast-floor-{native,
+production}/{sdk.patch,build.json,source}` retain provenance; signal baseline,
+candidate, comparison and bounded/group/call-plane/RTCP logs retain evidence.
+
+**Do not qualify the current candidate from the preceding two full passes.**
+`group-unicast-floor-360`, using this NEW native binary, is measurement-valid
+but FULL NEGATIVE: 2112 ordinal matches / zero missing, audio-only
+**120.019 ms**, loaded **220.035 ms** (required <200). All full encrypted
+512-KiB hashes match by **333.357 / 330.120 / 352.495 s** within the ORIGINAL
+360-s deadline. Six tails move **14/12/9/12/9/14**. All original clocks/rows,
+QoS/deadlines, harness/stimulus/policy/source copies, route/topology and cleanup
+gates pass. Four node stops zero, all owned processes/sockets gone. Group
+payload policy and non-ANA budget behavior are unchanged; these captures do
+not establish that the unicast floor caused the different group latency.
+
+Peak source 2 -> receiver 0 is capture **325.220012 s** / decoded
+**325.440047 s**. Packet formation / encoded-to-NetEq / native-to-render is
+**50.332 / 129.109 / 50.560 ms**, with the tone inside its 60-ms packet; these
+are not directly additive to tone latency. Native callback/drain are **23/21
+microseconds**. No >=25-ms slow-stage, aged-ingress or slow-dispatch record
+fires; 988 pressure records verify instrumentation. The original FIFO trace
+covers this late peak: direction 0 reaches **45.747 ms**, direction 1
+**89.988 ms** in 324.8..325.6 s, release lateness <=1.309 ms. Direction 1
+receives **1121.96 kbit/s** in 325.0..325.2 s on a 1024-kbit/s service. These
+are opaque byte observations, not relay media classification. Decoded recovery
+still discards **1610/1490/1300 ms** across each worker's two receivers.
+Private `group-unicast-floor-360-{proof,feedback-details,rtp-playout-details,
+scheduler-details}.json` and the original full capture retain this failure.
+
+Goal ACTIVE. Continue attributing the remaining burst/queue to actual source
+work and DATA admission before changing pacing; DATA is already paced by
+exact wire bytes, so do not reimplement a bucket fix or assume a whole-file
+burst. Ordinary unicast end-to-end and physical Mac/Android speech/video are
+still required. The owned optional anonymous codec fixture uses
+`VEIL_MEDIA_PCM_DRIVER_DYLIB=native_pcm_anon_codec.dylib` and
+`test-low-difficulty` in addition to embedded-node features; keep it distinct
+from the six-direction immutable qualification. No physical app/camera/mic/
+speaker, installation, deployment, push or release occurred.
+
+
 ## 2026-10-17: second full contention pass and real idle-child audit
 
 Repeat the exact frozen `source-work-pacing-sdk` binary with the same retained
