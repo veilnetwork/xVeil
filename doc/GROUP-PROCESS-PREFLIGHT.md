@@ -1,5 +1,28 @@
 # Three-party group audio preflight
 
+## 2026-10-16: split route/key reply race fixed; file-only run still NEGATIVE
+
+SDK `c18d12d7` waits for both route and key before releasing concurrent local
+senders, within the original fixed deadline. Three new regressions and all 68
+send-handler tests pass. Details and private binary provenance are in
+CALLS-MEDIA-HANDOFF.md under the matching date heading.
+
+`group-files-split-reply-1024-60` reduces key proofs from 6 to 3 (12 to 6
+admitted hop copies, 16548 to 8274 plaintext bytes). It remains NEGATIVE:
+330 matching PCM transitions, zero ordinal misses, loaded peak 350.047 ms,
+audio-only peak 160.086 ms. Clock/row/route/topology gates verify, all workers,
+policy processes and four nodes exit, and independent PID/socket checks pass.
+This short file-only isolation completes none of the three files and does not
+qualify combined contention or continuous speech.
+
+The peak source transition occurs at 28.28 seconds. Receive-direction wire
+observations reach 1187.7 kbit/s during second 27 against the unchanged
+1024-kbit/s FIFO, with queue maxima near 200 ms. Source pressure responds later;
+next inspect steady DATA ramp, physical byte cost and feedback latency. Keep
+original PCM/deadline/full-file/video gates and neutral relays. Do not use RTT
+alone to cut video or tune a fixed ceiling just to pass this stand. Private
+proofs: `group-split-reply-{proof,attribution}.json`. Audio goal remains ACTIVE.
+
 This is a baseline for the continuing audio-priority investigation. It is not
 the full group/video/file contention qualification or a speech-listening test.
 
@@ -383,9 +406,11 @@ sockets verify. Source/binary snapshots and proof JSONs are private:
 
 Current user reports take the next investigation step: last published xVeil
 0.13.86 on Windows/Android loses contact requests/acceptances toward Android;
-a nickname claim reports no sovereign identity. They are not reproduced or
-fixed yet. Inspect provisioning/deferred-load and contact delivery independently,
-without silently replacing identity keys or routing ordinary traffic via mailbox.
+a nickname claim reports no sovereign identity. Follow-up `4fba0ef5` records
+an independently reproduced deferred-boot nickname fix and durable outgoing
+request recovery; the original Windows/Android acceptance failure is still not
+independently attributed. See CALLS-MEDIA-HANDOFF.md for exact test evidence.
+Do not silently replace identity keys or route ordinary traffic via mailbox.
 The audio goal remains active; remaining source/control and video handshake
 bursts still fail the original quality gate. No new release/push or physical
 app/microphone/speaker use in this cycle.
