@@ -36,6 +36,11 @@ void main() {
       [36, 56, 36, 36, 56, 56],
       [36, 56, 37, 36, 56, 57, 35, 55, 36, 36, 55, 56],
       [109, 129, 109, 109, 129, 129],
+      [28, 28, 8, 48, 28, 59],
+      [31, 1, 31, 31, 51, 51],
+      [1, 19, 19, 19, 39, 39],
+      [23, 3, 3, 23, 3, 43],
+      [3, 3, 23, 3, 43, 43],
     ]) {
       final window = CallAudioBufferWindow();
       for (var repeat = 0; repeat < 4; repeat++) {
@@ -71,18 +76,20 @@ void main() {
   });
 
   test(
-    'fresh stable reports clear a step while cached ones retain its verdict',
+    'cached reports retain confirmed growth until fresh stable reports clear it',
     () {
       final window = CallAudioBufferWindow();
       for (var i = 0; i < 6; i++) {
         expect(window.observe(60, sequence: i), isFalse);
       }
-      expect(window.observe(90, sequence: 6), isFalse);
-      expect(window.observe(90, sequence: 7), isTrue);
+      expect(window.observe(70, sequence: 6), isFalse);
+      expect(window.observe(90, sequence: 7), isFalse);
+      expect(window.observe(110, sequence: 8), isTrue);
       for (var i = 0; i < 10; i++) {
-        expect(window.observe(90, sequence: 7), isTrue);
+        expect(window.observe(110, sequence: 8), isTrue);
       }
-      expect(window.observe(90, sequence: 8), isFalse);
+      expect(window.observe(110, sequence: 9), isTrue);
+      expect(window.observe(110, sequence: 10), isFalse);
     },
   );
 

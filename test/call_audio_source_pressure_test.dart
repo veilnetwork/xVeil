@@ -120,19 +120,26 @@ void main() {
 
   test('bounded playout oscillations leave competing sources admitted', () {
     for (final incoming in [false, true]) {
-      final policy = CallAudioSourcePressure();
-      recover(policy);
-      for (var repeat = 0; repeat < 4; repeat++) {
-        for (final delay in [36, 56, 36, 36, 56, 56]) {
-          expect(
-            sample(
-              policy,
-              peer: incoming ? 100 : delay,
-              local: incoming ? delay : 100,
-            ),
-            isFalse,
-            reason: 'ordinary packet timing must not throttle video or DATA',
-          );
+      for (final values in [
+        [36, 56, 36, 36, 56, 56],
+        [31, 1, 31, 31, 51, 51],
+        [1, 19, 19, 19, 39, 39],
+        [3, 3, 23, 3, 43, 43],
+      ]) {
+        final policy = CallAudioSourcePressure();
+        recover(policy);
+        for (var repeat = 0; repeat < 4; repeat++) {
+          for (final delay in values) {
+            expect(
+              sample(
+                policy,
+                peer: incoming ? 100 : delay,
+                local: incoming ? delay : 100,
+              ),
+              isFalse,
+              reason: 'ordinary packet timing must not throttle video or DATA',
+            );
+          }
         }
       }
     }
