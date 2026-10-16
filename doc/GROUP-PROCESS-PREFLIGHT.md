@@ -120,3 +120,22 @@ fanout accounting; a fixed global 40-ms switch is not the completed solution.
 The 1:1 path already has bounded framing ANA; group start does not join its
 allocator and its shims do not parse transport feedback by default. Then run
 the original full video/three-encrypted-file workload at the same link budget.
+
+## Release handoff
+
+The pre-existing runtime fixes have Veil v0.11.41 published and xVeil
+v0.13.86 tagged, with immutable product sources 2d7d3ed6 and 19640228.
+At this handoff, xVeil packages and the remaining Veil CI jobs are still pending.
+hidden-volume remains unchanged at v2.6.1. These later process-fixture and
+packet-duration experiments are local research commits, outside those tags.
+No production adaptive group-packet policy has been shipped by this experiment.
+
+Veil publication originally failed because its changelog extractor expects
+`## vVERSION —`, whereas the preparation mistakenly used xVeil's bracket
+heading format. Recovery workflow source 9a9243f2 on branch
+`release/recover-0.11.41` verifies the original seven successful build jobs,
+checks out the original product tag, verifies all checksum files, then signs
+and publishes the same 43 artifacts with a compatible notes extractor. The
+tag is unchanged. That branch contains a recovery-only workflow and must NOT
+be merged as the default release workflow. The later local documentation fix
+restores the expected canonical heading for future releases.
