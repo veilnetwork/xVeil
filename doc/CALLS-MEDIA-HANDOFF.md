@@ -1,5 +1,115 @@
 # Calls media handoff
 
+## 2026-10-16: honor source adaptation and enable real VP8 rate control
+
+SDK `fabf3d3d` replaces the push-only VideoBroadcaster with a source that
+actually applies its combined sink requests. The previous camera/screen path
+never reduced pixels or honored encoder cadence requests. A real bundled
+VideoAdapter now chooses crop/scale/alignment and cadence before the encoder;
+unchanged frames retain their original buffer, and adaptation preserves the
+capture timestamp. Its decision lock is released before pixel scaling and
+sink callbacks. Original capture feeds preview separately. All common I420
+paths, including Android's latest-only dispatcher, group and unicast camera,
+screen and synthetic capture, use this source. It introduces no timer, extra
+thread, wire label or relay preference. The source regression first fails on
+the old pass-through behavior, then passes real reduction/alignment/recovery,
+cadence and preview-buffer ownership checks.
+
+The unchanged `group-source-adapt-60` capture is valid but NEGATIVE: all 330
+control transitions match, zero missing; audio-only peak 140.060 ms, loaded
+220.048 ms, tails 4/13/14/13/14/4. Its 360-s counterpart is also NEGATIVE:
+2112 matched, zero missing; audio-only 120.233 ms, loaded **200.132 ms**. Do not
+round this into a pass. All three 512-KiB encrypted files match their full
+hashes by 351.595/352.222/352.126 s; six tails move 14/2/14/2/14/14. All decoded
+frames in these captures remain 320x240: the source fix alone does not prove
+network-driven resolution reduction. Frozen native/production pair is
+`group-source-adapt-{native,production}`, with 131/100 unchanged exports;
+test native SHA-256 `e882702ee80cd3740a28412e1bb5f6a8bb30f8081a14e298711177534ccfba12`.
+Independent clocks/routes/topology/cleanup checks pass for both captures.
+
+Follow-up SDK `19589f40` repairs two disabled parts of the codec contract:
+GetDefaultVp8Settings disables automaticResizeOn, and VideoEncoderConfig
+starts with frame_drop_enabled=false. VP8 exposes QualityScaler thresholds
+only with automatic resizing AND frame dropping enabled. A common production
+configuration now enables both for all four start/retune sites (unicast and
+group), retains the 240-frame recovery interval, Android denoiser choice and
+QP limits, and permits a 6144-pixel floor through the supported video-only
+WebRTC-VideoRateControl field trial. This lower floor permits coarse images
+under a very small budget; it does not force healthy sources to shrink.
+The real bundled VP8 regression first fails because its scaling thresholds
+are absent, then passes with the production configuration and lower pixel
+floor. It initializes a real 8-kbit/s / 1-fps encoder, rather than mocking
+EncoderInfo. The original source regression still passes. There is no audio
+field-trial change, packet/payload modification or relay policy change.
+
+Both native artifacts are independently frozen with complete patches and
+source hashes, and ordinary builds retain 100 exports with no test hooks.
+The final configured pair is `group-resize-on-{native,production}`; test native
+SHA-256 `4091df2b5dc09354536bc90720ddee2510b415096272ebcc7a52064411979f72`,
+production SHA-256 `c77ec6a507325d105fcd286ac78ad83b92f4f3dde8a7f64f6ec11699bd9dcc65`.
+Rust SDK remains the exact `214c3a67` artifact (FFI SHA e2bca2f9...), so the
+native comparison does not bundle a new network implementation. No Dart policy,
+fixture, synthetic source or qualification deadline is changed.
+
+`group-resize-on-60` is valid: 330 matched, zero missing, audio-only peak
+150.110 ms and loaded peak 170.153 ms. All six tails move 8/11/9/11/9/8. Short
+file prefixes 61440/59392/59392 bytes do not prove complete-file delivery;
+decoded frames remain 320x240 within this short observation. Full qualification
+is FALSE because the full immutable 360-s/file/hash gate is still required.
+`group-resize-on-360` is measurement-valid but NEGATIVE: all 2112 control
+transitions match without misses, audio-only peak 110.065 ms, loaded peak
+430.030 ms at source transition 298.960 s (receiver 1 from source 2). Three
+complete encrypted 512-KiB files verify by 351.545/351.980/350.269 s, with no
+missing/authentication/duplicate/late chunks, sender async failure or write
+error. Video tails 14/0/0/0/0/14 FAIL the six-moving-tail gate. Sources 0 and 2
+end paused; source 1 ends at 15 kbit/s / 1.5 fps. Actual 240x180 decoded frames
+now appear on receivers 0 and 1 alongside 320x240, proving that resolution
+adaptation is exercised; this still does not prove good sustained audio/video.
+Decoded discards total 1390/5990/1180 ms across each worker's two receivers.
+Native receive-age maxima 64/68/74 ms do not reproduce the earlier long outage.
+At seconds 296 and 298 relay-to-endpoint offered traffic reaches 1077.7/1057.0
+kbit/s and the shared FIFO 197.3/202.7 ms; the opposite FIFO stays below 36.5 ms
+in this window. Keep this result alongside the passing short latency sample;
+do not claim a repeatable sound-latency improvement.
+
+A more specific next defect is now source-confirmed. Encrypted VAP1 playout
+feedback sends only target SSRC, sequence and current remaining buffer delay.
+It does NOT tell the sending endpoint that the receiver has intentionally
+skipped decoded audio to catch up. Normal RTCP packet loss stays zero because
+the network delivered those packets. Consequently the bounded receiver buffer
+can hide actual decoded loss from the sender's quality/source-pressure policy.
+In this trace receiver 1 repeatedly reports local catch-up at 294, 298, 299,
+300 and 302 s while its own video is already paused. Sender 2 nevertheless
+reads peer buffers around 81-83 ms, peer_pressure=false, sourcePressured=false,
+no local catch-up and zero tx loss at 294-300 s; it raises 15 -> 38 kbit/s by
+296 s and does not reduce to 8 until its OWN catch-up at 302 s. The receiver's
+audio pain is real (the independently decoded 430-ms peak) but is absent from
+that sender's feedback. This is a stronger lead than blindly shrinking the
+8192-byte secondary allowance: when the sender is not marked pressured, that
+allowance does not apply at all.
+
+Next carry fresh decoded-recovery information from the affected receiver to
+its sender INSIDE the authenticated encrypted media feedback, bound to the
+correct audio SSRC, with legacy compatibility, freshness and replay guards.
+Prefer per-receiver recovery attribution; current recovery counters aggregate
+both receivers. Do not disclose an audio role/priority to relays, blame all
+remaining pauses on this one observation, loosen the 200-ms gate, or hide loss
+by increasing the playout budget. Wire/frame burst limits may still be needed.
+
+All four captures preserve the original harness, policy hashes, topology,
+blind 1024-kbit FIFO, immutable durations, codec/source stimulus and strict
+ordinal PCM matching. Changed native binaries are explicit in each manifest.
+Clock row/tick, real QoS/deadline, route and independent process cleanup checks
+pass; workers, policies, file threads, parents and scoped awake helpers are
+gone, four node stops return zero and no sockets remain after every run.
+`group-{source-adapt,resize-on}-{60,360}-proof.json` and the configured long
+`-timing-details.json` preserve these results. Final configured verifier also
+requires the original fixture/worker verdicts and <40-ms clock intervals.
+Blackview BV6600PRORU000182 is visible via ADB; the tool daemon was started for
+read-only availability inspection. No physical app, call, camera, microphone,
+speaker, Android install or relay deployment was started in this work cycle.
+Goal ACTIVE; no push/release.
+
 ## 2026-10-16: negotiated reliable Delivery records; contention still unqualified
 
 SDK `214c3a67` fixes a remaining separation gap: the pre-existing reliable
