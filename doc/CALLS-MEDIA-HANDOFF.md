@@ -1,5 +1,48 @@
 # Calls media handoff
 
+## 2026-10-16: long runtime profile does not reproduce the transport outage
+
+Follow-up `group-target-runtime-profile-1024-360` uses the same committed
+native target fix (`a9961d4a`, frozen `group-neteq-loss-native`) and SDK FFI
+`64615683`. It retains the full 1024-kbit blind FIFO, 360-second deadline,
+six PCM paths, VP8 and all three 512-KiB encrypted files. The parent is
+explicitly sampled at 10-ms intervals during seconds 200-265, with a passive
+process CPU/RSS window at 195-275. Treat it as DIAGNOSTIC, not qualification.
+
+All 2112 expected transitions match without misses. The run is still
+NEGATIVE under the unchanged <200-ms gate: audio-only peak 150.199 ms,
+combined peak 390.025 ms at source transition 21.210 s. All three complete
+file hashes verify before the deadline (306.177/305.722/323.915 seconds),
+with no missing/corrupt/duplicate/late chunks, async failures or write errors.
+All six video tails change (14/5/14/5/14/14). Final intentional decoded
+discards total 3.47/3.29/3.46 seconds per worker across their two receivers.
+None of this cancels the prior unprofiled failed capture.
+
+The earlier 11.8-second receive outage does NOT reproduce anywhere in this
+capture: per-worker sampled native receive ages peak at 74/85/93 ms.
+In the sampled window, active per-second driver snapshots show event queue
+last delays below 0.8 ms and timer last delays below 31.2 ms. Parent stacks
+mostly park/wait for I/O; they contain short synchronous durable outbox
+prunes and log writes but no seconds-long blocking stack. Therefore the
+profile does NOT establish storage, logging, App Nap, route TTL or CPU as
+the cause of the earlier outage. The retained sample file is
+`parent-profile-200-265.txt`; process metadata is
+`parent-process-window.jsonl`. Reproduce the actual delay and capture stacks
+on its onset instead of assigning a cause from normal stacks. Also keep
+working on the separate cold video/file activation peak near second 21.
+Any preparation must be part of real production call/transport setup and
+exercise the same path in the fixture, not prewarm this benchmark alone.
+
+All native clocks/capture rows verify: 108003 rows/36001 ticks each, no
+failures/dropped rows/timer errors/deadline misses, max interval <10.136 ms,
+max callback <0.473 ms. Route assertions and exact 3/1/1/1 topology verify.
+Workers, policies, parent, profiler/process observer and four embedded nodes
+exit; independent PID/socket checks pass. Private
+`group-target-runtime-profile-proof.json` retains the diagnostic qualification
+caveat and cleanup. No physical apps/audio or relay service was changed.
+The source/patch manifests now identify verified SDK commit `a9961d4a`.
+Audio goal remains ACTIVE; no release/push.
+
 ## 2026-10-16: reconcile NetEq target with catch-up; qualification remains open
 
 Optional bounded per-render traces reproduce a target/catch-up conflict. In
